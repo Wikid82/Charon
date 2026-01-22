@@ -1,0 +1,2277 @@
+
+> charon-frontend@0.3.0 test
+> vitest run --coverage
+
+
+[1m[46m RUN [49m[22m [36mv4.0.17 [39m[90m/projects/Charon/frontend[39m
+      [2mCoverage enabled with [22m[33mv8[39m
+
+ [32m✓[39m src/components/__tests__/ManualDNSChallenge.test.tsx [2m([22m[2m38 tests[22m[2m)[22m[33m 2080[2mms[22m[39m
+       [33m[2m✓[22m[39m renders copy buttons with aria labels [33m 339[2mms[22m[39m
+[90mstderr[2m | src/pages/__tests__/ProxyHosts-coverage.test.tsx[2m > [22m[2mProxyHosts - Coverage enhancements[2m > [22m[2mbulk update ACL reject triggers error toast
+[22m[39mEach child in a list should have a unique "key" prop.
+
+Check the render method of `Primitive.p`. It was passed a child from ProxyHosts. See https://react.dev/link/warning-keys for more information.
+
+ [32m✓[39m src/pages/__tests__/CrowdSecConfig.coverage.test.tsx [2m([22m[2m19 tests[22m[2m)[22m[33m 4915[2mms[22m[39m
+     [33m[2m✓[22m[39m renders disabled mode message and bans control disabled [33m 621[2mms[22m[39m
+     [33m[2m✓[22m[39m guards local apply prerequisites and succeeds when content exists [33m 353[2mms[22m[39m
+     [33m[2m✓[22m[39m shows decisions table, handles loading/error/empty states, and unban errors [33m 350[2mms[22m[39m
+     [33m[2m✓[22m[39m bans and unbans IPs with overlay messaging [33m 786[2mms[22m[39m
+     [33m[2m✓[22m[39m shows overlay messaging for preset pull, apply, import, write, and mode updates [33m 460[2mms[22m[39m
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mrenders the component with initial state
+[22m[39msecurity log viewer connected
+
+[90mstderr[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mdisplays incoming log messages
+[22m[39mAn update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mdisplays incoming log messages
+[22m[39mapplication log viewer connected
+
+[90mstderr[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mfilters logs by text
+[22m[39mAn update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mfilters logs by text
+[22m[39mapplication log viewer connected
+
+[90mstderr[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mfilters logs by level
+[22m[39mAn update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mfilters logs by level
+[22m[39mapplication log viewer connected
+
+[90mstderr[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mpauses and resumes log streaming
+[22m[39mAn update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mpauses and resumes log streaming
+[22m[39mapplication log viewer connected
+
+[90mstderr[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mpauses and resumes log streaming
+[22m[39mAn update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mclears all logs
+[22m[39mAn update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mclears all logs
+[22m[39mapplication log viewer connected
+
+[90mstderr[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mlimits the number of stored logs
+[22m[39mAn update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mlimits the number of stored logs
+[22m[39mapplication log viewer connected
+
+[90mstderr[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mdisplays log data when available
+[22m[39mAn update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mdisplays log data when available
+[22m[39mapplication log viewer connected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mshows correct connection status
+[22m[39msecurity log viewer connected
+
+[90mstderr[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mshows correct connection status
+[22m[39mAn update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mshows correct connection status
+[22m[39msecurity log viewer connected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mshows correct connection status
+[22m[39msecurity log viewer connected
+
+[90mstderr[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mshows correct connection status
+[22m[39msecurity log viewer error: Event { isTrusted: [36m[Getter][39m }
+An update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mshows no-match message when filters exclude all logs
+[22m[39mAn update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mshows no-match message when filters exclude all logs
+[22m[39mapplication log viewer connected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mmarks connection as disconnected when WebSocket closes
+[22m[39msecurity log viewer connected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mmarks connection as disconnected when WebSocket closes
+[22m[39msecurity log viewer disconnected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mSecurity Mode[2m > [22m[2mdisplays security log entries with source badges
+[22m[39msecurity log viewer connected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mSecurity Mode[2m > [22m[2mdisplays security log entries with source badges
+[22m[39msecurity log viewer connected
+
+[90mstderr[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mSecurity Mode[2m > [22m[2mdisplays security log entries with source badges
+[22m[39mAn update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mSecurity Mode[2m > [22m[2mdisplays blocked requests with special styling
+[22m[39msecurity log viewer connected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mSecurity Mode[2m > [22m[2mfilters by source in security mode
+[22m[39msecurity log viewer connected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mSecurity Mode[2m > [22m[2mfilters by source in security mode
+[22m[39msecurity log viewer connected
+
+[90mstderr[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mSecurity Mode[2m > [22m[2mfilters by source in security mode
+[22m[39mAn update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mSecurity Mode[2m > [22m[2mtoggles blocked only filter
+[22m[39msecurity log viewer connected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mSecurity Mode[2m > [22m[2mtoggles blocked only filter
+[22m[39msecurity log viewer connected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mSecurity Mode[2m > [22m[2mtoggles blocked only filter
+[22m[39msecurity log viewer connected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mSecurity Mode[2m > [22m[2mdisplays duration for security logs
+[22m[39msecurity log viewer connected
+
+[90mstderr[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mSecurity Mode[2m > [22m[2mdisplays duration for security logs
+[22m[39mAn update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mSecurity Mode[2m > [22m[2mdisplays status code with appropriate color for security logs
+[22m[39msecurity log viewer connected
+
+[90mstderr[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mSecurity Mode[2m > [22m[2mdisplays status code with appropriate color for security logs
+[22m[39mAn update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mMode Toggle[2m > [22m[2mswitches from application to security mode
+[22m[39mapplication log viewer connected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mMode Toggle[2m > [22m[2mswitches from application to security mode
+[22m[39msecurity log viewer connected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mMode Toggle[2m > [22m[2mswitches from security to application mode
+[22m[39msecurity log viewer connected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mMode Toggle[2m > [22m[2mswitches from security to application mode
+[22m[39mapplication log viewer connected
+
+[90mstderr[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mMode Toggle[2m > [22m[2mclears logs when switching modes
+[22m[39mAn update to LiveLogViewer inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mMode Toggle[2m > [22m[2mclears logs when switching modes
+[22m[39mapplication log viewer connected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mMode Toggle[2m > [22m[2mclears logs when switching modes
+[22m[39msecurity log viewer connected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mMode Toggle[2m > [22m[2mresets filters when switching modes
+[22m[39mapplication log viewer connected
+
+[90mstdout[2m | src/components/__tests__/LiveLogViewer.test.tsx[2m > [22m[2mLiveLogViewer[2m > [22m[2mMode Toggle[2m > [22m[2mresets filters when switching modes
+[22m[39msecurity log viewer connected
+
+ [32m✓[39m src/components/__tests__/LiveLogViewer.test.tsx [2m([22m[2m26 tests[22m[2m)[22m[33m 1939[2mms[22m[39m
+Not implemented: navigation to another Document
+ [32m✓[39m src/components/__tests__/ProxyHostForm.test.tsx [2m([22m[2m22 tests[22m[2m)[22m[33m 8400[2mms[22m[39m
+     [33m[2m✓[22m[39m handles scheme selection [33m 419[2mms[22m[39m
+     [33m[2m✓[22m[39m prompts to save new base domain [33m 665[2mms[22m[39m
+     [33m[2m✓[22m[39m respects "Dont ask me again" for new domains [33m 1020[2mms[22m[39m
+     [33m[2m✓[22m[39m tests connection successfully [33m 424[2mms[22m[39m
+     [33m[2m✓[22m[39m handles connection test failure [33m 392[2mms[22m[39m
+     [33m[2m✓[22m[39m handles base domain selection [33m 366[2mms[22m[39m
+       [33m[2m✓[22m[39m shows plex config helper with external URL when preset is selected [33m 534[2mms[22m[39m
+       [33m[2m✓[22m[39m shows jellyfin config helper with internal IP [33m 573[2mms[22m[39m
+       [33m[2m✓[22m[39m shows nextcloud config helper with php snippet [33m 569[2mms[22m[39m
+       [33m[2m✓[22m[39m shows vaultwarden helper text [33m 371[2mms[22m[39m
+       [33m[2m✓[22m[39m includes application field in form submission [33m 1068[2mms[22m[39m
+       [33m[2m✓[22m[39m copies external URL to clipboard for plex [33m 368[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/ProxyHosts-coverage.test.tsx [2m([22m[2m37 tests[22m[2m)[22m[33m 12188[2mms[22m[39m
+     [33m[2m✓[22m[39m creates a proxy host via Add Host form submit [33m 2078[2mms[22m[39m
+     [33m[2m✓[22m[39m bulk update ACL reject triggers error toast [33m 577[2mms[22m[39m
+     [33m[2m✓[22m[39m closes bulk ACL modal when clicking backdrop [33m 368[2mms[22m[39m
+     [33m[2m✓[22m[39m unchecks ACL via onChange (delete path) [33m 385[2mms[22m[39m
+     [33m[2m✓[22m[39m remove action triggers handleBulkApplyACL and shows removed toast [33m 570[2mms[22m[39m
+     [33m[2m✓[22m[39m toggle action remove -> apply then back [33m 502[2mms[22m[39m
+     [33m[2m✓[22m[39m remove action shows partial failure toast on API error result [33m 554[2mms[22m[39m
+     [33m[2m✓[22m[39m remove action reject triggers error toast [33m 505[2mms[22m[39m
+     [33m[2m✓[22m[39m close bulk delete modal by clicking backdrop [33m 405[2mms[22m[39m
+     [33m[2m✓[22m[39m handles delete confirmation for a single host [33m 340[2mms[22m[39m
+     [33m[2m✓[22m[39m applies bulk settings sequentially with progress and updates hosts [33m 516[2mms[22m[39m
+     [33m[2m✓[22m[39m opens add form and cancels [33m 323[2mms[22m[39m
+     [33m[2m✓[22m[39m opens edit form and submits update [33m 329[2mms[22m[39m
+     [33m[2m✓[22m[39m alerts on delete when API fails [33m 315[2mms[22m[39m
+     [33m[2m✓[22m[39m applies multiple ACLs sequentially with progress [33m 699[2mms[22m[39m
+     [33m[2m✓[22m[39m select all / clear header selects and clears ACLs [33m 497[2mms[22m[39m
+     [33m[2m✓[22m[39m shows toast error when updateHost rejects during bulk apply [33m 562[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/CrowdSecConfig.spec.tsx [2m([22m[2m15 tests[22m[2m)[22m[33m 3437[2mms[22m[39m
+     [33m[2m✓[22m[39m exports config when clicking Export [33m 352[2mms[22m[39m
+     [33m[2m✓[22m[39m validates required console enrollment fields and acknowledgement [33m 311[2mms[22m[39m
+     [33m[2m✓[22m[39m submits console enrollment payload with snake_case fields [33m 786[2mms[22m[39m
+     [33m[2m✓[22m[39m retries degraded enrollment and rotates key when enrolled [33m 830[2mms[22m[39m
+[90mstderr[2m | src/pages/__tests__/ProxyHosts-cert-cleanup.test.tsx[2m > [22m[2mProxyHosts - Certificate Cleanup Prompts[2m > [22m[2mprompts to delete certificate when deleting proxy host with unique custom cert
+[22m[39mEach child in a list should have a unique "key" prop.
+
+Check the render method of `Primitive.p`. It was passed a child from ProxyHosts. See https://react.dev/link/warning-keys for more information.
+
+[90mstderr[2m | src/pages/__tests__/ProxyHosts-extra.test.tsx[2m > [22m[2mProxyHosts page extra tests[2m > [22m[2mdelete with associated monitors prompts and deletes with deleteUptime true
+[22m[39mEach child in a list should have a unique "key" prop.
+
+Check the render method of `Primitive.p`. It was passed a child from ProxyHosts. See https://react.dev/link/warning-keys for more information.
+
+ [32m✓[39m src/pages/__tests__/ProxyHosts-extra.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[33m 4023[2mms[22m[39m
+     [33m[2m✓[22m[39m sort toggles by header click [33m 535[2mms[22m[39m
+     [33m[2m✓[22m[39m delete with associated monitors prompts and deletes with deleteUptime true [33m 542[2mms[22m[39m
+     [33m[2m✓[22m[39m bulk ACL remove shows the confirmation card and Apply label updates when selecting ACLs [33m 437[2mms[22m[39m
+     [33m[2m✓[22m[39m bulk ACL remove action calls bulkUpdateACL with null and shows removed toast [33m 410[2mms[22m[39m
+     [33m[2m✓[22m[39m bulk delete modal lists hosts to be deleted [33m 401[2mms[22m[39m
+     [33m[2m✓[22m[39m bulk apply modal returns early when no keys selected (no-op) [33m 367[2mms[22m[39m
+     [33m[2m✓[22m[39m bulk delete creates backup and shows toast success [33m 412[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/ProxyHosts-cert-cleanup.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 5555[2mms[22m[39m
+     [33m[2m✓[22m[39m prompts to delete certificate when deleting proxy host with unique custom cert [33m 1336[2mms[22m[39m
+     [33m[2m✓[22m[39m does NOT prompt for certificate deletion when cert is shared by multiple hosts [33m 580[2mms[22m[39m
+     [33m[2m✓[22m[39m does NOT prompt for production Let's Encrypt certificates [33m 491[2mms[22m[39m
+     [33m[2m✓[22m[39m prompts for staging certificates [33m 589[2mms[22m[39m
+     [33m[2m✓[22m[39m handles certificate deletion failure gracefully [33m 489[2mms[22m[39m
+     [33m[2m✓[22m[39m bulk delete prompts for orphaned certificates [33m 620[2mms[22m[39m
+     [33m[2m✓[22m[39m bulk delete does NOT prompt when certificate is still used by other hosts [33m 498[2mms[22m[39m
+     [33m[2m✓[22m[39m allows cancelling certificate cleanup dialog [33m 377[2mms[22m[39m
+     [33m[2m✓[22m[39m default state is unchecked for certificate deletion (conservative) [33m 574[2mms[22m[39m
+[90mstderr[2m | src/pages/__tests__/SystemSettings.test.tsx[2m > [22m[2mSystemSettings[2m > [22m[2mApplication URL Card[2m > [22m[2mshows invalid URL error message when validation fails
+[22m[39mAn update to SystemSettings inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | src/pages/__tests__/SystemSettings.test.tsx[2m > [22m[2mSystemSettings[2m > [22m[2mApplication URL Card[2m > [22m[2mshows invalid URL error message when validation fails
+[22m[39mAn update to Tooltip inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to Tooltip inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to Tooltip inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to Select inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItemText inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItem inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItemText inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItem inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItemText inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItem inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItemText inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItem inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to Select inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItemText inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItem inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItemText inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItem inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItemText inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItem inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to Tooltip inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to Tooltip inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to Tooltip inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to Select inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItemText inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItem inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItemText inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItem inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItemText inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItem inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItemText inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItem inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to Select inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItemText inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItem inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItemText inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItem inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItemText inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to SelectItem inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+ [32m✓[39m src/pages/__tests__/SystemSettings.test.tsx [2m([22m[2m28 tests[22m[2m)[22m[33m 7377[2mms[22m[39m
+       [33m[2m✓[22m[39m renders the SSL provider select trigger [33m 385[2mms[22m[39m
+       [33m[2m✓[22m[39m saves SSL provider setting when save button is clicked [33m 469[2mms[22m[39m
+       [33m[2m✓[22m[39m shows green border and checkmark when URL is valid [33m 767[2mms[22m[39m
+       [33m[2m✓[22m[39m shows red border and X icon when URL is invalid [33m 851[2mms[22m[39m
+       [33m[2m✓[22m[39m shows invalid URL error message when validation fails [33m 770[2mms[22m[39m
+       [33m[2m✓[22m[39m renders test button and verifies functionality [33m 314[2mms[22m[39m
+       [33m[2m✓[22m[39m handles validation API error gracefully [33m 779[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useConsoleEnrollment.test.tsx [2m([22m[2m25 tests[22m[2m)[22m[33m 1475[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/WafConfig.spec.tsx [2m([22m[2m24 tests[22m[2m)[22m[33m 3504[2mms[22m[39m
+     [33m[2m✓[22m[39m submits new ruleset and closes form on success [33m 640[2mms[22m[39m
+     [33m[2m✓[22m[39m allows form submission with URL instead of content [33m 466[2mms[22m[39m
+     [33m[2m✓[22m[39m toggles between blocking and detection mode [33m 346[2mms[22m[39m
+[90mstderr[2m | src/pages/__tests__/UsersPage.test.tsx[2m > [22m[2mUsersPage[2m > [22m[2mURL Preview in InviteModal[2m > [22m[2mdebounces URL preview for 500ms
+[22m[39mAn update to InviteModal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | src/pages/__tests__/ProxyHosts-bulk-acl.test.tsx[2m > [22m[2mProxyHosts - Bulk ACL Modal[2m > [22m[2mopens bulk ACL modal when Manage ACL is clicked
+[22m[39mEach child in a list should have a unique "key" prop.
+
+Check the render method of `Primitive.p`. It was passed a child from ProxyHosts. See https://react.dev/link/warning-keys for more information.
+
+ [32m✓[39m src/pages/__tests__/ProxyHosts-bulk-delete.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[33m 4878[2mms[22m[39m
+     [33m[2m✓[22m[39m renders bulk delete button when hosts are selected [33m 762[2mms[22m[39m
+     [33m[2m✓[22m[39m shows confirmation modal when delete button is clicked [33m 597[2mms[22m[39m
+     [33m[2m✓[22m[39m creates backup before deleting hosts [33m 585[2mms[22m[39m
+     [33m[2m✓[22m[39m deletes multiple selected hosts after backup [33m 474[2mms[22m[39m
+     [33m[2m✓[22m[39m reports partial success when some deletions fail [33m 412[2mms[22m[39m
+     [33m[2m✓[22m[39m handles backup creation failure [33m 339[2mms[22m[39m
+     [33m[2m✓[22m[39m closes modal after successful deletion [33m 357[2mms[22m[39m
+     [33m[2m✓[22m[39m clears selection after successful deletion [33m 361[2mms[22m[39m
+     [33m[2m✓[22m[39m disables confirm button while creating backup [33m 476[2mms[22m[39m
+     [33m[2m✓[22m[39m can cancel deletion from modal [33m 361[2mms[22m[39m
+[90mstderr[2m | src/pages/__tests__/UsersPage.test.tsx[2m > [22m[2mUsersPage[2m > [22m[2mURL Preview in InviteModal[2m > [22m[2mhandles preview API error gracefully
+[22m[39mAn update to InviteModal inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+ [32m✓[39m src/pages/__tests__/UsersPage.test.tsx [2m([22m[2m17 tests[22m[2m)[22m[33m 7097[2mms[22m[39m
+     [33m[2m✓[22m[39m opens invite modal when clicking invite button [33m 399[2mms[22m[39m
+     [33m[2m✓[22m[39m invites a new user [33m 461[2mms[22m[39m
+     [33m[2m✓[22m[39m updates user permissions from the modal [33m 338[2mms[22m[39m
+     [33m[2m✓[22m[39m shows manual invite link flow when email is not sent and allows copy [33m 437[2mms[22m[39m
+       [33m[2m✓[22m[39m shows URL preview when valid email is entered [33m 760[2mms[22m[39m
+       [33m[2m✓[22m[39m debounces URL preview for 500ms [33m 829[2mms[22m[39m
+       [33m[2m✓[22m[39m replaces sample token with ellipsis in preview [33m 745[2mms[22m[39m
+       [33m[2m✓[22m[39m shows warning when not configured [33m 821[2mms[22m[39m
+       [33m[2m✓[22m[39m does not show preview when email is invalid [33m 807[2mms[22m[39m
+       [33m[2m✓[22m[39m handles preview API error gracefully [33m 877[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useDNSProviders.test.tsx [2m([22m[2m26 tests[22m[2m)[22m[33m 1851[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/consoleEnrollment.test.ts [2m([22m[2m25 tests[22m[2m)[22m[32m 31[2mms[22m[39m
+[90mstderr[2m | src/pages/__tests__/ProxyHosts.bulkApplyHeaders.test.tsx[2m > [22m[2mProxyHosts - Bulk Apply Security Headers[2m > [22m[2mshows security header profile option in bulk apply modal
+[22m[39mEach child in a list should have a unique "key" prop.
+
+Check the render method of `Primitive.p`. It was passed a child from ProxyHosts. See https://react.dev/link/warning-keys for more information.
+
+ [32m✓[39m src/utils/__tests__/crowdsecExport.test.ts [2m([22m[2m48 tests[22m[2m)[22m[32m 127[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/ProxyHosts-bulk-acl.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[33m 8107[2mms[22m[39m
+     [33m[2m✓[22m[39m renders Manage ACL button when hosts are selected [33m 549[2mms[22m[39m
+     [33m[2m✓[22m[39m opens bulk ACL modal when Manage ACL is clicked [33m 372[2mms[22m[39m
+     [33m[2m✓[22m[39m shows Apply ACL and Remove ACL toggle buttons [33m 501[2mms[22m[39m
+     [33m[2m✓[22m[39m shows only enabled access lists in the selection [32m 300[2mms[22m[39m
+     [33m[2m✓[22m[39m has Apply button disabled when no ACL is selected [33m 320[2mms[22m[39m
+     [33m[2m✓[22m[39m enables Apply button when ACL is selected [33m 621[2mms[22m[39m
+     [33m[2m✓[22m[39m can select multiple ACLs [33m 644[2mms[22m[39m
+     [33m[2m✓[22m[39m applies ACL to selected hosts successfully [33m 1206[2mms[22m[39m
+     [33m[2m✓[22m[39m shows Remove ACL confirmation when Remove is selected [33m 932[2mms[22m[39m
+     [33m[2m✓[22m[39m closes modal on Cancel [33m 708[2mms[22m[39m
+     [33m[2m✓[22m[39m clears selection and closes modal after successful apply [33m 809[2mms[22m[39m
+     [33m[2m✓[22m[39m shows error toast on API failure [33m 846[2mms[22m[39m
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mInput Validation[2m > [22m[2mReact escapes XSS in rendered text - validation check
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mInput Validation[2m > [22m[2mhandles empty admin whitelist gracefully
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mInput Validation[2m > [22m[2mhandles empty admin whitelist gracefully
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mInput Validation[2m > [22m[2mhandles empty admin whitelist gracefully
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mError Handling[2m > [22m[2mdisplays error toast when toggle mutation fails
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mError Handling[2m > [22m[2mdisplays error toast when toggle mutation fails
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mError Handling[2m > [22m[2mdisplays error toast when toggle mutation fails
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+ [32m✓[39m src/components/__tests__/DNSProviderSelector.test.tsx [2m([22m[2m29 tests[22m[2m)[22m[33m 584[2mms[22m[39m
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mError Handling[2m > [22m[2mhandles CrowdSec start failure gracefully
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mError Handling[2m > [22m[2mhandles CrowdSec start failure gracefully
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mError Handling[2m > [22m[2mhandles CrowdSec start failure gracefully
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mError Handling[2m > [22m[2mhandles CrowdSec stop failure gracefully
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mError Handling[2m > [22m[2mhandles CrowdSec stop failure gracefully
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mError Handling[2m > [22m[2mhandles CrowdSec stop failure gracefully
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mError Handling[2m > [22m[2mhandles CrowdSec status check failure gracefully
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mError Handling[2m > [22m[2mhandles CrowdSec status check failure gracefully
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mError Handling[2m > [22m[2mhandles CrowdSec status check failure gracefully
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mConcurrent Operations[2m > [22m[2mdisables controls during pending mutations
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mConcurrent Operations[2m > [22m[2mdisables controls during pending mutations
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mConcurrent Operations[2m > [22m[2mdisables controls during pending mutations
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mConcurrent Operations[2m > [22m[2mprevents double toggle when starting CrowdSec
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mConcurrent Operations[2m > [22m[2mprevents double toggle when starting CrowdSec
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mConcurrent Operations[2m > [22m[2mprevents double toggle when starting CrowdSec
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mUI Consistency[2m > [22m[2mmaintains card order when services are toggled
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mUI Consistency[2m > [22m[2mmaintains card order when services are toggled
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mUI Consistency[2m > [22m[2mmaintains card order when services are toggled
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mUI Consistency[2m > [22m[2mshows correct layer indicator badges
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mUI Consistency[2m > [22m[2mshows correct layer indicator badges
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mUI Consistency[2m > [22m[2mshows correct layer indicator badges
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mUI Consistency[2m > [22m[2mshows all four security cards even when all disabled
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mUI Consistency[2m > [22m[2mshows all four security cards even when all disabled
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+ [32m✓[39m src/pages/__tests__/ProxyHosts.bulkApplyHeaders.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 4835[2mms[22m[39m
+     [33m[2m✓[22m[39m shows security header profile option in bulk apply modal [33m 713[2mms[22m[39m
+     [33m[2m✓[22m[39m enables profile selection when checkbox is checked [33m 554[2mms[22m[39m
+     [33m[2m✓[22m[39m lists all available profiles in dropdown grouped correctly [33m 436[2mms[22m[39m
+     [33m[2m✓[22m[39m applies security header profile to selected hosts using bulk endpoint [33m 674[2mms[22m[39m
+     [33m[2m✓[22m[39m removes security header profile when "None" selected [33m 524[2mms[22m[39m
+     [33m[2m✓[22m[39m disables Apply button when no options selected [33m 331[2mms[22m[39m
+     [33m[2m✓[22m[39m handles partial failure with appropriate toast [33m 614[2mms[22m[39m
+     [33m[2m✓[22m[39m resets state on modal close [33m 566[2mms[22m[39m
+     [33m[2m✓[22m[39m shows profile description when profile is selected [33m 419[2mms[22m[39m
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mUI Consistency[2m > [22m[2mshows all four security cards even when all disabled
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mAccessibility[2m > [22m[2mall toggles have proper test IDs for automation
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mAccessibility[2m > [22m[2mall toggles have proper test IDs for automation
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mAccessibility[2m > [22m[2mall toggles have proper test IDs for automation
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mAccessibility[2m > [22m[2mCrowdSec controls surface primary actions when enabled
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mAccessibility[2m > [22m[2mCrowdSec controls surface primary actions when enabled
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mAccessibility[2m > [22m[2mCrowdSec controls surface primary actions when enabled
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mContract Verification (Spec Compliance)[2m > [22m[2mpipeline order matches spec: CrowdSec → ACL → WAF → Rate Limiting
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mContract Verification (Spec Compliance)[2m > [22m[2mpipeline order matches spec: CrowdSec → ACL → WAF → Rate Limiting
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mContract Verification (Spec Compliance)[2m > [22m[2mpipeline order matches spec: CrowdSec → ACL → WAF → Rate Limiting
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mContract Verification (Spec Compliance)[2m > [22m[2mlayer indicators match spec descriptions
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mContract Verification (Spec Compliance)[2m > [22m[2mlayer indicators match spec descriptions
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mContract Verification (Spec Compliance)[2m > [22m[2mlayer indicators match spec descriptions
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mContract Verification (Spec Compliance)[2m > [22m[2mthreat summaries match spec when services enabled
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mContract Verification (Spec Compliance)[2m > [22m[2mthreat summaries match spec when services enabled
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mContract Verification (Spec Compliance)[2m > [22m[2mthreat summaries match spec when services enabled
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mEdge Cases[2m > [22m[2mhandles rapid toggle clicks without crashing
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mEdge Cases[2m > [22m[2mhandles rapid toggle clicks without crashing
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mEdge Cases[2m > [22m[2mhandles rapid toggle clicks without crashing
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mEdge Cases[2m > [22m[2mhandles undefined crowdsec status gracefully
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mEdge Cases[2m > [22m[2mhandles undefined crowdsec status gracefully
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx[2m > [22m[2mSecurity Page - QA Security Audit[2m > [22m[2mEdge Cases[2m > [22m[2mhandles undefined crowdsec status gracefully
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.audit.test.tsx
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.audit.test.tsx
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+ [32m✓[39m src/pages/__tests__/Security.audit.test.tsx [2m([22m[2m18 tests[22m[2m)[22m[33m 3204[2mms[22m[39m
+       [33m[2m✓[22m[39m displays error toast when toggle mutation fails [33m 325[2mms[22m[39m
+       [33m[2m✓[22m[39m maintains card order when services are toggled [33m 346[2mms[22m[39m
+       [33m[2m✓[22m[39m handles rapid toggle clicks without crashing [33m 406[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/presets.test.ts [2m([22m[2m26 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/CredentialManager.test.tsx [2m([22m[2m20 tests[22m[2m)[22m[33m 3236[2mms[22m[39m
+       [33m[2m✓[22m[39m renders modal with provider name in title [33m 354[2mms[22m[39m
+       [33m[2m✓[22m[39m shows add credential button [33m 337[2mms[22m[39m
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mRendering[2m > [22m[2mshould render Cerberus Dashboard when status loads
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mRendering[2m > [22m[2mshould show banner when Cerberus is disabled
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mRendering[2m > [22m[2mshould show banner when Cerberus is disabled
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mService Toggles[2m > [22m[2mshould toggle CrowdSec on
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mService Toggles[2m > [22m[2mshould toggle WAF on
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mService Toggles[2m > [22m[2mshould toggle WAF on
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mService Toggles[2m > [22m[2mshould toggle WAF on
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mService Toggles[2m > [22m[2mshould toggle ACL on
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mService Toggles[2m > [22m[2mshould toggle ACL on
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mService Toggles[2m > [22m[2mshould toggle ACL on
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mService Toggles[2m > [22m[2mshould toggle Rate Limiting on
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mService Toggles[2m > [22m[2mshould toggle Rate Limiting on
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mService Toggles[2m > [22m[2mshould toggle Rate Limiting on
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mAdmin Whitelist[2m > [22m[2mshould load admin whitelist from config
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mAdmin Whitelist[2m > [22m[2mshould load admin whitelist from config
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mAdmin Whitelist[2m > [22m[2mshould load admin whitelist from config
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mAdmin Whitelist[2m > [22m[2mshould update admin whitelist on save
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mAdmin Whitelist[2m > [22m[2mshould update admin whitelist on save
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mAdmin Whitelist[2m > [22m[2mshould update admin whitelist on save
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mCrowdSec Controls[2m > [22m[2mshould start CrowdSec when toggling on
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mCrowdSec Controls[2m > [22m[2mshould start CrowdSec when toggling on
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mCrowdSec Controls[2m > [22m[2mshould start CrowdSec when toggling on
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mCrowdSec Controls[2m > [22m[2mshould stop CrowdSec when toggling off
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mCrowdSec Controls[2m > [22m[2mshould stop CrowdSec when toggling off
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mCrowdSec Controls[2m > [22m[2mshould stop CrowdSec when toggling off
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mCard Order (Pipeline Sequence)[2m > [22m[2mshould render cards in correct pipeline order: CrowdSec → ACL → WAF → Rate Limiting
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mCard Order (Pipeline Sequence)[2m > [22m[2mshould render cards in correct pipeline order: CrowdSec → ACL → WAF → Rate Limiting
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mCard Order (Pipeline Sequence)[2m > [22m[2mshould render cards in correct pipeline order: CrowdSec → ACL → WAF → Rate Limiting
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mCard Order (Pipeline Sequence)[2m > [22m[2mshould display layer indicators on each card
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mCard Order (Pipeline Sequence)[2m > [22m[2mshould display layer indicators on each card
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mCard Order (Pipeline Sequence)[2m > [22m[2mshould display layer indicators on each card
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mCard Order (Pipeline Sequence)[2m > [22m[2mshould display threat protection summaries
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mCard Order (Pipeline Sequence)[2m > [22m[2mshould display threat protection summaries
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mCard Order (Pipeline Sequence)[2m > [22m[2mshould display threat protection summaries
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mLoading Overlay[2m > [22m[2mshould show overlay when service is toggling
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mLoading Overlay[2m > [22m[2mshould show overlay when service is toggling
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mLoading Overlay[2m > [22m[2mshould show overlay when service is toggling
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-02: Toggle Mutation Failure Shows Toast[2m > [22m[2mshould call toast.error() when toggle mutation fails
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mLoading Overlay[2m > [22m[2mshould show overlay when starting CrowdSec
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mLoading Overlay[2m > [22m[2mshould show overlay when starting CrowdSec
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mLoading Overlay[2m > [22m[2mshould show overlay when starting CrowdSec
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mLoading Overlay[2m > [22m[2mshould show overlay when stopping CrowdSec
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mLoading Overlay[2m > [22m[2mshould show overlay when stopping CrowdSec
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx[2m > [22m[2mSecurity[2m > [22m[2mLoading Overlay[2m > [22m[2mshould show overlay when stopping CrowdSec
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-03: CrowdSec Start Failure Shows Specific Toast[2m > [22m[2mshould show "Failed to start CrowdSec: [message]" on start failure
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-03: CrowdSec Start Failure Shows Specific Toast[2m > [22m[2mshould show "Failed to start CrowdSec: [message]" on start failure
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.test.tsx
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.test.tsx
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-03: CrowdSec Start Failure Shows Specific Toast[2m > [22m[2mshould show "Failed to start CrowdSec: [message]" on start failure
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+ [32m✓[39m src/pages/__tests__/Security.test.tsx [2m([22m[2m18 tests[22m[2m)[22m[33m 2989[2mms[22m[39m
+       [33m[2m✓[22m[39m should toggle CrowdSec on [33m 417[2mms[22m[39m
+       [33m[2m✓[22m[39m should update admin whitelist on save [33m 392[2mms[22m[39m
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-04: CrowdSec Stop Failure Shows Specific Toast[2m > [22m[2mshould show "Failed to stop CrowdSec: [message]" on stop failure
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-04: CrowdSec Stop Failure Shows Specific Toast[2m > [22m[2mshould show "Failed to stop CrowdSec: [message]" on stop failure
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-04: CrowdSec Stop Failure Shows Specific Toast[2m > [22m[2mshould show "Failed to stop CrowdSec: [message]" on stop failure
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-05: WAF Toggle Failure Shows Error[2m > [22m[2mshould show error toast when WAF toggle fails
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-05: WAF Toggle Failure Shows Error[2m > [22m[2mshould show error toast when WAF toggle fails
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-05: WAF Toggle Failure Shows Error[2m > [22m[2mshould show error toast when WAF toggle fails
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-06: Rate Limiting Update Failure Shows Toast[2m > [22m[2mshould show error toast when rate limiting toggle fails
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-06: Rate Limiting Update Failure Shows Toast[2m > [22m[2mshould show error toast when rate limiting toggle fails
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-06: Rate Limiting Update Failure Shows Toast[2m > [22m[2mshould show error toast when rate limiting toggle fails
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-07: Network Error Shows Generic Message[2m > [22m[2mshould handle network errors gracefully
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-07: Network Error Shows Generic Message[2m > [22m[2mshould handle network errors gracefully
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-07: Network Error Shows Generic Message[2m > [22m[2mshould handle network errors gracefully
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-07: Network Error Shows Generic Message[2m > [22m[2mshould handle non-Error objects gracefully
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-07: Network Error Shows Generic Message[2m > [22m[2mshould handle non-Error objects gracefully
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-07: Network Error Shows Generic Message[2m > [22m[2mshould handle non-Error objects gracefully
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-08: ACL Toggle Failure Shows Error[2m > [22m[2mshould show error when ACL toggle fails
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-08: ACL Toggle Failure Shows Error[2m > [22m[2mshould show error when ACL toggle fails
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-08: ACL Toggle Failure Shows Error[2m > [22m[2mshould show error when ACL toggle fails
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-09: Multiple Consecutive Failures Show Multiple Toasts[2m > [22m[2mshould show separate toast for each failed operation
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-09: Multiple Consecutive Failures Show Multiple Toasts[2m > [22m[2mshould show separate toast for each failed operation
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-09: Multiple Consecutive Failures Show Multiple Toasts[2m > [22m[2mshould show separate toast for each failed operation
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-10: Optimistic Update Reverts on Error[2m > [22m[2mshould revert toggle state when mutation fails
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-10: Optimistic Update Reverts on Error[2m > [22m[2mshould revert toggle state when mutation fails
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-10: Optimistic Update Reverts on Error[2m > [22m[2mshould revert toggle state when mutation fails
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-10: Optimistic Update Reverts on Error[2m > [22m[2mshould revert CrowdSec state on start failure
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-10: Optimistic Update Reverts on Error[2m > [22m[2mshould revert CrowdSec state on start failure
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-10: Optimistic Update Reverts on Error[2m > [22m[2mshould revert CrowdSec state on start failure
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-10: Optimistic Update Reverts on Error[2m > [22m[2mshould revert CrowdSec state on stop failure
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-10: Optimistic Update Reverts on Error[2m > [22m[2mshould revert CrowdSec state on stop failure
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx[2m > [22m[2mSecurity Error Handling Tests[2m > [22m[2mEH-10: Optimistic Update Reverts on Error[2m > [22m[2mshould revert CrowdSec state on stop failure
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.errors.test.tsx
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.errors.test.tsx
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+ [32m✓[39m src/pages/__tests__/Security.errors.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[33m 2364[2mms[22m[39m
+       [33m[2m✓[22m[39m should call toast.error() when toggle mutation fails [33m 459[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/CertificateStatusCard.test.tsx [2m([22m[2m24 tests[22m[2m)[22m[33m 412[2mms[22m[39m
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-01: Cerberus Disabled Banner[2m > [22m[2mshould not show banner when Cerberus is enabled
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-02: CrowdSec Card Active Status[2m > [22m[2mshould show "Enabled" when crowdsec.enabled=true
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-02: CrowdSec Card Active Status[2m > [22m[2mshould show "Enabled" when crowdsec.enabled=true
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-02: CrowdSec Card Active Status[2m > [22m[2mshould show "Enabled" when crowdsec.enabled=true
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-02: CrowdSec Card Active Status[2m > [22m[2mshould show running PID when CrowdSec is running
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-02: CrowdSec Card Active Status[2m > [22m[2mshould show running PID when CrowdSec is running
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-02: CrowdSec Card Active Status[2m > [22m[2mshould show running PID when CrowdSec is running
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-03: CrowdSec Card Disabled Status[2m > [22m[2mshould show "Disabled" when crowdsec.enabled=false
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-03: CrowdSec Card Disabled Status[2m > [22m[2mshould show "Disabled" when crowdsec.enabled=false
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-03: CrowdSec Card Disabled Status[2m > [22m[2mshould show "Disabled" when crowdsec.enabled=false
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-04: WAF (Coraza) Card Status[2m > [22m[2mshould show "Active" when waf.enabled=true
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-04: WAF (Coraza) Card Status[2m > [22m[2mshould show "Active" when waf.enabled=true
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-04: WAF (Coraza) Card Status[2m > [22m[2mshould show "Active" when waf.enabled=true
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-04: WAF (Coraza) Card Status[2m > [22m[2mshould show "Disabled" when waf.enabled=false
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-04: WAF (Coraza) Card Status[2m > [22m[2mshould show "Disabled" when waf.enabled=false
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-04: WAF (Coraza) Card Status[2m > [22m[2mshould show "Disabled" when waf.enabled=false
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-05: Rate Limiting Card Status[2m > [22m[2mshould show badge and text when rate_limit.enabled=true
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-05: Rate Limiting Card Status[2m > [22m[2mshould show badge and text when rate_limit.enabled=true
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-05: Rate Limiting Card Status[2m > [22m[2mshould show badge and text when rate_limit.enabled=true
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-05: Rate Limiting Card Status[2m > [22m[2mshould show "Disabled" badge when rate_limit.enabled=false
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-05: Rate Limiting Card Status[2m > [22m[2mshould show "Disabled" badge when rate_limit.enabled=false
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-05: Rate Limiting Card Status[2m > [22m[2mshould show "Disabled" badge when rate_limit.enabled=false
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-06: ACL Card Status[2m > [22m[2mshould show "Active" when acl.enabled=true
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-06: ACL Card Status[2m > [22m[2mshould show "Active" when acl.enabled=true
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-06: ACL Card Status[2m > [22m[2mshould show "Active" when acl.enabled=true
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-06: ACL Card Status[2m > [22m[2mshould show "Disabled" when acl.enabled=false
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-06: ACL Card Status[2m > [22m[2mshould show "Disabled" when acl.enabled=false
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-06: ACL Card Status[2m > [22m[2mshould show "Disabled" when acl.enabled=false
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-07: Layer Indicators[2m > [22m[2mshould display all layer indicators in correct order
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-07: Layer Indicators[2m > [22m[2mshould display all layer indicators in correct order
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-07: Layer Indicators[2m > [22m[2mshould display all layer indicators in correct order
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-08: Threat Protection Summaries[2m > [22m[2mshould display threat protection descriptions for each card
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-08: Threat Protection Summaries[2m > [22m[2mshould display threat protection descriptions for each card
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-08: Threat Protection Summaries[2m > [22m[2mshould display threat protection descriptions for each card
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-09: Card Order (Pipeline Sequence)[2m > [22m[2mshould maintain card order: CrowdSec → ACL → WAF → Rate Limiting
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-09: Card Order (Pipeline Sequence)[2m > [22m[2mshould maintain card order: CrowdSec → ACL → WAF → Rate Limiting
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-09: Card Order (Pipeline Sequence)[2m > [22m[2mshould maintain card order: CrowdSec → ACL → WAF → Rate Limiting
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-09: Card Order (Pipeline Sequence)[2m > [22m[2mshould maintain card order even after toggle
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-09: Card Order (Pipeline Sequence)[2m > [22m[2mshould maintain card order even after toggle
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-09: Card Order (Pipeline Sequence)[2m > [22m[2mshould maintain card order even after toggle
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+ [32m✓[39m src/pages/__tests__/Uptime.spec.tsx [2m([22m[2m11 tests[22m[2m)[22m[33m 1654[2mms[22m[39m
+     [33m[2m✓[22m[39m calls updateMonitor when toggling monitoring [33m 342[2mms[22m[39m
+     [33m[2m✓[22m[39m opens configure modal and saves changes via updateMonitor [33m 527[2mms[22m[39m
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-10: Toggle Switches Disabled When Cerberus Off[2m > [22m[2mshould disable all service toggles when Cerberus is disabled
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-10: Toggle Switches Disabled When Cerberus Off[2m > [22m[2mshould disable all service toggles when Cerberus is disabled
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx[2m > [22m[2mSecurity Dashboard - Card Status Tests[2m > [22m[2mSD-10: Toggle Switches Disabled When Cerberus Off[2m > [22m[2mshould enable toggles when Cerberus is enabled
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.dashboard.test.tsx
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.dashboard.test.tsx
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+ [32m✓[39m src/pages/__tests__/Security.dashboard.test.tsx [2m([22m[2m18 tests[22m[2m)[22m[33m 2369[2mms[22m[39m
+       [33m[2m✓[22m[39m should show documentation link in disabled banner [33m 391[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/dnsProviders.test.ts [2m([22m[2m30 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/ProxyHostForm-dns.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[33m 10335[2mms[22m[39m
+       [33m[2m✓[22m[39m detects *.example.com as wildcard [33m 928[2mms[22m[39m
+       [33m[2m✓[22m[39m does not detect sub.example.com as wildcard [33m 541[2mms[22m[39m
+       [33m[2m✓[22m[39m detects multiple wildcards in comma-separated list [33m 999[2mms[22m[39m
+       [33m[2m✓[22m[39m detects wildcard at start of comma-separated list [33m 813[2mms[22m[39m
+       [33m[2m✓[22m[39m shows DNS provider selector when wildcard domain entered [33m 692[2mms[22m[39m
+       [33m[2m✓[22m[39m shows info alert explaining DNS-01 requirement [33m 379[2mms[22m[39m
+       [33m[2m✓[22m[39m shows validation error on submit if wildcard without provider [33m 1014[2mms[22m[39m
+       [33m[2m✓[22m[39m does not show DNS provider selector without wildcard [33m 392[2mms[22m[39m
+       [33m[2m✓[22m[39m DNS provider selector is present for wildcard domains [33m 421[2mms[22m[39m
+       [33m[2m✓[22m[39m clears DNS provider when switching to non-wildcard [33m 776[2mms[22m[39m
+       [33m[2m✓[22m[39m preserves form state during wildcard domain edits [33m 978[2mms[22m[39m
+       [33m[2m✓[22m[39m includes dns_provider_id null for non-wildcard domains [33m 1221[2mms[22m[39m
+       [33m[2m✓[22m[39m prevents submission when wildcard present without DNS provider [33m 990[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/usePlugins.test.tsx [2m([22m[2m19 tests[22m[2m)[22m[33m 1008[2mms[22m[39m
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-02: Toggling Service Shows CerberusLoader Overlay[2m > [22m[2mshould show ConfigReloadOverlay with type="cerberus" when toggling
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-03: Starting CrowdSec Shows "Summoning the guardian..."[2m > [22m[2mshould show specific message for CrowdSec start operation
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-03: Starting CrowdSec Shows "Summoning the guardian..."[2m > [22m[2mshould show specific message for CrowdSec start operation
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+ [32m✓[39m src/components/__tests__/LoadingStates.security.test.tsx [2m([22m[2m41 tests[22m[2m)[22m[33m 787[2mms[22m[39m
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-03: Starting CrowdSec Shows "Summoning the guardian..."[2m > [22m[2mshould show specific message for CrowdSec start operation
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-04: Stopping CrowdSec Shows "Guardian rests..."[2m > [22m[2mshould show specific message for CrowdSec stop operation
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-04: Stopping CrowdSec Shows "Guardian rests..."[2m > [22m[2mshould show specific message for CrowdSec stop operation
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-04: Stopping CrowdSec Shows "Guardian rests..."[2m > [22m[2mshould show specific message for CrowdSec stop operation
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-05: WAF Config Operations Show Overlay[2m > [22m[2mshould show overlay when toggling WAF
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-05: WAF Config Operations Show Overlay[2m > [22m[2mshould show overlay when toggling WAF
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-05: WAF Config Operations Show Overlay[2m > [22m[2mshould show overlay when toggling WAF
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-06: Rate Limiting Toggle Shows Overlay[2m > [22m[2mshould show overlay when toggling rate limiting
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-06: Rate Limiting Toggle Shows Overlay[2m > [22m[2mshould show overlay when toggling rate limiting
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-06: Rate Limiting Toggle Shows Overlay[2m > [22m[2mshould show overlay when toggling rate limiting
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-07: ACL Toggle Shows Overlay[2m > [22m[2mshould show overlay when toggling ACL
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-07: ACL Toggle Shows Overlay[2m > [22m[2mshould show overlay when toggling ACL
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-07: ACL Toggle Shows Overlay[2m > [22m[2mshould show overlay when toggling ACL
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-08: Overlay Contains CerberusLoader Component[2m > [22m[2mshould render CerberusLoader animation within overlay
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-08: Overlay Contains CerberusLoader Component[2m > [22m[2mshould render CerberusLoader animation within overlay
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-08: Overlay Contains CerberusLoader Component[2m > [22m[2mshould render CerberusLoader animation within overlay
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-09: Overlay Blocks Interactions[2m > [22m[2mshould show overlay during toggle operation
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-09: Overlay Blocks Interactions[2m > [22m[2mshould show overlay during toggle operation
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-09: Overlay Blocks Interactions[2m > [22m[2mshould show overlay during toggle operation
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-09: Overlay Blocks Interactions[2m > [22m[2mshould have z-50 overlay that covers content
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-09: Overlay Blocks Interactions[2m > [22m[2mshould have z-50 overlay that covers content
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-09: Overlay Blocks Interactions[2m > [22m[2mshould have z-50 overlay that covers content
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-10: Overlay Disappears on Mutation Success[2m > [22m[2mshould remove overlay after toggle completes successfully
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-10: Overlay Disappears on Mutation Success[2m > [22m[2mshould remove overlay after toggle completes successfully
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-10: Overlay Disappears on Mutation Success[2m > [22m[2mshould remove overlay after toggle completes successfully
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-10: Overlay Disappears on Mutation Success[2m > [22m[2mshould not show overlay when mutation completes instantly
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-10: Overlay Disappears on Mutation Success[2m > [22m[2mshould not show overlay when mutation completes instantly
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+ [32m✓[39m src/data/__tests__/crowdsecPresets.test.ts [2m([22m[2m38 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx[2m > [22m[2mSecurity Loading Overlay Tests[2m > [22m[2mLS-10: Overlay Disappears on Mutation Success[2m > [22m[2mshould not show overlay when mutation completes instantly
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.loading.test.tsx
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.loading.test.tsx
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+ [32m✓[39m src/pages/__tests__/Security.loading.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[33m 2128[2mms[22m[39m
+       [33m[2m✓[22m[39m should show ConfigReloadOverlay with type="cerberus" when toggling [33m 522[2mms[22m[39m
+Not implemented: navigation to another Document
+[90mstderr[2m | src/pages/__tests__/AuditLogs.test.tsx[2m > [22m[2m<AuditLogs />[2m > [22m[2mhandles export error
+[22m[39mExport error: Error: Export failed
+    at [90m/projects/Charon/frontend/[39msrc/pages/__tests__/AuditLogs.test.tsx:324:7
+    at [90mfile:///projects/Charon/frontend/[39mnode_modules/[4m@vitest/runner[24m/dist/index.js:145:11
+    at [90mfile:///projects/Charon/frontend/[39mnode_modules/[4m@vitest/runner[24m/dist/index.js:915:26
+    at [90mfile:///projects/Charon/frontend/[39mnode_modules/[4m@vitest/runner[24m/dist/index.js:1243:20
+    at new Promise (<anonymous>)
+    at runWithTimeout [90m(file:///projects/Charon/frontend/[39mnode_modules/[4m@vitest/runner[24m/dist/index.js:1209:10[90m)[39m
+    at [90mfile:///projects/Charon/frontend/[39mnode_modules/[4m@vitest/runner[24m/dist/index.js:1653:37
+    at Traces.$ [90m(file:///projects/Charon/frontend/[39mnode_modules/[4mvitest[24m/dist/chunks/traces.CCmnQaNT.js:142:27[90m)[39m
+    at trace [90m(file:///projects/Charon/frontend/[39mnode_modules/[4mvitest[24m/dist/chunks/test.B8ej_ZHS.js:239:21[90m)[39m
+    at runTest [90m(file:///projects/Charon/frontend/[39mnode_modules/[4m@vitest/runner[24m/dist/index.js:1653:12[90m)[39m
+
+ [32m✓[39m src/pages/__tests__/AuditLogs.test.tsx [2m([22m[2m14 tests[22m[2m)[22m[33m 3286[2mms[22m[39m
+     [33m[2m✓[22m[39m toggles filter panel [33m 369[2mms[22m[39m
+     [33m[2m✓[22m[39m clears all filters [33m 327[2mms[22m[39m
+     [33m[2m✓[22m[39m closes detail modal [33m 382[2mms[22m[39m
+     [33m[2m✓[22m[39m handles pagination [33m 419[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useSecurity.test.tsx [2m([22m[2m19 tests[22m[2m)[22m[33m 1100[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/Plugins.test.tsx [2m([22m[2m18 tests[22m[2m)[22m[33m 1415[2mms[22m[39m
+[90mstdout[2m | src/api/logs.test.ts[2m > [22m[2mlogs api[2m > [22m[2mconnects to live logs websocket and handles lifecycle events
+[22m[39mConnecting to WebSocket: ws://localhost/api/v1/logs/live?level=error&source=cerberus
+WebSocket connection established
+WebSocket connection closed { code: [33m1000[39m, reason: [32m''[39m, wasClean: [33mtrue[39m }
+
+[90mstderr[2m | src/api/logs.test.ts[2m > [22m[2mlogs api[2m > [22m[2mconnects to live logs websocket and handles lifecycle events
+[22m[39mWebSocket error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/api/logs.test.ts[2m > [22m[2mconnectSecurityLogs[2m > [22m[2mconnects to cerberus logs websocket endpoint
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/api/logs.test.ts[2m > [22m[2mconnectSecurityLogs[2m > [22m[2mpasses source filter to websocket url
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost/api/v1/cerberus/logs/ws?source=waf
+
+[90mstdout[2m | src/api/logs.test.ts[2m > [22m[2mconnectSecurityLogs[2m > [22m[2mpasses level filter to websocket url
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost/api/v1/cerberus/logs/ws?level=error
+
+[90mstdout[2m | src/api/logs.test.ts[2m > [22m[2mconnectSecurityLogs[2m > [22m[2mpasses ip filter to websocket url
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost/api/v1/cerberus/logs/ws?ip=192.168
+
+[90mstdout[2m | src/api/logs.test.ts[2m > [22m[2mconnectSecurityLogs[2m > [22m[2mpasses host filter to websocket url
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost/api/v1/cerberus/logs/ws?host=example.com
+
+[90mstdout[2m | src/api/logs.test.ts[2m > [22m[2mconnectSecurityLogs[2m > [22m[2mpasses blocked_only filter to websocket url
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost/api/v1/cerberus/logs/ws?blocked_only=true
+
+[90mstdout[2m | src/api/logs.test.ts[2m > [22m[2mconnectSecurityLogs[2m > [22m[2mreceives and parses security log entries
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost/api/v1/cerberus/logs/ws?
+Cerberus logs WebSocket connection established
+
+[90mstdout[2m | src/api/logs.test.ts[2m > [22m[2mconnectSecurityLogs[2m > [22m[2mreceives blocked security log entries
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost/api/v1/cerberus/logs/ws?
+Cerberus logs WebSocket connection established
+
+[90mstdout[2m | src/api/logs.test.ts[2m > [22m[2mconnectSecurityLogs[2m > [22m[2mhandles onOpen callback
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost/api/v1/cerberus/logs/ws?
+Cerberus logs WebSocket connection established
+
+[90mstdout[2m | src/api/logs.test.ts[2m > [22m[2mconnectSecurityLogs[2m > [22m[2mhandles onError callback
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost/api/v1/cerberus/logs/ws?
+
+[90mstderr[2m | src/api/logs.test.ts[2m > [22m[2mconnectSecurityLogs[2m > [22m[2mhandles onError callback
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/api/logs.test.ts[2m > [22m[2mconnectSecurityLogs[2m > [22m[2mhandles onClose callback
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost/api/v1/cerberus/logs/ws?
+Cerberus logs WebSocket closed { code: [33m1000[39m, reason: [32m''[39m, wasClean: [33mtrue[39m }
+
+[90mstdout[2m | src/api/logs.test.ts[2m > [22m[2mconnectSecurityLogs[2m > [22m[2mreturns disconnect function that closes websocket
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost/api/v1/cerberus/logs/ws?
+Cerberus logs WebSocket connection established
+Cerberus logs WebSocket closed { code: [33m1000[39m, reason: [32m''[39m, wasClean: [33mtrue[39m }
+
+[90mstdout[2m | src/api/logs.test.ts[2m > [22m[2mconnectSecurityLogs[2m > [22m[2mhandles JSON parse errors gracefully
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost/api/v1/cerberus/logs/ws?
+Cerberus logs WebSocket connection established
+
+[90mstdout[2m | src/api/logs.test.ts[2m > [22m[2mconnectSecurityLogs[2m > [22m[2muses wss protocol when on https
+[22m[39mConnecting to Cerberus logs WebSocket: wss://secure.example.com/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/api/logs.test.ts[2m > [22m[2mconnectSecurityLogs[2m > [22m[2mcombines multiple filters in websocket url
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost/api/v1/cerberus/logs/ws?source=waf&level=warn&ip=10.0.0&host=example.com&blocked_only=true
+
+ [32m✓[39m src/api/logs.test.ts [2m([22m[2m19 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useSecurityHeaders.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[33m 811[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useImport.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 562[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/SecurityHeaders.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 1665[2mms[22m[39m
+     [33m[2m✓[22m[39m should open create form dialog [33m 501[2mms[22m[39m
+     [33m[2m✓[22m[39m should delete profile with backup [33m 392[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/DataTable.test.tsx [2m([22m[2m19 tests[22m[2m)[22m[33m 1247[2mms[22m[39m
+     [33m[2m✓[22m[39m handles row selection - single row [33m 343[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/SecurityHeaderProfileForm.test.tsx [2m([22m[2m17 tests[22m[2m)[22m[33m 2298[2mms[22m[39m
+     [33m[2m✓[22m[39m should submit form with valid data [33m 383[2mms[22m[39m
+     [33m[2m✓[22m[39m should calculate security score on form changes [33m 556[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/SecurityNotificationSettingsModal.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[33m 1900[2mms[22m[39m
+     [33m[2m✓[22m[39m submits updated settings [33m 584[2mms[22m[39m
+     [33m[2m✓[22m[39m handles email recipients input [33m 447[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/Layout.test.tsx [2m([22m[2m16 tests[22m[2m)[22m[33m 1431[2mms[22m[39m
+     [33m[2m✓[22m[39m renders all navigation items [33m 542[2mms[22m[39m
+[90mstdout[2m | src/pages/__tests__/Security.spec.tsx[2m > [22m[2mSecurity page[2m > [22m[2mrenders per-service toggles and calls updateSetting on change
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.spec.tsx[2m > [22m[2mSecurity page[2m > [22m[2mcalls updateSetting when toggling ACL
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.spec.tsx[2m > [22m[2mSecurity page[2m > [22m[2mcalls updateSetting when toggling ACL
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.spec.tsx[2m > [22m[2mSecurity page[2m > [22m[2mcalls updateSetting when toggling ACL
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.spec.tsx[2m > [22m[2mSecurity page[2m > [22m[2mcalls start/stop endpoints for CrowdSec via toggle
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.spec.tsx[2m > [22m[2mSecurity page[2m > [22m[2mcalls start/stop endpoints for CrowdSec via toggle
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.spec.tsx[2m > [22m[2mSecurity page[2m > [22m[2mcalls start/stop endpoints for CrowdSec via toggle
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.spec.tsx[2m > [22m[2mSecurity page[2m > [22m[2mcalls start/stop endpoints for CrowdSec via toggle
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.spec.tsx[2m > [22m[2mSecurity page[2m > [22m[2mcalls start/stop endpoints for CrowdSec via toggle
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.spec.tsx[2m > [22m[2mSecurity page[2m > [22m[2mcalls start/stop endpoints for CrowdSec via toggle
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.spec.tsx[2m > [22m[2mSecurity page[2m > [22m[2mdisables service toggles when cerberus is off
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.spec.tsx[2m > [22m[2mSecurity page[2m > [22m[2mdisables service toggles when cerberus is off
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/pages/__tests__/Security.spec.tsx[2m > [22m[2mSecurity page[2m > [22m[2mdisplays correct WAF threat protection summary when enabled
+[22m[39mConnecting to Cerberus logs WebSocket: ws://localhost:3000/api/v1/cerberus/logs/ws?
+
+[90mstdout[2m | src/pages/__tests__/Security.spec.tsx
+[22m[39mCerberus logs WebSocket closed { code: [33m1006[39m, reason: [32m''[39m, wasClean: [33mfalse[39m }
+security log viewer disconnected
+
+[90mstderr[2m | src/pages/__tests__/Security.spec.tsx
+[22m[39mCerberus logs WebSocket error: Event { isTrusted: [36m[Getter][39m }
+security log viewer error: Event { isTrusted: [36m[Getter][39m }
+
+ [32m✓[39m src/pages/__tests__/SMTPSettings.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 3944[2mms[22m[39m
+     [33m[2m✓[22m[39m saves SMTP settings successfully [33m 1119[2mms[22m[39m
+     [33m[2m✓[22m[39m sends test email [33m 429[2mms[22m[39m
+     [33m[2m✓[22m[39m surfaces backend validation errors on save [33m 621[2mms[22m[39m
+     [33m[2m✓[22m[39m disables test connection until required fields are set and shows error toast on failure [33m 731[2mms[22m[39m
+     [33m[2m✓[22m[39m handles test email failures and keeps input value intact [33m 584[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/Security.spec.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 1168[2mms[22m[39m
+     [33m[2m✓[22m[39m calls updateSetting when toggling ACL [33m 315[2mms[22m[39m
+     [33m[2m✓[22m[39m calls start/stop endpoints for CrowdSec via toggle [33m 395[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useCredentials.test.tsx [2m([22m[2m16 tests[22m[2m)[22m[32m 232[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useRemoteServers.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 615[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/Login.overlay.audit.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 3282[2mms[22m[39m
+     [33m[2m✓[22m[39m shows coin-themed overlay during login [33m 785[2mms[22m[39m
+     [33m[2m✓[22m[39m ATTACK: rapid fire login attempts are blocked by overlay [33m 668[2mms[22m[39m
+     [33m[2m✓[22m[39m clears overlay on login error [33m 414[2mms[22m[39m
+     [33m[2m✓[22m[39m ATTACK: XSS in login credentials does not break overlay [33m 465[2mms[22m[39m
+     [33m[2m✓[22m[39m ATTACK: network timeout does not leave overlay stuck [33m 446[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/security.test.ts [2m([22m[2m16 tests[22m[2m)[22m[32m 24[2mms[22m[39m
+ [32m✓[39m src/api/auditLogs.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useNotifications.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 540[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/CSPBuilder.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[33m 1596[2mms[22m[39m
+     [33m[2m✓[22m[39m should add a directive [33m 329[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/EncryptionManagement.test.tsx [2m([22m[2m14 tests[22m[2m)[22m[33m 1765[2mms[22m[39m
+     [33m[2m✓[22m[39m shows confirmation dialog when rotation is triggered [33m 542[2mms[22m[39m
+     [33m[2m✓[22m[39m executes rotation when confirmed [33m 321[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/WebSocketStatusCard.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 661[2mms[22m[39m
+     [33m[2m✓[22m[39m should render loading state [33m 351[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useManualChallenge.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[32m 247[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/ImportReviewTable.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 888[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/RateLimiting.spec.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 589[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useProxyHosts.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 562[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/users.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/DNSDetectionResult.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 477[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/manualChallenge.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+[90mstdout[2m | src/api/__tests__/logs-websocket.test.ts[2m > [22m[2mlogs API - connectLiveLogs[2m > [22m[2mcreates WebSocket connection with correct URL
+[22m[39mConnecting to WebSocket: ws://localhost:8080/api/v1/logs/live?
+
+[90mstdout[2m | src/api/__tests__/logs-websocket.test.ts[2m > [22m[2mlogs API - connectLiveLogs[2m > [22m[2muses wss protocol when page is https
+[22m[39mConnecting to WebSocket: wss://example.com/api/v1/logs/live?
+
+[90mstdout[2m | src/api/__tests__/logs-websocket.test.ts[2m > [22m[2mlogs API - connectLiveLogs[2m > [22m[2mincludes filters in query parameters
+[22m[39mConnecting to WebSocket: ws://localhost:8080/api/v1/logs/live?level=error&source=waf
+
+[90mstdout[2m | src/api/__tests__/logs-websocket.test.ts[2m > [22m[2mlogs API - connectLiveLogs[2m > [22m[2mcalls onMessage callback when message is received
+[22m[39mConnecting to WebSocket: ws://localhost:8080/api/v1/logs/live?
+
+[90mstdout[2m | src/api/__tests__/logs-websocket.test.ts[2m > [22m[2mlogs API - connectLiveLogs[2m > [22m[2mhandles JSON parse errors gracefully
+[22m[39mConnecting to WebSocket: ws://localhost:8080/api/v1/logs/live?
+
+[90mstdout[2m | src/api/__tests__/logs-websocket.test.ts[2m > [22m[2mlogs API - connectLiveLogs[2m > [22m[2mreturns a close function that closes the WebSocket
+[22m[39mConnecting to WebSocket: ws://localhost:8080/api/v1/logs/live?
+
+[90mstdout[2m | src/api/__tests__/logs-websocket.test.ts[2m > [22m[2mlogs API - connectLiveLogs[2m > [22m[2mdoes not throw when closing already closed connection
+[22m[39mConnecting to WebSocket: ws://localhost:8080/api/v1/logs/live?
+
+[90mstdout[2m | src/api/__tests__/logs-websocket.test.ts[2m > [22m[2mlogs API - connectLiveLogs[2m > [22m[2mhandles missing optional callbacks
+[22m[39mConnecting to WebSocket: ws://localhost:8080/api/v1/logs/live?
+Connecting to WebSocket: ws://localhost:8080/api/v1/logs/live?
+
+[90mstderr[2m | src/api/__tests__/logs-websocket.test.ts[2m > [22m[2mlogs API - connectLiveLogs[2m > [22m[2mhandles missing optional callbacks
+[22m[39mWebSocket error: Event { isTrusted: [36m[Getter][39m }
+
+[90mstdout[2m | src/api/__tests__/logs-websocket.test.ts[2m > [22m[2mlogs API - connectLiveLogs[2m > [22m[2mprocesses multiple messages in sequence
+[22m[39mConnecting to WebSocket: ws://localhost:8080/api/v1/logs/live?
+
+[90mstdout[2m | src/api/__tests__/logs-websocket.test.ts
+[22m[39mWebSocket connection closed { code: [33m1000[39m, reason: [32m''[39m, wasClean: [33mtrue[39m }
+
+ [32m✓[39m src/api/__tests__/logs-websocket.test.ts [2m([22m[2m11 tests[22m[2m | [22m[33m2 skipped[39m[2m)[22m[32m 41[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useDNSDetection.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 704[2mms[22m[39m
+[90mstderr[2m | src/pages/__tests__/ProxyHosts-coverage-isolated.test.tsx[2m > [22m[2mProxyHosts page - coverage targets (isolated)[2m > [22m[2mbulk apply merges host data and calls updateHost
+[22m[39mEach child in a list should have a unique "key" prop.
+
+Check the render method of `Primitive.p`. It was passed a child from ProxyHosts. See https://react.dev/link/warning-keys for more information.
+
+ [32m✓[39m src/pages/__tests__/AcceptInvite.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 1991[2mms[22m[39m
+     [33m[2m✓[22m[39m shows password mismatch error [33m 508[2mms[22m[39m
+     [33m[2m✓[22m[39m submits form and shows success [33m 739[2mms[22m[39m
+     [33m[2m✓[22m[39m shows error on submit failure [33m 546[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/ProxyHosts-coverage-isolated.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 2312[2mms[22m[39m
+     [33m[2m✓[22m[39m renders SSL staging badge, websocket badge [33m 652[2mms[22m[39m
+     [33m[2m✓[22m[39m opens domain link in new window when linkBehavior is new_window [33m 333[2mms[22m[39m
+     [33m[2m✓[22m[39m bulk apply merges host data and calls updateHost [33m 1325[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/RemoteServerForm.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 1166[2mms[22m[39m
+     [33m[2m✓[22m[39m submits form with correct data [33m 458[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/settings.test.ts [2m([22m[2m16 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/Skeleton.test.tsx [2m([22m[2m18 tests[22m[2m)[22m[33m 338[2mms[22m[39m
+[90mstderr[2m | src/pages/__tests__/ProxyHosts-progress.test.tsx[2m > [22m[2mProxyHosts progress apply[2m > [22m[2mshows progress when applying multiple ACLs
+[22m[39mEach child in a list should have a unique "key" prop.
+
+Check the render method of `Primitive.p`. It was passed a child from ProxyHosts. See https://react.dev/link/warning-keys for more information.
+
+ [32m✓[39m src/api/notifications.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/ProxyHosts-progress.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 2093[2mms[22m[39m
+     [33m[2m✓[22m[39m shows progress when applying multiple ACLs [33m 1936[2mms[22m[39m
+[90mstderr[2m | src/pages/__tests__/ProxyHosts-bulk-apply.test.tsx[2m > [22m[2mProxyHosts - Bulk Apply Settings[2m > [22m[2mshows Bulk Apply button when hosts selected and opens modal
+[22m[39mEach child in a list should have a unique "key" prop.
+
+Check the render method of `Primitive.p`. It was passed a child from ProxyHosts. See https://react.dev/link/warning-keys for more information.
+
+ [32m✓[39m src/data/__tests__/securityPresets.test.ts [2m([22m[2m24 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/ProxyHosts-bulk-apply.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 4329[2mms[22m[39m
+     [33m[2m✓[22m[39m shows Bulk Apply button when hosts selected and opens modal [33m 1784[2mms[22m[39m
+     [33m[2m✓[22m[39m applies selected settings to all selected hosts by calling updateProxyHost merged payload [33m 1684[2mms[22m[39m
+     [33m[2m✓[22m[39m cancels bulk apply modal when Cancel clicked [33m 858[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/Alert.test.tsx [2m([22m[2m18 tests[22m[2m)[22m[33m 814[2mms[22m[39m
+     [33m[2m✓[22m[39m renders with default variant [33m 331[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useAccessLists.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 352[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/StatsCard.test.tsx [2m([22m[2m14 tests[22m[2m)[22m[33m 397[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/NotificationCenter.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 777[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/accessLists.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m src/components/ui/__tests__/Input.test.tsx [2m([22m[2m16 tests[22m[2m)[22m[33m 463[2mms[22m[39m
+ [32m✓[39m src/components/dialogs/__tests__/ImportSuccessModal.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[32m 206[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useProxyHosts-bulk.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 515[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/CertificateList.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 504[2mms[22m[39m
+     [33m[2m✓[22m[39m deletes custom certificate when confirmed [33m 366[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useDocker.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 2288[2mms[22m[39m
+     [33m[2m✓[22m[39m handles API errors [33m 1011[2mms[22m[39m
+     [33m[2m✓[22m[39m extracts details from 503 service unavailable error [33m 1014[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/Setup.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 965[2mms[22m[39m
+     [33m[2m✓[22m[39m submits form successfully [33m 487[2mms[22m[39m
+     [33m[2m✓[22m[39m displays error on submission failure [33m 367[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/SecurityScoreDisplay.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[32m 207[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/crowdsec.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/dnsDetection.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/remoteServers.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/notifications.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/uptime.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+[90mstderr[2m | src/pages/__tests__/ProxyHosts-bulk-apply-progress.test.tsx[2m > [22m[2mProxyHosts - Bulk Apply progress UI[2m > [22m[2mshows applying progress while updateProxyHost resolves
+[22m[39mEach child in a list should have a unique "key" prop.
+
+Check the render method of `Primitive.p`. It was passed a child from ProxyHosts. See https://react.dev/link/warning-keys for more information.
+
+ [32m✓[39m src/pages/__tests__/ProxyHosts-bulk-apply-progress.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 975[2mms[22m[39m
+     [33m[2m✓[22m[39m shows applying progress while updateProxyHost resolves [33m 971[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/CrowdSecConfig.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 619[2mms[22m[39m
+     [33m[2m✓[22m[39m shows info banner directing to Security Dashboard [33m 308[2mms[22m[39m
+[90mstderr[2m | src/pages/__tests__/ProxyHosts-bulk-apply-all-settings.test.tsx[2m > [22m[2mProxyHosts - Bulk Apply all settings coverage[2m > [22m[2mrenders all bulk apply setting labels and allows toggling
+[22m[39mEach child in a list should have a unique "key" prop.
+
+Check the render method of `Primitive.p`. It was passed a child from ProxyHosts. See https://react.dev/link/warning-keys for more information.
+
+ [32m✓[39m src/hooks/__tests__/useDomains.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 409[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/ProxyHosts-bulk-apply-all-settings.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 1568[2mms[22m[39m
+     [33m[2m✓[22m[39m renders all bulk apply setting labels and allows toggling [33m 1565[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/Login.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 501[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/LoadingStates-overlays.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[33m 509[2mms[22m[39m
+ [32m✓[39m src/api/users.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/ProxyHostForm-uptime.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 1571[2mms[22m[39m
+     [33m[2m✓[22m[39m submits host and requests uptime sync when Add Uptime is checked [33m 1569[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/AccessListSelector.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 294[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/websocket.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/DNS.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 509[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/docker.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/proxyHosts-bulk.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/proxyHosts.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/PasswordStrengthMeter.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 62[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useLanguage.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 61[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/system.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/Dashboard.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 168[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/ImportCrowdSec.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 343[2mms[22m[39m
+ [32m✓[39m src/__tests__/i18n.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+ [32m✓[39m src/utils/__tests__/compareHosts.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/LanguageSelector.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 438[2mms[22m[39m
+     [33m[2m✓[22m[39m renders language selector with all options [33m 379[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/certificates.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/ImportCrowdSec.spec.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 214[2mms[22m[39m
+ [32m✓[39m src/utils/__tests__/passwordStrength.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/logs.http.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/domains.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m src/utils/__tests__/toast.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/backups.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m src/components/__tests__/SystemStatus.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 35[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useAuth.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 36[2mms[22m[39m
+ [32m✓[39m src/api/featureFlags.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m src/api/__tests__/setup.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m src/test/setup.spec.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useTheme.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 26[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m125 passed[39m[22m[90m (125)[39m
+[2m      Tests [22m [1m[32m1488 passed[39m[22m[2m | [22m[33m2 skipped[39m[90m (1490)[39m
+[2m   Start at [22m 16:26:27
+[2m   Duration [22m 123.58s[2m (transform 5.09s, setup 24.75s, import 41.19s, tests 174.41s, environment 86.94s)[22m
+
+[34m % [39m[2mCoverage report from [22m[33mv8[39m
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s
+-------------------|---------|----------|---------|---------|-------------------
+All files          |   85.04 |     78.4 |    79.3 |   85.76 |
+ src               |     100 |      100 |     100 |     100 |
+  i18n.ts          |     100 |      100 |     100 |     100 |
+ src/api           |   89.82 |    74.77 |   84.14 |   89.12 |
+  accessLists.ts   |     100 |      100 |     100 |     100 |
+  auditLogs.ts     |     100 |     87.5 |     100 |     100 | 73,76,131,133
+  backups.ts       |     100 |      100 |     100 |     100 |
+  certificates.ts  |     100 |      100 |     100 |     100 |
+  client.ts        |   41.17 |     8.33 |      25 |   41.17 | 18-21,36,41,44-49
+  ...Enrollment.ts |      80 |      100 |   66.66 |      80 | 50
+  credentials.ts   |       0 |      100 |       0 |       0 | 53-147
+  crowdsec.ts      |   81.81 |      100 |   72.72 |   81.81 | 114-135
+  dnsDetection.ts  |     100 |      100 |     100 |     100 |
+  dnsProviders.ts  |     100 |      100 |     100 |     100 |
+  docker.ts        |     100 |      100 |     100 |     100 |
+  domains.ts       |     100 |      100 |     100 |     100 |
+  featureFlags.ts  |     100 |      100 |     100 |     100 |
+  logs.ts          |     100 |    80.48 |     100 |     100 | 67-73,258
+  ...lChallenge.ts |     100 |      100 |     100 |     100 |
+  notifications.ts |     100 |       50 |     100 |     100 | 96-166
+  presets.ts       |     100 |      100 |     100 |     100 |
+  proxyHosts.ts    |    91.3 |       50 |    87.5 |    91.3 | 174-181
+  remoteServers.ts |     100 |      100 |     100 |     100 |
+  security.ts      |     100 |      100 |     100 |     100 |
+  ...ityHeaders.ts |      10 |      100 |      10 |      10 | 89-186
+  settings.ts      |     100 |      100 |     100 |     100 |
+  setup.ts         |     100 |      100 |     100 |     100 |
+  system.ts        |   84.61 |      100 |      80 |   84.61 | 70-71
+  uptime.ts        |      90 |      100 |   85.71 |      90 | 88-89
+  users.ts         |     100 |      100 |     100 |     100 |
+  websocket.ts     |     100 |      100 |     100 |     100 |
+ src/components    |   77.29 |    76.57 |   69.46 |    78.6 |
+  ...tSelector.tsx |   85.71 |    76.92 |      80 |   83.33 | 22
+  CSPBuilder.tsx   |    93.9 |    78.94 |     100 |   94.66 | 93,120,151-155
+  ...icateList.tsx |   75.43 |       60 |   66.66 |   79.24 | ...2,61-65,92-103
+  ...tatusCard.tsx |   93.75 |    88.46 |     100 |   95.83 | 62
+  ...alManager.tsx |      50 |    48.31 |   36.11 |   51.56 | ...83-497,520-582
+  ...ionResult.tsx |   94.73 |    94.11 |     100 |   94.73 | 76
+  ...rSelector.tsx |     100 |      100 |     100 |     100 |
+  ...viewTable.tsx |   85.71 |    68.91 |      80 |   86.66 | ...,75,85,166,348
+  ...eSelector.tsx |     100 |      100 |     100 |     100 |
+  Layout.tsx       |   84.31 |    89.23 |   66.66 |   83.67 | ...51,274,315-334
+  ...LogViewer.tsx |   90.47 |    85.71 |   96.87 |   93.04 | ...81-182,267-270
+  ...ingStates.tsx |   66.66 |    85.71 |      50 |   66.66 | 2-8,289-323
+  ...ionCenter.tsx |     100 |       88 |     100 |     100 | 36,42,91
+  ...ngthMeter.tsx |   88.88 |    83.33 |     100 |   88.23 | 21,30
+  ...cyBuilder.tsx |   32.81 |    19.35 |   20.83 |      35 | ...79,191,205-249
+  ...yHostForm.tsx |   76.07 |     73.6 |   61.61 |   78.81 | ...1105,1129-1189
+  ...erverForm.tsx |   84.21 |     87.3 |   72.72 |   88.88 | 59-60,151-162
+  ...ofileForm.tsx |   60.97 |    90.66 |   48.14 |   58.97 | ...68,308,342-430
+  ...ingsModal.tsx |   90.47 |    83.33 |   83.33 |      90 | 153-170
+  ...reDisplay.tsx |     100 |     87.8 |     100 |     100 | 143-151,208
+  SystemStatus.tsx |     100 |      100 |     100 |     100 |
+  ThemeToggle.tsx  |     100 |       50 |     100 |     100 | 8-9
+  ...tatusCard.tsx |     100 |    94.28 |     100 |     100 | 125-126
+ ...onents/dialogs |     100 |     87.8 |     100 |     100 |
+  ...nupDialog.tsx |     100 |       80 |     100 |     100 | 76-87
+  ...cessModal.tsx |     100 |     92.3 |     100 |     100 | 60,68
+ .../dns-providers |      90 |    74.28 |   94.11 |   91.76 |
+  ...Challenge.tsx |      90 |    74.28 |   94.11 |   91.76 | ...80,196,243-244
+ ...ponents/layout |     100 |      100 |     100 |     100 |
+  PageShell.tsx    |     100 |      100 |     100 |     100 |
+ src/components/ui |   97.35 |    93.93 |   92.06 |   97.31 |
+  Alert.tsx        |     100 |    85.71 |     100 |     100 | 70-71
+  Badge.tsx        |     100 |      100 |     100 |     100 |
+  Button.tsx       |     100 |       90 |     100 |     100 | 103
+  Card.tsx         |     100 |      100 |     100 |     100 |
+  Checkbox.tsx     |     100 |      100 |     100 |     100 |
+  DataTable.tsx    |     100 |    97.22 |     100 |     100 | 141,212
+  Dialog.tsx       |     100 |      100 |     100 |     100 |
+  EmptyState.tsx   |     100 |     90.9 |     100 |     100 | 62
+  Input.tsx        |     100 |      100 |     100 |     100 |
+  Label.tsx        |     100 |      100 |     100 |     100 |
+  NativeSelect.tsx |     100 |       50 |     100 |     100 | 19
+  Progress.tsx     |     100 |    57.14 |     100 |     100 | 47-49
+  Select.tsx       |   91.66 |    85.71 |   71.42 |   91.66 | 123,161
+  Skeleton.tsx     |     100 |      100 |     100 |     100 |
+  StatsCard.tsx    |     100 |      100 |     100 |     100 |
+  Switch.tsx       |     100 |      100 |     100 |     100 |
+  Tabs.tsx         |      70 |      100 |       0 |      70 | 11,27,47
+  Textarea.tsx     |     100 |       50 |     100 |     100 | 18
+  Tooltip.tsx      |     100 |      100 |     100 |     100 |
+  index.ts         |       0 |        0 |       0 |       0 |
+ src/context       |   92.59 |    66.66 |   77.77 |   96.15 |
+  ...ntextValue.ts |     100 |      100 |     100 |     100 |
+  ...geContext.tsx |     100 |      100 |     100 |     100 |
+  ...ntextValue.ts |     100 |      100 |     100 |     100 |
+  ThemeContext.tsx |   83.33 |       50 |      60 |    90.9 | 18
+  ...ntextValue.ts |     100 |      100 |     100 |     100 |
+ src/data          |     100 |      100 |     100 |     100 |
+  ...secPresets.ts |     100 |      100 |     100 |     100 |
+  ...ityPresets.ts |     100 |      100 |     100 |     100 |
+ src/hooks         |   95.65 |    83.96 |   93.53 |   95.87 |
+  ...ccessLists.ts |   80.76 |      100 |   73.68 |   80.76 | 21,37,54,69,79
+  useAuditLogs.ts  |   42.85 |       20 |   38.46 |   42.85 | 16-19,48-72
+  useAuth.ts       |     100 |      100 |     100 |     100 |
+  ...rtificates.ts |     100 |      100 |     100 |     100 |
+  ...Enrollment.ts |    87.5 |      100 |   83.33 |    87.5 | 24
+  ...redentials.ts |     100 |      100 |     100 |     100 |
+  ...SDetection.ts |     100 |      100 |     100 |     100 |
+  ...SProviders.ts |     100 |      100 |     100 |     100 |
+  useDocker.ts     |     100 |     90.9 |     100 |     100 | 19
+  useDomains.ts    |     100 |      100 |     100 |     100 |
+  useEncryption.ts |     100 |      100 |     100 |     100 |
+  useImport.ts     |   96.96 |    81.81 |     100 |     100 | 41-57,94-95
+  useLanguage.ts   |     100 |      100 |     100 |     100 |
+  ...lChallenge.ts |     100 |      100 |     100 |     100 |
+  ...ifications.ts |     100 |     87.5 |     100 |     100 | 44
+  usePlugins.ts    |     100 |      100 |     100 |     100 |
+  useProxyHosts.ts |     100 |    91.66 |     100 |     100 | 39
+  ...oteServers.ts |     100 |      100 |     100 |     100 |
+  useSecurity.ts   |     100 |      100 |     100 |     100 |
+  ...ityHeaders.ts |   97.14 |      100 |   96.15 |   97.14 | 85
+  useTheme.ts      |     100 |      100 |     100 |     100 |
+  ...cketStatus.ts |     100 |      100 |     100 |     100 |
+ src/locales/de    |       0 |        0 |       0 |       0 |
+  translation.json |       0 |        0 |       0 |       0 |
+ src/locales/en    |       0 |        0 |       0 |       0 |
+  translation.json |       0 |        0 |       0 |       0 |
+ src/locales/es    |       0 |        0 |       0 |       0 |
+  translation.json |       0 |        0 |       0 |       0 |
+ src/locales/fr    |       0 |        0 |       0 |       0 |
+  translation.json |       0 |        0 |       0 |       0 |
+ src/locales/zh    |       0 |        0 |       0 |       0 |
+  translation.json |       0 |        0 |       0 |       0 |
+ src/pages         |   83.18 |    76.96 |   75.18 |   83.82 |
+  AcceptInvite.tsx |   87.23 |     86.2 |   85.71 |   86.95 | ...3,56-57,66,113
+  AuditLogs.tsx    |   84.37 |    88.37 |   67.85 |   86.44 | ...00-328,372-383
+  ...SecConfig.tsx |   81.71 |    75.33 |   69.23 |   82.53 | ...1209,1228-1235
+  DNS.tsx          |     100 |      100 |     100 |     100 |
+  Dashboard.tsx    |    75.6 |    63.63 |    62.5 |      80 | 15,56-57,65-69
+  ...anagement.tsx |   83.67 |    77.04 |   81.25 |    85.1 | 150,172-180,438
+  ...tCrowdSec.tsx |   81.48 |       50 |    87.5 |      88 | 24-25,45
+  Login.tsx        |   96.77 |       90 |   83.33 |   96.77 | 105
+  Plugins.tsx      |   60.37 |    77.41 |   68.75 |   58.82 | ...01,262-269,381
+  ProxyHosts.tsx   |   94.41 |    82.84 |   96.59 |   95.23 | ...,855,1138-1139
+  RateLimiting.tsx |   90.62 |    68.57 |      70 |   90.62 | 44,170-180
+  SMTPSettings.tsx |   88.46 |    64.28 |      80 |   88.46 | 72,88,162-186,207
+  Security.tsx     |   84.25 |     93.1 |   66.66 |   84.61 | ...88,543,596-612
+  ...tyHeaders.tsx |   64.61 |    77.08 |   55.17 |   64.51 | ...99-231,287-324
+  Setup.tsx        |    97.5 |    95.83 |     100 |   97.43 | 51
+  ...mSettings.tsx |   82.35 |    72.85 |   73.07 |   81.48 | ...91,303,433-548
+  Uptime.tsx       |   65.04 |    60.37 |   59.64 |   62.16 | ...74,503-512,569
+  UsersPage.tsx    |   76.92 |    61.79 |   70.45 |   78.37 | ...85,496-497,631
+  WafConfig.tsx    |   89.61 |    83.11 |   87.87 |   91.78 | ...85,358,416,447
+ src/test-utils    |     100 |      100 |     100 |     100 |
+  ...eryClient.tsx |     100 |      100 |     100 |     100 |
+ src/testUtils     |     100 |      100 |     100 |     100 |
+  ...kProxyHost.ts |     100 |      100 |     100 |     100 |
+ src/utils         |   96.49 |    83.33 |     100 |    97.4 |
+  cn.ts            |     100 |      100 |     100 |     100 |
+  compareHosts.ts  |     100 |    63.63 |     100 |     100 | 12-28
+  ...dsecExport.ts |     100 |     90.9 |     100 |     100 | 9
+  ...rdStrength.ts |   91.89 |    94.73 |     100 |   91.89 | 70-72
+  ...stsHelpers.ts |   98.03 |    96.15 |     100 |      98 | 60
+  toast.ts         |     100 |      100 |     100 |     100 |
+  validation.ts    |   93.54 |       75 |     100 |     100 | 30,47
+-------------------|---------|----------|---------|---------|-------------------
