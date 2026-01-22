@@ -1,518 +1,791 @@
-# CrowdSec 1.7.5 Upgrade Verification Plan
+# Phase 3: Backend Routes Implementation Plan
 
-**Document Type**: Verification Plan
-**Version**: 1.7.4 → 1.7.5
-**Created**: 2026-01-22
-**Status**: Ready for Implementation
+> **Phase**: 3 of Skipped Tests Remediation
+> **Status**: ✅ COMPLETE
+> **Created**: 2026-01-22
+> **Completed**: 2026-01-22
+> **Target Tests**: 7 tests to re-enable
+> **Actual Result**: 7 tests enabled and passing
 
 ---
 
 ## Executive Summary
 
-This document outlines the verification plan for upgrading CrowdSec from version 1.7.4 to 1.7.5 in the Charon project. Based on analysis of the CrowdSec 1.7.5 release notes and the current integration implementation, this upgrade appears to be a **low-risk maintenance release** focused on internal refactoring, improved error handling, and dependency updates.
+Phase 3 addresses missing backend API routes and a data persistence issue that block 7 E2E tests:
+
+1. **NPM Import Route** (`/tasks/import/npm`) - 4 skipped tests
+2. **JSON Import Route** (`/tasks/import/json`) - 2 skipped tests
+3. **SMTP Persistence Bug** - 1 skipped test at `smtp-settings.spec.ts:336`
+
+The existing Caddyfile import infrastructure provides a solid foundation. NPM and JSON import routes will extend this pattern with format-specific parsers.
 
 ---
 
-## 1. CrowdSec 1.7.5 Release Analysis
+## Root Cause Analysis
 
-### 1.1 Key Changes Summary
+### Issue 1: Missing NPM Import Route
 
-| Category | Count | Risk Level |
-|----------|-------|------------|
-| Internal Refactoring | ~25 | Low |
-| Bug Fixes | 8 | Low |
-| Dependency Updates | ~12 | Low |
-| New Features | 2 | Low |
+**Location**: Tests at [tests/integration/import-to-production.spec.ts](../../tests/integration/import-to-production.spec.ts#L170-L237)
 
-### 1.2 Notable Changes Relevant to Charon Integration
+**Problem**: The tests navigate to `/tasks/import/npm` but this route doesn't exist in the frontend router or backend API.
 
-#### New Features/Improvements
+**Evidence**:
+```typescript
+// From import-to-production.spec.ts lines 170-180
+test.skip('should display NPM import page', async ({ page, adminUser }) => {
+  await page.goto('/tasks/import/npm');  // Route doesn't exist
+  ...
+});
+```
 
-1. **`ParseKVLax` for Flexible Key-Value Parsing** ([#4007](https://github.com/crowdsecurity/crowdsec/pull/4007))
-   - Adds more flexible parsing capabilities
-   - Impact: None - internal parser enhancement
+**Expected NPM Export Format** (from test file):
+```json
+{
+  "proxy_hosts": [
+    {
+      "domain_names": ["test.example.com"],
+      "forward_host": "192.168.1.100",
+      "forward_port": 80
+    }
+  ],
+  "access_lists": [],
+  "certificates": []
+}
+```
 
-2. **AppSec Transaction ID Header Support** ([#4124](https://github.com/crowdsecurity/crowdsec/pull/4124))
-   - Enables request tracing via transaction ID header
-   - Impact: Optional feature, no required changes
+### Issue 2: Missing JSON Import Route
 
-3. **Docker Datasource Schema** ([#4206](https://github.com/crowdsecurity/crowdsec/pull/4206))
-   - Improved Docker acquisition configuration
-   - Impact: May benefit container monitoring setups
+**Location**: Tests at [tests/integration/import-to-production.spec.ts](../../tests/integration/import-to-production.spec.ts#L243-L256)
 
-#### Bug Fixes
+**Problem**: The `/tasks/import/json` route is not implemented. Tests navigate to this route expecting a generic JSON configuration import interface.
 
-1. **PAPI Allowlist Check** ([#4196](https://github.com/crowdsecurity/crowdsec/pull/4196))
-   - Checks if decision is allowlisted before adding
-   - Impact: Improved decision handling
+### Issue 3: SMTP Save Not Persisting
 
-2. **CAPI Token Reuse** ([#4201](https://github.com/crowdsecurity/crowdsec/pull/4201))
-   - Always reuses stored token for CAPI
-   - Impact: Better authentication stability
+**Location**: Test at [tests/settings/smtp-settings.spec.ts](../../tests/settings/smtp-settings.spec.ts#L336)
 
-3. **LAPI-Only Container Hub Fix** ([#4169](https://github.com/crowdsecurity/crowdsec/pull/4169))
-   - Don't prepare hub in LAPI-only containers
-   - Impact: Better for containerized deployments
+**Problem**: After saving SMTP configuration and reloading the page, the updated values don't persist.
 
-#### Internal Changes (No External Impact)
+**Skip Comment**:
+```typescript
+// Note: Skip - SMTP save not persisting correctly (backend issue, not test issue)
+```
 
-- Removed `github.com/pkg/errors` dependency - uses `fmt.Errorf` instead
-- Replaced syscall with unix/windows packages
-- Various linting improvements (golangci-lint 2.8)
-- Refactored acquisition and leakybucket packages
-- Removed global variables in favor of dependency injection
-- Build improvements for Docker (larger runners)
-- Updated expr to 1.17.7 (already patched in Charon Dockerfile)
-- Updated modernc.org/sqlite
+**Analysis of Code Flow**:
 
-### 1.3 Breaking Changes Assessment
+1. **Frontend**: [SMTPSettings.tsx](../../frontend/src/pages/SMTPSettings.tsx#L50-L62)
+   - Calls `updateSMTPConfig()` which POSTs to `/settings/smtp`
+   - On success, invalidates query and shows toast
 
-**No Breaking Changes Identified**
+2. **Backend Handler**: [settings_handler.go](../../backend/internal/api/handlers/settings_handler.go#L109-L136)
+   - `UpdateSMTPConfig()` receives the request
+   - Calls `h.MailService.SaveSMTPConfig(config)`
 
-The 1.7.5 release contains no API-breaking changes. All modifications are:
-- Internal refactoring
-- Bug fixes
-- Dependency updates
-- CI/CD improvements
+3. **Mail Service**: [mail_service.go](../../backend/internal/services/mail_service.go#L117-L144)
+   - `SaveSMTPConfig()` uses upsert pattern
+   - **POTENTIAL BUG**: Uses `First()` then conditional `Create()`/`Updates()` separately
+
+**Root Cause Hypothesis**:
+The `SaveSMTPConfig` method has a problematic upsert pattern:
+```go
+// Current pattern in mail_service.go lines 127-143:
+result := s.db.Where("key = ?", key).First(&models.Setting{})
+if result.Error == gorm.ErrRecordNotFound {
+    s.db.Create(&setting)  // Creates new
+} else {
+    s.db.Model(&models.Setting{}).Where("key = ?", key).Updates(...)  // Updates existing
+}
+```
+
+**Issues identified**:
+1. No transaction wrapping - partial failures possible
+2. `Updates()` with map may not update all fields correctly
+3. If `First()` returns error other than `ErrRecordNotFound`, the else branch runs but may not execute correctly
+4. Race condition between read and write operations
 
 ---
 
-## 2. Current Charon CrowdSec Integration Analysis
+## Implementation Plan
 
-### 2.1 Integration Points
+### Task 1: Implement NPM Import Backend Handler
 
-| Component | Location | Description |
-|-----------|----------|-------------|
-| **Core Package** | [backend/internal/crowdsec/](backend/internal/crowdsec/) | CrowdSec integration library |
-| **API Handler** | [backend/internal/api/handlers/crowdsec_handler.go](backend/internal/api/handlers/crowdsec_handler.go) | REST API endpoints |
-| **Startup Service** | [backend/internal/services/crowdsec_startup.go](backend/internal/services/) | Initialization logic |
-| **Dockerfile** | [Dockerfile](../../Dockerfile) (lines 199-290) | Source build configuration |
+**File**: `backend/internal/api/handlers/npm_import_handler.go` (NEW)
 
-### 2.2 Key Files in crowdsec Package
+#### 1.1 Create NPM Parser Model
 
-| File | Purpose | Functions to Verify |
-|------|---------|---------------------|
-| `registration.go` | Bouncer registration, LAPI health | `EnsureBouncerRegistered`, `CheckLAPIHealth`, `GetLAPIVersion` |
-| `hub_sync.go` | Hub index fetching, preset pull/apply | `FetchIndex`, `Pull`, `Apply`, `extractTarGz` |
-| `hub_cache.go` | Preset caching with TTL | `Store`, `Load`, `Evict` |
-| `console_enroll.go` | Console enrollment | `Enroll`, `Status`, `checkLAPIAvailable` |
-| `presets.go` | Curated preset definitions | `ListCuratedPresets`, `FindPreset` |
+```go
+// NPMExport represents the Nginx Proxy Manager export format
+type NPMExport struct {
+    ProxyHosts   []NPMProxyHost   `json:"proxy_hosts"`
+    AccessLists  []NPMAccessList  `json:"access_lists"`
+    Certificates []NPMCertificate `json:"certificates"`
+}
 
-### 2.3 Handler Functions (crowdsec_handler.go)
+type NPMProxyHost struct {
+    DomainNames     []string `json:"domain_names"`
+    ForwardScheme   string   `json:"forward_scheme"`
+    ForwardHost     string   `json:"forward_host"`
+    ForwardPort     int      `json:"forward_port"`
+    CachingEnabled  bool     `json:"caching_enabled"`
+    BlockExploits   bool     `json:"block_exploits"`
+    AllowWebsocket  bool     `json:"allow_websocket_upgrade"`
+    HTTP2Support    bool     `json:"http2_support"`
+    HSTSEnabled     bool     `json:"hsts_enabled"`
+    HSTSSubdomains  bool     `json:"hsts_subdomains"`
+    SSLForced       bool     `json:"ssl_forced"`
+    Enabled         bool     `json:"enabled"`
+}
 
-| Handler | Line | API Endpoint |
-|---------|------|--------------|
-| `Start` | 188 | POST /api/crowdsec/start |
-| `Stop` | 290 | POST /api/crowdsec/stop |
-| `Status` | 317 | GET /api/crowdsec/status |
-| `ImportConfig` | 346 | POST /api/crowdsec/import |
-| `ExportConfig` | 417 | GET /api/crowdsec/export |
-| `ListFiles` | 486 | GET /api/crowdsec/files |
-| `ReadFile` | 513 | GET /api/crowdsec/files/:path |
-| `WriteFile` | 540 | PUT /api/crowdsec/files/:path |
-| `ListPresets` | 580 | GET /api/crowdsec/presets |
-| `PullPreset` | 662 | POST /api/crowdsec/presets/:slug/pull |
-| `ApplyPreset` | 748 | POST /api/crowdsec/presets/:slug/apply |
-| `ConsoleEnroll` | 876 | POST /api/crowdsec/console/enroll |
-| `ConsoleStatus` | 932 | GET /api/crowdsec/console/status |
-| `DeleteConsoleEnrollment` | 954 | DELETE /api/crowdsec/console/enrollment |
-| `GetCachedPreset` | 975 | GET /api/crowdsec/presets/:slug |
-| `GetLAPIDecisions` | 1077 | GET /api/crowdsec/lapi/decisions |
-| `CheckLAPIHealth` | 1231 | GET /api/crowdsec/lapi/health |
+type NPMAccessList struct {
+    Name   string         `json:"name"`
+    Items  []NPMAccessItem `json:"items"`
+}
 
-### 2.4 Docker Configuration
+type NPMAccessItem struct {
+    Type    string `json:"type"`  // "allow" or "deny"
+    Address string `json:"address"`
+}
 
-**Dockerfile CrowdSec Section** (lines 199-290):
-- Current version: `CROWDSEC_VERSION=1.7.4`
-- Build method: Source compilation with Go 1.25.6
-- Dependency patches applied:
-  - `github.com/expr-lang/expr@v1.17.7`
-  - `golang.org/x/crypto@v0.46.0`
-- Fix for expr-lang v1.17.7 compatibility (sed replacement)
+type NPMCertificate struct {
+    NiceName    string   `json:"nice_name"`
+    DomainNames []string `json:"domain_names"`
+    Provider    string   `json:"provider"`
+}
+```
 
-**Docker Compose Files**:
-- `.docker/compose/docker-compose.yml` - Production config with crowdsec_data volume
-- `.docker/compose/docker-compose.local.yml` - Local development
-- `.docker/compose/docker-compose.playwright.yml` - E2E testing (crowdsec disabled)
+#### 1.2 Create NPM Import Handler
+
+**File**: `backend/internal/api/handlers/npm_import_handler.go`
+
+```go
+package handlers
+
+import (
+    "encoding/json"
+    "net/http"
+    "strings"
+
+    "github.com/gin-gonic/gin"
+    "github.com/google/uuid"
+    "gorm.io/gorm"
+
+    "github.com/Wikid82/charon/backend/internal/caddy"
+    "github.com/Wikid82/charon/backend/internal/models"
+    "github.com/Wikid82/charon/backend/internal/services"
+)
+
+type NPMImportHandler struct {
+    db           *gorm.DB
+    proxyHostSvc *services.ProxyHostService
+}
+
+func NewNPMImportHandler(db *gorm.DB) *NPMImportHandler {
+    return &NPMImportHandler{
+        db:           db,
+        proxyHostSvc: services.NewProxyHostService(db),
+    }
+}
+
+func (h *NPMImportHandler) RegisterRoutes(router *gin.RouterGroup) {
+    router.POST("/import/npm/upload", h.Upload)
+    router.POST("/import/npm/commit", h.Commit)
+}
+
+// Upload handles NPM export JSON upload and returns preview
+func (h *NPMImportHandler) Upload(c *gin.Context) {
+    var req struct {
+        Content string `json:"content" binding:"required"`
+    }
+
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // Parse NPM export JSON
+    var npmExport NPMExport
+    if err := json.Unmarshal([]byte(req.Content), &npmExport); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid NPM export JSON"})
+        return
+    }
+
+    // Convert to internal format
+    result := h.convertNPMToImportResult(npmExport)
+
+    // Check for conflicts with existing hosts
+    existingHosts, _ := h.proxyHostSvc.List()
+    existingDomainsMap := make(map[string]models.ProxyHost)
+    for _, eh := range existingHosts {
+        existingDomainsMap[eh.DomainNames] = eh
+    }
+
+    conflictDetails := make(map[string]gin.H)
+    for _, ph := range result.Hosts {
+        if existing, found := existingDomainsMap[ph.DomainNames]; found {
+            result.Conflicts = append(result.Conflicts, ph.DomainNames)
+            conflictDetails[ph.DomainNames] = gin.H{
+                "existing": gin.H{
+                    "forward_scheme": existing.ForwardScheme,
+                    "forward_host":   existing.ForwardHost,
+                    "forward_port":   existing.ForwardPort,
+                },
+                "imported": gin.H{
+                    "forward_scheme": ph.ForwardScheme,
+                    "forward_host":   ph.ForwardHost,
+                    "forward_port":   ph.ForwardPort,
+                },
+            }
+        }
+    }
+
+    sid := uuid.NewString()
+    c.JSON(http.StatusOK, gin.H{
+        "session":          gin.H{"id": sid, "state": "transient", "source": "npm"},
+        "conflict_details": conflictDetails,
+        "preview":          result,
+    })
+}
+
+func (h *NPMImportHandler) convertNPMToImportResult(export NPMExport) *caddy.ImportResult {
+    result := &caddy.ImportResult{
+        Hosts:     []caddy.ParsedHost{},
+        Conflicts: []string{},
+        Errors:    []string{},
+    }
+
+    for _, proxy := range export.ProxyHosts {
+        // Join domain names with comma for storage
+        domains := strings.Join(proxy.DomainNames, ", ")
+
+        host := caddy.ParsedHost{
+            DomainNames:      domains,
+            ForwardScheme:    proxy.ForwardScheme,
+            ForwardHost:      proxy.ForwardHost,
+            ForwardPort:      proxy.ForwardPort,
+            SSLForced:        proxy.SSLForced,
+            WebsocketSupport: proxy.AllowWebsocket,
+        }
+
+        if host.ForwardScheme == "" {
+            host.ForwardScheme = "http"
+        }
+        if host.ForwardPort == 0 {
+            host.ForwardPort = 80
+        }
+
+        result.Hosts = append(result.Hosts, host)
+    }
+
+    return result
+}
+```
+
+#### 1.3 Register NPM Import Routes
+
+**File**: `backend/internal/api/routes/routes.go`
+
+Add to the `Register` function:
+```go
+// NPM Import Handler
+npmImportHandler := handlers.NewNPMImportHandler(db)
+npmImportHandler.RegisterRoutes(api)
+```
+
+### Task 2: Implement JSON Import Backend Handler
+
+**File**: `backend/internal/api/handlers/json_import_handler.go` (NEW)
+
+The JSON import handler will accept a generic Charon export format:
+
+```go
+package handlers
+
+// CharonExport represents a generic Charon configuration export
+type CharonExport struct {
+    Version     string              `json:"version"`
+    ExportedAt  string              `json:"exported_at"`
+    ProxyHosts  []CharonProxyHost   `json:"proxy_hosts"`
+    AccessLists []CharonAccessList  `json:"access_lists"`
+    DNSRecords  []CharonDNSRecord   `json:"dns_records"`
+}
+
+type JSONImportHandler struct {
+    db           *gorm.DB
+    proxyHostSvc *services.ProxyHostService
+}
+
+func NewJSONImportHandler(db *gorm.DB) *JSONImportHandler {
+    return &JSONImportHandler{
+        db:           db,
+        proxyHostSvc: services.NewProxyHostService(db),
+    }
+}
+
+func (h *JSONImportHandler) RegisterRoutes(router *gin.RouterGroup) {
+    router.POST("/import/json/upload", h.Upload)
+    router.POST("/import/json/commit", h.Commit)
+}
+
+// Upload validates and previews JSON import
+func (h *JSONImportHandler) Upload(c *gin.Context) {
+    var req struct {
+        Content string `json:"content" binding:"required"`
+    }
+
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // Try to parse as Charon export format
+    var charonExport CharonExport
+    if err := json.Unmarshal([]byte(req.Content), &charonExport); err != nil {
+        // Fallback: try NPM format
+        var npmExport NPMExport
+        if err := json.Unmarshal([]byte(req.Content), &npmExport); err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{
+                "error": "Invalid JSON format. Expected Charon or NPM export format.",
+            })
+            return
+        }
+        // Convert NPM to import result
+        // ... (similar to NPM handler)
+    }
+
+    // Convert Charon export to import result
+    result := h.convertCharonToImportResult(charonExport)
+    // ... (conflict checking and response)
+}
+```
+
+### Task 3: Implement Frontend Routes
+
+#### 3.1 Create ImportNPM Page
+
+**File**: `frontend/src/pages/ImportNPM.tsx` (NEW)
+
+```tsx
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import { useNPMImport } from '../hooks/useNPMImport'
+import ImportReviewTable from '../components/ImportReviewTable'
+import ImportSuccessModal from '../components/dialogs/ImportSuccessModal'
+
+export default function ImportNPM() {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const { preview, loading, error, upload, commit, commitResult, clearCommitResult } = useNPMImport()
+  const [content, setContent] = useState('')
+  const [showReview, setShowReview] = useState(false)
+  const [showSuccessModal, setShowSuccessModal] = useState(false)
+
+  const handleUpload = async () => {
+    if (!content.trim()) {
+      alert(t('importNPM.enterContent'))
+      return
+    }
+
+    // Validate JSON
+    try {
+      JSON.parse(content)
+    } catch {
+      alert(t('importNPM.invalidJSON'))
+      return
+    }
+
+    try {
+      await upload(content)
+      setShowReview(true)
+    } catch {
+      // Error handled by hook
+    }
+  }
+
+  // ... (rest follows ImportCaddy pattern)
+
+  return (
+    <div className="p-8">
+      <h1 className="text-3xl font-bold text-white mb-6">{t('importNPM.title')}</h1>
+      {/* Similar UI to ImportCaddy but for JSON input */}
+    </div>
+  )
+}
+```
+
+#### 3.2 Create ImportJSON Page
+
+**File**: `frontend/src/pages/ImportJSON.tsx` (NEW)
+
+Similar structure to ImportNPM, but handles generic JSON/Charon export format.
+
+#### 3.3 Add Frontend Routes
+
+**File**: `frontend/src/App.tsx`
+
+Add to the Tasks routes section:
+```tsx
+<Route path="import">
+  <Route path="caddyfile" element={<ImportCaddy />} />
+  <Route path="crowdsec" element={<ImportCrowdSec />} />
+  <Route path="npm" element={<ImportNPM />} />
+  <Route path="json" element={<ImportJSON />} />
+</Route>
+```
+
+#### 3.4 Add Navigation Items
+
+**File**: `frontend/src/components/Layout.tsx`
+
+Add to the import submenu:
+```tsx
+{ name: t('navigation.npm'), path: '/tasks/import/npm', icon: '📦' },
+{ name: t('navigation.json'), path: '/tasks/import/json', icon: '📄' },
+```
+
+### Task 4: Fix SMTP Persistence Bug
+
+**File**: `backend/internal/services/mail_service.go`
+
+#### 4.1 Fix the Upsert Pattern
+
+Replace the `SaveSMTPConfig` method (lines ~117-144):
+
+```go
+// SaveSMTPConfig saves SMTP settings to the database using proper upsert pattern.
+func (s *MailService) SaveSMTPConfig(config *SMTPConfig) error {
+    settings := map[string]string{
+        "smtp_host":         config.Host,
+        "smtp_port":         fmt.Sprintf("%d", config.Port),
+        "smtp_username":     config.Username,
+        "smtp_password":     config.Password,
+        "smtp_from_address": config.FromAddress,
+        "smtp_encryption":   config.Encryption,
+    }
+
+    // Use a transaction for atomic updates
+    return s.db.Transaction(func(tx *gorm.DB) error {
+        for key, value := range settings {
+            var existing models.Setting
+            result := tx.Where("key = ?", key).First(&existing)
+
+            if result.Error == gorm.ErrRecordNotFound {
+                // Create new setting
+                setting := models.Setting{
+                    Key:      key,
+                    Value:    value,
+                    Type:     "string",
+                    Category: "smtp",
+                }
+                if err := tx.Create(&setting).Error; err != nil {
+                    return fmt.Errorf("failed to create setting %s: %w", key, err)
+                }
+            } else if result.Error == nil {
+                // Update existing setting - use Save() instead of Updates()
+                existing.Value = value
+                existing.Category = "smtp"
+                if err := tx.Save(&existing).Error; err != nil {
+                    return fmt.Errorf("failed to update setting %s: %w", key, err)
+                }
+            } else {
+                return fmt.Errorf("failed to query setting %s: %w", key, result.Error)
+            }
+        }
+        return nil
+    })
+}
+```
+
+**Key Changes**:
+1. Wrapped in transaction for atomicity
+2. Using `Save()` instead of `Updates()` for reliable updates
+3. Proper error handling for all cases
+4. Modifying the fetched struct directly before saving
 
 ---
 
-## 3. Verification Checklist
+## API Contracts
 
-### 3.1 Pre-Upgrade Verification
+### NPM Import Upload
 
-- [ ] **Backup current state**
-  - Export current CrowdSec configuration
-  - Document current bouncer registrations
-  - Note current LAPI version from `/api/crowdsec/lapi/health`
+**Endpoint**: `POST /api/v1/import/npm/upload`
 
-- [ ] **Review dependency patches**
-  - Verify if `expr-lang@v1.17.7` patch is still needed (1.7.5 updates to 1.17.7)
-  - Check if `golang.org/x/crypto@v0.46.0` is still required
-
-### 3.2 Dockerfile Update Checklist
-
-- [ ] Update `CROWDSEC_VERSION=1.7.5` on line 213
-- [ ] Update `CROWDSEC_VERSION=1.7.5` on line 267 (fallback stage)
-- [ ] Verify expr-lang patch compatibility (line 228-235)
-- [ ] Test multi-arch build (amd64, arm64)
-
-### 3.3 Build Verification
-
-```bash
-# Build CrowdSec builder stage
-docker build --target crowdsec-builder -t charon-crowdsec-test:1.7.5 .
-
-# Verify binaries
-docker run --rm charon-crowdsec-test:1.7.5 /crowdsec-out/cscli version
-docker run --rm charon-crowdsec-test:1.7.5 /crowdsec-out/crowdsec -version
-
-# Full image build
-docker build -t charon:1.7.5-test .
+**Request**:
+```json
+{
+  "content": "{\"proxy_hosts\": [...], \"access_lists\": [], \"certificates\": []}"
+}
 ```
 
-### 3.4 Unit Test Verification
-
-Run all CrowdSec-related tests:
-
-```bash
-# Core package tests
-cd backend && go test -v -race ./internal/crowdsec/...
-
-# Handler tests
-go test -v -race ./internal/api/handlers/... -run "Crowdsec"
-
-# Startup tests
-go test -v -race ./internal/services/... -run "Crowdsec"
+**Response** (200 OK):
+```json
+{
+  "session": {
+    "id": "uuid-string",
+    "state": "transient",
+    "source": "npm"
+  },
+  "preview": {
+    "hosts": [
+      {
+        "domain_names": "test.example.com",
+        "forward_scheme": "http",
+        "forward_host": "192.168.1.100",
+        "forward_port": 80,
+        "ssl_forced": false,
+        "websocket_support": false
+      }
+    ],
+    "conflicts": [],
+    "errors": []
+  },
+  "conflict_details": {}
+}
 ```
 
-**Test Files to Execute**:
-| Test File | Purpose |
-|-----------|---------|
-| `hub_sync_test.go` | Hub fetching and preset application |
-| `hub_cache_test.go` | Cache TTL and eviction |
-| `registration_test.go` | Bouncer registration |
-| `console_enroll_test.go` | Console enrollment |
-| `presets_test.go` | Curated preset definitions |
-| `crowdsec_handler_test.go` | Handler integration |
-| `crowdsec_lapi_test.go` | LAPI communication |
-| `crowdsec_decisions_test.go` | Decision handling |
-| `crowdsec_startup_test.go` | Service startup |
+### JSON Import Upload
 
-### 3.5 Integration Test Verification
+**Endpoint**: `POST /api/v1/import/json/upload`
 
-```bash
-# Run integration tests
-cd backend && go test -v -tags=integration ./integration/... -run "Crowdsec"
-
-# Run via task
-make integration-crowdsec
+**Request**:
+```json
+{
+  "content": "{\"version\": \"1.0\", \"proxy_hosts\": [...]}"
+}
 ```
 
-### 3.6 E2E Test Verification
+**Response**: Same structure as NPM import.
 
-**Test Files**:
-| Test File | Status | Purpose |
-|-----------|--------|---------||
-| `tests/security/crowdsec-config.spec.ts` | Active | CrowdSec configuration UI tests |
-| `tests/security/crowdsec-decisions.spec.ts` | Skipped | LAPI decisions tests (requires running CrowdSec) |
+### Import Commit (shared)
 
-> **Note**: `crowdsec-decisions.spec.ts` is currently skipped as it requires a running CrowdSec instance with LAPI enabled. These tests run in CI with full infrastructure.
+**Endpoint**: `POST /api/v1/import/npm/commit` or `POST /api/v1/import/json/commit`
 
-```bash
-# Run Playwright E2E tests (via skill runner - recommended)
-.github/skills/scripts/skill-runner.sh test-e2e-playwright
-
-# Or run specific test files
-npx playwright test --project=chromium tests/security/crowdsec-config.spec.ts
+**Request**:
+```json
+{
+  "session_uuid": "uuid-string",
+  "resolutions": {
+    "example.com": "overwrite",
+    "test.com": "skip"
+  },
+  "names": {
+    "example.com": "My Example Site"
+  }
+}
 ```
 
-### 3.7 Functional Verification Matrix
-
-| Feature | Test Method | Expected Outcome |
-|---------|-------------|------------------|
-| **LAPI Health** | GET `/api/crowdsec/lapi/health` | Returns version "1.7.5" |
-| **Start/Stop** | POST `/api/crowdsec/start`, `/stop` | Process starts/stops cleanly |
-| **Status Check** | GET `/api/crowdsec/status` | Returns running state and PID |
-| **Hub Index Fetch** | GET `/api/crowdsec/presets` | Returns preset list |
-| **Preset Pull** | POST `/api/crowdsec/presets/base-http-scenarios/pull` | Downloads and caches preset |
-| **Preset Apply** | POST `/api/crowdsec/presets/base-http-scenarios/apply` | Applies preset configuration |
-| **Console Enroll** | POST `/api/crowdsec/console/enroll` | Sends enrollment request |
-| **LAPI Decisions** | GET `/api/crowdsec/lapi/decisions` | Returns decision list |
-| **Bouncer Registration** | Automatic on start | API key retrieved/generated |
-
-### 3.8 Dependency Patch Verification
-
-CrowdSec 1.7.5 includes `expr-lang/expr@v1.17.7` natively. Test whether the Dockerfile patch can be removed.
-
-**Verification Steps**:
-
-1. [ ] **Test WITHOUT expr-lang patch**:
-   ```bash
-   # Temporarily comment out expr-lang patch in Dockerfile (lines 225-229)
-   # Build and run tests
-   docker build --target crowdsec-builder -t charon-crowdsec-no-patch:test .
-   docker run --rm charon-crowdsec-no-patch:test /crowdsec-out/cscli version
-   ```
-
-2. [ ] **If build succeeds without patch**:
-   - Remove `go get github.com/expr-lang/expr@v1.17.7` line
-   - Remove the `sed` fix for `program.Source().String()` if not needed
-   - Keep `golang.org/x/crypto@v0.46.0` patch for security
-
-3. [ ] **If build fails without patch**:
-   - Retain the patch with updated comment noting it's still required
-   - Document the specific error for future reference
-
-4. [ ] **Validation**:
-   - Run full test suite after patch removal
-   - Verify no regression in CrowdSec functionality
-
----
-
-## 4. Test Scenarios
-
-### 4.1 Upgrade Smoke Test
-
-```
-WHEN the Docker image is built with CROWDSEC_VERSION=1.7.5
-THEN the cscli version command reports v1.7.5
-AND the crowdsec binary starts successfully
-AND the LAPI health endpoint responds
-```
-
-### 4.2 Hub Sync Compatibility
-
-```
-WHEN hub index is fetched after upgrade
-THEN the index format is parsed correctly
-AND preset pull operations complete successfully
-AND preset apply operations complete without errors
-```
-
-### 4.3 Console Enrollment Stability
-
-```
-WHEN console enrollment is attempted after upgrade
-THEN LAPI availability check succeeds
-AND CAPI registration works if needed
-AND enrollment request is sent successfully
-```
-
-### 4.4 Decision API Compatibility
-
-```
-WHEN LAPI decisions are queried after upgrade
-THEN the response format is unchanged
-AND decisions are correctly parsed
-AND filtering by scope/type works
-```
-
-### 4.5 Bouncer Registration
-
-```
-WHEN a new bouncer is registered after upgrade
-THEN cscli bouncers add command succeeds
-AND the bouncer appears in cscli bouncers list
-AND the API key is correctly returned
+**Response**:
+```json
+{
+  "created": 5,
+  "updated": 2,
+  "skipped": 1,
+  "errors": []
+}
 ```
 
 ---
 
-## 5. Rollback Plan
+## Files to Create/Modify
 
-### 5.1 Quick Rollback
+### New Files
 
-If issues are encountered after upgrade:
+| File | Purpose |
+|------|---------|
+| `backend/internal/api/handlers/npm_import_handler.go` | NPM import handler |
+| `backend/internal/api/handlers/npm_import_handler_test.go` | Unit tests |
+| `backend/internal/api/handlers/json_import_handler.go` | JSON import handler |
+| `backend/internal/api/handlers/json_import_handler_test.go` | Unit tests |
+| `frontend/src/pages/ImportNPM.tsx` | NPM import page |
+| `frontend/src/pages/ImportJSON.tsx` | JSON import page |
+| `frontend/src/hooks/useNPMImport.ts` | NPM import hook |
+| `frontend/src/hooks/useJSONImport.ts` | JSON import hook |
+| `frontend/src/api/npmImport.ts` | NPM import API client |
+| `frontend/src/api/jsonImport.ts` | JSON import API client |
 
-1. **Revert Dockerfile**:
-   ```bash
-   git checkout HEAD~1 -- Dockerfile
-   ```
+### Modified Files
 
-2. **Rebuild with previous version**:
-   ```bash
-   docker build --build-arg CROWDSEC_VERSION=1.7.4 -t charon:rollback .
-   ```
-
-3. **Redeploy**:
-   ```bash
-   docker-compose -f .docker/compose/docker-compose.yml down
-   docker-compose -f .docker/compose/docker-compose.yml up -d
-   ```
-
-### 5.2 Data Preservation
-
-The `crowdsec_data` volume contains:
-- Configuration files
-- Acquired scenarios and parsers
-- Decision database
-- Bouncer registrations
-
-This volume persists across container recreations, ensuring data is preserved during rollback.
-
----
-
-## 6. Files Requiring Updates
-
-### 6.1 Must Update
-
-| File | Line(s) | Change |
-|------|---------|--------|
-| `Dockerfile` | 213 | `CROWDSEC_VERSION=1.7.4` → `1.7.5` |
-| `Dockerfile` | 267 | `CROWDSEC_VERSION=1.7.4` → `1.7.5` |
-
-### 6.2 May Require Review
-
-| File | Reason |
+| File | Change |
 |------|--------|
-| `Dockerfile` (lines 228-235) | Verify expr-lang patch still needed |
-| `docs/plans/crowdsec_source_build.md` | Update version reference |
-| `docs/implementation/QUICK_FIX_SUPPLY_CHAIN.md` | Update version reference |
-
-### 6.3 No Changes Required (Verified Compatible)
-
-| File | Reason |
-|------|--------|
-| `backend/internal/crowdsec/*.go` | No API changes in 1.7.5 |
-| `backend/internal/api/handlers/crowdsec_handler.go` | No API changes |
-| `.docker/compose/*.yml` | Volume/env unchanged |
+| `backend/internal/api/routes/routes.go` | Register new import handlers |
+| `backend/internal/services/mail_service.go` | Fix SMTP upsert pattern (lines ~117-144) |
+| `frontend/src/App.tsx` | Add new routes (around line 113) |
+| `frontend/src/components/Layout.tsx` | Add navigation items (around line 102) |
+| `frontend/src/locales/en/translation.json` | Add i18n keys |
 
 ---
 
-## 7. Dependency Analysis
+## Tests to Re-enable
 
-### 7.1 Current Dockerfile Patches
+After implementation, update these tests by removing `test.skip`:
 
-```dockerfile
-# Dockerfile lines 225-229
-RUN go get github.com/expr-lang/expr@v1.17.7 && \
-    go get golang.org/x/crypto@v0.46.0 && \
-    go mod tidy
+### import-to-production.spec.ts
+
+| Line | Test Name | Condition |
+|------|-----------|-----------|
+| 172 | `should display NPM import page` | NPM route exists |
+| 188 | `should parse NPM export JSON` | NPM route exists |
+| 204 | `should preview NPM import results` | NPM route exists |
+| 220 | `should import NPM proxy hosts and access lists` | NPM route exists |
+| 246 | `should display JSON import page` | JSON route exists |
+| 262 | `should validate JSON schema before import` | JSON route exists |
+
+### smtp-settings.spec.ts
+
+| Line | Test Name | Condition |
+|------|-----------|-----------|
+| 336 | `should update existing SMTP configuration` | SMTP persistence fixed |
+
+---
+
+## Verification Steps
+
+### Backend Verification
+
+1. **Unit Tests**:
+   ```bash
+   go test ./backend/internal/api/handlers/... -run "NPM|JSON" -v
+   go test ./backend/internal/services/... -run "SMTP" -v
+   ```
+
+2. **API Integration Tests**:
+   ```bash
+   # NPM Import
+   curl -X POST http://localhost:8080/api/v1/import/npm/upload \
+     -H "Content-Type: application/json" \
+     -H "Cookie: <auth-cookie>" \
+     -d '{"content": "{\"proxy_hosts\": [{\"domain_names\": [\"test.com\"], \"forward_host\": \"localhost\", \"forward_port\": 80}]}"}'
+
+   # SMTP Persistence
+   curl -X POST http://localhost:8080/api/v1/settings/smtp \
+     -H "Content-Type: application/json" \
+     -H "Cookie: <auth-cookie>" \
+     -d '{"host": "smtp.test.local", "port": 587, "from_address": "test@test.local", "encryption": "starttls"}'
+
+   curl http://localhost:8080/api/v1/settings/smtp -H "Cookie: <auth-cookie>"
+   # Should return saved values
+   ```
+
+### Frontend Verification
+
+1. Navigate to `/tasks/import/npm` - page should load
+2. Navigate to `/tasks/import/json` - page should load
+3. Paste valid NPM export JSON - should show preview
+4. Save SMTP settings, reload page - values should persist
+
+### E2E Verification
+
+```bash
+# Run the import tests
+npx playwright test tests/integration/import-to-production.spec.ts --project=chromium
+
+# Run SMTP test
+npx playwright test tests/settings/smtp-settings.spec.ts -g "should update existing SMTP configuration" --project=chromium
 ```
 
-**1.7.5 Status**:
-- CrowdSec 1.7.5 already includes `expr@v1.17.7` ([#4150](https://github.com/crowdsecurity/crowdsec/pull/4150))
-- The `expr-lang` patch **may be removable** - verify during testing
-- The `golang.org/x/crypto` patch should remain for security
+---
 
-### 7.2 Compatibility Fix
+## Implementation Checklist
 
-```dockerfile
-# Dockerfile lines 232-235
-RUN sed -i 's/string(program\.Source())/program.Source().String()/g' pkg/exprhelpers/debugger.go
-```
+### Phase 3.1: NPM Import (Backend)
+- [x] Create `NPMExport` and related structs
+- [x] Create `npm_import_handler.go` with Upload and Commit handlers
+- [x] Create `npm_import_handler_test.go` with unit tests
+- [x] Register routes in `routes.go`
+- [x] Test API endpoints manually
 
-**Verification Needed**: Check if this fix is still required in 1.7.5
+### Phase 3.2: JSON Import (Backend)
+- [x] Create `CharonExport` struct
+- [x] Create `json_import_handler.go` with Upload and Commit handlers
+- [x] Create `json_import_handler_test.go` with unit tests
+- [x] Register routes in `routes.go`
+- [x] Test API endpoints manually
+
+### Phase 3.3: SMTP Persistence Fix
+- [x] Update `SaveSMTPConfig` in `mail_service.go`
+- [x] Add transaction-based upsert pattern
+- [x] Update `mail_service_test.go` with persistence test
+- [x] Verify fix with manual testing
+
+### Phase 3.4: Frontend Routes
+- [x] Create `ImportNPM.tsx` page component
+- [x] Create `ImportJSON.tsx` page component
+- [x] Create `useNPMImport.ts` hook
+- [x] Create `useJSONImport.ts` hook
+- [x] Create API client files
+- [x] Add routes to `App.tsx`
+- [x] Add navigation items to `Layout.tsx`
+- [x] Add i18n translation keys
+
+### Phase 3.5: Test Re-enablement
+- [x] Remove `test.skip` from NPM import tests (4 tests)
+- [x] Remove `test.skip` from JSON import tests (2 tests)
+- [x] Remove `test.skip` from SMTP persistence test (1 test)
+- [x] Run full E2E test suite
+
+### Phase 3.6: Verification
+- [x] All new tests pass (7 tests enabled and passing)
+- [x] No regressions in existing tests
+- [x] Update `skipped-tests-remediation.md` with Phase 3 completion
 
 ---
 
-## 8. Implementation Steps
-
-### Phase 1: Preparation
-
-1. [ ] Create feature branch: `feature/crowdsec-1.7.5-upgrade`
-2. [ ] Run current test suite to establish baseline
-3. [ ] Document current LAPI version and status
-
-### Phase 2: Update
-
-4. [ ] Update Dockerfile with version 1.7.5
-5. [ ] Test build locally (amd64)
-6. [ ] Test build for arm64 (if available)
-7. [ ] Verify binaries report correct version
-
-### Phase 3: Verification
-
-8. [ ] Run E2E tests first: `.github/skills/scripts/skill-runner.sh test-e2e-playwright`
-9. [ ] Run integration tests: `make integration-crowdsec`
-10. [ ] Run unit tests: `make test-backend`
-11. [ ] Run coverage verification: `make test-backend-coverage`
-12. [ ] Manual API verification using functional matrix
-
-### Phase 4: Documentation
-
-12. [ ] Update version references in documentation
-13. [ ] Update CHANGELOG.md
-14. [ ] Create PR with test results
-
-### Phase 5: Deployment
-
-15. [ ] Merge to main
-16. [ ] Monitor CI/CD pipeline
-17. [ ] Verify production deployment
-18. [ ] Monitor logs for any CrowdSec errors
-
----
-
-## 9. Acceptance Criteria
-
-The upgrade is considered successful when:
-
-- [ ] All unit tests pass
-- [ ] All integration tests pass
-- [ ] All E2E tests pass
-- [ ] LAPI reports version 1.7.5
-- [ ] Start/Stop operations work correctly
-- [ ] Hub preset operations complete successfully
-- [ ] Console enrollment works (if applicable)
-- [ ] No new errors in application logs
-- [ ] Docker image builds successfully for amd64 and arm64
-- [ ] Coverage report generated
-- [ ] Coverage threshold ≥85% maintained
-- [ ] Patch coverage 100% for Dockerfile modifications
-- [ ] No new CodeQL alerts introduced
-
----
-
-## 10. Risk Assessment
+## Risk Assessment
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
-| Build failure | Low | Medium | Fallback stage in Dockerfile |
-| API incompatibility | Very Low | High | Comprehensive test coverage |
-| Performance regression | Low | Medium | Monitor via observability |
-| expr-lang patch conflict | Low | Low | Test without patch first |
-| Skipped E2E tests miss regression | Medium | Medium | Integration tests cover LAPI; CI runs full suite |
-
-**Overall Risk Level**: **LOW**
-
-The 1.7.5 release is a maintenance update with no breaking changes. The comprehensive test coverage in Charon provides high confidence in upgrade success.
+| NPM export format varies by version | Medium | Medium | Support multiple format versions, validate required fields |
+| SMTP fix causes other issues | Low | High | Transaction-based approach is safer, comprehensive tests |
+| Frontend state management complexity | Low | Low | Follow existing ImportCaddy pattern exactly |
 
 ---
 
-## Appendix A: Quick Reference Commands
+## Dependencies
 
-```bash
-# Build and test
-make docker-build
-make test-backend
-make test-crowdsec
-
-# Run specific test files
-cd backend && go test -v ./internal/crowdsec/... -run TestHub
-cd backend && go test -v ./internal/crowdsec/... -run TestConsole
-cd backend && go test -v ./internal/crowdsec/... -run TestRegistration
-
-# Integration tests
-.github/skills/scripts/skill-runner.sh integration-crowdsec
-
-# E2E tests
-npx playwright test --project=chromium
-
-# Check CrowdSec version in container
-docker exec charon cscli version
-docker exec charon curl -s http://127.0.0.1:8085/health
-
-# LAPI health check
-curl http://localhost:8080/api/crowdsec/lapi/health
-```
+- Phase 2 completion (TestDataManager auth fix) - **COMPLETE**
+- Existing Caddyfile import infrastructure - **AVAILABLE**
+- Frontend React component patterns - **AVAILABLE**
 
 ---
 
-## Appendix B: Related Documentation
+## Summary for Delegation
 
-- [CrowdSec 1.7.5 Release Notes](https://github.com/crowdsecurity/crowdsec/releases/tag/v1.7.5)
-- [CrowdSec Source Build Plan](crowdsec_source_build.md)
-- [Supply Chain Remediation](../implementation/SUPPLY_CHAIN_REMEDIATION_PLAN.md)
-- [Charon Security Documentation](../../SECURITY.md)
+### For Backend_Dev Agent:
+
+**Task 1: NPM Import Handler**
+- Create file: `backend/internal/api/handlers/npm_import_handler.go`
+- Implement structs: `NPMExport`, `NPMProxyHost`, `NPMAccessList`, `NPMCertificate`
+- Implement handlers: `Upload()`, `Commit()`
+- Register in: `backend/internal/api/routes/routes.go`
+
+**Task 2: JSON Import Handler**
+- Create file: `backend/internal/api/handlers/json_import_handler.go`
+- Implement structs: `CharonExport`, `CharonProxyHost`
+- Implement handlers: `Upload()`, `Commit()` (with NPM format fallback)
+- Register in: `backend/internal/api/routes/routes.go`
+
+**Task 3: SMTP Fix**
+- File: `backend/internal/services/mail_service.go`
+- Function: `SaveSMTPConfig()` (lines ~117-144)
+- Fix: Wrap in transaction, use `Save()` instead of `Updates()`
+
+### For Frontend_Dev Agent:
+
+**Task 4: Frontend Routes**
+- Create: `frontend/src/pages/ImportNPM.tsx`
+- Create: `frontend/src/pages/ImportJSON.tsx`
+- Create: `frontend/src/hooks/useNPMImport.ts`
+- Create: `frontend/src/hooks/useJSONImport.ts`
+- Create: `frontend/src/api/npmImport.ts`
+- Create: `frontend/src/api/jsonImport.ts`
+- Modify: `frontend/src/App.tsx` (add routes)
+- Modify: `frontend/src/components/Layout.tsx` (add nav items)
+- Modify: `frontend/src/locales/en/translation.json` (add i18n)
+
+---
+
+## Change Log
+
+| Date | Author | Change |
+|------|--------|--------|
+| 2026-01-22 | Planning Agent (Architect) | Initial Phase 3 plan created |
+| 2026-01-22 | Implementation Team | Phase 3 implementation complete - NPM/JSON import routes, SMTP fix, 7 tests enabled |

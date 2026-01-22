@@ -331,9 +331,9 @@ test.describe('SMTP Settings', () => {
 
     /**
      * Test: Update existing SMTP configuration
-     * Note: Skip - SMTP save not persisting correctly (backend issue, not test issue)
+     * Priority: P0
      */
-    test.skip('should update existing SMTP configuration', async ({ page }) => {
+    test('should update existing SMTP configuration', async ({ page }) => {
       const hostInput = page.locator('#smtp-host');
       const saveButton = page.getByRole('button', { name: /save/i }).last();
 

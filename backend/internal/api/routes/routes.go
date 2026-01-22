@@ -583,4 +583,12 @@ func RegisterImportHandler(router *gin.Engine, db *gorm.DB, caddyBinary, importD
 	importHandler := handlers.NewImportHandler(db, caddyBinary, importDir, mountPath)
 	api := router.Group("/api/v1")
 	importHandler.RegisterRoutes(api)
+
+	// NPM Import Handler - supports Nginx Proxy Manager export format
+	npmImportHandler := handlers.NewNPMImportHandler(db)
+	npmImportHandler.RegisterRoutes(api)
+
+	// JSON Import Handler - supports both Charon and NPM export formats
+	jsonImportHandler := handlers.NewJSONImportHandler(db)
+	jsonImportHandler.RegisterRoutes(api)
 }

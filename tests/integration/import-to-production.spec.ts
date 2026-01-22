@@ -166,11 +166,10 @@ test.describe('Import to Production E2E', () => {
   });
 
   // ===========================================================================
-  // Group B: NPM Import (4 tests) - SKIPPED: Route does not exist
-  // The /tasks/import/npm route is not implemented in the application.
+  // Group B: NPM Import (4 tests)
   // ===========================================================================
   test.describe('Group B: NPM Import', () => {
-    test.skip('should display NPM import page', async ({
+    test('should display NPM import page', async ({
       page,
       adminUser,
     }) => {
@@ -186,7 +185,7 @@ test.describe('Import to Production E2E', () => {
       });
     });
 
-    test.skip('should parse NPM export JSON', async ({
+    test('should parse NPM export JSON', async ({
       page,
       adminUser,
     }) => {
@@ -202,7 +201,7 @@ test.describe('Import to Production E2E', () => {
       });
     });
 
-    test.skip('should preview NPM import results', async ({
+    test('should preview NPM import results', async ({
       page,
       adminUser,
     }) => {
@@ -218,7 +217,7 @@ test.describe('Import to Production E2E', () => {
       });
     });
 
-    test.skip('should import NPM proxy hosts and access lists', async ({
+    test('should import NPM proxy hosts and access lists', async ({
       page,
       adminUser,
     }) => {
@@ -236,12 +235,10 @@ test.describe('Import to Production E2E', () => {
   });
 
   // ===========================================================================
-  // Group C: JSON/Config Import (4 tests) - PARTIALLY SKIPPED
-  // The /tasks/import/json route is not implemented. Tests using generic
-  // /tasks/import/caddyfile are kept active for conflict handling scenarios.
+  // Group C: JSON/Config Import (4 tests)
   // ===========================================================================
   test.describe('Group C: JSON/Config Import', () => {
-    test.skip('should display JSON import page', async ({
+    test('should display JSON import page', async ({
       page,
       adminUser,
     }) => {
@@ -257,7 +254,7 @@ test.describe('Import to Production E2E', () => {
       });
     });
 
-    test.skip('should validate JSON schema before import', async ({
+    test('should validate JSON schema before import', async ({
       page,
       adminUser,
     }) => {

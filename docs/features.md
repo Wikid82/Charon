@@ -128,7 +128,23 @@ Migrating from another Caddy setup? Import your existing Caddyfile configuration
 
 ---
 
-### 🔌 WebSocket Support
+### � Nginx Proxy Manager Import
+
+Migrating from Nginx Proxy Manager? Import your proxy host configurations directly from NPM export files. Charon parses your domains, upstream servers, SSL settings, and access lists, giving you a preview before committing.
+
+→ [Learn More](features/npm-import.md)
+
+---
+
+### 📄 JSON Configuration Import
+
+Import configurations from generic JSON exports or Charon backup files. Supports both Charon's native export format and Nginx Proxy Manager format with automatic detection. Perfect for restoring backups or migrating between Charon instances.
+
+→ [Learn More](features/json-import.md)
+
+---
+
+### �🔌 WebSocket Support
 
 Real-time applications like chat servers, live dashboards, and collaborative tools work out of the box. Charon handles WebSocket connections automatically with no special configuration needed.
 
