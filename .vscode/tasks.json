@@ -1,6 +1,13 @@
 {
     "version": "2.0.0",
     "tasks": [
+                {
+            "label": "Docker Compose Up",
+            "type": "shell",
+            "command": "docker compose -f .docker/compose/docker-compose.test.yml up -d && echo 'Charon running at http://localhost:8080'",
+            "group": "build",
+            "problemMatcher": []
+        },
         {
             "label": "Build & Run: Local Docker Image",
             "type": "shell",
@@ -487,6 +494,17 @@
                 "reveal": "always",
                 "panel": "dedicated",
                 "close": false
+            }
+        },
+        {
+            "label": "Utility: Update Go Version",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh utility-update-go-version",
+            "group": "none",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
             }
         }
     ],

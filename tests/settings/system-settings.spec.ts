@@ -371,20 +371,9 @@ test.describe('System Settings', () => {
      */
     test('should change language setting', async ({ page }) => {
       await test.step('Find language selector', async () => {
-        // Language selector may be a custom component
-        const languageSelector = page
-          .getByRole('combobox', { name: /language/i })
-          .or(page.locator('[id*="language"]'))
-          .or(page.getByText(/language/i).locator('..').locator('select, [role="combobox"]'));
-
-        const hasLanguageSelector = await languageSelector.first().isVisible({ timeout: 3000 }).catch(() => false);
-
-        if (hasLanguageSelector) {
-          await expect(languageSelector.first()).toBeVisible();
-        } else {
-          // Skip if no language selector found
-          test.skip();
-        }
+        // Language selector uses data-testid for reliable selection
+        const languageSelector = page.getByTestId('language-selector');
+        await expect(languageSelector).toBeVisible();
       });
     });
 

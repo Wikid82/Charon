@@ -995,14 +995,15 @@ test.describe('User Management', () => {
     /**
      * Test: Keyboard navigation
      * Priority: P1
+     * Uses increased loop counts and waitForTimeout for CI reliability
      */
-    // Skip: Keyboard navigation test is flaky due to timing issues with tab count
-    test.skip('should be keyboard navigable', async ({ page }) => {
+    test('should be keyboard navigable', async ({ page }) => {
       await test.step('Tab to invite button', async () => {
         await page.keyboard.press('Tab');
+        await page.waitForTimeout(100);
 
         let foundInviteButton = false;
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 15; i++) {
           const focused = page.locator(':focus');
           const text = await focused.textContent().catch(() => '');
 
@@ -1011,6 +1012,7 @@ test.describe('User Management', () => {
             break;
           }
           await page.keyboard.press('Tab');
+          await page.waitForTimeout(100);
         }
 
         expect(foundInviteButton).toBeTruthy();
@@ -1018,6 +1020,8 @@ test.describe('User Management', () => {
 
       await test.step('Activate with Enter key', async () => {
         await page.keyboard.press('Enter');
+        // Wait for modal animation
+        await page.waitForTimeout(200);
 
         // Modal should open
         const modal = page.locator('[class*="fixed"]').filter({
@@ -1028,6 +1032,7 @@ test.describe('User Management', () => {
 
       await test.step('Close modal with Escape', async () => {
         await page.keyboard.press('Escape');
+        await page.waitForTimeout(100);
 
         // Modal should close (if escape is wired up)
         const closeButton = page.getByRole('button', { name: /close|×|cancel/i });
@@ -1040,8 +1045,9 @@ test.describe('User Management', () => {
         // Focus should be able to reach action buttons in table
         let foundActionButton = false;
 
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 25; i++) {
           await page.keyboard.press('Tab');
+          await page.waitForTimeout(100);
           const focused = page.locator(':focus');
           const tagName = await focused.evaluate((el) => el.tagName.toLowerCase()).catch(() => '');
 
