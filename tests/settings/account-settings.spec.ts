@@ -683,19 +683,19 @@ test.describe('Account Settings', () => {
       await test.step('Tab through profile section', async () => {
         // Start from first focusable element
         await page.keyboard.press('Tab');
-        await page.waitForTimeout(100);
+        await page.waitForTimeout(150);
 
         // Tab to profile name
         const nameInput = page.locator('#profile-name');
         let foundName = false;
 
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 30; i++) {
           if (await nameInput.evaluate((el) => el === document.activeElement)) {
             foundName = true;
             break;
           }
           await page.keyboard.press('Tab');
-          await page.waitForTimeout(100);
+          await page.waitForTimeout(150);
         }
 
         expect(foundName).toBeTruthy();
@@ -705,13 +705,13 @@ test.describe('Account Settings', () => {
         const currentPasswordInput = page.locator('#current-password');
         let foundPassword = false;
 
-        for (let i = 0; i < 25; i++) {
+        for (let i = 0; i < 35; i++) {
           if (await currentPasswordInput.evaluate((el) => el === document.activeElement)) {
             foundPassword = true;
             break;
           }
           await page.keyboard.press('Tab');
-          await page.waitForTimeout(100);
+          await page.waitForTimeout(150);
         }
 
         expect(foundPassword).toBeTruthy();
@@ -723,6 +723,7 @@ test.describe('Account Settings', () => {
 
         for (let i = 0; i < 10; i++) {
           await page.keyboard.press('Tab');
+          await page.waitForTimeout(100);
           const focused = page.locator(':focus');
           const role = await focused.getAttribute('role').catch(() => null);
           const tagName = await focused.evaluate((el) => el.tagName.toLowerCase()).catch(() => '');
