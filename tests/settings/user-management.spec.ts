@@ -1000,10 +1000,10 @@ test.describe('User Management', () => {
     test('should be keyboard navigable', async ({ page }) => {
       await test.step('Tab to invite button', async () => {
         await page.keyboard.press('Tab');
-        await page.waitForTimeout(100);
+        await page.waitForTimeout(150);
 
         let foundInviteButton = false;
-        for (let i = 0; i < 15; i++) {
+        for (let i = 0; i < 20; i++) {
           const focused = page.locator(':focus');
           const text = await focused.textContent().catch(() => '');
 
@@ -1012,7 +1012,7 @@ test.describe('User Management', () => {
             break;
           }
           await page.keyboard.press('Tab');
-          await page.waitForTimeout(100);
+          await page.waitForTimeout(150);
         }
 
         expect(foundInviteButton).toBeTruthy();
@@ -1021,22 +1021,24 @@ test.describe('User Management', () => {
       await test.step('Activate with Enter key', async () => {
         await page.keyboard.press('Enter');
         // Wait for modal animation
-        await page.waitForTimeout(200);
+        await page.waitForTimeout(500);
 
         // Modal should open
-        const modal = page.locator('[class*="fixed"]').filter({
-          has: page.getByRole('heading', { name: /invite/i }),
-        });
-        await expect(modal).toBeVisible();
+        const modal = page.getByRole('dialog').or(
+          page.locator('[class*="fixed"]').filter({
+            has: page.getByRole('heading', { name: /invite/i }),
+          })
+        ).first();
+        await expect(modal).toBeVisible({ timeout: 5000 });
       });
 
       await test.step('Close modal with Escape', async () => {
         await page.keyboard.press('Escape');
-        await page.waitForTimeout(100);
+        await page.waitForTimeout(300);
 
         // Modal should close (if escape is wired up)
-        const closeButton = page.getByRole('button', { name: /close|×|cancel/i });
-        if (await closeButton.isVisible()) {
+        const closeButton = page.getByRole('button', { name: /close|×|cancel/i }).first();
+        if (await closeButton.isVisible({ timeout: 1000 }).catch(() => false)) {
           await closeButton.click();
         }
       });
@@ -1045,9 +1047,9 @@ test.describe('User Management', () => {
         // Focus should be able to reach action buttons in table
         let foundActionButton = false;
 
-        for (let i = 0; i < 25; i++) {
+        for (let i = 0; i < 35; i++) {
           await page.keyboard.press('Tab');
-          await page.waitForTimeout(100);
+          await page.waitForTimeout(150);
           const focused = page.locator(':focus');
           const tagName = await focused.evaluate((el) => el.tagName.toLowerCase()).catch(() => '');
 

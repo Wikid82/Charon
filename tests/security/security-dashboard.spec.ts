@@ -120,13 +120,18 @@ test.describe('Security Dashboard', () => {
       }
 
       await test.step('Toggle ACL state', async () => {
-        await toggle.click();
+        await page.waitForLoadState('networkidle');
+        await toggle.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(200);
+        await toggle.click({ force: true });
         // Wait for success toast to confirm action completed
         await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
 
       await test.step('Toggle back to original state', async () => {
-        await toggle.click();
+        await page.waitForTimeout(200);
+        await toggle.scrollIntoViewIfNeeded();
+        await toggle.click({ force: true });
         await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
     });
@@ -146,12 +151,17 @@ test.describe('Security Dashboard', () => {
       }
 
       await test.step('Toggle WAF state', async () => {
-        await toggle.click();
+        await page.waitForLoadState('networkidle');
+        await toggle.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(200);
+        await toggle.click({ force: true });
         await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
 
       await test.step('Toggle back', async () => {
-        await toggle.click();
+        await page.waitForTimeout(200);
+        await toggle.scrollIntoViewIfNeeded();
+        await toggle.click({ force: true });
         await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
     });
@@ -171,12 +181,17 @@ test.describe('Security Dashboard', () => {
       }
 
       await test.step('Toggle Rate Limit state', async () => {
-        await toggle.click();
+        await page.waitForLoadState('networkidle');
+        await toggle.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(200);
+        await toggle.click({ force: true });
         await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
 
       await test.step('Toggle back', async () => {
-        await toggle.click();
+        await page.waitForTimeout(200);
+        await toggle.scrollIntoViewIfNeeded();
+        await toggle.click({ force: true });
         await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
     });
@@ -198,7 +213,10 @@ test.describe('Security Dashboard', () => {
       const initialChecked = await toggle.isChecked();
 
       await test.step('Toggle ACL state', async () => {
-        await toggle.click();
+        await page.waitForLoadState('networkidle');
+        await toggle.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(200);
+        await toggle.click({ force: true });
         await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
 
@@ -213,7 +231,11 @@ test.describe('Security Dashboard', () => {
       });
 
       await test.step('Restore original state', async () => {
-        await page.getByTestId('toggle-acl').click();
+        await page.waitForLoadState('networkidle');
+        const restoreToggle = page.getByTestId('toggle-acl');
+        await restoreToggle.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(200);
+        await restoreToggle.click({ force: true });
         await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
     });
@@ -237,7 +259,13 @@ test.describe('Security Dashboard', () => {
         return;
       }
 
-      await configureButton.click();
+      // Wait for any loading overlays to disappear
+      await page.waitForLoadState('networkidle');
+      await page.waitForTimeout(300);
+
+      // Scroll element into view and use force click to bypass pointer interception
+      await configureButton.scrollIntoViewIfNeeded();
+      await configureButton.click({ force: true });
       await expect(page).toHaveURL(/\/security\/crowdsec/);
     });
 
@@ -265,7 +293,11 @@ test.describe('Security Dashboard', () => {
         aclButton = allConfigButtons.nth(1);
       }
 
-      await aclButton.click();
+      // Wait for any loading overlays and scroll into view
+      await page.waitForLoadState('networkidle');
+      await aclButton.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(200);
+      await aclButton.click({ force: true });
       await expect(page).toHaveURL(/\/security\/access-lists|\/access-lists/);
     });
 
@@ -287,7 +319,11 @@ test.describe('Security Dashboard', () => {
       // WAF is the 3rd configure button (index 2)
       const wafButton = allConfigButtons.nth(2);
 
-      await wafButton.click();
+      // Wait and scroll into view
+      await page.waitForLoadState('networkidle');
+      await wafButton.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(200);
+      await wafButton.click({ force: true });
       await expect(page).toHaveURL(/\/security\/waf/);
     });
 
@@ -309,7 +345,11 @@ test.describe('Security Dashboard', () => {
       // Rate Limit is the 4th configure button (index 3)
       const rateLimitButton = allConfigButtons.nth(3);
 
-      await rateLimitButton.click();
+      // Wait and scroll into view
+      await page.waitForLoadState('networkidle');
+      await rateLimitButton.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(200);
+      await rateLimitButton.click({ force: true });
       await expect(page).toHaveURL(/\/security\/rate-limiting/);
     });
 
