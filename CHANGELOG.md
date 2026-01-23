@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Upgrade CrowdSec from 1.7.5 to 1.7.6
 - **BREAKING:** Commits are now BLOCKED if staticcheck or other fast linters find issues
   - Pre-commit hooks now run golangci-lint with essential linters (~11s runtime)
   - Test files (`_test.go`) excluded from staticcheck (matches CI behavior)

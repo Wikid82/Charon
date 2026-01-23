@@ -34,7 +34,7 @@ ARG TARGETOS
 ARG TARGETARCH
 # CrowdSec version - Renovate can update this
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.7.5
+ARG CROWDSEC_VERSION=1.7.6
 
 RUN apk add --no-cache git clang lld
 RUN xx-apk add --no-cache gcc musl-dev
@@ -199,7 +199,7 @@ ARG TARGETOS
 ARG TARGETARCH
 # CrowdSec version - Renovate can update this
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.7.5
+ARG CROWDSEC_VERSION=1.7.6
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache git clang lld
@@ -597,8 +597,8 @@ rm ./cscli_test ./crowdsec_test
 
 **CrowdSec Version Pinning:**
 
-- Current: `v1.7.5` (January 2026 release)
-- expr-lang in v1.7.5: Uses patched `v1.17.7`
+- Current: `v1.7.6` (January 2026 release)
+- expr-lang in v1.7.6: Uses patched `v1.17.7`
 - Post-patch: `v1.17.7` (forced upgrade via `go get`)
 
 **Potential Issues:**
@@ -859,7 +859,7 @@ docker exec <container-id> cscli parsers list
 
 ```bash
 # Clone CrowdSec
-git clone --depth 1 --branch v1.7.5 https://github.com/crowdsecurity/crowdsec.git
+git clone --depth 1 --branch v1.7.6 https://github.com/crowdsecurity/crowdsec.git
 cd crowdsec
 
 # Patch expr-lang
@@ -868,11 +868,11 @@ go mod tidy
 
 # Build binaries
 CGO_ENABLED=1 go build -o crowdsec \
-  -ldflags "-s -w -X github.com/crowdsecurity/crowdsec/pkg/cwversion.Version=v1.7.5" \
+  -ldflags "-s -w -X github.com/crowdsecurity/crowdsec/pkg/cwversion.Version=v1.7.6" \
   ./cmd/crowdsec
 
 CGO_ENABLED=1 go build -o cscli \
-  -ldflags "-s -w -X github.com/crowdsecurity/crowdsec/pkg/cwversion.Version=v1.7.5" \
+  -ldflags "-s -w -X github.com/crowdsecurity/crowdsec/pkg/cwversion.Version=v1.7.6" \
   ./cmd/crowdsec-cli
 
 # Verify expr-lang version
