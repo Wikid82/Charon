@@ -472,6 +472,420 @@ These tests are intentionally skipped with documented reasons:
 
 ---
 
+## Remaining Work: Phased Implementation Plan
+
+This section outlines the tactical plan for addressing the remaining 63 skipped tests across three major work streams.
+
+### Overview
+
+**Total Remaining Skipped Tests**: 63
+**Work Streams**: 3 major categories requiring implementation
+**Estimated Total Effort**: 65-85 hours (8-11 dev days)
+**Recommended Approach**: Sequential phases with validation gates
+
+---
+
+### Phase 4: Security Module Toggle Actions (High Priority)
+
+**Target**: Enable security module toggles (ACL, WAF, Rate Limiting)
+**Tests Enabled**: 8 tests
+**Effort**: M (Medium) - 12-16 hours
+**Priority**: P1 - Core security functionality
+**Dependencies**: None (can start immediately)
+
+#### Scope
+
+Implement backend enable/disable functionality for security modules that currently only show status:
+
+1. **ACL (Access Control Lists)** - 2 tests
+   - Enable/disable toggle action
+   - State persistence in DB
+   - Middleware honor of enabled/disabled state
+
+2. **WAF (Web Application Firewall)** - 2 tests
+   - Enable/disable toggle action
+   - State persistence in DB
+   - Coraza WAF activation/deactivation
+
+3. **Rate Limiting** - 2 tests
+   - Enable/disable toggle action
+   - State persistence in DB
+   - Middleware application of rate limits
+
+4. **Navigation Tests** - 2 tests
+   - WAF configuration page navigation
+   - Rate Limiting configuration page navigation
+
+#### Implementation Tasks
+
+**Backend (8-10 hours):**
+- [ ] Add `POST /api/v1/security/acl/toggle` endpoint
+- [ ] Add `POST /api/v1/security/waf/toggle` endpoint
+- [ ] Add `POST /api/v1/security/ratelimit/toggle` endpoint
+- [ ] Update `SecurityConfig` model with proper enable flags
+- [ ] Implement toggle logic in `security_service.go`
+- [ ] Update middleware to check enabled state from DB
+- [ ] Add unit tests for toggle endpoints (85% coverage minimum)
+
+**Frontend (4-6 hours):**
+- [ ] Update `SecurityDashboard.tsx` toggle handlers
+- [ ] Add React Query mutations for toggle actions
+- [ ] Add optimistic updates for toggle UI
+- [ ] Add error handling and rollback on failure
+- [ ] Update type definitions in `types/security.ts`
+
+**Validation:**
+- [ ] Run `tests/security/security-dashboard.spec.ts` - expect 7 additional tests passing
+- [ ] Run `tests/security/rate-limiting.spec.ts` - expect 1 additional test passing
+- [ ] Backend coverage: verify ≥85%
+- [ ] E2E: verify toggle state persists across page reloads
+
+**Success Criteria:**
+- ✅ All 8 toggle-related tests passing
+- ✅ State persists in DB across restarts
+- ✅ Middleware honors enabled/disabled state
+- ✅ No regression in existing security tests
+
+**Estimated Completion**: 2 days
+
+---
+
+### Phase 5: TestDataManager Authentication Fix (High Priority)
+
+**Target**: Fix authenticated API context in test fixtures
+**Tests Enabled**: 8 tests (user management CRUD operations)
+**Effort**: M (Medium) - 8-12 hours
+**Priority**: P1 - Blocks user management test coverage
+**Dependencies**: None (can run parallel to Phase 4)
+
+#### Problem Statement
+
+`TestDataManager` uses raw `APIRequestContext` that doesn't inherit browser authentication cookies, causing "Admin access required" (401/403) errors when creating test data via API.
+
+**Root Cause**: Cookie domain mismatch
+- Auth setup creates cookies for `localhost` domain
+- Tests may run against `100.98.12.109:8080` (Tailscale IP)
+- Cookies aren't sent cross-domain → API calls unauthenticated
+
+#### Solution Approach
+
+**Option A: Consistent Base URL (Recommended - 4 hours)**
+
+Ensure all E2E tests use `http://localhost:8080` consistently:
+
+1. Update `playwright.config.js` to force localhost
+2. Update `docker-compose.e2e.yml` port mappings if needed
+3. Update auth fixtures to always use localhost for cookie domain
+4. Verify TestDataManager inherits authenticated context
+
+**Option B: Cookie Domain Override (8 hours)**
+
+Modify auth setup to create cookies for both domains:
+
+1. Update `auth.setup.ts` to set cookies for multiple domains
+2. Modify TestDataManager to accept authenticated context
+3. Pass `storageState` to TestDataManager API context
+4. Add domain validation and fallback logic
+
+#### Implementation Tasks
+
+**Auth Fixtures (3-4 hours):**
+- [ ] Audit `playwright.config.js` baseURL configuration
+- [ ] Ensure `PLAYWRIGHT_BASE_URL` consistently uses localhost
+- [ ] Update `tests/auth.setup.ts` cookie domain logic
+- [ ] Verify `playwright/.auth/user.json` contains correct domain
+
+**TestDataManager (2-3 hours):**
+- [ ] Update `TestDataManager` constructor to accept `APIRequestContext`
+- [ ] Pass authenticated context from fixtures
+- [ ] Add defensive checks for storage state
+- [ ] Update all test files using TestDataManager
+
+**Environment Config (1-2 hours):**
+- [ ] Update `.env.example` with `PLAYWRIGHT_BASE_URL=http://localhost:8080`
+- [ ] Update Docker compose port bindings if needed
+- [ ] Document base URL requirements in README
+
+**Testing (2-3 hours):**
+- [ ] Re-enable 8 skipped user management tests
+- [ ] Verify CRUD operations work (create, read, update, delete users)
+- [ ] Test with clean DB to ensure no cookie leakage
+- [ ] Verify tests pass on both localhost and Tailscale IP (if needed)
+
+**Validation:**
+- [ ] Run `tests/settings/user-management.spec.ts` - expect 8 additional tests passing
+- [ ] Verify no 401/403 errors in test output
+- [ ] Confirm TestDataManager creates/deletes users successfully
+- [ ] Backend logs show authenticated requests
+
+**Success Criteria:**
+- ✅ All 8 TestDataManager-dependent tests passing
+- ✅ No authentication errors during test data creation
+- ✅ Cookie domain consistent across auth and tests
+- ✅ Tests remain stable across multiple runs
+
+**Estimated Completion**: 1-2 days
+
+---
+
+### Phase 6: User Management UI Implementation (Large Epic)
+
+**Target**: Complete user management frontend
+**Tests Enabled**: 22 tests
+**Effort**: L (Large) - 40-60 hours (1-2 weeks)
+**Priority**: P2 - Feature completeness
+**Dependencies**: Phase 5 (TestDataManager) should be complete first
+
+#### Scope
+
+Implement missing UI components for comprehensive user management:
+
+**Component Breakdown:**
+1. User Status Badge (2 tests) - 2 hours
+2. Role Badge (2 tests) - 2 hours
+3. Action Buttons (4 tests) - 4 hours
+4. User Invite Modal (5 tests) - 12 hours
+5. User Edit Modal (4 tests) - 10 hours
+6. Permissions Modal (5 tests) - 14 hours
+7. User List Enhancements (4 tests) - 8 hours
+
+#### Epic Breakdown: Sub-Phases
+
+##### Phase 6.1: Basic UI Components (8 hours)
+
+**Goal**: Add status/role indicators and action buttons
+
+**Tasks:**
+- [ ] Design and implement `UserStatusBadge.tsx` component
+  - Active/Inactive/Pending states
+  - Color coding (green/gray/yellow)
+  - Accessible ARIA labels
+- [ ] Design and implement `UserRoleBadge.tsx` component
+  - Admin/User role indicators
+  - Icon + text format
+  - Accessible role announcements
+- [ ] Add user action buttons to table rows
+  - Edit user button
+  - Delete user button
+  - Permissions button
+  - Settings button
+- [ ] Add proper `data-testid` attributes for testing
+- [ ] Write Storybook stories for each component
+- [ ] Unit tests for badge logic
+
+**Tests Enabled**: 4 tests (badges + buttons)
+
+##### Phase 6.2: User Invite Flow (12 hours)
+
+**Goal**: Complete user invitation workflow
+
+**Tasks:**
+- [ ] Implement `InviteUserModal.tsx` component
+  - Email input with validation
+  - Role selection dropdown
+  - Permission preset options
+  - Copy invite link button
+- [ ] Add invite form validation
+  - Email format validation
+  - Duplicate email check
+  - Required field validation
+- [ ] Implement invite link copy functionality
+  - Clipboard API integration
+  - Toast notification on copy
+  - Accessible keyboard support
+- [ ] Add React Query mutations
+  - `useInviteUser` hook
+  - Error handling and retry logic
+  - Optimistic UI updates
+- [ ] Wire up "Invite User" button in header
+- [ ] E2E test validation
+
+**Tests Enabled**: 5 tests (invite flow)
+
+##### Phase 6.3: User Edit Modal (10 hours)
+
+**Goal**: Enable editing existing user details
+
+**Tasks:**
+- [ ] Implement `EditUserModal.tsx` component
+  - Pre-filled form with user data
+  - Name/email edit fields
+  - Role change dropdown
+  - Enable/disable toggle
+- [ ] Add form state management
+  - Track changes vs original
+  - Dirty state detection
+  - Unsaved changes warning
+- [ ] Implement update mutation
+  - `useUpdateUser` hook
+  - Conflict resolution
+  - Success/error notifications
+- [ ] Add validation logic
+  - Email uniqueness check
+  - Role change authorization
+  - Unsaved changes prompt
+- [ ] Wire up edit button actions
+
+**Tests Enabled**: 4 tests (edit flow)
+
+##### Phase 6.4: Permissions Management (14 hours)
+
+**Goal**: Granular permission controls per user
+
+**Tasks:**
+- [ ] Implement `UserPermissionsModal.tsx` component
+  - Permission mode selector (All/Restricted)
+  - Host permission list
+  - Add/remove host permissions
+  - Bulk permission actions
+- [ ] Design permission UI/UX
+  - Clear visual hierarchy
+  - Searchable host list
+  - Selected hosts chip display
+  - Permission inheritance rules
+- [ ] Implement permission mutations
+  - `useUpdatePermissions` hook
+  - Batch permission updates
+  - Validation and error handling
+- [ ] Add permission business logic
+  - Admin users bypass restrictions
+  - Owner-specific permissions
+  - Permission inheritance rules
+- [ ] Wire up permissions button
+
+**Tests Enabled**: 5 tests (permissions)
+
+##### Phase 6.5: Delete & Management (8 hours)
+
+**Goal**: Complete CRUD with delete operations
+
+**Tasks:**
+- [ ] Implement `DeleteUserModal.tsx` confirmation
+  - Warning message for admin users
+  - Ownership transfer for proxy hosts
+  - Cascade delete options
+- [ ] Add delete mutation
+  - `useDeleteUser` hook
+  - Optimistic removal from list
+  - Rollback on error
+- [ ] Implement resend invite action
+  - Resend invite link
+  - Update invite timestamp
+  - Notification on success
+- [ ] Add user search/filter
+  - Search by name/email
+  - Filter by role/status
+  - Keyboard navigation
+- [ ] Polish table interactions
+  - Row hover states
+  - Bulk selection (future)
+  - Pagination (if needed)
+
+**Tests Enabled**: 4 tests (delete + mgmt)
+
+#### Technical Considerations
+
+**State Management:**
+- React Query for server state
+- Local state for modal open/close
+- Form state with React Hook Form or similar
+
+**Component Library:**
+- Use existing UI components from `frontend/src/components/ui/`
+- Maintain consistent design language
+- Follow accessibility patterns from a11y instructions
+
+**API Integration:**
+- All endpoints already exist in backend
+- Use existing `client.ts` wrapper
+- Create typed API client in `frontend/src/api/users.ts`
+
+**Testing Strategy:**
+- Unit tests for component logic (Vitest)
+- E2E tests with Playwright (already written, currently skipped)
+- Storybook for component isolation
+
+#### Implementation Order
+
+**Week 1 (5 days, 8 hours/day = 40 hours):**
+- Day 1: Phase 6.1 - Basic UI Components
+- Day 2-3: Phase 6.2 - User Invite Flow
+- Day 4-5: Phase 6.3 - User Edit Modal
+
+**Week 2 (3 days, 20 hours):**
+- Day 1-2: Phase 6.4 - Permissions Management
+- Day 3: Phase 6.5 - Delete & Management
+
+**Buffer**: 8-12 hours for debugging, polish, E2E validation
+
+#### Validation Gates
+
+After each sub-phase:
+- [ ] Component unit tests pass (≥85% coverage)
+- [ ] Storybook story renders correctly
+- [ ] Component is accessible (run Accessibility Insights)
+- [ ] Related E2E tests pass
+- [ ] No TypeScript errors
+- [ ] Pre-commit hooks pass
+
+Final validation:
+- [ ] All 22 user management tests passing
+- [ ] No regression in existing tests
+- [ ] Frontend coverage ≥85%
+- [ ] Manual QA of complete flow
+- [ ] Accessibility audit passes
+
+**Success Criteria:**
+- ✅ All 22 user management tests passing
+- ✅ Complete CRUD operations functional
+- ✅ Permission management working
+- ✅ Accessible UI (WCAG 2.2 Level AA)
+- ✅ Responsive design on mobile/tablet
+- ✅ No console errors or warnings
+
+**Estimated Completion**: 1-2 weeks (depending on resource availability)
+
+---
+
+### Phase Sequencing & Dependencies
+
+**Recommended Execution:**
+1. **Parallel Start**: Kick off Phase 4 and Phase 5 simultaneously (different team members or separate days)
+2. **Phase 4 → Quick Win**: Complete security toggles first for immediate impact (2 days)
+3. **Phase 5 → Unblock**: Complete TestDataManager fix to unblock Phase 6 (1-2 days)
+4. **Phase 6 → Epic**: Dedicate 1-2 week sprint to user management UI
+5. **Phase 7 → Validate**: Run full E2E suite, verify no regressions
+
+**Total Timeline**: 2-3 weeks with dedicated resources
+
+---
+
+### Risk & Mitigation
+
+| Risk | Impact | Likelihood | Mitigation |
+|------|--------|------------|------------|
+| Security toggles affect middleware behavior | High | Medium | Extensive unit tests, feature flags, staged rollout |
+| Cookie domain mismatch complex to fix | Medium | Low | Start with localhost standardization, document workarounds |
+| User Management UI scope creep | Medium | High | Strict adherence to test requirements, defer "nice-to-haves" |
+| E2E tests remain flaky after fixes | Medium | Medium | Add retry logic, improve test stability, debug CI environment |
+| Breaking changes in existing tests | High | Low | Run full suite after each phase, maintain backwards compatibility |
+
+---
+
+### Success Metrics (Final Target)
+
+| Metric | Current (Post-Phase 3) | After Phase 4-6 | Stretch Goal |
+|--------|------------------------|-----------------|--------------|
+| Total Skipped Tests | 63 | **25** | <10 |
+| Security Module Coverage | 60% | **95%** | 100% |
+| User Management Coverage | 0% | **100%** | 100% |
+| Total E2E Test Pass Rate | ~80% | **~90%** | ~95% |
+| Intentional Skips Only | No | **Yes** | Yes |
+
+**Final State**: With Phases 4-6 complete, only intentional skips and environment-dependent tests (DNS providers, encryption rotation) will remain.
+
+---
+
 ## Appendix A: Full Skip Inventory
 
 ### By File
