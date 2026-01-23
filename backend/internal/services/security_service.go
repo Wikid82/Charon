@@ -67,11 +67,22 @@ func (s *SecurityService) Flush() {
 // Get returns the first SecurityConfig row (singleton config)
 func (s *SecurityService) Get() (*models.SecurityConfig, error) {
 	var cfg models.SecurityConfig
-	if err := s.db.First(&cfg).Error; err != nil {
+	// Prefer the canonical singleton row named "default".
+	// Some environments may contain multiple rows (e.g., tests or prior data);
+	// returning an arbitrary "first" row can break break-glass token validation.
+	if err := s.db.Where("name = ?", "default").First(&cfg).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrSecurityConfigNotFound
+			// Backward compatibility: if there is no explicit "default" row,
+			// fall back to the first row if any exists.
+			if err2 := s.db.First(&cfg).Error; err2 != nil {
+				if errors.Is(err2, gorm.ErrRecordNotFound) {
+					return nil, ErrSecurityConfigNotFound
+				}
+				return nil, err2
+			}
+		} else {
+			return nil, err
 		}
-		return nil, err
 	}
 	return &cfg, nil
 }

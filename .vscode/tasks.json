@@ -103,6 +103,42 @@
             }
         },
         {
+            "label": "Test: E2E Playwright (Chromium) - Cerberus: Real-Time Logs",
+            "type": "shell",
+            "command": "PLAYWRIGHT_HTML_OPEN=never npx playwright test --project=chromium tests/monitoring/real-time-logs.spec.ts",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (Chromium) - Cerberus: Security Dashboard",
+            "type": "shell",
+            "command": "PLAYWRIGHT_HTML_OPEN=never npx playwright test --project=chromium tests/security/security-dashboard.spec.ts",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (Chromium) - Cerberus: Rate Limiting",
+            "type": "shell",
+            "command": "PLAYWRIGHT_HTML_OPEN=never npx playwright test --project=chromium tests/security/rate-limiting.spec.ts",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
             "label": "Test: E2E Playwright (All Browsers)",
             "type": "shell",
             "command": "npm run e2e:all",
