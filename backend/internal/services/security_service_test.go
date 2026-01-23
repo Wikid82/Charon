@@ -315,6 +315,25 @@ func TestSecurityService_Upsert_PreserveBreakGlassHash(t *testing.T) {
 	assert.True(t, ok)
 }
 
+func TestSecurityService_Get_PrefersDefaultConfig(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+	defer svc.Close()
+
+	// Create a non-default config first to simulate environments with multiple rows.
+	other := &models.SecurityConfig{Name: "other", Enabled: true}
+	assert.NoError(t, db.Create(other).Error)
+
+	def := &models.SecurityConfig{Name: "default", Enabled: false}
+	assert.NoError(t, db.Create(def).Error)
+
+	cfg, err := svc.Get()
+	assert.NoError(t, err)
+	assert.NotNil(t, cfg)
+	assert.Equal(t, "default", cfg.Name)
+	assert.False(t, cfg.Enabled)
+}
+
 func TestSecurityService_Upsert_RateLimitFieldsPersist(t *testing.T) {
 	db := setupSecurityTestDB(t)
 	svc := NewSecurityService(db)

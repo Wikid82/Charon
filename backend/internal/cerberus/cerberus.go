@@ -37,6 +37,27 @@ func New(cfg config.SecurityConfig, db *gorm.DB) *Cerberus {
 
 // IsEnabled returns whether Cerberus features are enabled via config or settings.
 func (c *Cerberus) IsEnabled() bool {
+	// DB-backed break-glass disable must take effect even when static config defaults to enabled.
+	// This keeps the API reachable and prevents accidental lockouts when Cerberus/ACL is disabled via /security/disable.
+	if c.db != nil {
+		var sc models.SecurityConfig
+		if err := c.db.Where("name = ?", "default").First(&sc).Error; err == nil {
+			if !sc.Enabled {
+				return false
+			}
+		}
+
+		var s models.Setting
+		// Runtime feature flag (highest priority after break-glass disable)
+		if err := c.db.Where("key = ?", "feature.cerberus.enabled").First(&s).Error; err == nil {
+			return strings.EqualFold(s.Value, "true")
+		}
+		// Fallback to legacy setting for backward compatibility
+		if err := c.db.Where("key = ?", "security.cerberus.enabled").First(&s).Error; err == nil {
+			return strings.EqualFold(s.Value, "true")
+		}
+	}
+
 	if c.cfg.CerberusEnabled {
 		return true
 	}
@@ -50,21 +71,12 @@ func (c *Cerberus) IsEnabled() bool {
 		return true
 	}
 
-	// Check database setting (runtime toggle) only if db is provided
-	if c.db != nil {
-		var s models.Setting
-		// Check feature flag
-		if err := c.db.Where("key = ?", "feature.cerberus.enabled").First(&s).Error; err == nil {
-			return strings.EqualFold(s.Value, "true")
-		}
-		// Fallback to legacy setting for backward compatibility
-		if err := c.db.Where("key = ?", "security.cerberus.enabled").First(&s).Error; err == nil {
-			return strings.EqualFold(s.Value, "true")
-		}
+	// Back-compat: a zero-value SecurityConfig implies defaults (enabled).
+	if c.cfg == (config.SecurityConfig{}) {
+		return true
 	}
 
-	// Default to true (Optional Features spec)
-	return true
+	return false
 }
 
 // Middleware returns a Gin middleware that enforces Cerberus checks when enabled.
