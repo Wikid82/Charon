@@ -38,7 +38,7 @@ jobs:
           major_pattern: "/__MANUAL_MAJOR_BUMP_ONLY__/"
           # Regex pattern for minor version bump (new features)
           # Matches: "feat:" prefix in commit messages (Conventional Commits)
-          minor_pattern: "/(feat|feat\\()/"
+          minor_pattern: "/^feat(\\(.+\\))?:/"
           # Patch bumps: All other commits (fix:, chore:, etc.) are treated as patches by default
           # Pattern to determine formatting
           version_format: "${major}.${minor}.${patch}"
