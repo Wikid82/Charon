@@ -1,26 +1,52 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/utils"
 )
 
+// CaddyConfigManager interface for triggering Caddy config reload
+type CaddyConfigManager interface {
+	ApplyConfig(ctx context.Context) error
+}
+
+// CacheInvalidator interface for invalidating security settings cache
+type CacheInvalidator interface {
+	InvalidateCache()
+}
+
 type SettingsHandler struct {
-	DB          *gorm.DB
-	MailService *services.MailService
+	DB           *gorm.DB
+	MailService  *services.MailService
+	CaddyManager CaddyConfigManager // For triggering config reload on security settings change
+	Cerberus     CacheInvalidator   // For invalidating cache on security settings change
 }
 
 func NewSettingsHandler(db *gorm.DB) *SettingsHandler {
 	return &SettingsHandler{
 		DB:          db,
 		MailService: services.NewMailService(db),
+	}
+}
+
+// NewSettingsHandlerWithDeps creates a SettingsHandler with all dependencies for config reload
+func NewSettingsHandlerWithDeps(db *gorm.DB, caddyMgr CaddyConfigManager, cerberus CacheInvalidator) *SettingsHandler {
+	return &SettingsHandler{
+		DB:           db,
+		MailService:  services.NewMailService(db),
+		CaddyManager: caddyMgr,
+		Cerberus:     cerberus,
 	}
 }
 
@@ -72,6 +98,28 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	if err := h.DB.Where(models.Setting{Key: req.Key}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save setting"})
 		return
+	}
+
+	// Trigger cache invalidation and config reload for security settings
+	if strings.HasPrefix(req.Key, "security.") {
+		// Invalidate Cerberus cache immediately so middleware uses new settings
+		if h.Cerberus != nil {
+			h.Cerberus.InvalidateCache()
+		}
+
+		// Trigger async Caddy config reload (doesn't block HTTP response)
+		if h.CaddyManager != nil {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+
+				if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
+					logger.Log().WithError(err).Warn("Failed to reload Caddy config after security setting change")
+				} else {
+					logger.Log().WithField("setting_key", req.Key).Info("Caddy config reloaded after security setting change")
+				}
+			}()
+		}
 	}
 
 	c.JSON(http.StatusOK, setting)

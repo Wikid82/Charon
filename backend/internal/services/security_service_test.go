@@ -321,10 +321,11 @@ func TestSecurityService_Get_PrefersDefaultConfig(t *testing.T) {
 	defer svc.Close()
 
 	// Create a non-default config first to simulate environments with multiple rows.
-	other := &models.SecurityConfig{Name: "other", Enabled: true}
+	// Must provide unique UUIDs since the model has uniqueIndex on UUID field.
+	other := &models.SecurityConfig{UUID: "test-other-uuid", Name: "other", Enabled: true}
 	assert.NoError(t, db.Create(other).Error)
 
-	def := &models.SecurityConfig{Name: "default", Enabled: false}
+	def := &models.SecurityConfig{UUID: "test-default-uuid", Name: "default", Enabled: false}
 	assert.NoError(t, db.Create(def).Error)
 
 	cfg, err := svc.Get()

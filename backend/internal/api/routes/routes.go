@@ -107,8 +107,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	cerb := cerberus.New(cfg.Security, db)
 	api.Use(cerb.Middleware())
 
-	// Caddy Manager declaration so it can be used across the entire Register function
-	var caddyManager *caddy.Manager
+	// Caddy Manager - created early so it can be used by settings handlers for config reload
+	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
+	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
 
 	// Auth routes
 	authService := services.NewAuthService(db, cfg)
@@ -194,8 +195,8 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/audit-logs", auditLogHandler.List)
 		protected.GET("/audit-logs/:uuid", auditLogHandler.Get)
 
-		// Settings
-		settingsHandler := handlers.NewSettingsHandler(db)
+		// Settings - with CaddyManager and Cerberus for security settings reload
+		settingsHandler := handlers.NewSettingsHandlerWithDeps(db, caddyManager, cerb)
 		protected.GET("/settings", settingsHandler.GetSettings)
 		protected.POST("/settings", settingsHandler.UpdateSetting)
 
@@ -411,9 +412,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 			c.JSON(200, gin.H{"message": "Uptime check started"})
 		})
 
-		// Caddy Manager
-		caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
-		caddyManager = caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
+		// caddyManager is already created early in Register() for use by settingsHandler
 
 		// Initialize GeoIP service if database exists
 		geoipPath := os.Getenv("CHARON_GEOIP_DB_PATH")

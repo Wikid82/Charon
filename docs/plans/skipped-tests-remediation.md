@@ -946,3 +946,54 @@ grep -rn "test\.skip\|test\.fixme" tests/ --include="*.spec.ts" > skip-report.tx
 | 2024-XX-XX | AI Analysis | Initial plan created |
 | 2026-01-22 | Implementation Team | Phase 3 complete - NPM/JSON import routes implemented, SMTP persistence fixed, 7 tests re-enabled |
 | 2026-01-23 | QA Verification | Phase 1 verified complete - Cerberus defaults to enabled, 28 additional tests now passing (98 → 63 total skipped) |
+| 2026-01-23 | QA Verification | E2E Coverage Discovery - Documented Docker vs Vite modes for coverage collection |
+
+---
+
+## Appendix C: E2E Coverage Collection Discovery
+
+### Summary
+
+E2E Playwright coverage **ONLY works** when running tests against the **Vite dev server** (`localhost:5173`), NOT against the Docker container (`localhost:8080`).
+
+### Evidence
+
+| Mode | Base URL | Coverage Result |
+|------|----------|-----------------|
+| Docker Container | `http://localhost:8080` | `Unknown% (0/0)` - No coverage |
+| Vite Dev Server | `http://localhost:5173` | `34.39%` statements - Real coverage |
+
+### Root Cause
+
+The `@bgotink/playwright-coverage` library uses **V8 coverage** which requires:
+1. Access to source files (`.ts`, `.tsx`, `.js`)
+2. Source maps for mapping coverage back to original code
+
+Only the Vite dev server exposes these. The Docker container serves minified production bundles without source access.
+
+### Correct Usage
+
+**For coverage collection (required for Codecov):**
+```bash
+# Uses skill that starts Vite on port 5173
+.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
+```
+
+**For quick integration testing (no coverage):**
+```bash
+# Runs against Docker on port 8080
+npx playwright test --project=chromium
+```
+
+### Files Updated
+
+The following documentation was updated to reflect this discovery:
+- `.github/instructions/testing.instructions.md` - Added Docker vs Vite mode table and usage instructions
+- `.github/agents/playwright-tester.agent.md` - Added E2E coverage section
+- `.github/agents/QA_Security.agent.md` - Updated Playwright E2E section with coverage mode guidance
+
+### CI/CD Implications
+
+- **Local Development**: Use the coverage skill when coverage is needed
+- **CI Pipelines**: Ensure E2E coverage jobs start Vite (not Docker) before running tests
+- **Codecov Upload**: Only LCOV files from Vite-mode runs will have meaningful data

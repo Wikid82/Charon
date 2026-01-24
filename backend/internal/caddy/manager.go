@@ -639,6 +639,26 @@ func (m *Manager) computeEffectiveFlags(_ context.Context) (cerbEnabled, aclEnab
 			}
 		}
 
+		// runtime override for WAF enabled
+		s = models.Setting{} // Reset
+		if err := m.db.Where("key = ?", "security.waf.enabled").First(&s).Error; err == nil {
+			if strings.EqualFold(s.Value, "true") {
+				wafEnabled = true
+			} else if strings.EqualFold(s.Value, "false") {
+				wafEnabled = false
+			}
+		}
+
+		// runtime override for Rate Limit enabled
+		s = models.Setting{} // Reset
+		if err := m.db.Where("key = ?", "security.rate_limit.enabled").First(&s).Error; err == nil {
+			if strings.EqualFold(s.Value, "true") {
+				rateLimitEnabled = true
+			} else if strings.EqualFold(s.Value, "false") {
+				rateLimitEnabled = false
+			}
+		}
+
 		// runtime override for crowdsec mode (mode value determines whether it's local/remote/enabled)
 		var cm struct{ Value string }
 		if err := m.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.mode").Scan(&cm).Error; err == nil && cm.Value != "" {
