@@ -1,8 +1,5 @@
 name: Nightly Build & Package
 on:
-  push:
-    branches:
-      - nightly
   schedule:
     # Daily at 09:00 UTC (4am EST / 5am EDT)
     - cron: '0 9 * * *'
@@ -22,7 +19,50 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  sync-development-to-nightly:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      has_changes: ${{ steps.sync.outputs.has_changes }}
+
+    steps:
+      - name: Checkout nightly branch
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
+        with:
+          ref: nightly
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync development to nightly
+        id: sync
+        run: |
+          # Fetch development branch
+          git fetch origin development
+
+          # Check if there are differences
+          if git diff --quiet nightly origin/development; then
+            echo "No changes to sync from development to nightly"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Syncing changes from development to nightly"
+            # Fast-forward merge development into nightly
+            git merge origin/development --ff-only -m "chore: sync from development branch [skip ci]" || {
+              # If fast-forward fails, force reset to development
+              echo "Fast-forward not possible, resetting nightly to development"
+              git reset --hard origin/development
+            }
+            git push origin nightly
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
   build-and-push-nightly:
+    needs: sync-development-to-nightly
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -34,9 +74,10 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
 
     steps:
-      - name: Checkout code
+      - name: Checkout nightly branch
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
         with:
+          ref: nightly
           fetch-depth: 0
 
       - name: Set lowercase image name
@@ -106,8 +147,10 @@ jobs:
       packages: read
 
     steps:
-      - name: Checkout code
+      - name: Checkout nightly branch
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
+        with:
+          ref: nightly
 
       - name: Set lowercase image name
         run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> $GITHUB_ENV
@@ -148,9 +191,10 @@ jobs:
       contents: read
 
     steps:
-      - name: Checkout code
+      - name: Checkout nightly branch
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
         with:
+          ref: nightly
           fetch-depth: 0
 
       - name: Set up Go
@@ -199,8 +243,10 @@ jobs:
       security-events: write
 
     steps:
-      - name: Checkout code
+      - name: Checkout nightly branch
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
+        with:
+          ref: nightly
 
       - name: Set lowercase image name
         run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> $GITHUB_ENV
