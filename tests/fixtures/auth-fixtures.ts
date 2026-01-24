@@ -24,7 +24,7 @@
 
 import { test as base, expect } from '@bgotink/playwright-coverage';
 import { request as playwrightRequest } from '@playwright/test';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { TestDataManager } from '../utils/TestDataManager';
 import { STORAGE_STATE } from '../constants';
 
@@ -85,6 +85,30 @@ export const test = base.extend<AuthFixtures>({
         `Auth state file not found at ${STORAGE_STATE}. ` +
           'Ensure auth.setup has run first. Check that dependencies: ["setup"] is configured.'
       );
+    }
+
+    // Validate cookie domain matches baseURL to catch configuration issues early
+    try {
+      const savedState = JSON.parse(readFileSync(STORAGE_STATE, 'utf-8'));
+      const cookies = savedState.cookies || [];
+      const authCookie = cookies.find((c: { name: string }) => c.name === 'auth_token');
+
+      if (authCookie?.domain && baseURL) {
+        const expectedHost = new URL(baseURL).hostname;
+        const cookieDomain = authCookie.domain.replace(/^\./, ''); // Remove leading dot
+
+        if (cookieDomain !== expectedHost) {
+          console.warn(
+            `⚠️ TestDataManager: Cookie domain mismatch detected!\n` +
+            `   Cookie domain: "${authCookie.domain}"\n` +
+            `   Base URL host: "${expectedHost}"\n` +
+            `   API calls will likely fail with 401/403.\n` +
+            `   Fix: Set PLAYWRIGHT_BASE_URL=http://localhost:8080 in your environment.`
+          );
+        }
+      }
+    } catch (err) {
+      console.warn('⚠️ Could not validate cookie domain:', err instanceof Error ? err.message : err);
     }
 
     // Create an authenticated API request context using stored auth state
