@@ -67,8 +67,7 @@ test.describe('User Management', () => {
      * Test: User status badges display correctly
      * Priority: P1
      */
-    test.skip('should show user status badges', async ({ page }) => {
-      // SKIP: Status badges (Active, Pending Invite) not yet implemented in UI
+    test('should show user status badges', async ({ page }) => {
       await test.step('Wait for user data to load', async () => {
         // Wait for at least one row to be visible in the table
         const userRow = page.getByRole('row').nth(1); // Skip header row
@@ -92,14 +91,12 @@ test.describe('User Management', () => {
           hasText: /^active$/i,
         });
 
-        if (await activeStatus.first().isVisible()) {
-          // Should have green color indicator (Tailwind uses text-green-400)
-          const hasGreenColor = await activeStatus.first().evaluate((el) => {
-            const classList = el.className;
-            return classList.includes('green') || classList.includes('text-green-400') || classList.includes('success');
-          });
-          expect(hasGreenColor).toBeTruthy();
-        }
+        // Wait for active status badge to be visible first
+        await expect(activeStatus.first()).toBeVisible({ timeout: 10000 });
+
+        // Use web-first assertion that auto-retries for CSS class check
+        // Should have green color indicator (Tailwind uses text-green-400 or similar)
+        await expect(activeStatus.first()).toHaveClass(/green|success/, { timeout: 5000 });
       });
     });
 
@@ -107,8 +104,7 @@ test.describe('User Management', () => {
      * Test: Role badges display correctly
      * Priority: P1
      */
-    test.skip('should display role badges', async ({ page }) => {
-      // SKIP: Styled role badges not yet implemented in UI
+    test('should display role badges', async ({ page }) => {
       await test.step('Verify admin role badge', async () => {
         const adminBadge = page.locator('span').filter({
           hasText: /^admin$/i,
@@ -214,8 +210,7 @@ test.describe('User Management', () => {
      * Test: Invite modal opens correctly
      * Priority: P0
      */
-    test.skip('should open invite user modal', async ({ page }) => {
-      // SKIP: Invite user button not yet implemented in UI
+    test('should open invite user modal', async ({ page }) => {
       await test.step('Click invite user button', async () => {
         const inviteButton = page.getByRole('button', { name: /invite.*user/i });
         await expect(inviteButton).toBeVisible();
@@ -279,15 +274,14 @@ test.describe('User Management', () => {
      * Test: Validate email format
      * Priority: P0
      */
-    // Skip: Email validation may be server-side, not client-side, so error messages vary
-    test.skip('should validate email format', async ({ page }) => {
+    test('should validate email format', async ({ page }) => {
       await test.step('Open invite modal', async () => {
         const inviteButton = page.getByRole('button', { name: /invite.*user/i });
         await inviteButton.click();
       });
 
       await test.step('Enter invalid email', async () => {
-        const emailInput = page.getByPlaceholder(/user@example/i);
+        const emailInput = page.getByPlaceholder(/user@example/i).first();
         await emailInput.fill('not-a-valid-email');
       });
 
@@ -299,7 +293,7 @@ test.describe('User Management', () => {
 
         if (!isDisabled) {
           await sendButton.click();
-          const errorMessage = page.getByText(/invalid.*email|email.*invalid|valid.*email/i);
+          const errorMessage = page.getByText(/invalid.*email|email.*invalid|valid.*email/i).first();
           await expect(errorMessage).toBeVisible({ timeout: 5000 });
         } else {
           expect(isDisabled).toBeTruthy();
@@ -439,8 +433,7 @@ test.describe('User Management', () => {
      * Test: Copy invite link
      * Priority: P1
      */
-    test.skip('should copy invite link', async ({ page, context }) => {
-      // SKIP: Depends on invite button which is not yet implemented
+    test('should copy invite link', async ({ page, context }) => {
       // Grant clipboard permissions
       await context.grantPermissions(['clipboard-read', 'clipboard-write']);
 
@@ -952,15 +945,14 @@ test.describe('User Management', () => {
      * Test: Resend invite for pending user
      * Priority: P2
      */
-    // Skip: Complex flow creating invite through UI, then checking for resend button
-    test.skip('should resend invite for pending user', async ({ page }) => {
+    test('should resend invite for pending user', async ({ page }) => {
       const testEmail = `resend-${Date.now()}@test.local`;
 
       await test.step('Create a pending invite', async () => {
         const inviteButton = page.getByRole('button', { name: /invite.*user/i });
         await inviteButton.click();
 
-        const emailInput = page.getByPlaceholder(/user@example/i);
+        const emailInput = page.getByPlaceholder(/user@example/i).first();
         await emailInput.fill(testEmail);
 
         const sendButton = page.getByRole('button', { name: /send.*invite/i });
@@ -968,7 +960,7 @@ test.describe('User Management', () => {
 
         // Wait for success and close modal
         await page.waitForTimeout(2000);
-        const closeButton = page.getByRole('button', { name: /done|close|×/i });
+        const closeButton = page.getByRole('button', { name: /done|close|×/i }).first();
         if (await closeButton.isVisible()) {
           await closeButton.click();
         }
@@ -986,8 +978,8 @@ test.describe('User Management', () => {
       });
 
       await test.step('Look for resend option', async () => {
-        // Resend may be a button or dropdown option
-        const resendButton = page.getByRole('button', { name: /resend/i });
+        // Find resend button by aria-label (Mail icon button)
+        const resendButton = page.getByRole('button', { name: /resend invite/i });
         const hasResend = await resendButton.first().isVisible({ timeout: 3000 }).catch(() => false);
 
         if (hasResend) {
@@ -1154,8 +1146,7 @@ test.describe('User Management', () => {
      * Test: Proper ARIA labels
      * Priority: P2
      */
-    test.skip('should have proper ARIA labels', async ({ page }) => {
-      // SKIP: Depends on invite button which is not yet implemented
+    test('should have proper ARIA labels', async ({ page }) => {
       await test.step('Verify invite button has accessible name', async () => {
         const inviteButton = page.getByRole('button', { name: /invite.*user/i });
         await expect(inviteButton).toBeVisible();

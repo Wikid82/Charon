@@ -20,6 +20,7 @@ vi.mock('../../api/users', () => ({
   validateInvite: vi.fn(),
   acceptInvite: vi.fn(),
   previewInviteURL: vi.fn(),
+  resendInvite: vi.fn(),
 }))
 
 vi.mock('../../api/proxyHosts', () => ({
@@ -234,7 +235,7 @@ describe('UsersPage', () => {
     })
 
     await user.type(screen.getByPlaceholderText('user@example.com'), 'new@example.com')
-    await user.click(screen.getByRole('button', { name: /Send Invite/i }))
+    await user.click(screen.getByRole('button', { name: /^Send Invite$/i }))
 
     await waitFor(() => {
       expect(usersApi.inviteUser).toHaveBeenCalledWith({
@@ -341,7 +342,7 @@ describe('UsersPage', () => {
     await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
     await user.click(screen.getByRole('button', { name: /Invite User/i }))
     await user.type(screen.getByPlaceholderText('user@example.com'), 'manual@example.com')
-    await user.click(screen.getByRole('button', { name: /Send Invite/i }))
+    await user.click(screen.getByRole('button', { name: /^Send Invite$/i }))
 
     await screen.findByDisplayValue(/accept-invite\?token=token-123/)
     const copyButton = await screen.findByRole('button', { name: /copy invite link/i })

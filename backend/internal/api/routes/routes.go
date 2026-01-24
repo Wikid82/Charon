@@ -233,6 +233,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.PUT("/users/:id", userHandler.UpdateUser)
 		protected.DELETE("/users/:id", userHandler.DeleteUser)
 		protected.PUT("/users/:id/permissions", userHandler.UpdateUserPermissions)
+		protected.POST("/users/:id/resend-invite", userHandler.ResendInvite)
 
 		// Updates
 		updateService := services.NewUpdateService()
