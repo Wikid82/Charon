@@ -5,6 +5,8 @@
  * These fixtures provide consistent test data across test files.
  */
 
+import * as crypto from 'crypto';
+
 /**
  * Expected provider types from the API
  */
@@ -213,7 +215,7 @@ export function generateDnsProvider(
   overrides: Partial<DnsProviderConfig> = {}
 ): DnsProviderConfig {
   const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 8);
+  const random = crypto.randomBytes(4).toString('hex');
   const uniqueId = `${timestamp}-${random}`;
   const providerType = overrides.provider_type || 'manual';
 
