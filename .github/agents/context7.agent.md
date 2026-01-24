@@ -1,8 +1,11 @@
 ---
-name: Context7-Expert
+name: 'Context7-Expert'
 description: 'Expert in latest library versions, best practices, and correct syntax using up-to-date documentation'
 argument-hint: 'Ask about specific libraries/frameworks (e.g., "Next.js routing", "React hooks", "Tailwind CSS")'
 tools: ['read', 'search', 'web', 'context7/*', 'agent/runSubagent']
+model: 'Claude Sonnet 4'
+target: 'vscode'
+infer: true
 mcp-servers:
   context7:
     type: http
