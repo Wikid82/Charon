@@ -1,6 +1,6 @@
 ---
 description: 'Investigates JavaScript errors, network failures, and warnings from browser DevTools console to identify root causes and implement fixes'
-agent: 'agent'
+mode: 'agent'
 tools: ['changes', 'search/codebase', 'edit/editFiles', 'problems', 'search', 'search/searchResults', 'findTestFiles', 'usages', 'runTests']
 ---
 
