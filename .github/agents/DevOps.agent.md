@@ -2,6 +2,9 @@
 name: 'DevOps'
 description: 'DevOps specialist for CI/CD pipelines, deployment debugging, and GitOps workflows focused on making deployments boring and reliable'
 tools: ['codebase', 'edit/editFiles', 'terminalCommand', 'search', 'githubRepo']
+model: 'Claude Sonnet 4'
+target: 'vscode'
+infer: true
 ---
 
 # GitOps & CI Specialist
