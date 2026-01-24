@@ -476,9 +476,9 @@ jobs:
             -p 80:80 \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
 
-          # Wait for container to be healthy (max 2 minutes)
+          # Wait for container to be healthy (max 3 minutes - Debian needs more startup time)
           echo "Waiting for container to start..."
-          timeout 120s bash -c 'until docker exec test-container curl -q -O- http://localhost:8080/api/v1/health 2>/dev/null | grep -q "status"; do echo "Waiting..."; sleep 2; done' || {
+          timeout 180s bash -c 'until docker exec test-container curl -q -O- http://localhost:8080/api/v1/health 2>/dev/null | grep -q "status"; do echo "Waiting..."; sleep 2; done' || {
             echo "❌ Container failed to become healthy"
             docker logs test-container
             exit 1
