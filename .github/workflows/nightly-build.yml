@@ -7,6 +7,15 @@ on:
     # Daily at 09:00 UTC (4am EST / 5am EDT)
     - cron: '0 9 * * *'
   workflow_dispatch:
+   inputs:
+    reason:
+      description: "Why are you running this manually?"
+      required: true
+      default: "manual trigger"
+    skip_tests:
+      description: "Skip test-nightly-image job?"
+      required: false
+      default: "false"
 
 env:
   REGISTRY: ghcr.io
