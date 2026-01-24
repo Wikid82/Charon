@@ -5,6 +5,8 @@
  * These fixtures provide consistent test data across notification-related test files.
  */
 
+import * as crypto from 'crypto';
+
 // ============================================================================
 // Notification Provider Types
 // ============================================================================
@@ -52,7 +54,7 @@ export interface NotificationProvider extends NotificationProviderConfig {
  * Generate a unique provider name
  */
 export function generateProviderName(prefix: string = 'test-provider'): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  return `${prefix}-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 }
 
 /**

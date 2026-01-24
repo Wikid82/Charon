@@ -5,6 +5,8 @@
  * These fixtures provide consistent test data across settings-related test files.
  */
 
+import * as crypto from 'crypto';
+
 // ============================================================================
 // SMTP Configuration Types and Fixtures
 // ============================================================================
@@ -77,7 +79,7 @@ export const invalidSMTPConfigs = {
  * Generate a unique test email address
  */
 export function generateTestEmail(): string {
-  return `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@test.local`;
+  return `test-${Date.now()}-${crypto.randomBytes(4).toString('hex')}@test.local`;
 }
 
 // ============================================================================

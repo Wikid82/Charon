@@ -74,9 +74,9 @@ export function generateIPAddress(options: {
   /** Fourth octet (1-254), random if not specified */
   octet4?: number;
 } = {}): string {
-  const o2 = options.octet2 ?? Math.floor(Math.random() * 256);
-  const o3 = options.octet3 ?? Math.floor(Math.random() * 256);
-  const o4 = options.octet4 ?? Math.floor(Math.random() * 253) + 1; // 1-254
+  const o2 = options.octet2 ?? secureRandomInt(256);
+  const o3 = options.octet3 ?? secureRandomInt(256);
+  const o4 = options.octet4 ?? secureRandomInt(253) + 1; // 1-254
   return `10.${o2}.${o3}.${o4}`;
 }
 
@@ -117,7 +117,7 @@ export function generatePort(options: {
   max?: number;
 } = {}): number {
   const { min = 8080, max = 65000 } = options;
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  return secureRandomInt(max - min + 1) + min;
 }
 
 /**
@@ -530,7 +530,7 @@ export function generateCrowdSecDecisionData(
   overrides: Partial<CrowdSecDecisionTestData> = {}
 ): CrowdSecDecisionTestData {
   return {
-    ip: `10.0.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
+    ip: `10.0.${secureRandomInt(255)}.${secureRandomInt(255)}`,
     duration: '4h',
     reason: 'Test ban - automated testing',
     scope: 'ip',
