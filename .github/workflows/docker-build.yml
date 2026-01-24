@@ -224,11 +224,11 @@ jobs:
 
           echo ""
           echo "==> Caddy version:"
-          timeout 30s docker run --rm $IMAGE_REF caddy version || echo "⚠️ Caddy version check timed out or failed"
+          timeout 30s docker run --rm --pull=never $IMAGE_REF caddy version || echo "⚠️ Caddy version check timed out or failed"
 
           echo ""
           echo "==> Extracting Caddy binary for inspection..."
-          CONTAINER_ID=$(docker create $IMAGE_REF)
+          CONTAINER_ID=$(docker create --pull=never $IMAGE_REF)
           docker cp ${CONTAINER_ID}:/usr/bin/caddy ./caddy_binary
           docker rm ${CONTAINER_ID}
 
@@ -293,11 +293,11 @@ jobs:
 
           echo ""
           echo "==> CrowdSec cscli version:"
-          timeout 30s docker run --rm $IMAGE_REF cscli version || echo "⚠️ CrowdSec version check timed out or failed (may not be installed for this architecture)"
+          timeout 30s docker run --rm --pull=never $IMAGE_REF cscli version || echo "⚠️ CrowdSec version check timed out or failed (may not be installed for this architecture)"
 
           echo ""
           echo "==> Extracting cscli binary for inspection..."
-          CONTAINER_ID=$(docker create $IMAGE_REF)
+          CONTAINER_ID=$(docker create --pull=never $IMAGE_REF)
           docker cp ${CONTAINER_ID}:/usr/local/bin/cscli ./cscli_binary 2>/dev/null || {
             echo "⚠️ cscli binary not found - CrowdSec may not be available for this architecture"
             docker rm ${CONTAINER_ID}
