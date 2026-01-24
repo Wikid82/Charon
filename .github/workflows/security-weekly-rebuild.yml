@@ -132,7 +132,7 @@ jobs:
           echo "Checking key security packages:" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           docker run --rm --entrypoint "" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }} \
-            sh -c "dpkg -l | grep -E 'libc-ares|curl|libcurl|openssl|libssl'" >> $GITHUB_STEP_SUMMARY
+            sh -c "dpkg -l | grep -E 'libc-ares|curl|libcurl|openssl|libssl' || echo 'No matching packages found'" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Create security scan summary
