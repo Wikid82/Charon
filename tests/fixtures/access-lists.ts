@@ -25,6 +25,21 @@ import type { AccessListData } from '../utils/TestDataManager';
 import * as crypto from 'crypto';
 
 /**
+ * Generate an unbiased random integer in [0, 9999] using rejection sampling.
+ * Avoids modulo bias from 16-bit source.
+ */
+function getRandomIntBelow10000(): number {
+  const maxExclusive = 10000;
+  const limit = 60000; // Largest multiple of 10000 <= 65535
+  while (true) {
+    const value = crypto.randomBytes(2).readUInt16BE(0);
+    if (value < limit) {
+      return value % maxExclusive;
+    }
+  }
+}
+
+/**
  * ACL type - matches backend ValidAccessListTypes
  */
 export type ACLType = 'whitelist' | 'blacklist' | 'geo_whitelist' | 'geo_blacklist';
@@ -378,7 +393,7 @@ export function mockAccessListResponse(
 ): AccessListAPIResponse {
   const id = generateUniqueId();
   return {
-    id: parseInt(id) || crypto.randomBytes(2).readUInt16BE(0) % 10000,
+    id: parseInt(id) || getRandomIntBelow10000(),
     uuid: `acl-${id}`,
     name: config.name || `ACL-${id}`,
     type: config.type || 'whitelist',
