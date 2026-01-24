@@ -1,785 +1,510 @@
-# Phase 3: Backend Routes Implementation Plan
+# Phase 5: TestDataManager Authentication Fix
 
-> **Phase**: 3 of Skipped Tests Remediation
-> **Status**: ✅ COMPLETE
-> **Created**: 2026-01-22
-> **Completed**: 2026-01-22
-> **Target Tests**: 7 tests to re-enable
-> **Actual Result**: 7 tests enabled and passing
+> **Status**: Ready for Implementation
+> **Created**: 2026-01-24
+> **Estimated Effort**: M (Medium) - 8-12 hours
+> **Priority**: P1 - Blocks user management test coverage
+> **Tests to Enable**: 8 tests (user management CRUD operations)
 
 ---
 
 ## Executive Summary
 
-Phase 3 addresses missing backend API routes and a data persistence issue that block 7 E2E tests:
+The `TestDataManager` class uses an authenticated `APIRequestContext` that inherits cookies from the stored auth state. However, a **cookie domain mismatch** prevents those cookies from being sent when tests run against a non-localhost URL (e.g., Tailscale IP `100.98.12.109:8080`). This causes "Admin access required" (401/403) errors when `TestDataManager` attempts to create/delete test users.
 
-1. **NPM Import Route** (`/tasks/import/npm`) - 4 skipped tests
-2. **JSON Import Route** (`/tasks/import/json`) - 2 skipped tests
-3. **SMTP Persistence Bug** - 1 skipped test at `smtp-settings.spec.ts:336`
-
-The existing Caddyfile import infrastructure provides a solid foundation. NPM and JSON import routes will extend this pattern with format-specific parsers.
+**Solution**: Ensure consistent `localhost:8080` base URL throughout the authentication setup and test execution, and verify the cookie domain in stored authentication state matches the test target domain.
 
 ---
 
 ## Root Cause Analysis
 
-### Issue 1: Missing NPM Import Route
+### Current AUTH Flow
 
-**Location**: Tests at [tests/integration/import-to-production.spec.ts](../../tests/integration/import-to-production.spec.ts#L170-L237)
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 1. auth.setup.ts runs                                                   │
+│    - Creates admin user via /api/v1/setup                               │
+│    - Logs in via /api/v1/auth/login                                     │
+│    - Saves cookies to playwright/.auth/user.json                        │
+│    - Cookie domain: depends on PLAYWRIGHT_BASE_URL or localhost:8080    │
+└─────────────────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 2. auth-fixtures.ts creates TestDataManager                             │
+│    - Reads storageState from playwright/.auth/user.json                 │
+│    - Creates APIRequestContext with baseURL                             │
+│    - TestDataManager uses this context for API calls                    │
+└─────────────────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 3. TestDataManager.createUser() called                                  │
+│    - POST /api/v1/users with authenticated context                      │
+│    - ❌ If baseURL != cookie domain → cookies not sent                 │
+│    - ❌ API returns 401 "Admin access required"                        │
+└─────────────────────────────────────────────────────────────────────────┘
+```
 
-**Problem**: The tests navigate to `/tasks/import/npm` but this route doesn't exist in the frontend router or backend API.
+### Cookie Domain Mismatch Scenario
 
-**Evidence**:
+| Stage | URL/Domain | Cookies |
+|-------|------------|---------|
+| Auth Setup | `http://localhost:8080` | Cookie set for `localhost` |
+| Browser Tests | `http://100.98.12.109:8080` | Cookies sent (browser follows redirects) |
+| TestDataManager API | `http://100.98.12.109:8080` | ❌ Cookies NOT sent (domain mismatch) |
+
+### Evidence from Code
+
+**[tests/settings/user-management.spec.ts](../../tests/settings/user-management.spec.ts#L534-L537)**:
 ```typescript
-// From import-to-production.spec.ts lines 170-180
-test.skip('should display NPM import page', async ({ page, adminUser }) => {
-  await page.goto('/tasks/import/npm');  // Route doesn't exist
-  ...
-});
+// SKIP: TestDataManager authenticated context not working due to cookie domain mismatch.
+// Auth setup creates cookies for 'localhost' but tests run against Tailscale IP (100.98.12.109).
+// Cookies aren't sent cross-domain. Fix requires consistent PLAYWRIGHT_BASE_URL environment config.
+test.skip('should update permission mode', async ({ page, testData }) => {
 ```
 
-**Expected NPM Export Format** (from test file):
-```json
-{
-  "proxy_hosts": [
-    {
-      "domain_names": ["test.example.com"],
-      "forward_host": "192.168.1.100",
-      "forward_port": 80
-    }
-  ],
-  "access_lists": [],
-  "certificates": []
-}
-```
+---
 
-### Issue 2: Missing JSON Import Route
+## Affected Tests
 
-**Location**: Tests at [tests/integration/import-to-production.spec.ts](../../tests/integration/import-to-production.spec.ts#L243-L256)
+### 8 Tests Blocked by TestDataManager Auth Issue
 
-**Problem**: The `/tasks/import/json` route is not implemented. Tests navigate to this route expecting a generic JSON configuration import interface.
+| # | Test Name | Line | Uses `testData` | Skip Reason |
+|---|-----------|------|-----------------|-------------|
+| 1 | `should update permission mode` | 538 | ✅ | Cookie domain mismatch |
+| 2 | `should enable/disable user` | 780 | ✅ | Cookie domain mismatch |
+| 3 | `should show pending invite status` | 164 | ✅ | Complex flow + auth |
+| 4 | `should open permissions modal` | 494 | ✅ | UI not implemented + auth |
+| 5 | `should add permitted hosts` | 612 | ✅ | UI not implemented + auth |
+| 6 | `should remove permitted hosts` | 669 | ✅ | Auth + lookup issues |
+| 7 | `should save permission changes` | 725 | ✅ | UI not implemented + auth |
+| 8 | `should delete user with confirmation` | 847 | ✅ | UI not implemented + auth |
 
-### Issue 3: SMTP Save Not Persisting
-
-**Location**: Test at [tests/settings/smtp-settings.spec.ts](../../tests/settings/smtp-settings.spec.ts#L336)
-
-**Problem**: After saving SMTP configuration and reloading the page, the updated values don't persist.
-
-**Skip Comment**:
-```typescript
-// Note: Skip - SMTP save not persisting correctly (backend issue, not test issue)
-```
-
-**Analysis of Code Flow**:
-
-1. **Frontend**: [SMTPSettings.tsx](../../frontend/src/pages/SMTPSettings.tsx#L50-L62)
-   - Calls `updateSMTPConfig()` which POSTs to `/settings/smtp`
-   - On success, invalidates query and shows toast
-
-2. **Backend Handler**: [settings_handler.go](../../backend/internal/api/handlers/settings_handler.go#L109-L136)
-   - `UpdateSMTPConfig()` receives the request
-   - Calls `h.MailService.SaveSMTPConfig(config)`
-
-3. **Mail Service**: [mail_service.go](../../backend/internal/services/mail_service.go#L117-L144)
-   - `SaveSMTPConfig()` uses upsert pattern
-   - **POTENTIAL BUG**: Uses `First()` then conditional `Create()`/`Updates()` separately
-
-**Root Cause Hypothesis**:
-The `SaveSMTPConfig` method has a problematic upsert pattern:
-```go
-// Current pattern in mail_service.go lines 127-143:
-result := s.db.Where("key = ?", key).First(&models.Setting{})
-if result.Error == gorm.ErrRecordNotFound {
-    s.db.Create(&setting)  // Creates new
-} else {
-    s.db.Model(&models.Setting{}).Where("key = ?", key).Updates(...)  // Updates existing
-}
-```
-
-**Issues identified**:
-1. No transaction wrapping - partial failures possible
-2. `Updates()` with map may not update all fields correctly
-3. If `First()` returns error other than `ErrRecordNotFound`, the else branch runs but may not execute correctly
-4. Race condition between read and write operations
+**Note**: Some tests have dual blockers (auth + UI). Once auth is fixed, they may still require UI implementation. The "pure auth" tests are #1 and #2.
 
 ---
 
 ## Implementation Plan
 
-### Task 1: Implement NPM Import Backend Handler
+### Phase 5.1: Consistent Base URL Configuration (2-3 hours)
 
-**File**: `backend/internal/api/handlers/npm_import_handler.go` (NEW)
+#### Task 5.1.1: Update playwright.config.js
 
-#### 1.1 Create NPM Parser Model
+**File**: [playwright.config.js](../../playwright.config.js#L131-L140)
 
-```go
-// NPMExport represents the Nginx Proxy Manager export format
-type NPMExport struct {
-    ProxyHosts   []NPMProxyHost   `json:"proxy_hosts"`
-    AccessLists  []NPMAccessList  `json:"access_lists"`
-    Certificates []NPMCertificate `json:"certificates"`
-}
+**Current** (lines 131-140):
+```javascript
+  /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
+  use: {
+    /* Base URL to use in actions like `await page.goto('')`. */
+    // CI sets PLAYWRIGHT_BASE_URL=http://localhost:8080
+    // Local development can override via environment variable
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080',  // Line 136
 
-type NPMProxyHost struct {
-    DomainNames     []string `json:"domain_names"`
-    ForwardScheme   string   `json:"forward_scheme"`
-    ForwardHost     string   `json:"forward_host"`
-    ForwardPort     int      `json:"forward_port"`
-    CachingEnabled  bool     `json:"caching_enabled"`
-    BlockExploits   bool     `json:"block_exploits"`
-    AllowWebsocket  bool     `json:"allow_websocket_upgrade"`
-    HTTP2Support    bool     `json:"http2_support"`
-    HSTSEnabled     bool     `json:"hsts_enabled"`
-    HSTSSubdomains  bool     `json:"hsts_subdomains"`
-    SSLForced       bool     `json:"ssl_forced"`
-    Enabled         bool     `json:"enabled"`
-}
-
-type NPMAccessList struct {
-    Name   string         `json:"name"`
-    Items  []NPMAccessItem `json:"items"`
-}
-
-type NPMAccessItem struct {
-    Type    string `json:"type"`  // "allow" or "deny"
-    Address string `json:"address"`
-}
-
-type NPMCertificate struct {
-    NiceName    string   `json:"nice_name"`
-    DomainNames []string `json:"domain_names"`
-    Provider    string   `json:"provider"`
-}
+    /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
+    trace: 'on-first-retry',
+  },
 ```
 
-#### 1.2 Create NPM Import Handler
+**Action**: The default is already `localhost:8080`, but we need to explicitly document that all test environments MUST use localhost for auth to work.
 
-**File**: `backend/internal/api/handlers/npm_import_handler.go`
+**Changes Required**:
+1. Add validation comment
+2. Consider adding runtime warning if non-localhost detected
 
-```go
-package handlers
+**Proposed** (replace lines 131-140):
+```javascript
+  /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
+  use: {
+    /* Base URL Configuration
+     *
+     * CRITICAL: Authentication cookies are domain-scoped. The auth.setup.ts
+     * stores cookies for the domain in this baseURL. TestDataManager and
+     * browser tests must use the SAME domain for cookies to be sent.
+     *
+     * For local testing, always use http://localhost:8080 (not IP addresses).
+     * CI sets PLAYWRIGHT_BASE_URL=http://localhost:8080 automatically.
+     */
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080',
 
-import (
-    "encoding/json"
-    "net/http"
-    "strings"
+    /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
+    trace: 'on-first-retry',
+  },
 
-    "github.com/gin-gonic/gin"
-    "github.com/google/uuid"
-    "gorm.io/gorm"
+#### Task 5.1.2: Verify docker-compose.e2e.yml Port Binding
 
-    "github.com/Wikid82/charon/backend/internal/caddy"
-    "github.com/Wikid82/charon/backend/internal/models"
-    "github.com/Wikid82/charon/backend/internal/services"
-)
+**File**: [.docker/compose/docker-compose.e2e.yml](../../.docker/compose/docker-compose.e2e.yml#L17-L18)
 
-type NPMImportHandler struct {
-    db           *gorm.DB
-    proxyHostSvc *services.ProxyHostService
-}
-
-func NewNPMImportHandler(db *gorm.DB) *NPMImportHandler {
-    return &NPMImportHandler{
-        db:           db,
-        proxyHostSvc: services.NewProxyHostService(db),
-    }
-}
-
-func (h *NPMImportHandler) RegisterRoutes(router *gin.RouterGroup) {
-    router.POST("/import/npm/upload", h.Upload)
-    router.POST("/import/npm/commit", h.Commit)
-}
-
-// Upload handles NPM export JSON upload and returns preview
-func (h *NPMImportHandler) Upload(c *gin.Context) {
-    var req struct {
-        Content string `json:"content" binding:"required"`
-    }
-
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
-
-    // Parse NPM export JSON
-    var npmExport NPMExport
-    if err := json.Unmarshal([]byte(req.Content), &npmExport); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid NPM export JSON"})
-        return
-    }
-
-    // Convert to internal format
-    result := h.convertNPMToImportResult(npmExport)
-
-    // Check for conflicts with existing hosts
-    existingHosts, _ := h.proxyHostSvc.List()
-    existingDomainsMap := make(map[string]models.ProxyHost)
-    for _, eh := range existingHosts {
-        existingDomainsMap[eh.DomainNames] = eh
-    }
-
-    conflictDetails := make(map[string]gin.H)
-    for _, ph := range result.Hosts {
-        if existing, found := existingDomainsMap[ph.DomainNames]; found {
-            result.Conflicts = append(result.Conflicts, ph.DomainNames)
-            conflictDetails[ph.DomainNames] = gin.H{
-                "existing": gin.H{
-                    "forward_scheme": existing.ForwardScheme,
-                    "forward_host":   existing.ForwardHost,
-                    "forward_port":   existing.ForwardPort,
-                },
-                "imported": gin.H{
-                    "forward_scheme": ph.ForwardScheme,
-                    "forward_host":   ph.ForwardHost,
-                    "forward_port":   ph.ForwardPort,
-                },
-            }
-        }
-    }
-
-    sid := uuid.NewString()
-    c.JSON(http.StatusOK, gin.H{
-        "session":          gin.H{"id": sid, "state": "transient", "source": "npm"},
-        "conflict_details": conflictDetails,
-        "preview":          result,
-    })
-}
-
-func (h *NPMImportHandler) convertNPMToImportResult(export NPMExport) *caddy.ImportResult {
-    result := &caddy.ImportResult{
-        Hosts:     []caddy.ParsedHost{},
-        Conflicts: []string{},
-        Errors:    []string{},
-    }
-
-    for _, proxy := range export.ProxyHosts {
-        // Join domain names with comma for storage
-        domains := strings.Join(proxy.DomainNames, ", ")
-
-        host := caddy.ParsedHost{
-            DomainNames:      domains,
-            ForwardScheme:    proxy.ForwardScheme,
-            ForwardHost:      proxy.ForwardHost,
-            ForwardPort:      proxy.ForwardPort,
-            SSLForced:        proxy.SSLForced,
-            WebsocketSupport: proxy.AllowWebsocket,
-        }
-
-        if host.ForwardScheme == "" {
-            host.ForwardScheme = "http"
-        }
-        if host.ForwardPort == 0 {
-            host.ForwardPort = 80
-        }
-
-        result.Hosts = append(result.Hosts, host)
-    }
-
-    return result
-}
+**Current** (lines 17-18):
+```yaml
+ports:
+  - "8080:8080"    # Management UI (Charon)
 ```
 
-#### 1.3 Register NPM Import Routes
+**Status**: ✅ Already correct - binds to `0.0.0.0:8080` which is accessible as `localhost:8080`.
 
-**File**: `backend/internal/api/routes/routes.go`
+**No changes required**.
 
-Add to the `Register` function:
-```go
-// NPM Import Handler
-npmImportHandler := handlers.NewNPMImportHandler(db)
-npmImportHandler.RegisterRoutes(api)
+#### Task 5.1.3: Update Environment Documentation
+
+**File**: Create or update `.env.example`
+
+**Add**:
+```bash
+# Playwright E2E Testing
+# CRITICAL: Use localhost (not IP address) for cookie authentication to work
+PLAYWRIGHT_BASE_URL=http://localhost:8080
 ```
-
-### Task 2: Implement JSON Import Backend Handler
-
-**File**: `backend/internal/api/handlers/json_import_handler.go` (NEW)
-
-The JSON import handler will accept a generic Charon export format:
-
-```go
-package handlers
-
-// CharonExport represents a generic Charon configuration export
-type CharonExport struct {
-    Version     string              `json:"version"`
-    ExportedAt  string              `json:"exported_at"`
-    ProxyHosts  []CharonProxyHost   `json:"proxy_hosts"`
-    AccessLists []CharonAccessList  `json:"access_lists"`
-    DNSRecords  []CharonDNSRecord   `json:"dns_records"`
-}
-
-type JSONImportHandler struct {
-    db           *gorm.DB
-    proxyHostSvc *services.ProxyHostService
-}
-
-func NewJSONImportHandler(db *gorm.DB) *JSONImportHandler {
-    return &JSONImportHandler{
-        db:           db,
-        proxyHostSvc: services.NewProxyHostService(db),
-    }
-}
-
-func (h *JSONImportHandler) RegisterRoutes(router *gin.RouterGroup) {
-    router.POST("/import/json/upload", h.Upload)
-    router.POST("/import/json/commit", h.Commit)
-}
-
-// Upload validates and previews JSON import
-func (h *JSONImportHandler) Upload(c *gin.Context) {
-    var req struct {
-        Content string `json:"content" binding:"required"`
-    }
-
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
-
-    // Try to parse as Charon export format
-    var charonExport CharonExport
-    if err := json.Unmarshal([]byte(req.Content), &charonExport); err != nil {
-        // Fallback: try NPM format
-        var npmExport NPMExport
-        if err := json.Unmarshal([]byte(req.Content), &npmExport); err != nil {
-            c.JSON(http.StatusBadRequest, gin.H{
-                "error": "Invalid JSON format. Expected Charon or NPM export format.",
-            })
-            return
-        }
-        // Convert NPM to import result
-        // ... (similar to NPM handler)
-    }
-
-    // Convert Charon export to import result
-    result := h.convertCharonToImportResult(charonExport)
-    // ... (conflict checking and response)
-}
-```
-
-### Task 3: Implement Frontend Routes
-
-#### 3.1 Create ImportNPM Page
-
-**File**: `frontend/src/pages/ImportNPM.tsx` (NEW)
-
-```tsx
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
-import { useNPMImport } from '../hooks/useNPMImport'
-import ImportReviewTable from '../components/ImportReviewTable'
-import ImportSuccessModal from '../components/dialogs/ImportSuccessModal'
-
-export default function ImportNPM() {
-  const { t } = useTranslation()
-  const navigate = useNavigate()
-  const { preview, loading, error, upload, commit, commitResult, clearCommitResult } = useNPMImport()
-  const [content, setContent] = useState('')
-  const [showReview, setShowReview] = useState(false)
-  const [showSuccessModal, setShowSuccessModal] = useState(false)
-
-  const handleUpload = async () => {
-    if (!content.trim()) {
-      alert(t('importNPM.enterContent'))
-      return
-    }
-
-    // Validate JSON
-    try {
-      JSON.parse(content)
-    } catch {
-      alert(t('importNPM.invalidJSON'))
-      return
-    }
-
-    try {
-      await upload(content)
-      setShowReview(true)
-    } catch {
-      // Error handled by hook
-    }
-  }
-
-  // ... (rest follows ImportCaddy pattern)
-
-  return (
-    <div className="p-8">
-      <h1 className="text-3xl font-bold text-white mb-6">{t('importNPM.title')}</h1>
-      {/* Similar UI to ImportCaddy but for JSON input */}
-    </div>
-  )
-}
-```
-
-#### 3.2 Create ImportJSON Page
-
-**File**: `frontend/src/pages/ImportJSON.tsx` (NEW)
-
-Similar structure to ImportNPM, but handles generic JSON/Charon export format.
-
-#### 3.3 Add Frontend Routes
-
-**File**: `frontend/src/App.tsx`
-
-Add to the Tasks routes section:
-```tsx
-<Route path="import">
-  <Route path="caddyfile" element={<ImportCaddy />} />
-  <Route path="crowdsec" element={<ImportCrowdSec />} />
-  <Route path="npm" element={<ImportNPM />} />
-  <Route path="json" element={<ImportJSON />} />
-</Route>
-```
-
-#### 3.4 Add Navigation Items
-
-**File**: `frontend/src/components/Layout.tsx`
-
-Add to the import submenu:
-```tsx
-{ name: t('navigation.npm'), path: '/tasks/import/npm', icon: '📦' },
-{ name: t('navigation.json'), path: '/tasks/import/json', icon: '📄' },
-```
-
-### Task 4: Fix SMTP Persistence Bug
-
-**File**: `backend/internal/services/mail_service.go`
-
-#### 4.1 Fix the Upsert Pattern
-
-Replace the `SaveSMTPConfig` method (lines ~117-144):
-
-```go
-// SaveSMTPConfig saves SMTP settings to the database using proper upsert pattern.
-func (s *MailService) SaveSMTPConfig(config *SMTPConfig) error {
-    settings := map[string]string{
-        "smtp_host":         config.Host,
-        "smtp_port":         fmt.Sprintf("%d", config.Port),
-        "smtp_username":     config.Username,
-        "smtp_password":     config.Password,
-        "smtp_from_address": config.FromAddress,
-        "smtp_encryption":   config.Encryption,
-    }
-
-    // Use a transaction for atomic updates
-    return s.db.Transaction(func(tx *gorm.DB) error {
-        for key, value := range settings {
-            var existing models.Setting
-            result := tx.Where("key = ?", key).First(&existing)
-
-            if result.Error == gorm.ErrRecordNotFound {
-                // Create new setting
-                setting := models.Setting{
-                    Key:      key,
-                    Value:    value,
-                    Type:     "string",
-                    Category: "smtp",
-                }
-                if err := tx.Create(&setting).Error; err != nil {
-                    return fmt.Errorf("failed to create setting %s: %w", key, err)
-                }
-            } else if result.Error == nil {
-                // Update existing setting - use Save() instead of Updates()
-                existing.Value = value
-                existing.Category = "smtp"
-                if err := tx.Save(&existing).Error; err != nil {
-                    return fmt.Errorf("failed to update setting %s: %w", key, err)
-                }
-            } else {
-                return fmt.Errorf("failed to query setting %s: %w", key, result.Error)
-            }
-        }
-        return nil
-    })
-}
-```
-
-**Key Changes**:
-1. Wrapped in transaction for atomicity
-2. Using `Save()` instead of `Updates()` for reliable updates
-3. Proper error handling for all cases
-4. Modifying the fetched struct directly before saving
 
 ---
 
-## API Contracts
+### Phase 5.2: Verify Cookie Domain in Auth State (2-3 hours)
 
-### NPM Import Upload
+#### Task 5.2.1: Add Cookie Domain Validation to auth.setup.ts
 
-**Endpoint**: `POST /api/v1/import/npm/upload`
+**File**: [tests/auth.setup.ts](../../tests/auth.setup.ts)
 
-**Request**:
-```json
-{
-  "content": "{\"proxy_hosts\": [...], \"access_lists\": [], \"certificates\": []}"
-}
+**Current** (lines 78-79):
+```typescript
+  await request.storageState({ path: STORAGE_STATE });
+  console.log(`Auth state saved to ${STORAGE_STATE}`);
 ```
 
-**Response** (200 OK):
-```json
-{
-  "session": {
-    "id": "uuid-string",
-    "state": "transient",
-    "source": "npm"
-  },
-  "preview": {
-    "hosts": [
-      {
-        "domain_names": "test.example.com",
-        "forward_scheme": "http",
-        "forward_host": "192.168.1.100",
-        "forward_port": 80,
-        "ssl_forced": false,
-        "websocket_support": false
+**Changes Required**:
+
+1. **Add import at top of file** (after line 2) - imports cannot be inside functions:
+```typescript
+import { test as setup, expect } from '@bgotink/playwright-coverage';
+import { STORAGE_STATE } from './constants';
+import { readFileSync } from 'fs';  // <-- ADD THIS LINE
+```
+
+2. **Add validation after saving** (after line 79) - with defensive null checks and try/catch:
+```typescript
+  await request.storageState({ path: STORAGE_STATE });
+  console.log(`Auth state saved to ${STORAGE_STATE}`);
+
+  // Step 5: Verify cookie domain matches expected base URL
+  try {
+    const savedState = JSON.parse(readFileSync(STORAGE_STATE, 'utf-8'));
+    const cookies = savedState.cookies || [];
+    const authCookie = cookies.find((c: { name: string }) => c.name === 'auth_token');
+
+    if (authCookie?.domain && baseURL) {
+      const expectedHost = new URL(baseURL).hostname;
+      if (authCookie.domain !== expectedHost && authCookie.domain !== `.${expectedHost}`) {
+        console.warn(`⚠️ Cookie domain mismatch: cookie domain "${authCookie.domain}" does not match baseURL host "${expectedHost}"`);
+        console.warn('TestDataManager API calls may fail with 401. Ensure PLAYWRIGHT_BASE_URL uses localhost.');
+      } else {
+        console.log(`✅ Cookie domain "${authCookie.domain}" matches baseURL host "${expectedHost}"`);
       }
-    ],
-    "conflicts": [],
-    "errors": []
-  },
-  "conflict_details": {}
-}
-```
-
-### JSON Import Upload
-
-**Endpoint**: `POST /api/v1/import/json/upload`
-
-**Request**:
-```json
-{
-  "content": "{\"version\": \"1.0\", \"proxy_hosts\": [...]}"
-}
-```
-
-**Response**: Same structure as NPM import.
-
-### Import Commit (shared)
-
-**Endpoint**: `POST /api/v1/import/npm/commit` or `POST /api/v1/import/json/commit`
-
-**Request**:
-```json
-{
-  "session_uuid": "uuid-string",
-  "resolutions": {
-    "example.com": "overwrite",
-    "test.com": "skip"
-  },
-  "names": {
-    "example.com": "My Example Site"
+    }
+  } catch (err) {
+    console.warn('⚠️ Could not validate cookie domain:', err instanceof Error ? err.message : err);
   }
-}
 ```
 
-**Response**:
-```json
-{
-  "created": 5,
-  "updated": 2,
-  "skipped": 1,
-  "errors": []
-}
+#### Task 5.2.2: Add Defensive Check in auth-fixtures.ts
+
+**File**: [tests/fixtures/auth-fixtures.ts](../../tests/fixtures/auth-fixtures.ts#L67-L97)
+
+**Current** (lines 67-97):
+```typescript
+  testData: async ({ baseURL }, use, testInfo) => {
+    // Defensive check: Verify auth state file exists (created by auth.setup.ts)
+    if (!existsSync(STORAGE_STATE)) {
+      throw new Error(
+        `Auth state file not found at ${STORAGE_STATE}. ` +
+          'Ensure auth.setup has run first. Check that dependencies: ["setup"] is configured.'
+      );
+    }
+
+    // Create an authenticated API request context using stored auth state
+    // ... rest of fixture
+```
+
+**Changes Required**:
+
+1. **Update existing import on line 27** to include `readFileSync`:
+```typescript
+// Current (line 27):
+import { existsSync } from 'fs';
+
+// Change to:
+import { existsSync, readFileSync } from 'fs';
+```
+
+2. **Add domain validation after defensive check** (insert after line 75) - with null checks and try/catch:
+```typescript
+    // Defensive check: Verify auth state file exists (created by auth.setup.ts)
+    if (!existsSync(STORAGE_STATE)) {
+      throw new Error(
+        `Auth state file not found at ${STORAGE_STATE}. ` +
+          'Ensure auth.setup has run first. Check that dependencies: ["setup"] is configured.'
+      );
+    }
+
+    // Validate cookie domain matches baseURL to catch configuration issues early
+    try {
+      const savedState = JSON.parse(readFileSync(STORAGE_STATE, 'utf-8'));
+      const cookies = savedState.cookies || [];
+      const authCookie = cookies.find((c: { name: string }) => c.name === 'auth_token');
+
+      if (authCookie?.domain && baseURL) {
+        const expectedHost = new URL(baseURL).hostname;
+        const cookieDomain = authCookie.domain.replace(/^\./, ''); // Remove leading dot
+
+        if (cookieDomain !== expectedHost) {
+          console.warn(
+            `⚠️ TestDataManager: Cookie domain mismatch detected!\n` +
+            `   Cookie domain: "${authCookie.domain}"\n` +
+            `   Base URL host: "${expectedHost}"\n` +
+            `   API calls will likely fail with 401/403.\n` +
+            `   Fix: Set PLAYWRIGHT_BASE_URL=http://localhost:8080 in your environment.`
+          );
+        }
+      }
+    } catch (err) {
+      console.warn('⚠️ Could not validate cookie domain:', err instanceof Error ? err.message : err);
+    }
+
+    // Create an authenticated API request context using stored auth state
+    // ... rest unchanged
 ```
 
 ---
 
-## Files to Create/Modify
+### Phase 5.3: Update Test Skip Comments (1-2 hours)
 
-### New Files
+#### Task 5.3.1: Update Skipped Tests with Clear Instructions
 
-| File | Purpose |
-|------|---------|
-| `backend/internal/api/handlers/npm_import_handler.go` | NPM import handler |
-| `backend/internal/api/handlers/npm_import_handler_test.go` | Unit tests |
-| `backend/internal/api/handlers/json_import_handler.go` | JSON import handler |
-| `backend/internal/api/handlers/json_import_handler_test.go` | Unit tests |
-| `frontend/src/pages/ImportNPM.tsx` | NPM import page |
-| `frontend/src/pages/ImportJSON.tsx` | JSON import page |
-| `frontend/src/hooks/useNPMImport.ts` | NPM import hook |
-| `frontend/src/hooks/useJSONImport.ts` | JSON import hook |
-| `frontend/src/api/npmImport.ts` | NPM import API client |
-| `frontend/src/api/jsonImport.ts` | JSON import API client |
+For tests that will remain skipped until auth is verified working, update comments:
 
-### Modified Files
+**File**: [tests/settings/user-management.spec.ts](../../tests/settings/user-management.spec.ts)
 
-| File | Change |
-|------|--------|
-| `backend/internal/api/routes/routes.go` | Register new import handlers |
-| `backend/internal/services/mail_service.go` | Fix SMTP upsert pattern (lines ~117-144) |
-| `frontend/src/App.tsx` | Add new routes (around line 113) |
-| `frontend/src/components/Layout.tsx` | Add navigation items (around line 102) |
-| `frontend/src/locales/en/translation.json` | Add i18n keys |
+**Pattern** - Change from:
+```typescript
+// SKIP: TestDataManager authenticated context not working due to cookie domain mismatch.
+// Auth setup creates cookies for 'localhost' but tests run against Tailscale IP (100.98.12.109).
+// Cookies aren't sent cross-domain. Fix requires consistent PLAYWRIGHT_BASE_URL environment config.
+test.skip('should update permission mode', ...
+```
+
+**To conditional skip** (after fix is implemented):
+```typescript
+// TestDataManager auth fix: Remove skip once Phase 5 is complete and
+// PLAYWRIGHT_BASE_URL is consistently set to http://localhost:8080
+test('should update permission mode', ...
+```
+
+For tests 1 and 2 (pure auth blockers), remove skip entirely after validation.
 
 ---
 
-## Tests to Re-enable
+### Phase 5.4: Re-enable Tests and Validate (2-3 hours)
 
-After implementation, update these tests by removing `test.skip`:
+#### Task 5.4.1: Create Validation Script
 
-### import-to-production.spec.ts
-
-| Line | Test Name | Condition |
-|------|-----------|-----------|
-| 172 | `should display NPM import page` | NPM route exists |
-| 188 | `should parse NPM export JSON` | NPM route exists |
-| 204 | `should preview NPM import results` | NPM route exists |
-| 220 | `should import NPM proxy hosts and access lists` | NPM route exists |
-| 246 | `should display JSON import page` | JSON route exists |
-| 262 | `should validate JSON schema before import` | JSON route exists |
-
-### smtp-settings.spec.ts
-
-| Line | Test Name | Condition |
-|------|-----------|-----------|
-| 336 | `should update existing SMTP configuration` | SMTP persistence fixed |
-
----
-
-## Verification Steps
-
-### Backend Verification
-
-1. **Unit Tests**:
-   ```bash
-   go test ./backend/internal/api/handlers/... -run "NPM|JSON" -v
-   go test ./backend/internal/services/... -run "SMTP" -v
-   ```
-
-2. **API Integration Tests**:
-   ```bash
-   # NPM Import
-   curl -X POST http://localhost:8080/api/v1/import/npm/upload \
-     -H "Content-Type: application/json" \
-     -H "Cookie: <auth-cookie>" \
-     -d '{"content": "{\"proxy_hosts\": [{\"domain_names\": [\"test.com\"], \"forward_host\": \"localhost\", \"forward_port\": 80}]}"}'
-
-   # SMTP Persistence
-   curl -X POST http://localhost:8080/api/v1/settings/smtp \
-     -H "Content-Type: application/json" \
-     -H "Cookie: <auth-cookie>" \
-     -d '{"host": "smtp.test.local", "port": 587, "from_address": "test@test.local", "encryption": "starttls"}'
-
-   curl http://localhost:8080/api/v1/settings/smtp -H "Cookie: <auth-cookie>"
-   # Should return saved values
-   ```
-
-### Frontend Verification
-
-1. Navigate to `/tasks/import/npm` - page should load
-2. Navigate to `/tasks/import/json` - page should load
-3. Paste valid NPM export JSON - should show preview
-4. Save SMTP settings, reload page - values should persist
-
-### E2E Verification
+**File**: Create `scripts/validate-e2e-auth.sh`
 
 ```bash
-# Run the import tests
-npx playwright test tests/integration/import-to-production.spec.ts --project=chromium
+#!/bin/bash
+# Validates E2E authentication setup for TestDataManager
 
-# Run SMTP test
-npx playwright test tests/settings/smtp-settings.spec.ts -g "should update existing SMTP configuration" --project=chromium
+set -eo pipefail
+
+echo "=== E2E Authentication Validation ==="
+
+# Check 0: Verify required dependencies
+if ! command -v jq &> /dev/null; then
+  echo "❌ jq is required but not installed."
+  echo "   Install with: brew install jq (macOS) or apt-get install jq (Linux)"
+  exit 1
+fi
+echo "✅ jq is installed"
+
+# Check 1: Verify PLAYWRIGHT_BASE_URL uses localhost
+if [[ -n "$PLAYWRIGHT_BASE_URL" && "$PLAYWRIGHT_BASE_URL" != *"localhost"* ]]; then
+  echo "❌ PLAYWRIGHT_BASE_URL ($PLAYWRIGHT_BASE_URL) does not use localhost"
+  echo "   Fix: export PLAYWRIGHT_BASE_URL=http://localhost:8080"
+  exit 1
+fi
+echo "✅ PLAYWRIGHT_BASE_URL is localhost or unset (defaults to localhost)"
+
+# Check 2: Verify Docker container is running
+if ! docker ps | grep -q charon-e2e; then
+  echo "⚠️ charon-e2e container not running. Starting..."
+  docker compose -f .docker/compose/docker-compose.e2e.yml up -d
+  echo "Waiting for container health..."
+  sleep 10
+fi
+echo "✅ charon-e2e container is running"
+
+# Check 3: Verify API is accessible at localhost:8080
+if ! curl -sf http://localhost:8080/api/v1/health > /dev/null; then
+  echo "❌ API not accessible at http://localhost:8080"
+  exit 1
+fi
+echo "✅ API accessible at localhost:8080"
+
+# Check 4: Run auth setup and verify cookie domain
+echo ""
+echo "Running auth setup..."
+if ! npx playwright test --project=setup; then
+  echo "❌ Auth setup failed"
+  exit 1
+fi
+
+# Check 5: Verify stored cookie domain
+AUTH_FILE="playwright/.auth/user.json"
+if [[ -f "$AUTH_FILE" ]]; then
+  COOKIE_DOMAIN=$(jq -r '.cookies[] | select(.name=="auth_token") | .domain // empty' "$AUTH_FILE" 2>/dev/null || echo "")
+  if [[ -z "$COOKIE_DOMAIN" ]]; then
+    echo "❌ No auth_token cookie found in $AUTH_FILE"
+    exit 1
+  elif [[ "$COOKIE_DOMAIN" == "localhost" || "$COOKIE_DOMAIN" == ".localhost" ]]; then
+    echo "✅ Auth cookie domain is localhost"
+  else
+    echo "❌ Auth cookie domain is '$COOKIE_DOMAIN' (expected 'localhost')"
+    exit 1
+  fi
+else
+  echo "❌ Auth state file not found at $AUTH_FILE"
+  exit 1
+fi
+
+echo ""
+echo "=== All validation checks passed ==="
+echo "You can now run the user management tests:"
+echo "  npx playwright test tests/settings/user-management.spec.ts --project=chromium"
+```
+
+#### Task 5.4.2: Test Execution Commands
+
+```bash
+# 1. Start E2E environment
+docker compose -f .docker/compose/docker-compose.e2e.yml up -d
+
+# 2. Verify health
+curl http://localhost:8080/api/v1/health
+
+# 3. Run auth setup only
+npx playwright test --project=setup
+
+# 4. Inspect stored auth state
+cat playwright/.auth/user.json | jq '.cookies[] | {name, domain, path}'
+
+# 5. Run previously skipped tests
+npx playwright test tests/settings/user-management.spec.ts --project=chromium \
+  --grep "should update permission mode|should enable/disable user"
+
+# 6. Run all user management tests
+npx playwright test tests/settings/user-management.spec.ts --project=chromium
 ```
 
 ---
 
-## Implementation Checklist
+## File Changes Summary
 
-### Phase 3.1: NPM Import (Backend)
-- [x] Create `NPMExport` and related structs
-- [x] Create `npm_import_handler.go` with Upload and Commit handlers
-- [x] Create `npm_import_handler_test.go` with unit tests
-- [x] Register routes in `routes.go`
-- [x] Test API endpoints manually
-
-### Phase 3.2: JSON Import (Backend)
-- [x] Create `CharonExport` struct
-- [x] Create `json_import_handler.go` with Upload and Commit handlers
-- [x] Create `json_import_handler_test.go` with unit tests
-- [x] Register routes in `routes.go`
-- [x] Test API endpoints manually
-
-### Phase 3.3: SMTP Persistence Fix
-- [x] Update `SaveSMTPConfig` in `mail_service.go`
-- [x] Add transaction-based upsert pattern
-- [x] Update `mail_service_test.go` with persistence test
-- [x] Verify fix with manual testing
-
-### Phase 3.4: Frontend Routes
-- [x] Create `ImportNPM.tsx` page component
-- [x] Create `ImportJSON.tsx` page component
-- [x] Create `useNPMImport.ts` hook
-- [x] Create `useJSONImport.ts` hook
-- [x] Create API client files
-- [x] Add routes to `App.tsx`
-- [x] Add navigation items to `Layout.tsx`
-- [x] Add i18n translation keys
-
-### Phase 3.5: Test Re-enablement
-- [x] Remove `test.skip` from NPM import tests (4 tests)
-- [x] Remove `test.skip` from JSON import tests (2 tests)
-- [x] Remove `test.skip` from SMTP persistence test (1 test)
-- [x] Run full E2E test suite
-
-### Phase 3.6: Verification
-- [x] All new tests pass (7 tests enabled and passing)
-- [x] No regressions in existing tests
-- [x] Update `skipped-tests-remediation.md` with Phase 3 completion
+| File | Change Type | Description |
+|------|-------------|-------------|
+| `playwright.config.js` | Modify | Add documentation comments about cookie domain requirement |
+| `tests/auth.setup.ts` | Modify | Add cookie domain validation after saving state |
+| `tests/fixtures/auth-fixtures.ts` | Modify | Add domain mismatch warning in testData fixture |
+| `tests/settings/user-management.spec.ts` | Modify | Remove skip from 2 pure-auth tests, update comments on others |
+| `scripts/validate-e2e-auth.sh` | Create | Validation script for auth setup |
+| `.env.example` | Modify | Add PLAYWRIGHT_BASE_URL documentation |
 
 ---
 
-## Risk Assessment
+## Dependencies and Blockers
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|------------|--------|------------|
-| NPM export format varies by version | Medium | Medium | Support multiple format versions, validate required fields |
-| SMTP fix causes other issues | Low | High | Transaction-based approach is safer, comprehensive tests |
-| Frontend state management complexity | Low | Low | Follow existing ImportCaddy pattern exactly |
+### No External Dependencies
+- All changes are within the test infrastructure
+- No backend changes required
+- No frontend changes required
 
----
-
-## Dependencies
-
-- Phase 2 completion (TestDataManager auth fix) - **COMPLETE**
-- Existing Caddyfile import infrastructure - **AVAILABLE**
-- Frontend React component patterns - **AVAILABLE**
+### Related Work
+- Tests 3-8 have **additional UI blockers** (permissions button, delete button, etc.)
+- Those tests will remain skipped until Phase 6 (User Management UI) is complete
+- This phase unblocks **2 tests immediately** and sets foundation for remaining 6
 
 ---
 
-## Summary for Delegation
+## Success Criteria
 
-### For Backend_Dev Agent:
+| Metric | Before | After |
+|--------|--------|-------|
+| Tests immediately passing | 0 | 2 |
+| Tests unblocked (pending UI) | 0 | 6 |
+| Cookie domain validation | None | Automatic warning |
+| Documentation | Sparse | Clear setup guide |
 
-**Task 1: NPM Import Handler**
-- Create file: `backend/internal/api/handlers/npm_import_handler.go`
-- Implement structs: `NPMExport`, `NPMProxyHost`, `NPMAccessList`, `NPMCertificate`
-- Implement handlers: `Upload()`, `Commit()`
-- Register in: `backend/internal/api/routes/routes.go`
+### Acceptance Tests
 
-**Task 2: JSON Import Handler**
-- Create file: `backend/internal/api/handlers/json_import_handler.go`
-- Implement structs: `CharonExport`, `CharonProxyHost`
-- Implement handlers: `Upload()`, `Commit()` (with NPM format fallback)
-- Register in: `backend/internal/api/routes/routes.go`
+1. ✅ `npx playwright test --grep "should update permission mode" --project=chromium` passes
+2. ✅ `npx playwright test --grep "should enable/disable user" --project=chromium` passes
+3. ✅ Running tests against non-localhost URL shows clear warning message
+4. ✅ `scripts/validate-e2e-auth.sh` passes with exit code 0
+5. ✅ No 401/403 errors when TestDataManager creates users
 
-**Task 3: SMTP Fix**
-- File: `backend/internal/services/mail_service.go`
-- Function: `SaveSMTPConfig()` (lines ~117-144)
-- Fix: Wrap in transaction, use `Save()` instead of `Updates()`
+---
 
-### For Frontend_Dev Agent:
+## Implementation Assignments
 
-**Task 4: Frontend Routes**
-- Create: `frontend/src/pages/ImportNPM.tsx`
-- Create: `frontend/src/pages/ImportJSON.tsx`
-- Create: `frontend/src/hooks/useNPMImport.ts`
-- Create: `frontend/src/hooks/useJSONImport.ts`
-- Create: `frontend/src/api/npmImport.ts`
-- Create: `frontend/src/api/jsonImport.ts`
-- Modify: `frontend/src/App.tsx` (add routes)
-- Modify: `frontend/src/components/Layout.tsx` (add nav items)
-- Modify: `frontend/src/locales/en/translation.json` (add i18n)
+### Backend_Dev Tasks
+None - no backend changes required
+
+### Frontend_Dev Tasks
+
+1. **Task F5.1**: Update [playwright.config.js](../../playwright.config.js#L131-L140)
+   - Add documentation comments about cookie domain
+   - Time: 15 minutes
+
+2. **Task F5.2**: Update [tests/auth.setup.ts](../../tests/auth.setup.ts#L1-5,L78-79)
+   - Add cookie domain validation
+   - Time: 30 minutes
+
+3. **Task F5.3**: Update [tests/fixtures/auth-fixtures.ts](../../tests/fixtures/auth-fixtures.ts#L27,L67-L97)
+   - Add domain mismatch warning
+   - Add `readFileSync` import
+   - Time: 30 minutes
+
+4. **Task F5.4**: Create `scripts/validate-e2e-auth.sh`
+   - Create validation script
+   - Make executable: `chmod +x scripts/validate-e2e-auth.sh`
+   - Time: 20 minutes
+
+5. **Task F5.5**: Update [tests/settings/user-management.spec.ts](../../tests/settings/user-management.spec.ts)
+   - Remove `test.skip` from lines 538 and 780
+   - Update comments on other skipped tests
+   - Time: 30 minutes
+
+6. **Task F5.6**: Validate
+   - Run validation script
+   - Run the 2 enabled tests
+   - Verify no regressions in other tests
+   - Time: 1 hour
+
+---
+
+## Rollback Plan
+
+If the fix causes issues:
+
+1. Revert test file changes (re-add `test.skip`)
+2. Keep validation/warning code (it only logs, doesn't fail)
+3. Document any newly discovered issues
+
+---
+
+## References
+
+- [Skipped Tests Remediation Plan](skipped-tests-remediation.md) - Phase 5 section
+- [Playwright storageState docs](https://playwright.dev/docs/api/class-browsercontext#browser-context-storage-state)
+- [HTTP Cookie domain scope](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie#domain)
+- [Testing Instructions](../../.github/instructions/testing.instructions.md) - E2E section
 
 ---
 
@@ -787,5 +512,5 @@ npx playwright test tests/settings/smtp-settings.spec.ts -g "should update exist
 
 | Date | Author | Change |
 |------|--------|--------|
-| 2026-01-22 | Planning Agent (Architect) | Initial Phase 3 plan created |
-| 2026-01-22 | Implementation Team | Phase 3 implementation complete - NPM/JSON import routes, SMTP fix, 7 tests enabled |
+| 2026-01-24 | Planning Agent | Initial plan created |
+| 2026-01-24 | Planning Agent | CRITICAL FIXES: Fixed line numbers (baseURL@L136, storageState@L78-79), moved imports to file top, added null checks (`authCookie?.domain && baseURL`), wrapped validation in try/catch, added jq check + `set -eo pipefail` to script, updated auth-fixtures.ts import pattern |

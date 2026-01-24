@@ -1,5 +1,6 @@
 import { test as setup, expect } from '@bgotink/playwright-coverage';
 import { STORAGE_STATE } from './constants';
+import { readFileSync } from 'fs';
 
 /**
  * Authentication Setup for E2E Tests
@@ -77,4 +78,23 @@ setup('authenticate', async ({ request, baseURL }) => {
   // The login endpoint sets an auth_token cookie, we need to save the storage state
   await request.storageState({ path: STORAGE_STATE });
   console.log(`Auth state saved to ${STORAGE_STATE}`);
+
+  // Step 5: Verify cookie domain matches expected base URL
+  try {
+    const savedState = JSON.parse(readFileSync(STORAGE_STATE, 'utf-8'));
+    const cookies = savedState.cookies || [];
+    const authCookie = cookies.find((c: { name: string }) => c.name === 'auth_token');
+
+    if (authCookie?.domain && baseURL) {
+      const expectedHost = new URL(baseURL).hostname;
+      if (authCookie.domain !== expectedHost && authCookie.domain !== `.${expectedHost}`) {
+        console.warn(`⚠️ Cookie domain mismatch: cookie domain "${authCookie.domain}" does not match baseURL host "${expectedHost}"`);
+        console.warn('TestDataManager API calls may fail with 401. Ensure PLAYWRIGHT_BASE_URL uses localhost.');
+      } else {
+        console.log(`✅ Cookie domain "${authCookie.domain}" matches baseURL host "${expectedHost}"`);
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ Could not validate cookie domain:', err instanceof Error ? err.message : err);
+  }
 });

@@ -130,9 +130,15 @@ export default defineConfig({
       ],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
-    /* Base URL to use in actions like `await page.goto('')`. */
-    // CI sets PLAYWRIGHT_BASE_URL=http://localhost:8080
-    // Local development can override via environment variable
+    /* Base URL Configuration
+     *
+     * CRITICAL: Authentication cookies are domain-scoped. The auth.setup.ts
+     * stores cookies for the domain in this baseURL. TestDataManager and
+     * browser tests must use the SAME domain for cookies to be sent.
+     *
+     * For local testing, always use http://localhost:8080 (not IP addresses).
+     * CI sets PLAYWRIGHT_BASE_URL=http://localhost:8080 automatically.
+     */
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080',
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
