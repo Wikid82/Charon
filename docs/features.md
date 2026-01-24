@@ -51,6 +51,25 @@ Your credentials are stored securely with encryption and automatic key rotation.
 
 Enterprise-grade protection that "just works." Cerberus bundles multiple security layers into one easy-to-manage system.
 
+### 🎛️ Security Dashboard Toggles
+
+Control your security modules with a single click. The Security Dashboard provides instant toggles for each security layer:
+
+- **ACL Toggle** — Enable/disable Access Control Lists without editing config files
+- **WAF Toggle** — Turn the Web Application Firewall on/off in real-time
+- **Rate Limiting Toggle** — Activate or deactivate request rate limits instantly
+
+**Key Features:**
+
+- **Instant Updates** — Changes take effect immediately with automatic Caddy config reload
+- **Persistent State** — Toggle settings persist across page reloads and container restarts
+- **Optimistic UI** — Toggle changes reflect instantly with automatic rollback on failure
+- **Performance Optimized** — 60-second cache layer minimizes database queries in middleware
+
+→ [Learn More](features/security-dashboard.md)
+
+---
+
 ### 🕵️ CrowdSec Integration
 
 Protect your applications using behavior-based threat detection powered by a global community of security data. Bad actors get blocked automatically before they can cause harm.

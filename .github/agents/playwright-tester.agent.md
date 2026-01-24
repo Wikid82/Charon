@@ -17,3 +17,31 @@ model: Claude Sonnet 4
 
 - **No Truncation**: Never pipe Playwright test output through `head`, `tail`, or other truncating commands. Playwright runs interactively and requires user input to quit when piped, causing the command to hang indefinitely.
 - **Full Output**: Always capture the complete test output to analyze failures accurately.
+
+## E2E Coverage Collection
+
+**IMPORTANT**: E2E coverage ONLY works when running against the Vite dev server, NOT Docker.
+
+| Mode | Base URL | Coverage Support |
+|------|----------|-----------------|
+| Docker (`localhost:8080`) | ❌ No coverage (0% reported) |
+| Vite Dev (`localhost:5173`) | ✅ Real coverage data |
+
+### When Coverage is Required
+
+Use the dedicated skill that starts Vite and collects coverage:
+
+```bash
+# Recommended for coverage collection
+.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
+```
+
+### When Coverage is NOT Required
+
+For quick integration testing, run directly against Docker:
+
+```bash
+npx playwright test --project=chromium
+```
+
+**Why?** The `@bgotink/playwright-coverage` library uses V8 coverage which requires source files only available via Vite dev server.

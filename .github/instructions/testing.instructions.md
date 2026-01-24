@@ -8,10 +8,81 @@ description: 'Strict protocols for test execution, debugging, and coverage valid
 
 **MANDATORY**: Before running unit tests, verify the application functions correctly end-to-end.
 
-* **Run Playwright E2E Tests**: Execute `npx playwright test --project=chromium` from the project root.
-* **No Truncation**: Never pipe Playwright test output through `head`, `tail`, or other truncating commands. Playwright tests run interactively and require user input to quit when piped, causing the command to hang indefinitely.
+### Two Modes: Docker vs Vite
+
+Playwright E2E tests can run in two modes with different capabilities:
+
+| Mode | Base URL | Coverage Support | When to Use |
+|------|----------|-----------------|-------------|
+| **Docker** | `http://localhost:8080` | ❌ No (0% reported) | Integration testing, CI validation |
+| **Vite Dev** | `http://localhost:5173` | ✅ Yes (real coverage) | Local development, coverage collection |
+
+**Why?** The `@bgotink/playwright-coverage` library uses V8 coverage which requires access to source files. Only the Vite dev server exposes source maps and raw source files needed for coverage instrumentation.
+
+### Running E2E Tests (Integration Mode)
+
+For general integration testing without coverage:
+
+```bash
+# Against Docker container (default)
+npx playwright test --project=chromium
+
+# With explicit base URL
+PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test --project=chromium
+```
+
+### Running E2E Tests with Coverage
+
+**IMPORTANT**: Use the dedicated skill for coverage collection:
+
+```bash
+# Recommended: Uses skill that starts Vite and runs against localhost:5173
+.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
+```
+
+The coverage skill:
+1. Starts Vite dev server on port 5173
+2. Sets `PLAYWRIGHT_BASE_URL=http://localhost:5173`
+3. Runs tests with V8 coverage collection
+4. Generates reports in `coverage/e2e/` (LCOV, HTML, JSON)
+
+**DO NOT** expect coverage when running against Docker:
+```bash
+# ❌ WRONG: Coverage will show "Unknown% (0/0)"
+PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test --coverage
+
+# ✅ CORRECT: Use the coverage skill
+.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
+```
+
+### Verifying Coverage Locally Before CI
+
+Before pushing code, verify E2E coverage:
+
+1. Run the coverage skill:
+   ```bash
+   .github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
+   ```
+
+2. Check coverage output:
+   ```bash
+   # View HTML report
+   open coverage/e2e/index.html
+
+   # Check LCOV file exists for Codecov
+   ls -la coverage/e2e/lcov.info
+   ```
+
+3. Verify non-zero coverage:
+   ```bash
+   # Should show real percentages, not "0%"
+   head -20 coverage/e2e/lcov.info
+   ```
+
+### General Guidelines
+
+* **No Truncation**: Never pipe Playwright test output through `head`, `tail`, or other truncating commands. Playwright runs interactively and requires user input to quit when piped, causing the command to hang indefinitely.
 * **Why First**: If the application is broken at the E2E level, unit tests may need updates. Playwright catches integration issues early.
-* **Base URL**: Tests use `PLAYWRIGHT_BASE_URL` env var or default from `playwright.config.js` (Tailscale IP: `http://100.98.12.109:8080`).
 * **On Failure**: Analyze failures, trace root cause through frontend → backend flow, then fix before proceeding to unit tests.
 * **Scope**: Run relevant test files for the feature being modified (e.g., `tests/manual-dns-provider.spec.ts`).
 

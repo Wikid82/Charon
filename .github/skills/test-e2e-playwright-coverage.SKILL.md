@@ -72,6 +72,13 @@ metadata:
 
 Runs Playwright end-to-end tests with code coverage collection using `@bgotink/playwright-coverage`. This skill collects V8 coverage data during test execution and generates reports in LCOV, HTML, and JSON formats suitable for upload to Codecov.
 
+**IMPORTANT**: This skill starts the **Vite dev server** (not Docker) because V8 coverage requires access to source files. Running coverage against the Docker container will result in `0%` coverage.
+
+| Mode | Base URL | Coverage Support |
+|------|----------|-----------------|
+| Docker (`localhost:8080`) | ❌ No - Shows "Unknown% (0/0)" |
+| Vite Dev (`localhost:5173`) | ✅ Yes - Real coverage data |
+
 ## Prerequisites
 
 - Node.js 18.0 or higher installed and in PATH

@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,6 +24,12 @@ type Cerberus struct {
 	db                *gorm.DB
 	accessSvc         *services.AccessListService
 	securityNotifySvc *services.SecurityNotificationService
+
+	// Settings cache for performance - avoids DB queries on every request
+	settingsCache     map[string]string
+	settingsCacheMu   sync.RWMutex
+	settingsCacheTime time.Time
+	settingsCacheTTL  time.Duration
 }
 
 // New creates a new Cerberus instance
@@ -32,7 +39,61 @@ func New(cfg config.SecurityConfig, db *gorm.DB) *Cerberus {
 		db:                db,
 		accessSvc:         services.NewAccessListService(db),
 		securityNotifySvc: services.NewSecurityNotificationService(db),
+		settingsCache:     make(map[string]string),
+		settingsCacheTTL:  60 * time.Second,
 	}
+}
+
+// getSetting retrieves a setting with in-memory caching.
+// Returns the value and a boolean indicating if the key was found.
+func (c *Cerberus) getSetting(key string) (string, bool) {
+	if c.db == nil {
+		return "", false
+	}
+
+	// Fast path: check cache with read lock
+	c.settingsCacheMu.RLock()
+	if time.Since(c.settingsCacheTime) < c.settingsCacheTTL {
+		val, ok := c.settingsCache[key]
+		c.settingsCacheMu.RUnlock()
+		return val, ok
+	}
+	c.settingsCacheMu.RUnlock()
+
+	// Slow path: refresh cache with write lock
+	c.settingsCacheMu.Lock()
+	defer c.settingsCacheMu.Unlock()
+
+	// Double-check: another goroutine might have refreshed cache
+	if time.Since(c.settingsCacheTime) < c.settingsCacheTTL {
+		val, ok := c.settingsCache[key]
+		return val, ok
+	}
+
+	// Refresh entire cache from DB (batch query is faster than individual queries)
+	var settings []models.Setting
+	if err := c.db.Where("key LIKE ?", "security.%").Find(&settings).Error; err != nil {
+		logger.Log().WithError(err).Debug("Failed to refresh settings cache")
+		return "", false
+	}
+
+	// Update cache
+	c.settingsCache = make(map[string]string)
+	for _, s := range settings {
+		c.settingsCache[s.Key] = s.Value
+	}
+	c.settingsCacheTime = time.Now()
+
+	val, ok := c.settingsCache[key]
+	return val, ok
+}
+
+// InvalidateCache forces cache refresh on next access.
+// Call this after updating security settings.
+func (c *Cerberus) InvalidateCache() {
+	c.settingsCacheMu.Lock()
+	c.settingsCacheTime = time.Time{} // Zero time forces refresh
+	c.settingsCacheMu.Unlock()
 }
 
 // IsEnabled returns whether Cerberus features are enabled via config or settings.
@@ -89,16 +150,25 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 
 		// WAF: The actual WAF protection is handled by the Coraza plugin at the Caddy layer.
 		// This middleware just tracks metrics for requests when WAF is enabled.
-		// The naive <script> check has been removed as it's trivially bypassed and
-		// proper WAF protection is now provided by Coraza at the reverse proxy level.
-		if c.cfg.WAFMode != "" && c.cfg.WAFMode != "disabled" {
+		// Check runtime setting first (from cache), then fall back to static config.
+		wafEnabled := c.cfg.WAFMode != "" && c.cfg.WAFMode != "disabled"
+		if val, ok := c.getSetting("security.waf.enabled"); ok {
+			wafEnabled = strings.EqualFold(val, "true")
+		}
+		if wafEnabled {
 			metrics.IncWAFRequest()
 			// Note: Actual blocking is done by Coraza in Caddy. This middleware
 			// provides defense-in-depth tracking and ACL enforcement only.
 		}
 
 		// ACL: simple per-request evaluation against all access lists if enabled
-		if c.cfg.ACLMode == "enabled" {
+		// Check runtime setting first (from cache), then fall back to static config.
+		aclEnabled := c.cfg.ACLMode == "enabled"
+		if val, ok := c.getSetting("security.acl.enabled"); ok {
+			aclEnabled = strings.EqualFold(val, "true")
+		}
+
+		if aclEnabled {
 			acls, err := c.accessSvc.List()
 			if err == nil {
 				clientIP := ctx.ClientIP()

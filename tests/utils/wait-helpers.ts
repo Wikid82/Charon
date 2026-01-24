@@ -92,7 +92,9 @@ export async function waitForToast(
     selector = '[data-testid^="toast-"]:not([data-testid="toast-container"])';
   }
 
-  const toast = page.locator(selector);
+  // Use .first() to handle cases where multiple toasts are visible (e.g., after rapid toggles)
+  // The first matching toast is typically the most recent one we care about
+  const toast = page.locator(selector).first();
   await expect(toast).toContainText(text, { timeout });
 }
 

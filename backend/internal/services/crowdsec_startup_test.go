@@ -140,7 +140,8 @@ func TestReconcileCrowdSecOnStartup_NoSecurityConfig_NoSettings(t *testing.T) {
 	err := db.First(&cfg).Error
 	require.NoError(t, err)
 	assert.Equal(t, "disabled", cfg.CrowdSecMode)
-	assert.False(t, cfg.Enabled)
+	// Note: cfg.Enabled is the global Cerberus flag (always true by default), not CrowdSec-specific
+	assert.True(t, cfg.Enabled, "Cerberus global flag should be enabled by default")
 
 	// Should not attempt to start since mode is disabled
 	assert.False(t, exec.startCalled)
@@ -210,7 +211,8 @@ func TestReconcileCrowdSecOnStartup_NoSecurityConfig_SettingsDisabled(t *testing
 	err = db.First(&cfg).Error
 	require.NoError(t, err)
 	assert.Equal(t, "disabled", cfg.CrowdSecMode)
-	assert.False(t, cfg.Enabled)
+	// Note: cfg.Enabled is the global Cerberus flag (always true by default), not CrowdSec-specific
+	assert.True(t, cfg.Enabled, "Cerberus global flag should be enabled by default")
 
 	// Should not attempt to start
 	assert.False(t, exec.startCalled)

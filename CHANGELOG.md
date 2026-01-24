@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Phase 4: Security Module Toggle Actions**: Security dashboard toggles for ACL, WAF, and Rate Limiting are now fully functional (PR #XXX)
+  - **Toggle Functionality**: Enable/disable security modules directly from the Security Dashboard UI
+  - **Backend Cache Layer**: 60-second TTL in-memory cache for settings to minimize database queries in middleware
+  - **Auto Config Reload**: Caddy configuration automatically reloads when security settings change
+  - **Optimistic Updates**: Toggle changes reflect instantly in the UI with proper rollback on failure
+  - **Mode Preservation**: WAF and Rate Limiting mode settings (detection/prevention, log/block) preserved during toggles
+  - **8 E2E Tests Enabled**: Previously skipped security dashboard tests now pass
+  - See [Phase 4 Specification](docs/plans/phase4_security_toggles_spec.md) for implementation details
+
 ### Security
 
 - **CRITICAL**: Fixed CVE-2025-68156 by upgrading expr-lang/expr to v1.17.7
