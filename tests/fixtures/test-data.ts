@@ -151,6 +151,30 @@ export const commonPorts = {
  * // Returns: "Xy7!kM2@pL9#nQ4$"
  * ```
  */
+function secureRandomInt(maxExclusive: number): number {
+  if (maxExclusive <= 0) {
+    throw new Error('maxExclusive must be positive');
+  }
+  const maxUint32 = 0xffffffff;
+  const limit = maxUint32 - ((maxUint32 + 1) % maxExclusive);
+  while (true) {
+    const random = crypto.randomBytes(4).readUInt32BE(0);
+    if (random <= limit) {
+      return random % maxExclusive;
+    }
+  }
+}
+
+function shuffleArraySecure<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = secureRandomInt(i + 1);
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
+}
+
 export function generatePassword(length: number = 16): string {
   const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   const lower = 'abcdefghijklmnopqrstuvwxyz';
@@ -160,21 +184,18 @@ export function generatePassword(length: number = 16): string {
 
   // Ensure at least one of each type
   let password = '';
-  password += upper[Math.floor(Math.random() * upper.length)];
-  password += lower[Math.floor(Math.random() * lower.length)];
-  password += numbers[Math.floor(Math.random() * numbers.length)];
-  password += special[Math.floor(Math.random() * special.length)];
+  password += upper[secureRandomInt(upper.length)];
+  password += lower[secureRandomInt(lower.length)];
+  password += numbers[secureRandomInt(numbers.length)];
+  password += special[secureRandomInt(special.length)];
 
   // Fill the rest randomly
   for (let i = 4; i < length; i++) {
-    password += all[Math.floor(Math.random() * all.length)];
+    password += all[secureRandomInt(all.length)];
   }
 
-  // Shuffle the password
-  return password
-    .split('')
-    .sort(() => Math.random() - 0.5)
-    .join('');
+  // Shuffle the password using a cryptographically secure shuffle
+  return shuffleArraySecure(password.split('')).join('');
 }
 
 /**
