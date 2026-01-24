@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 6: User Management UI Enhancements** (PR #XXX)
+  - **Resend Invite**: Administrators can resend invitation emails to pending users via new `POST /api/v1/users/{id}/resend-invite` endpoint
+  - **Email Validation**: Client-side email format validation in the invite modal with visible error messages
+  - **Modal Keyboard Navigation**: Escape key now closes invite and permissions modals for improved accessibility
+  - **7 E2E Tests Enabled**: Previously skipped user management tests now pass
+
+### Fixed
+
+- **PermissionsModal State Synchronization**: Fixed React anti-pattern where `useState` was used like `useEffect`, causing potential stale state when editing different users' permissions
+
+### Added
+
 - **Phase 4: Security Module Toggle Actions**: Security dashboard toggles for ACL, WAF, and Rate Limiting are now fully functional (PR #XXX)
   - **Toggle Functionality**: Enable/disable security modules directly from the Security Dashboard UI
   - **Backend Cache Layer**: 60-second TTL in-memory cache for settings to minimize database queries in middleware

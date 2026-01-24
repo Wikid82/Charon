@@ -602,7 +602,11 @@
     "deleteUser": "Delete User",
     "inviteUrlPreview": "Invite Link Preview",
     "inviteUrlWarning": "Application URL is not configured. This link may not work for external users.",
-    "configureApplicationUrl": "Configure Application URL"
+    "configureApplicationUrl": "Configure Application URL",
+    "resendInvite": "Resend Invite",
+    "inviteResent": "Invitation resent successfully",
+    "inviteCreatedNoEmail": "New invite created. Email could not be sent.",
+    "resendFailed": "Failed to resend invitation"
   },
   "dashboard": {
     "title": "Dashboard",
