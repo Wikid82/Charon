@@ -22,6 +22,7 @@
 
 import { generateUniqueId, generateIPAddress, generateCIDR } from './test-data';
 import type { AccessListData } from '../utils/TestDataManager';
+import * as crypto from 'crypto';
 
 /**
  * ACL type - matches backend ValidAccessListTypes
@@ -377,7 +378,7 @@ export function mockAccessListResponse(
 ): AccessListAPIResponse {
   const id = generateUniqueId();
   return {
-    id: parseInt(id) || Math.floor(Math.random() * 10000),
+    id: parseInt(id) || crypto.randomBytes(2).readUInt16BE(0) % 10000,
     uuid: `acl-${id}`,
     name: config.name || `ACL-${id}`,
     type: config.type || 'whitelist',
