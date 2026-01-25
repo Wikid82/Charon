@@ -101,6 +101,12 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP(c.Writer, c.Request)
 	})
 
+	// Emergency endpoint - MUST be registered BEFORE Cerberus middleware
+	// This endpoint bypasses all security checks for lockout recovery
+	// Requires CHARON_EMERGENCY_TOKEN env var to be configured
+	emergencyHandler := handlers.NewEmergencyHandler(db)
+	router.POST("/api/v1/emergency/security-reset", emergencyHandler.SecurityReset)
+
 	api := router.Group("/api/v1")
 
 	// Cerberus middleware applies the optional security suite checks (WAF, ACL, CrowdSec)

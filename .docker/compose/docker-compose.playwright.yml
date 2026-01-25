@@ -40,6 +40,9 @@ services:
       # Encryption key - MUST be provided via environment variable
       # Generate with: export CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)
       - CHARON_ENCRYPTION_KEY=${CHARON_ENCRYPTION_KEY:?CHARON_ENCRYPTION_KEY is required}
+      # Emergency reset token - for break-glass recovery when locked out by ACL
+      # Generate with: openssl rand -hex 32
+      - CHARON_EMERGENCY_TOKEN=${CHARON_EMERGENCY_TOKEN:-test-emergency-token-for-e2e-32chars}
       # Server settings
       - CHARON_HTTP_PORT=8080
       - CHARON_DB_PATH=/app/data/charon.db

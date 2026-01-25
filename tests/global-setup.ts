@@ -7,7 +7,7 @@
  * 3. Performing emergency ACL reset to prevent deadlock from previous failed runs
  */
 
-import { request } from '@playwright/test';
+import { request, APIRequestContext } from '@playwright/test';
 import { existsSync } from 'fs';
 import { TestDataManager } from './utils/TestDataManager';
 import { STORAGE_STATE } from './constants';
@@ -16,7 +16,7 @@ import { STORAGE_STATE } from './constants';
  * Get the base URL for the application
  */
 function getBaseURL(): string {
-  return process.env.PLAYWRIGHT_BASE_URL || 'http://100.98.12.109:8080';
+  return process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
 }
 
 async function globalSetup(): Promise<void> {
@@ -24,6 +24,17 @@ async function globalSetup(): Promise<void> {
 
   const baseURL = getBaseURL();
   console.log(`📍 Base URL: ${baseURL}`);
+
+  // Pre-auth security reset attempt (crash protection failsafe)
+  // This attempts to disable security modules BEFORE auth, in case a previous run crashed
+  // with security enabled blocking the auth endpoint.
+  const preAuthContext = await request.newContext({ baseURL });
+  try {
+    await emergencySecurityReset(preAuthContext);
+  } catch (e) {
+    console.log('Pre-auth security reset skipped (may require auth)');
+  }
+  await preAuthContext.dispose();
 
   // Create a request context
   const requestContext = await request.newContext({
@@ -87,36 +98,46 @@ async function globalSetup(): Promise<void> {
     await requestContext.dispose();
   }
 
-  // Emergency ACL reset to prevent deadlock from previous failed runs
-  await emergencySecurityReset(baseURL);
-}
-
-/**
- * Perform emergency security reset to disable ACL.
- * This prevents deadlock if a previous test run left ACL enabled.
- */
-async function emergencySecurityReset(baseURL: string): Promise<void> {
-  // Only run if auth state exists (meaning we can make authenticated requests)
-  if (!existsSync(STORAGE_STATE)) {
-    console.log('⏭️  Skipping security reset (no auth state file)');
-    return;
-  }
-
-  try {
+  // Emergency security reset with auth (more complete)
+  if (existsSync(STORAGE_STATE)) {
     const authenticatedContext = await request.newContext({
       baseURL,
       storageState: STORAGE_STATE,
     });
-
-    // Disable ACL to prevent deadlock from previous failed runs
-    await authenticatedContext.post('/api/v1/settings', {
-      data: { key: 'security.acl.enabled', value: 'false' },
-    });
-
+    try {
+      await emergencySecurityReset(authenticatedContext);
+      console.log('✓ Authenticated security reset complete');
+    } catch (error) {
+      console.warn('⚠️ Authenticated security reset failed:', error);
+    }
     await authenticatedContext.dispose();
-    console.log('✓ Security reset: ACL disabled');
-  } catch (error) {
-    console.warn('⚠️ Could not reset security state:', error);
+  } else {
+    console.log('⏭️  Skipping authenticated security reset (no auth state file)');
+  }
+}
+
+/**
+ * Perform emergency security reset to disable ALL security modules.
+ * This prevents deadlock if a previous test run left any security module enabled.
+ */
+async function emergencySecurityReset(requestContext: APIRequestContext): Promise<void> {
+  console.log('Performing emergency security reset...');
+
+  const modules = [
+    { key: 'security.acl.enabled', value: 'false' },
+    { key: 'security.waf.enabled', value: 'false' },
+    { key: 'security.crowdsec.enabled', value: 'false' },
+    { key: 'security.rate_limit.enabled', value: 'false' },
+    { key: 'feature.cerberus.enabled', value: 'false' },
+  ];
+
+  for (const { key, value } of modules) {
+    try {
+      await requestContext.post('/api/v1/settings', { data: { key, value } });
+      console.log(`  ✓ Disabled: ${key}`);
+    } catch (e) {
+      console.log(`  ⚠ Could not disable ${key}: ${e}`);
+    }
   }
 }
 
