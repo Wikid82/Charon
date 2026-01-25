@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **GitHub Actions workflows failing with 'invalid reference format' for feature branches containing slashes**: Branch names like `feature/beta-release` now properly sanitized (replacing `/` with `-`) in Docker image tags and artifact names across `playwright.yml`, `supply-chain-verify.yml`, and `supply-chain-pr.yml` workflows
 - **PermissionsModal State Synchronization**: Fixed React anti-pattern where `useState` was used like `useEffect`, causing potential stale state when editing different users' permissions
 
 ### Added
