@@ -7,8 +7,7 @@
     "helpers:pinGitHubActionDigests"
   ],
   "baseBranches": [
-    "development",
-    "feature/beta-release"
+    "development"
   ],
   "timezone": "America/New_York",
   "dependencyDashboard": true,
