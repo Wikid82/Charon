@@ -60,11 +60,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
-<<<<<<< HEAD
 FROM --platform=$BUILDPLATFORM node:24.13.0-slim AS frontend-builder
-=======
-FROM --platform=$BUILDPLATFORM node:24.13.0-alpine AS frontend-builder
->>>>>>> 45def8e3 (fix(deps): update weekly-non-major-updates)
 WORKDIR /app/frontend
 
 # Copy frontend package files
