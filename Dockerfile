@@ -5,6 +5,8 @@
 ARG VERSION=dev
 ARG BUILD_DATE
 ARG VCS_REF
+# Set BUILD_DEBUG=1 to build with debug symbols (required for Delve debugging)
+ARG BUILD_DEBUG=0
 
 # Allow pinning Caddy version - Renovate will update this
 # Build the most recent Caddy 2.x release (keeps major pinned under v3).
@@ -121,18 +123,32 @@ COPY backend/ ./
 ARG VERSION=dev
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
+ARG BUILD_DEBUG=0
 
 # Build the Go binary with version information injected via ldflags
 # xx-go handles CGO and cross-compilation flags automatically
 # Note: Go 1.25 uses gold linker for ARM64; binutils-gold is installed above
+# When BUILD_DEBUG=1, we preserve debug symbols (no -s -w) and disable optimizations
+# for Delve debugging. Otherwise, strip symbols for smaller production binaries.
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=1 xx-go build \
-    -ldflags "-s -w \
-              -X github.com/Wikid82/charon/backend/internal/version.Version=${VERSION} \
-              -X github.com/Wikid82/charon/backend/internal/version.GitCommit=${VCS_REF} \
-              -X github.com/Wikid82/charon/backend/internal/version.BuildTime=${BUILD_DATE}" \
-    -o charon ./cmd/api
+    if [ "$BUILD_DEBUG" = "1" ]; then \
+        echo "Building with debug symbols for Delve..."; \
+        CGO_ENABLED=1 xx-go build \
+            -gcflags="all=-N -l" \
+            -ldflags "-X github.com/Wikid82/charon/backend/internal/version.Version=${VERSION} \
+                      -X github.com/Wikid82/charon/backend/internal/version.GitCommit=${VCS_REF} \
+                      -X github.com/Wikid82/charon/backend/internal/version.BuildTime=${BUILD_DATE}" \
+            -o charon ./cmd/api; \
+    else \
+        echo "Building optimized production binary..."; \
+        CGO_ENABLED=1 xx-go build \
+            -ldflags "-s -w \
+                      -X github.com/Wikid82/charon/backend/internal/version.Version=${VERSION} \
+                      -X github.com/Wikid82/charon/backend/internal/version.GitCommit=${VCS_REF} \
+                      -X github.com/Wikid82/charon/backend/internal/version.BuildTime=${BUILD_DATE}" \
+            -o charon ./cmd/api; \
+    fi
 
 # ---- Caddy Builder ----
 # Build Caddy from source to ensure we use the latest Go version and dependencies
@@ -300,8 +316,9 @@ WORKDIR /app
 # Install runtime dependencies for Charon, including bash for maintenance scripts
 # Note: gosu is now built from source (see gosu-builder stage) to avoid CVEs from Debian's pre-compiled version
 # Explicitly upgrade packages to fix security vulnerabilities
+# binutils provides objdump for debug symbol detection in docker-entrypoint.sh
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash ca-certificates libsqlite3-0 sqlite3 tzdata curl gettext-base libcap2-bin libc-ares2 \
+    bash ca-certificates libsqlite3-0 sqlite3 tzdata curl gettext-base libcap2-bin libc-ares2 binutils \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 

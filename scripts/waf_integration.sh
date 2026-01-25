@@ -187,7 +187,7 @@ docker run -d --name ${CONTAINER_NAME} \
 
 log_info "Waiting for Charon API to be ready..."
 for i in {1..30}; do
-    if curl -s -f "http://localhost:${API_PORT}/api/v1/" >/dev/null 2>&1; then
+    if curl -s -f "http://localhost:${API_PORT}/api/v1/health" >/dev/null 2>&1; then
         log_info "Charon API is ready"
         break
     fi
@@ -202,7 +202,7 @@ echo ""
 
 log_info "Waiting for httpbin backend to be ready..."
 for i in {1..20}; do
-    if docker exec ${CONTAINER_NAME} sh -c "curl -q -O- http://${BACKEND_CONTAINER}/get 2>/dev/null || curl -s http://${BACKEND_CONTAINER}/get" >/dev/null 2>&1; then
+    if docker exec ${CONTAINER_NAME} sh -c "curl -sf http://${BACKEND_CONTAINER}/get" >/dev/null 2>&1; then
         log_info "httpbin backend is ready"
         break
     fi
