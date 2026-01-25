@@ -71,15 +71,14 @@ jobs:
           if [[ "${{ github.event_name }}" == "release" ]]; then
             TAG="${{ github.event.release.tag_name }}"
           elif [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            BRANCH="${{ github.event.workflow_run.head_branch }}"
             # Extract tag from the workflow that triggered us
-            if [[ "${{ github.event.workflow_run.head_branch }}" == "main" ]]; then
+            if [[ "${BRANCH}" == "main" ]]; then
               TAG="latest"
-            elif [[ "${{ github.event.workflow_run.head_branch }}" == "development" ]]; then
+            elif [[ "${BRANCH}" == "development" ]]; then
               TAG="dev"
-            elif [[ "${{ github.event.workflow_run.head_branch }}" == "nightly" ]]; then
+            elif [[ "${BRANCH}" == "nightly" ]]; then
               TAG="nightly"
-            elif [[ "${{ github.event.workflow_run.head_branch }}" == "feature/beta-release" ]]; then
-              TAG="beta"
             elif [[ "${{ github.event.workflow_run.event }}" == "pull_request" ]]; then
               # Extract PR number from workflow_run context with null handling
               PR_NUMBER=$(jq -r '.pull_requests[0].number // empty' <<< '${{ toJson(github.event.workflow_run.pull_requests) }}')
@@ -90,7 +89,9 @@ jobs:
                 TAG="sha-$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)"
               fi
             else
-              TAG="sha-$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)"
+              # For feature branches and other pushes, sanitize branch name for Docker tag
+              # Replace / with - to avoid invalid reference format errors
+              TAG=$(echo "${BRANCH}" | tr '/' '-')
             fi
           else
             TAG="latest"

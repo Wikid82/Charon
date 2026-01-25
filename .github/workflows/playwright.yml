@@ -84,6 +84,16 @@ jobs:
             echo "is_push=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Sanitize branch name
+        id: sanitize
+        run: |
+          # Sanitize branch name for use in Docker tags and artifact names
+          # Replace / with - to avoid invalid reference format errors
+          BRANCH="${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}"
+          SANITIZED=$(echo "$BRANCH" | tr '/' '-')
+          echo "branch=${SANITIZED}" >> "$GITHUB_OUTPUT"
+          echo "📋 Sanitized branch name: ${BRANCH} -> ${SANITIZED}"
+
       - name: Check for PR image artifact
         id: check-artifact
         if: steps.pr-info.outputs.pr_number != '' || steps.pr-info.outputs.is_push == 'true'
@@ -170,7 +180,8 @@ jobs:
           # Normalize image name (GitHub lowercases repository owner names in GHCR)
           IMAGE_NAME=$(echo "${{ github.repository_owner }}/charon" | tr '[:upper:]' '[:lower:]')
           if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
-            IMAGE_REF="ghcr.io/${IMAGE_NAME}:${{ github.event.workflow_run.head_branch }}"
+            # Use sanitized branch name for Docker tag (/ is invalid in tags)
+            IMAGE_REF="ghcr.io/${IMAGE_NAME}:${{ steps.sanitize.outputs.branch }}"
           else
             IMAGE_REF="ghcr.io/${IMAGE_NAME}:pr-${{ steps.pr-info.outputs.pr_number }}"
           fi
@@ -237,7 +248,7 @@ jobs:
         # actions/upload-artifact v4.4.3
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
-          name: ${{ steps.pr-info.outputs.is_push == 'true' && format('playwright-report-{0}', github.event.workflow_run.head_branch) || format('playwright-report-pr-{0}', steps.pr-info.outputs.pr_number) }}
+          name: ${{ steps.pr-info.outputs.is_push == 'true' && format('playwright-report-{0}', steps.sanitize.outputs.branch) || format('playwright-report-pr-{0}', steps.pr-info.outputs.pr_number) }}
           path: playwright-report/
           retention-days: 14
 
