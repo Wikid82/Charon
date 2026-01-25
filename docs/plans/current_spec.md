@@ -1,593 +1,615 @@
-# Docker Hub + GHCR Dual Registry Publishing Plan
+# Security Module Testing Plan: Toggle-On-Test-Toggle-Off Pattern
 
-**Plan ID**: DOCKER-2026-001
-**Status**: 📋 PLANNED
-**Priority**: High
+**Plan ID**: SEC-TEST-2026-001
+**Status**: ✅ APPROVED (Supervisor Review: 2026-01-25)
+**Priority**: HIGH
 **Created**: 2026-01-25
+**Updated**: 2026-01-25 (Added Phase -1: Container Startup Fix)
 **Branch**: feature/beta-release
-**Scope**: Publish Docker images to both Docker Hub and GitHub Container Registry (GHCR)
+**Scope**: Complete security module testing with toggle-on-test-toggle-off pattern
 
 ---
 
 ## Executive Summary
 
-This plan details the implementation of dual-registry publishing for the Charon Docker image. Currently, images are published exclusively to GHCR (`ghcr.io/wikid82/charon`). This plan adds Docker Hub (`docker.io/wikid82/charon`) as an additional registry while maintaining full parity in tags, platforms, and supply chain security.
+This plan provides a **definitive testing strategy** for ALL security modules in Charon. Each module will be tested with the **toggle-on-test-toggle-off** pattern to:
+
+1. Verify security features work when enabled
+2. Ensure tests don't leave security features in a state that blocks other tests
+3. Provide comprehensive coverage of security blocking behavior
 
 ---
 
-## 1. Current State Analysis
+## Security Module Inventory
 
-### 1.1 Existing Registry Setup (GHCR Only)
+### Complete Module List
 
-| Workflow | Purpose | Tags Generated | Platforms |
-|----------|---------|----------------|-----------|
-| `docker-build.yml` | Main builds on push/PR | `latest`, `dev`, `sha-*`, `pr-*`, `feature-*` | `linux/amd64`, `linux/arm64` |
-| `nightly-build.yml` | Nightly builds from `nightly` branch | `nightly`, `nightly-YYYY-MM-DD`, `nightly-sha-*` | `linux/amd64`, `linux/arm64` |
-| `release-goreleaser.yml` | Release builds on tag push | `vX.Y.Z` | N/A (binary releases, not Docker) |
-
-### 1.2 Current Environment Variables
-
-```yaml
-# docker-build.yml (Line 25-28)
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/charon
-```
-
-### 1.3 Supply Chain Security Features
-
-| Feature | Status | Implementation |
-|---------|--------|----------------|
-| **SBOM Generation** | ✅ Active | `anchore/sbom-action` → CycloneDX JSON |
-| **SBOM Attestation** | ✅ Active | `actions/attest-sbom` → Push to registry |
-| **Trivy Scanning** | ✅ Active | SARIF upload to GitHub Security |
-| **Cosign Signing** | 🔶 Partial | Verification exists, signing not in docker-build.yml |
-| **SLSA Provenance** | ⚠️ Not Implemented | `provenance: true` in Buildx but not verified |
-
-### 1.4 Current Permissions
-
-```yaml
-# docker-build.yml (Lines 31-36)
-permissions:
-  contents: read
-  packages: write
-  security-events: write
-  id-token: write      # OIDC for signing
-  attestations: write  # SBOM attestation
-```
+| Layer | Module | Toggle Key | Implementation | Blocks Requests? |
+|-------|--------|------------|----------------|------------------|
+| **Master** | Cerberus | `feature.cerberus.enabled` | Backend middleware + Caddy | Controls all layers |
+| **Layer 1** | CrowdSec | `security.crowdsec.enabled` | Caddy bouncer plugin | ✅ Yes (IP bans) |
+| **Layer 2** | ACL | `security.acl.enabled` | Cerberus middleware | ✅ Yes (IP whitelist/blacklist) |
+| **Layer 3** | WAF (Coraza) | `security.waf.enabled` | Caddy Coraza plugin | ✅ Yes (malicious requests) |
+| **Layer 4** | Rate Limiting | `security.rate_limit.enabled` | Caddy rate limiter | ✅ Yes (threshold exceeded) |
+| **Layer 5** | Security Headers | N/A (per-host) | Caddy headers | ❌ No (affects behavior) |
 
 ---
 
-## 2. Docker Hub Setup
+## 1. API Endpoints for Each Module
 
-### 2.1 Required GitHub Secrets
+### 1.1 Master Toggle (Cerberus)
 
-| Secret Name | Description | Where to Get |
-|-------------|-------------|--------------|
-| `DOCKERHUB_USERNAME` | Docker Hub username | hub.docker.com → Account Settings |
-| `DOCKERHUB_TOKEN` | Docker Hub Access Token | hub.docker.com → Account Settings → Security → New Access Token |
+```http
+POST /api/v1/settings
+Content-Type: application/json
 
-**Access Token Requirements:**
-- Scope: `Read, Write, Delete` for automated pushes
-- Name: e.g., `github-actions-charon`
-
-### 2.2 Repository Naming
-
-| Registry | Repository | Full Image Reference |
-|----------|------------|---------------------|
-| Docker Hub | `wikid82/charon` | `docker.io/wikid82/charon:latest` |
-| GHCR | `wikid82/charon` | `ghcr.io/wikid82/charon:latest` |
-
-**Note**: Docker Hub uses lowercase repository names. The GitHub repository owner is `Wikid82` (capital W), so we normalize to `wikid82`.
-
-### 2.3 Docker Hub Repository Setup
-
-1. Go to [hub.docker.com](https://hub.docker.com)
-2. Click "Create Repository"
-3. Name: `charon`
-4. Visibility: Public
-5. Description: "Web UI for managing Caddy reverse proxy configurations"
-
----
-
-## 3. Workflow Modifications
-
-### 3.1 Files to Modify
-
-| File | Changes |
-|------|---------|
-| `.github/workflows/docker-build.yml` | Add Docker Hub login, multi-registry push |
-| `.github/workflows/nightly-build.yml` | Add Docker Hub login, multi-registry push |
-| `.github/workflows/supply-chain-verify.yml` | Verify Docker Hub signatures |
-
-### 3.2 docker-build.yml Changes
-
-#### 3.2.1 Update Environment Variables
-
-**Location**: Lines 25-28
-
-**Before**:
-```yaml
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/charon
-  SYFT_VERSION: v1.17.0
-  GRYPE_VERSION: v0.85.0
+{ "key": "feature.cerberus.enabled", "value": "true" | "false" }
 ```
 
-**After**:
-```yaml
-env:
-  # Primary registry (GHCR)
-  GHCR_REGISTRY: ghcr.io
-  # Secondary registry (Docker Hub)
-  DOCKERHUB_REGISTRY: docker.io
-  # Image name (lowercase for Docker Hub compatibility)
-  IMAGE_NAME: wikid82/charon
-  SYFT_VERSION: v1.17.0
-  GRYPE_VERSION: v0.85.0
+**Implementation**: [settings_handler.go](../../backend/internal/api/handlers/settings_handler.go#L73-L108)
+
+**Effect**: When disabled, ALL security modules are disabled regardless of individual settings.
+
+### 1.2 ACL (Access Control Lists)
+
+```http
+POST /api/v1/settings
+{ "key": "security.acl.enabled", "value": "true" | "false" }
 ```
 
-#### 3.2.2 Add Docker Hub Login Step
+**Get Status**:
 
-**Location**: After "Log in to Container Registry" step (around line 70)
-
-**Add**:
-```yaml
-      - name: Log in to Docker Hub
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
-        with:
-          registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+```http
+GET /api/v1/security/status
+Returns: { "acl": { "mode": "enabled", "enabled": true } }
 ```
 
-#### 3.2.3 Update Metadata Action for Multi-Registry
+**Implementation**:
 
-**Location**: Extract metadata step (around line 78)
+- [cerberus.go](../../backend/internal/cerberus/cerberus.go#L135-L160) - Middleware blocks requests
+- [access_list_handler.go](../../backend/internal/api/handlers/access_list_handler.go) - CRUD operations
 
-**Before**:
-```yaml
-      - name: Extract metadata (tags, labels)
-        id: meta
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=semver,pattern={{version}}
-            # ... rest of tags
+**Blocking Logic** (from cerberus.go):
+
+```go
+for _, acl := range acls {
+    allowed, _, err := c.accessSvc.TestIP(acl.ID, clientIP)
+    if err == nil && !allowed {
+        ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Blocked by access control list"})
+        return
+    }
+}
 ```
 
-**After**:
-```yaml
-      - name: Extract metadata (tags, labels)
-        id: meta
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
-        with:
-          images: |
-            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
-            ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/development' }}
-            type=ref,event=branch,enable=${{ startsWith(github.ref, 'refs/heads/feature/') }}
-            type=raw,value=pr-${{ github.event.pull_request.number }},enable=${{ github.event_name == 'pull_request' }}
-            type=sha,format=short,enable=${{ github.event_name != 'pull_request' }}
-          flavor: |
-            latest=false
+### 1.3 CrowdSec
+
+```http
+POST /api/v1/settings
+{ "key": "security.crowdsec.enabled", "value": "true" | "false" }
 ```
 
-#### 3.2.4 Add Cosign Signing for Docker Hub
+**Mode setting**:
 
-**Location**: After SBOM attestation step (around line 190)
-
-**Add**:
-```yaml
-      # Sign Docker Hub image with Cosign (keyless, OIDC-based)
-      - name: Install Cosign
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
-        uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb # v3.8.2
-
-      - name: Sign GHCR Image with Cosign
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
-        env:
-          DIGEST: ${{ steps.build-and-push.outputs.digest }}
-          COSIGN_EXPERIMENTAL: "true"
-        run: |
-          echo "Signing GHCR image with Cosign..."
-          cosign sign --yes ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}
-
-      - name: Sign Docker Hub Image with Cosign
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
-        env:
-          DIGEST: ${{ steps.build-and-push.outputs.digest }}
-          COSIGN_EXPERIMENTAL: "true"
-        run: |
-          echo "Signing Docker Hub image with Cosign..."
-          cosign sign --yes ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}
+```http
+POST /api/v1/settings
+{ "key": "security.crowdsec.mode", "value": "local" | "disabled" }
 ```
 
-#### 3.2.5 Attach SBOM to Docker Hub
+**Implementation**:
 
-**Location**: After existing SBOM attestation (around line 200)
+- [crowdsec_handler.go](../../backend/internal/api/handlers/crowdsec_handler.go) - API handlers
+- Caddy crowdsec-bouncer plugin - Actual blocking at proxy layer
 
-**Add**:
-```yaml
-      # Attach SBOM to Docker Hub image
-      - name: Attach SBOM to Docker Hub
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
-        run: |
-          echo "Attaching SBOM to Docker Hub image..."
-          cosign attach sbom --sbom sbom.cyclonedx.json \
-            ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+### 1.4 WAF (Coraza)
+
+```http
+POST /api/v1/settings
+{ "key": "security.waf.enabled", "value": "true" | "false" }
 ```
 
-### 3.3 nightly-build.yml Changes
+**Implementation**:
 
-Apply similar changes:
+- [security_handler.go](../../backend/internal/api/handlers/security_handler.go#L51-L130) - Status and config
+- Caddy Coraza plugin - Actual blocking (SQL injection, XSS, etc.)
 
-1. Add `DOCKERHUB_REGISTRY` environment variable
-2. Add Docker Hub login step
-3. Update metadata action with multiple images
-4. Add Cosign signing for both registries
-5. Attach SBOM to Docker Hub image
+### 1.5 Rate Limiting
 
-### 3.4 Complete docker-build.yml Diff Summary
+```http
+POST /api/v1/settings
+{ "key": "security.rate_limit.enabled", "value": "true" | "false" }
+```
 
-```diff
- env:
--  REGISTRY: ghcr.io
--  IMAGE_NAME: ${{ github.repository_owner }}/charon
-+  GHCR_REGISTRY: ghcr.io
-+  DOCKERHUB_REGISTRY: docker.io
-+  IMAGE_NAME: wikid82/charon
-   SYFT_VERSION: v1.17.0
-   GRYPE_VERSION: v0.85.0
+**Implementation**:
 
- # ... in steps ...
+- [security_handler.go](../../backend/internal/api/handlers/security_handler.go#L425-L460) - Presets
+- Caddy rate limiter directive - Actual blocking
 
-       - name: Log in to Container Registry
-         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
-         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
-         with:
--          registry: ${{ env.REGISTRY }}
-+          registry: ${{ env.GHCR_REGISTRY }}
-           username: ${{ github.actor }}
-           password: ${{ secrets.GITHUB_TOKEN }}
+### 1.6 Security Headers
 
-+      - name: Log in to Docker Hub
-+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
-+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
-+        with:
-+          registry: docker.io
-+          username: ${{ secrets.DOCKERHUB_USERNAME }}
-+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+**No global toggle** - Applied per proxy host via:
 
-       - name: Extract metadata (tags, labels)
-         id: meta
-         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
-         with:
--          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-+          images: |
-+            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
-+            ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}
-           tags: |
-             # ... tags unchanged ...
+```http
+POST /api/v1/proxy-hosts/:id
+{ "securityHeaders": { "hsts": true, "csp": "...", ... } }
 ```
 
 ---
 
-## 4. Supply Chain Security
+## 2. Existing Test Inventory
 
-### 4.1 Parity Matrix
+### 2.1 Test Files by Security Module
 
-| Feature | GHCR | Docker Hub |
-|---------|------|------------|
-| Multi-platform | ✅ `linux/amd64`, `linux/arm64` | ✅ Same |
-| SBOM | ✅ Attestation | ✅ Attached via Cosign |
-| Cosign Signature | ✅ Keyless OIDC | ✅ Keyless OIDC |
-| Trivy Scan | ✅ SARIF to GitHub | ✅ Same SARIF |
-| SLSA Provenance | 🔶 Buildx `provenance: true` | 🔶 Same |
+| Module | E2E Test Files | Backend Unit Test Files |
+|--------|----------------|-------------------------|
+| **ACL** | [access-lists-crud.spec.ts](../../tests/core/access-lists-crud.spec.ts) (35+ tests), [proxy-acl-integration.spec.ts](../../tests/integration/proxy-acl-integration.spec.ts) (18 tests) | access_list_handler_test.go, access_list_service_test.go |
+| **CrowdSec** | [crowdsec-config.spec.ts](../../tests/security/crowdsec-config.spec.ts) (12 tests), [crowdsec-decisions.spec.ts](../../tests/security/crowdsec-decisions.spec.ts) | crowdsec_handler_test.go (20+ tests) |
+| **WAF** | [waf-config.spec.ts](../../tests/security/waf-config.spec.ts) (15 tests) | security_handler_waf_test.go |
+| **Rate Limiting** | [rate-limiting.spec.ts](../../tests/security/rate-limiting.spec.ts) (14 tests) | security_ratelimit_test.go |
+| **Security Headers** | [security-headers.spec.ts](../../tests/security/security-headers.spec.ts) (16 tests) | security_headers_handler_test.go |
+| **Dashboard** | [security-dashboard.spec.ts](../../tests/security/security-dashboard.spec.ts) (20 tests) | N/A |
+| **Integration** | [security-suite-integration.spec.ts](../../tests/integration/security-suite-integration.spec.ts) (23 tests) | N/A |
 
-### 4.2 Cosign Signing Strategy
+### 2.2 Coverage Gaps (Blocking Tests Needed)
 
-Both registries will use **keyless signing** via OIDC (OpenID Connect):
+| Module | What's Tested | What's Missing |
+|--------|---------------|----------------|
+| **ACL** | CRUD, UI toggles, API TestIP | ❌ E2E blocking verification (real HTTP blocked) |
+| **CrowdSec** | UI config, decisions display | ❌ E2E IP ban blocking verification |
+| **WAF** | UI config, mode toggle | ❌ E2E SQL injection/XSS blocking verification |
+| **Rate Limiting** | UI config, settings | ❌ E2E threshold exceeded blocking |
+| **Security Headers** | UI config, profiles | ⚠️ Headers present but not enforcement |
 
-- No private keys to manage
-- Signatures tied to GitHub Actions identity
-- Transparent logging to Sigstore Rekor
+---
 
-### 4.3 SBOM Attachment Strategy
+## 3. Proposed Playwright Project Structure
 
-**GHCR**: Uses `actions/attest-sbom` which creates an attestation linked to the image manifest.
+### 3.1 Test Execution Flow
 
-**Docker Hub**: Uses `cosign attach sbom` to attach the SBOM as an OCI artifact.
+```text
+┌──────────────────┐
+│   global-setup   │  ← Disable ALL security (clean slate)
+└────────┬─────────┘
+         │
+┌────────▼─────────┐
+│      setup       │  ← auth.setup.ts (login, save state)
+└────────┬─────────┘
+         │
+┌────────▼─────────────────────────────────────────────────────┐
+│              security-tests (sequential)                      │
+│                                                               │
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │
+│   │ acl-tests   │→ │ waf-tests   │→ │crowdsec-tests│         │
+│   └─────────────┘  └─────────────┘  └─────────────┘          │
+│          │                │                │                  │
+│          ▼                ▼                ▼                  │
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │
+│   │ rate-limit  │→ │sec-headers  │→ │ combined    │          │
+│   │   -tests    │  │   -tests    │  │   -tests    │          │
+│   └─────────────┘  └─────────────┘  └─────────────┘          │
+└────────────────────────────┬─────────────────────────────────┘
+                             │
+┌────────────────────────────▼─────────────────────────────────┐
+│              security-teardown                                │
+│                                                               │
+│   Disable: ACL, CrowdSec, WAF, Rate Limiting                 │
+│   Restore: Cerberus to disabled state                        │
+└────────────────────────────┬─────────────────────────────────┘
+                             │
+         ┌───────────────────┼───────────────────┐
+         │                   │                   │
+    ┌────▼────┐        ┌─────▼────┐        ┌─────▼────┐
+    │chromium │        │ firefox  │        │  webkit  │
+    └─────────┘        └──────────┘        └──────────┘
+         All run with security modules DISABLED
+```
 
-### 4.4 Verification Commands
+### 3.2 Why Sequential for Security Tests?
+
+Security tests must run **sequentially** (not parallel) because:
+
+1. **Shared state**: All modules share the Cerberus master toggle
+2. **Port conflicts**: Tests may use the same proxy hosts
+3. **Blocking cascade**: One module enabled can block another's test requests
+4. **Cleanup dependencies**: Each module must be disabled before the next runs
+
+### 3.3 Updated `playwright.config.js`
+
+```javascript
+projects: [
+  // 1. Setup project - authentication (runs FIRST)
+  {
+    name: 'setup',
+    testMatch: /auth\.setup\.ts/,
+  },
+
+  // 2. Security Tests - Run WITH security enabled (SEQUENTIAL, headless Chromium)
+  {
+    name: 'security-tests',
+    testDir: './tests/security-enforcement',
+    dependencies: ['setup'],
+    teardown: 'security-teardown',
+    fullyParallel: false, // Force sequential - modules share state
+    use: {
+      ...devices['Desktop Chrome'],
+      headless: true, // Security tests are API-level, don't need headed
+    },
+  },
+
+  // 3. Security Teardown - Disable ALL security modules
+  {
+    name: 'security-teardown',
+    testMatch: /security-teardown\.setup\.ts/,
+  },
+
+  // 4. Browser projects - Depend on TEARDOWN to ensure security is disabled
+  {
+    name: 'chromium',
+    use: { ...devices['Desktop Chrome'], storageState: STORAGE_STATE },
+    dependencies: ['setup', 'security-teardown'], // Explicit teardown dependency
+  },
+
+  {
+    name: 'firefox',
+    use: { ...devices['Desktop Firefox'], storageState: STORAGE_STATE },
+    dependencies: ['setup', 'security-teardown'],
+  },
+
+  {
+    name: 'webkit',
+    use: { ...devices['Desktop Safari'], storageState: STORAGE_STATE },
+    dependencies: ['setup', 'security-teardown'],
+  },
+],
+```
+
+---
+
+## 4. New Test Files Needed
+
+### 4.1 Directory Structure
+
+```text
+tests/
+├── security-enforcement/           ← NEW FOLDER (no numeric prefixes - order via project config)
+│   ├── acl-enforcement.spec.ts
+│   ├── waf-enforcement.spec.ts          ← Requires Caddy proxy running
+│   ├── crowdsec-enforcement.spec.ts
+│   ├── rate-limit-enforcement.spec.ts   ← Requires Caddy proxy running
+│   ├── security-headers-enforcement.spec.ts
+│   └── combined-enforcement.spec.ts
+├── security-teardown.setup.ts      ← NEW FILE
+├── security/                       ← EXISTING (UI config tests)
+│   ├── security-dashboard.spec.ts
+│   ├── waf-config.spec.ts
+│   ├── rate-limiting.spec.ts
+│   ├── crowdsec-config.spec.ts
+│   ├── crowdsec-decisions.spec.ts
+│   ├── security-headers.spec.ts
+│   └── audit-logs.spec.ts
+└── utils/
+    └── security-helpers.ts         ← EXISTING (to enhance)
+```
+
+### 4.2 Test File Specifications
+
+#### `acl-enforcement.spec.ts` (5 tests)
+
+| Test | Description |
+|------|-------------|
+| `should verify ACL is enabled` | Check security status returns acl.enabled=true |
+| `should block IP not in whitelist` | Create whitelist ACL, verify 403 for excluded IP |
+| `should allow IP in whitelist` | Add test IP to whitelist, verify 200 |
+| `should block IP in blacklist` | Create blacklist with test IP, verify 403 |
+| `should show correct error message` | Verify "Blocked by access control list" message |
+
+#### `waf-enforcement.spec.ts` (4 tests) — Requires Caddy Proxy
+
+| Test | Description |
+|------|-------------|
+| `should verify WAF is enabled` | Check security status returns waf.enabled=true |
+| `should block SQL injection attempt` | Send `' OR 1=1--` in query, verify 403/418 |
+| `should block XSS attempt` | Send `<script>alert()</script>`, verify 403/418 |
+| `should allow legitimate requests` | Verify normal requests pass through |
+
+#### `crowdsec-enforcement.spec.ts` (3 tests)
+
+| Test | Description |
+|------|-------------|
+| `should verify CrowdSec is enabled` | Check crowdsec.enabled=true, mode="local" |
+| `should create manual ban decision` | POST to /api/v1/security/decisions |
+| `should list ban decisions` | GET /api/v1/security/decisions |
+
+#### `rate-limit-enforcement.spec.ts` (3 tests) — Requires Caddy Proxy
+
+| Test | Description |
+|------|-------------|
+| `should verify rate limiting is enabled` | Check rate_limit.enabled=true |
+| `should return rate limit presets` | GET /api/v1/security/rate-limit-presets |
+| `should document threshold behavior` | Describe expected 429 behavior |
+
+#### `security-headers-enforcement.spec.ts` (4 tests)
+
+| Test | Description |
+|------|-------------|
+| `should return X-Content-Type-Options` | Check header = 'nosniff' |
+| `should return X-Frame-Options` | Check header = 'DENY' or 'SAMEORIGIN' |
+| `should return HSTS on HTTPS` | Check Strict-Transport-Security |
+| `should return CSP when configured` | Check Content-Security-Policy |
+
+#### `combined-enforcement.spec.ts` (5 tests)
+
+| Test | Description |
+|------|-------------|
+| `should enable all modules simultaneously` | Enable all, verify all status=true |
+| `should log security events to audit log` | Verify audit entries created |
+| `should handle rapid module toggle without race conditions` | Toggle on/off quickly, verify stable state |
+| `should persist settings across page reload` | Toggle, refresh, verify settings retained |
+| `should enforce priority when multiple modules conflict` | ACL + WAF both enabled, verify correct behavior |
+
+#### `security-teardown.setup.ts`
+
+Disables all security modules with error handling (continue-on-error pattern):
+
+```typescript
+import { test as teardown } from '@bgotink/playwright-coverage';
+import { request } from '@playwright/test';
+
+teardown('disable-all-security-modules', async () => {
+  const modules = [
+    { key: 'security.acl.enabled', value: 'false' },
+    { key: 'security.waf.enabled', value: 'false' },
+    { key: 'security.crowdsec.enabled', value: 'false' },
+    { key: 'security.rate_limit.enabled', value: 'false' },
+    { key: 'feature.cerberus.enabled', value: 'false' },
+  ];
+
+  const requestContext = await request.newContext({
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080',
+    storageState: 'playwright/.auth/user.json',
+  });
+
+  const errors: string[] = [];
+
+  for (const { key, value } of modules) {
+    try {
+      await requestContext.post('/api/v1/settings', { data: { key, value } });
+      console.log(`✓ Disabled: ${key}`);
+    } catch (e) {
+      errors.push(`Failed to disable ${key}: ${e}`);
+    }
+  }
+
+  await requestContext.dispose();
+
+  // Stabilization delay - wait for Caddy config reload
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  if (errors.length > 0) {
+    console.error('Security teardown had errors (continuing anyway):', errors.join('\n'));
+    // Don't throw - let other tests run even if teardown partially failed
+  }
+});
+```
+
+---
+
+## 5. Questions Answered
+
+### Q1: What's the API to toggle each module?
+
+| Module | Setting Key | Values |
+|--------|-------------|--------|
+| Cerberus (Master) | `feature.cerberus.enabled` | `"true"` / `"false"` |
+| ACL | `security.acl.enabled` | `"true"` / `"false"` |
+| CrowdSec | `security.crowdsec.enabled` | `"true"` / `"false"` |
+| WAF | `security.waf.enabled` | `"true"` / `"false"` |
+| Rate Limiting | `security.rate_limit.enabled` | `"true"` / `"false"` |
+
+All via: `POST /api/v1/settings` with `{ "key": "<key>", "value": "<value>" }`
+
+### Q2: Should security tests run sequentially or parallel?
+
+**SEQUENTIAL** - Because:
+
+- Modules share Cerberus master toggle
+- Enabling one module can block other tests
+- Race conditions in security state
+- Cleanup dependencies between modules
+
+### Q3: One teardown or separate per module?
+
+**ONE TEARDOWN** - Using Playwright's `teardown` project relationship:
+
+- Runs after ALL security tests complete
+- Disables ALL modules in one sweep
+- Guaranteed to run even if tests fail
+- Simpler maintenance
+
+### Q4: Minimum tests per module?
+
+| Module | Minimum Tests | Requires Caddy? |
+|--------|---------------|----------------|
+| ACL | 5 | No (Backend) |
+| WAF | 4 | Yes |
+| CrowdSec | 3 | No (API) |
+| Rate Limiting | 3 | Yes |
+| Security Headers | 4 | No |
+| Combined | 5 | Partial |
+| **Total** | **24** | |
+
+---
+
+## 6. Implementation Checklist
+
+### Phase -1: Container Startup Fix (URGENT BLOCKER - 15 min)
+
+**STATUS**: 🔴 BLOCKING — E2E tests cannot run until this is fixed
+
+**Problem**: Docker entrypoint creates directories as root before dropping privileges to `charon` user, causing Caddy permission errors:
+
+```
+{"error":"save snapshot: write snapshot: open /app/data/caddy/config-1769363949.json: permission denied"}
+```
+
+**Evidence** (from `docker exec charon-e2e ls -la /app/data/`):
+
+```
+drwxr-xr-x 2 root   root        40 Jan 25 17:59 caddy   <-- WRONG: root ownership
+drwxr-xr-x 2 root   root        40 Jan 25 17:59 geoip   <-- WRONG: root ownership
+drwxr-xr-x 2 charon charon     100 Jan 25 17:59 crowdsec <-- CORRECT
+```
+
+**Required Fix** in `.docker/docker-entrypoint.sh`:
+
+After the mkdir block (around line 35), add ownership fix:
 
 ```bash
-# Verify GHCR signature
-cosign verify ghcr.io/wikid82/charon:latest \
-  --certificate-identity-regexp="https://github.com/Wikid82/Charon" \
-  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
-
-# Verify Docker Hub signature
-cosign verify docker.io/wikid82/charon:latest \
-  --certificate-identity-regexp="https://github.com/Wikid82/Charon" \
-  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
-
-# Download SBOM from Docker Hub
-cosign download sbom docker.io/wikid82/charon:latest > sbom.json
+# Fix ownership for directories created as root
+if is_root; then
+    chown -R charon:charon /app/data/caddy 2>/dev/null || true
+    chown -R charon:charon /app/data/crowdsec 2>/dev/null || true
+    chown -R charon:charon /app/data/geoip 2>/dev/null || true
+fi
 ```
 
----
-
-## 5. Tag Strategy
-
-### 5.1 Tag Parity Matrix
-
-| Trigger | GHCR Tag | Docker Hub Tag |
-|---------|----------|----------------|
-| Push to `main` | `ghcr.io/wikid82/charon:latest` | `docker.io/wikid82/charon:latest` |
-| Push to `development` | `ghcr.io/wikid82/charon:dev` | `docker.io/wikid82/charon:dev` |
-| Push to `feature/*` | `ghcr.io/wikid82/charon:feature-*` | `docker.io/wikid82/charon:feature-*` |
-| PR | `ghcr.io/wikid82/charon:pr-N` | ❌ Not pushed to Docker Hub |
-| Release tag `vX.Y.Z` | `ghcr.io/wikid82/charon:X.Y.Z` | `docker.io/wikid82/charon:X.Y.Z` |
-| SHA | `ghcr.io/wikid82/charon:sha-abc1234` | `docker.io/wikid82/charon:sha-abc1234` |
-| Nightly | `ghcr.io/wikid82/charon:nightly` | `docker.io/wikid82/charon:nightly` |
-
-### 5.2 PR Images
-
-PR images (`pr-N`) are **not pushed to Docker Hub** to:
-- Reduce Docker Hub storage/bandwidth usage
-- Keep Docker Hub clean for production images
-- PRs are internal development artifacts
+- [ ] **Fix docker-entrypoint.sh**: Add chown commands after mkdir block
+- [ ] **Rebuild E2E container**: Run `.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`
+- [ ] **Verify fix**: Confirm `ls -la /app/data/` shows `charon:charon` ownership
 
 ---
 
-## 6. Documentation Updates
+### Phase 0: Critical Fixes (Blocking - 30 min)
 
-### 6.1 README.md Changes
+**From Supervisor Review — MUST FIX BEFORE PROCEEDING:**
 
-**Location**: Badge section (around line 13-22)
+- [ ] **Fix hardcoded IP**: Change `tests/global-setup.ts` line 17 from `100.98.12.109` to `localhost`
+- [ ] **Expand emergency reset**: Update `emergencySecurityReset()` in `global-setup.ts` to disable ALL security modules (not just ACL)
+- [ ] **Add failsafe**: Global-setup should attempt to disable all security modules BEFORE auth (crash protection)
 
-**Add Docker Hub badge**:
-```markdown
-<p align="center">
-  <!-- Existing badges -->
-  <a href="https://www.repostatus.org/#active"><img src="https://www.repostatus.org/badges/latest/active.svg" alt="Project Status: Active" /></a>
-  <a href="https://www.bestpractices.dev/projects/11648"><img src="https://www.bestpractices.dev/projects/11648/badge"></a>
-  <br>
-  <!-- Add Docker Hub badge -->
-  <a href="https://hub.docker.com/r/wikid82/charon"><img src="https://img.shields.io/docker/pulls/wikid82/charon.svg" alt="Docker Pulls"></a>
-  <a href="https://hub.docker.com/r/wikid82/charon"><img src="https://img.shields.io/docker/v/wikid82/charon?sort=semver" alt="Docker Version"></a>
-  <!-- Existing badges continue -->
-  <a href="https://codecov.io/gh/Wikid82/Charon" ><img src="https://codecov.io/gh/Wikid82/Charon/branch/main/graph/badge.svg?token=RXSINLQTGE" alt="Code Coverage"/></a>
-  <!-- ... -->
-</p>
+### Phase 1: Infrastructure (1 hour)
+
+- [ ] Create `tests/security-enforcement/` directory
+- [ ] Create `tests/security-teardown.setup.ts` (with error handling + stabilization delay)
+- [ ] Update `playwright.config.js` with security-tests and security-teardown projects
+- [ ] Enhance `tests/utils/security-helpers.ts`
+
+### Phase 2: Enforcement Tests (3 hours)
+
+- [ ] Create `acl-enforcement.spec.ts` (5 tests)
+- [ ] Create `waf-enforcement.spec.ts` (4 tests) — requires Caddy
+- [ ] Create `crowdsec-enforcement.spec.ts` (3 tests)
+- [ ] Create `rate-limit-enforcement.spec.ts` (3 tests) — requires Caddy
+- [ ] Create `security-headers-enforcement.spec.ts` (4 tests)
+- [ ] Create `combined-enforcement.spec.ts` (5 tests)
+
+### Phase 3: Verification (1 hour)
+
+- [ ] Run: `npx playwright test --project=security-tests`
+- [ ] Verify teardown disables all modules
+- [ ] Run full suite: `npx playwright test`
+- [ ] Verify < 10 failures (only genuine issues)
+
+---
+
+## 7. Success Criteria
+
+| Metric | Before | Target |
+|--------|--------|--------|
+| Security enforcement tests | 0 | 24 |
+| Test failures from ACL blocking | 222 | 0 |
+| Security module toggle coverage | Partial | 100% |
+| CI security test job | N/A | Passing |
+
+---
+
+## References
+
+- [Playwright Project Dependencies](https://playwright.dev/docs/test-projects#dependencies)
+- [Playwright Teardown](https://playwright.dev/docs/test-global-setup-teardown#teardown)
+- [Security Helpers](../../tests/utils/security-helpers.ts)
+- [Cerberus Middleware](../../backend/internal/cerberus/cerberus.go)
+- [Security Handler](../../backend/internal/api/handlers/security_handler.go)
+
+---
+
+## 8. Known Pre-existing Test Failures (Not Blocking)
+
+**Analysis Date**: 2026-01-25
+**Status**: ⚠️ DOCUMENTED — Fix separately from security testing work
+
+These 5 failures pre-date the Docker Hub, break-glass, and security testing infrastructure changes. Git history confirms no settings test files were modified in the current work.
+
+### Failure Summary
+
+| Test File | Line | Failure | Root Cause | Type |
+|-----------|------|---------|------------|------|
+| `account-settings.spec.ts` | 289 | `getByText(/invalid.*email|email.*invalid/i)` not found | Frontend email validation error text doesn't match test regex | Locator mismatch |
+| `system-settings.spec.ts` | 412 | `data-testid="toast-success"` or `/success|saved/i` not found | Success toast implementation doesn't match test expectations | Locator mismatch |
+| `user-management.spec.ts` | 277 | Strict mode: 2 elements match `/send.*invite/i` | Commit `0492c1be` added "Resend Invite" button conflicting with "Send Invite" | UI change without test update |
+| `user-management.spec.ts` | 436 | Strict mode: 2 elements match `/send.*invite/i` | Same as above | UI change without test update |
+| `user-management.spec.ts` | 948 | Strict mode: 2 elements match `/send.*invite/i` | Same as above | UI change without test update |
+
+### Evidence
+
+**Last modification to settings test files**: Commit `0492c1be` (Jan 24, 2026) — "fix: implement user management UI"
+
+This commit added:
+- "Resend Invite" button for pending users in the users table
+- Email format validation with error display
+- But did not update the test locators to distinguish between buttons
+
+### Recommended Fix (Future PR)
+
+```typescript
+// CURRENT (fails strict mode):
+const sendButton = page.getByRole('button', { name: /send.*invite/i });
+
+// FIX: Be more specific to match only modal button
+const sendButton = page
+  .locator('.invite-modal')  // or modal dialog locator
+  .getByRole('button', { name: /send.*invite/i });
+
+// OR use exact name:
+const sendButton = page.getByRole('button', { name: 'Send Invite' });
 ```
 
-**Add to Installation section**:
-```markdown
-## Quick Start
+### Tracking
 
-### Docker Hub (Recommended)
-
-\`\`\`bash
-docker pull wikid82/charon:latest
-docker run -d -p 80:80 -p 443:443 -p 8080:8080 \
-  -v charon-data:/app/data \
-  wikid82/charon:latest
-\`\`\`
-
-### GitHub Container Registry
-
-\`\`\`bash
-docker pull ghcr.io/wikid82/charon:latest
-docker run -d -p 80:80 -p 443:443 -p 8080:8080 \
-  -v charon-data:/app/data \
-  ghcr.io/wikid82/charon:latest
-\`\`\`
-```
-
-### 6.2 getting-started.md Changes
-
-**Location**: Step 1 Install section
-
-**Update docker-compose.yml example**:
-```yaml
-services:
-  charon:
-    # Docker Hub (recommended for most users)
-    image: wikid82/charon:latest
-    # Alternative: GitHub Container Registry
-    # image: ghcr.io/wikid82/charon:latest
-    container_name: charon
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "8080:8080"
-    volumes:
-      - ./charon-data:/app/data
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    environment:
-      - CHARON_ENV=production
-```
-
-### 6.3 Docker Hub README Sync
-
-Create a workflow or use Docker Hub's "Build Settings" to sync the README:
-
-**Option A**: Manual sync via Docker Hub API (in workflow)
-```yaml
-      - name: Sync README to Docker Hub
-        if: github.ref == 'refs/heads/main'
-        uses: peter-evans/dockerhub-description@0e6a7b2f56b498411d884fc55f14e1e2caf38d24 # v4.0.2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: wikid82/charon
-          readme-filepath: ./README.md
-          short-description: "Web UI for managing Caddy reverse proxy configurations"
-```
-
-**Option B**: Create a dedicated Docker Hub README at `docs/docker-hub-readme.md`
+These should be fixed in a separate PR after the security testing implementation is complete. They do not block the current work.
 
 ---
 
-## 7. File Change Review
+## 10. Supervisor Review Summary
 
-### 7.1 .gitignore
+**Review Date**: 2026-01-25
+**Verdict**: ✅ APPROVED with Recommendations
 
-**No changes required.** Current `.gitignore` is comprehensive.
+### Grades
 
-### 7.2 codecov.yml
+| Criteria | Grade | Notes |
+|----------|-------|-------|
+| Test Structure | B+ → A | Fixed with explicit teardown dependencies |
+| API Correctness | A | Verified against settings_handler.go |
+| Coverage | B → A- | Expanded from 21 to 24 tests |
+| Pitfall Handling | B- → A | Added error handling + stabilization delay |
+| Best Practices | A- | Removed numeric prefixes |
 
-**No changes required.** Docker image publishing doesn't affect code coverage.
+### Key Changes Incorporated
 
-### 7.3 .dockerignore
+1. **Browser dependencies fixed**: Now depend on `['setup', 'security-teardown']` not just `['security-tests']`
+2. **Teardown error handling**: Continue-on-error pattern with logging
+3. **Stabilization delay**: 1-second wait after teardown for Caddy reload
+4. **Test count increased**: 21 → 24 tests (3 new combined tests)
+5. **Numeric prefixes removed**: Playwright ignores them; rely on project config
+6. **Headless enforcement**: Security tests run headless Chromium (API-level tests)
+7. **Caddy requirements documented**: WAF and Rate Limiting tests need Caddy proxy
 
-**No changes required.** Current `.dockerignore` is comprehensive and well-organized.
+### Critical Pre-Implementation Fixes (Phase 0)
 
-### 7.4 Dockerfile
+These MUST be completed before Phase 1:
 
-**No changes required.** The Dockerfile is registry-agnostic. Labels are already configured:
-
-```dockerfile
-LABEL org.opencontainers.image.source="https://github.com/Wikid82/charon" \
-      org.opencontainers.image.url="https://github.com/Wikid82/charon" \
-      org.opencontainers.image.vendor="charon" \
-```
-
----
-
-## 8. Implementation Checklist
-
-### Phase 1: Docker Hub Setup (Manual)
-
-- [ ] **1.1** Create Docker Hub account (if not exists)
-- [ ] **1.2** Create `wikid82/charon` repository on Docker Hub
-- [ ] **1.3** Generate Docker Hub Access Token
-- [ ] **1.4** Add `DOCKERHUB_USERNAME` secret to GitHub repository
-- [ ] **1.5** Add `DOCKERHUB_TOKEN` secret to GitHub repository
-
-### Phase 2: Workflow Updates
-
-- [ ] **2.1** Update `docker-build.yml` environment variables
-- [ ] **2.2** Add Docker Hub login step to `docker-build.yml`
-- [ ] **2.3** Update metadata action for multi-registry in `docker-build.yml`
-- [ ] **2.4** Add Cosign signing steps to `docker-build.yml`
-- [ ] **2.5** Add SBOM attachment step to `docker-build.yml`
-- [ ] **2.6** Apply same changes to `nightly-build.yml`
-- [ ] **2.7** Add README sync step (optional)
-
-### Phase 3: Documentation
-
-- [ ] **3.1** Add Docker Hub badge to `README.md`
-- [ ] **3.2** Update Quick Start section in `README.md`
-- [ ] **3.3** Update `docs/getting-started.md` with Docker Hub examples
-- [ ] **3.4** Create Docker Hub-specific README (optional)
-
-### Phase 4: Verification
-
-- [ ] **4.1** Push to `development` branch and verify both registries receive image
-- [ ] **4.2** Verify tags are identical on both registries
-- [ ] **4.3** Verify Cosign signatures on both registries
-- [ ] **4.4** Verify SBOM attachment on Docker Hub
-- [ ] **4.5** Pull image from Docker Hub and run basic smoke test
-- [ ] **4.6** Create test release tag and verify version tags
-
-### Phase 5: Monitoring
-
-- [ ] **5.1** Set up Docker Hub vulnerability scanning (Settings → Vulnerability Scanning)
-- [ ] **5.2** Monitor Docker Hub download metrics
+1. ❌ `tests/global-setup.ts:17` — Change `100.98.12.109` → `localhost`
+2. ❌ `emergencySecurityReset()` — Expand to disable ALL modules, not just ACL
+3. ❌ Add pre-auth security disable attempt (crash protection)
 
 ---
-
-## 9. Rollback Plan
-
-If issues occur with Docker Hub publishing:
-
-1. **Immediate**: Remove Docker Hub login step from workflow
-2. **Revert**: Use `git revert` on the workflow changes
-3. **Secrets**: Secrets can remain (they're not exposed)
-4. **Docker Hub Repo**: Can remain (no harm in empty repo)
-
----
-
-## 10. Security Considerations
-
-### 10.1 Secret Management
-
-| Secret | Rotation Policy | Access Level |
-|--------|-----------------|--------------|
-| `DOCKERHUB_TOKEN` | Every 90 days | Read/Write/Delete |
-| `GITHUB_TOKEN` | Auto-rotated | Built-in |
-
-### 10.2 Supply Chain Risks
-
-| Risk | Mitigation |
-|------|------------|
-| Compromised Docker Hub credentials | Use access tokens (not password), enable 2FA |
-| Image tampering | Cosign signatures verify integrity |
-| Dependency confusion | SBOM provides transparency |
-| Malicious base image | Pin base images by digest in Dockerfile |
-
----
-
-## 11. Cost Analysis
-
-### Docker Hub Free Tier Limits
-
-| Resource | Limit | Expected Usage |
-|----------|-------|----------------|
-| Private repos | 1 | 0 (public repo) |
-| Pulls | Unlimited for public | N/A |
-| Builds | Disabled (we use GitHub Actions) | 0 |
-| Teams | 1 | 1 |
-
-**Conclusion**: No cost impact expected for public repository.
-
----
-
-## 12. References
-
-- [docker/login-action](https://github.com/docker/login-action)
-- [docker/metadata-action - Multiple registries](https://github.com/docker/metadata-action#extracting-to-multiple-registries)
-- [Cosign keyless signing](https://docs.sigstore.dev/cosign/keyless/)
-- [Cosign attach sbom](https://docs.sigstore.dev/cosign/signing/other_types/#sbom)
-- [peter-evans/dockerhub-description](https://github.com/peter-evans/dockerhub-description)
-- [Docker Hub Access Tokens](https://docs.docker.com/docker-hub/access-tokens/)
-
----
-
-## 13. Appendix: Full Workflow YAML
-
-### 13.1 Updated docker-build.yml (Complete)
-
-See the detailed diff in Section 3.4. The full updated workflow should be generated during implementation.
-
-### 13.2 Example Multi-Registry Push Output
-
-```
-#12 pushing ghcr.io/wikid82/charon:latest with docker
-#12 pushing layer sha256:abc123... 0.2s
-#12 pushing manifest sha256:xyz789... done
-#12 pushing ghcr.io/wikid82/charon:sha-abc1234 with docker
-#12 done
-
-#13 pushing docker.io/wikid82/charon:latest with docker
-#13 pushing layer sha256:abc123... 0.2s
-#13 pushing manifest sha256:xyz789... done
-#13 pushing docker.io/wikid82/charon:sha-abc1234 with docker
-#13 done
-```
-
----
-
-**End of Plan**

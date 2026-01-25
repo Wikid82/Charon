@@ -42,6 +42,13 @@ mkdir -p /app/data/caddy 2>/dev/null || true
 mkdir -p /app/data/crowdsec 2>/dev/null || true
 mkdir -p /app/data/geoip 2>/dev/null || true
 
+# Fix ownership for directories created as root
+if is_root; then
+    chown -R charon:charon /app/data/caddy 2>/dev/null || true
+    chown -R charon:charon /app/data/crowdsec 2>/dev/null || true
+    chown -R charon:charon /app/data/geoip 2>/dev/null || true
+fi
+
 # ============================================================================
 # Plugin Directory Permission Verification
 # ============================================================================

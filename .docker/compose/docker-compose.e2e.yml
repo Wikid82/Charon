@@ -23,6 +23,9 @@ services:
       # Encryption key - MUST be provided via environment variable
       # Generate with: export CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)
       - CHARON_ENCRYPTION_KEY=${CHARON_ENCRYPTION_KEY:?CHARON_ENCRYPTION_KEY is required}
+      # Emergency reset token - for break-glass recovery when locked out by ACL
+      # Generate with: openssl rand -hex 32
+      - CHARON_EMERGENCY_TOKEN=${CHARON_EMERGENCY_TOKEN:-test-emergency-token-for-e2e-32chars}
       - CHARON_HTTP_PORT=8080
       - CHARON_DB_PATH=/app/data/charon.db
       - CHARON_FRONTEND_DIR=/app/frontend/dist
@@ -33,7 +36,8 @@ services:
       # FEATURE_CERBERUS_ENABLED deprecated - Cerberus enabled by default
     tmpfs:
       # True tmpfs for E2E test data - fresh on every run, in-memory only
-      - /app/data:size=100M,mode=1755
+      # mode=1777 allows any user to write (container runs as non-root)
+      - /app/data:size=100M,mode=1777
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/v1/health || exit 1"]
       interval: 5s

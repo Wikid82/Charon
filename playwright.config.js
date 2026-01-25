@@ -147,11 +147,37 @@ export default defineConfig({
 
   /* Configure projects for major browsers */
   projects: [
-    // Setup project for authentication - runs first
+    // 1. Setup project - authentication (runs FIRST)
     {
       name: 'setup',
       testMatch: /auth\.setup\.ts/,
     },
+
+    // 2. Security Tests - Run WITH security enabled (SEQUENTIAL, headless Chromium)
+    // These tests enable security modules, verify blocking behavior, then teardown disables all.
+    {
+      name: 'security-tests',
+      testDir: './tests/security-enforcement',
+      dependencies: ['setup'],
+      teardown: 'security-teardown',
+      fullyParallel: false, // Force sequential - modules share state
+      workers: 1, // Force single worker to prevent race conditions on security settings
+      use: {
+        ...devices['Desktop Chrome'],
+        headless: true, // Security tests are API-level, don't need headed
+        storageState: STORAGE_STATE,
+      },
+    },
+
+    // 3. Security Teardown - Disable ALL security modules after security-tests
+    {
+      name: 'security-teardown',
+      testMatch: /security-teardown\.setup\.ts/,
+    },
+
+    // 4. Browser projects - Depend on setup and security-tests
+    // Note: Browser projects run AFTER security-tests complete (and its teardown runs)
+    // This ordering ensures security modules are disabled before browser tests run.
     {
       name: 'chromium',
       use: {
@@ -159,7 +185,8 @@ export default defineConfig({
         // Use stored authentication state
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup'],
+      testIgnore: /security-enforcement\//,
+      dependencies: ['setup', 'security-tests'],
     },
 
     {
@@ -168,7 +195,8 @@ export default defineConfig({
         ...devices['Desktop Firefox'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup'],
+      testIgnore: /security-enforcement\//,
+      dependencies: ['setup', 'security-tests'],
     },
 
     {
@@ -177,7 +205,8 @@ export default defineConfig({
         ...devices['Desktop Safari'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup'],
+      testIgnore: /security-enforcement\//,
+      dependencies: ['setup', 'security-tests'],
     },
 
     /* Test against mobile viewports. */
