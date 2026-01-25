@@ -1,7 +1,258 @@
-# WAF Integration Workflow Fix: wget-style curl Syntax Migration
+# WAF-2026-002: Docker Tag Sanitization for Branch Names
+
+**Plan ID**: WAF-2026-002
+**Status**: ✅ COMPLETED
+**Priority**: High
+**Created**: 2026-01-25
+**Completed**: 2026-01-25
+**Scope**: Fix Docker image tag construction to handle branch names containing forward slashes
+
+---
+
+## Problem Summary
+
+GitHub Actions workflows are failing with "invalid reference format" errors when building/pulling Docker images for feature branches. The root cause is that branch names like `feature/beta-release` contain forward slashes (`/`), which are **invalid characters in Docker image tags**.
+
+### Docker Tag Naming Rules
+
+Docker image tags must match the regex: `[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}`
+
+Invalid characters include:
+- Forward slash (`/`) - **causes "invalid reference format" error**
+- Colon (`:`) - reserved for tag separator
+- Spaces and special characters
+
+---
+
+## Files Affected
+
+### 1. `.github/workflows/playwright.yml` (Line 103)
+
+**Location**: [playwright.yml](.github/workflows/playwright.yml#L103)
+
+**Current (broken):**
+```yaml
+- name: Start Charon container
+  run: |
+    ...
+    if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
+      IMAGE_REF="ghcr.io/${IMAGE_NAME}:${{ github.event.workflow_run.head_branch }}"
+    else
+```
+
+**Issue**: `github.event.workflow_run.head_branch` can contain `/` (e.g., `feature/beta-release`)
+
+**Fix:**
+```yaml
+- name: Start Charon container
+  run: |
+    ...
+    if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
+      # Sanitize branch name: replace / with -
+      SANITIZED_BRANCH=$(echo "${{ github.event.workflow_run.head_branch }}" | tr '/' '-')
+      IMAGE_REF="ghcr.io/${IMAGE_NAME}:${SANITIZED_BRANCH}"
+    else
+```
+
+---
+
+### 2. `.github/workflows/playwright.yml` (Line 161) - Artifact Naming
+
+**Location**: [playwright.yml](.github/workflows/playwright.yml#L161)
+
+**Current:**
+```yaml
+- name: Upload Playwright report
+  uses: actions/upload-artifact@...
+  with:
+    name: ${{ steps.pr-info.outputs.is_push == 'true' && format('playwright-report-{0}', github.event.workflow_run.head_branch) || format('playwright-report-pr-{0}', steps.pr-info.outputs.pr_number) }}
+```
+
+**Issue**: Artifact names also cannot contain `/`
+
+**Fix:**
+Add a step to sanitize the branch name first and use an environment variable:
+```yaml
+- name: Sanitize branch name for artifact
+  id: sanitize
+  run: |
+    SANITIZED=$(echo "${{ github.event.workflow_run.head_branch }}" | tr '/' '-')
+    echo "branch=${SANITIZED}" >> $GITHUB_OUTPUT
+
+- name: Upload Playwright report
+  uses: actions/upload-artifact@...
+  with:
+    name: ${{ steps.pr-info.outputs.is_push == 'true' && format('playwright-report-{0}', steps.sanitize.outputs.branch) || format('playwright-report-pr-{0}', steps.pr-info.outputs.pr_number) }}
+```
+
+---
+
+### 3. `.github/workflows/supply-chain-verify.yml` (Lines 64-90) - Tag Determination
+
+**Location**: [supply-chain-verify.yml](.github/workflows/supply-chain-verify.yml#L64-L90)
+
+**Current (partial):**
+```yaml
+- name: Determine Image Tag
+  id: tag
+  run: |
+    if [[ "${{ github.event_name }}" == "release" ]]; then
+      TAG="${{ github.event.release.tag_name }}"
+    elif [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+      if [[ "${{ github.event.workflow_run.head_branch }}" == "main" ]]; then
+        TAG="latest"
+      elif [[ "${{ github.event.workflow_run.head_branch }}" == "development" ]]; then
+        TAG="dev"
+      elif [[ "${{ github.event.workflow_run.head_branch }}" == "nightly" ]]; then
+        TAG="nightly"
+      elif [[ "${{ github.event.workflow_run.head_branch }}" == "feature/beta-release" ]]; then
+        TAG="beta"
+      elif [[ "${{ github.event.workflow_run.event }}" == "pull_request" ]]; then
+        ...
+      else
+        TAG="sha-$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)"
+      fi
+```
+
+**Issue**: Only `feature/beta-release` is explicitly mapped. Other feature branches fall through to SHA-based tags which works, BUT there's an implicit assumption that docker-build.yml creates tags that match. The docker-build.yml uses `type=ref,event=branch` which DOES sanitize branch names.
+
+**Analysis**: The logic here is complex. The `docker/metadata-action` in docker-build.yml uses:
+```yaml
+type=ref,event=branch,enable=${{ startsWith(github.ref, 'refs/heads/feature/') }}
+```
+
+According to [docker/metadata-action docs](https://github.com/docker/metadata-action#typeref), `type=ref,event=branch` produces a tag like `feature-beta-release` (slashes replaced with dashes).
+
+**Fix**: Align supply-chain-verify.yml with docker-build.yml's tag sanitization:
+```yaml
+- name: Determine Image Tag
+  id: tag
+  run: |
+    if [[ "${{ github.event_name }}" == "release" ]]; then
+      TAG="${{ github.event.release.tag_name }}"
+    elif [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+      BRANCH="${{ github.event.workflow_run.head_branch }}"
+      if [[ "${BRANCH}" == "main" ]]; then
+        TAG="latest"
+      elif [[ "${BRANCH}" == "development" ]]; then
+        TAG="dev"
+      elif [[ "${BRANCH}" == "nightly" ]]; then
+        TAG="nightly"
+      elif [[ "${BRANCH}" == feature/* ]]; then
+        # Match docker/metadata-action behavior: type=ref,event=branch replaces / with -
+        TAG=$(echo "${BRANCH}" | tr '/' '-')
+      elif [[ "${{ github.event.workflow_run.event }}" == "pull_request" ]]; then
+        ...
+      else
+        TAG="sha-$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)"
+      fi
+```
+
+---
+
+### 4. `.github/workflows/supply-chain-pr.yml` (Line 196) - Artifact Naming
+
+**Location**: [supply-chain-pr.yml](.github/workflows/supply-chain-pr.yml#L196)
+
+**Current:**
+```yaml
+- name: Upload supply chain artifacts
+  uses: actions/upload-artifact@...
+  with:
+    name: ${{ steps.pr-number.outputs.is_push == 'true' && format('supply-chain-{0}', github.event.workflow_run.head_branch) || format('supply-chain-pr-{0}', steps.pr-number.outputs.pr_number) }}
+```
+
+**Issue**: Same artifact naming issue with unsanitized branch names
+
+**Fix:**
+```yaml
+- name: Sanitize branch name
+  id: sanitize
+  if: steps.pr-number.outputs.is_push == 'true'
+  run: |
+    SANITIZED=$(echo "${{ github.event.workflow_run.head_branch }}" | tr '/' '-')
+    echo "branch=${SANITIZED}" >> $GITHUB_OUTPUT
+
+- name: Upload supply chain artifacts
+  uses: actions/upload-artifact@...
+  with:
+    name: ${{ steps.pr-number.outputs.is_push == 'true' && format('supply-chain-{0}', steps.sanitize.outputs.branch) || format('supply-chain-pr-{0}', steps.pr-number.outputs.pr_number) }}
+```
+
+---
+
+## How docker/metadata-action Handles This
+
+The `docker/metadata-action` correctly handles this via `type=ref,event=branch`:
+
+From [docker-build.yml](.github/workflows/docker-build.yml#L89-L95):
+```yaml
+- name: Extract metadata (tags, labels)
+  id: meta
+  uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+  with:
+    images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+    tags: |
+      ...
+      type=ref,event=branch,enable=${{ startsWith(github.ref, 'refs/heads/feature/') }}
+```
+
+The `type=ref,event=branch` option automatically sanitizes the branch name, replacing `/` with `-`.
+
+**Result**: Feature branch `feature/beta-release` produces tag `feature-beta-release`
+
+---
+
+## Summary Table
+
+| Workflow | Line | Issue | Fix Strategy |
+|----------|------|-------|--------------|
+| [playwright.yml](.github/workflows/playwright.yml) | 103 | `head_branch` used directly as tag | `tr '/' '-'` sanitization |
+| [playwright.yml](.github/workflows/playwright.yml) | 161 | `head_branch` in artifact name | Add sanitize step |
+| [supply-chain-verify.yml](.github/workflows/supply-chain-verify.yml) | 74 | Only hardcodes `feature/beta-release` | Generic feature/* handling with `tr '/' '-'` |
+| [supply-chain-pr.yml](.github/workflows/supply-chain-pr.yml) | 196 | `head_branch` in artifact name | Add sanitize step |
+
+---
+
+## Execution Checklist
+
+- [ ] **Fix 1**: Update `playwright.yml` line 103 - sanitize branch name for Docker tag
+- [ ] **Fix 2**: Update `playwright.yml` line 161 - sanitize branch name for artifact
+- [ ] **Fix 3**: Update `supply-chain-verify.yml` lines 74-75 - generic feature branch handling
+- [ ] **Fix 4**: Update `supply-chain-pr.yml` line 196 - sanitize branch name for artifact
+- [ ] **Verify**: Push to `feature/beta-release` and confirm workflows pass
+- [ ] **CI**: All affected workflows should complete without "invalid reference format"
+
+---
+
+## Verification
+
+After applying fixes:
+
+```bash
+# Test sanitization logic locally
+echo "feature/beta-release" | tr '/' '-'
+# Expected output: feature-beta-release
+
+# Verify Docker accepts the sanitized tag
+docker pull ghcr.io/owner/charon:feature-beta-release
+# Should work (or fail with 404 if not published yet, but NOT "invalid reference format")
+```
+
+---
+
+## References
+
+- [Docker tag naming rules](https://docs.docker.com/engine/reference/commandline/tag/)
+- [docker/metadata-action type=ref behavior](https://github.com/docker/metadata-action#typeref)
+- GitHub Issue: Workflow failures on `feature/beta-release` branch
+
+---
+
+# WAF-2026-001: wget-style curl Syntax Migration (Archived)
 
 **Plan ID**: WAF-2026-001
-**Status**: 📋 PENDING
+**Status**: ✅ ARCHIVED (Superseded by WAF-2026-002 as current active plan)
 **Priority**: High
 **Created**: 2026-01-25
 **Scope**: Fix integration test scripts using incorrect wget-style curl syntax
