@@ -5,6 +5,8 @@ argument-hint: 'The CI/CD or infrastructure task (e.g., "Debug failing GitHub Ac
 tools:
   ['vscode/memory', 'execute/getTerminalOutput', 'execute/runTask', 'execute/runInTerminal', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/problems', 'read/readFile', 'agent', 'edit/createFile', 'edit/editFiles', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'web/fetch', 'github/*', 'copilot-container-tools/*', 'github/*', 'github/*', 'io.github.goreleaser/mcp/*', 'todo']
 model: 'Claude Opus 4.5'
+mcp-servers:
+  - github
 ---
 
 # GitOps & CI Specialist
