@@ -13,8 +13,8 @@
   },
   "devDependencies": {
     "@bgotink/playwright-coverage": "^0.3.2",
-    "@playwright/test": "^1.57.0",
-    "@types/node": "^25.0.9",
+    "@playwright/test": "^1.58.0",
+    "@types/node": "^25.0.10",
     "markdownlint-cli2": "^0.20.0"
   }
 }
