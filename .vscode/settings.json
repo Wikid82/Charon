@@ -11,11 +11,6 @@
   "go.useLanguageServer": true,
   "go.lintOnSave": "workspace",
   "go.vetOnSave": "workspace",
-  "yaml.validate": false,
-  "yaml.schemaStore.enable": false,
-  "files.exclude": {},
-  "search.exclude": {},
-  "files.associations": {},
   "python-envs.pythonProjects": [
     {
       "path": "",
