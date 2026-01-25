@@ -100,8 +100,8 @@ jobs:
         if: steps.skip.outputs.skip_build != 'true'
         id: caddy
         run: |
-          docker pull debian:bookworm-slim
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' debian:bookworm-slim)
+          docker pull debian:trixie-slim
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' debian:trixie-slim)
           echo "image=$DIGEST" >> $GITHUB_OUTPUT
 
       - name: Log in to Container Registry
@@ -478,7 +478,7 @@ jobs:
 
           # Wait for container to be healthy (max 3 minutes - Debian needs more startup time)
           echo "Waiting for container to start..."
-          timeout 180s bash -c 'until docker exec test-container curl -q -O- http://localhost:8080/api/v1/health 2>/dev/null | grep -q "status"; do echo "Waiting..."; sleep 2; done' || {
+          timeout 180s bash -c 'until docker exec test-container curl -sf http://localhost:8080/api/v1/health 2>/dev/null | grep -q "status"; do echo "Waiting..."; sleep 2; done' || {
             echo "❌ Container failed to become healthy"
             docker logs test-container
             exit 1

@@ -7,6 +7,31 @@
 
 ---
 
+## 🔴 Workflow Failure Analysis (Added 2026-01-25)
+
+### Issue Identified: docker-build.yml Failure
+
+**Workflow Run**: https://github.com/Wikid82/Charon/actions/runs/21326638353
+
+**Root Cause**: Base image mismatch after Debian Trixie migration (PR #550)
+
+| Component | Before Fix | After Fix |
+|-----------|-----------|-----------|
+| Workflow `docker-build.yml` | `debian:bookworm-slim` | `debian:trixie-slim` |
+| Dockerfile `CADDY_IMAGE` | `debian:trixie-slim` | `debian:trixie-slim` ✓ |
+
+**Problem**: The workflow step "Resolve Debian base image digest" was still pulling `debian:bookworm-slim` while the Dockerfile was updated to use `debian:trixie-slim`. This caused inconsistency in the build.
+
+**Fix Applied**: Updated [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml#L54-L57):
+```yaml
+- name: Resolve Debian base image digest
+  run: |
+    docker pull debian:trixie-slim
+    DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' debian:trixie-slim)
+```
+
+---
+
 ## Summary
 
 This plan addresses merge conflicts in the `feature/beta-release` branch that need resolution against `main`. After analyzing all conflicting files, here is the recommended resolution strategy.
