@@ -163,6 +163,13 @@ jobs:
           docker load -i charon-e2e-image.tar
           docker images | grep charon
 
+      - name: Generate ephemeral encryption key
+        run: |
+          # Generate a unique, ephemeral encryption key for this CI run
+          # Key is 32 bytes, base64-encoded as required by CHARON_ENCRYPTION_KEY
+          echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> $GITHUB_ENV
+          echo "✅ Generated ephemeral encryption key for E2E tests"
+
       - name: Start test environment
         run: |
           # Use the committed docker-compose.playwright.yml for E2E testing
