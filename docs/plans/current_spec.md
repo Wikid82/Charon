@@ -1,4 +1,244 @@
-# Security Module Testing Plan: Toggle-On-Test-Toggle-Off Pattern
+# E2E Workflow Failure Remediation Plan
+
+**Plan ID**: E2E-FIX-2026-001
+**Status**: 🔴 URGENT - BLOCKING PR #550
+**Priority**: CRITICAL
+**Created**: 2026-01-25
+**Branch**: feature/beta-release
+**Scope**: Fix E2E workflow failure in GitHub Actions
+
+---
+
+## Failure Summary
+
+**Workflow Run**: https://github.com/Wikid82/Charon/actions/runs/21339854113/job/61417497085
+**Job**: Build Application
+**Failed Step**: Build frontend (Step 7/12)
+**Exit Code**: 2
+
+The E2E workflow failed during the **"Build frontend"** step because the workflow runs `npm ci` only at the **root level**, but the frontend has its own `package.json` with separate dependencies that are never installed.
+
+---
+
+## Error Evidence
+
+The build failed with 100+ TypeScript errors. Key errors:
+
+```
+TS2307: Cannot find module 'react' or its corresponding type declarations.
+TS2307: Cannot find module 'react-i18next' or its corresponding type declarations.
+TS2307: Cannot find module 'lucide-react' or its corresponding type declarations.
+TS2307: Cannot find module 'clsx' or its corresponding type declarations.
+TS2307: Cannot find module 'tailwind-merge' or its corresponding type declarations.
+TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.
+```
+
+These errors indicate **missing frontend dependencies** (`react`, `react-i18next`, `lucide-react`, `clsx`, `tailwind-merge`).
+
+---
+
+## Root Cause Analysis
+
+### Problem Location
+
+In [.github/workflows/e2e-tests.yml](.github/workflows/e2e-tests.yml#L73-L82):
+
+```yaml
+- name: Install dependencies
+  run: npm ci                        # ← Installs ROOT package.json only
+
+- name: Build frontend
+  run: npm run build
+  working-directory: frontend        # ← Expects frontend/node_modules to exist
+```
+
+### Why It Fails
+
+| Directory | package.json | Dependencies | Has node_modules? |
+|-----------|--------------|--------------|-------------------|
+| `/` (root) | ✅ Yes | `@playwright/test`, `markdownlint-cli2` | ✅ After `npm ci` |
+| `/frontend` | ✅ Yes | `react`, `clsx`, `tailwind-merge`, etc. | ❌ **NEVER INSTALLED** |
+
+The workflow:
+1. Runs `npm ci` at root → installs root dependencies
+2. Runs `npm run build` in `frontend/` → **fails** because `frontend/node_modules` doesn't exist
+
+### Workflow vs Dockerfile Comparison
+
+The **Dockerfile** handles this correctly:
+
+```dockerfile
+# Install ALL root dependencies (Playwright, etc.)
+COPY package*.json ./
+RUN npm ci
+
+# Install frontend dependencies separately
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm ci                           # ← THIS IS MISSING IN THE WORKFLOW
+
+# Build
+COPY frontend/ ./
+RUN npm run build
+```
+
+---
+
+## Affected Files
+
+| File | Change Required | Impact |
+|------|-----------------|--------|
+| `.github/workflows/e2e-tests.yml` | Add frontend dependency install step | Critical - Fixes build failure |
+
+---
+
+## Remediation Steps
+
+### Step 1: Add Frontend Dependency Installation
+
+**File**: `.github/workflows/e2e-tests.yml`
+**Location**: After the "Install dependencies" step (line 77), before "Build frontend" step
+
+**Current Code** (lines 73-82):
+
+```yaml
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+```
+
+**Fixed Code**:
+
+```yaml
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+```
+
+### Step 2 (Optional): Update Node Version
+
+The workflow uses Node 18, but several dependencies require Node 20+:
+
+```
+npm warn EBADENGINE package: 'globby@15.0.0', required: { node: '>=20' }
+npm warn EBADENGINE package: 'markdownlint@0.40.0', required: { node: '>=20' }
+npm warn EBADENGINE package: 'markdownlint-cli2@0.20.0', required: { node: '>=20' }
+```
+
+**Recommendation**: Update `NODE_VERSION` from `'18'` to `'20'` in the workflow environment variables:
+
+```yaml
+env:
+  NODE_VERSION: '20'    # Was: '18'
+  GO_VERSION: '1.21'
+```
+
+---
+
+## Complete Fix (Single Change)
+
+Apply this change to [.github/workflows/e2e-tests.yml](.github/workflows/e2e-tests.yml):
+
+**Find** (around lines 73-82):
+
+```yaml
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+```
+
+**Replace with**:
+
+```yaml
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+```
+
+---
+
+## Verification Steps
+
+### 1. Local Verification
+
+```bash
+# Clean install (simulates CI)
+rm -rf node_modules frontend/node_modules
+
+# Install root deps
+npm ci
+
+# Install frontend deps (this is the missing step)
+cd frontend && npm ci && cd ..
+
+# Build frontend
+cd frontend && npm run build && cd ..
+```
+
+Expected: Build completes successfully with no TypeScript errors.
+
+### 2. CI Verification
+
+After pushing the fix:
+1. Check the E2E workflow run completes the "Build Application" job
+2. Verify all 4 shards of E2E tests run (not skipped)
+3. Confirm the "E2E Test Results" job passes
+
+---
+
+## Impact Assessment
+
+| Aspect | Before Fix | After Fix |
+|--------|------------|-----------|
+| Build Application job | ❌ FAILURE | ✅ PASS |
+| E2E Tests (4 shards) | ⏭️ SKIPPED | ✅ RUN |
+| E2E Test Results | ⚠️ FALSE POSITIVE (success on skip) | ✅ ACCURATE |
+| PR #550 | ❌ BLOCKED | ✅ CAN MERGE |
+
+---
+
+## Related Issues
+
+### Node Version Warnings (Non-Blocking)
+
+These warnings appear during `npm ci` but don't cause the build to fail:
+
+```
+npm warn EBADENGINE Unsupported engine { package: 'globby@15.0.0', required: { node: '>=20' } }
+npm warn EBADENGINE Unsupported engine { package: 'markdownlint@0.40.0', required: { node: '>=20' } }
+```
+
+**Recommendation**: Update Node version to 20 in a follow-up PR to eliminate warnings and ensure full compatibility.
+
+---
+
+## Appendix: Previous Plan (Archived)
+
+The previous content of this file (Security Module Testing Plan) has been archived to `docs/plans/archive/security-module-testing-plan-2026-01-25.md`.
+
+---
+
+# Archived: Security Module Testing Plan: Toggle-On-Test-Toggle-Off Pattern
 
 **Plan ID**: SEC-TEST-2026-001
 **Status**: ✅ APPROVED (Supervisor Review: 2026-01-25)
