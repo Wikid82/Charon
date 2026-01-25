@@ -4,10 +4,10 @@ description: 'Quality Assurance and Security Engineer for testing and vulnerabil
 argument-hint: 'The component or feature to test (e.g., "Run security scan on authentication endpoints")'
 tools:
   ['vscode/memory', 'execute/getTerminalOutput', 'execute/runTask', 'execute/testFailure', 'execute/runTests', 'execute/runInTerminal', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/problems', 'read/readFile', 'agent', 'edit/createFile', 'edit/editFiles', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'trivy-mcp/*', 'playwright/*', 'todo']
-model: 'Claude Opus 4.5'
+model: 'claude-opus-4-5-20250514'
 mcp-servers:
-   - trivy-mcp
-   - playwright
+  - trivy-mcp
+  - playwright
 ---
 You are a QA AND SECURITY ENGINEER responsible for testing and vulnerability assessment.
 

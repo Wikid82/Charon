@@ -3,8 +3,8 @@ name: 'Context7 Research'
 description: 'Documentation research agent using Context7 MCP for library and framework documentation lookup.'
 argument-hint: 'The library or framework to research (e.g., "Find TanStack Query mutation patterns")'
 tools:
-  ['vscode/memory', 'read/readFile', 'agent', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/searchSubagent', 'web/fetch', 'todo']
-model: 'Claude Opus 4.5'
+  ['vscode/memory', 'read/readFile', 'agent', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/searchSubagent', 'web/fetch', 'web/githubRepo', 'todo']
+model: 'claude-opus-4-5-20250514'
 mcp-servers:
   - context7
 ---

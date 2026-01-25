@@ -4,7 +4,7 @@ description: 'User Advocate and Writer focused on creating simple, layman-friend
 argument-hint: 'The feature to document (e.g., "Write the guide for the new Real-Time Logs")'
 tools:
   ['vscode/memory', 'read/readFile', 'edit/createFile', 'edit/editFiles', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/searchSubagent', 'github/*', 'todo']
-model: 'Claude Opus 4.5'
+model: 'claude-opus-4-5-20250514'
 mcp-servers:
   - github
 ---

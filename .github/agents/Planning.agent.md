@@ -3,8 +3,8 @@ name: 'Planning'
 description: 'Principal Architect for technical planning and design decisions.'
 argument-hint: 'The feature or system to plan (e.g., "Design the architecture for Real-Time Logs")'
 tools:
-  ['vscode/memory', 'read/problems', 'read/readFile', 'agent', 'edit', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'web', 'todo']
-model: 'Claude Opus 4.5'
+  ['vscode/memory', 'read/problems', 'read/readFile', 'agent', 'edit/createDirectory', 'edit/createFile', 'edit/editFiles', 'edit/editNotebook', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'web/fetch', 'web/githubRepo', 'github/*', 'todo']
+model: 'claude-opus-4-5-20250514'
 mcp-servers:
   - github
 ---
