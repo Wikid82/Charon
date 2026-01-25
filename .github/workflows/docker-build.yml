@@ -35,6 +35,8 @@ env:
 
 jobs:
   build-and-push:
+    env:
+      HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -114,7 +116,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && secrets.DOCKERHUB_TOKEN != ''
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: docker.io
@@ -433,7 +435,7 @@ jobs:
 
       # Sign Docker Hub image with keyless signing (Sigstore/Fulcio)
       - name: Sign Docker Hub Image
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && secrets.DOCKERHUB_TOKEN != ''
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Signing Docker Hub image with keyless signing..."
           cosign sign --yes ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
@@ -441,7 +443,7 @@ jobs:
 
       # Attach SBOM to Docker Hub image
       - name: Attach SBOM to Docker Hub
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && secrets.DOCKERHUB_TOKEN != ''
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Attaching SBOM to Docker Hub image..."
           cosign attach sbom --sbom sbom.cyclonedx.json ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
