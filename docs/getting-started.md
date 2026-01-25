@@ -28,7 +28,10 @@ Create a file called `docker-compose.yml`:
 ```yaml
 services:
   charon:
-    image: ghcr.io/wikid82/charon:latest
+    # Docker Hub (recommended)
+    image: wikid82/charon:latest
+    # Alternative: GitHub Container Registry
+    # image: ghcr.io/wikid82/charon:latest
     container_name: charon
     restart: unless-stopped
     ports:
@@ -49,6 +52,22 @@ docker-compose up -d
 ```
 
 ### Option B: Docker Run (One Command)
+
+**Docker Hub (recommended):**
+
+```bash
+docker run -d \
+  --name charon \
+  -p 80:80 \
+  -p 443:443 \
+  -p 8080:8080 \
+  -v ./charon-data:/app/data \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -e CHARON_ENV=production \
+  wikid82/charon:latest
+```
+
+**Alternative (GitHub Container Registry):**
 
 ```bash
 docker run -d \

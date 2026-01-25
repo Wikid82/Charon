@@ -1,1833 +1,593 @@
-# WAF-2026-003: CrowdSec Hub Resilience
+# Docker Hub + GHCR Dual Registry Publishing Plan
 
-**Plan ID**: WAF-2026-003
-**Status**: ✅ COMPLETED
+**Plan ID**: DOCKER-2026-001
+**Status**: 📋 PLANNED
 **Priority**: High
 **Created**: 2026-01-25
-**Completed**: 2026-01-25
-**Scope**: Make CrowdSec integration tests resilient to hub API unavailability
+**Branch**: feature/beta-release
+**Scope**: Publish Docker images to both Docker Hub and GitHub Container Registry (GHCR)
 
 ---
 
-## Problem Summary
+## Executive Summary
 
-The CrowdSec integration test fails when the CrowdSec Hub API is unavailable:
-
-```
-Pull response: {"error":"fetch hub index: https://hub-data.crowdsec.net/api/index.json: https://hub-data.crowdsec.net/api/index.json (status 404)","hub_endpoints":["https://hub-data.crowdsec.net","https://raw.githubusercontent.com/crowdsecurity/hub/master"]}
-```
-
-### Root Cause Analysis
-
-1. **Hub API Returned 404**: The primary hub at `hub-data.crowdsec.net` returned a 404 error
-2. **Fallback Also Failed**: The GitHub mirror at `raw.githubusercontent.com/crowdsecurity/hub/master` likely also failed or wasn't properly tried
-3. **Integration Test Failed**: The test expects a successful pull, so hub unavailability = test failure
+This plan details the implementation of dual-registry publishing for the Charon Docker image. Currently, images are published exclusively to GHCR (`ghcr.io/wikid82/charon`). This plan adds Docker Hub (`docker.io/wikid82/charon`) as an additional registry while maintaining full parity in tags, platforms, and supply chain security.
 
 ---
 
-## Code Analysis
+## 1. Current State Analysis
 
-### File 1: Hub Service Implementation
+### 1.1 Existing Registry Setup (GHCR Only)
 
-**File**: [backend/internal/crowdsec/hub_sync.go](../../backend/internal/crowdsec/hub_sync.go)
+| Workflow | Purpose | Tags Generated | Platforms |
+|----------|---------|----------------|-----------|
+| `docker-build.yml` | Main builds on push/PR | `latest`, `dev`, `sha-*`, `pr-*`, `feature-*` | `linux/amd64`, `linux/arm64` |
+| `nightly-build.yml` | Nightly builds from `nightly` branch | `nightly`, `nightly-YYYY-MM-DD`, `nightly-sha-*` | `linux/amd64`, `linux/arm64` |
+| `release-goreleaser.yml` | Release builds on tag push | `vX.Y.Z` | N/A (binary releases, not Docker) |
 
-| Line | Code | Purpose |
-|------|------|---------|
-| 30 | `defaultHubBaseURL = "https://hub-data.crowdsec.net"` | Primary hub URL |
-| 31 | `defaultHubMirrorBaseURL = "https://raw.githubusercontent.com/crowdsecurity/hub/master"` | Mirror URL |
-| 200-210 | `hubBaseCandidates()` | Returns list of fallback URLs |
-| 335-365 | `fetchIndexHTTP()` | Fetches index with fallback logic |
-| 367-392 | `hubHTTPError` | Error type with `CanFallback()` method |
+### 1.2 Current Environment Variables
 
-**Existing Fallback Logic** (Lines 335-365):
-```go
-func (s *HubService) fetchIndexHTTP(ctx context.Context) (HubIndex, error) {
-    // ... builds targets from hubBaseCandidates and indexURLCandidates
-    for attempt, target := range targets {
-        idx, err := s.fetchIndexHTTPFromURL(ctx, target)
-        if err == nil {
-            return idx, nil  // Success!
-        }
-        errs = append(errs, fmt.Errorf("%s: %w", target, err))
-        if e, ok := err.(interface{ CanFallback() bool }); ok && e.CanFallback() {
-            continue  // Try next endpoint
-        }
-        break  // Non-recoverable error
-    }
-    return HubIndex{}, fmt.Errorf("fetch hub index: %w", errors.Join(errs...))
-}
+```yaml
+# docker-build.yml (Line 25-28)
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/charon
 ```
 
-**Issue**: When ALL endpoints fail (404 from primary, AND mirror fails), the function returns an error that propagates to the test.
+### 1.3 Supply Chain Security Features
 
-### File 2: Handler Implementation
+| Feature | Status | Implementation |
+|---------|--------|----------------|
+| **SBOM Generation** | ✅ Active | `anchore/sbom-action` → CycloneDX JSON |
+| **SBOM Attestation** | ✅ Active | `actions/attest-sbom` → Push to registry |
+| **Trivy Scanning** | ✅ Active | SARIF upload to GitHub Security |
+| **Cosign Signing** | 🔶 Partial | Verification exists, signing not in docker-build.yml |
+| **SLSA Provenance** | ⚠️ Not Implemented | `provenance: true` in Buildx but not verified |
 
-**File**: [backend/internal/api/handlers/crowdsec_handler.go](../../backend/internal/api/handlers/crowdsec_handler.go)
+### 1.4 Current Permissions
 
-| Line | Code | Purpose |
-|------|------|---------|
-| 169-180 | `hubEndpoints()` | Returns configured hub endpoints for error responses |
-| 624-627 | `if idx, err := h.Hub.FetchIndex(ctx); err == nil { ... }` | Gracefully handles hub unavailability for listing |
-| 717 | `c.JSON(status, gin.H{"error": err.Error(), "hub_endpoints": h.hubEndpoints()})` | Returns endpoints in error response |
-
-**Note**: The `ListPresets` handler (line 624) already has graceful degradation:
-```go
-if idx, err := h.Hub.FetchIndex(ctx); err == nil {
-    // merge hub items
-} else {
-    logger.Log().WithError(err).Warn("crowdsec hub index unavailable")
-    // continues without hub items - graceful degradation
-}
-```
-
-BUT the `PullPreset` handler (line 717) returns an error to the client, which fails the test.
-
-### File 3: Integration Test Script
-
-**File**: [scripts/crowdsec_integration.sh](../../scripts/crowdsec_integration.sh)
-
-| Line | Code | Issue |
-|------|------|-------|
-| 57-62 | Pull preset and check `.status` | Fails if hub unavailable |
-| 64-69 | Check for "pulled" status | Hard-coded expectation |
-
-**Current Test Logic** (Lines 57-69):
-```bash
-PULL_RESP=$(curl -s -X POST ... http://localhost:8080/api/v1/admin/crowdsec/presets/pull)
-if ! echo "$PULL_RESP" | jq -e .status >/dev/null 2>&1; then
-  echo "Pull failed: $PULL_RESP"
-  exit 1  # <-- THIS IS THE FAILURE
-fi
-if [ "$(echo "$PULL_RESP" | jq -r .status)" != "pulled" ]; then
-  echo "Unexpected pull status..."
-  exit 1
-fi
+```yaml
+# docker-build.yml (Lines 31-36)
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+  id-token: write      # OIDC for signing
+  attestations: write  # SBOM attestation
 ```
 
 ---
 
-## Solution Options
+## 2. Docker Hub Setup
 
-### Option 1: Graceful Test Skip When Hub Unavailable (RECOMMENDED)
+### 2.1 Required GitHub Secrets
 
-**Approach**: Modify the integration test to check if the hub is available before attempting preset operations. If unavailable, skip the hub-dependent tests but still pass the overall test.
+| Secret Name | Description | Where to Get |
+|-------------|-------------|--------------|
+| `DOCKERHUB_USERNAME` | Docker Hub username | hub.docker.com → Account Settings |
+| `DOCKERHUB_TOKEN` | Docker Hub Access Token | hub.docker.com → Account Settings → Security → New Access Token |
 
-**Implementation**:
+**Access Token Requirements:**
+- Scope: `Read, Write, Delete` for automated pushes
+- Name: e.g., `github-actions-charon`
 
-```bash
-# Add before preset pull in scripts/crowdsec_integration.sh
+### 2.2 Repository Naming
 
-echo "Checking hub availability..."
-LIST=$(curl -s -H "Content-Type: application/json" -b ${TMP_COOKIE} http://localhost:8080/api/v1/admin/crowdsec/presets)
+| Registry | Repository | Full Image Reference |
+|----------|------------|---------------------|
+| Docker Hub | `wikid82/charon` | `docker.io/wikid82/charon:latest` |
+| GHCR | `wikid82/charon` | `ghcr.io/wikid82/charon:latest` |
 
-# Check if we have any hub-sourced presets
-HUB_PRESETS=$(echo "$LIST" | jq -r '[.presets[] | select(.source == "hub")] | length')
-if [ "$HUB_PRESETS" = "0" ] || [ -z "$HUB_PRESETS" ]; then
-  echo "⚠️  Hub unavailable - skipping hub-dependent tests"
-  echo "    This is not a failure - the hub API may be temporarily down"
-  echo "    Curated presets are still available for local testing"
+**Note**: Docker Hub uses lowercase repository names. The GitHub repository owner is `Wikid82` (capital W), so we normalize to `wikid82`.
 
-  # Test curated preset instead (doesn't require hub)
-  SLUG="waf-basic"  # or another curated preset
-  PULL_RESP=$(curl -s -X POST -H "Content-Type: application/json" -d '{"slug":"'${SLUG}'"}' -b ${TMP_COOKIE} http://localhost:8080/api/v1/admin/crowdsec/presets/pull)
-  if echo "$PULL_RESP" | jq -e '.status == "pulled"' >/dev/null 2>&1; then
-    echo "✓ Curated preset pull works"
-  fi
+### 2.3 Docker Hub Repository Setup
 
-  # Cleanup and exit successfully
-  docker rm -f charon-debug >/dev/null 2>&1 || true
-  rm -f ${TMP_COOKIE}
-  echo "Done (hub tests skipped)"
-  exit 0
-fi
-
-# Continue with hub preset tests if hub is available...
-```
-
-**Pros**:
-- Non-breaking change
-- Tests still validate local functionality
-- External hub failures don't block CI
-
-**Cons**:
-- Reduced test coverage when hub is down
-
-### Option 2: Add Retry Logic with Exponential Backoff
-
-**Approach**: Enhance `hub_sync.go` to retry failed requests with exponential backoff.
-
-**Implementation** (in `fetchIndexHTTPFromURL`):
-```go
-func (s *HubService) fetchIndexHTTPWithRetry(ctx context.Context, target string, maxRetries int) (HubIndex, error) {
-    var lastErr error
-    for attempt := 0; attempt <= maxRetries; attempt++ {
-        if attempt > 0 {
-            backoff := time.Duration(1<<uint(attempt-1)) * time.Second
-            select {
-            case <-ctx.Done():
-                return HubIndex{}, ctx.Err()
-            case <-time.After(backoff):
-            }
-        }
-
-        idx, err := s.fetchIndexHTTPFromURL(ctx, target)
-        if err == nil {
-            return idx, nil
-        }
-        lastErr = err
-
-        // Don't retry on 404 - endpoint is definitely unavailable
-        if he, ok := err.(hubHTTPError); ok && he.statusCode == 404 {
-            break
-        }
-    }
-    return HubIndex{}, lastErr
-}
-```
-
-**Pros**:
-- Handles transient failures
-- More robust against brief outages
-
-**Cons**:
-- Doesn't help when endpoint is truly down (404)
-- Increases test duration
-
-### Option 3: Bundle Test Presets Locally
-
-**Approach**: Include a minimal test preset in the test environment that doesn't require hub access.
-
-**Implementation**:
-1. Create a curated preset in the backend that's always available
-2. Use this preset in integration tests
-
-**Current State**: The code already supports curated presets! See line 689-703 in `crowdsec_handler.go`:
-```go
-if preset, ok := crowdsec.FindPreset(slug); ok && !preset.RequiresHub {
-    c.JSON(http.StatusOK, gin.H{
-        "status": "pulled",
-        // ...curated preset response
-    })
-    return
-}
-```
+1. Go to [hub.docker.com](https://hub.docker.com)
+2. Click "Create Repository"
+3. Name: `charon`
+4. Visibility: Public
+5. Description: "Web UI for managing Caddy reverse proxy configurations"
 
 ---
 
-## Recommended Fix
+## 3. Workflow Modifications
 
-**Use Option 1** with the following changes:
+### 3.1 Files to Modify
 
-### Change 1: Update Integration Test Script
+| File | Changes |
+|------|---------|
+| `.github/workflows/docker-build.yml` | Add Docker Hub login, multi-registry push |
+| `.github/workflows/nightly-build.yml` | Add Docker Hub login, multi-registry push |
+| `.github/workflows/supply-chain-verify.yml` | Verify Docker Hub signatures |
 
-**File**: [scripts/crowdsec_integration.sh](../../scripts/crowdsec_integration.sh)
-**Lines**: 53-76
+### 3.2 docker-build.yml Changes
+
+#### 3.2.1 Update Environment Variables
+
+**Location**: Lines 25-28
 
 **Before**:
-```bash
-echo "Pulled presets list..."
-LIST=$(curl -s -H "Content-Type: application/json" -b ${TMP_COOKIE} http://localhost:8080/api/v1/admin/crowdsec/presets)
-echo "$LIST" | jq -r .presets | head -20
-
-SLUG="bot-mitigation-essentials"
-echo "Pulling preset $SLUG"
-PULL_RESP=$(curl -s -X POST -H "Content-Type: application/json" -d '{"slug":"'${SLUG}'"}' -b ${TMP_COOKIE} http://localhost:8080/api/v1/admin/crowdsec/presets/pull)
-echo "Pull response: $PULL_RESP"
-if ! echo "$PULL_RESP" | jq -e .status >/dev/null 2>&1; then
-  echo "Pull failed: $PULL_RESP"
-  exit 1
-fi
+```yaml
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/charon
+  SYFT_VERSION: v1.17.0
+  GRYPE_VERSION: v0.85.0
 ```
 
 **After**:
-```bash
-echo "Pulled presets list..."
-LIST=$(curl -s -H "Content-Type: application/json" -b ${TMP_COOKIE} http://localhost:8080/api/v1/admin/crowdsec/presets)
-echo "$LIST" | jq -r .presets | head -20
-
-# Check hub availability by looking for hub-sourced presets
-HUB_AVAILABLE=$(echo "$LIST" | jq -r '[.presets[] | select(.source == "hub" and .available == true)] | length')
-
-if [ "${HUB_AVAILABLE:-0}" -gt 0 ]; then
-  SLUG="bot-mitigation-essentials"
-  echo "Hub available - pulling preset $SLUG"
-else
-  echo "⚠️  Hub unavailable (hub-data.crowdsec.net returned 404 or is down)"
-  echo "    Falling back to curated preset test..."
-  # Use a curated preset that doesn't require hub
-  SLUG="waf-basic"
-fi
-
-echo "Pulling preset $SLUG"
-PULL_RESP=$(curl -s -X POST -H "Content-Type: application/json" -d '{"slug":"'${SLUG}'"}' -b ${TMP_COOKIE} http://localhost:8080/api/v1/admin/crowdsec/presets/pull)
-echo "Pull response: $PULL_RESP"
-
-# Check for hub unavailability error and handle gracefully
-if echo "$PULL_RESP" | jq -e '.error | contains("hub")' >/dev/null 2>&1; then
-  echo "⚠️  Hub-related error, skipping hub preset test"
-  echo "    Error: $(echo "$PULL_RESP" | jq -r .error)"
-  echo "    Hub endpoints tried: $(echo "$PULL_RESP" | jq -r '.hub_endpoints | join(", ")')"
-
-  # Cleanup and exit successfully - external hub unavailability is not a test failure
-  docker rm -f charon-debug >/dev/null 2>&1 || true
-  rm -f ${TMP_COOKIE}
-  echo "Done (hub tests skipped due to external API unavailability)"
-  exit 0
-fi
-
-if ! echo "$PULL_RESP" | jq -e .status >/dev/null 2>&1; then
-  echo "Pull failed: $PULL_RESP"
-  exit 1
-fi
-```
-
-### Change 2: Make 404 Trigger Fallback
-
-**File**: [backend/internal/crowdsec/hub_sync.go](../../backend/internal/crowdsec/hub_sync.go)
-**Line**: 392
-
-**Current** (line 392):
-```go
-return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, fallback: resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500}
-```
-
-**Fixed**:
-```go
-return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, fallback: resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500}
-```
-
-This ensures 404 errors trigger the fallback to mirror URLs.
-
----
-
-## Files to Modify
-
-| File | Lines | Change | Priority |
-|------|-------|--------|----------|
-| [scripts/crowdsec_integration.sh](../../scripts/crowdsec_integration.sh) | 53-76 | Add hub availability check and graceful skip | High |
-| [backend/internal/crowdsec/hub_sync.go](../../backend/internal/crowdsec/hub_sync.go) | 392 | Add 404 to CanFallback conditions | Medium |
-
----
-
-## Verification
-
-After implementing the fix:
-
-```bash
-# Test with hub unavailable (simulate by blocking DNS)
-# This should now pass with "hub tests skipped" message
-./scripts/crowdsec_integration.sh
-
-# Test with hub available (normal execution)
-# This should pass with full hub preset test
-./scripts/crowdsec_integration.sh
-```
-
----
-
-## Execution Checklist
-
-- [ ] **Fix 1**: Update `scripts/crowdsec_integration.sh` with hub availability check
-- [ ] **Fix 2**: Update `hub_sync.go` line 392 to include 404 in fallback conditions
-- [ ] **Verify**: Run integration test locally
-- [ ] **CI**: Confirm workflow passes even when hub is down
-
----
-
-## References
-
-- CrowdSec Hub API: https://hub-data.crowdsec.net/api/index.json
-- GitHub Mirror: https://raw.githubusercontent.com/crowdsecurity/hub/master
-- Backend Hub Service: [hub_sync.go](../../backend/internal/crowdsec/hub_sync.go)
-- Integration Test: [crowdsec_integration.sh](../../scripts/crowdsec_integration.sh)
-
----
-
-# WAF-2026-002: Docker Tag Sanitization for Branch Names (ARCHIVED)
-
-**Plan ID**: WAF-2026-002
-**Status**: ✅ COMPLETED
-**Priority**: High
-**Created**: 2026-01-25
-**Completed**: 2026-01-25
-**Scope**: Fix Docker image tag construction to handle branch names containing forward slashes
-
----
-
-## Problem Summary (Archived)
-
-GitHub Actions workflows are failing with "invalid reference format" errors when building/pulling Docker images for feature branches. The root cause is that branch names like `feature/beta-release` contain forward slashes (`/`), which are **invalid characters in Docker image tags**.
-
-### Docker Tag Naming Rules
-
-Docker image tags must match the regex: `[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}`
-
-Invalid characters include:
-- Forward slash (`/`) - **causes "invalid reference format" error**
-- Colon (`:`) - reserved for tag separator
-- Spaces and special characters
-
----
-
-## Files Affected
-
-### 1. `.github/workflows/playwright.yml` (Line 103)
-
-**Location**: [playwright.yml](.github/workflows/playwright.yml#L103)
-
-**Current (broken):**
 ```yaml
-- name: Start Charon container
-  run: |
-    ...
-    if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
-      IMAGE_REF="ghcr.io/${IMAGE_NAME}:${{ github.event.workflow_run.head_branch }}"
-    else
+env:
+  # Primary registry (GHCR)
+  GHCR_REGISTRY: ghcr.io
+  # Secondary registry (Docker Hub)
+  DOCKERHUB_REGISTRY: docker.io
+  # Image name (lowercase for Docker Hub compatibility)
+  IMAGE_NAME: wikid82/charon
+  SYFT_VERSION: v1.17.0
+  GRYPE_VERSION: v0.85.0
 ```
 
-**Issue**: `github.event.workflow_run.head_branch` can contain `/` (e.g., `feature/beta-release`)
+#### 3.2.2 Add Docker Hub Login Step
 
-**Fix:**
+**Location**: After "Log in to Container Registry" step (around line 70)
+
+**Add**:
 ```yaml
-- name: Start Charon container
-  run: |
-    ...
-    if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
-      # Sanitize branch name: replace / with -
-      SANITIZED_BRANCH=$(echo "${{ github.event.workflow_run.head_branch }}" | tr '/' '-')
-      IMAGE_REF="ghcr.io/${IMAGE_NAME}:${SANITIZED_BRANCH}"
-    else
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 ```
 
----
+#### 3.2.3 Update Metadata Action for Multi-Registry
 
-### 2. `.github/workflows/playwright.yml` (Line 161) - Artifact Naming
+**Location**: Extract metadata step (around line 78)
 
-**Location**: [playwright.yml](.github/workflows/playwright.yml#L161)
-
-**Current:**
+**Before**:
 ```yaml
-- name: Upload Playwright report
-  uses: actions/upload-artifact@...
-  with:
-    name: ${{ steps.pr-info.outputs.is_push == 'true' && format('playwright-report-{0}', github.event.workflow_run.head_branch) || format('playwright-report-pr-{0}', steps.pr-info.outputs.pr_number) }}
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            # ... rest of tags
 ```
 
-**Issue**: Artifact names also cannot contain `/`
-
-**Fix:**
-Add a step to sanitize the branch name first and use an environment variable:
+**After**:
 ```yaml
-- name: Sanitize branch name for artifact
-  id: sanitize
-  run: |
-    SANITIZED=$(echo "${{ github.event.workflow_run.head_branch }}" | tr '/' '-')
-    echo "branch=${SANITIZED}" >> $GITHUB_OUTPUT
-
-- name: Upload Playwright report
-  uses: actions/upload-artifact@...
-  with:
-    name: ${{ steps.pr-info.outputs.is_push == 'true' && format('playwright-report-{0}', steps.sanitize.outputs.branch) || format('playwright-report-pr-{0}', steps.pr-info.outputs.pr_number) }}
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: |
+            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
+            ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/development' }}
+            type=ref,event=branch,enable=${{ startsWith(github.ref, 'refs/heads/feature/') }}
+            type=raw,value=pr-${{ github.event.pull_request.number }},enable=${{ github.event_name == 'pull_request' }}
+            type=sha,format=short,enable=${{ github.event_name != 'pull_request' }}
+          flavor: |
+            latest=false
 ```
 
----
+#### 3.2.4 Add Cosign Signing for Docker Hub
 
-### 3. `.github/workflows/supply-chain-verify.yml` (Lines 64-90) - Tag Determination
+**Location**: After SBOM attestation step (around line 190)
 
-**Location**: [supply-chain-verify.yml](.github/workflows/supply-chain-verify.yml#L64-L90)
-
-**Current (partial):**
+**Add**:
 ```yaml
-- name: Determine Image Tag
-  id: tag
-  run: |
-    if [[ "${{ github.event_name }}" == "release" ]]; then
-      TAG="${{ github.event.release.tag_name }}"
-    elif [[ "${{ github.event_name }}" == "workflow_run" ]]; then
-      if [[ "${{ github.event.workflow_run.head_branch }}" == "main" ]]; then
-        TAG="latest"
-      elif [[ "${{ github.event.workflow_run.head_branch }}" == "development" ]]; then
-        TAG="dev"
-      elif [[ "${{ github.event.workflow_run.head_branch }}" == "nightly" ]]; then
-        TAG="nightly"
-      elif [[ "${{ github.event.workflow_run.head_branch }}" == "feature/beta-release" ]]; then
-        TAG="beta"
-      elif [[ "${{ github.event.workflow_run.event }}" == "pull_request" ]]; then
-        ...
-      else
-        TAG="sha-$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)"
-      fi
+      # Sign Docker Hub image with Cosign (keyless, OIDC-based)
+      - name: Install Cosign
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb # v3.8.2
+
+      - name: Sign GHCR Image with Cosign
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        env:
+          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          echo "Signing GHCR image with Cosign..."
+          cosign sign --yes ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}
+
+      - name: Sign Docker Hub Image with Cosign
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        env:
+          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          echo "Signing Docker Hub image with Cosign..."
+          cosign sign --yes ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}
 ```
 
-**Issue**: Only `feature/beta-release` is explicitly mapped. Other feature branches fall through to SHA-based tags which works, BUT there's an implicit assumption that docker-build.yml creates tags that match. The docker-build.yml uses `type=ref,event=branch` which DOES sanitize branch names.
+#### 3.2.5 Attach SBOM to Docker Hub
 
-**Analysis**: The logic here is complex. The `docker/metadata-action` in docker-build.yml uses:
+**Location**: After existing SBOM attestation (around line 200)
+
+**Add**:
 ```yaml
-type=ref,event=branch,enable=${{ startsWith(github.ref, 'refs/heads/feature/') }}
+      # Attach SBOM to Docker Hub image
+      - name: Attach SBOM to Docker Hub
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        run: |
+          echo "Attaching SBOM to Docker Hub image..."
+          cosign attach sbom --sbom sbom.cyclonedx.json \
+            ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
 ```
 
-According to [docker/metadata-action docs](https://github.com/docker/metadata-action#typeref), `type=ref,event=branch` produces a tag like `feature-beta-release` (slashes replaced with dashes).
+### 3.3 nightly-build.yml Changes
 
-**Fix**: Align supply-chain-verify.yml with docker-build.yml's tag sanitization:
+Apply similar changes:
+
+1. Add `DOCKERHUB_REGISTRY` environment variable
+2. Add Docker Hub login step
+3. Update metadata action with multiple images
+4. Add Cosign signing for both registries
+5. Attach SBOM to Docker Hub image
+
+### 3.4 Complete docker-build.yml Diff Summary
+
+```diff
+ env:
+-  REGISTRY: ghcr.io
+-  IMAGE_NAME: ${{ github.repository_owner }}/charon
++  GHCR_REGISTRY: ghcr.io
++  DOCKERHUB_REGISTRY: docker.io
++  IMAGE_NAME: wikid82/charon
+   SYFT_VERSION: v1.17.0
+   GRYPE_VERSION: v0.85.0
+
+ # ... in steps ...
+
+       - name: Log in to Container Registry
+         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+         with:
+-          registry: ${{ env.REGISTRY }}
++          registry: ${{ env.GHCR_REGISTRY }}
+           username: ${{ github.actor }}
+           password: ${{ secrets.GITHUB_TOKEN }}
+
++      - name: Log in to Docker Hub
++        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
++        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
++        with:
++          registry: docker.io
++          username: ${{ secrets.DOCKERHUB_USERNAME }}
++          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+       - name: Extract metadata (tags, labels)
+         id: meta
+         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+         with:
+-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
++          images: |
++            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
++            ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}
+           tags: |
+             # ... tags unchanged ...
+```
+
+---
+
+## 4. Supply Chain Security
+
+### 4.1 Parity Matrix
+
+| Feature | GHCR | Docker Hub |
+|---------|------|------------|
+| Multi-platform | ✅ `linux/amd64`, `linux/arm64` | ✅ Same |
+| SBOM | ✅ Attestation | ✅ Attached via Cosign |
+| Cosign Signature | ✅ Keyless OIDC | ✅ Keyless OIDC |
+| Trivy Scan | ✅ SARIF to GitHub | ✅ Same SARIF |
+| SLSA Provenance | 🔶 Buildx `provenance: true` | 🔶 Same |
+
+### 4.2 Cosign Signing Strategy
+
+Both registries will use **keyless signing** via OIDC (OpenID Connect):
+
+- No private keys to manage
+- Signatures tied to GitHub Actions identity
+- Transparent logging to Sigstore Rekor
+
+### 4.3 SBOM Attachment Strategy
+
+**GHCR**: Uses `actions/attest-sbom` which creates an attestation linked to the image manifest.
+
+**Docker Hub**: Uses `cosign attach sbom` to attach the SBOM as an OCI artifact.
+
+### 4.4 Verification Commands
+
+```bash
+# Verify GHCR signature
+cosign verify ghcr.io/wikid82/charon:latest \
+  --certificate-identity-regexp="https://github.com/Wikid82/Charon" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+
+# Verify Docker Hub signature
+cosign verify docker.io/wikid82/charon:latest \
+  --certificate-identity-regexp="https://github.com/Wikid82/Charon" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+
+# Download SBOM from Docker Hub
+cosign download sbom docker.io/wikid82/charon:latest > sbom.json
+```
+
+---
+
+## 5. Tag Strategy
+
+### 5.1 Tag Parity Matrix
+
+| Trigger | GHCR Tag | Docker Hub Tag |
+|---------|----------|----------------|
+| Push to `main` | `ghcr.io/wikid82/charon:latest` | `docker.io/wikid82/charon:latest` |
+| Push to `development` | `ghcr.io/wikid82/charon:dev` | `docker.io/wikid82/charon:dev` |
+| Push to `feature/*` | `ghcr.io/wikid82/charon:feature-*` | `docker.io/wikid82/charon:feature-*` |
+| PR | `ghcr.io/wikid82/charon:pr-N` | ❌ Not pushed to Docker Hub |
+| Release tag `vX.Y.Z` | `ghcr.io/wikid82/charon:X.Y.Z` | `docker.io/wikid82/charon:X.Y.Z` |
+| SHA | `ghcr.io/wikid82/charon:sha-abc1234` | `docker.io/wikid82/charon:sha-abc1234` |
+| Nightly | `ghcr.io/wikid82/charon:nightly` | `docker.io/wikid82/charon:nightly` |
+
+### 5.2 PR Images
+
+PR images (`pr-N`) are **not pushed to Docker Hub** to:
+- Reduce Docker Hub storage/bandwidth usage
+- Keep Docker Hub clean for production images
+- PRs are internal development artifacts
+
+---
+
+## 6. Documentation Updates
+
+### 6.1 README.md Changes
+
+**Location**: Badge section (around line 13-22)
+
+**Add Docker Hub badge**:
+```markdown
+<p align="center">
+  <!-- Existing badges -->
+  <a href="https://www.repostatus.org/#active"><img src="https://www.repostatus.org/badges/latest/active.svg" alt="Project Status: Active" /></a>
+  <a href="https://www.bestpractices.dev/projects/11648"><img src="https://www.bestpractices.dev/projects/11648/badge"></a>
+  <br>
+  <!-- Add Docker Hub badge -->
+  <a href="https://hub.docker.com/r/wikid82/charon"><img src="https://img.shields.io/docker/pulls/wikid82/charon.svg" alt="Docker Pulls"></a>
+  <a href="https://hub.docker.com/r/wikid82/charon"><img src="https://img.shields.io/docker/v/wikid82/charon?sort=semver" alt="Docker Version"></a>
+  <!-- Existing badges continue -->
+  <a href="https://codecov.io/gh/Wikid82/Charon" ><img src="https://codecov.io/gh/Wikid82/Charon/branch/main/graph/badge.svg?token=RXSINLQTGE" alt="Code Coverage"/></a>
+  <!-- ... -->
+</p>
+```
+
+**Add to Installation section**:
+```markdown
+## Quick Start
+
+### Docker Hub (Recommended)
+
+\`\`\`bash
+docker pull wikid82/charon:latest
+docker run -d -p 80:80 -p 443:443 -p 8080:8080 \
+  -v charon-data:/app/data \
+  wikid82/charon:latest
+\`\`\`
+
+### GitHub Container Registry
+
+\`\`\`bash
+docker pull ghcr.io/wikid82/charon:latest
+docker run -d -p 80:80 -p 443:443 -p 8080:8080 \
+  -v charon-data:/app/data \
+  ghcr.io/wikid82/charon:latest
+\`\`\`
+```
+
+### 6.2 getting-started.md Changes
+
+**Location**: Step 1 Install section
+
+**Update docker-compose.yml example**:
 ```yaml
-- name: Determine Image Tag
-  id: tag
-  run: |
-    if [[ "${{ github.event_name }}" == "release" ]]; then
-      TAG="${{ github.event.release.tag_name }}"
-    elif [[ "${{ github.event_name }}" == "workflow_run" ]]; then
-      BRANCH="${{ github.event.workflow_run.head_branch }}"
-      if [[ "${BRANCH}" == "main" ]]; then
-        TAG="latest"
-      elif [[ "${BRANCH}" == "development" ]]; then
-        TAG="dev"
-      elif [[ "${BRANCH}" == "nightly" ]]; then
-        TAG="nightly"
-      elif [[ "${BRANCH}" == feature/* ]]; then
-        # Match docker/metadata-action behavior: type=ref,event=branch replaces / with -
-        TAG=$(echo "${BRANCH}" | tr '/' '-')
-      elif [[ "${{ github.event.workflow_run.event }}" == "pull_request" ]]; then
-        ...
-      else
-        TAG="sha-$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)"
-      fi
+services:
+  charon:
+    # Docker Hub (recommended for most users)
+    image: wikid82/charon:latest
+    # Alternative: GitHub Container Registry
+    # image: ghcr.io/wikid82/charon:latest
+    container_name: charon
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - ./charon-data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - CHARON_ENV=production
 ```
 
----
+### 6.3 Docker Hub README Sync
 
-### 4. `.github/workflows/supply-chain-pr.yml` (Line 196) - Artifact Naming
+Create a workflow or use Docker Hub's "Build Settings" to sync the README:
 
-**Location**: [supply-chain-pr.yml](.github/workflows/supply-chain-pr.yml#L196)
-
-**Current:**
+**Option A**: Manual sync via Docker Hub API (in workflow)
 ```yaml
-- name: Upload supply chain artifacts
-  uses: actions/upload-artifact@...
-  with:
-    name: ${{ steps.pr-number.outputs.is_push == 'true' && format('supply-chain-{0}', github.event.workflow_run.head_branch) || format('supply-chain-pr-{0}', steps.pr-number.outputs.pr_number) }}
+      - name: Sync README to Docker Hub
+        if: github.ref == 'refs/heads/main'
+        uses: peter-evans/dockerhub-description@0e6a7b2f56b498411d884fc55f14e1e2caf38d24 # v4.0.2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: wikid82/charon
+          readme-filepath: ./README.md
+          short-description: "Web UI for managing Caddy reverse proxy configurations"
 ```
 
-**Issue**: Same artifact naming issue with unsanitized branch names
-
-**Fix:**
-```yaml
-- name: Sanitize branch name
-  id: sanitize
-  if: steps.pr-number.outputs.is_push == 'true'
-  run: |
-    SANITIZED=$(echo "${{ github.event.workflow_run.head_branch }}" | tr '/' '-')
-    echo "branch=${SANITIZED}" >> $GITHUB_OUTPUT
-
-- name: Upload supply chain artifacts
-  uses: actions/upload-artifact@...
-  with:
-    name: ${{ steps.pr-number.outputs.is_push == 'true' && format('supply-chain-{0}', steps.sanitize.outputs.branch) || format('supply-chain-pr-{0}', steps.pr-number.outputs.pr_number) }}
-```
+**Option B**: Create a dedicated Docker Hub README at `docs/docker-hub-readme.md`
 
 ---
 
-## How docker/metadata-action Handles This
+## 7. File Change Review
 
-The `docker/metadata-action` correctly handles this via `type=ref,event=branch`:
+### 7.1 .gitignore
 
-From [docker-build.yml](.github/workflows/docker-build.yml#L89-L95):
-```yaml
-- name: Extract metadata (tags, labels)
-  id: meta
-  uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
-  with:
-    images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-    tags: |
-      ...
-      type=ref,event=branch,enable=${{ startsWith(github.ref, 'refs/heads/feature/') }}
-```
+**No changes required.** Current `.gitignore` is comprehensive.
 
-The `type=ref,event=branch` option automatically sanitizes the branch name, replacing `/` with `-`.
+### 7.2 codecov.yml
 
-**Result**: Feature branch `feature/beta-release` produces tag `feature-beta-release`
+**No changes required.** Docker image publishing doesn't affect code coverage.
 
----
+### 7.3 .dockerignore
 
-## Summary Table
+**No changes required.** Current `.dockerignore` is comprehensive and well-organized.
 
-| Workflow | Line | Issue | Fix Strategy |
-|----------|------|-------|--------------|
-| [playwright.yml](.github/workflows/playwright.yml) | 103 | `head_branch` used directly as tag | `tr '/' '-'` sanitization |
-| [playwright.yml](.github/workflows/playwright.yml) | 161 | `head_branch` in artifact name | Add sanitize step |
-| [supply-chain-verify.yml](.github/workflows/supply-chain-verify.yml) | 74 | Only hardcodes `feature/beta-release` | Generic feature/* handling with `tr '/' '-'` |
-| [supply-chain-pr.yml](.github/workflows/supply-chain-pr.yml) | 196 | `head_branch` in artifact name | Add sanitize step |
+### 7.4 Dockerfile
 
----
+**No changes required.** The Dockerfile is registry-agnostic. Labels are already configured:
 
-## Execution Checklist
-
-- [ ] **Fix 1**: Update `playwright.yml` line 103 - sanitize branch name for Docker tag
-- [ ] **Fix 2**: Update `playwright.yml` line 161 - sanitize branch name for artifact
-- [ ] **Fix 3**: Update `supply-chain-verify.yml` lines 74-75 - generic feature branch handling
-- [ ] **Fix 4**: Update `supply-chain-pr.yml` line 196 - sanitize branch name for artifact
-- [ ] **Verify**: Push to `feature/beta-release` and confirm workflows pass
-- [ ] **CI**: All affected workflows should complete without "invalid reference format"
-
----
-
-## Verification
-
-After applying fixes:
-
-```bash
-# Test sanitization logic locally
-echo "feature/beta-release" | tr '/' '-'
-# Expected output: feature-beta-release
-
-# Verify Docker accepts the sanitized tag
-docker pull ghcr.io/owner/charon:feature-beta-release
-# Should work (or fail with 404 if not published yet, but NOT "invalid reference format")
+```dockerfile
+LABEL org.opencontainers.image.source="https://github.com/Wikid82/charon" \
+      org.opencontainers.image.url="https://github.com/Wikid82/charon" \
+      org.opencontainers.image.vendor="charon" \
 ```
 
 ---
 
-## References
+## 8. Implementation Checklist
 
-- [Docker tag naming rules](https://docs.docker.com/engine/reference/commandline/tag/)
-- [docker/metadata-action type=ref behavior](https://github.com/docker/metadata-action#typeref)
-- GitHub Issue: Workflow failures on `feature/beta-release` branch
+### Phase 1: Docker Hub Setup (Manual)
 
----
+- [ ] **1.1** Create Docker Hub account (if not exists)
+- [ ] **1.2** Create `wikid82/charon` repository on Docker Hub
+- [ ] **1.3** Generate Docker Hub Access Token
+- [ ] **1.4** Add `DOCKERHUB_USERNAME` secret to GitHub repository
+- [ ] **1.5** Add `DOCKERHUB_TOKEN` secret to GitHub repository
 
-# WAF-2026-001: wget-style curl Syntax Migration (Archived)
+### Phase 2: Workflow Updates
 
-**Plan ID**: WAF-2026-001
-**Status**: ✅ ARCHIVED (Superseded by WAF-2026-002 as current active plan)
-**Priority**: High
-**Created**: 2026-01-25
-**Scope**: Fix integration test scripts using incorrect wget-style curl syntax
+- [ ] **2.1** Update `docker-build.yml` environment variables
+- [ ] **2.2** Add Docker Hub login step to `docker-build.yml`
+- [ ] **2.3** Update metadata action for multi-registry in `docker-build.yml`
+- [ ] **2.4** Add Cosign signing steps to `docker-build.yml`
+- [ ] **2.5** Add SBOM attachment step to `docker-build.yml`
+- [ ] **2.6** Apply same changes to `nightly-build.yml`
+- [ ] **2.7** Add README sync step (optional)
 
----
+### Phase 3: Documentation
 
-## Problem Summary
+- [ ] **3.1** Add Docker Hub badge to `README.md`
+- [ ] **3.2** Update Quick Start section in `README.md`
+- [ ] **3.3** Update `docs/getting-started.md` with Docker Hub examples
+- [ ] **3.4** Create Docker Hub-specific README (optional)
 
-After migrating the Docker base image from Alpine to Debian Trixie (PR #550), the WAF integration workflow is failing. The root cause is **not** a missing `wget` command, but rather several integration test scripts using **wget-style options with curl** that don't work correctly.
+### Phase 4: Verification
 
-### Root Cause
+- [ ] **4.1** Push to `development` branch and verify both registries receive image
+- [ ] **4.2** Verify tags are identical on both registries
+- [ ] **4.3** Verify Cosign signatures on both registries
+- [ ] **4.4** Verify SBOM attachment on Docker Hub
+- [ ] **4.5** Pull image from Docker Hub and run basic smoke test
+- [ ] **4.6** Create test release tag and verify version tags
 
-Multiple scripts use `curl -q -O-` which is **wget syntax, not curl syntax**:
+### Phase 5: Monitoring
 
-| Syntax | Tool | Meaning |
-|--------|------|---------|
-| `-q` | **wget** | Quiet mode |
-| `-q` | **curl** | **Invalid** - does nothing useful |
-| `-O-` | **wget** | Output to stdout |
-| `-O-` | **curl** | **Wrong** - `-O` means "save with remote filename", `-` is treated as a separate URL |
-
-The correct curl equivalents are:
-| wget | curl | Notes |
-|------|------|-------|
-| `wget -q` | `curl -s` | Silent mode |
-| `wget -O-` | `curl -s` | stdout is curl's default output |
-| `wget -q -O- URL` | `curl -s URL` | Full equivalent |
-| `wget -O filename` | `curl -o filename` | Note: lowercase `-o` in curl |
-
----
-
-## Files Requiring Changes
-
-### Priority 1: Integration Test Scripts (Blocking WAF Workflow)
-
-| File | Line | Current Code | Issue |
-|------|------|--------------|-------|
-| [scripts/waf_integration.sh](../../scripts/waf_integration.sh#L205) | 205 | `curl -q -O- http://${BACKEND_CONTAINER}/get` | wget syntax |
-| [scripts/cerberus_integration.sh](../../scripts/cerberus_integration.sh#L214) | 214 | `curl -q -O- http://${BACKEND_CONTAINER}/get` | wget syntax |
-| [scripts/rate_limit_integration.sh](../../scripts/rate_limit_integration.sh#L190) | 190 | `curl -q -O- http://${BACKEND_CONTAINER}/get` | wget syntax |
-| [scripts/crowdsec_startup_test.sh](../../scripts/crowdsec_startup_test.sh#L178) | 178 | `curl -q -O- http://127.0.0.1:8085/health` | wget syntax |
-
-### Priority 2: Utility Scripts
-
-| File | Line | Current Code | Issue |
-|------|------|--------------|-------|
-| [scripts/install-go-1.25.5.sh](../../scripts/install-go-1.25.5.sh#L18) | 18 | `curl -q -O "$TMPFILE" "URL"` | Wrong syntax - `-O` doesn't take an argument in curl |
+- [ ] **5.1** Set up Docker Hub vulnerability scanning (Settings → Vulnerability Scanning)
+- [ ] **5.2** Monitor Docker Hub download metrics
 
 ---
 
-## Detailed Fixes
+## 9. Rollback Plan
 
-### Fix 1: scripts/waf_integration.sh (Line 205)
+If issues occur with Docker Hub publishing:
 
-**Current (broken):**
-```bash
-if docker exec ${CONTAINER_NAME} sh -c "curl -q -O- http://${BACKEND_CONTAINER}/get 2>/dev/null || curl -s http://${BACKEND_CONTAINER}/get" >/dev/null 2>&1; then
-```
-
-**Fixed:**
-```bash
-if docker exec ${CONTAINER_NAME} sh -c "curl -sf http://${BACKEND_CONTAINER}/get" >/dev/null 2>&1; then
-```
-
-**Notes:**
-- `-s` = silent (no progress meter)
-- `-f` = fail silently on HTTP errors (returns non-zero exit code)
-- Removed redundant fallback since the fix makes the command work correctly
+1. **Immediate**: Remove Docker Hub login step from workflow
+2. **Revert**: Use `git revert` on the workflow changes
+3. **Secrets**: Secrets can remain (they're not exposed)
+4. **Docker Hub Repo**: Can remain (no harm in empty repo)
 
 ---
 
-### Fix 2: scripts/cerberus_integration.sh (Line 214)
+## 10. Security Considerations
 
-**Current (broken):**
-```bash
-if docker exec ${CONTAINER_NAME} sh -c "curl -q -O- http://${BACKEND_CONTAINER}/get 2>/dev/null || curl -s http://${BACKEND_CONTAINER}/get" >/dev/null 2>&1; then
-```
+### 10.1 Secret Management
 
-**Fixed:**
-```bash
-if docker exec ${CONTAINER_NAME} sh -c "curl -sf http://${BACKEND_CONTAINER}/get" >/dev/null 2>&1; then
-```
+| Secret | Rotation Policy | Access Level |
+|--------|-----------------|--------------|
+| `DOCKERHUB_TOKEN` | Every 90 days | Read/Write/Delete |
+| `GITHUB_TOKEN` | Auto-rotated | Built-in |
 
----
-
-### Fix 3: scripts/rate_limit_integration.sh (Line 190)
-
-**Current (broken):**
-```bash
-if docker exec ${CONTAINER_NAME} sh -c "curl -q -O- http://${BACKEND_CONTAINER}/get 2>/dev/null || curl -s http://${BACKEND_CONTAINER}/get" >/dev/null 2>&1; then
-```
-
-**Fixed:**
-```bash
-if docker exec ${CONTAINER_NAME} sh -c "curl -sf http://${BACKEND_CONTAINER}/get" >/dev/null 2>&1; then
-```
-
----
-
-### Fix 4: scripts/crowdsec_startup_test.sh (Line 178)
-
-**Current (broken):**
-```bash
-LAPI_HEALTH=$(docker exec ${CONTAINER_NAME} curl -q -O- http://127.0.0.1:8085/health 2>/dev/null || echo "FAILED")
-```
-
-**Fixed:**
-```bash
-LAPI_HEALTH=$(docker exec ${CONTAINER_NAME} curl -sf http://127.0.0.1:8085/health 2>/dev/null || echo "FAILED")
-```
-
----
-
-### Fix 5: scripts/install-go-1.25.5.sh (Line 18)
-
-**Current (broken):**
-```bash
-curl -q -O "$TMPFILE" "https://go.dev/dl/${TARFILE}"
-```
-
-**Fixed:**
-```bash
-curl -sSfL -o "$TMPFILE" "https://go.dev/dl/${TARFILE}"
-```
-
-**Notes:**
-- `-s` = silent
-- `-S` = show errors even in silent mode
-- `-f` = fail on HTTP errors
-- `-L` = follow redirects (important for go.dev downloads)
-- `-o filename` = output to specified file (lowercase `-o`)
-
----
-
-## Verification Commands
-
-After applying fixes, verify each script works:
-
-```bash
-# Test WAF integration
-./scripts/waf_integration.sh
-
-# Test Cerberus integration
-./scripts/cerberus_integration.sh
-
-# Test Rate Limit integration
-./scripts/rate_limit_integration.sh
-
-# Test CrowdSec startup
-./scripts/crowdsec_startup_test.sh
-
-# Verify Go install script syntax
-bash -n ./scripts/install-go-1.25.5.sh
-```
-
----
-
-## Behavior Differences: wget vs curl
-
-When migrating from wget to curl, be aware of these differences:
-
-| Behavior | wget | curl |
-|----------|------|------|
-| Output destination | File by default | stdout by default |
-| Follow redirects | Yes by default | Requires `-L` flag |
-| Retry on failure | Built-in retry | Requires `--retry N` |
-| Progress display | Text progress bar | Progress meter (use `-s` to hide) |
-| HTTP error handling | Non-zero exit on 404 | Requires `-f` for non-zero exit on HTTP errors |
-| Quiet mode | `-q` | `-s` (silent) |
-| Output to file | `-O filename` (uppercase) | `-o filename` (lowercase) |
-| Save with remote name | `-O` (no arg) | `-O` (uppercase, no arg) |
-
----
-
-## Execution Checklist
-
-- [ ] **Fix 1**: Update `scripts/waf_integration.sh` line 205
-- [ ] **Fix 2**: Update `scripts/cerberus_integration.sh` line 214
-- [ ] **Fix 3**: Update `scripts/rate_limit_integration.sh` line 190
-- [ ] **Fix 4**: Update `scripts/crowdsec_startup_test.sh` line 178
-- [ ] **Fix 5**: Update `scripts/install-go-1.25.5.sh` line 18
-- [ ] **Verify**: Run each integration test locally
-- [ ] **CI**: Confirm WAF integration workflow passes
-
----
-
-## Notes
-
-1. **Deprecated Scripts**: Several affected scripts are marked deprecated (will be removed in v2.0.0). However, they are still used by CI workflows, so fixes are required.
-
-2. **Skill-Based Replacements**: The `.github/skills/scripts/` directory was checked and contains no wget usage - those scripts already use correct curl syntax.
-
-3. **Docker Compose Files**: All health checks in docker-compose files already use correct curl syntax (`curl -f`, `curl -fsS`).
-
-4. **Dockerfile**: The main Dockerfile correctly installs `curl` and uses correct curl syntax in the HEALTHCHECK instruction.
-
----
-
-# Previous Plan (Archived)
-
-The previous Git & Workflow Recovery Plan has been archived below.
-
----
-
-# Git & Workflow Recovery Plan (ARCHIVED)
-
-**Plan ID**: GIT-2026-001
-**Status**: ✅ ARCHIVED
-**Priority**: High
-**Created**: 2026-01-25
-**Scope**: Git recovery, Renovate fix, Workflow simplification
-
----
-
-## Problem Summary
-
-1. **Git State**: Feature branch `feature/beta-release` is in a broken rebase state
-2. **Renovate**: Targeting feature branches creates orphaned PRs and merge conflicts
-3. **Propagate Workflow**: Overly complex cascade (`main → development → nightly → feature/*`) causes confusion
-4. **Nightly Branch**: Unnecessary intermediate branch adding complexity
-
----
-
-## Phase 1: Git Recovery
-
-### Step 1.1 — Abort the Rebase
-
-```bash
-# Check current state
-git status
-
-# Abort the in-progress rebase
-git rebase --abort
-
-# Verify clean state
-git status
-```
-
-### Step 1.2 — Fetch Latest from Origin
-
-```bash
-# Fetch all branches
-git fetch origin --prune
-
-# Ensure we're on the feature branch
-git checkout feature/beta-release
-```
-
-### Step 1.3 — Merge Development into Feature Branch
-
-**Use merge, NOT rebase** to preserve commit history and avoid force-push issues.
-
-```bash
-# Merge development into feature/beta-release
-git merge origin/development --no-ff -m "Merge development into feature/beta-release"
-```
-
-### Step 1.4 — Resolve Conflicts (if any)
-
-Likely conflict files based on Renovate activity:
-- `package.json` / `package-lock.json` (version bumps)
-- `backend/go.mod` / `backend/go.sum` (Go dependency updates)
-- `.github/workflows/*.yml` (action digest pins)
-
-**Resolution strategy:**
-```bash
-# For package.json - accept development's versions, then run npm install
-git checkout --theirs package.json package-lock.json
-npm install
-git add package.json package-lock.json
-
-# For go.mod/go.sum - accept development's versions, then tidy
-git checkout --theirs backend/go.mod backend/go.sum
-cd backend && go mod tidy && cd ..
-git add backend/go.mod backend/go.sum
-
-# For workflow files - usually safe to accept development
-git checkout --theirs .github/workflows/
-
-# Complete the merge
-git commit
-```
-
-### Step 1.5 — Push the Merged Branch
-
-```bash
-git push origin feature/beta-release
-```
-
----
-
-## Phase 2: Renovate Fix
-
-### Problem
-
-Current config in `.github/renovate.json`:
-```json
-"baseBranches": [
-  "development",
-  "feature/beta-release"
-]
-```
-
-This causes:
-- Duplicate PRs for the same dependency (one per branch)
-- Orphaned branches like `renovate/feature/beta-release-*` when feature merges
-- Constant merge conflicts between branches
-
-### Solution
-
-Only target `development`. Changes flow naturally via propagate workflow.
-
-### Old Config (REMOVE)
-
-```json
-{
-  "baseBranches": [
-    "development",
-    "feature/beta-release"
-  ],
-  ...
-}
-```
-
-### New Config (REPLACE WITH)
-
-```json
-{
-  "baseBranches": [
-    "development"
-  ],
-  ...
-}
-```
-
-### File to Edit
-
-**File**: `.github/renovate.json`
-**Line**: ~12-15
-
----
-
-## Phase 3: Propagate Workflow Fix
-
-### Problem
-
-Current workflow in `.github/workflows/propagate-changes.yml`:
-
-```yaml
-on:
-  push:
-    branches:
-      - main
-      - development
-      - nightly  # <-- Unnecessary
-```
-
-Cascade logic:
-- `main` → `development` ✅ (Correct)
-- `development` → `nightly` ❌ (Unnecessary)
-- `nightly` → `feature/*` ❌ (Overly complex)
-
-### Solution
-
-Simplify to **only** `main → development` propagation.
-
-### Old Trigger (REMOVE)
-
-```yaml
-on:
-  push:
-    branches:
-      - main
-      - development
-      - nightly
-```
-
-### New Trigger (REPLACE WITH)
-
-```yaml
-on:
-  push:
-    branches:
-      - main
-```
-
-### Old Script Logic (REMOVE)
-
-```javascript
-if (currentBranch === 'main') {
-  // Main -> Development
-  await createPR('main', 'development');
-} else if (currentBranch === 'development') {
-  // Development -> Nightly
-  await createPR('development', 'nightly');
-} else if (currentBranch === 'nightly') {
-  // Nightly -> Feature branches
-  const branches = await github.paginate(github.rest.repos.listBranches, {
-    owner: context.repo.owner,
-    repo: context.repo.repo,
-  });
-
-  const featureBranches = branches
-    .map(b => b.name)
-    .filter(name => name.startsWith('feature/'));
-
-  core.info(`Found ${featureBranches.length} feature branches: ${featureBranches.join(', ')}`);
-
-  for (const featureBranch of featureBranches) {
-    await createPR('development', featureBranch);
-  }
-}
-```
-
-### New Script Logic (REPLACE WITH)
-
-```javascript
-if (currentBranch === 'main') {
-  // Main -> Development (only propagation needed)
-  await createPR('main', 'development');
-}
-```
-
-### File to Edit
-
-**File**: `.github/workflows/propagate-changes.yml`
-
----
-
-## Phase 4: Cleanup
-
-### Step 4.1 — Delete Nightly Branch
-
-```bash
-# Delete remote nightly branch (if exists)
-git push origin --delete nightly 2>/dev/null || echo "nightly branch does not exist"
-
-# Delete local tracking branch
-git branch -D nightly 2>/dev/null || true
-```
-
-### Step 4.2 — Delete Orphaned Renovate Branches
-
-```bash
-# List all renovate branches targeting feature/beta-release
-git fetch origin
-git branch -r | grep 'renovate/feature/beta-release' | while read branch; do
-  remote_branch="${branch#origin/}"
-  echo "Deleting: $remote_branch"
-  git push origin --delete "$remote_branch"
-done
-```
-
-### Step 4.3 — Close Orphaned Renovate PRs
-
-After branches are deleted, any associated PRs will be automatically closed by GitHub.
-
----
-
-## Execution Checklist
-
-- [ ] **Phase 1**: Git Recovery
-  - [ ] 1.1 Abort rebase
-  - [ ] 1.2 Fetch latest
-  - [ ] 1.3 Merge development
-  - [ ] 1.4 Resolve conflicts
-  - [ ] 1.5 Push merged branch
-
-- [ ] **Phase 2**: Renovate Fix
-  - [ ] Edit `.github/renovate.json` - remove `feature/beta-release` from baseBranches
-  - [ ] Commit and push
-
-- [ ] **Phase 3**: Propagate Workflow Fix
-  - [ ] Edit `.github/workflows/propagate-changes.yml` - simplify triggers and logic
-  - [ ] Commit and push
-
-- [ ] **Phase 4**: Cleanup
-  - [ ] 4.1 Delete nightly branch
-  - [ ] 4.2 Delete orphaned `renovate/feature/beta-release-*` branches
-  - [ ] 4.3 Verify orphaned PRs are closed
-
----
-
-## Verification
-
-After all phases complete:
-
-```bash
-# Confirm no rebase in progress
-git status
-# Expected: "On branch feature/beta-release" with clean state
-
-# Confirm nightly deleted
-git branch -r | grep nightly
-# Expected: no output
-
-# Confirm orphaned renovate branches deleted
-git branch -r | grep 'renovate/feature/beta-release'
-# Expected: no output
-
-# Confirm Renovate config only targets development
-cat .github/renovate.json | grep -A2 baseBranches
-# Expected: only "development"
-```
-
----
-
-## Rollback Plan
-
-If issues occur:
-
-1. **Git Recovery Failed**:
-   ```bash
-   git fetch origin
-   git checkout feature/beta-release
-   git reset --hard origin/feature/beta-release
-   ```
-
-2. **Renovate Changes Broke Something**: Revert the commit to `.github/renovate.json`
-
-3. **Propagate Workflow Issues**: Revert the commit to `.github/workflows/propagate-changes.yml`
-
----
-
-## Archived Spec (Prior Implementation)
-
-# Security Fix: Remove Hardcoded Encryption Keys from Docker Compose Files
-
-**Plan ID**: SEC-2026-001
-**Status**: ✅ IMPLEMENTED
-**Priority**: Critical (Security)
-**Created**: 2026-01-25
-**Implemented By**: Management Agent
-
----
-
-### Summary
-
-Removed hardcoded encryption keys from Docker Compose test files and implemented ephemeral key generation in CI workflows.
-
-### Changes Applied
-
-| File | Change |
-|------|--------|
-| `.docker/compose/docker-compose.playwright.yml` | Replaced hardcoded key with `${CHARON_ENCRYPTION_KEY:?...}` |
-| `.docker/compose/docker-compose.e2e.yml` | Replaced hardcoded key with `${CHARON_ENCRYPTION_KEY:?...}` |
-| `.github/workflows/e2e-tests.yml` | Added ephemeral key generation step |
-| `.env.test.example` | Added prominent documentation |
-
-### Security Notes
-
-- The old key `ucDWy5ScLubd3QwCHhQa2SY7wL2OF48p/c9nZhyW1mA=` exists in git history
-- This key should **NEVER** be used in any production environment
-- Each CI run now generates a unique ephemeral key
-
-### Testing
-
-```bash
-# Verify compose fails without key
-unset CHARON_ENCRYPTION_KEY
-docker compose -f .docker/compose/docker-compose.playwright.yml config 2>&1
-# Expected: "CHARON_ENCRYPTION_KEY is required"
-
-# Verify compose succeeds with key
-export CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)
-docker compose -f .docker/compose/docker-compose.playwright.yml config
-# Expected: Valid YAML output
-```
-
-### References
-
-- **OWASP**: [A02:2021 – Cryptographic Failures](https://owasp.org/Top10/A02_2021-Cryptographic_Failures/)
-
----
-
-# Playwright Security Test Helpers
-
-**Plan ID**: E2E-SEC-001
-**Status**: ✅ COMPLETED
-**Priority**: Critical (Blocking 230/707 E2E test failures)
-**Created**: 2026-01-25
-**Completed**: 2026-01-25
-**Scope**: Add security test helpers to prevent ACL deadlock in E2E tests
-
----
-
-## Completion Notes
-
-**Implementation Summary:**
-- Created `tests/utils/security-helpers.ts` with full security state management utilities
-- Functions implemented: `getSecurityStatus`, `setSecurityModuleEnabled`, `captureSecurityState`, `restoreSecurityState`, `withSecurityEnabled`, `disableAllSecurityModules`
-- Pattern enables guaranteed cleanup via Playwright's `test.afterAll()` fixture
-
-**Documentation:**
-- See [Security Test Helpers Guide](../testing/security-helpers.md) for usage examples
-
----
-
-## Problem Summary
-
-During E2E testing, if ACL is left enabled from a previous test run (e.g., due to test failure), it can create a **deadlock**:
-1. ACL blocks API requests → returns 403 Forbidden
-2. Global cleanup can't run → API blocked
-3. Auth setup fails → tests skip
-4. Manual intervention required to reset volumes
-
-**Root Cause Analysis:**
-- `security-dashboard.spec.ts` has tests that toggle ACL, WAF, and Rate Limiting
-- The tests attempt to "toggle back" but if a test fails mid-execution, cleanup doesn't run
-- Playwright's `test.afterAll` with fixtures guarantees cleanup even on failure
-- The current tests don't use fixtures for security state management
-
-## Solution Architecture
-
-### API Endpoints (Backend Already Supports)
-
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/v1/security/status` | GET | Returns current state of all security modules |
-| `/api/v1/settings` | POST | Toggle settings with `{ key: "security.acl.enabled", value: "true/false" }` |
-
-### Settings Keys
-
-| Key | Values | Description |
-|-----|--------|-------------|
-| `security.acl.enabled` | `"true"` / `"false"` | Toggle ACL enforcement |
-| `security.waf.enabled` | `"true"` / `"false"` | Toggle WAF enforcement |
-| `security.rate_limit.enabled` | `"true"` / `"false"` | Toggle Rate Limiting |
-| `security.crowdsec.enabled` | `"true"` / `"false"` | Toggle CrowdSec |
-| `feature.cerberus.enabled` | `"true"` / `"false"` | Master toggle for all security |
-
----
-
-## Implementation Plan
-
-### File 1: `tests/utils/security-helpers.ts` (CREATE)
-
-```typescript
-/**
- * Security Test Helpers - Safe ACL/WAF/Rate Limit toggle for E2E tests
- *
- * These helpers provide safe mechanisms to temporarily enable security features
- * during tests, with guaranteed cleanup even on test failure.
- *
- * Problem: If ACL is left enabled after a test failure, it blocks all API requests
- * causing subsequent tests to fail with 403 Forbidden (deadlock).
- *
- * Solution: Use Playwright's test.afterAll() with captured original state to
- * guarantee restoration regardless of test outcome.
- *
- * @example
- * ```typescript
- * import { withSecurityEnabled, getSecurityStatus } from './utils/security-helpers';
- *
- * test.describe('ACL Tests', () => {
- *   let cleanup: () => Promise<void>;
- *
- *   test.beforeAll(async ({ request }) => {
- *     cleanup = await withSecurityEnabled(request, { acl: true });
- *   });
- *
- *   test.afterAll(async () => {
- *     await cleanup();
- *   });
- *
- *   test('should enforce ACL', async ({ page }) => {
- *     // ACL is now enabled, test enforcement
- *   });
- * });
- * ```
- */
-
-import { APIRequestContext } from '@playwright/test';
-
-/**
- * Security module status from GET /api/v1/security/status
- */
-export interface SecurityStatus {
-  cerberus: { enabled: boolean };
-  crowdsec: { mode: string; api_url: string; enabled: boolean };
-  waf: { mode: string; enabled: boolean };
-  rate_limit: { mode: string; enabled: boolean };
-  acl: { mode: string; enabled: boolean };
-}
-
-/**
- * Options for enabling specific security modules
- */
-export interface SecurityModuleOptions {
-  /** Enable ACL enforcement */
-  acl?: boolean;
-  /** Enable WAF protection */
-  waf?: boolean;
-  /** Enable rate limiting */
-  rateLimit?: boolean;
-  /** Enable CrowdSec */
-  crowdsec?: boolean;
-  /** Enable master Cerberus toggle (required for other modules) */
-  cerberus?: boolean;
-}
-
-/**
- * Captured state for restoration
- */
-export interface CapturedSecurityState {
-  acl: boolean;
-  waf: boolean;
-  rateLimit: boolean;
-  crowdsec: boolean;
-  cerberus: boolean;
-}
-
-/**
- * Mapping of module names to their settings keys
- */
-const SECURITY_SETTINGS_KEYS: Record<keyof SecurityModuleOptions, string> = {
-  acl: 'security.acl.enabled',
-  waf: 'security.waf.enabled',
-  rateLimit: 'security.rate_limit.enabled',
-  crowdsec: 'security.crowdsec.enabled',
-  cerberus: 'feature.cerberus.enabled',
-};
-
-/**
- * Get current security status from the API
- * @param request - Playwright APIRequestContext (authenticated)
- * @returns Current security status
- */
-export async function getSecurityStatus(
-  request: APIRequestContext
-): Promise<SecurityStatus> {
-  const response = await request.get('/api/v1/security/status');
-
-  if (!response.ok()) {
-    throw new Error(
-      `Failed to get security status: ${response.status()} ${await response.text()}`
-    );
-  }
-
-  return response.json();
-}
-
-/**
- * Set a specific security module's enabled state
- * @param request - Playwright APIRequestContext (authenticated)
- * @param module - Which module to toggle
- * @param enabled - Whether to enable or disable
- */
-export async function setSecurityModuleEnabled(
-  request: APIRequestContext,
-  module: keyof SecurityModuleOptions,
-  enabled: boolean
-): Promise<void> {
-  const key = SECURITY_SETTINGS_KEYS[module];
-  const value = enabled ? 'true' : 'false';
-
-  const response = await request.post('/api/v1/settings', {
-    data: { key, value },
-  });
-
-  if (!response.ok()) {
-    throw new Error(
-      `Failed to set ${module} to ${enabled}: ${response.status()} ${await response.text()}`
-    );
-  }
-
-  // Wait a brief moment for Caddy config reload
-  await new Promise((resolve) => setTimeout(resolve, 500));
-}
-
-/**
- * Capture current security state for later restoration
- * @param request - Playwright APIRequestContext (authenticated)
- * @returns Captured state object
- */
-export async function captureSecurityState(
-  request: APIRequestContext
-): Promise<CapturedSecurityState> {
-  const status = await getSecurityStatus(request);
-
-  return {
-    acl: status.acl.enabled,
-    waf: status.waf.enabled,
-    rateLimit: status.rate_limit.enabled,
-    crowdsec: status.crowdsec.enabled,
-    cerberus: status.cerberus.enabled,
-  };
-}
-
-/**
- * Restore security state to previously captured values
- * @param request - Playwright APIRequestContext (authenticated)
- * @param state - Previously captured state
- */
-export async function restoreSecurityState(
-  request: APIRequestContext,
-  state: CapturedSecurityState
-): Promise<void> {
-  const currentStatus = await getSecurityStatus(request);
-
-  // Restore in reverse dependency order (features before master toggle)
-  const modules: (keyof SecurityModuleOptions)[] = ['acl', 'waf', 'rateLimit', 'crowdsec', 'cerberus'];
-
-  for (const module of modules) {
-    const currentValue = module === 'rateLimit'
-      ? currentStatus.rate_limit.enabled
-      : module === 'crowdsec'
-      ? currentStatus.crowdsec.enabled
-      : currentStatus[module].enabled;
-
-    if (currentValue !== state[module]) {
-      await setSecurityModuleEnabled(request, module, state[module]);
-    }
-  }
-}
-
-/**
- * Enable security modules temporarily with guaranteed cleanup.
- *
- * Returns a cleanup function that MUST be called in test.afterAll().
- * The cleanup function restores the original state even if tests fail.
- *
- * @param request - Playwright APIRequestContext (authenticated)
- * @param options - Which modules to enable
- * @returns Cleanup function to restore original state
- *
- * @example
- * ```typescript
- * test.describe('ACL Tests', () => {
- *   let cleanup: () => Promise<void>;
- *
- *   test.beforeAll(async ({ request }) => {
- *     cleanup = await withSecurityEnabled(request, { acl: true, cerberus: true });
- *   });
- *
- *   test.afterAll(async () => {
- *     await cleanup();
- *   });
- * });
- * ```
- */
-export async function withSecurityEnabled(
-  request: APIRequestContext,
-  options: SecurityModuleOptions
-): Promise<() => Promise<void>> {
-  // Capture original state BEFORE making any changes
-  const originalState = await captureSecurityState(request);
-
-  // Enable Cerberus first (master toggle) if any security module is requested
-  const needsCerberus = options.acl || options.waf || options.rateLimit || options.crowdsec;
-  if ((needsCerberus || options.cerberus) && !originalState.cerberus) {
-    await setSecurityModuleEnabled(request, 'cerberus', true);
-  }
-
-  // Enable requested modules
-  if (options.acl) {
-    await setSecurityModuleEnabled(request, 'acl', true);
-  }
-  if (options.waf) {
-    await setSecurityModuleEnabled(request, 'waf', true);
-  }
-  if (options.rateLimit) {
-    await setSecurityModuleEnabled(request, 'rateLimit', true);
-  }
-  if (options.crowdsec) {
-    await setSecurityModuleEnabled(request, 'crowdsec', true);
-  }
-
-  // Return cleanup function that restores original state
-  return async () => {
-    try {
-      await restoreSecurityState(request, originalState);
-    } catch (error) {
-      // Log error but don't throw - cleanup should not fail tests
-      console.error('Failed to restore security state:', error);
-      // Try emergency disable of ACL to prevent deadlock
-      try {
-        await setSecurityModuleEnabled(request, 'acl', false);
-      } catch {
-        console.error('Emergency ACL disable also failed - manual intervention may be required');
-      }
-    }
-  };
-}
-
-/**
- * Disable all security modules (emergency reset).
- * Use this in global-setup.ts or when tests need a clean slate.
- *
- * @param request - Playwright APIRequestContext (authenticated)
- */
-export async function disableAllSecurityModules(
-  request: APIRequestContext
-): Promise<void> {
-  const modules: (keyof SecurityModuleOptions)[] = ['acl', 'waf', 'rateLimit', 'crowdsec'];
-
-  for (const module of modules) {
-    try {
-      await setSecurityModuleEnabled(request, module, false);
-    } catch (error) {
-      console.warn(`Failed to disable ${module}:`, error);
-    }
-  }
-}
-
-/**
- * Check if ACL is currently blocking requests.
- * Useful for debugging test failures.
- *
- * @param request - Playwright APIRequestContext
- * @returns True if ACL is enabled and blocking
- */
-export async function isAclBlocking(request: APIRequestContext): Promise<boolean> {
-  try {
-    const status = await getSecurityStatus(request);
-    return status.acl.enabled && status.cerberus.enabled;
-  } catch {
-    // If we can't get status, ACL might be blocking
-    return true;
-  }
-}
-```
-
----
-
-### File 2: `tests/security/security-dashboard.spec.ts` (MODIFY)
-
-**Changes Required:**
-
-1. Import the new security helpers
-2. Add `test.beforeAll` to capture initial state
-3. Add `test.afterAll` to guarantee cleanup
-4. Remove redundant "toggle back" steps in individual tests
-5. Group toggle tests in a separate describe block with isolated cleanup
-
-**Exact Changes:**
-
-```typescript
-// ADD after existing imports (around line 12)
-import {
-  withSecurityEnabled,
-  captureSecurityState,
-  restoreSecurityState,
-  CapturedSecurityState,
-} from '../utils/security-helpers';
-```
-
-```typescript
-// REPLACE the entire 'Module Toggle Actions' describe block (lines ~80-180)
-// with this safer implementation:
-
-test.describe('Module Toggle Actions', () => {
-  // Capture state ONCE for this describe block
-  let originalState: CapturedSecurityState;
-  let request: APIRequestContext;
-
-  test.beforeAll(async ({ request: req }) => {
-    request = req;
-    originalState = await captureSecurityState(request);
-  });
-
-  test.afterAll(async () => {
-    // CRITICAL: Restore original state even if tests fail
-    if (originalState) {
-      await restoreSecurityState(request, originalState);
-    }
-  });
-
-  test('should toggle ACL enabled/disabled', async ({ page }) => {
-    const toggle = page.getByTestId('toggle-acl');
-
-    const isDisabled = await toggle.isDisabled();
-    if (isDisabled) {
-      test.info().annotations.push({
-        type: 'skip-reason',
-        description: 'Toggle is disabled because Cerberus security is not enabled',
-      });
-      test.skip();
-      return;
-    }
-
-    await test.step('Toggle ACL state', async () => {
-      await page.waitForLoadState('networkidle');
-      await toggle.scrollIntoViewIfNeeded();
-      await page.waitForTimeout(200);
-      await toggle.click({ force: true });
-      await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
-    });
-
-    // NOTE: Do NOT toggle back here - afterAll handles cleanup
-  });
-
-  test('should toggle WAF enabled/disabled', async ({ page }) => {
-    const toggle = page.getByTestId('toggle-waf');
-
-    const isDisabled = await toggle.isDisabled();
-    if (isDisabled) {
-      test.info().annotations.push({
-        type: 'skip-reason',
-        description: 'Toggle is disabled because Cerberus security is not enabled',
-      });
-      test.skip();
-      return;
-    }
-
-    await test.step('Toggle WAF state', async () => {
-      await page.waitForLoadState('networkidle');
-      await toggle.scrollIntoViewIfNeeded();
-      await page.waitForTimeout(200);
-      await toggle.click({ force: true });
-      await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
-    });
-
-    // NOTE: Do NOT toggle back here - afterAll handles cleanup
-  });
-
-  test('should toggle Rate Limiting enabled/disabled', async ({ page }) => {
-    const toggle = page.getByTestId('toggle-rate-limit');
-
-    const isDisabled = await toggle.isDisabled();
-    if (isDisabled) {
-      test.info().annotations.push({
-        type: 'skip-reason',
-        description: 'Toggle is disabled because Cerberus security is not enabled',
-      });
-      test.skip();
-      return;
-    }
-
-    await test.step('Toggle Rate Limit state', async () => {
-      await page.waitForLoadState('networkidle');
-      await toggle.scrollIntoViewIfNeeded();
-      await page.waitForTimeout(200);
-      await toggle.click({ force: true });
-      await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
-    });
-
-    // NOTE: Do NOT toggle back here - afterAll handles cleanup
-  });
-
-  test('should persist toggle state after page reload', async ({ page }) => {
-    const toggle = page.getByTestId('toggle-acl');
-
-    const isDisabled = await toggle.isDisabled();
-    if (isDisabled) {
-      test.info().annotations.push({
-        type: 'skip-reason',
-        description: 'Toggle is disabled because Cerberus security is not enabled',
-      });
-      test.skip();
-      return;
-    }
-
-    const initialChecked = await toggle.isChecked();
-
-    await test.step('Toggle ACL state', async () => {
-      await page.waitForLoadState('networkidle');
-      await toggle.scrollIntoViewIfNeeded();
-      await page.waitForTimeout(200);
-      await toggle.click({ force: true });
-      await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
-    });
-
-    await test.step('Reload page', async () => {
-      await page.reload();
-      await waitForLoadingComplete(page);
-    });
-
-    await test.step('Verify state persisted', async () => {
-      const newChecked = await page.getByTestId('toggle-acl').isChecked();
-      expect(newChecked).toBe(!initialChecked);
-    });
-
-    // NOTE: Do NOT restore here - afterAll handles cleanup
-  });
-});
-```
-
----
-
-### File 3: `tests/global-setup.ts` (MODIFY)
-
-**Add Emergency Security Reset:**
-
-```typescript
-// ADD to the end of the global setup function, before returning
-
-// Import at top of file
-import { request as playwrightRequest } from '@playwright/test';
-import { existsSync, readFileSync } from 'fs';
-import { STORAGE_STATE } from './constants';
-
-// ADD in globalSetup function, after auth state is created:
-
-async function emergencySecurityReset(baseURL: string) {
-  // Only run if auth state exists (meaning we can make authenticated requests)
-  if (!existsSync(STORAGE_STATE)) {
-    return;
-  }
-
-  try {
-    const authenticatedContext = await playwrightRequest.newContext({
-      baseURL,
-      storageState: STORAGE_STATE,
-    });
-
-    // Disable ACL to prevent deadlock from previous failed runs
-    await authenticatedContext.post('/api/v1/settings', {
-      data: { key: 'security.acl.enabled', value: 'false' },
-    });
-
-    await authenticatedContext.dispose();
-    console.log('✓ Security reset: ACL disabled');
-  } catch (error) {
-    console.warn('⚠️ Could not reset security state:', error);
-  }
-}
-
-// Call at end of globalSetup:
-await emergencySecurityReset(process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080');
-```
-
----
-
-### File 4: `tests/fixtures/auth-fixtures.ts` (OPTIONAL ENHANCEMENT)
-
-**Add security fixture for tests that need it:**
-
-```typescript
-// ADD after existing imports
-import {
-  withSecurityEnabled,
-  SecurityModuleOptions,
-  CapturedSecurityState,
-  captureSecurityState,
-  restoreSecurityState,
-} from '../utils/security-helpers';
-
-// ADD to AuthFixtures interface
-interface AuthFixtures {
-  // ... existing fixtures ...
-
-  /**
-   * Security state manager for tests that need to toggle security modules.
-   * Automatically captures and restores state.
-   */
-  securityState: {
-    enable: (options: SecurityModuleOptions) => Promise<void>;
-    captured: CapturedSecurityState | null;
-  };
-}
-
-// ADD fixture definition in test.extend
-securityState: async ({ request }, use) => {
-  let capturedState: CapturedSecurityState | null = null;
-
-  const manager = {
-    enable: async (options: SecurityModuleOptions) => {
-      capturedState = await captureSecurityState(request);
-      const cleanup = await withSecurityEnabled(request, options);
-      // Store cleanup for afterAll
-      manager._cleanup = cleanup;
-    },
-    captured: capturedState,
-    _cleanup: null as (() => Promise<void>) | null,
-  };
-
-  await use(manager);
-
-  // Cleanup after test
-  if (manager._cleanup) {
-    await manager._cleanup();
-  }
-},
-```
-
----
-
-## Execution Checklist
-
-### Phase 1: Create Helper Module
-
-- [ ] **1.1** Create `tests/utils/security-helpers.ts` with exact code from File 1 above
-- [ ] **1.2** Run TypeScript check: `npx tsc --noEmit`
-- [ ] **1.3** Verify helper imports correctly in a test file
-
-### Phase 2: Update Security Dashboard Tests
-
-- [ ] **2.1** Add imports to `tests/security/security-dashboard.spec.ts`
-- [ ] **2.2** Replace 'Module Toggle Actions' describe block with new implementation
-- [ ] **2.3** Run affected tests: `npx playwright test security-dashboard --project=chromium`
-- [ ] **2.4** Verify tests pass AND cleanup happens (check security status after)
-
-### Phase 3: Add Global Safety Net
-
-- [ ] **3.1** Update `tests/global-setup.ts` with emergency security reset
-- [ ] **3.2** Run full test suite: `npx playwright test --project=chromium`
-- [ ] **3.3** Verify no ACL deadlock occurs across multiple runs
-
-### Phase 4: Validation
-
-- [ ] **4.1** Force a test failure (e.g., add `throw new Error()`) and verify cleanup still runs
-- [ ] **4.2** Check security status after failed test: `curl localhost:8080/api/v1/security/status`
-- [ ] **4.3** Confirm ACL is disabled after cleanup
-- [ ] **4.4** Run full E2E suite 3 times consecutively to verify stability
-
----
-
-## Benefits
-
-1. **No deadlock**: Tests can safely enable/disable ACL with guaranteed cleanup
-2. **Cleanup guaranteed**: `test.afterAll` runs even on failure
-3. **Realistic testing**: ACL tests use the same toggle mechanism as users
-4. **Isolation**: Other tests unaffected by ACL state
-5. **Global safety net**: Even if individual cleanup fails, global setup resets state
-
-## Risk Mitigation
+### 10.2 Supply Chain Risks
 
 | Risk | Mitigation |
 |------|------------|
-| Cleanup fails due to API error | Emergency fallback disables ACL specifically |
-| Global setup can't reset state | Auth state file check prevents errors |
-| Tests run in parallel | Each describe block has its own captured state |
-| API changes break helpers | Settings keys are centralized in one const |
+| Compromised Docker Hub credentials | Use access tokens (not password), enable 2FA |
+| Image tampering | Cosign signatures verify integrity |
+| Dependency confusion | SBOM provides transparency |
+| Malicious base image | Pin base images by digest in Dockerfile |
 
-## Files Summary
+---
 
-| File | Action | Priority |
-|------|--------|----------|
-| `tests/utils/security-helpers.ts` | **CREATE** | Critical |
-| `tests/security/security-dashboard.spec.ts` | **MODIFY** | Critical |
-| `tests/global-setup.ts` | **MODIFY** | High |
-| `tests/fixtures/auth-fixtures.ts` | **MODIFY** (Optional) | Low |
+## 11. Cost Analysis
+
+### Docker Hub Free Tier Limits
+
+| Resource | Limit | Expected Usage |
+|----------|-------|----------------|
+| Private repos | 1 | 0 (public repo) |
+| Pulls | Unlimited for public | N/A |
+| Builds | Disabled (we use GitHub Actions) | 0 |
+| Teams | 1 | 1 |
+
+**Conclusion**: No cost impact expected for public repository.
+
+---
+
+## 12. References
+
+- [docker/login-action](https://github.com/docker/login-action)
+- [docker/metadata-action - Multiple registries](https://github.com/docker/metadata-action#extracting-to-multiple-registries)
+- [Cosign keyless signing](https://docs.sigstore.dev/cosign/keyless/)
+- [Cosign attach sbom](https://docs.sigstore.dev/cosign/signing/other_types/#sbom)
+- [peter-evans/dockerhub-description](https://github.com/peter-evans/dockerhub-description)
+- [Docker Hub Access Tokens](https://docs.docker.com/docker-hub/access-tokens/)
+
+---
+
+## 13. Appendix: Full Workflow YAML
+
+### 13.1 Updated docker-build.yml (Complete)
+
+See the detailed diff in Section 3.4. The full updated workflow should be generated during implementation.
+
+### 13.2 Example Multi-Registry Push Output
+
+```
+#12 pushing ghcr.io/wikid82/charon:latest with docker
+#12 pushing layer sha256:abc123... 0.2s
+#12 pushing manifest sha256:xyz789... done
+#12 pushing ghcr.io/wikid82/charon:sha-abc1234 with docker
+#12 done
+
+#13 pushing docker.io/wikid82/charon:latest with docker
+#13 pushing layer sha256:abc123... 0.2s
+#13 pushing manifest sha256:xyz789... done
+#13 pushing docker.io/wikid82/charon:sha-abc1234 with docker
+#13 done
+```
+
+---
+
+**End of Plan**
