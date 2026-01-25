@@ -124,7 +124,7 @@ jobs:
         run: docker save charon:e2e-test -o charon-e2e-image.tar
 
       - name: Upload Docker image artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: docker-image
           path: charon-e2e-image.tar
@@ -154,7 +154,7 @@ jobs:
           cache: 'npm'
 
       - name: Download Docker image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: docker-image
 
@@ -262,7 +262,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: test-results-${{ matrix.browser }}-shard-${{ matrix.shard }}
           path: |
@@ -272,7 +272,7 @@ jobs:
 
       - name: Upload E2E coverage artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: e2e-coverage-shard-${{ matrix.shard }}
           path: coverage/e2e/
@@ -280,7 +280,7 @@ jobs:
 
       - name: Upload test traces on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: traces-${{ matrix.browser }}-shard-${{ matrix.shard }}
           path: test-results/**/*.zip
@@ -294,7 +294,7 @@ jobs:
 
       - name: Upload Docker logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: docker-logs-shard-${{ matrix.shard }}
           path: docker-logs-shard-${{ matrix.shard }}.txt
@@ -326,7 +326,7 @@ jobs:
         run: npm ci
 
       - name: Download all test results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           pattern: test-results-*
           path: all-results
@@ -349,7 +349,7 @@ jobs:
           fi
 
       - name: Upload merged report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: merged-playwright-report
           path: playwright-report/
@@ -397,7 +397,7 @@ jobs:
 
     steps:
       - name: Download merged report
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: merged-playwright-report
           path: playwright-report
@@ -490,7 +490,7 @@ jobs:
           cache: 'npm'
 
       - name: Download all coverage artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           pattern: e2e-coverage-*
           path: all-coverage
@@ -531,7 +531,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload merged coverage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: e2e-coverage-merged
           path: coverage/e2e-merged/
