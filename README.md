@@ -16,6 +16,8 @@ Simply manage multiple websites and self-hosted applications. Click, save, done.
   <a href="https://www.repostatus.org/#active"><img src="https://www.repostatus.org/badges/latest/active.svg" alt="Project Status: Active – The project is being actively developed." /></a>
   <a href="https://www.bestpractices.dev/projects/11648"><img src="https://www.bestpractices.dev/projects/11648/badge"></a>
  <br>
+ <a href="https://hub.docker.com/r/wikid82/charon"><img src="https://img.shields.io/docker/pulls/wikid82/charon.svg" alt="Docker Pulls"></a>
+ <a href="https://hub.docker.com/r/wikid82/charon"><img src="https://img.shields.io/docker/v/wikid82/charon?sort=semver" alt="Docker Version"></a>
  <a href="https://codecov.io/gh/Wikid82/Charon" ><img src="https://codecov.io/gh/Wikid82/Charon/branch/main/graph/badge.svg?token=RXSINLQTGE" alt="Code Coverage"/></a>
   <a href="https://github.com/Wikid82/charon/releases"><img src="https://img.shields.io/github/v/release/Wikid82/charon?include_prereleases" alt="Release"></a>
  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
@@ -126,6 +128,22 @@ No premium tiers. No feature paywalls. No usage limits. Everything you see is yo
 
 ## Quick Start
 
+### Container Registries
+
+Charon is available from two container registries:
+
+**Docker Hub (Recommended):**
+
+```bash
+docker pull wikid82/charon:latest
+```
+
+**GitHub Container Registry:**
+
+```bash
+docker pull ghcr.io/wikid82/charon:latest
+```
+
 ### Docker Compose (Recommended)
 
 Save this as `docker-compose.yml`:
@@ -133,7 +151,10 @@ Save this as `docker-compose.yml`:
 ```yaml
 services:
   charon:
-    image: ghcr.io/wikid82/charon:latest
+    # Docker Hub (recommended)
+    image: wikid82/charon:latest
+    # Alternative: GitHub Container Registry
+    # image: ghcr.io/wikid82/charon:latest
     container_name: charon
     restart: unless-stopped
     ports:
@@ -158,7 +179,10 @@ To test the latest nightly build (automated daily at 02:00 UTC):
 ```yaml
 services:
   charon:
-    image: ghcr.io/wikid82/charon:nightly
+    # Docker Hub
+    image: wikid82/charon:nightly
+    # Alternative: GitHub Container Registry
+    # image: ghcr.io/wikid82/charon:nightly
     # ... rest of configuration
 ```
 
@@ -172,7 +196,23 @@ docker-compose up -d
 
 ### Docker Run (One-Liner)
 
-**Stable Release:**
+**Stable Release (Docker Hub):**
+
+```bash
+docker run -d \
+  --name charon \
+  -p 80:80 \
+  -p 443:443 \
+  -p 443:443/udp \
+  -p 8080:8080 \
+  -v ./charon-data:/app/data \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -e CHARON_ENV=production \
+  -e CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here \
+  wikid82/charon:latest
+```
+
+**Stable Release (GitHub Container Registry):**
 
 ```bash
 docker run -d \
@@ -188,7 +228,7 @@ docker run -d \
   ghcr.io/wikid82/charon:latest
 ```
 
-**Nightly Build (Testing):**
+**Nightly Build (Testing - Docker Hub):**
 
 ```bash
 docker run -d \
@@ -201,10 +241,10 @@ docker run -d \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -e CHARON_ENV=production \
   -e CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here \
-  ghcr.io/wikid82/charon:nightly
+  wikid82/charon:nightly
 ```
 
-> **Note:** Nightly builds include the latest development features and are rebuilt daily at 02:00 UTC. Use for testing only.
+> **Note:** Nightly builds include the latest development features and are rebuilt daily at 02:00 UTC. Use for testing only. Also available via GHCR: `ghcr.io/wikid82/charon:nightly`
 
 ### What Just Happened?
 

@@ -681,6 +681,17 @@ jobs:
             fi
           fi
 
+      - name: Verify Docker Hub Image Signature
+        if: steps.image-check.outputs.exists == 'true'
+        continue-on-error: true
+        run: |
+          echo "Verifying Docker Hub image signature..."
+          cosign verify docker.io/wikid82/charon:${{ steps.tag.outputs.tag }} \
+            --certificate-identity-regexp="https://github.com/Wikid82/Charon" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" && \
+          echo "✅ Docker Hub signature verified" || \
+          echo "⚠️ Docker Hub signature verification failed (image may not exist or not signed)"
+
       - name: Verify SLSA Provenance
         env:
           IMAGE: ghcr.io/${{ github.repository_owner }}/charon:${{ steps.tag.outputs.tag }}

@@ -27,8 +27,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/charon
+  GHCR_REGISTRY: ghcr.io
+  DOCKERHUB_REGISTRY: docker.io
+  IMAGE_NAME: wikid82/charon
   SYFT_VERSION: v1.17.0
   GRYPE_VERSION: v0.85.0
 
@@ -104,20 +105,30 @@ jobs:
           DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' debian:trixie-slim)
           echo "image=$DIGEST" >> $GITHUB_OUTPUT
 
-      - name: Log in to Container Registry
+      - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && secrets.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Extract metadata (tags, labels)
         if: steps.skip.outputs.skip_build != 'true'
         id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: |
+            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
+            ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -215,10 +226,10 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}"
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}"
             echo "Using PR image: $IMAGE_REF"
           else
-            IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
             echo "Using digest: $IMAGE_REF"
           fi
 
@@ -284,10 +295,10 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}"
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}"
             echo "Using PR image: $IMAGE_REF"
           else
-            IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
             echo "Using digest: $IMAGE_REF"
           fi
 
@@ -353,7 +364,7 @@ jobs:
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
@@ -364,7 +375,7 @@ jobs:
         id: trivy
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
@@ -393,7 +404,7 @@ jobs:
         uses: anchore/sbom-action@62ad5284b8ced813296287a0b63906cb364b73ee # v0.22.0
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom.cyclonedx.json
 
@@ -402,10 +413,39 @@ jobs:
         uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3.0.0
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-name: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.build-and-push.outputs.digest }}
           sbom-path: sbom.cyclonedx.json
           push-to-registry: true
+
+      # Install Cosign for keyless signing
+      - name: Install Cosign
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        uses: sigstore/cosign-installer@d7d6bc7722e3daa8354c50bcb52f4837da5e9b6a # v3.8.1
+
+      # Sign GHCR image with keyless signing (Sigstore/Fulcio)
+      - name: Sign GHCR Image
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        run: |
+          echo "Signing GHCR image with keyless signing..."
+          cosign sign --yes ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          echo "✅ GHCR image signed successfully"
+
+      # Sign Docker Hub image with keyless signing (Sigstore/Fulcio)
+      - name: Sign Docker Hub Image
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && secrets.DOCKERHUB_TOKEN != ''
+        run: |
+          echo "Signing Docker Hub image with keyless signing..."
+          cosign sign --yes ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          echo "✅ Docker Hub image signed successfully"
+
+      # Attach SBOM to Docker Hub image
+      - name: Attach SBOM to Docker Hub
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && secrets.DOCKERHUB_TOKEN != ''
+        run: |
+          echo "Attaching SBOM to Docker Hub image..."
+          cosign attach sbom --sbom sbom.cyclonedx.json ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          echo "✅ SBOM attached to Docker Hub image"
 
       - name: Create summary
         if: steps.skip.outputs.skip_build != 'true'
@@ -413,8 +453,8 @@ jobs:
           echo "## 🎉 Docker Image Built Successfully!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📦 Image Details" >> $GITHUB_STEP_SUMMARY
-          echo "- **Registry**: GitHub Container Registry (ghcr.io)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Repository**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **GHCR**: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Hub**: ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Tags**: " >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
@@ -455,7 +495,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull Docker image
-        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+        run: docker pull ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
       - name: Create Docker Network
         run: docker network create charon-test-net
 
@@ -474,7 +514,7 @@ jobs:
             --network charon-test-net \
             -p 8080:8080 \
             -p 80:80 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
 
           # Wait for container to be healthy (max 3 minutes - Debian needs more startup time)
           echo "Waiting for container to start..."
@@ -504,5 +544,5 @@ jobs:
         run: |
           echo "## 🧪 Docker Image Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Integration Test**: ${{ job.status == 'success' && '✅ Passed' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
