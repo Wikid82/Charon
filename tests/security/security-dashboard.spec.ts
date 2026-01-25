@@ -11,7 +11,14 @@
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import { request } from '@playwright/test';
+import type { APIRequestContext } from '@playwright/test';
 import { waitForLoadingComplete, waitForToast } from '../utils/wait-helpers';
+import {
+  captureSecurityState,
+  restoreSecurityState,
+  CapturedSecurityState,
+} from '../utils/security-helpers';
 
 test.describe('Security Dashboard', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -105,15 +112,46 @@ test.describe('Security Dashboard', () => {
   });
 
   test.describe('Module Toggle Actions', () => {
+    // Capture state ONCE for this describe block
+    let originalState: CapturedSecurityState;
+
+    test.beforeAll(async ({ request: reqFixture }) => {
+      try {
+        originalState = await captureSecurityState(reqFixture);
+      } catch (error) {
+        console.warn('Could not capture initial security state:', error);
+      }
+    });
+
+    test.afterAll(async () => {
+      // CRITICAL: Restore original state even if tests fail
+      if (!originalState) {
+        return;
+      }
+
+      // Create fresh request context for cleanup (cannot reuse fixture from beforeAll)
+      const cleanupRequest = await request.newContext({
+        baseURL: 'http://localhost:8080',
+      });
+
+      try {
+        await restoreSecurityState(cleanupRequest, originalState);
+        console.log('✓ Security state restored after toggle tests');
+      } catch (error) {
+        console.error('Failed to restore security state:', error);
+      } finally {
+        await cleanupRequest.dispose();
+      }
+    });
+
     test('should toggle ACL enabled/disabled', async ({ page }) => {
       const toggle = page.getByTestId('toggle-acl');
 
-      // Check if toggle is disabled (Cerberus must be enabled for toggles to work)
       const isDisabled = await toggle.isDisabled();
       if (isDisabled) {
         test.info().annotations.push({
           type: 'skip-reason',
-          description: 'Toggle is disabled because Cerberus security is not enabled'
+          description: 'Toggle is disabled because Cerberus security is not enabled',
         });
         test.skip();
         return;
@@ -124,27 +162,20 @@ test.describe('Security Dashboard', () => {
         await toggle.scrollIntoViewIfNeeded();
         await page.waitForTimeout(200);
         await toggle.click({ force: true });
-        // Wait for success toast to confirm action completed
         await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
 
-      await test.step('Toggle back to original state', async () => {
-        await page.waitForTimeout(200);
-        await toggle.scrollIntoViewIfNeeded();
-        await toggle.click({ force: true });
-        await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
-      });
+      // NOTE: Do NOT toggle back here - afterAll handles cleanup
     });
 
     test('should toggle WAF enabled/disabled', async ({ page }) => {
       const toggle = page.getByTestId('toggle-waf');
 
-      // Check if toggle is disabled (Cerberus must be enabled for toggles to work)
       const isDisabled = await toggle.isDisabled();
       if (isDisabled) {
         test.info().annotations.push({
           type: 'skip-reason',
-          description: 'Toggle is disabled because Cerberus security is not enabled'
+          description: 'Toggle is disabled because Cerberus security is not enabled',
         });
         test.skip();
         return;
@@ -158,23 +189,17 @@ test.describe('Security Dashboard', () => {
         await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
 
-      await test.step('Toggle back', async () => {
-        await page.waitForTimeout(200);
-        await toggle.scrollIntoViewIfNeeded();
-        await toggle.click({ force: true });
-        await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
-      });
+      // NOTE: Do NOT toggle back here - afterAll handles cleanup
     });
 
     test('should toggle Rate Limiting enabled/disabled', async ({ page }) => {
       const toggle = page.getByTestId('toggle-rate-limit');
 
-      // Check if toggle is disabled (Cerberus must be enabled for toggles to work)
       const isDisabled = await toggle.isDisabled();
       if (isDisabled) {
         test.info().annotations.push({
           type: 'skip-reason',
-          description: 'Toggle is disabled because Cerberus security is not enabled'
+          description: 'Toggle is disabled because Cerberus security is not enabled',
         });
         test.skip();
         return;
@@ -188,23 +213,17 @@ test.describe('Security Dashboard', () => {
         await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
 
-      await test.step('Toggle back', async () => {
-        await page.waitForTimeout(200);
-        await toggle.scrollIntoViewIfNeeded();
-        await toggle.click({ force: true });
-        await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
-      });
+      // NOTE: Do NOT toggle back here - afterAll handles cleanup
     });
 
     test('should persist toggle state after page reload', async ({ page }) => {
       const toggle = page.getByTestId('toggle-acl');
 
-      // Check if toggle is disabled (Cerberus must be enabled for toggles to work)
       const isDisabled = await toggle.isDisabled();
       if (isDisabled) {
         test.info().annotations.push({
           type: 'skip-reason',
-          description: 'Toggle is disabled because Cerberus security is not enabled'
+          description: 'Toggle is disabled because Cerberus security is not enabled',
         });
         test.skip();
         return;
@@ -230,14 +249,7 @@ test.describe('Security Dashboard', () => {
         expect(newChecked).toBe(!initialChecked);
       });
 
-      await test.step('Restore original state', async () => {
-        await page.waitForLoadState('networkidle');
-        const restoreToggle = page.getByTestId('toggle-acl');
-        await restoreToggle.scrollIntoViewIfNeeded();
-        await page.waitForTimeout(200);
-        await restoreToggle.click({ force: true });
-        await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
-      });
+      // NOTE: Do NOT restore here - afterAll handles cleanup
     });
   });
 

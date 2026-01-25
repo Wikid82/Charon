@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Security test helpers for Playwright E2E tests to prevent ACL deadlock** (PR #XXX)
+  - New `tests/utils/security-helpers.ts` module with utilities for capturing/restoring security state
+  - Functions: `getSecurityStatus`, `setSecurityModuleEnabled`, `captureSecurityState`, `restoreSecurityState`, `withSecurityEnabled`, `disableAllSecurityModules`
+  - Enables guaranteed cleanup via Playwright's `test.afterAll()` fixture, preventing test suite deadlock when ACL is left enabled
+  - See [Security Test Helpers Guide](docs/testing/security-helpers.md) for usage examples
+
 - **Phase 6: User Management UI Enhancements** (PR #XXX)
   - **Resend Invite**: Administrators can resend invitation emails to pending users via new `POST /api/v1/users/{id}/resend-invite` endpoint
   - **Email Validation**: Client-side email format validation in the invite modal with visible error messages
