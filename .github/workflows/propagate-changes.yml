@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-      - development
-      - nightly
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -145,27 +143,8 @@ jobs:
             }
 
             if (currentBranch === 'main') {
-              // Main -> Development
+              // Main -> Development (simplified - no more cascade)
               await createPR('main', 'development');
-            } else if (currentBranch === 'development') {
-              // Development -> Nightly
-              await createPR('development', 'nightly');
-            } else if (currentBranch === 'nightly') {
-              // Nightly -> Feature branches
-              const branches = await github.paginate(github.rest.repos.listBranches, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-              });
-
-              const featureBranches = branches
-                .map(b => b.name)
-                .filter(name => name.startsWith('feature/'));
-
-              core.info(`Found ${featureBranches.length} feature branches: ${featureBranches.join(', ')}`);
-
-              for (const featureBranch of featureBranches) {
-                await createPR('development', featureBranch);
-              }
             }
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
