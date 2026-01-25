@@ -20,9 +20,9 @@ services:
       - CHARON_ENV=development
       - CHARON_DEBUG=0
       - TZ=UTC
-      # E2E testing encryption key - 32 bytes base64 encoded (not for production!)
-      # Generated with: openssl rand -base64 32
-      - CHARON_ENCRYPTION_KEY=ucDWy5ScLubd3QwCHhQa2SY7wL2OF48p/c9nZhyW1mA=
+      # Encryption key - MUST be provided via environment variable
+      # Generate with: export CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)
+      - CHARON_ENCRYPTION_KEY=${CHARON_ENCRYPTION_KEY:?CHARON_ENCRYPTION_KEY is required}
       - CHARON_HTTP_PORT=8080
       - CHARON_DB_PATH=/app/data/charon.db
       - CHARON_FRONTEND_DIR=/app/frontend/dist
