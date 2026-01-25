@@ -8,7 +8,7 @@ import type { PluginInfo } from '../../api/plugins'
 // Mock i18n
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, defaultValue?: string | Record<string, any>) => {
+    t: (key: string, defaultValue?: string | Record<string, unknown>) => {
       const translations: Record<string, string> = {
         'plugins.title': 'DNS Provider Plugins',
         'plugins.description': 'Manage built-in and external DNS provider plugins for certificate automation',
@@ -183,7 +183,7 @@ describe('Plugins page', () => {
     vi.mocked(useReloadPlugins).mockReturnValue({
       mutateAsync: mockReloadMutation,
       isPending: false,
-    } as any)
+    } as unknown as ReturnType<typeof useReloadPlugins>)
 
     renderWithQueryClient(<Plugins />)
 
@@ -262,7 +262,7 @@ describe('Plugins page', () => {
     vi.mocked(useDisablePlugin).mockReturnValue({
       mutateAsync: mockDisableMutation,
       isPending: false,
-    } as any)
+    } as unknown as ReturnType<typeof useDisablePlugin>)
 
     renderWithQueryClient(<Plugins />)
 
@@ -278,7 +278,7 @@ describe('Plugins page', () => {
       data: undefined,
       isLoading: true,
       refetch: vi.fn(),
-    } as any)
+    } as unknown as ReturnType<typeof usePlugins>)
 
     renderWithQueryClient(<Plugins />)
 
@@ -293,7 +293,7 @@ describe('Plugins page', () => {
       data: [],
       isLoading: false,
       refetch: vi.fn(),
-    } as any)
+    } as unknown as ReturnType<typeof usePlugins>)
 
     renderWithQueryClient(<Plugins />)
 

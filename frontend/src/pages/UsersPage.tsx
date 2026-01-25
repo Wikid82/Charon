@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
@@ -83,7 +83,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        handleClose()
+        onClose()
       }
     }
 
@@ -91,7 +91,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
       document.addEventListener('keydown', handleKeyDown)
       return () => document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isOpen])
+  }, [isOpen, onClose])
 
   // Fetch preview when email changes
   useEffect(() => {
@@ -385,10 +385,14 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
   }, [user])
 
   // Keyboard navigation - close on Escape
+  const handleClose = useCallback(() => {
+    onClose()
+  }, [onClose])
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose()
+        handleClose()
       }
     }
 
@@ -396,7 +400,7 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
       document.addEventListener('keydown', handleKeyDown)
       return () => document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isOpen, onClose])
+  }, [isOpen, handleClose])
 
   const updatePermissionsMutation = useMutation({
     mutationFn: async () => {

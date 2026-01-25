@@ -12,10 +12,11 @@ export function useDocker(host?: string | null, serverId?: string | null) {
     queryFn: async () => {
       try {
         return await dockerApi.listContainers(host || undefined, serverId || undefined)
-      } catch (err: any) {
+      } catch (err: unknown) {
         // Extract helpful error message from response
-        if (err.response?.status === 503) {
-          const details = err.response?.data?.details
+        const error = err as { response?: { status?: number; data?: { details?: string } } }
+        if (error.response?.status === 503) {
+          const details = error.response?.data?.details
           const message = details || 'Docker service unavailable. Check that Docker is running.'
           throw new Error(message)
         }
