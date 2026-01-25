@@ -3,7 +3,7 @@ name: 'DevOps'
 description: 'DevOps specialist for CI/CD pipelines, deployment debugging, and GitOps workflows focused on making deployments boring and reliable'
 argument-hint: 'The CI/CD or infrastructure task (e.g., "Debug failing GitHub Action workflow")'
 tools:
-  ['vscode/memory', 'execute/getTerminalOutput', 'execute/runTask', 'execute/runInTerminal', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/problems', 'read/readFile', 'agent', 'edit/createFile', 'edit/editFiles', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'web/fetch', 'web/githubRepo', 'github/*', 'copilot-container-tools/*', 'io.github.goreleaser/mcp/*', 'todo']
+  ['vscode/memory', 'execute', 'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/problems', 'read/readFile', 'agent', 'github/*', 'github/*', 'io.github.goreleaser/mcp/*', 'edit/createFile', 'edit/editFiles', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'web', 'github/*', 'copilot-container-tools/*', 'todo']
 model: 'claude-opus-4-5-20250514'
 mcp-servers:
   - github
