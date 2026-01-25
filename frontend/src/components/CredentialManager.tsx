@@ -68,11 +68,12 @@ export default function CredentialManager({
       toast.success(t('credentials.deleteSuccess', 'Credential deleted successfully'))
       setDeleteConfirm(null)
       refetch()
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: string } }; message?: string }
       toast.error(
         t('credentials.deleteFailed', 'Failed to delete credential') +
           ': ' +
-          (error.response?.data?.error || error.message)
+          (err.response?.data?.error || err.message)
       )
     }
   }
@@ -90,11 +91,12 @@ export default function CredentialManager({
         toast.error(result.error || t('credentials.testFailed', 'Credential test failed'))
       }
       refetch()
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: string } }; message?: string }
       toast.error(
         t('credentials.testFailed', 'Failed to test credential') +
           ': ' +
-          (error.response?.data?.error || error.message)
+          (err.response?.data?.error || err.message)
       )
     } finally {
       setTestingId(null)
@@ -367,7 +369,8 @@ function CredentialForm({
       }
     }
     setErrors((prev) => {
-      const { zone_filter, ...rest } = prev
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { zone_filter: _, ...rest } = prev
       return rest
     })
     return true
@@ -426,11 +429,12 @@ function CredentialForm({
         await createMutation.mutateAsync({ providerId, data })
       }
       onSuccess()
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: string } }; message?: string }
       toast.error(
         t('credentials.saveFailed', 'Failed to save credential') +
           ': ' +
-          (error.response?.data?.error || error.message)
+          (err.response?.data?.error || err.message)
       )
     }
   }
@@ -451,11 +455,12 @@ function CredentialForm({
       } else {
         toast.error(result.error || t('credentials.testFailed', 'Test failed'))
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: string } }; message?: string }
       toast.error(
         t('credentials.testFailed', 'Test failed') +
           ': ' +
-          (error.response?.data?.error || error.message)
+          (err.response?.data?.error || err.message)
       )
     }
   }

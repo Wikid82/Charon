@@ -8,6 +8,10 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
+    // TypeScript types for test globals - these are automatically available in test files
+    typecheck: {
+      tsconfig: './tsconfig.json',
+    },
     exclude: [
       'node_modules/**',
       'dist/**',
