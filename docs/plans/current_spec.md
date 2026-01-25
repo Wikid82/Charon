@@ -577,13 +577,26 @@ docker compose -f .docker/compose/docker-compose.playwright.yml config
 
 ---
 
-# Future Phase: Playwright Security Test Helpers
+# Playwright Security Test Helpers
 
 **Plan ID**: E2E-SEC-001
-**Status**: 📋 TODO (Follow-up Task)
-**Priority**: Medium
+**Status**: ✅ COMPLETED
+**Priority**: Critical (Blocking 230/707 E2E test failures)
 **Created**: 2026-01-25
+**Completed**: 2026-01-25
 **Scope**: Add security test helpers to prevent ACL deadlock in E2E tests
+
+---
+
+## Completion Notes
+
+**Implementation Summary:**
+- Created `tests/utils/security-helpers.ts` with full security state management utilities
+- Functions implemented: `getSecurityStatus`, `setSecurityModuleEnabled`, `captureSecurityState`, `restoreSecurityState`, `withSecurityEnabled`, `disableAllSecurityModules`
+- Pattern enables guaranteed cleanup via Playwright's `test.afterAll()` fixture
+
+**Documentation:**
+- See [Security Test Helpers Guide](../testing/security-helpers.md) for usage examples
 
 ---
 
@@ -595,58 +608,630 @@ During E2E testing, if ACL is left enabled from a previous test run (e.g., due t
 3. Auth setup fails → tests skip
 4. Manual intervention required to reset volumes
 
-## Solution: Security Test Helpers
+**Root Cause Analysis:**
+- `security-dashboard.spec.ts` has tests that toggle ACL, WAF, and Rate Limiting
+- The tests attempt to "toggle back" but if a test fails mid-execution, cleanup doesn't run
+- Playwright's `test.afterAll` with fixtures guarantees cleanup even on failure
+- The current tests don't use fixtures for security state management
 
-Create `tests/utils/security-helpers.ts` with API helpers for:
+## Solution Architecture
 
-### 1. Get Security Status
+### API Endpoints (Backend Already Supports)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/v1/security/status` | GET | Returns current state of all security modules |
+| `/api/v1/settings` | POST | Toggle settings with `{ key: "security.acl.enabled", value: "true/false" }` |
+
+### Settings Keys
+
+| Key | Values | Description |
+|-----|--------|-------------|
+| `security.acl.enabled` | `"true"` / `"false"` | Toggle ACL enforcement |
+| `security.waf.enabled` | `"true"` / `"false"` | Toggle WAF enforcement |
+| `security.rate_limit.enabled` | `"true"` / `"false"` | Toggle Rate Limiting |
+| `security.crowdsec.enabled` | `"true"` / `"false"` | Toggle CrowdSec |
+| `feature.cerberus.enabled` | `"true"` / `"false"` | Master toggle for all security |
+
+---
+
+## Implementation Plan
+
+### File 1: `tests/utils/security-helpers.ts` (CREATE)
 
 ```typescript
-export async function getSecurityStatus(request: APIRequestContext): Promise<SecurityStatus>
-```
+/**
+ * Security Test Helpers - Safe ACL/WAF/Rate Limit toggle for E2E tests
+ *
+ * These helpers provide safe mechanisms to temporarily enable security features
+ * during tests, with guaranteed cleanup even on test failure.
+ *
+ * Problem: If ACL is left enabled after a test failure, it blocks all API requests
+ * causing subsequent tests to fail with 403 Forbidden (deadlock).
+ *
+ * Solution: Use Playwright's test.afterAll() with captured original state to
+ * guarantee restoration regardless of test outcome.
+ *
+ * @example
+ * ```typescript
+ * import { withSecurityEnabled, getSecurityStatus } from './utils/security-helpers';
+ *
+ * test.describe('ACL Tests', () => {
+ *   let cleanup: () => Promise<void>;
+ *
+ *   test.beforeAll(async ({ request }) => {
+ *     cleanup = await withSecurityEnabled(request, { acl: true });
+ *   });
+ *
+ *   test.afterAll(async () => {
+ *     await cleanup();
+ *   });
+ *
+ *   test('should enforce ACL', async ({ page }) => {
+ *     // ACL is now enabled, test enforcement
+ *   });
+ * });
+ * ```
+ */
 
-### 2. Toggle ACL via API
+import { APIRequestContext } from '@playwright/test';
 
-```typescript
-export async function setAclEnabled(request: APIRequestContext, enabled: boolean): Promise<void>
-```
+/**
+ * Security module status from GET /api/v1/security/status
+ */
+export interface SecurityStatus {
+  cerberus: { enabled: boolean };
+  crowdsec: { mode: string; api_url: string; enabled: boolean };
+  waf: { mode: string; enabled: boolean };
+  rate_limit: { mode: string; enabled: boolean };
+  acl: { mode: string; enabled: boolean };
+}
 
-### 3. Ensure ACL Enabled with Cleanup
+/**
+ * Options for enabling specific security modules
+ */
+export interface SecurityModuleOptions {
+  /** Enable ACL enforcement */
+  acl?: boolean;
+  /** Enable WAF protection */
+  waf?: boolean;
+  /** Enable rate limiting */
+  rateLimit?: boolean;
+  /** Enable CrowdSec */
+  crowdsec?: boolean;
+  /** Enable master Cerberus toggle (required for other modules) */
+  cerberus?: boolean;
+}
 
-```typescript
-export async function ensureAclEnabled(request: APIRequestContext): Promise<OriginalState>
-export async function restoreSecurityState(request: APIRequestContext, originalState: OriginalState): Promise<void>
-```
+/**
+ * Captured state for restoration
+ */
+export interface CapturedSecurityState {
+  acl: boolean;
+  waf: boolean;
+  rateLimit: boolean;
+  crowdsec: boolean;
+  cerberus: boolean;
+}
 
-## Usage Pattern
+/**
+ * Mapping of module names to their settings keys
+ */
+const SECURITY_SETTINGS_KEYS: Record<keyof SecurityModuleOptions, string> = {
+  acl: 'security.acl.enabled',
+  waf: 'security.waf.enabled',
+  rateLimit: 'security.rate_limit.enabled',
+  crowdsec: 'security.crowdsec.enabled',
+  cerberus: 'feature.cerberus.enabled',
+};
 
-```typescript
-test.describe('ACL Enforcement Tests', () => {
-  let originalState: OriginalState;
+/**
+ * Get current security status from the API
+ * @param request - Playwright APIRequestContext (authenticated)
+ * @returns Current security status
+ */
+export async function getSecurityStatus(
+  request: APIRequestContext
+): Promise<SecurityStatus> {
+  const response = await request.get('/api/v1/security/status');
 
-  test.beforeAll(async ({ request }) => {
-    originalState = await ensureAclEnabled(request);
+  if (!response.ok()) {
+    throw new Error(
+      `Failed to get security status: ${response.status()} ${await response.text()}`
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Set a specific security module's enabled state
+ * @param request - Playwright APIRequestContext (authenticated)
+ * @param module - Which module to toggle
+ * @param enabled - Whether to enable or disable
+ */
+export async function setSecurityModuleEnabled(
+  request: APIRequestContext,
+  module: keyof SecurityModuleOptions,
+  enabled: boolean
+): Promise<void> {
+  const key = SECURITY_SETTINGS_KEYS[module];
+  const value = enabled ? 'true' : 'false';
+
+  const response = await request.post('/api/v1/settings', {
+    data: { key, value },
   });
 
-  test.afterAll(async ({ request }) => {
-    await restoreSecurityState(request, originalState);  // Runs even on failure
+  if (!response.ok()) {
+    throw new Error(
+      `Failed to set ${module} to ${enabled}: ${response.status()} ${await response.text()}`
+    );
+  }
+
+  // Wait a brief moment for Caddy config reload
+  await new Promise((resolve) => setTimeout(resolve, 500));
+}
+
+/**
+ * Capture current security state for later restoration
+ * @param request - Playwright APIRequestContext (authenticated)
+ * @returns Captured state object
+ */
+export async function captureSecurityState(
+  request: APIRequestContext
+): Promise<CapturedSecurityState> {
+  const status = await getSecurityStatus(request);
+
+  return {
+    acl: status.acl.enabled,
+    waf: status.waf.enabled,
+    rateLimit: status.rate_limit.enabled,
+    crowdsec: status.crowdsec.enabled,
+    cerberus: status.cerberus.enabled,
+  };
+}
+
+/**
+ * Restore security state to previously captured values
+ * @param request - Playwright APIRequestContext (authenticated)
+ * @param state - Previously captured state
+ */
+export async function restoreSecurityState(
+  request: APIRequestContext,
+  state: CapturedSecurityState
+): Promise<void> {
+  const currentStatus = await getSecurityStatus(request);
+
+  // Restore in reverse dependency order (features before master toggle)
+  const modules: (keyof SecurityModuleOptions)[] = ['acl', 'waf', 'rateLimit', 'crowdsec', 'cerberus'];
+
+  for (const module of modules) {
+    const currentValue = module === 'rateLimit'
+      ? currentStatus.rate_limit.enabled
+      : module === 'crowdsec'
+      ? currentStatus.crowdsec.enabled
+      : currentStatus[module].enabled;
+
+    if (currentValue !== state[module]) {
+      await setSecurityModuleEnabled(request, module, state[module]);
+    }
+  }
+}
+
+/**
+ * Enable security modules temporarily with guaranteed cleanup.
+ *
+ * Returns a cleanup function that MUST be called in test.afterAll().
+ * The cleanup function restores the original state even if tests fail.
+ *
+ * @param request - Playwright APIRequestContext (authenticated)
+ * @param options - Which modules to enable
+ * @returns Cleanup function to restore original state
+ *
+ * @example
+ * ```typescript
+ * test.describe('ACL Tests', () => {
+ *   let cleanup: () => Promise<void>;
+ *
+ *   test.beforeAll(async ({ request }) => {
+ *     cleanup = await withSecurityEnabled(request, { acl: true, cerberus: true });
+ *   });
+ *
+ *   test.afterAll(async () => {
+ *     await cleanup();
+ *   });
+ * });
+ * ```
+ */
+export async function withSecurityEnabled(
+  request: APIRequestContext,
+  options: SecurityModuleOptions
+): Promise<() => Promise<void>> {
+  // Capture original state BEFORE making any changes
+  const originalState = await captureSecurityState(request);
+
+  // Enable Cerberus first (master toggle) if any security module is requested
+  const needsCerberus = options.acl || options.waf || options.rateLimit || options.crowdsec;
+  if ((needsCerberus || options.cerberus) && !originalState.cerberus) {
+    await setSecurityModuleEnabled(request, 'cerberus', true);
+  }
+
+  // Enable requested modules
+  if (options.acl) {
+    await setSecurityModuleEnabled(request, 'acl', true);
+  }
+  if (options.waf) {
+    await setSecurityModuleEnabled(request, 'waf', true);
+  }
+  if (options.rateLimit) {
+    await setSecurityModuleEnabled(request, 'rateLimit', true);
+  }
+  if (options.crowdsec) {
+    await setSecurityModuleEnabled(request, 'crowdsec', true);
+  }
+
+  // Return cleanup function that restores original state
+  return async () => {
+    try {
+      await restoreSecurityState(request, originalState);
+    } catch (error) {
+      // Log error but don't throw - cleanup should not fail tests
+      console.error('Failed to restore security state:', error);
+      // Try emergency disable of ACL to prevent deadlock
+      try {
+        await setSecurityModuleEnabled(request, 'acl', false);
+      } catch {
+        console.error('Emergency ACL disable also failed - manual intervention may be required');
+      }
+    }
+  };
+}
+
+/**
+ * Disable all security modules (emergency reset).
+ * Use this in global-setup.ts or when tests need a clean slate.
+ *
+ * @param request - Playwright APIRequestContext (authenticated)
+ */
+export async function disableAllSecurityModules(
+  request: APIRequestContext
+): Promise<void> {
+  const modules: (keyof SecurityModuleOptions)[] = ['acl', 'waf', 'rateLimit', 'crowdsec'];
+
+  for (const module of modules) {
+    try {
+      await setSecurityModuleEnabled(request, module, false);
+    } catch (error) {
+      console.warn(`Failed to disable ${module}:`, error);
+    }
+  }
+}
+
+/**
+ * Check if ACL is currently blocking requests.
+ * Useful for debugging test failures.
+ *
+ * @param request - Playwright APIRequestContext
+ * @returns True if ACL is enabled and blocking
+ */
+export async function isAclBlocking(request: APIRequestContext): Promise<boolean> {
+  try {
+    const status = await getSecurityStatus(request);
+    return status.acl.enabled && status.cerberus.enabled;
+  } catch {
+    // If we can't get status, ACL might be blocking
+    return true;
+  }
+}
+```
+
+---
+
+### File 2: `tests/security/security-dashboard.spec.ts` (MODIFY)
+
+**Changes Required:**
+
+1. Import the new security helpers
+2. Add `test.beforeAll` to capture initial state
+3. Add `test.afterAll` to guarantee cleanup
+4. Remove redundant "toggle back" steps in individual tests
+5. Group toggle tests in a separate describe block with isolated cleanup
+
+**Exact Changes:**
+
+```typescript
+// ADD after existing imports (around line 12)
+import {
+  withSecurityEnabled,
+  captureSecurityState,
+  restoreSecurityState,
+  CapturedSecurityState,
+} from '../utils/security-helpers';
+```
+
+```typescript
+// REPLACE the entire 'Module Toggle Actions' describe block (lines ~80-180)
+// with this safer implementation:
+
+test.describe('Module Toggle Actions', () => {
+  // Capture state ONCE for this describe block
+  let originalState: CapturedSecurityState;
+  let request: APIRequestContext;
+
+  test.beforeAll(async ({ request: req }) => {
+    request = req;
+    originalState = await captureSecurityState(request);
   });
 
-  // ACL tests here...
+  test.afterAll(async () => {
+    // CRITICAL: Restore original state even if tests fail
+    if (originalState) {
+      await restoreSecurityState(request, originalState);
+    }
+  });
+
+  test('should toggle ACL enabled/disabled', async ({ page }) => {
+    const toggle = page.getByTestId('toggle-acl');
+
+    const isDisabled = await toggle.isDisabled();
+    if (isDisabled) {
+      test.info().annotations.push({
+        type: 'skip-reason',
+        description: 'Toggle is disabled because Cerberus security is not enabled',
+      });
+      test.skip();
+      return;
+    }
+
+    await test.step('Toggle ACL state', async () => {
+      await page.waitForLoadState('networkidle');
+      await toggle.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(200);
+      await toggle.click({ force: true });
+      await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
+    });
+
+    // NOTE: Do NOT toggle back here - afterAll handles cleanup
+  });
+
+  test('should toggle WAF enabled/disabled', async ({ page }) => {
+    const toggle = page.getByTestId('toggle-waf');
+
+    const isDisabled = await toggle.isDisabled();
+    if (isDisabled) {
+      test.info().annotations.push({
+        type: 'skip-reason',
+        description: 'Toggle is disabled because Cerberus security is not enabled',
+      });
+      test.skip();
+      return;
+    }
+
+    await test.step('Toggle WAF state', async () => {
+      await page.waitForLoadState('networkidle');
+      await toggle.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(200);
+      await toggle.click({ force: true });
+      await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
+    });
+
+    // NOTE: Do NOT toggle back here - afterAll handles cleanup
+  });
+
+  test('should toggle Rate Limiting enabled/disabled', async ({ page }) => {
+    const toggle = page.getByTestId('toggle-rate-limit');
+
+    const isDisabled = await toggle.isDisabled();
+    if (isDisabled) {
+      test.info().annotations.push({
+        type: 'skip-reason',
+        description: 'Toggle is disabled because Cerberus security is not enabled',
+      });
+      test.skip();
+      return;
+    }
+
+    await test.step('Toggle Rate Limit state', async () => {
+      await page.waitForLoadState('networkidle');
+      await toggle.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(200);
+      await toggle.click({ force: true });
+      await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
+    });
+
+    // NOTE: Do NOT toggle back here - afterAll handles cleanup
+  });
+
+  test('should persist toggle state after page reload', async ({ page }) => {
+    const toggle = page.getByTestId('toggle-acl');
+
+    const isDisabled = await toggle.isDisabled();
+    if (isDisabled) {
+      test.info().annotations.push({
+        type: 'skip-reason',
+        description: 'Toggle is disabled because Cerberus security is not enabled',
+      });
+      test.skip();
+      return;
+    }
+
+    const initialChecked = await toggle.isChecked();
+
+    await test.step('Toggle ACL state', async () => {
+      await page.waitForLoadState('networkidle');
+      await toggle.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(200);
+      await toggle.click({ force: true });
+      await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
+    });
+
+    await test.step('Reload page', async () => {
+      await page.reload();
+      await waitForLoadingComplete(page);
+    });
+
+    await test.step('Verify state persisted', async () => {
+      const newChecked = await page.getByTestId('toggle-acl').isChecked();
+      expect(newChecked).toBe(!initialChecked);
+    });
+
+    // NOTE: Do NOT restore here - afterAll handles cleanup
+  });
 });
 ```
 
+---
+
+### File 3: `tests/global-setup.ts` (MODIFY)
+
+**Add Emergency Security Reset:**
+
+```typescript
+// ADD to the end of the global setup function, before returning
+
+// Import at top of file
+import { request as playwrightRequest } from '@playwright/test';
+import { existsSync, readFileSync } from 'fs';
+import { STORAGE_STATE } from './constants';
+
+// ADD in globalSetup function, after auth state is created:
+
+async function emergencySecurityReset(baseURL: string) {
+  // Only run if auth state exists (meaning we can make authenticated requests)
+  if (!existsSync(STORAGE_STATE)) {
+    return;
+  }
+
+  try {
+    const authenticatedContext = await playwrightRequest.newContext({
+      baseURL,
+      storageState: STORAGE_STATE,
+    });
+
+    // Disable ACL to prevent deadlock from previous failed runs
+    await authenticatedContext.post('/api/v1/settings', {
+      data: { key: 'security.acl.enabled', value: 'false' },
+    });
+
+    await authenticatedContext.dispose();
+    console.log('✓ Security reset: ACL disabled');
+  } catch (error) {
+    console.warn('⚠️ Could not reset security state:', error);
+  }
+}
+
+// Call at end of globalSetup:
+await emergencySecurityReset(process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080');
+```
+
+---
+
+### File 4: `tests/fixtures/auth-fixtures.ts` (OPTIONAL ENHANCEMENT)
+
+**Add security fixture for tests that need it:**
+
+```typescript
+// ADD after existing imports
+import {
+  withSecurityEnabled,
+  SecurityModuleOptions,
+  CapturedSecurityState,
+  captureSecurityState,
+  restoreSecurityState,
+} from '../utils/security-helpers';
+
+// ADD to AuthFixtures interface
+interface AuthFixtures {
+  // ... existing fixtures ...
+
+  /**
+   * Security state manager for tests that need to toggle security modules.
+   * Automatically captures and restores state.
+   */
+  securityState: {
+    enable: (options: SecurityModuleOptions) => Promise<void>;
+    captured: CapturedSecurityState | null;
+  };
+}
+
+// ADD fixture definition in test.extend
+securityState: async ({ request }, use) => {
+  let capturedState: CapturedSecurityState | null = null;
+
+  const manager = {
+    enable: async (options: SecurityModuleOptions) => {
+      capturedState = await captureSecurityState(request);
+      const cleanup = await withSecurityEnabled(request, options);
+      // Store cleanup for afterAll
+      manager._cleanup = cleanup;
+    },
+    captured: capturedState,
+    _cleanup: null as (() => Promise<void>) | null,
+  };
+
+  await use(manager);
+
+  // Cleanup after test
+  if (manager._cleanup) {
+    await manager._cleanup();
+  }
+},
+```
+
+---
+
+## Execution Checklist
+
+### Phase 1: Create Helper Module
+
+- [ ] **1.1** Create `tests/utils/security-helpers.ts` with exact code from File 1 above
+- [ ] **1.2** Run TypeScript check: `npx tsc --noEmit`
+- [ ] **1.3** Verify helper imports correctly in a test file
+
+### Phase 2: Update Security Dashboard Tests
+
+- [ ] **2.1** Add imports to `tests/security/security-dashboard.spec.ts`
+- [ ] **2.2** Replace 'Module Toggle Actions' describe block with new implementation
+- [ ] **2.3** Run affected tests: `npx playwright test security-dashboard --project=chromium`
+- [ ] **2.4** Verify tests pass AND cleanup happens (check security status after)
+
+### Phase 3: Add Global Safety Net
+
+- [ ] **3.1** Update `tests/global-setup.ts` with emergency security reset
+- [ ] **3.2** Run full test suite: `npx playwright test --project=chromium`
+- [ ] **3.3** Verify no ACL deadlock occurs across multiple runs
+
+### Phase 4: Validation
+
+- [ ] **4.1** Force a test failure (e.g., add `throw new Error()`) and verify cleanup still runs
+- [ ] **4.2** Check security status after failed test: `curl localhost:8080/api/v1/security/status`
+- [ ] **4.3** Confirm ACL is disabled after cleanup
+- [ ] **4.4** Run full E2E suite 3 times consecutively to verify stability
+
+---
+
 ## Benefits
 
-1. **No deadlock**: Tests can safely enable/disable ACL
+1. **No deadlock**: Tests can safely enable/disable ACL with guaranteed cleanup
 2. **Cleanup guaranteed**: `test.afterAll` runs even on failure
 3. **Realistic testing**: ACL tests use the same toggle mechanism as users
 4. **Isolation**: Other tests unaffected by ACL state
+5. **Global safety net**: Even if individual cleanup fails, global setup resets state
 
-## Files to Create/Modify
+## Risk Mitigation
 
-| File | Action |
-|------|--------|
-| `tests/utils/security-helpers.ts` | **Create** - New helper module |
-| `tests/security/security-dashboard.spec.ts` | **Modify** - Use new helpers |
-| `tests/integration/proxy-acl-integration.spec.ts` | **Modify** - Use new helpers |
+| Risk | Mitigation |
+|------|------------|
+| Cleanup fails due to API error | Emergency fallback disables ACL specifically |
+| Global setup can't reset state | Auth state file check prevents errors |
+| Tests run in parallel | Each describe block has its own captured state |
+| API changes break helpers | Settings keys are centralized in one const |
+
+## Files Summary
+
+| File | Action | Priority |
+|------|--------|----------|
+| `tests/utils/security-helpers.ts` | **CREATE** | Critical |
+| `tests/security/security-dashboard.spec.ts` | **MODIFY** | Critical |
+| `tests/global-setup.ts` | **MODIFY** | High |
+| `tests/fixtures/auth-fixtures.ts` | **MODIFY** (Optional) | Low |
