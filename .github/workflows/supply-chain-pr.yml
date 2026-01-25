@@ -105,6 +105,16 @@ jobs:
             echo "is_push=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Sanitize branch name
+        id: sanitize
+        run: |
+          # Sanitize branch name for use in artifact names
+          # Replace / with - to avoid invalid reference format errors
+          BRANCH="${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}"
+          SANITIZED=$(echo "$BRANCH" | tr '/' '-')
+          echo "branch=${SANITIZED}" >> "$GITHUB_OUTPUT"
+          echo "📋 Sanitized branch name: ${BRANCH} -> ${SANITIZED}"
+
       - name: Check for PR image artifact
         id: check-artifact
         if: steps.pr-number.outputs.pr_number != '' || steps.pr-number.outputs.is_push == 'true'
@@ -297,7 +307,7 @@ jobs:
         # actions/upload-artifact v4.6.0
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
-          name: ${{ steps.pr-number.outputs.is_push == 'true' && format('supply-chain-{0}', github.event.workflow_run.head_branch) || format('supply-chain-pr-{0}', steps.pr-number.outputs.pr_number) }}
+          name: ${{ steps.pr-number.outputs.is_push == 'true' && format('supply-chain-{0}', steps.sanitize.outputs.branch) || format('supply-chain-pr-{0}', steps.pr-number.outputs.pr_number) }}
           path: |
             sbom.cyclonedx.json
             grype-results.json
