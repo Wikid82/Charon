@@ -51,14 +51,16 @@ mkdir -p /app/data/geoip 2>/dev/null || true
 PLUGINS_DIR="${CHARON_PLUGINS_DIR:-/app/plugins}"
 if [ -d "$PLUGINS_DIR" ]; then
     # Check if directory is world-writable (security risk)
-    if [ "$(stat -c '%a' "$PLUGINS_DIR" 2>/dev/null | grep -c '.[0-9][2367]$')" -gt 0 ]; then
+    # Using find -perm -0002 is more robust than stat regex - handles sticky/setgid bits correctly
+    if find "$PLUGINS_DIR" -maxdepth 0 -perm -0002 -print -quit 2>/dev/null | grep -q .; then
         echo "⚠️  WARNING: Plugin directory $PLUGINS_DIR is world-writable!"
         echo "   This is a security risk - plugins could be injected by any user."
-        echo "   Attempting to fix permissions..."
-        if chmod 755 "$PLUGINS_DIR" 2>/dev/null; then
-            echo "   ✓ Fixed: Plugin directory permissions set to 755"
+        echo "   Attempting to fix permissions (removing world-writable bit)..."
+        # Use chmod o-w to only remove world-writable, preserving sticky/setgid bits
+        if chmod o-w "$PLUGINS_DIR" 2>/dev/null; then
+            echo "   ✓ Fixed: Plugin directory world-writable permission removed"
         else
-            echo "   ✗ ERROR: Cannot fix permissions. Please run: chmod 755 $PLUGINS_DIR"
+            echo "   ✗ ERROR: Cannot fix permissions. Please run: chmod o-w $PLUGINS_DIR"
             echo "   Plugin loading may fail due to insecure permissions."
         fi
     else
