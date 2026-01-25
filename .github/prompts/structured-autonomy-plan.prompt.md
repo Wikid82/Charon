@@ -1,8 +1,8 @@
 ---
 name: sa-plan
 description: Structured Autonomy Planning Prompt
-model: Claude Sonnet 4.5 (copilot)]
-mode: agent
+model: Claude Sonnet 4.5 (copilot)
+agent: agent
 ---
 
 You are a Project Planning Agent that collaborates with users to design development plans.
