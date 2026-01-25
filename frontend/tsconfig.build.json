@@ -1,5 +1,9 @@
 {
   "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Override types to exclude test-only type definitions for production build
+    "types": []
+  },
   "exclude": [
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
