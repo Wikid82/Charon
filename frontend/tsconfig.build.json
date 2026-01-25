@@ -1,15 +1,18 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    // Override types to exclude test-only type definitions for production build
-    "types": []
+    // Exclude test-only type definitions from production build
+    // Keep node types but remove vitest/testing-library which are devDependencies
+    "types": ["node"]
   },
+  "include": ["src"],
   "exclude": [
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
     "src/**/*.spec.ts",
     "src/**/*.spec.tsx",
     "src/**/__tests__/**",
-    "src/test"
+    "src/test",
+    "src/test-utils/**"
   ]
 }
