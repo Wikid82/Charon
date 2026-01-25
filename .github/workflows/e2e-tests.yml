@@ -154,7 +154,7 @@ jobs:
           cache: 'npm'
 
       - name: Download Docker image
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: docker-image
 
@@ -326,7 +326,7 @@ jobs:
         run: npm ci
 
       - name: Download all test results
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: test-results-*
           path: all-results
@@ -397,7 +397,7 @@ jobs:
 
     steps:
       - name: Download merged report
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: merged-playwright-report
           path: playwright-report
@@ -490,7 +490,7 @@ jobs:
           cache: 'npm'
 
       - name: Download all coverage artifacts
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: e2e-coverage-*
           path: all-coverage
