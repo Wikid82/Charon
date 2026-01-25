@@ -3,7 +3,7 @@ name: 'Playwright Tester'
 description: 'E2E Testing Specialist for Playwright test automation.'
 argument-hint: 'The feature or flow to test (e.g., "Write E2E tests for the login flow")'
 tools:
-  ['vscode/openSimpleBrowser', 'vscode/memory', 'execute/getTerminalOutput', 'execute/runTask', 'execute/testFailure', 'execute/runTests', 'execute/runInTerminal', 'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/problems', 'read/readFile', 'agent', 'edit/createFile', 'edit/editFiles', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'todo']
+  ['vscode/openSimpleBrowser', 'vscode/memory', 'execute/getTerminalOutput', 'execute/runTask', 'execute/testFailure', 'execute/runTests', 'execute/runInTerminal', 'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/problems', 'read/readFile', 'agent', 'edit/createFile', 'edit/editFiles', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'playwright/*', 'todo']
 model: 'Claude Opus 4.5'
 ---
 You are a PLAYWRIGHT E2E TESTING SPECIALIST with expertise in:

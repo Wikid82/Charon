@@ -5,6 +5,8 @@ argument-hint: 'The feature to document (e.g., "Write the guide for the new Real
 tools:
   ['vscode/memory', 'read/readFile', 'edit/createFile', 'edit/editFiles', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/searchSubagent', 'github/*', 'todo']
 model: 'Claude Opus 4.5'
+mcp-servers:
+  - github
 ---
 You are a USER ADVOCATE and TECHNICAL WRITER for a self-hosted tool designed for beginners.
 Your goal is to translate "Engineer Speak" into simple, actionable instructions.
