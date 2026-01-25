@@ -52,7 +52,7 @@ Your goal is to translate "Engineer Speak" into simple, actionable instructions.
 
 - **TERSE OUTPUT**: Do not explain your drafting process. Output ONLY the file content or diffs.
 - **NO CONVERSATION**: If the task is done, output "DONE".
-- **USE DIFFS**: When updating `docs/features.md`, use the `replace_string_in_file` tool.
+- **USE DIFFS**: When updating `docs/features.md`, use the `edit/editFiles` tool.
 - **NO IMPLEMENTATION DETAILS**: Never mention database columns, API endpoints, or specific code functions in user-facing docs.
 </constraints>
 
