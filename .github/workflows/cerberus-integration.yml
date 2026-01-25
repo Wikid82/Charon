@@ -1,0 +1,119 @@
+name: Cerberus Integration Tests
+
+on:
+  push:
+    branches: [ main, development, 'feature/**' ]
+    paths:
+      - 'backend/internal/caddy/**'
+      - 'backend/internal/security/**'
+      - 'backend/internal/handlers/security*.go'
+      - 'backend/internal/models/security*.go'
+      - 'scripts/cerberus_integration.sh'
+      - 'Dockerfile'
+      - '.github/workflows/cerberus-integration.yml'
+  pull_request:
+    branches: [ main, development ]
+    paths:
+      - 'backend/internal/caddy/**'
+      - 'backend/internal/security/**'
+      - 'backend/internal/handlers/security*.go'
+      - 'backend/internal/models/security*.go'
+      - 'scripts/cerberus_integration.sh'
+      - 'Dockerfile'
+      - '.github/workflows/cerberus-integration.yml'
+  # Allow manual trigger
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cerberus-integration:
+    name: Cerberus Security Stack Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --no-cache \
+            --build-arg VCS_REF=${{ github.sha }} \
+            -t charon:local .
+
+      - name: Run Cerberus integration tests
+        id: cerberus-test
+        run: |
+          chmod +x scripts/cerberus_integration.sh
+          scripts/cerberus_integration.sh 2>&1 | tee cerberus-test-output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Dump Debug Info on Failure
+        if: failure()
+        run: |
+          echo "## 🔍 Debug Information" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Container Status" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          docker ps -a --filter "name=charon" --filter "name=cerberus" --filter "name=backend" >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Security Status API" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          curl -s http://localhost:8480/api/v1/security/status 2>/dev/null | head -100 >> $GITHUB_STEP_SUMMARY || echo "Could not retrieve security status" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Caddy Admin Config" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          curl -s http://localhost:2319/config 2>/dev/null | head -200 >> $GITHUB_STEP_SUMMARY || echo "Could not retrieve Caddy config" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Charon Container Logs (last 100 lines)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          docker logs charon-cerberus-test 2>&1 | tail -100 >> $GITHUB_STEP_SUMMARY || echo "No container logs available" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Cerberus Integration Summary
+        if: always()
+        run: |
+          echo "## 🔱 Cerberus Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.cerberus-test.outcome }}" == "success" ]; then
+            echo "✅ **All Cerberus tests passed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Test Results:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -E "✓|PASS|TC-[0-9]|=== ALL" cerberus-test-output.txt || echo "See logs for details"
+            grep -E "✓|PASS|TC-[0-9]|=== ALL" cerberus-test-output.txt >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Features Tested:" >> $GITHUB_STEP_SUMMARY
+            echo "- WAF (Coraza) payload inspection" >> $GITHUB_STEP_SUMMARY
+            echo "- Rate limiting enforcement" >> $GITHUB_STEP_SUMMARY
+            echo "- Security handler ordering" >> $GITHUB_STEP_SUMMARY
+            echo "- Legitimate traffic flow" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Cerberus tests failed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Failure Details:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -E "✗|FAIL|Error|failed" cerberus-test-output.txt | head -30 >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f charon-cerberus-test || true
+          docker rm -f cerberus-backend || true
+          docker volume rm charon_cerberus_test_data caddy_cerberus_test_data caddy_cerberus_test_config 2>/dev/null || true
+          docker network rm containers_default || true

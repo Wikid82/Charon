@@ -284,19 +284,34 @@ done
 # Note: When running as root, we use gosu; otherwise we run directly.
 echo "Starting Charon management application..."
 DEBUG_FLAG=${CHARON_DEBUG:-$CPMP_DEBUG}
-DEBUG_PORT=${CHARON_DEBUG_PORT:-$CPMP_DEBUG_PORT}
+DEBUG_PORT=${CHARON_DEBUG_PORT:-${CPMP_DEBUG_PORT:-2345}}
+
+# Determine binary path
+bin_path=/app/charon
+if [ ! -f "$bin_path" ]; then
+    bin_path=/app/cpmp
+fi
+
 if [ "$DEBUG_FLAG" = "1" ]; then
-    echo "Running Charon under Delve (port $DEBUG_PORT)"
-    bin_path=/app/charon
-    if [ ! -f "$bin_path" ]; then
-        bin_path=/app/cpmp
+    # Check if binary has debug symbols (required for Delve)
+    # objdump -h lists section headers; .debug_info is present if DWARF symbols exist
+    if command -v objdump >/dev/null 2>&1; then
+        if ! objdump -h "$bin_path" 2>/dev/null | grep -q '\.debug_info'; then
+            echo "⚠️  WARNING: Binary lacks debug symbols (DWARF info stripped)."
+            echo "   Delve debugging will NOT work with this binary."
+            echo "   To fix, rebuild with: docker build --build-arg BUILD_DEBUG=1 ..."
+            echo "   Falling back to normal execution (without debugger)."
+            run_as_charon "$bin_path" &
+        else
+            echo "✓ Debug symbols detected. Running Charon under Delve (port $DEBUG_PORT)"
+            run_as_charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
+        fi
+    else
+        # objdump not available, try to run Delve anyway with a warning
+        echo "Note: Cannot verify debug symbols (objdump not found). Attempting Delve..."
+        run_as_charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
     fi
-    run_as_charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
 else
-    bin_path=/app/charon
-    if [ ! -f "$bin_path" ]; then
-        bin_path=/app/cpmp
-    fi
     run_as_charon "$bin_path" &
 fi
 APP_PID=$!
