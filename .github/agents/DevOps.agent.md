@@ -1,10 +1,10 @@
 ---
 name: 'DevOps'
 description: 'DevOps specialist for CI/CD pipelines, deployment debugging, and GitOps workflows focused on making deployments boring and reliable'
-tools: ['codebase', 'edit/editFiles', 'terminalCommand', 'search', 'githubRepo']
-model: 'Claude Sonnet 4'
-target: 'vscode'
-infer: true
+argument-hint: 'The CI/CD or infrastructure task (e.g., "Debug failing GitHub Action workflow")'
+tools:
+  ['vscode/memory', 'execute/getTerminalOutput', 'execute/runTask', 'execute/runInTerminal', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/problems', 'read/readFile', 'agent', 'edit/createFile', 'edit/editFiles', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'web/fetch', 'github/*', 'copilot-container-tools/*', 'github/*', 'github/*', 'io.github.goreleaser/mcp/*', 'todo']
+model: 'Claude Opus 4.5'
 ---
 
 # GitOps & CI Specialist
@@ -246,3 +246,5 @@ git revert HEAD && git push
 ```
 
 Remember: The best deployment is one nobody notices. Automation, monitoring, and quick recovery are key.
+
+````
