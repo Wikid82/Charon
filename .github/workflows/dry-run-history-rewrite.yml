@@ -1,0 +1,38 @@
+name: History Rewrite Dry-Run
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  schedule:
+    - cron: '0 2 * * *' # daily at 02:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  preview-history:
+    name: Dry-run preview for history rewrite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Debug git info
+        run: |
+          git --version
+          git rev-parse --is-shallow-repository || true
+          git status --porcelain
+
+      - name: Make CI script executable
+        run: chmod +x scripts/ci/dry_run_history_rewrite.sh
+
+      - name: Run dry-run history check
+        run: |
+          scripts/ci/dry_run_history_rewrite.sh --paths 'backend/codeql-db,codeql-db,codeql-db-js,codeql-db-go' --strip-size 50
