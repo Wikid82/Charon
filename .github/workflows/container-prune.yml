@@ -52,7 +52,7 @@ jobs:
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           chmod +x scripts/prune-container-images.sh
-          ./scripts/prune-container-images.sh
+          ./scripts/prune-container-images.sh 2>&1 | tee prune-${{ github.run_id }}.log
 
       - name: Upload log
         if: ${{ always() }}
@@ -60,4 +60,4 @@ jobs:
         with:
           name: prune-log-${{ github.run_id }}
           path: |
-            scripts/prune-container-images.sh
+            prune-${{ github.run_id }}.log
