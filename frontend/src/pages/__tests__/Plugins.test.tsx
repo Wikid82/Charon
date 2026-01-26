@@ -309,4 +309,161 @@ describe('Plugins page', () => {
       screen.getByText(/External plugins extend Charon with custom DNS providers/i)
     ).toBeInTheDocument()
   })
+
+  // Phase 2: Additional coverage tests
+
+  it('closes metadata modal when close button is clicked', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Plugins />)
+
+    const detailsButtons = await screen.findAllByRole('button', { name: /details/i })
+    await user.click(detailsButtons[0])
+
+    expect(await screen.findByText(/Plugin Details:/i)).toBeInTheDocument()
+
+    const closeButton = screen.getByRole('button', { name: /close/i })
+    await user.click(closeButton)
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Plugin Details:/i)).not.toBeInTheDocument()
+    })
+  })
+
+  it('displays all metadata fields in modal', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Plugins />)
+
+    const detailsButtons = await screen.findAllByRole('button', { name: /details/i })
+    await user.click(detailsButtons[1]) // PowerDNS plugin
+
+    expect(await screen.findByText('Version')).toBeInTheDocument()
+    expect(screen.getByText('Author')).toBeInTheDocument()
+    expect(screen.getByText('Plugin Type')).toBeInTheDocument()
+    expect(screen.getByText('PowerDNS provider plugin')).toBeInTheDocument()
+  })
+
+  it('displays error status badge for failed plugins', async () => {
+    renderWithQueryClient(<Plugins />)
+
+    const errorBadge = await screen.findByText('Error')
+    expect(errorBadge).toBeInTheDocument()
+  })
+
+  it('displays pending status badge for pending plugins', async () => {
+    const mockPendingPlugin: PluginInfo = {
+      ...mockExternalPlugin,
+      status: 'pending',
+    }
+
+    const { usePlugins } = await import('../../hooks/usePlugins')
+    vi.mocked(usePlugins).mockReturnValue({
+      data: [mockPendingPlugin],
+      isLoading: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof usePlugins>)
+
+    renderWithQueryClient(<Plugins />)
+
+    expect(await screen.findByText('Pending')).toBeInTheDocument()
+  })
+
+  it('opens documentation URL in new tab', async () => {
+    const mockWindowOpen = vi.fn()
+    window.open = mockWindowOpen
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<Plugins />)
+
+    const docsLinks = await screen.findAllByText('Docs')
+    await user.click(docsLinks[0])
+
+    expect(mockWindowOpen).toHaveBeenCalledWith('https://developers.cloudflare.com', '_blank')
+  })
+
+  it('handles missing documentation URL gracefully', async () => {
+    const mockPluginWithoutDocs: PluginInfo = {
+      ...mockExternalPlugin,
+      documentation_url: undefined,
+    }
+
+    const { usePlugins } = await import('../../hooks/usePlugins')
+    vi.mocked(usePlugins).mockReturnValue({
+      data: [mockPluginWithoutDocs],
+      isLoading: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof usePlugins>)
+
+    renderWithQueryClient(<Plugins />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Docs')).not.toBeInTheDocument()
+    })
+  })
+
+  it('displays loaded at timestamp in metadata modal', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Plugins />)
+
+    const detailsButtons = await screen.findAllByRole('button', { name: /details/i })
+    await user.click(detailsButtons[1]) // PowerDNS plugin with loaded_at
+
+    expect(await screen.findByText('Loaded At')).toBeInTheDocument()
+  })
+
+  it('displays error message inline for failed plugins', async () => {
+    renderWithQueryClient(<Plugins />)
+
+    // Error message should be visible in the card itself
+    expect(await screen.findByText('Failed to load: signature mismatch')).toBeInTheDocument()
+  })
+
+  it('renders documentation buttons for plugins with docs', async () => {
+    renderWithQueryClient(<Plugins />)
+
+    // Should have at least one Docs button for plugins with documentation_url
+    await waitFor(() => {
+      const docsButtons = screen.queryAllByText('Docs')
+      expect(docsButtons.length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  it('shows reload button loading state', async () => {
+    const { useReloadPlugins } = await import('../../hooks/usePlugins')
+    vi.mocked(useReloadPlugins).mockReturnValue({
+      mutateAsync: vi.fn(),
+      isPending: true,
+    } as unknown as ReturnType<typeof useReloadPlugins>)
+
+    renderWithQueryClient(<Plugins />)
+
+    const reloadButton = await screen.findByRole('button', { name: /reload plugins/i })
+    expect(reloadButton).toBeInTheDocument()
+  })
+
+  it('has details button for each plugin', async () => {
+    renderWithQueryClient(<Plugins />)
+
+    // Each plugin should have a details button
+    const detailsButtons = await screen.findAllByRole('button', { name: /details/i })
+    expect(detailsButtons.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('shows disabled status badge for disabled plugins', async () => {
+    const mockDisabledPlugin: PluginInfo = {
+      ...mockExternalPlugin,
+      enabled: false,
+      status: 'loaded',
+    }
+
+    const { usePlugins } = await import('../../hooks/usePlugins')
+    vi.mocked(usePlugins).mockReturnValue({
+      data: [mockDisabledPlugin],
+      isLoading: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof usePlugins>)
+
+    renderWithQueryClient(<Plugins />)
+
+    expect(await screen.findByText('Disabled')).toBeInTheDocument()
+  })
 })

@@ -1378,11 +1378,11 @@ func TestDNSProviderService_Test_FailureUpdatesStatistics(t *testing.T) {
 	}
 	require.NoError(t, db.Create(provider).Error)
 
-	// Test the provider - should fail validation due to mismatched credentials
+	// Test the provider - should fail during decryption due to mismatched credentials
 	result, err := service.Test(ctx, provider.ID)
 	require.NoError(t, err)
 	assert.False(t, result.Success)
-	assert.Equal(t, "VALIDATION_ERROR", result.Code)
+	assert.Equal(t, "DECRYPTION_ERROR", result.Code)
 
 	// Verify failure statistics updated
 	afterTest, err := service.Get(ctx, provider.ID)

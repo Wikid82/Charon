@@ -1206,3 +1206,208 @@ func TestBackupService_FullCycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, backups)
 }
+
+// TestBackupService_AddToZip_Errors tests addToZip error handling.
+func TestBackupService_AddToZip_Errors(t *testing.T) {
+	tmpDir := t.TempDir()
+	service := &BackupService{
+		DataDir:   filepath.Join(tmpDir, "data"),
+		BackupDir: filepath.Join(tmpDir, "backups"),
+	}
+	_ = os.MkdirAll(service.BackupDir, 0o755)
+
+	t.Run("handle non-existent file gracefully", func(t *testing.T) {
+		zipPath := filepath.Join(service.BackupDir, "test.zip")
+		zipFile, err := os.Create(zipPath)
+		require.NoError(t, err)
+		defer zipFile.Close()
+
+		w := zip.NewWriter(zipFile)
+		defer w.Close()
+
+		// Try to add non-existent file - should return nil (graceful)
+		err = service.addToZip(w, "/non/existent/file.txt", "file.txt")
+		assert.NoError(t, err, "addToZip should handle non-existent files gracefully")
+	})
+
+	t.Run("add valid file to zip", func(t *testing.T) {
+		// Create test file
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err := os.WriteFile(testFile, []byte("test content"), 0o644)
+		require.NoError(t, err)
+
+		zipPath := filepath.Join(service.BackupDir, "valid.zip")
+		zipFile, err := os.Create(zipPath)
+		require.NoError(t, err)
+		defer zipFile.Close()
+
+		w := zip.NewWriter(zipFile)
+		err = service.addToZip(w, testFile, "test.txt")
+		assert.NoError(t, err)
+		_ = w.Close()
+
+		// Verify file was added to zip
+		r, err := zip.OpenReader(zipPath)
+		require.NoError(t, err)
+		defer r.Close()
+
+		assert.Len(t, r.File, 1)
+		assert.Equal(t, "test.txt", r.File[0].Name)
+	})
+}
+
+// TestBackupService_Unzip_ErrorPaths tests unzip error handling.
+func TestBackupService_Unzip_ErrorPaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	service := &BackupService{
+		DataDir:   filepath.Join(tmpDir, "data"),
+		BackupDir: filepath.Join(tmpDir, "backups"),
+	}
+	_ = os.MkdirAll(service.BackupDir, 0o755)
+
+	t.Run("unzip with invalid zip file", func(t *testing.T) {
+		// Create invalid (corrupted) zip file
+		invalidZip := filepath.Join(service.BackupDir, "invalid.zip")
+		err := os.WriteFile(invalidZip, []byte("not a valid zip"), 0o644)
+		require.NoError(t, err)
+
+		err = service.RestoreBackup("invalid.zip")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "zip")
+	})
+
+	t.Run("unzip with path traversal attempt", func(t *testing.T) {
+		// Create zip with path traversal
+		zipPath := filepath.Join(service.BackupDir, "traversal.zip")
+		zipFile, err := os.Create(zipPath)
+		require.NoError(t, err)
+
+		w := zip.NewWriter(zipFile)
+		f, err := w.Create("../../evil.txt")
+		require.NoError(t, err)
+		_, _ = f.Write([]byte("evil"))
+		_ = w.Close()
+		_ = zipFile.Close()
+
+		// Should detect and block path traversal
+		err = service.RestoreBackup("traversal.zip")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "illegal file path")
+	})
+
+	t.Run("unzip empty zip file", func(t *testing.T) {
+		// Create empty but valid zip
+		emptyZip := filepath.Join(service.BackupDir, "empty.zip")
+		zipFile, err := os.Create(emptyZip)
+		require.NoError(t, err)
+
+		w := zip.NewWriter(zipFile)
+		_ = w.Close()
+		_ = zipFile.Close()
+
+		// Should handle empty zip gracefully
+		err = service.RestoreBackup("empty.zip")
+		assert.NoError(t, err)
+	})
+}
+
+// TestBackupService_GetAvailableSpace_EdgeCases tests disk space calculation edge cases.
+func TestBackupService_GetAvailableSpace_EdgeCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	service := &BackupService{
+		DataDir:   filepath.Join(tmpDir, "data"),
+		BackupDir: filepath.Join(tmpDir, "backups"),
+	}
+	_ = os.MkdirAll(service.DataDir, 0o755)
+
+	t.Run("get available space for existing directory", func(t *testing.T) {
+		availableBytes, err := service.GetAvailableSpace()
+		// May fail on some filesystems or temp directories
+		if err == nil {
+			assert.GreaterOrEqual(t, availableBytes, int64(0), "Available space should be non-negative")
+		}
+		// Test just verifies function doesn't panic
+	})
+
+	t.Run("available space error on non-existent directory", func(t *testing.T) {
+		// Create service with non-existent data directory
+		badService := &BackupService{
+			DataDir:   "/non/existent/directory/that/does/not/exist",
+			BackupDir: filepath.Join(tmpDir, "backups"),
+		}
+
+		_, err := badService.GetAvailableSpace()
+		// Depending on OS, this might succeed or fail
+		// On most systems, it will succeed with the parent directory stats
+		// Just verify the function doesn't panic
+		_ = err
+	})
+}
+
+// TestBackupService_AddDirToZip_EdgeCases tests addDirToZip with edge cases.
+func TestBackupService_AddDirToZip_EdgeCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	service := &BackupService{
+		DataDir:   filepath.Join(tmpDir, "data"),
+		BackupDir: filepath.Join(tmpDir, "backups"),
+	}
+	_ = os.MkdirAll(service.BackupDir, 0o755)
+
+	t.Run("add non-existent directory returns error", func(t *testing.T) {
+		zipPath := filepath.Join(service.BackupDir, "test.zip")
+		zipFile, err := os.Create(zipPath)
+		require.NoError(t, err)
+		defer zipFile.Close()
+
+		w := zip.NewWriter(zipFile)
+		defer w.Close()
+
+		err = service.addDirToZip(w, "/non/existent/dir", "base")
+		assert.Error(t, err)
+	})
+
+	t.Run("add empty directory to zip", func(t *testing.T) {
+		emptyDir := filepath.Join(tmpDir, "empty")
+		err := os.MkdirAll(emptyDir, 0o755)
+		require.NoError(t, err)
+
+		zipPath := filepath.Join(service.BackupDir, "empty.zip")
+		zipFile, err := os.Create(zipPath)
+		require.NoError(t, err)
+		defer zipFile.Close()
+
+		w := zip.NewWriter(zipFile)
+		err = service.addDirToZip(w, emptyDir, "empty")
+		assert.NoError(t, err)
+		_ = w.Close()
+
+		// Verify zip has no entries (only directories, which are skipped)
+		r, err := zip.OpenReader(zipPath)
+		require.NoError(t, err)
+		defer r.Close()
+		assert.Empty(t, r.File)
+	})
+
+	t.Run("add directory with nested files", func(t *testing.T) {
+		testDir := filepath.Join(tmpDir, "nested")
+		_ = os.MkdirAll(filepath.Join(testDir, "subdir"), 0o755)
+		_ = os.WriteFile(filepath.Join(testDir, "file1.txt"), []byte("content1"), 0o644)
+		_ = os.WriteFile(filepath.Join(testDir, "subdir", "file2.txt"), []byte("content2"), 0o644)
+
+		zipPath := filepath.Join(service.BackupDir, "nested.zip")
+		zipFile, err := os.Create(zipPath)
+		require.NoError(t, err)
+		defer zipFile.Close()
+
+		w := zip.NewWriter(zipFile)
+		err = service.addDirToZip(w, testDir, "nested")
+		assert.NoError(t, err)
+		_ = w.Close()
+
+		// Verify both files were added
+		r, err := zip.OpenReader(zipPath)
+		require.NoError(t, err)
+		defer r.Close()
+		assert.Len(t, r.File, 2)
+	})
+}

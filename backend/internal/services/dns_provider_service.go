@@ -389,6 +389,13 @@ func (s *dnsProviderService) Test(ctx context.Context, id uint) (*TestResult, er
 	// Decrypt credentials
 	credentials, err := s.GetDecryptedCredentials(ctx, id)
 	if err != nil {
+		// Update provider statistics even on decryption failure
+		now := time.Now()
+		provider.LastUsedAt = &now
+		provider.FailureCount++
+		provider.LastError = "Failed to decrypt credentials"
+		_ = s.db.WithContext(ctx).Save(provider)
+
 		return &TestResult{
 			Success: false,
 			Error:   "Failed to decrypt credentials",
