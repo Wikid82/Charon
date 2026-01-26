@@ -123,6 +123,12 @@ async function globalSetup(): Promise<void> {
 async function emergencySecurityReset(requestContext: APIRequestContext): Promise<void> {
   console.log('Performing emergency security reset...');
 
+  const emergencyToken = 'test-emergency-token-for-e2e-32chars';
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Emergency-Token': emergencyToken,
+  };
+
   const modules = [
     { key: 'security.acl.enabled', value: 'false' },
     { key: 'security.waf.enabled', value: 'false' },
@@ -133,11 +139,35 @@ async function emergencySecurityReset(requestContext: APIRequestContext): Promis
 
   for (const { key, value } of modules) {
     try {
-      await requestContext.post('/api/v1/settings', { data: { key, value } });
+      await requestContext.post('/api/v1/settings', {
+        data: { key, value },
+        headers,
+      });
       console.log(`  ✓ Disabled: ${key}`);
     } catch (e) {
       console.log(`  ⚠ Could not disable ${key}: ${e}`);
     }
+  }
+
+  // Wait for settings to propagate
+  console.log('  Waiting for settings to propagate...');
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  // Verify security status
+  try {
+    const response = await requestContext.get('/api/v1/security/status', {
+      headers,
+    });
+    if (response.ok()) {
+      const status = await response.json();
+      console.log('  ✓ Security status verified:');
+      console.log(`    - ACL: ${status.acl?.enabled ? 'enabled' : 'disabled'}`);
+      console.log(`    - WAF: ${status.waf?.enabled ? 'enabled' : 'disabled'}`);
+      console.log(`    - CrowdSec: ${status.crowdsec?.enabled ? 'enabled' : 'disabled'}`);
+      console.log(`    - Rate Limit: ${status.rateLimit?.enabled ? 'enabled' : 'disabled'}`);
+    }
+  } catch (e) {
+    console.log(`  ⚠ Could not verify security status: ${e}`);
   }
 }
 

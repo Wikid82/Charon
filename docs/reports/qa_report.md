@@ -1,440 +1,388 @@
-# QA Report: Auto-Versioning Verification & Supply Chain CVE Investigation
+# QA Verification Report - E2E Workflow Fixes & Frontend Coverage
 
-**Report Date:** 2025-01-18
-**Scope:** Auto-versioning workflow verification and supply chain vulnerability investigation
-**Status:** ✅ VERIFIED WITH RECOMMENDATIONS
-
----
+**Date**: 2026-01-26
+**Branch**: feature/beta-release (development merge)
+**Scope**: E2E workflow fixes + frontend coverage boost
+**Status**: ❌ **BLOCKED** - Critical issues found
 
 ## Executive Summary
 
-**Auto-Versioning Workflow:** ✅ **PASSED** - Implementation is secure and functional
-**Supply Chain Verification:** ⚠️ **ATTENTION REQUIRED** - Multiple CVEs detected requiring updates
-**Security Audit:** ✅ **PASSED** - No new vulnerabilities introduced, all checks passing
+**VERDICT**: ❌ **CANNOT PROCEED** - Return to development phase
 
-### Key Findings
+### Critical Blockers
 
-1. ✅ Auto-versioning workflow uses proper GitHub Release API with SHA-pinned actions
-2. ⚠️ **CRITICAL** CVE-2024-45337 found in `golang.org/x/crypto@v0.25.0` (cached dependencies)
-3. ⚠️ **HIGH** CVE-2025-68156 found in `github.com/expr-lang/expr@v1.17.2` (crowdsec/cscli binaries)
-4. ✅ Pre-commit hooks passing
-5. ✅ Trivy scan completed successfully with no new issues
+1. **E2E Tests**: 19 failures due to ACL module enabled and blocking security endpoints
+2. **Backend Coverage**: 68.2% (needs 85% minimum) - **17% gap**
+3. **Test Infrastructure**: ACL state pollution between test runs
 
----
+### Passing Checks
 
-## 1. Auto-Versioning Workflow Verification
-
-### Workflow Analysis: `.github/workflows/auto-versioning.yml`
-
-**Result:** ✅ **SECURE & COMPLIANT**
-
-#### Security Checklist
-
-| Check | Status | Details |
-|-------|--------|---------|
-| SHA-Pinned Actions | ✅ PASS | All actions use commit SHA for immutability |
-| GitHub Release API | ✅ PASS | Uses `softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b` (v2) |
-| Least Privilege Permissions | ✅ PASS | `contents: write` only (minimum required) |
-| YAML Syntax | ✅ PASS | Valid syntax, passed yaml linter |
-| Duplicate Prevention | ✅ PASS | Checks for existing release before creating |
-| Token Security | ✅ PASS | Uses `GITHUB_TOKEN` (auto-provided, scoped) |
-
-#### Action Version Verification
-
-```yaml
-actions/checkout@v4:
-  SHA: 8e8c483db84b4bee98b60c0593521ed34d9990e8
-  Status: ✅ Current (v4.2.2)
-
-paulhatch/semantic-version@v5.4.0:
-  SHA: a8f8f59fd7f0625188492e945240f12d7ad2dca3
-  Status: ✅ Current and pinned
-
-softprops/action-gh-release@v2:
-  SHA: a06a81a03ee405af7f2048a818ed3f03bbf83c7b
-  Status: ✅ Current and pinned
-```
-
-#### Workflow Logic
-
-**Semantic Version Calculation:**
-
-- Major bump: `/!:|BREAKING CHANGE:/` in commit message
-- Minor bump: `/feat:/` in commit message
-- Patch bump: Default for other commits
-- Format: `${major}.${minor}.${patch}-beta.${increment}`
-
-**Release Creation:**
-
-1. ✅ Checks for existing release with same tag
-2. ✅ Creates release only if tag doesn't exist
-3. ✅ Uses `generate_release_notes: true` for automated changelog
-4. ✅ Marks as prerelease with `prerelease: true`
-
-**Recommendation:** No changes required. Implementation follows GitHub Actions security best practices.
+- ✅ Frontend coverage: 85.66% (meets 85% threshold)
+- ✅ TypeScript type checking: 0 errors
+- ✅ Pre-commit hooks: All passed (with auto-fix)
 
 ---
 
-## 2. Supply Chain CVE Investigation
+## Detailed Results
 
-### Workflow Run Analysis
+### 1. E2E Tests (Playwright)
 
-**Failed Run:** <https://github.com/Wikid82/Charon/actions/runs/21046356687>
+**Status**: ❌ **BLOCKED**
+**Command**: \`npm run e2e\`
+**Environment**: Docker container on port 8080
 
-### Identified Vulnerabilities
+#### Test Results
 
-#### 🔴 CRITICAL: CVE-2024-45337
+\`\`\`
+Tests Run: 776 total
+- Passed: 12
+- Failed: 19
+- Did Not Run: 745
+Duration: 27 seconds
+\`\`\`
 
-**Package:** `golang.org/x/crypto@v0.25.0`
-**Severity:** CRITICAL
-**CVSS Score:** Not specified in scan
-**Location:** Cached Go module dependencies (`.cache/go/pkg/mod`)
+#### Root Cause
 
-**Description:**
-SSH authorization bypass vulnerability in golang.org/x/crypto package. An attacker could bypass authentication mechanisms in SSH implementations using this library.
+The **ACL (Access Control List)** security module is enabled on the test container and is blocking API requests to \`/api/v1/security/*\` endpoints with HTTP 403 responses:
 
-**Affected Files:**
+\`\`\`json
+{"error":"Blocked by access control list"}
+\`\`\`
 
-- `.cache/go/pkg/mod/pkg/mod/golang.org/x/crypto@v0.25.0` (scan timestamp: 2025-12-18T00:55:22Z)
+#### Failed Tests Breakdown
 
-**Fix Available:** ✅ YES
-**Fixed Version:** `v0.31.0`
+**ACL Enforcement Tests (4 failures)**
+- \`should verify ACL is enabled\` - Cannot query security status (403)
+- \`should return security status with ACL mode\` - API blocked (403)
+- \`should list access lists when ACL enabled\` - API blocked (403)
+- \`should test IP against access list\` - API blocked (403)
 
-**Impact Analysis:**
+**Combined Security Enforcement (5 failures)**
+- All tests fail in \`beforeAll\` hooks trying to enable Cerberus/modules
+- Error: \`Failed to set cerberus to true: 403\`
 
-- ❌ **NOT** in production Docker image (`charon:local` scan shows no crypto vulnerabilities)
-- ✅ Only present in cached Go build dependencies
-- ⚠️ Could affect development/build environments if exploited during build
+**CrowdSec Enforcement (3 failures)**
+- \`should verify CrowdSec is enabled\` - Cannot enable CrowdSec (403)
+- \`should list CrowdSec decisions\` - Expected 403 but got 403 (wrong assertion)
+- \`should return CrowdSec status\` - API blocked (403)
 
-**Remediation:**
+**Rate Limit Enforcement (3 failures)**
+- All tests blocked by 403 when trying to enable rate limiting
 
-```bash
-go get golang.org/x/crypto@v0.31.0
-go mod tidy
-```
+**WAF Enforcement (4 failures)**
+- All tests blocked by 403 when trying to enable WAF
 
----
+#### Security Teardown Issue
 
-#### 🟡 HIGH: CVE-2025-68156
+The security teardown step logged:
 
-**Package:** `github.com/expr-lang/expr@v1.17.2`
-**Severity:** HIGH
-**CVSS Score:** Not specified in scan
-**Location:** Production binaries (`crowdsec`, `cscli`)
+\`\`\`
+⚠️ Security teardown had errors (continuing anyway):
+   API blocked and no emergency token available
+\`\`\`
 
-**Description:**
-Denial of Service (DoS) vulnerability caused by uncontrolled recursion in expression parsing. An attacker could craft malicious expressions that cause stack overflow.
+This indicates:
+1. ACL was not properly disabled after the previous test run
+2. The test suite cannot disable ACL because it's blocked by ACL itself
+3. \`CHARON_EMERGENCY_TOKEN\` is not set in the test environment
 
-**Affected Binaries:**
+#### Passing Tests (Emergency Bypass)
 
-- `/usr/local/bin/crowdsec`
-- `/usr/local/bin/cscli`
+The **Emergency Security Reset** tests (5 passed) worked because they use a break-glass mechanism that bypasses ACL. The **Security Headers** tests (4 passed) don't require security API access.
 
-**Fix Available:** ✅ YES
-**Fixed Version:** `v1.17.7`
+#### Required Remediation
 
-**Impact Analysis:**
+**Immediate Actions:**
 
-- ⚠️ **PRESENT** in production Docker image
-- 🔴 Affects CrowdSec security components
-- ⚠️ Could be exploited via malicious CrowdSec rules or expressions
+1. **Reset ACL state** on test container:
+   \`\`\`bash
+   # Option A: Use emergency reset API if token is available
+   curl -X POST http://localhost:8080/api/v1/security/emergency-reset \\
+     -H "Authorization: Bearer \$CHARON_EMERGENCY_TOKEN"
 
-**Remediation:**
-CrowdSec vendors this library. Requires upstream update from CrowdSec project:
+   # Option B: Restart container with clean state
+   docker compose -f .docker/compose/docker-compose.test.yml down
+   docker compose -f .docker/compose/docker-compose.test.yml up -d --wait
+   \`\`\`
 
-```bash
-# Check for CrowdSec update that includes expr v1.17.7
-# Update Dockerfile to use latest CrowdSec version
-# Rebuild Docker image
-```
+2. **Add ACL cleanup to test setup**:
+   - \`tests/global-setup.ts\` must ensure ACL is disabled before running any tests
+   - Add emergency token to test environment
+   - Verify security modules are in clean state
 
-**Recommended Action:** File issue with CrowdSec project to update expr-lang dependency.
-
----
-
-#### 🟡 Additional HIGH Severity CVEs
-
-**golang.org/x/net Vulnerabilities** (Cached dependencies only):
-
-- CVE-2025-22870
-- CVE-2025-22872
-
-**golang.org/x/crypto Vulnerabilities** (Cached dependencies only):
-
-- CVE-2025-22869
-- CVE-2025-47914
-- CVE-2025-58181
-
-**Impact:** ✅ NOT in production image, only in build cache
+3. **Re-run E2E tests** after cleanup
 
 ---
 
-### Supply Chain Workflow Analysis: `.github/workflows/supply-chain-verify.yml`
+### 2. Frontend Coverage
 
-**Result:** ✅ **ROBUST IMPLEMENTATION**
+**Status**: ✅ **PASS**
+**Command**: \`npm run test:coverage\`
+**Directory**: \`frontend/\`
 
-#### Workflow Structure
+#### Coverage Summary
 
-**Job 1: `verify-sbom`**
+\`\`\`
+File Coverage:   85.66%
+Statements:      85.66%
+Branches:        78.50%
+Functions:       80.18%
+Lines:           86.41%
+\`\`\`
 
-- Generates SBOM using Syft
-- Scans SBOM with Grype for vulnerabilities
-- Creates detailed PR comments with vulnerability breakdown
-- Uses SARIF format for GitHub Security integration
+**Threshold**: 85% ✅ **MET**
 
-**Job 2: `verify-docker-image`**
+#### Test Results
 
-- Verifies Cosign signatures
-- Implements Rekor fallback for transparency log outages
-- Validates image provenance
+\`\`\`
+Tests: 1520 passed, 1 failed, 2 skipped (1523 total)
+Duration: 122.31 seconds
+\`\`\`
 
-**Job 3: `verify-release-artifacts`**
+#### Single Test Failure
 
-- Verifies artifact signatures for releases
-- Ensures supply chain integrity
+**Test**: \`SecurityNotificationSettingsModal > loads and displays existing settings\`
+**File**: src/components/__tests__/SecurityNotificationSettingsModal.test.tsx
+**Error**:
+\`\`\`
+AssertionError: expected false to be true // Object.is equality
+at line 78: expect(enableSwitch.checked).toBe(true);
+\`\`\`
 
-#### Why PR Comment May Not Have Been Created
+**Impact**: Low - This is a UI state test that doesn't affect coverage threshold
+**Recommendation**: Fix assertion or mock data in follow-up PR
 
-**Hypothesis:** Workflow may have failed during scanning phase before reaching PR comment step.
+---
 
-**Evidence from workflow code:**
+### 3. Backend Coverage
 
-```yaml
-- name: Comment PR with vulnerability details
-  if: github.event_name == 'pull_request'
-  uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
-```
+**Status**: ❌ **BLOCKED**
+**Command**: \`../scripts/go-test-coverage.sh\`
+**Directory**: \`backend/\`
+
+#### Coverage Summary
+
+\`\`\`
+Overall Coverage: 68.2%
+\`\`\`
+
+**Threshold**: 85% ❌ **FAILED**
+**Gap**: **16.8%** below minimum
+
+#### Analysis
+
+The backend coverage dropped significantly below the required threshold. This is a **critical blocker** that requires immediate attention.
 
 **Possible Causes:**
+1. New backend code added without corresponding tests
+2. Existing tests removed or disabled
+3. Test database seed changes affecting test execution
 
-1. Event was not `pull_request` (likely `workflow_run` or `schedule`)
-2. Grype scan failed before reaching comment step
-3. GitHub Actions permissions prevented comment creation
-4. Workflow run was cancelled/timed out
+**Required Actions:**
 
-**Recommendation:** Check workflow run logs at the provided URL to determine exact failure point.
+1. **Identify uncovered code**:
+   \`\`\`bash
+   cd backend
+   go test -coverprofile=coverage.out ./...
+   go tool cover -html=coverage.out -o coverage.html
+   # Review coverage.html to find uncovered functions
+   \`\`\`
 
----
+2. **Add targeted tests** for:
+   - New handlers (ACL, security, DNS detection)
+   - Service layer logic
+   - Error handling paths
+   - Edge cases
 
-## 3. Security Audit Results
+3. **Verify existing tests run**:
+   - Check for skipped tests (\`t.Skip()\`)
+   - Check for test build tags
+   - Verify test database connectivity
 
-### Pre-Commit Hooks
-
-**Status:** ✅ **ALL PASSED**
-
-```text
-✅ fix end of files.........................................................Passed
-✅ trim trailing whitespace.................................................Passed
-✅ check yaml...............................................................Passed
-✅ check for added large files..............................................Passed
-✅ dockerfile validation....................................................Passed
-✅ Go Vet...................................................................Passed
-✅ golangci-lint (Fast Linters - BLOCKING)..................................Passed
-✅ Check .version matches latest Git tag....................................Passed
-✅ Prevent large files that are not tracked by LFS..........................Passed
-✅ Prevent committing CodeQL DB artifacts...................................Passed
-✅ Prevent committing data/backups files....................................Passed
-✅ Frontend TypeScript Check................................................Passed
-✅ Frontend Lint (Fix)......................................................Passed
-```
-
-### Trivy Security Scan
-
-**Status:** ✅ **NO NEW ISSUES**
-
-```text
-Legend:
-- '-': Not scanned
-- '0': Clean (no security findings detected)
-
-[SUCCESS] Trivy scan completed - no issues found
-```
-
-**Analysis:**
-
-- No new vulnerabilities introduced
-- All scanned files are clean
-- Package manifests (package-lock.json, go.mod) contain no new CVEs
-- Frontend authentication files are properly excluded
-
-### Comparison with Previous Scans
-
-**Filesystem Scan (`trivy-scan-output.txt` - 2025-12-18T00:55:22Z):**
-
-- Scanned: 96 language-specific files
-- Database: 78.62 MiB (mirror.gcr.io/aquasec/trivy-db:2)
-- Found: 1 CRITICAL, 7 HIGH, 9 MEDIUM (in cached dependencies)
-
-**Docker Image Scan (`trivy-image-scan.txt` - 2025-12-18T01:00:07Z):**
-
-- Base OS (Alpine 3.23.0): 0 vulnerabilities
-- Main binary (`/app/charon`): 0 vulnerabilities
-- Caddy binary: 0 vulnerabilities
-- CrowdSec binaries: 1 HIGH (CVE-2025-68156)
-- Delve debugger: 0 vulnerabilities
-
-**Current Scan (2025-01-18):**
-
-- ✅ No regression in vulnerability count
-- ✅ No new critical or high severity issues introduced by auto-versioning changes
-- ✅ All infrastructure and build tools remain secure
+4. **Aim for 85%+ coverage** before proceeding
 
 ---
 
-## 4. Recommendations
+### 4. Type Safety (TypeScript)
 
-### Immediate Actions (Critical Priority)
+**Status**: ✅ **PASS**
+**Command**: \`npm run type-check\`
+**Directory**: \`frontend/\`
 
-1. **Update golang.org/x/crypto to v0.31.0**
+#### Results
 
-   ```bash
-   cd /projects/Charon/backend
-   go get golang.org/x/crypto@v0.31.0
-   go mod tidy
-   go mod verify
-   ```
+\`\`\`
+TypeScript Errors: 0
+Warnings: 0
+\`\`\`
 
-2. **Verify production image does not include cached dependencies**
-   - ✅ Already confirmed: Docker image scan shows no crypto vulnerabilities
-   - Continue using multi-stage builds to exclude build cache
-
-### Short-Term Actions (High Priority)
-
-3. **Monitor CrowdSec for expr-lang update**
-   - Check CrowdSec GitHub releases for version including expr v1.17.7
-   - File issue with CrowdSec project if update is not available within 2 weeks
-   - Track: <https://github.com/crowdsecurity/crowdsec/issues>
-
-4. **Update additional golang.org/x/net dependencies**
-
-   ```bash
-   go get golang.org/x/net@latest
-   go mod tidy
-   ```
-
-5. **Enhance supply chain workflow PR commenting**
-   - Add debug logging to determine why PR comments aren't being created
-   - Consider adding workflow_run event type filter
-   - Add comment creation status to workflow summary
-
-### Long-Term Actions (Medium Priority)
-
-6. **Implement automated dependency updates**
-   - Add Dependabot configuration for Go modules
-   - Add Renovate bot for comprehensive dependency management
-   - Set up automated PR creation for security updates
-
-7. **Add vulnerability scanning to PR checks**
-   - Run Trivy scan on every PR
-   - Block merges with CRITICAL or HIGH vulnerabilities in production code
-   - Allow cached dependency vulnerabilities with manual review
-
-8. **Enhance SBOM generation**
-   - Generate SBOM for every release
-   - Publish SBOM alongside release artifacts
-   - Verify SBOM signatures using Cosign
+All TypeScript type checks passed successfully. No type safety issues detected.
 
 ---
 
-## 5. Conclusion
+### 5. Pre-commit Hooks
 
-### Auto-Versioning Implementation
+**Status**: ✅ **PASS** (with auto-fix)
+**Command**: \`pre-commit run --all-files\`
 
-✅ **VERDICT: PRODUCTION READY**
+#### Results
 
-The auto-versioning workflow implementation is secure, follows GitHub Actions best practices, and correctly uses the GitHub Release API. All actions are SHA-pinned for supply chain security, permissions follow the principle of least privilege, and duplicate release prevention is properly implemented.
+\`\`\`
+Hooks Run: 13
+Passed: 12
+Fixed: 1 (trailing-whitespace)
+Failed: 0 (blocking)
+\`\`\`
 
-**No changes required for deployment.**
+#### Auto-Fixed Issues
 
-### Supply Chain Security
+**Hook**: \`trailing-whitespace\`
+**File**: \`docs/plans/current_spec.md\`
+**Action**: Automatically removed trailing whitespace
 
-⚠️ **VERDICT: REQUIRES UPDATES BEFORE NEXT RELEASE**
+All blocking hooks passed:
+- ✅ Go Vet
+- ✅ golangci-lint (Fast Linters)
+- ✅ Version check
+- ✅ Dockerfile validation
+- ✅ Frontend TypeScript check
+- ✅ Frontend lint
 
-Multiple CVEs have been identified in dependencies, with one CRITICAL and one HIGH severity vulnerability requiring attention:
-
-1. **CRITICAL** CVE-2024-45337 (golang.org/x/crypto) - ✅ Fix available, not in production
-2. **HIGH** CVE-2025-68156 (expr-lang/expr) - ⚠️ In production (CrowdSec), awaiting upstream fix
-
-**Current production deployment is secure** (main application binary has zero vulnerabilities), but cached dependencies and third-party binaries (CrowdSec) require updates before next release.
-
-### Security Audit
-
-✅ **VERDICT: PASSING**
-
-All security checks are passing:
-
-- Pre-commit hooks: 13/13 passed
-- Trivy scan: No new issues
-- No regression in vulnerability count
-- Infrastructure remains secure
-
-### Risk Assessment
-
-| Component | Risk Level | Mitigation Status |
-|-----------|-----------|-------------------|
-| Auto-versioning workflow | 🟢 LOW | No action required |
-| Main application binary | 🟢 LOW | No vulnerabilities detected |
-| Build dependencies (cached) | 🟡 MEDIUM | Fix available, update recommended |
-| CrowdSec binaries | 🟡 MEDIUM | Awaiting upstream update |
-| Overall deployment | 🟢 LOW | Safe for production |
+**Note**: The trailing whitespace fix should be included in the commit.
 
 ---
 
-## Appendix A: Scan Artifacts
+### 6. Security Scans
 
-### Filesystem Scan Summary
+**Status**: ⏸️ **NOT RUN** - Blocked by E2E/backend failures
 
-- **Tool:** Trivy v0.68
-- **Timestamp:** 2025-12-18T00:55:22Z
-- **Database:** 78.62 MiB (Aquasec Trivy DB)
-- **Files Scanned:** 96 (gomod, npm, pip, python-pkg)
-- **Total Vulnerabilities:** 17 (1 CRITICAL, 7 HIGH, 9 MEDIUM)
-- **Location:** Cached Go module dependencies
-
-### Docker Image Scan Summary
-
-- **Tool:** Trivy v0.68
-- **Timestamp:** 2025-12-18T01:00:07Z
-- **Image:** charon:local
-- **Base OS:** Alpine Linux 3.23.0
-- **Total Vulnerabilities:** 1 (1 HIGH in crowdsec/cscli)
-- **Main Application:** 0 vulnerabilities
-
-### Current Security Scan Summary
-
-- **Tool:** Trivy (via skill-runner)
-- **Timestamp:** 2025-01-18
-- **Status:** ✅ No issues found
-- **Files Scanned:** package-lock.json, go.mod, playwright auth files
-- **Result:** All clean (no security findings detected)
+Security scans were not executed because the Definition of Done requires all tests to pass first. Once the E2E and backend coverage issues are resolved, they must be run per the DoD.
 
 ---
 
-## Appendix B: References
+## Regression Analysis
 
-### GitHub Actions Workflows
+### New Failures vs. Baseline
 
-- Auto-versioning: `.github/workflows/auto-versioning.yml`
-- Supply chain verify: `.github/workflows/supply-chain-verify.yml`
+**E2E Tests**: 19 new failures (all ACL-related)
+- Root cause: ACL state pollution from previous test run
+- Impact: Blocks entire security-enforcement test suite
+- Previously: All tests were passing in isolation
 
-### Scan Reports
-
-- Filesystem scan: `trivy-scan-output.txt`
-- Docker image scan: `trivy-image-scan.txt`
-
-### CVE Databases
-
-- CVE-2024-45337: <https://nvd.nist.gov/vuln/detail/CVE-2024-45337>
-- CVE-2025-68156: <https://nvd.nist.gov/vuln/detail/CVE-2025-68156>
-
-### Action Verification
-
-- softprops/action-gh-release: <https://github.com/softprops/action-gh-release>
-- paulhatch/semantic-version: <https://github.com/PaulHatch/semantic-version>
-- actions/checkout: <https://github.com/actions/checkout>
+**Backend Coverage**: Dropped from ~85% to 68.2%
+- Change: -16.8%
+- Impact: Critical regression requiring investigation
 
 ---
 
-**Report Generated By:** GitHub Copilot QA Agent
-**Report Version:** 1.0
-**Next Review:** After implementing recommendations or upon next release
+## Issues Found
+
+### Critical (Blocking Merge)
+
+1. **E2E Test Infrastructure Issue**
+   - **Severity**: Critical
+   - **Impact**: 19 test failures, 745 tests not run
+   - **Root Cause**: ACL module enabled and blocking test teardown
+   - **Fix Required**: Add ACL cleanup to global setup, set emergency token
+   - **ETA**: 30 minutes
+
+2. **Backend Coverage Gap**
+   - **Severity**: Critical
+   - **Impact**: 68.2% vs 85% required (-16.8%)
+   - **Root Cause**: Missing tests for new/existing code
+   - **Fix Required**: Add comprehensive unit tests
+   - **ETA**: 4-6 hours
+
+### Important (Should Fix)
+
+3. **Frontend Test Failure**
+   - **Severity**: Low
+   - **Impact**: 1 failing test in SecurityNotificationSettingsModal
+   - **Root Cause**: Mock data mismatch or state initialization
+   - **Fix Required**: Update mock or adjust assertion
+   - **ETA**: 15 minutes
+
+---
+
+## Recommendation
+
+### ❌ BLOCKED - Return to Development
+
+**Rationale:**
+1. **E2E tests failing** - Test infrastructure issue must be fixed before validating application behavior
+2. **Backend coverage critically low** - Coverage regression indicates insufficient testing of new features
+3. **Cannot validate security** - Security scans depend on passing E2E tests
+
+### Return to Phase
+
+**Phase**: \`Backend_Dev\` (for coverage) + \`QA\` (for E2E infrastructure)
+
+### Remediation Sequence
+
+#### Step 1: Fix E2E Test Infrastructure (QA Phase)
+
+**Owner**: QA Engineer or Test Infrastructure Team
+**Duration**: 30 minutes
+
+1. Add \`CHARON_EMERGENCY_TOKEN\` to test environment
+2. Update \`tests/global-setup.ts\` to:
+   - Disable ACL before test run
+   - Verify security modules are in clean state
+   - Add cleanup retry with emergency reset
+3. Restart test container with clean state
+4. Re-run E2E tests and verify all pass
+
+**Success Criteria**: All 776 E2E tests pass (0 failures)
+
+#### Step 2: Fix Backend Coverage (Backend_Dev Phase)
+
+**Owner**: Backend Development Team
+**Duration**: 4-6 hours
+
+1. Generate coverage report with HTML visualization
+2. Identify uncovered functions and critical paths
+3. Add unit tests targeting uncovered code:
+   - Handler tests
+   - Service layer tests
+   - Error handling tests
+   - Integration tests
+4. Re-run coverage and verify ≥85%
+
+**Success Criteria**: Backend coverage ≥85%
+
+#### Step 3: Fix Frontend Test (Optional)
+
+**Owner**: Frontend Development Team
+**Duration**: 15 minutes
+
+1. Debug \`SecurityNotificationSettingsModal\` test
+2. Fix mock data or assertion
+3. Re-run test and verify pass
+
+**Success Criteria**: All 1523 frontend tests pass
+
+#### Step 4: Re-Run Full DoD Verification
+
+Once Steps 1-2 are complete, re-run the complete DoD verification checklist:
+- E2E tests
+- Frontend coverage
+- Backend coverage
+- Type checking
+- Pre-commit hooks
+- Security scans (Trivy, Docker Image, CodeQL)
+
+---
+
+## Sign-Off
+
+**QA Agent**: Automated Verification System
+**Date**: 2026-01-26T00:22:00Z
+**Next Action**: Return to development phase for remediation
+**Estimated Time to Ready**: 5-7 hours
+
+**Critical Path**:
+1. Fix E2E test infrastructure (30 min)
+2. Add backend tests to reach 85% coverage (4-6 hours)
+3. Re-run complete DoD verification
+4. Security scans
+5. Final approval
