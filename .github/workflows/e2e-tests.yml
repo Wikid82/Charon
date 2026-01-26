@@ -27,7 +27,8 @@ on:
   pull_request:
     branches:
       - main
-      - develop
+      - development
+      - 'feature/**'
     paths:
       - 'frontend/**'
       - 'backend/**'
@@ -38,6 +39,8 @@ on:
   push:
     branches:
       - main
+      - development
+      - 'feature/**'
     paths:
       - 'frontend/**'
       - 'backend/**'
