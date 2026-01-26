@@ -1,4 +1,0 @@
-services:
-  charon-e2e:
-    environment:
-      - CHARON_SECURITY_CERBERUS_ENABLED=false
