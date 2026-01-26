@@ -91,10 +91,12 @@ npx playwright test
 - [x] Fix Go cache path in e2e-tests.yml workflow
 - [x] Optimize global-setup.ts to prevent hanging on emergency reset
 - [x] Fix E2E coverage generation (remove --reporter override)
+- [x] Disable E2E coverage collection (remove Vite dev server)
 - [ ] Commit with clear diagnostic message
 - [ ] Trigger CI run
 - [ ] Analyze results and document findings
 - [ ] Restore security tests once diagnosis complete
+- [ ] Re-evaluate E2E coverage strategy (Vite vs Docker vs separate job)
 
 ---
 
@@ -191,3 +193,52 @@ npx playwright test \
 - ✅ E2E coverage will now be generated in `coverage/e2e/`
 - ✅ Coverage artifacts will upload successfully
 - ✅ Codecov will receive E2E coverage data for frontend code
+
+**UPDATE**: Coverage generation has been **temporarily disabled** to isolate test failures.
+
+### E2E Coverage Disabled (Diagnostic)
+
+**Issue**: Tests were running against Vite dev server (port 5173) for coverage collection, adding significant overhead and complexity.
+
+**Hypothesis**: The dual-environment setup (Docker + Vite) may be causing test instability or failures.
+
+**Changes Applied**:
+1. **Removed Vite dev server setup** - No longer starts frontend dev server
+2. **Removed frontend dependency installation** - Saves ~60s per shard
+3. **Changed PLAYWRIGHT_BASE_URL** - Now points directly to Docker container (localhost:8080)
+4. **Disabled coverage artifacts** - Removed E2E coverage upload steps
+5. **Disabled upload-coverage job** - Marked with `if: false`
+
+**Before**:
+```yaml
+- name: Install Frontend Dependencies
+  run: cd frontend && npm ci
+
+- name: Start Vite dev server for coverage
+  run: npx vite --port 5173 &
+
+env:
+  PLAYWRIGHT_BASE_URL: http://localhost:5173  # Vite with source maps
+```
+
+**After**:
+```yaml
+# Frontend deps removed - not needed
+# Vite server removed - not needed
+
+env:
+  PLAYWRIGHT_BASE_URL: http://localhost:8080  # Direct to Docker
+```
+
+**Impact**:
+- ✅ **~60-90 seconds faster** per shard (no frontend install + Vite startup)
+- ✅ **Simpler architecture** - single environment (Docker only)
+- ✅ **Matches local testing** - tests against production-like container
+- ⚠️ **No E2E coverage** - will need to re-enable after diagnosis
+
+**If Tests Pass**: The Vite/coverage setup was causing issues. Can either:
+1. Keep coverage disabled for speed
+2. Create separate coverage-only job (non-sharded)
+3. Investigate and fix Vite setup issues
+
+**If Tests Still Fail**: Issue is not related to coverage/Vite - deeper investigation needed.
