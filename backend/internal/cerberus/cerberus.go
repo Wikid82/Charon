@@ -132,8 +132,11 @@ func (c *Cerberus) IsEnabled() bool {
 		return true
 	}
 
-	// Back-compat: a zero-value SecurityConfig implies defaults (enabled).
-	if c.cfg == (config.SecurityConfig{}) {
+	// Back-compat: check if all config fields are their zero values (implies defaults = enabled)
+	// Note: cannot use == for struct comparison when it contains slices
+	if c.cfg.CrowdSecMode == "" && c.cfg.CrowdSecAPIURL == "" && c.cfg.CrowdSecAPIKey == "" &&
+		c.cfg.CrowdSecConfigDir == "" && c.cfg.WAFMode == "" && c.cfg.RateLimitMode == "" &&
+		c.cfg.ACLMode == "" && !c.cfg.CerberusEnabled && len(c.cfg.ManagementCIDRs) == 0 {
 		return true
 	}
 
@@ -143,6 +146,13 @@ func (c *Cerberus) IsEnabled() bool {
 // Middleware returns a Gin middleware that enforces Cerberus checks when enabled.
 func (c *Cerberus) Middleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
+		// Check for emergency bypass flag (set by EmergencyBypass middleware)
+		if bypass, exists := ctx.Get("emergency_bypass"); exists && bypass.(bool) {
+			logger.Log().WithField("path", ctx.Request.URL.Path).Debug("Cerberus: Skipping security checks (emergency bypass)")
+			ctx.Next()
+			return
+		}
+
 		if !c.IsEnabled() {
 			ctx.Next()
 			return

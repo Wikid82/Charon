@@ -2,13 +2,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
@@ -253,10 +257,38 @@ func main() {
 		logger.Log().WithError(err).Warn("WARNING: failed to process mounted Caddyfile")
 	}
 
-	addr := fmt.Sprintf(":%s", cfg.HTTPPort)
-	logger.Log().Infof("starting %s backend on %s", version.Name, addr)
-
-	if err := router.Run(addr); err != nil {
-		log.Fatalf("server error: %v", err)
+	// Initialize emergency server (Tier 2 break glass)
+	emergencyServer := server.NewEmergencyServer(db, cfg.Emergency)
+	if err := emergencyServer.Start(); err != nil {
+		logger.Log().WithError(err).Fatal("Failed to start emergency server")
 	}
+
+	// Setup graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	// Start main HTTP server in goroutine
+	go func() {
+		addr := fmt.Sprintf(":%s", cfg.HTTPPort)
+		logger.Log().Infof("starting %s backend on %s", version.Name, addr)
+
+		if err := router.Run(addr); err != nil {
+			logger.Log().WithError(err).Fatal("server error")
+		}
+	}()
+
+	// Wait for interrupt signal
+	sig := <-quit
+	logger.Log().Infof("Received signal %v, initiating graceful shutdown...", sig)
+
+	// Graceful shutdown with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Stop emergency server
+	if err := emergencyServer.Stop(ctx); err != nil {
+		logger.Log().WithError(err).Error("Emergency server shutdown error")
+	}
+
+	logger.Log().Info("Server shutdown complete")
 }
