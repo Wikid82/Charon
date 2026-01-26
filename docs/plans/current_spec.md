@@ -90,6 +90,7 @@ npx playwright test
 - [x] Remove security-tests dependency from browser projects
 - [x] Fix Go cache path in e2e-tests.yml workflow
 - [x] Optimize global-setup.ts to prevent hanging on emergency reset
+- [x] Fix E2E coverage generation (remove --reporter override)
 - [ ] Commit with clear diagnostic message
 - [ ] Trigger CI run
 - [ ] Analyze results and document findings
@@ -159,3 +160,34 @@ await new Promise(resolve => setTimeout(resolve, 500)); // 500ms wait
 - ✅ Prevents shards from hanging on global-setup
 - ✅ Reduces global-setup time by ~3-4 seconds per shard
 - ✅ Skips unnecessary emergency reset on fresh CI containers
+### E2E Coverage Generation Fix
+
+**Issue**: Coverage files were not being generated, causing upload artifact warning:
+```
+Warning: No files were found with the provided path: coverage/e2e/. No artifacts will be uploaded.
+```
+
+**Root Cause**: The workflow was overriding reporters with `--reporter=html,json,github`, which excluded the `@bgotink/playwright-coverage` reporter configured in `playwright.config.js`.
+
+**Fix**: Removed the `--reporter` flag from the test execution command, allowing `playwright.config.js` to control reporters:
+
+**Before**:
+```bash
+npx playwright test \
+  --project=${{ matrix.browser }} \
+  --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
+  --reporter=html,json,github  # ← This overrode config
+```
+
+**After**:
+```bash
+npx playwright test \
+  --project=${{ matrix.browser }} \
+  --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
+  # Uses reporters from playwright.config.js (includes coverage)
+```
+
+**Impact**:
+- ✅ E2E coverage will now be generated in `coverage/e2e/`
+- ✅ Coverage artifacts will upload successfully
+- ✅ Codecov will receive E2E coverage data for frontend code
