@@ -15,7 +15,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Break Glass - Tier 2 (Emergency Server)', () => {
   const EMERGENCY_BASE_URL = 'http://localhost:2020';
-  const EMERGENCY_TOKEN = 'test-emergency-token-for-e2e-32chars';
+  const EMERGENCY_TOKEN = process.env.CHARON_EMERGENCY_TOKEN || 'test-emergency-token-for-e2e-32chars';
   const BASIC_AUTH = 'Basic ' + Buffer.from('admin:testpass').toString('base64');
 
   test('should access emergency server health endpoint without ACL blocking', async ({ request }) => {

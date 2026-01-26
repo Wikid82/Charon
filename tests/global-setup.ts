@@ -126,7 +126,7 @@ async function globalSetup(): Promise<void> {
 async function emergencySecurityReset(requestContext: APIRequestContext): Promise<void> {
   console.log('🔓 Performing emergency security reset...');
 
-  const emergencyToken = 'test-emergency-token-for-e2e-32chars';
+  const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN || 'test-emergency-token-for-e2e-32chars';
 
   try {
     // Use the CORRECT endpoint: /api/v1/emergency/security-reset
