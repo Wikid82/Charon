@@ -24,6 +24,7 @@ services:
   # Charon Application - Core E2E Testing Service
   # =============================================================================
   charon-app:
+    image: ${CHARON_E2E_IMAGE:-charon:e2e-test}
     build:
       context: ../..
       dockerfile: Dockerfile

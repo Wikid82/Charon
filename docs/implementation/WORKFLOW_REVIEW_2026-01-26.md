@@ -153,6 +153,34 @@ To add explicit registry verification, consider this optional enhancement to `do
 
 ---
 
+## Container Prune Workflow Added ✅
+
+A new scheduled workflow and helper script were added to safely prune old container images from both **GHCR** and **Docker Hub**.
+
+- **Files added**:
+  - `.github/workflows/container-prune.yml` (weekly schedule, manual dispatch)
+  - `scripts/prune-container-images.sh` (dry-run by default; supports GHCR and Docker Hub)
+
+- **Behavior**:
+  - Default: **dry-run=true** (no destructive changes).
+  - Uses `GITHUB_TOKEN` for GHCR package deletions (workflow permission `packages: write` is set).
+  - Uses `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets for Docker Hub deletions.
+  - Honours protected patterns by default: `v*`, `latest`, `main`, `develop`.
+  - Configurable inputs: registries, keep_days, keep_last_n, dry_run.
+
+- **Secrets required**:
+  - `DOCKERHUB_USERNAME` (existing)
+  - `DOCKERHUB_TOKEN` (existing)
+  - `GITHUB_TOKEN` (provided by Actions)
+
+- **How to run**:
+  - Manually: `Actions → Container Registry Prune → Run workflow` (adjust inputs as needed)
+  - Scheduled: runs weekly (Sundays 03:00 UTC) by default
+
+- **Safety**: The workflow is conservative and will only delete when `dry_run=false` is explicitly set; it is recommended to run a few dry-runs and review candidates before enabling deletions.
+
+---
+
 ## Summary
 
 ### ✅ What Was Fixed
