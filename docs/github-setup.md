@@ -65,6 +65,11 @@ https://wikid82.github.io/charon/
 
 ### Docker Build Workflow (`.github/workflows/docker-build.yml`)
 
+**Prerequisites:**
+
+- Go 1.25.6+ (automatically managed via `GOTOOLCHAIN: auto` in CI)
+- Node.js 20+ for frontend builds
+
 **Triggers when:**
 
 - ✅ You push to `main` branch → Creates `latest` tag

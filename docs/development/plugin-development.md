@@ -37,7 +37,7 @@ Charon uses Go's plugin system to dynamically load DNS provider implementations.
 ### Build Requirements
 
 - **CGO:** Must be enabled (`CGO_ENABLED=1`)
-- **Go Version:** Must match Charon's Go version exactly
+- **Go Version:** Must match Charon's Go version exactly (currently 1.25.6+)
 - **Compiler:** GCC/Clang for Linux, Xcode tools for macOS
 - **Build Mode:** Must use `-buildmode=plugin`
 
@@ -405,7 +405,7 @@ my-provider-plugin/
 ```go
 module github.com/yourname/charon-plugin-myprovider
 
-go 1.23
+go 1.25
 
 require (
     github.com/Wikid82/charon v0.0.0-20240101000000-abcdef123456
@@ -485,7 +485,7 @@ set -e
 
 PLUGIN_NAME="myprovider"
 GO_VERSION=$(go version | awk '{print $3}')
-CHARON_GO_VERSION="go1.23.4"
+CHARON_GO_VERSION="go1.25.6"
 
 # Verify Go version
 if [ "$GO_VERSION" != "$CHARON_GO_VERSION" ]; then

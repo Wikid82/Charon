@@ -274,8 +274,17 @@ docker run -d \
 
 ### Development Setup
 
+**Requirements:**
+
+- **Go 1.25.6+** — Download from [go.dev/dl](https://go.dev/dl/)
+- **Node.js 20+** and npm
+- Docker 20.10+
+
 **Install golangci-lint** (for contributors): `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest`
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for complete development environment setup.
+
+**Note:** GitHub Actions CI uses `GOTOOLCHAIN: auto` to automatically download and use Go 1.25.6, even if your system has an older version installed. For local development, ensure you have Go 1.25.6+ installed.
 
 ### Upgrading? Run Migrations
 
