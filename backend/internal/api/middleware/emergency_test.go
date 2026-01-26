@@ -62,6 +62,33 @@ func TestEmergencyBypass_ValidToken(t *testing.T) {
 	assert.Empty(t, req.Header.Get(EmergencyTokenHeader), "Token should be stripped")
 }
 
+func TestEmergencyBypass_ValidToken_IPv6Localhost(t *testing.T) {
+	// Test that valid token from IPv6 localhost is treated as localhost
+	gin.SetMode(gin.TestMode)
+
+	t.Setenv("CHARON_EMERGENCY_TOKEN", "test-token-that-meets-minimum-length-requirement-32-chars")
+
+	router := gin.New()
+	_ = router.SetTrustedProxies(nil)
+	managementCIDRs := []string{"127.0.0.0/8"}
+	router.Use(EmergencyBypass(managementCIDRs, nil))
+
+	router.GET("/test", func(c *gin.Context) {
+		bypass, exists := c.Get("emergency_bypass")
+		assert.True(t, exists, "Emergency bypass flag should be set")
+		assert.True(t, bypass.(bool), "Emergency bypass flag should be true")
+		c.JSON(http.StatusOK, gin.H{"message": "bypass active"})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set(EmergencyTokenHeader, "test-token-that-meets-minimum-length-requirement-32-chars")
+	req.RemoteAddr = "[::1]:12345"
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
 func TestEmergencyBypass_InvalidToken(t *testing.T) {
 	// Test that invalid token does not set bypass flag
 	gin.SetMode(gin.TestMode)

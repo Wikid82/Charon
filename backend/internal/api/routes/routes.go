@@ -31,8 +31,10 @@ import (
 
 // Register wires up API routes and performs automatic migrations.
 func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
-	// TOP OF CHAIN: Emergency bypass middleware (must be first!)
-	// This allows emergency token to bypass ALL security checks including Cerberus ACL
+	// Emergency bypass must be registered FIRST.
+	// When a valid X-Emergency-Token is present from an authorized source,
+	// it sets an emergency context flag and strips the token header so downstream
+	// middleware (Cerberus/ACL/WAF/etc.) can honor the bypass without logging it.
 	router.Use(middleware.EmergencyBypass(cfg.Security.ManagementCIDRs, db))
 
 	// Enable gzip compression for API responses (reduces payload size ~70%)
@@ -105,11 +107,10 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP(c.Writer, c.Request)
 	})
 
-	// Emergency endpoint - bypasses all security when valid token is provided via middleware
-	// Requires CHARON_EMERGENCY_TOKEN env var and request from management CIDR
-	// The EmergencyBypass middleware (registered first) checks token and sets bypass flag
+	// Emergency endpoint
 	emergencyHandler := handlers.NewEmergencyHandler(db)
-	router.POST("/api/v1/emergency/security-reset", emergencyHandler.SecurityReset)
+	emergency := router.Group("/api/v1/emergency")
+	emergency.POST("/security-reset", emergencyHandler.SecurityReset)
 
 	api := router.Group("/api/v1")
 

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"sync"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
@@ -14,6 +12,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 const (
@@ -25,28 +24,12 @@ const (
 
 	// MinTokenLength is the minimum required length for the emergency token
 	MinTokenLength = 32
-
-	// RateLimitWindow is the time window for rate limiting
-	RateLimitWindow = time.Minute
-
-	// MaxAttemptsPerWindow is the maximum number of attempts allowed per IP per window
-	MaxAttemptsPerWindow = 5
 )
-
-// rateLimitEntry tracks rate limiting state for an IP
-type rateLimitEntry struct {
-	attempts  int
-	windowEnd time.Time
-}
 
 // EmergencyHandler handles emergency security reset operations
 type EmergencyHandler struct {
 	db              *gorm.DB
 	securityService *services.SecurityService
-
-	// Rate limiting state
-	rateLimitMu sync.Mutex
-	rateLimits  map[string]*rateLimitEntry
 }
 
 // NewEmergencyHandler creates a new EmergencyHandler
@@ -54,7 +37,6 @@ func NewEmergencyHandler(db *gorm.DB) *EmergencyHandler {
 	return &EmergencyHandler{
 		db:              db,
 		securityService: services.NewSecurityService(db),
-		rateLimits:      make(map[string]*rateLimitEntry),
 	}
 }
 
@@ -64,10 +46,10 @@ func NewEmergencyHandler(db *gorm.DB) *EmergencyHandler {
 //
 // Security measures:
 // - EmergencyBypass middleware validates token and IP (timing-safe comparison)
-// - Rate limited to 5 attempts per minute per IP
+// - No rate limiting (break-glass mechanism must work when normal APIs are blocked)
 // - All attempts (success and failure) are logged to audit trail
 func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
-	clientIP := c.ClientIP()
+	clientIP := util.CanonicalizeIPForSecurity(c.ClientIP())
 
 	// Check if request has been pre-validated by EmergencyBypass middleware
 	bypassActive, exists := c.Get("emergency_bypass")
@@ -77,21 +59,6 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 			"ip":     clientIP,
 			"action": "emergency_reset_via_middleware",
 		}).Debug("Emergency reset validated by middleware")
-
-		// Still check rate limit to prevent abuse
-		if !h.checkRateLimit(clientIP) {
-			h.logAudit(clientIP, "emergency_reset_rate_limited", "Rate limit exceeded")
-			log.WithFields(log.Fields{
-				"ip":     clientIP,
-				"action": "emergency_reset_rate_limited",
-			}).Warn("Emergency reset rate limit exceeded")
-
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":   "rate limit exceeded",
-				"message": "Too many attempts. Please wait before trying again.",
-			})
-			return
-		}
 
 		// Proceed with security reset
 		h.performSecurityReset(c, clientIP)
@@ -104,21 +71,6 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 		"ip":     clientIP,
 		"action": "emergency_reset_legacy_path",
 	}).Debug("Emergency reset using legacy direct validation")
-
-	// Check rate limit first (before any token validation)
-	if !h.checkRateLimit(clientIP) {
-		h.logAudit(clientIP, "emergency_reset_rate_limited", "Rate limit exceeded")
-		log.WithFields(log.Fields{
-			"ip":     clientIP,
-			"action": "emergency_reset_rate_limited",
-		}).Warn("Emergency reset rate limit exceeded")
-
-		c.JSON(http.StatusTooManyRequests, gin.H{
-			"error":   "rate limit exceeded",
-			"message": "Too many attempts. Please wait before trying again.",
-		})
-		return
-	}
 
 	// Check if emergency token is configured
 	configuredToken := os.Getenv(EmergencyTokenEnvVar)
@@ -154,6 +106,13 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	// Get token from header
 	providedToken := c.GetHeader(EmergencyTokenHeader)
 	if providedToken == "" {
+		// No rate limiting on emergency endpoint - this is a "break-glass" mechanism
+		// that must work when normal APIs are blocked. Security is provided by:
+		// - Strong token requirement (32+ chars minimum)
+		// - IP restrictions (ManagementCIDRs)
+		// - Constant-time token comparison (timing attack protection)
+		// - Comprehensive audit logging
+
 		h.logAudit(clientIP, "emergency_reset_missing_token", "No token provided in header")
 		log.WithFields(log.Fields{
 			"ip":     clientIP,
@@ -217,59 +176,6 @@ func (h *EmergencyHandler) performSecurityReset(c *gin.Context, clientIP string)
 		"message":          "All security modules have been disabled. Please reconfigure security settings.",
 		"disabled_modules": disabledModules,
 	})
-}
-
-// checkRateLimit returns true if the request is allowed, false if rate limited
-// Test environments (CHARON_ENV=test|e2e|development) get 50 attempts per minute
-// Production environments enforce strict limits: 5 attempts per 5 minutes
-func (h *EmergencyHandler) checkRateLimit(ip string) bool {
-	h.rateLimitMu.Lock()
-	defer h.rateLimitMu.Unlock()
-
-	// Environment-aware rate limiting
-	var maxAttempts int
-	var window time.Duration
-
-	if env := os.Getenv("CHARON_ENV"); env == "test" || env == "e2e" || env == "development" {
-		// Test/Dev: 50 attempts per minute (lenient for E2E testing)
-		maxAttempts = 50
-		window = time.Minute
-		log.WithFields(log.Fields{
-			"ip":           ip,
-			"environment":  env,
-			"max_attempts": maxAttempts,
-			"window":       window,
-		}).Debug("Using lenient rate limiting for test environment")
-	} else {
-		// Production: 5 attempts per 5 minutes (strict)
-		maxAttempts = MaxAttemptsPerWindow
-		window = 5 * time.Minute
-	}
-
-	now := time.Now()
-	entry, exists := h.rateLimits[ip]
-
-	if !exists || now.After(entry.windowEnd) {
-		// New window
-		h.rateLimits[ip] = &rateLimitEntry{
-			attempts:  1,
-			windowEnd: now.Add(window),
-		}
-		return true
-	}
-
-	// Within existing window
-	if entry.attempts >= maxAttempts {
-		log.WithFields(log.Fields{
-			"ip":           ip,
-			"attempts":     entry.attempts,
-			"max_attempts": maxAttempts,
-		}).Warn("Rate limit exceeded for emergency endpoint")
-		return false
-	}
-
-	entry.attempts++
-	return true
 }
 
 // disableAllSecurityModules disables Cerberus, ACL, WAF, Rate Limit, and CrowdSec

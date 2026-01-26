@@ -33,6 +33,7 @@ func setupEmergencyTestDB(t *testing.T) *gorm.DB {
 func setupEmergencyRouter(handler *EmergencyHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	_ = router.SetTrustedProxies(nil)
 	router.POST("/api/v1/emergency/security-reset", handler.SecurityReset)
 	return router
 }
@@ -212,74 +213,6 @@ func TestEmergencySecurityReset_TokenTooShort(t *testing.T) {
 	assert.Contains(t, response["message"], "minimum length")
 }
 
-func TestEmergencySecurityReset_RateLimit(t *testing.T) {
-	// Setup
-	db := setupEmergencyTestDB(t)
-	handler := NewEmergencyHandler(db)
-	router := setupEmergencyRouter(handler)
-
-	// Configure valid token
-	validToken := "this-is-a-valid-emergency-token-with-32-chars-minimum"
-	os.Setenv(EmergencyTokenEnvVar, validToken)
-	defer os.Unsetenv(EmergencyTokenEnvVar)
-
-	// Make 5 requests (the limit)
-	for i := 0; i < MaxAttemptsPerWindow; i++ {
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
-		req.Header.Set(EmergencyTokenHeader, "wrong-token")
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-		// These should all be 401 Unauthorized (invalid token), not rate limited yet
-		assert.Equal(t, http.StatusUnauthorized, w.Code, "Request %d should be 401", i+1)
-	}
-
-	// 6th request should be rate limited
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
-	req.Header.Set(EmergencyTokenHeader, "wrong-token")
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	// Assert rate limit response
-	assert.Equal(t, http.StatusTooManyRequests, w.Code)
-
-	var response map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	require.NoError(t, err)
-
-	assert.Equal(t, "rate limit exceeded", response["error"])
-
-	// Note: Audit logging is async via SecurityService channel, tested separately
-}
-
-func TestEmergencySecurityReset_RateLimitWithValidToken(t *testing.T) {
-	// Setup
-	db := setupEmergencyTestDB(t)
-	handler := NewEmergencyHandler(db)
-	router := setupEmergencyRouter(handler)
-
-	// Configure valid token
-	validToken := "this-is-a-valid-emergency-token-with-32-chars-minimum"
-	os.Setenv(EmergencyTokenEnvVar, validToken)
-	defer os.Unsetenv(EmergencyTokenEnvVar)
-
-	// Exhaust rate limit with invalid tokens
-	for i := 0; i < MaxAttemptsPerWindow; i++ {
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
-		req.Header.Set(EmergencyTokenHeader, "wrong-token")
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-	}
-
-	// Even with valid token, should be rate limited
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
-	req.Header.Set(EmergencyTokenHeader, validToken)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	// Assert rate limit response (rate limiting happens before token validation)
-	assert.Equal(t, http.StatusTooManyRequests, w.Code)
-}
-
 func TestConstantTimeCompare(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -325,26 +258,4 @@ func TestConstantTimeCompare(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
-}
-
-func TestCheckRateLimit(t *testing.T) {
-	db := setupEmergencyTestDB(t)
-	handler := NewEmergencyHandler(db)
-
-	ip := "192.168.1.100"
-
-	// First MaxAttemptsPerWindow attempts should pass
-	for i := 0; i < MaxAttemptsPerWindow; i++ {
-		allowed := handler.checkRateLimit(ip)
-		assert.True(t, allowed, "Attempt %d should be allowed", i+1)
-	}
-
-	// Next attempt should be blocked
-	allowed := handler.checkRateLimit(ip)
-	assert.False(t, allowed, "Attempt after limit should be blocked")
-
-	// Different IP should still be allowed
-	differentIP := "192.168.1.101"
-	allowed = handler.checkRateLimit(differentIP)
-	assert.True(t, allowed, "Different IP should be allowed")
 }

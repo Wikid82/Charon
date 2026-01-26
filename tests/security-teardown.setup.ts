@@ -105,12 +105,10 @@ teardown('disable-all-security-modules', async () => {
   await new Promise((resolve) => setTimeout(resolve, 1000));
 
   if (errors.length > 0) {
-    console.error(
-      '\n⚠️ Security teardown had errors (continuing anyway):',
-      errors.join('\n  ')
-    );
-    // Don't throw - let other tests run even if teardown partially failed
-  } else {
-    console.log('✅ Security teardown complete: All modules disabled\n');
+    const errorMessage = `Security teardown FAILED - ACL/security modules still enabled!\nThis will cause cascading test failures.\n\nErrors:\n  ${errors.join('\n  ')}\n\nFix: Ensure CHARON_EMERGENCY_TOKEN is set in .env file`;
+    console.error(`\n❌ ${errorMessage}`);
+    throw new Error(errorMessage);
   }
+
+  console.log('✅ Security teardown complete: All modules disabled\n');
 });
