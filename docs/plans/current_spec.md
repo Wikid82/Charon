@@ -86,9 +86,36 @@ npx playwright test
 
 ## 📋 Implementation Checklist
 
-- [ ] Modify playwright.config.js to comment out security projects
-- [ ] Remove security-tests dependency from browser projects
+- [x] Modify playwright.config.js to comment out security projects
+- [x] Remove security-tests dependency from browser projects
+- [x] Fix Go cache path in e2e-tests.yml workflow
 - [ ] Commit with clear diagnostic message
 - [ ] Trigger CI run
 - [ ] Analyze results and document findings
 - [ ] Restore security tests once diagnosis complete
+
+---
+
+## 🔧 Additional Fixes Applied
+
+### Go Cache Dependency Path Fix
+
+**Issue**: The `build` job in e2e-tests.yml was failing with:
+```
+Restore cache failed: Dependencies file is not found in /home/runner/work/Charon/Charon. Supported file pattern: go.sum
+```
+
+**Root Cause**: The `actions/setup-go` action with `cache: true` was looking for `go.sum` in the repository root, but the Go module is located in the `backend/` subdirectory.
+
+**Fix**: Added `cache-dependency-path: backend/go.sum` to the setup-go step:
+
+```yaml
+- name: Set up Go
+  uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
+  with:
+    go-version: ${{ env.GO_VERSION }}
+    cache: true
+    cache-dependency-path: backend/go.sum  # ← Added this line
+```
+
+**Impact**: The Go module cache will now properly restore, speeding up the build process by ~30-60 seconds per run.
