@@ -216,6 +216,12 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps ${{ matrix.browser }}
 
+      - name: Install Frontend Dependencies
+        run: |
+          echo "📦 Installing frontend dependencies..."
+          cd frontend
+          npm ci
+
       - name: Start Vite dev server for coverage
         run: |
           echo "🚀 Starting Vite dev server for E2E coverage..."
