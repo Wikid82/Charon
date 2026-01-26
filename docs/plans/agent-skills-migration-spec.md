@@ -749,7 +749,7 @@ To keep SKILL.md files under 500 lines:
 | 1 | `debug_db.py` | Python debugging tool, not task-oriented | Keep in scripts/ |
 | 2 | `debug_rate_limit.sh` | Debugging tool, not production | Keep in scripts/ |
 | 3 | `gopls_collect.sh` | IDE tooling, not CI/CD | Keep in scripts/ |
-| 4 | `install-go-1.25.5.sh` | One-time setup script | Keep in scripts/ |
+| 4 | `install-go-1.25.6.sh` | One-time setup script | Keep in scripts/ |
 | 5 | `create_bulk_acl_issues.sh` | Ad-hoc script, not repeatable | Keep in scripts/ |
 
 ---

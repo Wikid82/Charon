@@ -59,7 +59,8 @@ on:
 
 env:
   NODE_VERSION: '20'
-  GO_VERSION: '1.21'
+  GO_VERSION: '1.25.6'
+  GOTOOLCHAIN: auto
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/charon
 
