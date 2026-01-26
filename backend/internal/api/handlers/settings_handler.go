@@ -1,0 +1,378 @@
+package handlers
+
+import (
+	"context"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
+	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/security"
+	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/utils"
+)
+
+// CaddyConfigManager interface for triggering Caddy config reload
+type CaddyConfigManager interface {
+	ApplyConfig(ctx context.Context) error
+}
+
+// CacheInvalidator interface for invalidating security settings cache
+type CacheInvalidator interface {
+	InvalidateCache()
+}
+
+type SettingsHandler struct {
+	DB           *gorm.DB
+	MailService  *services.MailService
+	CaddyManager CaddyConfigManager // For triggering config reload on security settings change
+	Cerberus     CacheInvalidator   // For invalidating cache on security settings change
+}
+
+func NewSettingsHandler(db *gorm.DB) *SettingsHandler {
+	return &SettingsHandler{
+		DB:          db,
+		MailService: services.NewMailService(db),
+	}
+}
+
+// NewSettingsHandlerWithDeps creates a SettingsHandler with all dependencies for config reload
+func NewSettingsHandlerWithDeps(db *gorm.DB, caddyMgr CaddyConfigManager, cerberus CacheInvalidator) *SettingsHandler {
+	return &SettingsHandler{
+		DB:           db,
+		MailService:  services.NewMailService(db),
+		CaddyManager: caddyMgr,
+		Cerberus:     cerberus,
+	}
+}
+
+// GetSettings returns all settings.
+func (h *SettingsHandler) GetSettings(c *gin.Context) {
+	var settings []models.Setting
+	if err := h.DB.Find(&settings).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch settings"})
+		return
+	}
+
+	// Convert to map for easier frontend consumption
+	settingsMap := make(map[string]string)
+	for _, s := range settings {
+		settingsMap[s.Key] = s.Value
+	}
+
+	c.JSON(http.StatusOK, settingsMap)
+}
+
+type UpdateSettingRequest struct {
+	Key      string `json:"key" binding:"required"`
+	Value    string `json:"value" binding:"required"`
+	Category string `json:"category"`
+	Type     string `json:"type"`
+}
+
+// UpdateSetting updates or creates a setting.
+func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
+	var req UpdateSettingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	setting := models.Setting{
+		Key:   req.Key,
+		Value: req.Value,
+	}
+
+	if req.Category != "" {
+		setting.Category = req.Category
+	}
+	if req.Type != "" {
+		setting.Type = req.Type
+	}
+
+	// Upsert
+	if err := h.DB.Where(models.Setting{Key: req.Key}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save setting"})
+		return
+	}
+
+	// Trigger cache invalidation and config reload for security settings
+	if strings.HasPrefix(req.Key, "security.") {
+		// Invalidate Cerberus cache immediately so middleware uses new settings
+		if h.Cerberus != nil {
+			h.Cerberus.InvalidateCache()
+		}
+
+		// Trigger async Caddy config reload (doesn't block HTTP response)
+		if h.CaddyManager != nil {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+
+				if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
+					logger.Log().WithError(err).Warn("Failed to reload Caddy config after security setting change")
+				} else {
+					logger.Log().WithField("setting_key", req.Key).Info("Caddy config reloaded after security setting change")
+				}
+			}()
+		}
+	}
+
+	c.JSON(http.StatusOK, setting)
+}
+
+// SMTPConfigRequest represents the request body for SMTP configuration.
+type SMTPConfigRequest struct {
+	Host        string `json:"host" binding:"required"`
+	Port        int    `json:"port" binding:"required,min=1,max=65535"`
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	FromAddress string `json:"from_address" binding:"required,email"`
+	Encryption  string `json:"encryption" binding:"required,oneof=none ssl starttls"`
+}
+
+// GetSMTPConfig returns the current SMTP configuration.
+func (h *SettingsHandler) GetSMTPConfig(c *gin.Context) {
+	config, err := h.MailService.GetSMTPConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch SMTP configuration"})
+		return
+	}
+
+	// Don't expose the password
+	c.JSON(http.StatusOK, gin.H{
+		"host":         config.Host,
+		"port":         config.Port,
+		"username":     config.Username,
+		"password":     MaskPassword(config.Password),
+		"from_address": config.FromAddress,
+		"encryption":   config.Encryption,
+		"configured":   config.Host != "" && config.FromAddress != "",
+	})
+}
+
+// MaskPassword masks the password for display.
+func MaskPassword(password string) string {
+	if password == "" {
+		return ""
+	}
+	return "********"
+}
+
+// MaskPasswordForTest is an alias for testing.
+func MaskPasswordForTest(password string) string {
+	return MaskPassword(password)
+}
+
+// UpdateSMTPConfig updates the SMTP configuration.
+func (h *SettingsHandler) UpdateSMTPConfig(c *gin.Context) {
+	role, _ := c.Get("role")
+	if role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	var req SMTPConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// If password is masked (i.e., unchanged), keep the existing password
+	existingConfig, _ := h.MailService.GetSMTPConfig()
+	if req.Password == "********" || req.Password == "" {
+		req.Password = existingConfig.Password
+	}
+
+	config := &services.SMTPConfig{
+		Host:        req.Host,
+		Port:        req.Port,
+		Username:    req.Username,
+		Password:    req.Password,
+		FromAddress: req.FromAddress,
+		Encryption:  req.Encryption,
+	}
+
+	if err := h.MailService.SaveSMTPConfig(config); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save SMTP configuration: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "SMTP configuration saved successfully"})
+}
+
+// TestSMTPConfig tests the SMTP connection.
+func (h *SettingsHandler) TestSMTPConfig(c *gin.Context) {
+	role, _ := c.Get("role")
+	if role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	if err := h.MailService.TestConnection(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "SMTP connection successful",
+	})
+}
+
+// SendTestEmail sends a test email to verify the SMTP configuration.
+func (h *SettingsHandler) SendTestEmail(c *gin.Context) {
+	role, _ := c.Get("role")
+	if role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	type TestEmailRequest struct {
+		To string `json:"to" binding:"required,email"`
+	}
+
+	var req TestEmailRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	htmlBody := `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Email</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #333;">Test Email from Charon</h2>
+        <p>If you received this email, your SMTP configuration is working correctly!</p>
+        <p style="color: #666; font-size: 12px;">This is an automated test email.</p>
+    </div>
+</body>
+</html>
+`
+
+	if err := h.MailService.SendEmail(req.To, "Charon - Test Email", htmlBody); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Test email sent successfully",
+	})
+}
+
+// ValidatePublicURL validates a URL is properly formatted for use as the application URL.
+func (h *SettingsHandler) ValidatePublicURL(c *gin.Context) {
+	role, _ := c.Get("role")
+	if role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	type ValidateURLRequest struct {
+		URL string `json:"url" binding:"required"`
+	}
+
+	var req ValidateURLRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	normalized, warning, err := utils.ValidateURL(req.URL)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"valid": false,
+			"error": "URL must start with http:// or https:// and cannot include path components",
+		})
+		return
+	}
+
+	response := gin.H{
+		"valid":      true,
+		"normalized": normalized,
+	}
+
+	if warning != "" {
+		response["warning"] = warning
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// TestPublicURL performs a server-side connectivity test with comprehensive SSRF protection.
+// This endpoint implements defense-in-depth security:
+// 1. Format validation: Ensures valid HTTP/HTTPS URLs without path components
+// 2. SSRF validation: Pre-validates DNS resolution and blocks private/reserved IPs
+// 3. Runtime protection: ssrfSafeDialer validates IPs again at connection time
+// This multi-layer approach satisfies both static analysis (CodeQL) and runtime security.
+func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
+	// Admin-only access check
+	role, exists := c.Get("role")
+	if !exists || role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	// Parse request body
+	type TestURLRequest struct {
+		URL string `json:"url" binding:"required"`
+	}
+
+	var req TestURLRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Step 1: Format validation (scheme, no paths)
+	_, _, err := utils.ValidateURL(req.URL)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Step 2: SSRF validation (breaks CodeQL taint chain)
+	// This explicitly validates against private IPs, loopback, link-local,
+	// and cloud metadata endpoints before any network connection is made.
+	validatedURL, err := security.ValidateExternalURL(req.URL, security.WithAllowHTTP())
+	if err != nil {
+		// Return 200 OK for security blocks (maintains existing API behavior)
+		c.JSON(http.StatusOK, gin.H{
+			"reachable": false,
+			"latency":   0,
+			"error":     err.Error(),
+		})
+		return
+	}
+
+	// Step 3: Connectivity test with runtime SSRF protection
+	reachable, latency, err := utils.TestURLConnectivity(validatedURL)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"reachable": false,
+			"error":     err.Error(),
+		})
+		return
+	}
+
+	// Return success response
+	c.JSON(http.StatusOK, gin.H{
+		"reachable": reachable,
+		"latency":   latency,
+	})
+}

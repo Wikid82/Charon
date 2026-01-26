@@ -1,0 +1,43 @@
+name: Repo Health Check
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repo_health:
+    name: Repo health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Set up Git
+        run: |
+          git --version
+          git lfs install --local || true
+
+      - name: Run repo health check
+        env:
+          MAX_MB: 100
+          LFS_ALLOW_MB: 50
+        run: |
+          bash scripts/repo_health_check.sh
+
+      - name: Upload health output
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: repo-health-output
+          path: |
+            /tmp/repo_big_files.txt

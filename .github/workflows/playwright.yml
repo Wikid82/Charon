@@ -1,0 +1,261 @@
+# Playwright E2E Tests
+# Runs Playwright tests against PR Docker images after the build workflow completes
+name: Playwright E2E Tests
+
+on:
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types:
+      - completed
+
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to test (optional)'
+        required: false
+        type: string
+
+concurrency:
+  group: playwright-${{ github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  playwright:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Run for: manual dispatch, PR builds, or any push builds from docker-build
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'push') &&
+       github.event.workflow_run.conclusion == 'success')
+
+    env:
+      CHARON_ENV: development
+      CHARON_DEBUG: "1"
+      CHARON_ENCRYPTION_KEY: ${{ secrets.CHARON_CI_ENCRYPTION_KEY }}
+
+    steps:
+      - name: Checkout repository
+        # actions/checkout v4.2.2
+        uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98
+
+      - name: Extract PR number from workflow_run
+        id: pr-info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # Manual dispatch - use input or fail gracefully
+            if [[ -n "${{ inputs.pr_number }}" ]]; then
+              echo "pr_number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+              echo "✅ Using manually provided PR number: ${{ inputs.pr_number }}"
+            else
+              echo "⚠️ No PR number provided for manual dispatch"
+              echo "pr_number=" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          # Extract PR number from workflow_run context
+          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          echo "🔍 Looking for PR with head SHA: ${HEAD_SHA}"
+
+          # Query GitHub API for PR associated with this commit
+          PR_NUMBER=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${{ github.repository }}/commits/${HEAD_SHA}/pulls" \
+            --jq '.[0].number // empty' 2>/dev/null || echo "")
+
+          if [[ -n "${PR_NUMBER}" ]]; then
+            echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "✅ Found PR number: ${PR_NUMBER}"
+          else
+            echo "⚠️ Could not find PR number for SHA: ${HEAD_SHA}"
+            echo "pr_number=" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Check if this is a push event (not a PR)
+          if [[ "${{ github.event.workflow_run.event }}" == "push" ]]; then
+            echo "is_push=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Detected push build from branch: ${{ github.event.workflow_run.head_branch }}"
+          else
+            echo "is_push=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sanitize branch name
+        id: sanitize
+        run: |
+          # Sanitize branch name for use in Docker tags and artifact names
+          # Replace / with - to avoid invalid reference format errors
+          BRANCH="${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}"
+          SANITIZED=$(echo "$BRANCH" | tr '/' '-')
+          echo "branch=${SANITIZED}" >> "$GITHUB_OUTPUT"
+          echo "📋 Sanitized branch name: ${BRANCH} -> ${SANITIZED}"
+
+      - name: Check for PR image artifact
+        id: check-artifact
+        if: steps.pr-info.outputs.pr_number != '' || steps.pr-info.outputs.is_push == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Determine artifact name based on event type
+          if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
+            ARTIFACT_NAME="push-image"
+          else
+            PR_NUMBER="${{ steps.pr-info.outputs.pr_number }}"
+            ARTIFACT_NAME="pr-image-${PR_NUMBER}"
+          fi
+          RUN_ID="${{ github.event.workflow_run.id }}"
+
+          echo "🔍 Checking for artifact: ${ARTIFACT_NAME}"
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # For manual dispatch, find the most recent workflow run with this artifact
+            RUN_ID=$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "/repos/${{ github.repository }}/actions/workflows/docker-build.yml/runs?status=success&per_page=10" \
+              --jq '.workflow_runs[0].id // empty' 2>/dev/null || echo "")
+
+            if [[ -z "${RUN_ID}" ]]; then
+              echo "⚠️ No successful workflow runs found"
+              echo "artifact_exists=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
+
+          # Check if the artifact exists in the workflow run
+          ARTIFACT_ID=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" \
+            --jq ".artifacts[] | select(.name == \"${ARTIFACT_NAME}\") | .id" 2>/dev/null || echo "")
+
+          if [[ -n "${ARTIFACT_ID}" ]]; then
+            echo "artifact_exists=true" >> "$GITHUB_OUTPUT"
+            echo "artifact_id=${ARTIFACT_ID}" >> "$GITHUB_OUTPUT"
+            echo "✅ Found artifact: ${ARTIFACT_NAME} (ID: ${ARTIFACT_ID})"
+          else
+            echo "artifact_exists=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️ Artifact not found: ${ARTIFACT_NAME}"
+            echo "ℹ️ This is expected for non-PR builds or if the image was not uploaded"
+          fi
+
+      - name: Skip if no artifact
+        if: (steps.pr-info.outputs.pr_number == '' && steps.pr-info.outputs.is_push != 'true') || steps.check-artifact.outputs.artifact_exists != 'true'
+        run: |
+          echo "ℹ️ Skipping Playwright tests - no PR image artifact available"
+          echo "This is expected for:"
+          echo "  - Pushes to main/release branches"
+          echo "  - PRs where Docker build failed"
+          echo "  - Manual dispatch without PR number"
+          exit 0
+
+      - name: Download PR image artifact
+        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        # actions/download-artifact v4.1.8
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: ${{ steps.pr-info.outputs.is_push == 'true' && 'push-image' || format('pr-image-{0}', steps.pr-info.outputs.pr_number) }}
+          run-id: ${{ steps.check-artifact.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Load Docker image
+        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        run: |
+          echo "📦 Loading Docker image..."
+          docker load < charon-pr-image.tar
+          echo "✅ Docker image loaded"
+          docker images | grep charon
+
+      - name: Start Charon container
+        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        run: |
+          echo "🚀 Starting Charon container..."
+
+          # Normalize image name (GitHub lowercases repository owner names in GHCR)
+          IMAGE_NAME=$(echo "${{ github.repository_owner }}/charon" | tr '[:upper:]' '[:lower:]')
+          if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
+            # Use sanitized branch name for Docker tag (/ is invalid in tags)
+            IMAGE_REF="ghcr.io/${IMAGE_NAME}:${{ steps.sanitize.outputs.branch }}"
+          else
+            IMAGE_REF="ghcr.io/${IMAGE_NAME}:pr-${{ steps.pr-info.outputs.pr_number }}"
+          fi
+
+          echo "📦 Starting container with image: ${IMAGE_REF}"
+          docker run -d \
+            --name charon-test \
+            -p 8080:8080 \
+            -e CHARON_ENV="${CHARON_ENV}" \
+            -e CHARON_DEBUG="${CHARON_DEBUG}" \
+            -e CHARON_ENCRYPTION_KEY="${CHARON_ENCRYPTION_KEY}" \
+            "${IMAGE_REF}"
+
+          echo "✅ Container started"
+
+      - name: Wait for health endpoint
+        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        run: |
+          echo "⏳ Waiting for Charon to be healthy..."
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+
+          while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Attempt ${ATTEMPT}/${MAX_ATTEMPTS}..."
+
+            if curl -sf http://localhost:8080/api/v1/health > /dev/null 2>&1; then
+              echo "✅ Charon is healthy!"
+              exit 0
+            fi
+
+            sleep 2
+          done
+
+          echo "❌ Health check failed after ${MAX_ATTEMPTS} attempts"
+          echo "📋 Container logs:"
+          docker logs charon-test
+          exit 1
+
+      - name: Setup Node.js
+        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        # actions/setup-node v4.1.0
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      - name: Install dependencies
+        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        run: npm ci
+
+      - name: Install Playwright browsers
+        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:8080
+        run: npx playwright test --project=chromium
+
+      - name: Upload Playwright report
+        if: always() && steps.check-artifact.outputs.artifact_exists == 'true'
+        # actions/upload-artifact v4.4.3
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: ${{ steps.pr-info.outputs.is_push == 'true' && format('playwright-report-{0}', steps.sanitize.outputs.branch) || format('playwright-report-pr-{0}', steps.pr-info.outputs.pr_number) }}
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Cleanup
+        if: always() && steps.check-artifact.outputs.artifact_exists == 'true'
+        run: |
+          echo "🧹 Cleaning up..."
+          docker stop charon-test 2>/dev/null || true
+          docker rm charon-test 2>/dev/null || true
+          echo "✅ Cleanup complete"
