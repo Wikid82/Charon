@@ -59,16 +59,51 @@ func NewEmergencyHandler(db *gorm.DB) *EmergencyHandler {
 }
 
 // SecurityReset disables all security modules for emergency lockout recovery.
-// This endpoint bypasses Cerberus middleware and should be registered BEFORE
-// the middleware is applied in routes.go.
+// This endpoint works in conjunction with the EmergencyBypass middleware which
+// validates the token and IP restrictions, then sets the emergency_bypass flag.
 //
 // Security measures:
-// - Requires CHARON_EMERGENCY_TOKEN env var to be configured (min 32 chars)
-// - Requires X-Emergency-Token header to match (timing-safe comparison)
+// - EmergencyBypass middleware validates token and IP (timing-safe comparison)
 // - Rate limited to 5 attempts per minute per IP
 // - All attempts (success and failure) are logged to audit trail
 func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	clientIP := c.ClientIP()
+
+	// Check if request has been pre-validated by EmergencyBypass middleware
+	bypassActive, exists := c.Get("emergency_bypass")
+	if exists && bypassActive.(bool) {
+		// Request already validated by middleware - proceed directly to reset
+		log.WithFields(log.Fields{
+			"ip":     clientIP,
+			"action": "emergency_reset_via_middleware",
+		}).Debug("Emergency reset validated by middleware")
+
+		// Still check rate limit to prevent abuse
+		if !h.checkRateLimit(clientIP) {
+			h.logAudit(clientIP, "emergency_reset_rate_limited", "Rate limit exceeded")
+			log.WithFields(log.Fields{
+				"ip":     clientIP,
+				"action": "emergency_reset_rate_limited",
+			}).Warn("Emergency reset rate limit exceeded")
+
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error":   "rate limit exceeded",
+				"message": "Too many attempts. Please wait before trying again.",
+			})
+			return
+		}
+
+		// Proceed with security reset
+		h.performSecurityReset(c, clientIP)
+		return
+	}
+
+	// Fallback: Legacy direct token validation (deprecated - use middleware)
+	// This path is kept for backward compatibility but will be removed in future versions
+	log.WithFields(log.Fields{
+		"ip":     clientIP,
+		"action": "emergency_reset_legacy_path",
+	}).Debug("Emergency reset using legacy direct validation")
 
 	// Check rate limit first (before any token validation)
 	if !h.checkRateLimit(clientIP) {
@@ -148,6 +183,11 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	}
 
 	// Token is valid - disable all security modules
+	h.performSecurityReset(c, clientIP)
+}
+
+// performSecurityReset executes the actual security module disable operation
+func (h *EmergencyHandler) performSecurityReset(c *gin.Context, clientIP string) {
 	disabledModules, err := h.disableAllSecurityModules()
 	if err != nil {
 		h.logAudit(clientIP, "emergency_reset_failed", fmt.Sprintf("Failed to disable modules: %v", err))
@@ -180,9 +220,31 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 }
 
 // checkRateLimit returns true if the request is allowed, false if rate limited
+// Test environments (CHARON_ENV=test|e2e|development) get 50 attempts per minute
+// Production environments enforce strict limits: 5 attempts per 5 minutes
 func (h *EmergencyHandler) checkRateLimit(ip string) bool {
 	h.rateLimitMu.Lock()
 	defer h.rateLimitMu.Unlock()
+
+	// Environment-aware rate limiting
+	var maxAttempts int
+	var window time.Duration
+
+	if env := os.Getenv("CHARON_ENV"); env == "test" || env == "e2e" || env == "development" {
+		// Test/Dev: 50 attempts per minute (lenient for E2E testing)
+		maxAttempts = 50
+		window = time.Minute
+		log.WithFields(log.Fields{
+			"ip":           ip,
+			"environment":  env,
+			"max_attempts": maxAttempts,
+			"window":       window,
+		}).Debug("Using lenient rate limiting for test environment")
+	} else {
+		// Production: 5 attempts per 5 minutes (strict)
+		maxAttempts = MaxAttemptsPerWindow
+		window = 5 * time.Minute
+	}
 
 	now := time.Now()
 	entry, exists := h.rateLimits[ip]
@@ -191,13 +253,18 @@ func (h *EmergencyHandler) checkRateLimit(ip string) bool {
 		// New window
 		h.rateLimits[ip] = &rateLimitEntry{
 			attempts:  1,
-			windowEnd: now.Add(RateLimitWindow),
+			windowEnd: now.Add(window),
 		}
 		return true
 	}
 
 	// Within existing window
-	if entry.attempts >= MaxAttemptsPerWindow {
+	if entry.attempts >= maxAttempts {
+		log.WithFields(log.Fields{
+			"ip":           ip,
+			"attempts":     entry.attempts,
+			"max_attempts": maxAttempts,
+		}).Warn("Rate limit exceeded for emergency endpoint")
 		return false
 	}
 

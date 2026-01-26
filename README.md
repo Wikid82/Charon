@@ -359,6 +359,164 @@ All JSON templates support these variables:
 
 ---
 
+## 🚨 Emergency Break Glass Access
+
+Charon provides a **3-Tier Break Glass Protocol** for emergency lockout recovery when security modules (ACL, WAF, CrowdSec) block access to the admin interface.
+
+### Emergency Recovery Quick Reference
+
+**Tier 1 (Preferred):** Use emergency token via main endpoint
+
+```bash
+curl -X POST https://charon.example.com/api/v1/emergency/security-reset \
+  -H "X-Emergency-Token: $CHARON_EMERGENCY_TOKEN"
+```
+
+**Tier 2 (If Tier 1 blocked):** Use emergency server via SSH tunnel
+
+```bash
+ssh -L 2019:localhost:2019 admin@server
+curl -X POST http://localhost:2019/emergency/security-reset \
+  -H "X-Emergency-Token: $CHARON_EMERGENCY_TOKEN" \
+  -u admin:password
+```
+
+**Tier 3 (Catastrophic):** Direct SSH access - see [Emergency Runbook](docs/runbooks/emergency-lockout-recovery.md)
+
+### Tier 1: Emergency Token (Layer 7 Bypass)
+
+**Use when:** The application is accessible but security middleware is blocking you.
+
+```bash
+# Set emergency token (generate with: openssl rand -hex 32)
+export CHARON_EMERGENCY_TOKEN=your-64-char-hex-token
+
+# Use token to disable security
+curl -X POST https://charon.example.com/api/v1/emergency/security-reset \
+  -H "X-Emergency-Token: $CHARON_EMERGENCY_TOKEN"
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "All security modules have been disabled",
+  "disabled_modules": [
+    "feature.cerberus.enabled",
+    "security.acl.enabled",
+    "security.waf.enabled",
+    "security.rate_limit.enabled",
+    "security.crowdsec.enabled"
+  ]
+}
+```
+
+### Tier 2: Emergency Server (Sidecar Port)
+
+**Use when:** Caddy/CrowdSec is blocking at the reverse proxy level, or you need a separate entry point.
+
+**Prerequisites:**
+
+- Emergency server enabled in configuration
+- SSH access to Docker host
+- Knowledge of Basic Auth credentials (if configured)
+
+**Setup:**
+
+```yaml
+# docker-compose.yml
+environment:
+  - CHARON_EMERGENCY_SERVER_ENABLED=true
+  - CHARON_EMERGENCY_BIND=127.0.0.1:2019  # Localhost only
+  - CHARON_EMERGENCY_USERNAME=admin
+  - CHARON_EMERGENCY_PASSWORD=your-strong-password
+```
+
+**Usage:**
+
+```bash
+# 1. SSH to server and create tunnel
+ssh -L 2019:localhost:2019 admin@server.example.com
+
+# 2. Access emergency endpoint (from local machine)
+curl -X POST http://localhost:2019/emergency/security-reset \
+  -H "X-Emergency-Token: $CHARON_EMERGENCY_TOKEN" \
+  -u admin:your-strong-password
+```
+
+### Tier 3: Direct System Access (Physical Key)
+
+**Use when:** All application-level recovery methods have failed.
+
+**Prerequisites:**
+
+- SSH or console access to Docker host
+- Root or sudo privileges
+- Knowledge of container name
+
+**Emergency Procedures:**
+
+```bash
+# SSH to host
+ssh admin@docker-host.example.com
+
+# Clear CrowdSec bans
+docker exec charon cscli decisions delete --all
+
+# Disable security via database
+docker exec charon sqlite3 /app/data/charon.db \
+  "UPDATE settings SET value='false' WHERE key LIKE 'security.%.enabled';"
+
+# Restart container
+docker restart charon
+```
+
+### When to Use Each Tier
+
+| Scenario | Tier | Solution |
+|----------|------|----------|
+| ACL blocked your IP | Tier 1 | Emergency token via main port |
+| Caddy/CrowdSec blocking at Layer 7 | Tier 2 | Emergency server on separate port |
+| Complete system failure | Tier 3 | Direct SSH + database access |
+
+### Security Considerations
+
+**⚠️ Emergency Server Security:**
+
+- The emergency server should **NEVER** be exposed to the public internet
+- Always bind to localhost (127.0.0.1) only
+- Use SSH tunneling or VPN access to reach the port
+- Optional Basic Auth provides defense in depth
+- Port 2019 should be blocked by firewall rules from public access
+
+**🔐 Emergency Token Security:**
+
+- Store token in secrets manager (Vault, AWS Secrets Manager, Azure Key Vault)
+- Rotate token every 90 days or after use
+- Never commit token to version control
+- Use HTTPS when calling emergency endpoint (HTTP leaks token)
+- Monitor audit logs for emergency token usage
+
+**📍 Management Network Configuration:**
+
+```yaml
+# Restrict emergency access to trusted networks only
+environment:
+  - CHARON_MANAGEMENT_CIDRS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+```
+
+Default: RFC1918 private networks + localhost
+
+### Complete Documentation
+
+📖 **[Emergency Lockout Recovery Runbook](docs/runbooks/emergency-lockout-recovery.md)** — Complete procedures for all 3 tiers
+🔄 **[Emergency Token Rotation Guide](docs/runbooks/emergency-token-rotation.md)** — Token rotation procedures
+⚙️ **[Configuration Examples](docs/configuration/emergency-setup.md)** — Docker Compose and secrets manager integration
+🛡️ **[Security Documentation](docs/security.md)** — Break glass protocol architecture
+
+---
+
 ## Getting Help
 
 **[📖 Full Documentation](https://wikid82.github.io/charon/)** — Everything explained simply
