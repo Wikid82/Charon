@@ -213,58 +213,16 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps ${{ matrix.browser }}
 
-      - name: Install Frontend Dependencies
-        run: |
-          echo "📦 Installing frontend dependencies..."
-          cd frontend
-          npm ci
-
-      - name: Start Vite dev server for coverage
-        run: |
-          echo "🚀 Starting Vite dev server for E2E coverage..."
-          cd frontend
-
-          # Use port 5173 (Vite default) with --strictPort to fail if busy
-          VITE_PORT=5173
-          npx vite --port ${VITE_PORT} --strictPort > /tmp/vite.log 2>&1 &
-          VITE_PID=$!
-          echo "VITE_PID=${VITE_PID}" >> $GITHUB_ENV
-          echo "VITE_PORT=${VITE_PORT}" >> $GITHUB_ENV
-
-          # Wait for Vite to be ready
-          echo "⏳ Waiting for Vite to start on port ${VITE_PORT}..."
-          MAX_WAIT=60
-          WAITED=0
-          while [[ ${WAITED} -lt ${MAX_WAIT} ]]; do
-            if curl -sf http://localhost:${VITE_PORT} > /dev/null 2>&1; then
-              echo "✅ Vite dev server ready at http://localhost:${VITE_PORT}"
-              exit 0
-            fi
-            sleep 1
-            WAITED=$((WAITED + 1))
-          done
-
-          echo "❌ Vite failed to start"
-          cat /tmp/vite.log
-          exit 1
-
       - name: Run E2E tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
           npx playwright test \
             --project=${{ matrix.browser }} \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
         env:
-          # Use Vite dev server for coverage (proxies API to Docker at 8080)
-          PLAYWRIGHT_BASE_URL: http://localhost:${{ env.VITE_PORT }}
+          # Test directly against Docker container (no coverage)
+          PLAYWRIGHT_BASE_URL: http://localhost:8080
           CI: true
           TEST_WORKER_INDEX: ${{ matrix.shard }}
-
-      - name: Stop Vite dev server
-        if: always()
-        run: |
-          if [[ -n "${VITE_PID}" ]]; then
-            kill ${VITE_PID} 2>/dev/null || true
-          fi
 
       - name: Upload test results
         if: always()
@@ -274,14 +232,6 @@ jobs:
           path: |
             playwright-report/
             test-results/
-          retention-days: 7
-
-      - name: Upload E2E coverage artifact
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: e2e-coverage-shard-${{ matrix.shard }}
-          path: coverage/e2e/
           retention-days: 7
 
       - name: Upload test traces on failure
@@ -479,11 +429,14 @@ jobs:
             }
 
   # Upload merged E2E coverage to Codecov
+  # TEMPORARILY DISABLED: Coverage collection skipped for diagnostic purposes
+  # Re-enable after confirming tests pass without Vite dev server overhead
   upload-coverage:
     name: Upload E2E Coverage
     runs-on: ubuntu-latest
     needs: e2e-tests
-    if: always() && needs.e2e-tests.result == 'success'
+    if: false  # Disabled - no coverage being collected
+
 
     steps:
       - name: Checkout repository
