@@ -1,66 +1,94 @@
-# E2E Workflow Rebuild Failure - Investigation & Fix Plan
+# E2E Test Failure Diagnosis - Skip Security Tests
 
-**Issue**: E2E test shards are triggering a full container rebuild instead of using the pre-built \`charon:e2e-test\` image, causing 5-10 minute delays and potential timeouts.
-**Status**: ✅ IMPLEMENTED
-**Priority**: 🔴 CRITICAL - Blocking shard completion and CI throughput
+**Issue**: E2E tests failing across all shards in CI. Need to isolate whether security features (ACL, rate limiting) are the root cause.
+**Status**: 🔴 ACTIVE - Planning Phase
+**Priority**: 🔴 CRITICAL - Blocking all CI
 **Created**: 2026-01-26
 
 ---
 
-## 🔍 Investigation Results
+## 🔍 Problem Analysis
 
-### Root Cause
-The \`docker compose -f .docker/compose/docker-compose.playwright.yml up -d\` command in the \`e2e-tests\` job triggered a build because the \`charon-app\` service in [.docker/compose/docker-compose.playwright.yml](.docker/compose/docker-compose.playwright.yml) lacked an \`image\` tag matching the loaded artifact.
+### Current Test Architecture
+The Playwright configuration has a strict dependency chain:
 
-- **Workflow Behavior**:
-  1. \`build\` job generates \`charon:e2e-test\` (tagged locally).
-  2. \`build\` job saves image to \`charon-e2e-image.tar\`.
-  3. \`e2e-tests\` job (sharded) downloads and \`docker load\`s the tar.
-  4. \`e2e-tests\` job runs \`docker compose up -d\`.
-  5. **MISALIGNMENT**: Since the compose file only defined \`build:\`, Docker Compose defaulted to a project-prefixed name (e.g., \`compose_charon-app\`). Not finding this exact name locally, it ignored the loaded \`charon:e2e-test\` and started a full rebuild from the \`Dockerfile\` in the context provided.
+```
+setup (auth) → security-tests → security-teardown → browser tests (chromium/firefox/webkit)
+```
 
-### Dockerfile Complexity (PR #550 Migration to Debian Trixie)
-The [Dockerfile](Dockerfile) is a sophisticated multi-stage build that:
-- Migrated to **Debian Trixie** (Debian 13 testing) for faster security updates.
-- Uses **Go 1.25.6** and **Node 24.13.0**.
-- Builds multiple components from source (Gosu, Caddy with security plugins, CrowdSec) to ensure deep supply chain security and patched standard libraries.
+**Key Components:**
+1. **setup**: Creates authenticated user and stores session
+2. **security-tests**: Sequential tests that enable ACL, WAF, CrowdSec, rate limiting - verifies they block correctly
+3. **security-teardown**: Disables all security modules via API or emergency endpoint
+4. **browser tests**: Main test suites that depend on security being disabled
 
-While this ensures a very secure runtime image, it results in a slow build process (~8 minutes total). Re-running this build on every E2E shard simultaneously was resource-intensive and caused the reported timeouts.
+### Observed Failures
+- **Shard 3**: `account-settings.spec.ts:289` - "should validate certificate email format"
+- **Shard 4**: `user-management.spec.ts:948` - "should resend invite for pending user"
+- **Pattern**: Tests that create/modify resources are failing
 
----
-
-## 🛠️ Remediation Applied
-
-### 1. Unified Image Reference
-The \`charon-app\` service in [.docker/compose/docker-compose.playwright.yml](.docker/compose/docker-compose.playwright.yml) now explicitly references the expected image name:
-
-\`\`\`yaml
-  charon-app:
-    image: \${CHARON_E2E_IMAGE:-charon:e2e-test}
-    build:
-      context: ../..
-      dockerfile: Dockerfile
-\`\`\`
-
-By specifying \`image\`, Docker Compose's order of operations changes:
-1. It checks if \`charon:e2e-test\` (or the provided env var) exists locally.
-2. Since it finds the pre-loaded image from the \`build\` artifact, it uses it immediately.
-3. It entirely skips the \`build\` block.
-
-### 2. Workflow Audit
-- Observed that [.github/workflows/e2e-tests.yml](.github/workflows/e2e-tests.yml) correctly avoids the \`--build\` flag in its \`up -d\` command.
-- Confirmed that redundant \`npm run build\` and \`make build\` steps (outside Docker) have been correctly removed from the \`build\` job to further optimize CI minutes.
+### Hypothesis
+Two possible root causes:
+1. **Security tests are failing/hanging** - blocking browser tests from running
+2. **Security teardown is failing** - leaving ACL/rate limiting enabled, which blocks subsequent API calls in browser tests
 
 ---
 
-## ✅ Definition of Done Verification
+## 🛠️ Remediation Strategy
 
-- [x] **Artifact Reuse**: Shards now pull the pre-loaded \`charon:e2e-test\` image.
-- [x] **No Rebuilds**: Shard logs no longer show Docker build progress.
-- [x] **Performance**: Container startup time reduced from >8 minutes to <10 seconds.
-- [x] **Consistency**: \`docker-compose.playwright.yml\` remains valid for local dev (defaults to \`charon:e2e-test\` or builds if not found).
+### Approach: Temporary Security Test Bypass
+
+**Goal**: Skip the entire security-tests project and its teardown to determine if security features are causing the failures.
+
+**Implementation**: Modify `playwright.config.js` to:
+1. Comment out the `security-tests` project
+2. Comment out the `security-teardown` project
+3. Remove `'security-tests'` from the dependencies of browser projects
+4. Keep the `setup` project active (authentication still needed)
+
+### Changes Required
+
+**File**: `playwright.config.js`
+
+- Comment out lines 151-169 (security-tests project)
+- Comment out lines 171-174 (security-teardown project)
+- Remove `'security-tests'` from dependencies arrays on lines 182, 193, 203
 
 ---
 
-## 🚦 Final Status
-The rebuild issue is resolved. The E2E pipeline should now run significantly faster and more reliably.
+## ✅ Expected Outcomes
+
+### If Tests Pass
+- **Confirms**: Security features (ACL/rate limiting) are the root cause
+- **Next Step**: Investigate why security-teardown is failing or incomplete
+- **Triage**: Focus on security-teardown.setup.ts and emergency reset endpoint
+
+### If Tests Still Fail
+- **Confirms**: Issue is NOT related to security features
+- **Next Step**: Investigate Docker environment, database state, or test data isolation
+- **Triage**: Focus on test-data-manager.ts, database persistence, or environment setup
+
+---
+
+## 🚦 Rollback Strategy
+
+Once diagnosis is complete, restore the full test suite:
+
+```bash
+# Revert playwright.config.js changes
+git checkout playwright.config.js
+
+# Run full test suite including security
+npx playwright test
+```
+
+---
+
+## 📋 Implementation Checklist
+
+- [ ] Modify playwright.config.js to comment out security projects
+- [ ] Remove security-tests dependency from browser projects
+- [ ] Commit with clear diagnostic message
+- [ ] Trigger CI run
+- [ ] Analyze results and document findings
+- [ ] Restore security tests once diagnosis complete
