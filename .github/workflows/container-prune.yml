@@ -1,0 +1,63 @@
+name: Container Registry Prune
+
+on:
+  schedule:
+    - cron: '0 3 * * 0' # Weekly: Sundays at 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      registries:
+        description: 'Comma-separated registries to prune (ghcr,dockerhub)'
+        required: false
+        default: 'ghcr,dockerhub'
+      keep_days:
+        description: 'Number of days to retain images (unprotected)'
+        required: false
+        default: '30'
+      dry_run:
+        description: 'If true, only logs candidates and does not delete'
+        required: false
+        default: 'true'
+      keep_last_n:
+        description: 'Keep last N newest images (global)'
+        required: false
+        default: '30'
+
+permissions:
+  packages: write
+  contents: read
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    env:
+      OWNER: ${{ github.repository_owner }}
+      IMAGE_NAME: charon
+      REGISTRIES: ${{ github.event.inputs.registries || 'ghcr,dockerhub' }}
+      KEEP_DAYS: ${{ github.event.inputs.keep_days || '30' }}
+      KEEP_LAST_N: ${{ github.event.inputs.keep_last_n || '30' }}
+      DRY_RUN: ${{ github.event.inputs.dry_run || 'true' }}
+      PROTECTED_REGEX: '["^v","^latest$","^main$","^develop$"]'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq curl
+
+      - name: Run container prune (dry-run by default)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          chmod +x scripts/prune-container-images.sh
+          ./scripts/prune-container-images.sh
+
+      - name: Upload log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: prune-log-${{ github.run_id }}
+          path: |
+            scripts/prune-container-images.sh
