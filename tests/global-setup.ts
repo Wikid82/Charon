@@ -28,13 +28,18 @@ async function globalSetup(): Promise<void> {
   // Pre-auth security reset attempt (crash protection failsafe)
   // This attempts to disable security modules BEFORE auth, in case a previous run crashed
   // with security enabled blocking the auth endpoint.
-  const preAuthContext = await request.newContext({ baseURL });
-  try {
-    await emergencySecurityReset(preAuthContext);
-  } catch (e) {
-    console.log('Pre-auth security reset skipped (may require auth)');
+  // SKIPPED in CI when CHARON_EMERGENCY_TOKEN is not set - fresh containers don't need reset
+  if (process.env.CHARON_EMERGENCY_TOKEN && process.env.CHARON_EMERGENCY_TOKEN !== 'test-emergency-token-for-e2e-32chars') {
+    const preAuthContext = await request.newContext({ baseURL });
+    try {
+      await emergencySecurityReset(preAuthContext);
+    } catch (e) {
+      console.log('⏭️  Pre-auth security reset skipped (may require auth)');
+    }
+    await preAuthContext.dispose();
+  } else {
+    console.log('⏭️  Pre-auth security reset skipped (fresh container, no custom token)');
   }
-  await preAuthContext.dispose();
 
   // Create a request context
   const requestContext = await request.newContext({
@@ -135,6 +140,7 @@ async function emergencySecurityReset(requestContext: APIRequestContext): Promis
       headers: {
         'X-Emergency-Token': emergencyToken,
       },
+      timeout: 5000, // 5s timeout to prevent hanging
     });
 
     if (!response.ok()) {
@@ -146,14 +152,14 @@ async function emergencySecurityReset(requestContext: APIRequestContext): Promis
     const result = await response.json();
     console.log('  ✅ Emergency reset successful');
     console.log(`  ✅ Disabled modules: ${result.disabled_modules?.join(', ')}`);
+
+    // Reduced wait time - fresh containers don't need long propagation
+    console.log('  ⏳ Waiting for security reset to propagate...');
+    await new Promise(resolve => setTimeout(resolve, 500));
   } catch (e) {
     console.error(`  ❌ Emergency reset error: ${e}`);
     throw e;
   }
-
-  // Wait for settings to propagate
-  console.log('  ⏳ Waiting for security reset to propagate...');
-  await new Promise(resolve => setTimeout(resolve, 2000));
 
   console.log('  ✅ Security reset complete');
 }
