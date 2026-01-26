@@ -467,6 +467,9 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     if: needs.build-and-push.outputs.skip_build != 'true' && github.event_name != 'pull_request'
+    env:
+      # Required for security teardown in integration tests
+      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
