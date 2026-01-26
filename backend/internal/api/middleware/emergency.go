@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -59,6 +60,7 @@ func EmergencyBypass(managementCIDRs []string, db *gorm.DB) gin.HandlerFunc {
 			mustParseCIDR("172.16.0.0/12"),
 			mustParseCIDR("192.168.0.0/16"),
 			mustParseCIDR("127.0.0.0/8"), // localhost for local development
+			mustParseCIDR("::1/128"),     // IPv6 localhost
 		}
 	}
 
@@ -71,9 +73,10 @@ func EmergencyBypass(managementCIDRs []string, db *gorm.DB) gin.HandlerFunc {
 		}
 
 		// Validate source IP is from management network
-		clientIP := net.ParseIP(c.ClientIP())
+		clientIPStr := util.CanonicalizeIPForSecurity(c.ClientIP())
+		clientIP := net.ParseIP(clientIPStr)
 		if clientIP == nil {
-			logger.Log().WithField("ip", c.ClientIP()).Warn("Emergency bypass: invalid client IP")
+			logger.Log().WithField("ip", clientIPStr).Warn("Emergency bypass: invalid client IP")
 			c.Next()
 			return
 		}

@@ -232,27 +232,7 @@ Return: Key findings and identified patterns`
 - **Sequential execution**: Use `await` to maintain order when steps depend on each other
 - **Error handling**: Check results before proceeding to dependent steps
 
-### ⚠️ Tool Availability Requirement
 
-**Critical**: If a sub-agent requires specific tools (e.g., `edit`, `execute`, `search`), the orchestrator must include those tools in its own `tools` list. Sub-agents cannot access tools that aren't available to their parent orchestrator.
-
-**Example**:
-```yaml
-# If your sub-agents need to edit files, execute commands, or search code
-tools: ['read', 'edit', 'search', 'execute', 'agent']
-```
-
-The orchestrator's tool permissions act as a ceiling for all invoked sub-agents. Plan your tool list carefully to ensure all sub-agents have the tools they need.
-
-### ⚠️ Important Limitation
-
-**Sub-agent orchestration is NOT suitable for large-scale data processing.** Avoid using `runSubagent` when:
-- Processing hundreds or thousands of files
-- Handling large datasets
-- Performing bulk transformations on big codebases
-- Orchestrating more than 5-10 sequential steps
-
-Each sub-agent call adds latency and context overhead. For high-volume processing, implement logic directly in a single agent instead. Use orchestration only for coordinating specialized tasks on focused, manageable datasets.
 
 ## Agent Prompt Structure
 

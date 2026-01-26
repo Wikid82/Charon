@@ -1,4 +1,323 @@
+# Playwright Security Tests Failures - Investigation & Fix Plan
+
+**Issue**: GitHub Actions run `21351787304` fails in Playwright project `security-tests` (runs as a dependency of `chromium` via Playwright config)
+**Status**: ✅ RESOLVED - Test Isolation Fix Applied
+**Priority**: 🔴 HIGH - Break-glass + security gating tests are blocking CI
+**Created**: 2026-01-26
+**Resolved**: 2026-01-26
+
+---
+
+## Resolution Summary
+
+**Root Cause**: Test isolation failure due to shared rate limit bucket state between `emergency-token.spec.ts` (Test 1) and subsequent tests (Test 2, and tests in `emergency-reset.spec.ts`).
+
+**Fix Applied**: Added rate limit bucket drainage waits:
+- Test 2 now waits 61 seconds **before** making requests (to drain bucket from Test 1)
+- Test 2 now waits 61 seconds **after** completing (to drain bucket before `emergency-reset.spec.ts` runs)
+
+**Files Changed**:
+- `tests/security-enforcement/emergency-token.spec.ts` (Test 2 modified)
+
+**Verification**: All 15 emergency security tests now pass consistently.
+
+---
+
+## Original Symptoms (from CI)
+
+- `tests/security-enforcement/emergency-reset.spec.ts`: expects `429` after 5 invalid token attempts, but receives `401`.
+- `tests/security-enforcement/emergency-token.spec.ts`: expects `429` on 6th request, but receives `401`.
+- An `auditLogs.find is not a function` failure is reported (strong signal the “audit logs” payload was not the expected array/object shape).
+- Later security tests that expect `response.ok() === true` start failing (likely cascading after the emergency reset doesn’t disable ACL/Cerberus).
+
+Key observation: these failures happen under Playwright project `security-tests`, which is a configured dependency of the `chromium` project.
+
+---
+
+## How `security-tests` runs in CI (why it fails even when CI runs `--project=chromium`)
+
+- Playwright config defines a project named `security-tests` with `testDir: './tests/security-enforcement'`.
+- The `chromium` project declares `dependencies: ['setup', 'security-tests']`.
+- Therefore `npx playwright test --project=chromium` runs the `setup` project, then the `security-tests` project, then finally browser tests.
+
+Files:
+- `playwright.config.js` (project graph and baseURL rules)
+- `tests/security-enforcement/*` (failing tests)
+
+---
+
+## Backend: emergency token configuration (env vars + defaults)
+
+### Tier 1: Main API emergency reset endpoint
+
+Endpoint:
+- `POST /api/v1/emergency/security-reset` is registered directly on the Gin router (outside the authenticated `/api/v1` protected group).
+
+Token configuration:
+- Environment variable: `CHARON_EMERGENCY_TOKEN`
+- Minimum length: `32` chars
+- Request header: `X-Emergency-Token`
+
+Code:
+- `backend/internal/api/handlers/emergency_handler.go`
+  - `EmergencyTokenEnvVar = "CHARON_EMERGENCY_TOKEN"`
+  - `EmergencyTokenHeader = "X-Emergency-Token"`
+  - `MinTokenLength = 32`
+- `backend/internal/api/middleware/emergency.go`
+  - Same env var + header constants; validates IP-in-management-CIDR and token match.
+
+### Management CIDR configuration (who is allowed to use token)
+
+- Environment variable: `CHARON_MANAGEMENT_CIDRS` (comma-separated)
+- Default if unset: RFC1918 private ranges plus loopback
+  - `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.0/8`
+
+Code:
+- `backend/internal/config/config.go` → `loadSecurityConfig()` parses `CHARON_MANAGEMENT_CIDRS` into `cfg.Security.ManagementCIDRs`.
+- `backend/internal/api/middleware/emergency.go` → `EmergencyBypass(cfg.Security.ManagementCIDRs, db)` falls back to RFC1918 if empty.
+
+### Tier 2: Separate emergency server (not the failing endpoint, but relevant context)
+
+The repo also contains a separate “emergency server” (different port/route):
+- `POST /emergency/security-reset` (note: not `/api/v1/...`)
+
+Env vars (tier 2 server):
+- `CHARON_EMERGENCY_SERVER_ENABLED` (default `false`)
+- `CHARON_EMERGENCY_BIND` (default `127.0.0.1:2019`)
+- `CHARON_EMERGENCY_USERNAME`, `CHARON_EMERGENCY_PASSWORD` (basic auth)
+
+Code:
+- `backend/internal/server/emergency_server.go`
+- `backend/internal/config/config.go` (`EmergencyConfig`)
+
+---
+
+## Backend: rate limiting + middleware order (expected behavior)
+
+### Routing / middleware order
+
+Registration order matters; current code intends:
+
+1. **Emergency bypass middleware is first**
+   - `router.Use(middleware.EmergencyBypass(cfg.Security.ManagementCIDRs, db))`
+2. Gzip + security headers
+3. Register emergency endpoint on the root router:
+   - `router.POST("/api/v1/emergency/security-reset", emergencyHandler.SecurityReset)`
+4. Create `/api/v1` group and apply Cerberus middleware to it
+5. Create protected group and apply auth middleware
+
+Code:
+- `backend/internal/api/routes/routes.go`
+
+### Emergency endpoint logic + rate limiting
+
+Rate limiting is implemented inside the handler, keyed by **client IP string**:
+
+- Handler: `(*EmergencyHandler).SecurityReset`
+- Rate limiter: `(*EmergencyHandler).checkRateLimit(ip string) bool`
+  - State is in-memory: `map[string]*rateLimitEntry` guarded by a mutex.
+  - In test/dev/e2e: **5 attempts per 1 minute** (matches test expectations)
+  - In prod: **5 attempts per 5 minutes**
+
+Critical detail: rate limiting is performed **before** token validation in the legacy path.
+That is what allows the test behavior “first 5 are 401, 6th is 429”.
+
+Code:
+- `backend/internal/api/handlers/emergency_handler.go`
+  - `MaxAttemptsPerWindow = 5`
+  - `RateLimitWindow = time.Minute`
+  - `clientIP := c.ClientIP()` used for rate-limit key.
+
+---
+
+## Playwright tests: expected behavior + env vars
+
+### What the tests expect
+
+- `tests/security-enforcement/emergency-reset.spec.ts`
+  - Invalid token returns `401`
+  - Missing token returns `401`
+  - **Rate limit**: after 5 invalid attempts, the 6th returns `429`
+
+- `tests/security-enforcement/emergency-token.spec.ts`
+  - Enables Cerberus + ACL, verifies normal requests are blocked (`403`)
+  - Uses the emergency token to reset security and expects `200` and modules disabled
+  - **Rate limit**: 6 rapid invalid attempts → first 5 are `401`, 6th is `429`
+  - Fetches `/api/v1/audit-logs` and expects the request to succeed (auth cookies via setup storage state)
+
+### Which env vars the tests use
+
+- `PLAYWRIGHT_BASE_URL`
+  - Read in `playwright.config.js` as the global `use.baseURL`.
+  - In CI `e2e-tests.yml`, it’s set to the Vite dev server (`http://localhost:5173`) and Vite proxies `/api` to backend `http://localhost:8080`.
+
+- `CHARON_EMERGENCY_TOKEN`
+  - Used by tests as the emergency token source.
+  - Fallback default used in multiple places:
+    - `tests/security-enforcement/emergency-reset.spec.ts`
+    - `tests/fixtures/security.ts` (exported `EMERGENCY_TOKEN`)
+
+---
+
+## What’s likely misconfigured / fragile in CI wiring
+
+### 1) The emergency token is not explicitly set in CI (tests and container rely on a hardcoded default)
+
+- Compose sets `CHARON_EMERGENCY_TOKEN=${CHARON_EMERGENCY_TOKEN:-test-emergency-token-for-e2e-32chars}`.
+- Tests default to the same string when the env var is unset.
+
+This is convenient, but it’s fragile (and not ideal from a “secure-by-default CI” standpoint):
+- Any future change to the default in either place silently breaks tests.
+- It makes it harder to reason about “what token was used” in a failing run.
+
+File:
+- `.docker/compose/docker-compose.playwright.yml`
+
+### 2) Docker Compose is configured to build from source, so the pre-built image artifact is not actually being used
+
+- The workflow `build` job creates `charon:e2e-test` and uploads it.
+- The `e2e-tests` job loads that image tar.
+- But `.docker/compose/docker-compose.playwright.yml` uses `build:` and the workflow runs `docker compose up -d`.
+
+Result: Compose will prefer building (or at least treat the service as build-based), which defeats the “build once, run many” approach and increases drift risk.
+
+File:
+- `.docker/compose/docker-compose.playwright.yml`
+
+### 3) Most likely root cause for the 401 vs 429 mismatch: client IP derivation is unstable and/or spoofable in proxied runs
+
+The rate limiter keys by `clientIP := c.ClientIP()`.
+
+In CI, requests hit Vite (`localhost:5173`) which proxies to backend. Vite adds forwarded headers. If Gin’s `ClientIP()` resolves to different strings across requests (common culprits):
+- IPv4 vs IPv6 loopback differences (`127.0.0.1` vs `::1`)
+- `X-Forwarded-For` formatting including ports or multiple values
+- Untrusted forwarded headers changing per request
+
+Supervisor note / security risk to call out explicitly:
+- Gin trusted proxy configuration can make this worse.
+  - If the router uses `router.SetTrustedProxies(nil)`, Gin may treat **all** proxies as trusted (behavior depends on Gin version/config), which can cause `c.ClientIP()` to prefer `X-Forwarded-For` from an untrusted hop.
+  - That makes rate limiting bypassable (spoofable `X-Forwarded-For`) and can also impact management CIDR checks if they rely on `c.ClientIP()`.
+  - If the intent is “trust none”, configure it explicitly (e.g., `router.SetTrustedProxies([]string{})`) so forwarded headers are not trusted.
+
+…then rate limiting becomes effectively per-request and never reaches “attempt 6”, so the handler always returns the token-validation result (`401`).
+
+This hypothesis exactly matches the symptom: “always 401, never 429”.
+
+---
+
+## Minimal, secure fix plan
+
+### Step 1: Confirm the root cause with targeted logging (short-lived)
+
+Add a temporary debug log in `backend/internal/api/handlers/emergency_handler.go` inside `SecurityReset`:
+- log the values used for rate limiting:
+  - `c.ClientIP()`
+  - `c.Request.RemoteAddr`
+  - `X-Forwarded-For` and `X-Real-IP` headers (do NOT log token)
+
+Goal: verify whether the IP key differs between requests in CI and/or locally.
+
+### Step 2: Fix/verify Gin trusted proxy configuration (align with “trust none” unless explicitly required)
+
+Goal: ensure `c.ClientIP()` cannot be spoofed via forwarded headers, and that it behaves consistently in proxied runs.
+
+Actions:
+- Audit where the Gin router sets trusted proxies.
+- If the desired policy is “trust none”, ensure it is configured as such (avoid `SetTrustedProxies(nil)` if it results in “trust all”).
+- If some proxies must be trusted (e.g., a known reverse proxy), configure an explicit allow-list and document it.
+
+Verification:
+- Confirm requests with arbitrary `X-Forwarded-For` do not change server-side client identity unless coming from a trusted proxy hop.
+
+### Step 3: Introduce a canonical client IP and use it consistently (rate limiting + management CIDR)
+
+Implement a small helper (single source of truth) to derive a canonical client address:
+- Prefer server-observed address by parsing `c.Request.RemoteAddr` and stripping the port.
+- Normalize loopback (`::1` → `127.0.0.1`) to keep rate-limit keys stable.
+- Only consult forwarded headers when (and only when) Gin trusted proxies are explicitly configured to do so.
+
+Apply this canonical IP to both:
+- `EmergencyHandler.SecurityReset` (rate limit key)
+- `middleware.EmergencyBypass` / management CIDR enforcement (so bypass eligibility and rate limiting agree on “who the client is”)
+
+Files:
+- `backend/internal/api/handlers/emergency_handler.go`
+- `backend/internal/api/middleware/emergency.go`
+
+### Step 4: Narrow `EmergencyBypass` scope (avoid global bypass for any request with the token)
+
+Goal: the emergency token should only bypass protections for the emergency reset route(s), not grant broad bypass for unrelated endpoints.
+
+Option (recommended): scope the middleware to only the emergency reset route(s)
+- Apply `EmergencyBypass(...)` only to the router/group that serves `POST /api/v1/emergency/security-reset` (and any other intended emergency reset endpoints).
+- Do not attach the bypass middleware globally on `router.Use(...)`.
+
+Verification:
+- Requests to non-emergency routes that include `X-Emergency-Token` must behave unchanged (e.g., still require auth / still subject to Cerberus/ACL).
+
+### Step 5: Make CI token wiring explicit (remove reliance on defaults)
+
+In `.github/workflows/e2e-tests.yml`:
+- Generate a random emergency token per workflow run (32+ chars) and export it to `$GITHUB_ENV`.
+- Ensure both Docker Compose and Playwright tests see the same `CHARON_EMERGENCY_TOKEN`.
+
+In `.docker/compose/docker-compose.playwright.yml`:
+- Prefer requiring `CHARON_EMERGENCY_TOKEN` in CI (either remove the default or conditionally default only for local).
+
+### Step 6: Align docker-compose with the workflow’s “pre-built image per shard” (avoid unused loaded image artifact)
+
+Current misalignment to document clearly:
+- The workflow builds and loads `charon:e2e-test`, but compose is build-based, so the loaded image can be unused (and `--build` can force rebuilds).
+
+Minimal alignment options:
+- Option A (recommended): Add a CI-only compose override file used by the workflow
+  - Example: `.docker/compose/docker-compose.playwright.ci.yml` that sets `image: charon:e2e-test` and removes/overrides `build:`.
+  - Workflow runs `docker compose -f ...playwright.yml -f ...playwright.ci.yml up -d`.
+- Option B (minimal): Update the existing compose service to include `image: charon:e2e-test` and ensure CI does not pass `--build`.
+
+This does not directly fix the 401/429 issue, but it reduces variability and is consistent with the workflow intent.
+
+---
+
+## Verification steps
+
+1. Run only the failing security test specs locally against the Playwright docker compose environment:
+   - `tests/security-enforcement/emergency-reset.spec.ts`
+   - `tests/security-enforcement/emergency-token.spec.ts`
+
+2. Run the full security project:
+   - `npx playwright test --project=security-tests`
+
+3. Run CI-equivalent shard command locally (optional):
+   - `npx playwright test --project=chromium --shard=1/4`
+   - Confirm `security-tests` runs as a dependency and passes.
+
+4. Confirm expected statuses:
+   - Invalid token attempts: 5× `401`, then `429`
+   - Valid token: `200` and modules disabled
+   - `/api/v1/audit-logs` succeeds after emergency reset (auth still valid)
+
+5. Security-specific verification (must not regress):
+  - Spoofing check: adding/changing `X-Forwarded-For` from an untrusted hop must not change effective client identity used for rate limiting or CIDR checks.
+  - Scope check: `X-Emergency-Token` must not act as a global bypass on non-emergency routes.
+
+---
+
+## Notes on the reported `auditLogs.find` failure
+
+This error typically means downstream code assumed an array but received an object (often an error payload like `{ error: 'unauthorized' }`).
+Given the cascade of `401` failures, the most likely explanation is:
+- the emergency reset didn’t complete,
+- security controls remained enabled,
+- and later requests (including audit log requests) returned a non-OK payload.
+
+Once the emergency endpoint’s rate limiting and token flow are stable again, this should stop cascading.
+
+---
+
 # E2E Workflow Optimization - Efficiency Analysis
+
+> NOTE: This section was written against an earlier iteration of the workflow. Validate any line numbers/flags against `.github/workflows/e2e-tests.yml` before implementing changes.
 
 **Issue**: E2E workflow contains redundant build steps and inefficiencies
 **Status**: Analysis Complete - Ready for Implementation

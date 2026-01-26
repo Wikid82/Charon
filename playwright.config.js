@@ -8,8 +8,8 @@ import { dirname, join } from 'path';
  * Read environment variables from file.
  * https://github.com/motdotla/dotenv
  */
-// import dotenv from 'dotenv';
-// dotenv.config({ path: join(dirname(fileURLToPath(import.meta.url)), '.env') });
+import dotenv from 'dotenv';
+dotenv.config({ path: join(dirname(fileURLToPath(import.meta.url)), '.env') });
 
 /**
  * Auth state storage path - shared across all browser projects

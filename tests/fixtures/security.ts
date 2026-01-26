@@ -10,7 +10,8 @@ import { APIRequestContext } from '@playwright/test';
 /**
  * Emergency token for E2E tests - must match docker-compose.e2e.yml
  */
-export const EMERGENCY_TOKEN = 'test-emergency-token-for-e2e-32chars';
+export const EMERGENCY_TOKEN =
+  process.env.CHARON_EMERGENCY_TOKEN || 'test-emergency-token-for-e2e-32chars';
 
 /**
  * Emergency server configuration for E2E tests
