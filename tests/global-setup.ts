@@ -119,56 +119,43 @@ async function globalSetup(): Promise<void> {
 /**
  * Perform emergency security reset to disable ALL security modules.
  * This prevents deadlock if a previous test run left any security module enabled.
+ *
+ * USES THE CORRECT ENDPOINT: /api/v1/emergency/security-reset
+ * This endpoint bypasses all security checks when a valid emergency token is provided.
  */
 async function emergencySecurityReset(requestContext: APIRequestContext): Promise<void> {
-  console.log('Performing emergency security reset...');
+  console.log('🔓 Performing emergency security reset...');
 
   const emergencyToken = 'test-emergency-token-for-e2e-32chars';
-  const headers = {
-    'Content-Type': 'application/json',
-    'X-Emergency-Token': emergencyToken,
-  };
 
-  const modules = [
-    { key: 'security.acl.enabled', value: 'false' },
-    { key: 'security.waf.enabled', value: 'false' },
-    { key: 'security.crowdsec.enabled', value: 'false' },
-    { key: 'security.rate_limit.enabled', value: 'false' },
-    { key: 'feature.cerberus.enabled', value: 'false' },
-  ];
+  try {
+    // Use the CORRECT endpoint: /api/v1/emergency/security-reset
+    // This endpoint bypasses ACL, WAF, and all security checks
+    const response = await requestContext.post('/api/v1/emergency/security-reset', {
+      headers: {
+        'X-Emergency-Token': emergencyToken,
+      },
+    });
 
-  for (const { key, value } of modules) {
-    try {
-      await requestContext.post('/api/v1/settings', {
-        data: { key, value },
-        headers,
-      });
-      console.log(`  ✓ Disabled: ${key}`);
-    } catch (e) {
-      console.log(`  ⚠ Could not disable ${key}: ${e}`);
+    if (!response.ok()) {
+      const body = await response.text();
+      console.error(`  ❌ Emergency reset failed: ${response.status()} ${body}`);
+      throw new Error(`Emergency reset returned ${response.status()}`);
     }
+
+    const result = await response.json();
+    console.log('  ✅ Emergency reset successful');
+    console.log(`  ✅ Disabled modules: ${result.disabled_modules?.join(', ')}`);
+  } catch (e) {
+    console.error(`  ❌ Emergency reset error: ${e}`);
+    throw e;
   }
 
   // Wait for settings to propagate
-  console.log('  Waiting for settings to propagate...');
+  console.log('  ⏳ Waiting for security reset to propagate...');
   await new Promise(resolve => setTimeout(resolve, 2000));
 
-  // Verify security status
-  try {
-    const response = await requestContext.get('/api/v1/security/status', {
-      headers,
-    });
-    if (response.ok()) {
-      const status = await response.json();
-      console.log('  ✓ Security status verified:');
-      console.log(`    - ACL: ${status.acl?.enabled ? 'enabled' : 'disabled'}`);
-      console.log(`    - WAF: ${status.waf?.enabled ? 'enabled' : 'disabled'}`);
-      console.log(`    - CrowdSec: ${status.crowdsec?.enabled ? 'enabled' : 'disabled'}`);
-      console.log(`    - Rate Limit: ${status.rateLimit?.enabled ? 'enabled' : 'disabled'}`);
-    }
-  } catch (e) {
-    console.log(`  ⚠ Could not verify security status: ${e}`);
-  }
+  console.log('  ✅ Security reset complete');
 }
 
 export default globalSetup;
