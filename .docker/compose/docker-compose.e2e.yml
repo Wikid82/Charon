@@ -16,8 +16,9 @@ services:
     restart: "no"
     ports:
       - "8080:8080"    # Management UI (Charon)
+      - "2020:2020"    # Emergency server (DO NOT expose publicly in production!)
     environment:
-      - CHARON_ENV=development
+      - CHARON_ENV=e2e  # Enable lenient rate limiting (50 attempts/min) for E2E tests
       - CHARON_DEBUG=0
       - TZ=UTC
       # Encryption key - MUST be provided via environment variable
@@ -26,6 +27,11 @@ services:
       # Emergency reset token - for break-glass recovery when locked out by ACL
       # Generate with: openssl rand -hex 32
       - CHARON_EMERGENCY_TOKEN=${CHARON_EMERGENCY_TOKEN:-test-emergency-token-for-e2e-32chars}
+      # Emergency server (Tier 2 break glass) - separate port bypassing all security
+      - CHARON_EMERGENCY_SERVER_ENABLED=true
+      - CHARON_EMERGENCY_BIND=0.0.0.0:2020  # Bind to all interfaces in container (avoid Caddy's 2019)
+      - CHARON_EMERGENCY_USERNAME=admin
+      - CHARON_EMERGENCY_PASSWORD=${CHARON_EMERGENCY_PASSWORD:-changeme}
       - CHARON_HTTP_PORT=8080
       - CHARON_DB_PATH=/app/data/charon.db
       - CHARON_FRONTEND_DIR=/app/frontend/dist
