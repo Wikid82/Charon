@@ -5,8 +5,8 @@ import (
 	"net"
 	"os"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
