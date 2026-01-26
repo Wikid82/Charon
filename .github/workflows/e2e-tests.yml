@@ -252,8 +252,7 @@ jobs:
         run: |
           npx playwright test \
             --project=${{ matrix.browser }} \
-            --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
-            --reporter=html,json,github
+            --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
         env:
           # Use Vite dev server for coverage (proxies API to Docker at 8080)
           PLAYWRIGHT_BASE_URL: http://localhost:${{ env.VITE_PORT }}
