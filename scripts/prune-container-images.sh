@@ -35,10 +35,27 @@ action_delete_ghcr() {
 
   page=1
   per_page=100
-  versions=()
+  namespace_type="orgs"
+
   while :; do
-    resp=$(curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" \
-      "https://api.github.com/orgs/$OWNER/packages/container/$IMAGE_NAME/versions?per_page=$per_page&page=$page")
+    url="https://api.github.com/${namespace_type}/${OWNER}/packages/container/${IMAGE_NAME}/versions?per_page=$per_page&page=$page"
+    resp=$(curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" "$url")
+
+    # Handle API errors gracefully and try users/organizations as needed
+    if echo "$resp" | jq -e '.message' >/dev/null 2>&1; then
+      msg=$(echo "$resp" | jq -r '.message')
+      if [[ "$msg" == "Not Found" && "$namespace_type" == "orgs" ]]; then
+        echo "$LOG_PREFIX GHCR org lookup returned Not Found; switching to users endpoint"
+        namespace_type="users"
+        page=1
+        continue
+      fi
+
+      if echo "$msg" | grep -q "read:packages"; then
+        echo "$LOG_PREFIX GHCR API error: $msg. Ensure token has 'read:packages' scope or use Actions GITHUB_TOKEN with package permissions."
+        return
+      fi
+    fi
 
     ids=$(echo "$resp" | jq -r '.[].id' 2>/dev/null)
     if [[ -z "$ids" ]]; then
@@ -80,7 +97,7 @@ action_delete_ghcr() {
       else
         echo "$LOG_PREFIX deleting GHCR version id=$id"
         curl -sS -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN" \
-          "https://api.github.com/orgs/$OWNER/packages/container/$IMAGE_NAME/versions/$id"
+          "https://api.github.com/${namespace_type}/${OWNER}/packages/container/${IMAGE_NAME}/versions/$id"
       fi
 
     done
