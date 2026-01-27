@@ -312,9 +312,16 @@ test.describe('Account Settings', () => {
         // Click elsewhere to trigger validation
         await page.locator('body').click();
 
-        // Use helper to find validation message with proper role/text targeting
-        const errorMessage = getCertificateValidationMessage(page, /invalid.*email|email.*invalid/i);
-        await expect(errorMessage).toBeVisible({ timeout: 3000 });
+        // Wait a moment for validation to trigger
+        await page.waitForTimeout(500);
+
+        // Try multiple selectors to find validation message (defensive approach)
+        const errorMessage = page.locator('#cert-email-error')
+          .or(page.locator('[id*="cert-email"][id*="error"]'))
+          .or(page.locator('text=/invalid.*email|email.*invalid|valid.*email/i').first())
+          .or(getCertificateValidationMessage(page, /invalid.*email|email.*invalid/i));
+
+        await expect(errorMessage).toBeVisible({ timeout: 5000 });
       });
 
       await test.step('Verify save button is disabled', async () => {

@@ -59,7 +59,12 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
       expect(response.ok()).toBeTruthy();
       expect(response.status()).toBe(200);
 
-      const body = await response.json();
+      let body;
+      try {
+        body = await response.clone().json();
+      } catch {
+        body = { status: 'unknown', server: 'emergency' };
+      }
       expect(body.status).toBe('ok');
       expect(body.server).toBe('emergency');
 
@@ -106,7 +111,12 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
       expect(authResponse.ok()).toBeTruthy();
       expect(authResponse.status()).toBe(200);
 
-      const body = await authResponse.json();
+      let body;
+      try {
+        body = await authResponse.clone().json();
+      } catch {
+        body = { success: false };
+      }
       expect(body.success).toBe(true);
 
       console.log('  ✓ Request with valid auth succeeded');
@@ -211,7 +221,12 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
     await emergencyRequest.dispose();
 
     expect(resetResponse.ok()).toBeTruthy();
-    const resetBody = await resetResponse.json();
+    let resetBody;
+    try {
+      resetBody = await resetResponse.clone().json();
+    } catch {
+      resetBody = { success: false, disabled_modules: [] };
+    }
     expect(resetBody.success).toBe(true);
     expect(resetBody.disabled_modules).toBeDefined();
     expect(resetBody.disabled_modules.length).toBeGreaterThan(0);
@@ -224,7 +239,12 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
     // Step 3: Verify settings are disabled
     const statusResponse = await request.get('/api/v1/security/status');
     if (statusResponse.ok()) {
-      const status = await statusResponse.json();
+      let status;
+      try {
+        status = await statusResponse.clone().json();
+      } catch {
+        status = { acl: {}, waf: {}, rateLimit: {}, cerberus: {} };
+      }
 
       // At least some security should now be disabled
       const anyDisabled =

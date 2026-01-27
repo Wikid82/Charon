@@ -293,15 +293,33 @@ jobs:
           # Create directory for merged results
           mkdir -p merged-results
 
+          # Debug: Show what artifacts were downloaded
+          echo "=== Checking downloaded artifacts ==="
+          ls -lR all-results/ || echo "No all-results directory found"
+
           # Find and copy all blob reports
+          echo "=== Looking for zip files ==="
+          find all-results -name "*.zip" -type f -print
           find all-results -name "*.zip" -exec cp {} merged-results/ \; 2>/dev/null || true
 
-          # Merge reports if blobs exist
-          if ls merged-results/*.zip 1> /dev/null 2>&1; then
+          # Check for zip files before merging
+          echo "=== Checking merged-results directory ==="
+          ls -la merged-results/ || echo "merged-results is empty"
+
+          if compgen -G "merged-results/*.zip" > /dev/null; then
+            echo "✅ Found Playwright report zip blobs, proceeding with merge..."
             npx playwright merge-reports --reporter html merged-results
           else
-            echo "No blob reports found, copying individual reports"
-            cp -r all-results/test-results-chromium-shard-1/playwright-report playwright-report 2>/dev/null || mkdir -p playwright-report
+            echo "⚠️  No Playwright report zip blobs found. Checking for fallback reports..."
+            # Fallback: Look for individual playwright-report directories
+            if find all-results -name "playwright-report" -type d | head -1 | grep -q .; then
+              echo "✅ Found individual reports, copying first one as fallback..."
+              cp -r $(find all-results -name "playwright-report" -type d | head -1) playwright-report
+            else
+              echo "❌ No Playwright report zip blobs or individual reports found"
+              echo "Artifact download may have failed. Check that test shards completed successfully."
+              mkdir -p playwright-report
+            fi
           fi
 
       - name: Upload merged report

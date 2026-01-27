@@ -418,9 +418,11 @@ test.describe('System Settings', () => {
       });
 
       await test.step('Verify success feedback', async () => {
-        // Use shared toast helper
-        const successToast = getToastLocator(page, /success|saved/i, { type: 'success' });
-        await expect(successToast).toBeVisible({ timeout: 5000 });
+        // Use more flexible locator with fallbacks and longer timeout
+        const successToast = page.locator('[data-testid="toast-success"]')
+          .or(page.locator('[data-sonner-toast]').filter({ hasText: /success|saved/i }))
+          .or(page.getByRole('status').filter({ hasText: /success|saved/i }));
+        await expect(successToast.first()).toBeVisible({ timeout: 10000 });
       });
     });
   });

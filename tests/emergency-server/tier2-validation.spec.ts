@@ -47,7 +47,12 @@ test.describe('Break Glass - Tier 2 (Emergency Server)', () => {
     });
 
     expect(response.ok()).toBeTruthy();
-    const body = await response.json();
+    let body;
+    try {
+      body = await response.clone().json();
+    } catch {
+      body = {};
+    }
     expect(body.status).toBe('ok');
     expect(body.server).toBe('emergency');
   });
@@ -63,7 +68,12 @@ test.describe('Break Glass - Tier 2 (Emergency Server)', () => {
     });
 
     expect(response.ok()).toBeTruthy();
-    const result = await response.json();
+    let result;
+    try {
+      result = await response.clone().json();
+    } catch {
+      result = { success: false, disabled_modules: [] };
+    }
     expect(result.success).toBe(true);
     expect(result.disabled_modules).toContain('security.acl.enabled');
     expect(result.disabled_modules).toContain('security.waf.enabled');
@@ -92,7 +102,12 @@ test.describe('Break Glass - Tier 2 (Emergency Server)', () => {
     });
 
     expect(healthCheck.ok()).toBeTruthy();
-    const health = await healthCheck.json();
+    let health;
+    try {
+      health = await healthCheck.clone().json();
+    } catch {
+      health = { status: 'unknown' };
+    }
     expect(health.status).toBe('ok');
   });
 

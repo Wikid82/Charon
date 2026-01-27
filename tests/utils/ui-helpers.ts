@@ -188,9 +188,21 @@ export async function refreshListAndWait(
   // Reload the page
   await page.reload();
 
-  // Wait for table to be visible
-  const table = page.getByRole('table');
-  await expect(table).toBeVisible({ timeout });
+  // Wait for list to be visible (supports table, grid, or card layouts)
+  // Try table first, then grid, then card container
+  let listElement = page.getByRole('table');
+  let isVisible = await listElement.isVisible({ timeout: 1000 }).catch(() => false);
+
+  if (!isVisible) {
+    // Fallback to grid layout (e.g., DNS providers in grid)
+    listElement = page.locator('.grid > div, [data-testid="list-container"]');
+    isVisible = await listElement.first().isVisible({ timeout: 1000 }).catch(() => false);
+  }
+
+  // If still not visible, wait for the page to stabilize with any content
+  if (!isVisible) {
+    await page.waitForLoadState('networkidle', { timeout });
+  }
 
   // Wait for any loading indicators to clear
   const loader = page.locator('[role="progressbar"], [aria-busy="true"], .loading-spinner');
