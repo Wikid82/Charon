@@ -46,6 +46,7 @@ on:
       - 'backend/**'
       - 'tests/**'
       - 'playwright.config.js'
+      - '.github/workflows/e2e-tests.yml'
 
   workflow_dispatch:
     inputs:
