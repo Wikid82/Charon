@@ -205,3 +205,37 @@ func TestLoad_DebugMode(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, cfg.Debug)
 }
+
+func TestLoad_EmergencyConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	os.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
+	os.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
+	os.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+
+	// Test emergency config defaults
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.False(t, cfg.Emergency.Enabled, "Emergency server should be disabled by default")
+	assert.Equal(t, "127.0.0.1:2020", cfg.Emergency.BindAddress, "Default emergency bind should be port 2020 (avoids Caddy admin API on 2019)")
+	assert.Equal(t, "", cfg.Emergency.BasicAuthUsername, "Basic auth username should be empty by default")
+	assert.Equal(t, "", cfg.Emergency.BasicAuthPassword, "Basic auth password should be empty by default")
+
+	// Test emergency config with custom values
+	os.Setenv("CHARON_EMERGENCY_SERVER_ENABLED", "true")
+	os.Setenv("CHARON_EMERGENCY_BIND", "0.0.0.0:2020")
+	os.Setenv("CHARON_EMERGENCY_USERNAME", "admin")
+	os.Setenv("CHARON_EMERGENCY_PASSWORD", "testpass")
+	defer func() {
+		_ = os.Unsetenv("CHARON_EMERGENCY_SERVER_ENABLED")
+		_ = os.Unsetenv("CHARON_EMERGENCY_BIND")
+		_ = os.Unsetenv("CHARON_EMERGENCY_USERNAME")
+		_ = os.Unsetenv("CHARON_EMERGENCY_PASSWORD")
+	}()
+
+	cfg, err = Load()
+	require.NoError(t, err)
+	assert.True(t, cfg.Emergency.Enabled)
+	assert.Equal(t, "0.0.0.0:2020", cfg.Emergency.BindAddress)
+	assert.Equal(t, "admin", cfg.Emergency.BasicAuthUsername)
+	assert.Equal(t, "testpass", cfg.Emergency.BasicAuthPassword)
+}

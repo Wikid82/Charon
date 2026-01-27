@@ -10,7 +10,7 @@ services:
       - "8080:8080"    # Management UI (Charon)
       # Emergency server port - ONLY expose via SSH tunnel or VPN for security
       # Uncomment ONLY if you need localhost access on host machine:
-      # - "127.0.0.1:2019:2019"  # Emergency server (localhost-only)
+      # - "127.0.0.1:2020:2020"  # Emergency server Tier-2 (localhost-only, avoids Caddy's 2019)
     environment:
       - CHARON_ENV=production # CHARON_ preferred; CPM_ values still supported
       - TZ=UTC # Set timezone (e.g., America/New_York)
@@ -22,7 +22,7 @@ services:
       # - CHARON_EMERGENCY_TOKEN=${CHARON_EMERGENCY_TOKEN}  # Store in secrets manager
       # Tier 2: Emergency server on separate port (bypasses Caddy/CrowdSec entirely)
       # - CHARON_EMERGENCY_SERVER_ENABLED=false  # Disabled by default
-      # - CHARON_EMERGENCY_BIND=127.0.0.1:2019   # Localhost only
+      # - CHARON_EMERGENCY_BIND=127.0.0.1:2020   # Localhost only (port 2020 avoids Caddy admin API)
       # - CHARON_EMERGENCY_USERNAME=admin
       # - CHARON_EMERGENCY_PASSWORD=${EMERGENCY_PASSWORD}  # Store in secrets manager
       - CHARON_HTTP_PORT=8080

@@ -123,22 +123,26 @@ environment:
 
 **Purpose:** Address and port for emergency server (Tier 2)
 **Format:** `IP:PORT`
-**Default:** `127.0.0.1:2019`
+**Default:** `127.0.0.1:2020`
+**Note:** Port 2020 avoids conflict with Caddy admin API (port 2019)
 
 **Options:**
 
 ```yaml
 # Localhost only (most secure - requires SSH tunnel)
-- CHARON_EMERGENCY_BIND=127.0.0.1:2019
+- CHARON_EMERGENCY_BIND=127.0.0.1:2020
 
 # Listen on all interfaces (DANGER - requires firewall rules)
-- CHARON_EMERGENCY_BIND=0.0.0.0:2019
+- CHARON_EMERGENCY_BIND=0.0.0.0:2020
 
 # Specific internal IP (VPN interface)
-- CHARON_EMERGENCY_BIND=10.8.0.1:2019
+- CHARON_EMERGENCY_BIND=10.8.0.1:2020
 
-# Custom port
-- CHARON_EMERGENCY_BIND=127.0.0.1:3000
+# IPv6 localhost
+- CHARON_EMERGENCY_BIND=[::1]:2020
+
+# Dual-stack all interfaces
+- CHARON_EMERGENCY_BIND=0.0.0.0:2020  # or [::]:2020 for IPv6
 ```
 
 **⚠️ Security Warning:** Never bind to `0.0.0.0` without firewall protection. Use SSH tunneling instead.
@@ -248,7 +252,7 @@ services:
       - "443:443/udp"
       - "8080:8080"
       # Emergency server (localhost only - use SSH tunnel)
-      - "127.0.0.1:2019:2019"
+      - "127.0.0.1:2020:2020"
     volumes:
       - charon_data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -263,7 +267,7 @@ services:
 
       # Emergency Server (Tier 2)
       - CHARON_EMERGENCY_SERVER_ENABLED=true
-      - CHARON_EMERGENCY_BIND=0.0.0.0:2019
+      - CHARON_EMERGENCY_BIND=0.0.0.0:2020
       - CHARON_EMERGENCY_USERNAME=${CHARON_EMERGENCY_USERNAME}
       - CHARON_EMERGENCY_PASSWORD=${CHARON_EMERGENCY_PASSWORD}
     healthcheck:
@@ -312,7 +316,7 @@ services:
       - "443:443"
       - "443:443/udp"
       - "8080:8080"
-      - "127.0.0.1:2019:2019"
+      - "127.0.0.1:2020:2020"
     volumes:
       - charon_data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -336,7 +340,7 @@ services:
       - CHARON_EMERGENCY_TOKEN_FILE=/run/secrets/charon_emergency_token
       - CHARON_MANAGEMENT_CIDRS=10.8.0.0/24  # VPN subnet only
       - CHARON_EMERGENCY_SERVER_ENABLED=true
-      - CHARON_EMERGENCY_BIND=0.0.0.0:2019
+      - CHARON_EMERGENCY_BIND=0.0.0.0:2020
       - CHARON_EMERGENCY_USERNAME=emergency-admin
       - CHARON_EMERGENCY_PASSWORD_FILE=/run/secrets/charon_emergency_password
 
@@ -383,7 +387,7 @@ services:
       - "80:80"
       - "443:443"
       - "8080:8080"
-      - "2019:2019"  # Emergency server on all interfaces for testing
+      - "2020:2020"  # Emergency server on all interfaces for testing
     volumes:
       - charon_data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -394,7 +398,7 @@ services:
       - CHARON_ENCRYPTION_KEY=dev-key-not-for-production-32bytes
       - CHARON_EMERGENCY_TOKEN=test-emergency-token-for-e2e-32chars
       - CHARON_EMERGENCY_SERVER_ENABLED=true
-      - CHARON_EMERGENCY_BIND=0.0.0.0:2019
+      - CHARON_EMERGENCY_BIND=0.0.0.0:2020
       - CHARON_EMERGENCY_USERNAME=admin
       - CHARON_EMERGENCY_PASSWORD=admin
 
@@ -415,13 +419,13 @@ volumes:
 
 ```bash
 # Allow localhost
-iptables -A INPUT -i lo -p tcp --dport 2019 -j ACCEPT
+iptables -A INPUT -i lo -p tcp --dport 2020 -j ACCEPT
 
 # Allow VPN subnet (example: 10.8.0.0/24)
-iptables -A INPUT -s 10.8.0.0/24 -p tcp --dport 2019 -j ACCEPT
+iptables -A INPUT -s 10.8.0.0/24 -p tcp --dport 2020 -j ACCEPT
 
 # Block everything else
-iptables -A INPUT -p tcp --dport 2019 -j DROP
+iptables -A INPUT -p tcp --dport 2020 -j DROP
 
 # Save rules
 iptables-save > /etc/iptables/rules.v4
@@ -431,7 +435,7 @@ iptables-save > /etc/iptables/rules.v4
 
 ```bash
 # Allow from specific subnet only
-ufw allow from 10.8.0.0/24 to any port 2019 proto tcp
+ufw allow from 10.8.0.0/24 to any port 2020 proto tcp
 
 # Enable firewall
 ufw enable
@@ -446,7 +450,7 @@ ufw status numbered
 # Create new zone for emergency access
 firewall-cmd --permanent --new-zone=emergency
 firewall-cmd --permanent --zone=emergency --add-source=10.8.0.0/24
-firewall-cmd --permanent --zone=emergency --add-port=2019/tcp
+firewall-cmd --permanent --zone=emergency --add-port=2020/tcp
 
 # Reload firewall
 firewall-cmd --reload
@@ -635,7 +639,7 @@ environment:
   - CHARON_MANAGEMENT_CIDRS=10.8.0.0/24
 
   # Emergency server listens on VPN interface only
-  - CHARON_EMERGENCY_BIND=10.8.0.1:2019
+  - CHARON_EMERGENCY_BIND=10.8.0.1:2020
 ```
 
 **mTLS for Emergency Server** (Future Enhancement):
@@ -716,13 +720,13 @@ curl -X POST https://charon.example.com/api/v1/emergency/security-reset \
 
 ```bash
 # Create SSH tunnel
-ssh -L 2019:localhost:2019 admin@server &
+ssh -L 2020:localhost:2020 admin@server &
 
 # Test emergency server health
-curl http://localhost:2019/health
+curl http://localhost:2020/health
 
 # Test emergency endpoint
-curl -X POST http://localhost:2019/emergency/security-reset \
+curl -X POST http://localhost:2020/emergency/security-reset \
   -H "X-Emergency-Token: $CHARON_EMERGENCY_TOKEN" \
   -u admin:password
 

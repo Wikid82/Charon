@@ -15,8 +15,11 @@ services:
     container_name: charon-e2e
     restart: "no"
     ports:
-      - "8080:8080"    # Management UI (Charon)
-      - "2020:2020"    # Emergency server (DO NOT expose publicly in production!)
+      - "8080:8080"             # Management UI (Charon)
+      - "127.0.0.1:2019:2019"  # Caddy admin API (read-only status; keep loopback only)
+      - "[::1]:2019:2019"      # Caddy admin API (IPv6 loopback)
+      - "127.0.0.1:2020:2020"  # Emergency tier-2 break-glass API (loopback only)
+      - "[::1]:2020:2020"      # Emergency tier-2 break-glass API (IPv6 loopback)
     environment:
       - CHARON_ENV=e2e  # Enable lenient rate limiting (50 attempts/min) for E2E tests
       - CHARON_DEBUG=0

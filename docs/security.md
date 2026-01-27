@@ -413,10 +413,10 @@ Use when the main application endpoint is blocked at the Caddy reverse proxy lay
 
 ```bash
 # Create SSH tunnel
-ssh -L 2019:localhost:2019 admin@server
+ssh -L 2020:localhost:2020 admin@server
 
 # Use emergency server
-curl -X POST http://localhost:2019/emergency/security-reset \
+curl -X POST http://localhost:2020/emergency/security-reset \
   -H "X-Emergency-Token: your-token" \
   -u admin:password
 ```
@@ -442,7 +442,7 @@ Use when all application-level recovery methods fail, or you need to perform sys
                            ↓ (If Tier 1 fails)
 ┌─────────────────────────────────────────────────────────┐
 │                  TIER 2: SIDECAR DOOR                   │
-│  SSH Tunnel → Emergency Server (Port 2019) → PASS       │
+│  SSH Tunnel → Emergency Server (Port 2020) → PASS       │
 │  ✓ Separate network path (bypasses main proxy)          │
 │  ✓ Minimal security (Basic Auth only)                   │
 │  ⚠️ Requires SSH access and emergency server enabled    │
@@ -473,7 +473,7 @@ Use when all application-level recovery methods fail, or you need to perform sys
 - ✅ **Network isolation**: Separate port, can bind to localhost only
 - ✅ **Basic Auth**: Optional username/password authentication
 - ✅ **SSH tunneling**: Force access through encrypted SSH connection
-- ⚠️ **Public exposure risk**: Port 2019 should NEVER be publicly accessible
+- ⚠️ **Public exposure risk**: Port 2020 should NEVER be publicly accessible
 - ⚠️ **Basic Auth is weak**: Consider mTLS for production (future enhancement)
 
 **Tier 3 Security:**
@@ -655,9 +655,11 @@ environment:
 
 ## Emergency Server Security
 
-### Why Port 2019 Should NEVER Be Publicly Exposed
+### Why Port 2020 Should NEVER Be Publicly Exposed
 
 The emergency server is designed as a **failsafe access mechanism** with minimal security controls. Exposing it to the public internet creates a high-risk attack surface.
+
+**Note:** Port 2020 is used for the emergency server to avoid conflict with Caddy's admin API on port 2019.
 
 **Risks of public exposure:**
 
@@ -674,12 +676,12 @@ SSH tunneling provides encrypted, authenticated access to the emergency server w
 **Create SSH tunnel:**
 
 ```bash
-# Basic tunnel (port 2019 on localhost → port 2019 on server)
-ssh -L 2019:localhost:2019 admin@server.example.com
+# Basic tunnel (port 2020 on localhost → port 2020 on server)
+ssh -L 2020:localhost:2020 admin@server.example.com
 
 # Keep terminal open - tunnel stays active
 # In new terminal, access emergency server:
-curl http://localhost:2019/health
+curl http://localhost:2020/health
 ```
 
 **Persistent tunnel with autossh:**
@@ -689,7 +691,7 @@ curl http://localhost:2019/health
 sudo apt install autossh
 
 # Create persistent tunnel (auto-reconnect on disconnect)
-autossh -M 0 -f -N -L 2019:localhost:2019 admin@server.example.com
+autossh -M 0 -f -N -L 2020:localhost:2020 admin@server.example.com
 
 # Verify tunnel is active
 ps aux | grep autossh
@@ -727,7 +729,7 @@ make-cadir ~/openvpn-ca
 
 ```yaml
 environment:
-  - CHARON_EMERGENCY_BIND=10.8.0.1:2019  # VPN interface IP
+  - CHARON_EMERGENCY_BIND=10.8.0.1:2020  # VPN interface IP
   - CHARON_MANAGEMENT_CIDRS=10.8.0.0/24  # VPN subnet
 ```
 

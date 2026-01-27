@@ -34,8 +34,10 @@ jobs:
       CHARON_ENV: development
       CHARON_DEBUG: "1"
       CHARON_ENCRYPTION_KEY: ${{ secrets.CHARON_CI_ENCRYPTION_KEY }}
-      # Required for security teardown (emergency reset fallback when ACL blocks API)
+      # Emergency server enabled for triage; token supplied via GitHub secret (redacted)
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+      CHARON_EMERGENCY_SERVER_ENABLED: "true"
+      PLAYWRIGHT_BASE_URL: http://localhost:8080
 
     steps:
       - name: Checkout repository
@@ -157,6 +159,33 @@ jobs:
           echo "  - Manual dispatch without PR number"
           exit 0
 
+      - name: Guard triage from coverage/Vite mode
+        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        run: |
+          if [[ "${PLAYWRIGHT_BASE_URL:-}" =~ 5173 ]]; then
+            echo "❌ Coverage/Vite base URL is disabled during triage: ${PLAYWRIGHT_BASE_URL}"
+            exit 1
+          fi
+          case "${PLAYWRIGHT_COVERAGE:-}" in
+            1|true|TRUE|True|yes|YES)
+              echo "❌ Coverage collection is disabled during triage (PLAYWRIGHT_COVERAGE=${PLAYWRIGHT_COVERAGE})"
+              exit 1
+              ;;
+          esac
+          echo "✅ Coverage/Vite guard passed (PLAYWRIGHT_BASE_URL=${PLAYWRIGHT_BASE_URL:-unset})"
+
+      - name: Log triage environment (non-secret)
+        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        run: |
+          echo "CHARON_EMERGENCY_SERVER_ENABLED=${CHARON_EMERGENCY_SERVER_ENABLED}"
+          if [[ -n "${CHARON_EMERGENCY_TOKEN:-}" ]]; then
+            echo "CHARON_EMERGENCY_TOKEN=*** (GitHub secret configured)"
+          else
+            echo "CHARON_EMERGENCY_TOKEN not set; container will fall back to image default"
+          fi
+          echo "Ports bound: 8080 (app), 2019 (admin), 2020 (tier-2) on IPv4/IPv6 loopback"
+          echo "PLAYWRIGHT_BASE_URL=${PLAYWRIGHT_BASE_URL}"
+
       - name: Download PR image artifact
         if: steps.check-artifact.outputs.artifact_exists == 'true'
         # actions/download-artifact v4.1.8
@@ -192,9 +221,15 @@ jobs:
           docker run -d \
             --name charon-test \
             -p 8080:8080 \
+            -p 127.0.0.1:2019:2019 \
+            -p "[::1]:2019:2019" \
+            -p 127.0.0.1:2020:2020 \
+            -p "[::1]:2020:2020" \
             -e CHARON_ENV="${CHARON_ENV}" \
             -e CHARON_DEBUG="${CHARON_DEBUG}" \
             -e CHARON_ENCRYPTION_KEY="${CHARON_ENCRYPTION_KEY}" \
+            -e CHARON_EMERGENCY_TOKEN="${CHARON_EMERGENCY_TOKEN}" \
+            -e CHARON_EMERGENCY_SERVER_ENABLED="${CHARON_EMERGENCY_SERVER_ENABLED}" \
             "${IMAGE_REF}"
 
           echo "✅ Container started"

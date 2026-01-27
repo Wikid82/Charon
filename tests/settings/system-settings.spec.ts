@@ -14,6 +14,7 @@
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForToast, waitForAPIResponse } from '../utils/wait-helpers';
+import { getToastLocator } from '../utils/ui-helpers';
 
 test.describe('System Settings', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -417,13 +418,9 @@ test.describe('System Settings', () => {
       });
 
       await test.step('Verify success feedback', async () => {
-        // Look for success toast or message
-        const successToast = page
-          .locator('[data-testid="toast-success"]')
-          .or(page.getByRole('alert').filter({ hasText: /success|saved/i }))
-          .or(page.getByText(/settings.*saved|saved.*success/i));
-
-        await expect(successToast.first()).toBeVisible({ timeout: 5000 });
+        // Use shared toast helper
+        const successToast = getToastLocator(page, /success|saved/i, { type: 'success' });
+        await expect(successToast).toBeVisible({ timeout: 5000 });
       });
     });
   });
@@ -516,13 +513,9 @@ test.describe('System Settings', () => {
       await test.step('Click test and verify error', async () => {
         await testButton.first().click();
 
-        // Should show error toast
-        const errorToast = page
-          .locator('[data-testid="toast-error"]')
-          .or(page.getByRole('alert').filter({ hasText: /error|not.*reachable|failed/i }))
-          .or(page.getByText(/not.*reachable|error|failed/i));
-
-        await expect(errorToast.first()).toBeVisible({ timeout: 15000 });
+        // Use shared toast helper
+        const errorToast = getToastLocator(page, /error|not.*reachable|failed/i, { type: 'error' });
+        await expect(errorToast).toBeVisible({ timeout: 15000 });
       });
     });
 
@@ -583,11 +576,9 @@ test.describe('System Settings', () => {
       await test.step('Save settings', async () => {
         await saveButton.first().click();
 
-        const successToast = page
-          .locator('[data-testid="toast-success"]')
-          .or(page.getByText(/saved|success/i));
-
-        await expect(successToast.first()).toBeVisible({ timeout: 5000 });
+        // Use shared toast helper
+        const successToast = getToastLocator(page, /saved|success/i, { type: 'success' });
+        await expect(successToast).toBeVisible({ timeout: 5000 });
       });
 
       await test.step('Restore original value', async () => {
