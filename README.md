@@ -14,12 +14,10 @@ Simply manage multiple websites and self-hosted applications. Click, save, done.
 
 <p align="center">
   <a href="https://www.repostatus.org/#active"><img src="https://www.repostatus.org/badges/latest/active.svg" alt="Project Status: Active – The project is being actively developed." /></a>
-  <a href="https://www.bestpractices.dev/projects/11648"><img src="https://www.bestpractices.dev/projects/11648/badge"></a>
- <br>
  <a href="https://hub.docker.com/r/wikid82/charon"><img src="https://img.shields.io/docker/pulls/wikid82/charon.svg" alt="Docker Pulls"></a>
- <a href="https://hub.docker.com/r/wikid82/charon"><img src="https://img.shields.io/docker/v/wikid82/charon?sort=semver" alt="Docker Version"></a>
- <a href="https://codecov.io/gh/Wikid82/Charon" ><img src="https://codecov.io/gh/Wikid82/Charon/branch/main/graph/badge.svg?token=RXSINLQTGE" alt="Code Coverage"/></a>
   <a href="https://github.com/Wikid82/charon/releases"><img src="https://img.shields.io/github/v/release/Wikid82/charon?include_prereleases" alt="Release"></a>
+  <br>
+  <a href="https://codecov.io/gh/Wikid82/Charon" ><img src="https://codecov.io/gh/Wikid82/Charon/branch/main/graph/badge.svg?token=RXSINLQTGE" alt="Code Coverage"/></a>
  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
   <a href="SECURITY.md"><img src="https://img.shields.io/badge/Security-Audited-brightgreen.svg" alt="Security: Audited"></a>
 </p>

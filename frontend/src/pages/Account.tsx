@@ -68,7 +68,8 @@ export default function Account() {
     }
   }, [email])
 
-  // Initialize cert email state
+  // Initialize cert email state (only once on mount)
+  // Empty dependency array ensures initialization runs exactly once and is never affected by React Query refetches
   useEffect(() => {
     if (settings && profile) {
       const savedEmail = settings['caddy.email']
@@ -80,7 +81,7 @@ export default function Account() {
         setUseUserEmail(true)
       }
     }
-  }, [settings, profile])
+  }, [])
 
   // Validate cert email
   useEffect(() => {
@@ -214,6 +215,9 @@ export default function Account() {
       category: 'caddy'
     })
   }
+
+  // Compute disabled state for certificate email button
+  // Button should be disabled when using custom email and it's invalid/empty  const isCertEmailButtonDisabled = useUserEmail ? false : (certEmailValid !== true)
 
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -349,12 +353,21 @@ export default function Account() {
                   onChange={(e) => setCertEmail(e.target.value)}
                   required={!useUserEmail}
                   error={certEmailValid === false ? t('errors.invalidEmail') : undefined}
+                  errorTestId="cert-email-error"
+                  aria-invalid={certEmailValid === false}
                 />
               </div>
             )}
           </CardContent>
           <CardFooter className="justify-end">
-            <Button type="submit" isLoading={updateSettingMutation.isPending} disabled={!useUserEmail && certEmailValid === false}>
+            <Button
+              type="submit"
+              isLoading={updateSettingMutation.isPending}
+              disabled={useUserEmail ? false : certEmailValid !== true}
+              data-use-user-email={useUserEmail}
+              data-cert-email-valid={String(certEmailValid)}
+              data-compute-disabled={String(useUserEmail ? false : certEmailValid !== true)}
+            >
               {t('account.saveCertificateEmail')}
             </Button>
           </CardFooter>

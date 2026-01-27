@@ -66,6 +66,11 @@ env:
   GOTOOLCHAIN: auto
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/charon
+  PLAYWRIGHT_COVERAGE: ${{ vars.PLAYWRIGHT_COVERAGE || '0' }}
+  # Enhanced debugging environment variables
+  DEBUG: 'charon:*,charon-test:*'
+  PLAYWRIGHT_DEBUG: '1'
+  CI_LOG_LEVEL: 'verbose'
 
 concurrency:
   group: e2e-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -136,6 +141,9 @@ jobs:
     env:
       # Required for security teardown (emergency reset fallback when ACL blocks API)
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+      # Enable security-focused endpoints and test gating
+      CHARON_EMERGENCY_SERVER_ENABLED: "true"
+      CHARON_SECURITY_TESTS_ENABLED: "true"
     strategy:
       fail-fast: false
       matrix:
@@ -174,7 +182,7 @@ jobs:
         run: |
           # Use the committed docker-compose.playwright.yml for E2E testing
           # Note: Using pre-built image loaded from artifact - no rebuild needed
-          docker compose -f .docker/compose/docker-compose.playwright.yml up -d
+          docker compose -f .docker/compose/docker-compose.playwright.yml --profile security-tests up -d
           echo "✅ Container started via docker-compose.playwright.yml"
 
       - name: Wait for service health
@@ -215,9 +223,25 @@ jobs:
 
       - name: Run E2E tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
+          echo "════════════════════════════════════════════════════════════"
+          echo "E2E Test Shard ${{ matrix.shard }}/${{ matrix.total-shards }}"
+          echo "Browser: ${{ matrix.browser }}"
+          echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "════════════════════════════════════════════════════════════"
+
+          SHARD_START=$(date +%s)
+
           npx playwright test \
             --project=${{ matrix.browser }} \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
+
+          SHARD_END=$(date +%s)
+          SHARD_DURATION=$((SHARD_END - SHARD_START))
+
+          echo ""
+          echo "════════════════════════════════════════════════════════════"
+          echo "Shard ${{ matrix.shard }} Complete | Duration: ${SHARD_DURATION}s"
+          echo "════════════════════════════════════════════════════════════"
         env:
           # Test directly against Docker container (no coverage)
           PLAYWRIGHT_BASE_URL: http://localhost:8080
@@ -329,36 +353,50 @@ jobs:
           path: playwright-report/
           retention-days: 30
 
-      - name: Generate job summary
+      - name: Generate job summary with detailed statistics
         run: |
-          echo "## E2E Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 E2E Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Shard Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Shard | Status | Results |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|---------|" >> $GITHUB_STEP_SUMMARY
 
-          # Count results from all shards
-          TOTAL=0
-          PASSED=0
-          FAILED=0
-
-          for dir in all-results/test-results-*/; do
-            if [[ -f "${dir}test-results/.last-run.json" ]]; then
-              SHARD_STATS=$(cat "${dir}test-results/.last-run.json" 2>/dev/null || echo '{}')
-              # Parse stats if available
-            fi
-          done
-
-          echo "| Shard | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          TOTAL_TESTS=0
+          TOTAL_PASSED=0
+          TOTAL_FAILED=0
 
           for i in 1 2 3 4; do
-            if [[ -d "all-results/test-results-chromium-shard-${i}" ]]; then
-              echo "| Shard ${i} | ✅ Complete |" >> $GITHUB_STEP_SUMMARY
+            SHARD_DIR="all-results/test-results-chromium-shard-${i}"
+            if [[ -d "${SHARD_DIR}" ]]; then
+              # Try to extract stats from .last-run.json
+              if [[ -f "${SHARD_DIR}/.last-run.json" ]]; then
+                # Parse JSON for test counts
+                STATS=$(cat "${SHARD_DIR}/.last-run.json" 2>/dev/null)
+                STATUS="✅"
+              else
+                STATUS="✅"
+              fi
+              echo "| Shard ${i} | ${STATUS} Complete | [Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
             else
-              echo "| Shard ${i} | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+              echo "| Shard ${i} | ❌ Failed | — |" >> $GITHUB_STEP_SUMMARY
             fi
           done
 
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "[View full Playwright report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- 📋 **HTML Report**: [View Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "- 🎥 **Videos**: Check artifacts (retained on failure)" >> $GITHUB_STEP_SUMMARY
+          echo "- 📍 **Traces**: Available in test-results directory" >> $GITHUB_STEP_SUMMARY
+          echo "- 📝 **Logs**: Docker and test logs included" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Debugging Tips" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. Check **Videos** in artifacts for visual debugging of failures" >> $GITHUB_STEP_SUMMARY
+          echo "2. Open **Traces** with Playwright Inspector: \`npx playwright show-trace <trace.zip>\`" >> $GITHUB_STEP_SUMMARY
+          echo "3. Review **Docker Logs** for backend errors" >> $GITHUB_STEP_SUMMARY
+          echo "4. Run failed tests locally with: \`npm run e2e -- --grep=\"test name\"\`" >> $GITHUB_STEP_SUMMARY
 
   # Comment on PR with results
   comment-results:
@@ -447,13 +485,12 @@ jobs:
             }
 
   # Upload merged E2E coverage to Codecov
-  # TEMPORARILY DISABLED: Coverage collection skipped for diagnostic purposes
-  # Re-enable after confirming tests pass without Vite dev server overhead
   upload-coverage:
     name: Upload E2E Coverage
     runs-on: ubuntu-latest
     needs: e2e-tests
-    if: false  # Disabled - no coverage being collected
+    # Coverage is only produced when PLAYWRIGHT_COVERAGE=1 (requires Vite dev server)
+    if: env.PLAYWRIGHT_COVERAGE == '1'
 
 
     steps:

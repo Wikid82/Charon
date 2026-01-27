@@ -95,6 +95,8 @@ const coverageReporterConfig = defineCoverageReporterConfig({
   },
 });
 
+const enableCoverage = process.env.PLAYWRIGHT_COVERAGE === '1';
+
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
@@ -122,12 +124,14 @@ export default defineConfig({
         ['blob'],
         ['github'],
         ['html', { open: 'never' }],
-        ['@bgotink/playwright-coverage', coverageReporterConfig],
+        ...(enableCoverage ? [['@bgotink/playwright-coverage', coverageReporterConfig]] : []),
+        ['./tests/reporters/debug-reporter.ts'],
       ]
     : [
         ['list'],
         ['html', { open: 'on-failure' }],
-        ['@bgotink/playwright-coverage', coverageReporterConfig],
+        ...(enableCoverage ? [['@bgotink/playwright-coverage', coverageReporterConfig]] : []),
+        ['./tests/reporters/debug-reporter.ts'],
       ],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
@@ -142,8 +146,33 @@ export default defineConfig({
      */
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080',
 
-    /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-    trace: 'on-first-retry',
+    /* Traces: Capture execution traces for debugging
+     *
+     * Options:
+     *   'off'              - No trace capture
+     *   'on'               - Always capture (large files, use only for debugging)
+     *   'on-first-retry'   - Capture on first retry only (good balance)
+     *   'retain-on-failure'- Capture only for failed tests (smallest overhead)
+     */
+    trace: process.env.CI ? 'on-first-retry' : 'on-first-retry',
+
+    /* Videos: Capture video recordings for visual debugging
+     *
+     * Options:
+     *   'off'              - No recording
+     *   'on'               - Always record (high disk usage)
+     *   'retain-on-failure'- Record only failed tests (recommended)
+     */
+    video: process.env.CI ? 'retain-on-failure' : 'retain-on-failure',
+
+    /* Screenshots: Capture screenshots of page state
+     *
+     * Options:
+     *   'off'              - No screenshots
+     *   'only-on-failure'  - Screenshot on failure (recommended)
+     *   'on'               - Always screenshot (high disk usage)
+     */
+    screenshot: 'only-on-failure',
   },
 
   /* Configure projects for major browsers */
@@ -154,32 +183,34 @@ export default defineConfig({
       testMatch: /auth\.setup\.ts/,
     },
 
-    // DIAGNOSTIC MODE: Security tests temporarily disabled to isolate test failures
-    // TODO: Re-enable after diagnosing whether security features are root cause
-    // // 2. Security Tests - Run WITH security enabled (SEQUENTIAL, headless Chromium)
-    // // These tests enable security modules, verify blocking behavior, then teardown disables all.
-    // {
-    //   name: 'security-tests',
-    //   testDir: './tests/security-enforcement',
-    //   dependencies: ['setup'],
-    //   teardown: 'security-teardown',
-    //   fullyParallel: false, // Force sequential - modules share state
-    //   workers: 1, // Force single worker to prevent race conditions on security settings
-    //   use: {
-    //     ...devices['Desktop Chrome'],
-    //     headless: true, // Security tests are API-level, don't need headed
-    //     storageState: STORAGE_STATE,
-    //   },
-    // },
+    // 2. Security Tests - Run WITH security enabled (SEQUENTIAL, headless Chromium)
+    // These tests enable security modules, verify enforcement, then teardown disables all.
+    {
+      name: 'security-tests',
+      testDir: './tests',
+      testMatch: [
+        /security-enforcement\/.*\.spec\.(ts|js)/,
+        /security\/.*\.spec\.(ts|js)/,
+      ],
+      dependencies: ['setup'],
+      teardown: 'security-teardown',
+      fullyParallel: false, // Force sequential - modules share state
+      workers: 1, // Force single worker to prevent race conditions on security settings
+      use: {
+        ...devices['Desktop Chrome'],
+        headless: true, // Security tests are API-level, don't need headed
+        storageState: STORAGE_STATE,
+      },
+    },
 
-    // // 3. Security Teardown - Disable ALL security modules after security-tests
-    // {
-    //   name: 'security-teardown',
-    //   testMatch: /security-teardown\.setup\.ts/,
-    // },
+    // 3. Security Teardown - Disable ALL security modules after security-tests
+    {
+      name: 'security-teardown',
+      testMatch: /security-teardown\.setup\.ts/,
+    },
 
-    // 4. Browser projects - Depend on setup only (security-tests temporarily removed)
-    // Note: Security modules should be disabled by default in test environment
+    // 4. Browser projects - Depend on setup and security-tests (with teardown) for order
+    // Note: Security modules are re-disabled by teardown before these projects execute
     {
       name: 'chromium',
       use: {
@@ -187,8 +218,7 @@ export default defineConfig({
         // Use stored authentication state
         storageState: STORAGE_STATE,
       },
-      testIgnore: /security-enforcement\//,
-      dependencies: ['setup'],
+      dependencies: ['setup', 'security-tests'],
     },
 
     {
@@ -197,8 +227,7 @@ export default defineConfig({
         ...devices['Desktop Firefox'],
         storageState: STORAGE_STATE,
       },
-      testIgnore: /security-enforcement\//,
-      dependencies: ['setup'],
+      dependencies: ['setup', 'security-tests'],
     },
 
     {
@@ -207,8 +236,7 @@ export default defineConfig({
         ...devices['Desktop Safari'],
         storageState: STORAGE_STATE,
       },
-      testIgnore: /security-enforcement\//,
-      dependencies: ['setup'],
+      dependencies: ['setup', 'security-tests'],
     },
 
     /* Test against mobile viewports. */
