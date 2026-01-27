@@ -25,20 +25,24 @@ function getBaseURL(): string {
  */
 async function checkCaddyAdminHealth(): Promise<boolean> {
   const caddyAdminHost = process.env.CADDY_ADMIN_HOST || 'http://localhost:2019';
+  const startTime = Date.now();
   console.log(`🔍 Checking Caddy admin API health at ${caddyAdminHost}...`);
 
   const caddyContext = await request.newContext({ baseURL: caddyAdminHost });
   try {
     const response = await caddyContext.get('/config', { timeout: 3000 });
+    const elapsed = Date.now() - startTime;
+
     if (response.ok()) {
-      console.log('  ✅ Caddy admin API (port 2019) is healthy');
+      console.log(`  ✅ Caddy admin API (port 2019) is healthy [${elapsed}ms]`);
       return true;
     } else {
-      console.log(`  ⚠️  Caddy admin API returned: ${response.status()}`);
+      console.log(`  ⚠️  Caddy admin API returned: ${response.status()} [${elapsed}ms]`);
       return false;
     }
   } catch (e) {
-    console.log('  ⏭️  Caddy admin API unavailable (non-blocking)');
+    const elapsed = Date.now() - startTime;
+    console.log(`  ⏭️  Caddy admin API unavailable (non-blocking) [${elapsed}ms]`);
     return false;
   } finally {
     await caddyContext.dispose();
@@ -50,20 +54,24 @@ async function checkCaddyAdminHealth(): Promise<boolean> {
  */
 async function checkEmergencyServerHealth(): Promise<boolean> {
   const emergencyHost = process.env.EMERGENCY_SERVER_HOST || 'http://localhost:2020';
+  const startTime = Date.now();
   console.log(`🔍 Checking emergency tier-2 server health at ${emergencyHost}...`);
 
   const emergencyContext = await request.newContext({ baseURL: emergencyHost });
   try {
     const response = await emergencyContext.get('/health', { timeout: 3000 });
+    const elapsed = Date.now() - startTime;
+
     if (response.ok()) {
-      console.log('  ✅ Emergency tier-2 server (port 2020) is healthy');
+      console.log(`  ✅ Emergency tier-2 server (port 2020) is healthy [${elapsed}ms]`);
       return true;
     } else {
-      console.log(`  ⚠️  Emergency tier-2 server returned: ${response.status()}`);
+      console.log(`  ⚠️  Emergency tier-2 server returned: ${response.status()} [${elapsed}ms]`);
       return false;
     }
   } catch (e) {
-    console.log('  ⏭️  Emergency tier-2 server unavailable (tests will skip tier-2 features)');
+    const elapsed = Date.now() - startTime;
+    console.log(`  ⏭️  Emergency tier-2 server unavailable (tests will skip tier-2 features) [${elapsed}ms]`);
     return false;
   } finally {
     await emergencyContext.dispose();
@@ -71,7 +79,8 @@ async function checkEmergencyServerHealth(): Promise<boolean> {
 }
 
 async function globalSetup(): Promise<void> {
-  console.log('\n🧹 Running global test setup...');
+  console.log('\n🧹 Running global test setup...\n');
+  const setupStartTime = Date.now();
 
   const baseURL = getBaseURL();
   console.log(`📍 Base URL: ${baseURL}`);
@@ -81,14 +90,26 @@ async function globalSetup(): Promise<void> {
     const parsedURL = new URL(baseURL);
     const isIPv6 = parsedURL.hostname.includes(':') || parsedURL.hostname.startsWith('[');
     const isLocalhost = parsedURL.hostname === 'localhost';
-    console.log(`  🔍 URL Analysis: host=${parsedURL.hostname} port=${parsedURL.port} IPv6=${isIPv6} localhost=${isLocalhost}`);
+    const port = parsedURL.port || (parsedURL.protocol === 'https:' ? '443' : '80');
+
+    console.log(`   └─ Hostname: ${parsedURL.hostname}`);
+    console.log(`   ├─ Port: ${port}`);
+    console.log(`   ├─ Protocol: ${parsedURL.protocol}`);
+    console.log(`   ├─ IPv6: ${isIPv6 ? 'Yes' : 'No'}`);
+    console.log(`   └─ Localhost: ${isLocalhost ? 'Yes' : 'No'}\n`);
   } catch (e) {
-    console.log('  ⚠️  Could not parse base URL');
+    console.log('   ⚠️  Could not parse base URL\n');
   }
 
   // Health-check Caddy admin and emergency tier-2 servers (non-blocking)
-  await checkCaddyAdminHealth();
-  await checkEmergencyServerHealth();
+  console.log('📊 Port Connectivity Checks:');
+  const caddyHealthy = await checkCaddyAdminHealth();
+  const emergencyHealthy = await checkEmergencyServerHealth();
+
+  console.log(
+    `\n✅ Connectivity Summary: Caddy=${caddyHealthy ? '✓' : '✗'} Emergency=${emergencyHealthy ? '✓' : '✗'}\n`
+  );
+
 
   // Pre-auth security reset attempt (crash protection failsafe)
   // This attempts to disable security modules BEFORE auth, in case a previous run crashed
@@ -247,6 +268,7 @@ async function verifySecurityDisabled(requestContext: APIRequestContext): Promis
  * This endpoint bypasses all security checks when a valid emergency token is provided.
  */
 async function emergencySecurityReset(requestContext: APIRequestContext): Promise<void> {
+  const startTime = Date.now();
   console.log('🔓 Performing emergency security reset...');
 
   const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN || 'test-emergency-token-for-e2e-32chars';
@@ -261,25 +283,31 @@ async function emergencySecurityReset(requestContext: APIRequestContext): Promis
       timeout: 5000, // 5s timeout to prevent hanging
     });
 
+    const elapsed = Date.now() - startTime;
+
     if (!response.ok()) {
       const body = await response.text();
-      console.error(`  ❌ Emergency reset failed: ${response.status()} ${body}`);
+      console.error(`  ❌ Emergency reset failed: ${response.status()} ${body} [${elapsed}ms]`);
       throw new Error(`Emergency reset returned ${response.status()}`);
     }
 
     const result = await response.json();
-    console.log('  ✅ Emergency reset successful');
-    console.log(`  ✅ Disabled modules: ${result.disabled_modules?.join(', ')}`);
+    console.log(`  ✅ Emergency reset successful [${elapsed}ms]`);
+    if (result.disabled_modules && Array.isArray(result.disabled_modules)) {
+      console.log(`  ✓ Disabled modules: ${result.disabled_modules.join(', ')}`);
+    }
 
     // Reduced wait time - fresh containers don't need long propagation
     console.log('  ⏳ Waiting for security reset to propagate...');
     await new Promise(resolve => setTimeout(resolve, 500));
   } catch (e) {
-    console.error(`  ❌ Emergency reset error: ${e}`);
+    const elapsed = Date.now() - startTime;
+    console.error(`  ❌ Emergency reset error: ${e} [${elapsed}ms]`);
     throw e;
   }
 
-  console.log('  ✅ Security reset complete');
+  const totalTime = Date.now() - startTime;
+  console.log(`  ✅ Security reset complete [${totalTime}ms]`);
 }
 
 export default globalSetup;

@@ -25,9 +25,6 @@ services:
   # =============================================================================
   charon-app:
     image: ${CHARON_E2E_IMAGE:-charon:e2e-test}
-    build:
-      context: ../..
-      dockerfile: Dockerfile
     container_name: charon-playwright
     restart: "no"
     ports:
@@ -49,6 +46,7 @@ services:
       # Generate with: openssl rand -hex 32
       - CHARON_EMERGENCY_TOKEN=${CHARON_EMERGENCY_TOKEN:-test-emergency-token-for-e2e-32chars}
       - CHARON_EMERGENCY_SERVER_ENABLED=true
+      - CHARON_SECURITY_TESTS_ENABLED=${CHARON_SECURITY_TESTS_ENABLED:-true}
       # Emergency server must bind to 0.0.0.0 for Docker port mapping to work
       # Host binding via compose restricts external access (127.0.0.1:2020:2020)
       - CHARON_EMERGENCY_BIND=0.0.0.0:2020
