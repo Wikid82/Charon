@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -54,6 +56,24 @@ func (s *EmergencyServer) Start() error {
 		logger.Log().Info("Emergency server disabled (CHARON_EMERGENCY_SERVER_ENABLED=false)")
 		return nil
 	}
+
+	// CRITICAL: Validate emergency token is configured (fail-fast)
+	emergencyToken := os.Getenv(handlers.EmergencyTokenEnvVar)
+	if emergencyToken == "" || len(strings.TrimSpace(emergencyToken)) == 0 {
+		logger.Log().Fatal("FATAL: CHARON_EMERGENCY_SERVER_ENABLED=true but CHARON_EMERGENCY_TOKEN is empty or whitespace. Emergency server cannot start without a valid token.")
+		return fmt.Errorf("emergency token not configured")
+	}
+
+	// Validate token meets minimum length requirement
+	if len(emergencyToken) < handlers.MinTokenLength {
+		logger.Log().WithField("length", len(emergencyToken)).Warn("⚠️  WARNING: CHARON_EMERGENCY_TOKEN is shorter than 32 bytes (weak security)")
+	}
+
+	// Log token initialization with redaction
+	redactedToken := redactToken(emergencyToken)
+	logger.Log().WithFields(map[string]interface{}{
+		"token": redactedToken,
+	}).Info("Emergency server initialized with token")
 
 	// Security warning if no authentication configured
 	if s.cfg.BasicAuthUsername == "" || s.cfg.BasicAuthPassword == "" {
@@ -166,4 +186,16 @@ func (s *EmergencyServer) GetAddr() string {
 		return ""
 	}
 	return s.listener.Addr().String()
+}
+
+// redactToken returns a redacted version of the token showing only first/last 4 characters
+// Format: [EMERGENCY_TOKEN:f51d...346b]
+func redactToken(token string) string {
+	if token == "" {
+		return "[EMERGENCY_TOKEN:empty]"
+	}
+	if len(token) <= 8 {
+		return "[EMERGENCY_TOKEN:***]"
+	}
+	return fmt.Sprintf("[EMERGENCY_TOKEN:%s...%s]", token[:4], token[len(token)-4:])
 }

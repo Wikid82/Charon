@@ -112,6 +112,14 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	emergency := router.Group("/api/v1/emergency")
 	emergency.POST("/security-reset", emergencyHandler.SecurityReset)
 
+	// Emergency token management (admin-only, protected by EmergencyBypass middleware)
+	emergencyTokenService := services.NewEmergencyTokenService(db)
+	emergencyTokenHandler := handlers.NewEmergencyTokenHandler(emergencyTokenService)
+	emergency.POST("/token/generate", emergencyTokenHandler.GenerateToken)
+	emergency.GET("/token/status", emergencyTokenHandler.GetTokenStatus)
+	emergency.DELETE("/token", emergencyTokenHandler.RevokeToken)
+	emergency.PATCH("/token/expiration", emergencyTokenHandler.UpdateTokenExpiration)
+
 	api := router.Group("/api/v1")
 
 	// Cerberus middleware applies the optional security suite checks (WAF, ACL, CrowdSec)
@@ -208,8 +216,29 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 		// Settings - with CaddyManager and Cerberus for security settings reload
 		settingsHandler := handlers.NewSettingsHandlerWithDeps(db, caddyManager, cerb)
+
+		// Emergency-token-aware fallback (used by E2E when X-Emergency-Token is supplied)
+		// Returns 404 when no emergency token is present so public surface is unchanged.
+		router.PATCH("/api/v1/settings", func(c *gin.Context) {
+			token := c.GetHeader("X-Emergency-Token")
+			if token == "" {
+				c.AbortWithStatus(404)
+				return
+			}
+			svc := services.NewEmergencyTokenService(db)
+			if _, err := svc.Validate(token); err != nil {
+				c.AbortWithStatus(404)
+				return
+			}
+			// Grant temporary admin context and call the same handler
+			c.Set("role", "admin")
+			settingsHandler.UpdateSetting(c)
+		})
+
 		protected.GET("/settings", settingsHandler.GetSettings)
 		protected.POST("/settings", settingsHandler.UpdateSetting)
+		protected.PATCH("/settings", settingsHandler.UpdateSetting) // E2E tests use PATCH
+		protected.PATCH("/config", settingsHandler.PatchConfig)     // Bulk configuration update
 
 		// SMTP Configuration
 		protected.GET("/settings/smtp", settingsHandler.GetSMTPConfig)
@@ -450,6 +479,24 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		if geoipSvc != nil {
 			securityHandler.SetGeoIPService(geoipSvc)
 		}
+
+		// Emergency-token-aware shortcut for ACL toggles (used by E2E/test harness)
+		// Only accepts requests that present a valid X-Emergency-Token; otherwise return 404.
+		router.PATCH("/api/v1/security/acl", func(c *gin.Context) {
+			token := c.GetHeader("X-Emergency-Token")
+			if token == "" {
+				c.AbortWithStatus(404)
+				return
+			}
+			svc := services.NewEmergencyTokenService(db)
+			if _, err := svc.Validate(token); err != nil {
+				c.AbortWithStatus(404)
+				return
+			}
+			c.Set("role", "admin")
+			securityHandler.PatchACL(c)
+		})
+
 		protected.GET("/security/status", securityHandler.GetStatus)
 		// Security Config management
 		protected.GET("/security/config", securityHandler.GetConfig)
@@ -471,6 +518,19 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/security/waf/exclusions", securityHandler.GetWAFExclusions)
 		protected.POST("/security/waf/exclusions", securityHandler.AddWAFExclusion)
 		protected.DELETE("/security/waf/exclusions/:rule_id", securityHandler.DeleteWAFExclusion)
+
+		// Security module enable/disable endpoints (granular control)
+		protected.POST("/security/acl/enable", securityHandler.EnableACL)
+		protected.POST("/security/acl/disable", securityHandler.DisableACL)
+		protected.PATCH("/security/acl", securityHandler.PatchACL) // E2E tests use PATCH
+		protected.POST("/security/waf/enable", securityHandler.EnableWAF)
+		protected.POST("/security/waf/disable", securityHandler.DisableWAF)
+		protected.POST("/security/cerberus/enable", securityHandler.EnableCerberus)
+		protected.POST("/security/cerberus/disable", securityHandler.DisableCerberus)
+		protected.POST("/security/crowdsec/enable", securityHandler.EnableCrowdSec)
+		protected.POST("/security/crowdsec/disable", securityHandler.DisableCrowdSec)
+		protected.POST("/security/rate-limit/enable", securityHandler.EnableRateLimit)
+		protected.POST("/security/rate-limit/disable", securityHandler.DisableRateLimit)
 
 		// CrowdSec process management and import
 		// Data dir for crowdsec (persisted on host via volumes)

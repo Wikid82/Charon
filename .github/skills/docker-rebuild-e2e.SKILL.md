@@ -80,7 +80,7 @@ Rebuilds the Charon Docker image and restarts the Playwright E2E testing environ
 - Docker Engine installed and running
 - Docker Compose V2 installed
 - Dockerfile in repository root
-- `.docker/compose/docker-compose.playwright.yml` file
+  - `.docker/compose/docker-compose.playwright-ci.yml` file (used in CI)
 - Network access for pulling base images (if needed)
 - Sufficient disk space for image rebuild
 
@@ -158,7 +158,7 @@ Enable MailHog for email testing:
 
 ## Docker Compose Configuration
 
-This skill uses `.docker/compose/docker-compose.playwright.yml` which includes:
+This skill uses `.docker/compose/docker-compose.playwright-ci.yml` which includes:
 
 - **charon-app**: Main application container on port 8080
 - **crowdsec** (profile: security-tests): Security bouncer for WAF testing
@@ -280,7 +280,8 @@ docker exec charon-playwright sqlite3 /app/data/charon.db ".tables"
 | File | Purpose |
 |------|---------|
 | `Dockerfile` | Main application Dockerfile |
-| `.docker/compose/docker-compose.playwright.yml` | E2E test compose config |
+| `.docker/compose/docker-compose.playwright-ci.yml` | CI E2E test compose config |
+| `.docker/compose/docker-compose.playwright-local.yml` | Local E2E test compose config |
 | `playwright.config.js` | Playwright test configuration |
 | `tests/` | E2E test files |
 | `playwright/.auth/user.json` | Stored authentication state |
@@ -295,6 +296,8 @@ docker exec charon-playwright sqlite3 /app/data/charon.db ".tables"
 
 ---
 
-**Last Updated**: 2026-01-21
+**Last Updated**: 2026-01-27
 **Maintained by**: Charon Project Team
-**Compose File**: `.docker/compose/docker-compose.playwright.yml`
+**Compose Files**:
+- CI: `.docker/compose/docker-compose.playwright-ci.yml` (uses GitHub Secrets, no .env)
+- Local: `.docker/compose/docker-compose.playwright-local.yml` (uses .env file)

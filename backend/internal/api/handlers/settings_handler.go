@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -123,6 +124,139 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, setting)
+}
+
+// PatchConfig updates multiple configuration settings at once
+// PATCH /api/v1/config
+// Requires admin authentication
+func (h *SettingsHandler) PatchConfig(c *gin.Context) {
+	role, _ := c.Get("role")
+	if role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	// Parse nested configuration structure
+	var configUpdates map[string]interface{}
+	if err := c.ShouldBindJSON(&configUpdates); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Flatten nested configuration into key-value pairs
+	// Example: {"security": {"admin_whitelist": "..."}} -> "security.admin_whitelist": "..."
+	updates := make(map[string]string)
+	flattenConfig(configUpdates, "", updates)
+
+	// Validate and apply each update
+	for key, value := range updates {
+		// Special validation for admin_whitelist (CIDR format)
+		if key == "security.admin_whitelist" {
+			if err := validateAdminWhitelist(value); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid admin_whitelist: %v", err)})
+				return
+			}
+		}
+
+		// Upsert setting
+		setting := models.Setting{
+			Key:      key,
+			Value:    value,
+			Category: strings.Split(key, ".")[0],
+			Type:     "string",
+		}
+
+		if err := h.DB.Where(models.Setting{Key: key}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to save setting %s", key)})
+			return
+		}
+	}
+
+	// Trigger cache invalidation and Caddy reload for security settings
+	needsReload := false
+	for key := range updates {
+		if strings.HasPrefix(key, "security.") {
+			needsReload = true
+			break
+		}
+	}
+
+	if needsReload {
+		// Invalidate Cerberus cache
+		if h.Cerberus != nil {
+			h.Cerberus.InvalidateCache()
+		}
+
+		// Trigger async Caddy config reload
+		if h.CaddyManager != nil {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+
+				if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
+					logger.Log().WithError(err).Warn("Failed to reload Caddy config after security settings change")
+				} else {
+					logger.Log().Info("Caddy config reloaded after security settings change")
+				}
+			}()
+		}
+	}
+
+	// Return current config state
+	var settings []models.Setting
+	if err := h.DB.Find(&settings).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated config"})
+		return
+	}
+
+	// Convert to map for response
+	settingsMap := make(map[string]string)
+	for _, s := range settings {
+		settingsMap[s.Key] = s.Value
+	}
+
+	c.JSON(http.StatusOK, settingsMap)
+}
+
+// flattenConfig converts nested map to flat key-value pairs with dot notation
+func flattenConfig(config map[string]interface{}, prefix string, result map[string]string) {
+	for k, v := range config {
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+
+		switch value := v.(type) {
+		case map[string]interface{}:
+			flattenConfig(value, key, result)
+		case string:
+			result[key] = value
+		default:
+			result[key] = fmt.Sprintf("%v", value)
+		}
+	}
+}
+
+// validateAdminWhitelist validates IP CIDR format
+func validateAdminWhitelist(whitelist string) error {
+	if whitelist == "" {
+		return nil // Empty is valid (no whitelist)
+	}
+
+	cidrs := strings.Split(whitelist, ",")
+	for _, cidr := range cidrs {
+		cidr = strings.TrimSpace(cidr)
+		if cidr == "" {
+			continue
+		}
+
+		// Basic CIDR validation (simple check, more thorough validation happens in security middleware)
+		if !strings.Contains(cidr, "/") {
+			return fmt.Errorf("invalid CIDR format: %s (must include /prefix)", cidr)
+		}
+	}
+
+	return nil
 }
 
 // SMTPConfigRequest represents the request body for SMTP configuration.

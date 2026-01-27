@@ -13,6 +13,86 @@ import { existsSync } from 'fs';
 import { TestDataManager } from './utils/TestDataManager';
 import { STORAGE_STATE } from './constants';
 
+// Singleton to prevent duplicate validation across workers
+let tokenValidated = false;
+
+/**
+ * Validate emergency token is properly configured for E2E tests
+ * This is a fail-fast check to prevent cascading test failures
+ */
+function validateEmergencyToken(): void {
+  if (tokenValidated) {
+    console.log('  ✅ Emergency token already validated (singleton)');
+    return;
+  }
+
+  const token = process.env.CHARON_EMERGENCY_TOKEN;
+  const errors: string[] = [];
+
+  // Check 1: Token exists
+  if (!token) {
+    errors.push(
+      '❌ CHARON_EMERGENCY_TOKEN is not set.\n' +
+      '   Generate with: openssl rand -hex 32\n' +
+      '   Add to .env file or set as environment variable'
+    );
+  } else {
+    // Mask token for logging (show first 8 chars only)
+    const maskedToken = token.slice(0, 8) + '...' + token.slice(-4);
+    console.log(`  🔑 Token present: ${maskedToken}`);
+
+    // Check 2: Token length (must be at least 64 chars)
+    if (token.length < 64) {
+      errors.push(
+        `❌ CHARON_EMERGENCY_TOKEN is too short (${token.length} chars, minimum 64).\n` +
+        '   Generate a new one with: openssl rand -hex 32'
+      );
+    } else {
+      console.log(`  ✓ Token length: ${token.length} chars (valid)`);
+    }
+
+    // Check 3: Token is hex format (a-f0-9)
+    const hexPattern = /^[a-f0-9]+$/i;
+    if (!hexPattern.test(token)) {
+      errors.push(
+        '❌ CHARON_EMERGENCY_TOKEN must be hexadecimal (0-9, a-f).\n' +
+        '   Generate with: openssl rand -hex 32'
+      );
+    } else {
+      console.log('  ✓ Token format: Valid hexadecimal');
+    }
+
+    // Check 4: Token entropy (avoid placeholder values)
+    const commonPlaceholders = [
+      'test-emergency-token',
+      'your_64_character',
+      'replace_this',
+      '0000000000000000',
+      'ffffffffffffffff',
+    ];
+    const isPlaceholder = commonPlaceholders.some(ph => token.toLowerCase().includes(ph));
+    if (isPlaceholder) {
+      errors.push(
+        '❌ CHARON_EMERGENCY_TOKEN appears to be a placeholder value.\n' +
+        '   Generate a unique token with: openssl rand -hex 32'
+      );
+    } else {
+      console.log('  ✓ Token appears to be unique (not a placeholder)');
+    }
+  }
+
+  // Fail fast if validation errors found
+  if (errors.length > 0) {
+    console.error('\n🚨 Emergency Token Configuration Errors:\n');
+    errors.forEach(error => console.error(error + '\n'));
+    console.error('📖 See .env.example and docs/getting-started.md for setup instructions.\n');
+    process.exit(1);
+  }
+
+  console.log('✅ Emergency token validation passed\n');
+  tokenValidated = true;
+}
+
 /**
  * Get the base URL for the application
  */
@@ -50,6 +130,34 @@ async function checkCaddyAdminHealth(): Promise<boolean> {
 }
 
 /**
+ * Wait for container to be ready before running global setup.
+ * This prevents 401 errors when global-setup runs before containers finish starting.
+ */
+async function waitForContainer(maxRetries = 15, delayMs = 2000): Promise<void> {
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
+  console.log(`⏳ Waiting for container to be ready at ${baseURL}...`);
+
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const context = await request.newContext({ baseURL });
+      const response = await context.get('/api/v1/health', { timeout: 3000 });
+      await context.dispose();
+
+      if (response.ok()) {
+        console.log(`  ✅ Container ready after ${i + 1} attempt(s) [${(i + 1) * delayMs}ms]`);
+        return;
+      }
+    } catch (error) {
+      console.log(`  ⏳ Waiting for container... (${i + 1}/${maxRetries})`);
+      if (i < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  throw new Error(`Container failed to start after ${maxRetries * delayMs}ms`);
+}
+
+/**
  * Check if emergency tier-2 server is enabled and healthy (port 2020 - break-glass with auth)
  */
 async function checkEmergencyServerHealth(): Promise<boolean> {
@@ -82,8 +190,16 @@ async function globalSetup(): Promise<void> {
   console.log('\n🧹 Running global test setup...\n');
   const setupStartTime = Date.now();
 
+  // CRITICAL: Validate emergency token before proceeding
+  console.log('🔐 Validating emergency token configuration...');
+  validateEmergencyToken();
+
   const baseURL = getBaseURL();
   console.log(`📍 Base URL: ${baseURL}`);
+
+  // CRITICAL: Wait for container to be ready before proceeding
+  // This prevents 401 errors when containers are still starting up
+  await waitForContainer();
 
   // Log URL analysis for IPv4 vs IPv6 debugging
   try {
@@ -264,31 +380,57 @@ async function verifySecurityDisabled(requestContext: APIRequestContext): Promis
  * Perform emergency security reset to disable ALL security modules.
  * This prevents deadlock if a previous test run left any security module enabled.
  *
- * USES THE CORRECT ENDPOINT: /api/v1/emergency/security-reset
+ * USES THE CORRECT ENDPOINT: /emergency/security-reset (on port 2020)
  * This endpoint bypasses all security checks when a valid emergency token is provided.
  */
 async function emergencySecurityReset(requestContext: APIRequestContext): Promise<void> {
   const startTime = Date.now();
   console.log('🔓 Performing emergency security reset...');
 
-  const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN || 'test-emergency-token-for-e2e-32chars';
+  const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
+
+  if (!emergencyToken) {
+    console.warn('  ⚠️  CHARON_EMERGENCY_TOKEN not set, skipping emergency reset');
+    return;
+  }
+
+  // Debug logging to troubleshoot 401 errors
+  const maskedToken = emergencyToken.slice(0, 8) + '...' + emergencyToken.slice(-4);
+  console.log(`  🔑 Token configured: ${maskedToken} (${emergencyToken.length} chars)`);
 
   try {
-    // Use the CORRECT endpoint: /api/v1/emergency/security-reset
+    // Create new context for emergency server on port 2020 with basic auth
+    const emergencyURL = baseURL.replace(':8080', ':2020');
+    console.log(`  📍 Emergency URL: ${emergencyURL}/emergency/security-reset`);
+
+    const emergencyContext = await request.newContext({
+      baseURL: emergencyURL,
+      httpCredentials: {
+        username: process.env.CHARON_EMERGENCY_USERNAME || 'admin',
+        password: process.env.CHARON_EMERGENCY_PASSWORD || 'changeme',
+      },
+    });
+
+    // Use the CORRECT endpoint: /emergency/security-reset
     // This endpoint bypasses ACL, WAF, and all security checks
-    const response = await requestContext.post('/api/v1/emergency/security-reset', {
+    const response = await emergencyContext.post('/emergency/security-reset', {
       headers: {
         'X-Emergency-Token': emergencyToken,
+        'Content-Type': 'application/json',
       },
+      data: { reason: 'Global setup - reset all modules for clean test state' },
       timeout: 5000, // 5s timeout to prevent hanging
     });
 
     const elapsed = Date.now() - startTime;
+    console.log(`  📊 Emergency reset status: ${response.status()} [${elapsed}ms]`);
 
     if (!response.ok()) {
       const body = await response.text();
-      console.error(`  ❌ Emergency reset failed: ${response.status()} ${body} [${elapsed}ms]`);
-      throw new Error(`Emergency reset returned ${response.status()}`);
+      console.error(`  ❌ Emergency reset failed: ${response.status()}`);
+      console.error(`  📄 Response body: ${body}`);
+      throw new Error(`Emergency reset returned ${response.status()}: ${body}`);
     }
 
     const result = await response.json();
@@ -297,12 +439,14 @@ async function emergencySecurityReset(requestContext: APIRequestContext): Promis
       console.log(`  ✓ Disabled modules: ${result.disabled_modules.join(', ')}`);
     }
 
+    await emergencyContext.dispose();
+
     // Reduced wait time - fresh containers don't need long propagation
     console.log('  ⏳ Waiting for security reset to propagate...');
     await new Promise(resolve => setTimeout(resolve, 500));
   } catch (e) {
     const elapsed = Date.now() - startTime;
-    console.error(`  ❌ Emergency reset error: ${e} [${elapsed}ms]`);
+    console.error(`  ❌ Emergency reset error: ${e instanceof Error ? e.message : String(e)} [${elapsed}ms]`);
     throw e;
   }
 

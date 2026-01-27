@@ -1,20 +1,23 @@
-# Playwright E2E Test Environment
-# ================================
-# This configuration is specifically designed for Playwright E2E testing,
-# both for local development and CI/CD pipelines.
+# Playwright E2E Test Environment for CI/CD
+# ==========================================
+# This configuration is specifically designed for GitHub Actions CI/CD pipelines.
+# Environment variables are provided via GitHub Secrets and generated dynamically.
 #
-# Usage:
-#   # Start basic E2E environment
-#   docker compose -f .docker/compose/docker-compose.playwright.yml up -d
+# DO NOT USE env_file - CI provides variables via $GITHUB_ENV:
+#   - CHARON_ENCRYPTION_KEY: Generated with openssl rand -base64 32 (ephemeral)
+#   - CHARON_EMERGENCY_TOKEN: From repository secrets (secure)
 #
+# Usage in CI:
+#   export CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)
+#   export CHARON_EMERGENCY_TOKEN="${{ secrets.CHARON_EMERGENCY_TOKEN }}"
+#   docker compose -f .docker/compose/docker-compose.playwright-ci.yml up -d
+#
+# Profiles:
 #   # Start with security testing services (CrowdSec)
-#   docker compose -f .docker/compose/docker-compose.playwright.yml --profile security-tests up -d
+#   docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
 #
 #   # Start with notification testing services (MailHog)
-#   docker compose -f .docker/compose/docker-compose.playwright.yml --profile notification-tests up -d
-#
-#   # Start with all optional services
-#   docker compose -f .docker/compose/docker-compose.playwright.yml --profile security-tests --profile notification-tests up -d
+#   docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile notification-tests up -d
 #
 # The setup API will be available since no users exist in the fresh database.
 # The auth.setup.ts fixture will create a test admin user automatically.
@@ -27,6 +30,9 @@ services:
     image: ${CHARON_E2E_IMAGE:-charon:e2e-test}
     container_name: charon-playwright
     restart: "no"
+    # CI generates CHARON_ENCRYPTION_KEY dynamically in GitHub Actions workflow
+    # and passes CHARON_EMERGENCY_TOKEN from GitHub Secrets via $GITHUB_ENV.
+    # No .env file is used in CI as it's gitignored and not available.
     ports:
       - "8080:8080"            # Management UI (Charon)
       - "127.0.0.1:2019:2019" # Caddy admin API (IPv4 loopback)

@@ -61,7 +61,113 @@ https://wikid82.github.io/charon/
 
 ---
 
-## 🚀 How the Workflows Work
+## � Step 3: Configure GitHub Secrets (For E2E Tests)
+
+E2E tests require an emergency token to be configured in GitHub Secrets. This token allows tests to bypass security modules during teardown.
+
+### Why This Is Needed
+
+The emergency token is used by E2E tests to:
+- Disable security modules (ACL, WAF, CrowdSec) after testing them
+- Prevent cascading test failures due to leftover security state
+- Ensure tests can always access the API regardless of security configuration
+
+### Step-by-Step Configuration
+
+1. **Generate emergency token:**
+
+   **Linux/macOS:**
+   ```bash
+   openssl rand -hex 32
+   ```
+
+   **Windows PowerShell:**
+   ```powershell
+   [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+   ```
+
+   **Node.js (all platforms):**
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   ```
+
+   **Copy the output** (64 characters for hex, or appropriate length for base64)
+
+2. **Navigate to repository secrets:**
+   - Go to: `https://github.com/<your-username>/charon/settings/secrets/actions`
+   - Or: Repository → Settings → Secrets and Variables → Actions
+
+3. **Create new secret:**
+   - Click **"New repository secret"**
+   - **Name:** `CHARON_EMERGENCY_TOKEN`
+   - **Value:** Paste the generated token
+   - Click **"Add secret"**
+
+4. **Verify secret is set:**
+   - Secret should appear in the list
+   - Value will be masked (cannot view after creation for security)
+
+### Validation
+
+The E2E workflow automatically validates the emergency token:
+
+```yaml
+- name: Validate Emergency Token Configuration
+  run: |
+    if [ -z "$CHARON_EMERGENCY_TOKEN" ]; then
+      echo "::error::CHARON_EMERGENCY_TOKEN not configured"
+      exit 1
+    fi
+```
+
+If the secret is missing or invalid, the workflow will fail with a clear error message.
+
+### Token Rotation
+
+**Recommended schedule:** Rotate quarterly (every 3 months)
+
+**Rotation steps:**
+
+1. Generate new token (same method as above)
+2. Update GitHub Secret:
+   - Settings → Secrets → Actions
+   - Click on `CHARON_EMERGENCY_TOKEN`
+   - Click "Update secret"
+   - Paste new value
+   - Save
+3. Update local `.env` file (for local testing)
+4. Re-run E2E tests to verify
+
+### Security Best Practices
+
+✅ **DO:**
+- Use cryptographically secure generation methods
+- Rotate quarterly or after security events
+- Store separately for local dev (`.env`) and CI/CD (GitHub Secrets)
+
+❌ **DON'T:**
+- Share tokens via email or chat
+- Commit tokens to repository (even in example files)
+- Reuse tokens across different environments
+- Use placeholder or weak values
+
+### Troubleshooting
+
+**Error: "CHARON_EMERGENCY_TOKEN not set"**
+- Check secret name is exactly `CHARON_EMERGENCY_TOKEN` (case-sensitive)
+- Verify secret is repository-level, not environment-level
+- Re-run workflow after adding secret
+
+**Error: "Token too short"**
+- Hex method must generate exactly 64 characters
+- Verify you copied the entire token value
+- Regenerate if needed
+
+📖 **More Info:** See [E2E Test Troubleshooting Guide](troubleshooting/e2e-tests.md)
+
+---
+
+## �🚀 How the Workflows Work
 
 ### Docker Build Workflow (`.github/workflows/docker-build.yml`)
 

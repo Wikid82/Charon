@@ -284,6 +284,43 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for complete development environment setu
 
 **Note:** GitHub Actions CI uses `GOTOOLCHAIN: auto` to automatically download and use Go 1.25.6, even if your system has an older version installed. For local development, ensure you have Go 1.25.6+ installed.
 
+### Environment Configuration
+
+Before running Charon or E2E tests, configure required environment variables:
+
+1. **Copy the example environment file:**
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Configure required secrets:**
+   ```bash
+   # Generate encryption key (32 bytes, base64-encoded)
+   openssl rand -base64 32
+
+   # Generate emergency token (64 characters hex)
+   openssl rand -hex 32
+   ```
+
+3. **Add to `.env` file:**
+   ```bash
+   CHARON_ENCRYPTION_KEY=<paste_encryption_key_here>
+   CHARON_EMERGENCY_TOKEN=<paste_emergency_token_here>
+   ```
+
+4. **Verify configuration:**
+   ```bash
+   # Encryption key should be ~44 chars (base64)
+   grep CHARON_ENCRYPTION_KEY .env | cut -d= -f2 | wc -c
+
+   # Emergency token should be 64 chars (hex)
+   grep CHARON_EMERGENCY_TOKEN .env | cut -d= -f2 | wc -c
+   ```
+
+⚠️ **Security:** Never commit actual secret values to the repository. The `.env` file is gitignored.
+
+📖 **More Info:** See [Getting Started Guide](docs/getting-started.md) for detailed setup instructions.
+
 ### Upgrading? Run Migrations
 
 If you're upgrading from a previous version with persistent data:

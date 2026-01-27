@@ -24,6 +24,32 @@ import {
   CapturedSecurityState,
 } from '../utils/security-helpers';
 
+/**
+ * Configure admin whitelist to allow test runner IPs.
+ * CRITICAL: Must be called BEFORE enabling any security modules to prevent 403 blocking.
+ */
+async function configureAdminWhitelist(requestContext: APIRequestContext) {
+  // Configure whitelist to allow test runner IPs (localhost, Docker networks)
+  const testWhitelist = '127.0.0.1/32,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8';
+
+  const response = await requestContext.patch(
+    `${process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080'}/api/v1/config`,
+    {
+      data: {
+        security: {
+          admin_whitelist: testWhitelist,
+        },
+      },
+    }
+  );
+
+  if (!response.ok()) {
+    throw new Error(`Failed to configure admin whitelist: ${response.status()}`);
+  }
+
+  console.log('✅ Admin whitelist configured for test IP ranges');
+}
+
 test.describe('WAF Enforcement', () => {
   let requestContext: APIRequestContext;
   let originalState: CapturedSecurityState;
@@ -33,6 +59,13 @@ test.describe('WAF Enforcement', () => {
       baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080',
       storageState: STORAGE_STATE,
     });
+
+    // CRITICAL: Configure admin whitelist BEFORE enabling security modules
+    try {
+      await configureAdminWhitelist(requestContext);
+    } catch (error) {
+      console.error('Failed to configure admin whitelist:', error);
+    }
 
     // Capture original state
     try {

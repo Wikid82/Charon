@@ -1,10 +1,14 @@
-# Docker Compose for E2E Testing
+# Docker Compose for Local E2E Testing
 #
 # This configuration runs Charon with a fresh, isolated database specifically for
-# Playwright E2E tests. Use this to ensure tests start with a clean state.
+# Playwright E2E tests during local development. Uses .env file for credentials.
 #
 # Usage:
-#   docker compose -f .docker/compose/docker-compose.e2e.yml up -d
+#   docker compose -f .docker/compose/docker-compose.playwright-local.yml up -d
+#
+# Prerequisites:
+#   - Create .env file in project root with CHARON_ENCRYPTION_KEY and CHARON_EMERGENCY_TOKEN
+#   - Build image: docker build -t charon:local .
 #
 # The setup API will be available since no users exist in the fresh database.
 # The auth.setup.ts fixture will create a test admin user automatically.
@@ -14,6 +18,8 @@ services:
     image: charon:local
     container_name: charon-e2e
     restart: "no"
+    env_file:
+      - ../../.env
     ports:
       - "8080:8080"             # Management UI (Charon)
       - "127.0.0.1:2019:2019"  # Caddy admin API (read-only status; keep loopback only)
@@ -24,12 +30,8 @@ services:
       - CHARON_ENV=e2e  # Enable lenient rate limiting (50 attempts/min) for E2E tests
       - CHARON_DEBUG=0
       - TZ=UTC
-      # Encryption key - MUST be provided via environment variable
-      # Generate with: export CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)
-      - CHARON_ENCRYPTION_KEY=${CHARON_ENCRYPTION_KEY:?CHARON_ENCRYPTION_KEY is required}
-      # Emergency reset token - for break-glass recovery when locked out by ACL
-      # Generate with: openssl rand -hex 32
-      - CHARON_EMERGENCY_TOKEN=${CHARON_EMERGENCY_TOKEN:-test-emergency-token-for-e2e-32chars}
+      # Encryption key and emergency token loaded from env_file (../../.env)
+      # DO NOT add them here - env_file takes precedence and explicit entries override with empty values
       # Emergency server (Tier 2 break glass) - separate port bypassing all security
       - CHARON_EMERGENCY_SERVER_ENABLED=true
       - CHARON_EMERGENCY_BIND=0.0.0.0:2020  # Bind to all interfaces in container (avoid Caddy's 2019)
