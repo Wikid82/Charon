@@ -260,7 +260,10 @@ test.describe('User Management', () => {
       });
 
       await test.step('Submit invite', async () => {
-        const sendButton = page.getByRole('button', { name: /send.*invite/i });
+        // Scope to dialog to avoid strict mode violation with "Resend Invite" button
+        const sendButton = page.getByRole('dialog')
+          .getByRole('button', { name: /send.*invite/i })
+          .first();
         await sendButton.click();
       });
 
@@ -287,7 +290,10 @@ test.describe('User Management', () => {
       });
 
       await test.step('Verify send button is disabled or error shown', async () => {
-        const sendButton = page.getByRole('button', { name: /send.*invite/i });
+        // Scope to dialog to avoid strict mode violation
+        const sendButton = page.getByRole('dialog')
+          .getByRole('button', { name: /send.*invite/i })
+          .first();
 
         // Either button is disabled or clicking shows error
         const isDisabled = await sendButton.isDisabled();
@@ -447,7 +453,10 @@ test.describe('User Management', () => {
         const emailInput = page.getByPlaceholder(/user@example/i);
         await emailInput.fill(testEmail);
 
-        const sendButton = page.getByRole('button', { name: /send.*invite/i });
+        // Scope to dialog to avoid strict mode violation with "Resend Invite" button
+        const sendButton = page.getByRole('dialog')
+          .getByRole('button', { name: /send.*invite/i })
+          .first();
         await sendButton.click();
 
         // Wait for success state
@@ -956,7 +965,10 @@ test.describe('User Management', () => {
         const emailInput = page.getByPlaceholder(/user@example/i).first();
         await emailInput.fill(testEmail);
 
-        const sendButton = page.getByRole('button', { name: /send.*invite/i });
+        // Scope to dialog to avoid strict mode violation with "Resend Invite" button
+        const sendButton = page.getByRole('dialog')
+          .getByRole('button', { name: /send.*invite/i })
+          .first();
         await sendButton.click();
 
         // Wait for success and close modal
