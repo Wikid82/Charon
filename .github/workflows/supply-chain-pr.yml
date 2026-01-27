@@ -296,7 +296,7 @@ jobs:
       - name: Upload SARIF to GitHub Security
         if: steps.check-artifact.outputs.artifact_found == 'true'
         # github/codeql-action v4
-        uses: github/codeql-action/upload-sarif@ee1e1399e292f3386c840526dac6a4dc7509ad72
+        uses: github/codeql-action/upload-sarif@b126facd4e5d140dbdf5202489ec4a70ff75ce5c
         continue-on-error: true
         with:
           sarif_file: grype-results.sarif
