@@ -1,10 +1,11 @@
 package handlers
 
 import (
-	"crypto/subtle"
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
@@ -24,12 +25,57 @@ const (
 
 	// MinTokenLength is the minimum required length for the emergency token
 	MinTokenLength = 32
+
+	// Rate limiting for emergency endpoint (3 attempts per minute per IP)
+	emergencyRateLimit  = 3
+	emergencyRateWindow = 1 * time.Minute
 )
+
+// emergencyRateLimiter implements a simple in-memory rate limiter for emergency endpoint
+type emergencyRateLimiter struct {
+	mu       sync.RWMutex
+	attempts map[string][]time.Time // IP -> timestamps of attempts
+}
+
+var globalEmergencyLimiter = &emergencyRateLimiter{
+	attempts: make(map[string][]time.Time),
+}
+
+// checkRateLimit returns true if the IP has exceeded rate limit
+func (rl *emergencyRateLimiter) checkRateLimit(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-emergencyRateWindow)
+
+	// Get and clean old attempts
+	attempts := rl.attempts[ip]
+	validAttempts := []time.Time{}
+	for _, t := range attempts {
+		if t.After(cutoff) {
+			validAttempts = append(validAttempts, t)
+		}
+	}
+
+	// Check if rate limit exceeded
+	if len(validAttempts) >= emergencyRateLimit {
+		rl.attempts[ip] = validAttempts
+		return true
+	}
+
+	// Add new attempt
+	validAttempts = append(validAttempts, now)
+	rl.attempts[ip] = validAttempts
+
+	return false
+}
 
 // EmergencyHandler handles emergency security reset operations
 type EmergencyHandler struct {
 	db              *gorm.DB
 	securityService *services.SecurityService
+	tokenService    *services.EmergencyTokenService
 }
 
 // NewEmergencyHandler creates a new EmergencyHandler
@@ -37,6 +83,17 @@ func NewEmergencyHandler(db *gorm.DB) *EmergencyHandler {
 	return &EmergencyHandler{
 		db:              db,
 		securityService: services.NewSecurityService(db),
+		tokenService:    services.NewEmergencyTokenService(db),
+	}
+}
+
+// NewEmergencyTokenHandler creates a handler for emergency token management endpoints
+// This is an alias for NewEmergencyHandler, provided for semantic clarity in route registration
+func NewEmergencyTokenHandler(tokenService *services.EmergencyTokenService) *EmergencyHandler {
+	return &EmergencyHandler{
+		db:              tokenService.DB(),
+		securityService: nil, // Not needed for token management endpoints
+		tokenService:    tokenService,
 	}
 }
 
@@ -46,10 +103,26 @@ func NewEmergencyHandler(db *gorm.DB) *EmergencyHandler {
 //
 // Security measures:
 // - EmergencyBypass middleware validates token and IP (timing-safe comparison)
-// - No rate limiting (break-glass mechanism must work when normal APIs are blocked)
-// - All attempts (success and failure) are logged to audit trail
+// - Rate limiting: 3 attempts per minute per IP
+// - All attempts (success and failure) are logged to audit trail with timestamp and IP
 func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	clientIP := util.CanonicalizeIPForSecurity(c.ClientIP())
+	startTime := time.Now()
+
+	// Rate limiting check
+	if globalEmergencyLimiter.checkRateLimit(clientIP) {
+		h.logEnhancedAudit(clientIP, "emergency_reset_rate_limited", "Rate limit exceeded", false, time.Since(startTime))
+		log.WithFields(log.Fields{
+			"ip":     clientIP,
+			"action": "emergency_reset_rate_limited",
+		}).Warn("Emergency reset rate limit exceeded")
+
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"error":   "rate limit exceeded",
+			"message": fmt.Sprintf("Too many attempts. Maximum %d attempts per minute.", emergencyRateLimit),
+		})
+		return
+	}
 
 	// Check if request has been pre-validated by EmergencyBypass middleware
 	bypassActive, exists := c.Get("emergency_bypass")
@@ -61,7 +134,7 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 		}).Debug("Emergency reset validated by middleware")
 
 		// Proceed with security reset
-		h.performSecurityReset(c, clientIP)
+		h.performSecurityReset(c, clientIP, startTime)
 		return
 	}
 
@@ -75,7 +148,7 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	// Check if emergency token is configured
 	configuredToken := os.Getenv(EmergencyTokenEnvVar)
 	if configuredToken == "" {
-		h.logAudit(clientIP, "emergency_reset_not_configured", "Emergency token not configured")
+		h.logEnhancedAudit(clientIP, "emergency_reset_not_configured", "Emergency token not configured", false, time.Since(startTime))
 		log.WithFields(log.Fields{
 			"ip":     clientIP,
 			"action": "emergency_reset_not_configured",
@@ -90,7 +163,7 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 
 	// Validate token length
 	if len(configuredToken) < MinTokenLength {
-		h.logAudit(clientIP, "emergency_reset_invalid_config", "Configured token too short")
+		h.logEnhancedAudit(clientIP, "emergency_reset_invalid_config", "Configured token too short", false, time.Since(startTime))
 		log.WithFields(log.Fields{
 			"ip":     clientIP,
 			"action": "emergency_reset_invalid_config",
@@ -106,14 +179,7 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	// Get token from header
 	providedToken := c.GetHeader(EmergencyTokenHeader)
 	if providedToken == "" {
-		// No rate limiting on emergency endpoint - this is a "break-glass" mechanism
-		// that must work when normal APIs are blocked. Security is provided by:
-		// - Strong token requirement (32+ chars minimum)
-		// - IP restrictions (ManagementCIDRs)
-		// - Constant-time token comparison (timing attack protection)
-		// - Comprehensive audit logging
-
-		h.logAudit(clientIP, "emergency_reset_missing_token", "No token provided in header")
+		h.logEnhancedAudit(clientIP, "emergency_reset_missing_token", "No token provided in header", false, time.Since(startTime))
 		log.WithFields(log.Fields{
 			"ip":     clientIP,
 			"action": "emergency_reset_missing_token",
@@ -126,30 +192,32 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 		return
 	}
 
-	// Timing-safe token comparison to prevent timing attacks
-	if !constantTimeCompare(configuredToken, providedToken) {
-		h.logAudit(clientIP, "emergency_reset_invalid_token", "Invalid token provided")
+	// Validate token using service (checks database first, then env var)
+	_, err := h.tokenService.Validate(providedToken)
+	if err != nil {
+		h.logEnhancedAudit(clientIP, "emergency_reset_invalid_token", fmt.Sprintf("Token validation failed: %v", err), false, time.Since(startTime))
 		log.WithFields(log.Fields{
 			"ip":     clientIP,
 			"action": "emergency_reset_invalid_token",
+			"error":  err.Error(),
 		}).Warn("Emergency reset attempted with invalid token")
 
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error":   "unauthorized",
-			"message": "Invalid emergency token.",
+			"message": "Invalid or expired emergency token.",
 		})
 		return
 	}
 
 	// Token is valid - disable all security modules
-	h.performSecurityReset(c, clientIP)
+	h.performSecurityReset(c, clientIP, startTime)
 }
 
 // performSecurityReset executes the actual security module disable operation
-func (h *EmergencyHandler) performSecurityReset(c *gin.Context, clientIP string) {
+func (h *EmergencyHandler) performSecurityReset(c *gin.Context, clientIP string, startTime time.Time) {
 	disabledModules, err := h.disableAllSecurityModules()
 	if err != nil {
-		h.logAudit(clientIP, "emergency_reset_failed", fmt.Sprintf("Failed to disable modules: %v", err))
+		h.logEnhancedAudit(clientIP, "emergency_reset_failed", fmt.Sprintf("Failed to disable modules: %v", err), false, time.Since(startTime))
 		log.WithFields(log.Fields{
 			"ip":     clientIP,
 			"action": "emergency_reset_failed",
@@ -164,11 +232,12 @@ func (h *EmergencyHandler) performSecurityReset(c *gin.Context, clientIP string)
 	}
 
 	// Log successful reset
-	h.logAudit(clientIP, "emergency_reset_success", fmt.Sprintf("Disabled modules: %v", disabledModules))
+	h.logEnhancedAudit(clientIP, "emergency_reset_success", fmt.Sprintf("Disabled modules: %v", disabledModules), true, time.Since(startTime))
 	log.WithFields(log.Fields{
 		"ip":               clientIP,
 		"action":           "emergency_reset_success",
 		"disabled_modules": disabledModules,
+		"duration_ms":      time.Since(startTime).Milliseconds(),
 	}).Warn("EMERGENCY SECURITY RESET: All security modules disabled")
 
 	c.JSON(http.StatusOK, gin.H{
@@ -240,8 +309,177 @@ func (h *EmergencyHandler) logAudit(actor, action, details string) {
 	}
 }
 
-// constantTimeCompare performs a timing-safe string comparison
-func constantTimeCompare(a, b string) bool {
-	// Use crypto/subtle for timing-safe comparison
-	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+// logEnhancedAudit logs an emergency action with enhanced metadata (timestamp, result, duration)
+func (h *EmergencyHandler) logEnhancedAudit(actor, action, details string, success bool, duration time.Duration) {
+	if h.securityService == nil {
+		return
+	}
+
+	result := "failure"
+	if success {
+		result = "success"
+	}
+
+	enhancedDetails := fmt.Sprintf("%s | result=%s | duration=%dms | timestamp=%s",
+		details,
+		result,
+		duration.Milliseconds(),
+		time.Now().UTC().Format(time.RFC3339))
+
+	audit := &models.SecurityAudit{
+		Actor:   actor,
+		Action:  action,
+		Details: enhancedDetails,
+	}
+
+	if err := h.securityService.LogAudit(audit); err != nil {
+		log.WithError(err).Error("Failed to log emergency audit event")
+	}
+}
+
+// GenerateToken generates a new emergency token with expiration policy
+// POST /api/v1/emergency/token/generate
+// Requires admin authentication
+func (h *EmergencyHandler) GenerateToken(c *gin.Context) {
+	// Check admin role
+	role, exists := c.Get("role")
+	if !exists || role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	// Get user ID from context
+	userID, _ := c.Get("userID")
+	var userIDPtr *uint
+	if id, ok := userID.(uint); ok {
+		userIDPtr = &id
+	}
+
+	// Parse request body
+	type GenerateTokenRequest struct {
+		ExpirationDays int `json:"expiration_days"` // 0 = never, 30/60/90 = preset, 1-365 = custom
+	}
+
+	var req GenerateTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate expiration days
+	if req.ExpirationDays < 0 || req.ExpirationDays > 365 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Expiration days must be between 0 and 365"})
+		return
+	}
+
+	// Generate token
+	response, err := h.tokenService.Generate(services.GenerateRequest{
+		ExpirationDays: req.ExpirationDays,
+		UserID:         userIDPtr,
+	})
+	if err != nil {
+		log.WithError(err).Error("Failed to generate emergency token")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
+
+	// Audit log
+	clientIP := util.CanonicalizeIPForSecurity(c.ClientIP())
+	h.logAudit(clientIP, "emergency_token_generated", fmt.Sprintf("Policy: %s, Expires: %v", response.ExpirationPolicy, response.ExpiresAt))
+
+	c.JSON(http.StatusOK, response)
+}
+
+// GetTokenStatus returns token metadata (not the token itself)
+// GET /api/v1/emergency/token/status
+// Requires admin authentication
+func (h *EmergencyHandler) GetTokenStatus(c *gin.Context) {
+	// Check admin role
+	role, exists := c.Get("role")
+	if !exists || role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	status, err := h.tokenService.GetStatus()
+	if err != nil {
+		log.WithError(err).Error("Failed to get token status")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get token status"})
+		return
+	}
+
+	c.JSON(http.StatusOK, status)
+}
+
+// RevokeToken revokes the current emergency token
+// DELETE /api/v1/emergency/token
+// Requires admin authentication
+func (h *EmergencyHandler) RevokeToken(c *gin.Context) {
+	// Check admin role
+	role, exists := c.Get("role")
+	if !exists || role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	if err := h.tokenService.Revoke(); err != nil {
+		log.WithError(err).Error("Failed to revoke emergency token")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Audit log
+	clientIP := util.CanonicalizeIPForSecurity(c.ClientIP())
+	h.logAudit(clientIP, "emergency_token_revoked", "Token revoked by admin")
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Emergency token revoked",
+	})
+}
+
+// UpdateTokenExpiration updates the expiration policy for the current token
+// PATCH /api/v1/emergency/token/expiration
+// Requires admin authentication
+func (h *EmergencyHandler) UpdateTokenExpiration(c *gin.Context) {
+	// Check admin role
+	role, exists := c.Get("role")
+	if !exists || role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	// Parse request body
+	type UpdateExpirationRequest struct {
+		ExpirationDays int `json:"expiration_days"` // 0 = never, 30/60/90 = preset, 1-365 = custom
+	}
+
+	var req UpdateExpirationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate expiration days
+	if req.ExpirationDays < 0 || req.ExpirationDays > 365 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Expiration days must be between 0 and 365"})
+		return
+	}
+
+	// Update expiration
+	expiresAt, err := h.tokenService.UpdateExpiration(req.ExpirationDays)
+	if err != nil {
+		log.WithError(err).Error("Failed to update token expiration")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Audit log
+	clientIP := util.CanonicalizeIPForSecurity(c.ClientIP())
+	h.logAudit(clientIP, "emergency_token_expiration_updated", fmt.Sprintf("New expiration: %v", expiresAt))
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":        true,
+		"new_expires_at": expiresAt,
+	})
 }

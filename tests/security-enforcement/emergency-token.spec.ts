@@ -9,64 +9,65 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { TestDataManager } from '../utils/TestDataManager';
-import { EMERGENCY_TOKEN, enableSecurity, waitForSecurityPropagation } from '../fixtures/security';
+import { EMERGENCY_TOKEN } from '../fixtures/security';
 
 test.describe('Emergency Token Break Glass Protocol', () => {
-  test('Test 1: Emergency token bypasses ACL', async ({ request }) => {
-    const testData = new TestDataManager(request, 'emergency-token-bypass-acl');
+  /**
+   * CRITICAL: Ensure ACL is enabled before running these tests
+   * This ensures Test 1 has a proper security barrier to bypass
+   */
+  test.beforeAll(async ({ request }) => {
+    console.log('🔧 Setting up test suite: Ensuring ACL is enabled...');
 
-    try {
-      // Step 1: Enable Cerberus security suite
-      await request.post('/api/v1/settings', {
-        data: { key: 'feature.cerberus.enabled', value: 'true' },
-      });
-
-      // Step 2: Create restrictive ACL (whitelist only 192.168.1.0/24)
-      const { id: aclId } = await testData.createAccessList({
-        name: 'test-restrictive-acl',
-        type: 'whitelist',
-        ipRules: [{ cidr: '192.168.1.0/24', description: 'Restricted test network' }],
-        enabled: true,
-      });
-
-      // Step 3: Enable ACL globally
-      await request.post('/api/v1/settings', {
-        data: { key: 'security.acl.enabled', value: 'true' },
-      });
-
-      await waitForSecurityPropagation(3000);
-
-      // Step 4: Verify ACL is blocking regular requests
-      const blockedResponse = await request.get('/api/v1/proxy-hosts');
-      expect(blockedResponse.status()).toBe(403);
-      const blockedBody = await blockedResponse.json();
-      expect(blockedBody.error).toContain('Blocked by access control');
-
-      // Step 5: Use emergency token to disable security
-      const emergencyResponse = await request.post('/api/v1/emergency/security-reset', {
-        headers: {
-          'X-Emergency-Token': EMERGENCY_TOKEN,
-        },
-      });
-
-      expect(emergencyResponse.status()).toBe(200);
-      const emergencyBody = await emergencyResponse.json();
-      expect(emergencyBody.success).toBe(true);
-      expect(emergencyBody.disabled_modules).toBeDefined();
-      expect(emergencyBody.disabled_modules).toContain('security.acl.enabled');
-      expect(emergencyBody.disabled_modules).toContain('feature.cerberus.enabled');
-
-      await waitForSecurityPropagation(3000);
-
-      // Step 6: Verify ACL is now disabled - requests should succeed
-      const allowedResponse = await request.get('/api/v1/proxy-hosts');
-      expect(allowedResponse.ok()).toBeTruthy();
-
-      console.log('✅ Test 1 passed: Emergency token successfully bypassed ACL');
-    } finally {
-      await testData.cleanup();
+    const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
+    if (!emergencyToken) {
+      throw new Error('CHARON_EMERGENCY_TOKEN not set - cannot configure test environment');
     }
+
+    // Use emergency token to enable ACL (bypasses any existing security)
+    const enableResponse = await request.patch('/api/v1/settings', {
+      data: { key: 'security.acl.enabled', value: 'true' },
+      headers: {
+        'X-Emergency-Token': emergencyToken,
+      },
+    });
+
+    if (!enableResponse.ok()) {
+      throw new Error(`Failed to enable ACL for test suite: ${enableResponse.status()}`);
+    }
+
+    // Wait for security propagation
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    console.log('✅ ACL enabled for test suite');
+  });
+
+  test('Test 1: Emergency token bypasses ACL', async ({ request }) => {
+    // ACL is guaranteed to be enabled by beforeAll hook
+    console.log('🧪 Testing emergency token bypass with ACL enabled...');
+
+    // Step 1: Verify ACL is blocking regular requests (403)
+    const blockedResponse = await request.get('/api/v1/security/status');
+    expect(blockedResponse.status()).toBe(403);
+    const blockedBody = await blockedResponse.json();
+    expect(blockedBody.error).toContain('Blocked by access control');
+    console.log('  ✓ Confirmed ACL is blocking regular requests');
+
+    // Step 2: Use emergency token to bypass ACL
+    const emergencyResponse = await request.get('/api/v1/security/status', {
+      headers: {
+        'X-Emergency-Token': EMERGENCY_TOKEN,
+      },
+    });
+
+    // Step 3: Verify emergency token successfully bypassed ACL (200)
+    expect(emergencyResponse.ok()).toBeTruthy();
+    expect(emergencyResponse.status()).toBe(200);
+
+    const status = await emergencyResponse.json();
+    expect(status).toHaveProperty('acl');
+    console.log('  ✓ Emergency token successfully bypassed ACL');
+
+    console.log('✅ Test 1 passed: Emergency token bypasses ACL without creating test data');
   });
 
   test('Test 2: Emergency endpoint has NO rate limiting', async ({ request }) => {

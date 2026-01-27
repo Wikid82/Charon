@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -213,49 +214,97 @@ func TestEmergencySecurityReset_TokenTooShort(t *testing.T) {
 	assert.Contains(t, response["message"], "minimum length")
 }
 
-func TestConstantTimeCompare(t *testing.T) {
-	tests := []struct {
-		name     string
-		a        string
-		b        string
-		expected bool
-	}{
-		{
-			name:     "equal strings",
-			a:        "hello-world-token",
-			b:        "hello-world-token",
-			expected: true,
-		},
-		{
-			name:     "different strings",
-			a:        "hello-world-token",
-			b:        "goodbye-world-token",
-			expected: false,
-		},
-		{
-			name:     "different lengths",
-			a:        "short",
-			b:        "much-longer-string",
-			expected: false,
-		},
-		{
-			name:     "empty strings",
-			a:        "",
-			b:        "",
-			expected: true,
-		},
-		{
-			name:     "one empty",
-			a:        "not-empty",
-			b:        "",
-			expected: false,
-		},
+func TestEmergencyRateLimiter(t *testing.T) {
+	// Reset global limiter
+	limiter := &emergencyRateLimiter{
+		attempts: make(map[string][]time.Time),
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := constantTimeCompare(tt.a, tt.b)
-			assert.Equal(t, tt.expected, result)
-		})
+	testIP := "192.168.1.100"
+
+	// Test: First 3 attempts should succeed
+	for i := 0; i < emergencyRateLimit; i++ {
+		limited := limiter.checkRateLimit(testIP)
+		assert.False(t, limited, "Attempt %d should not be rate limited", i+1)
 	}
+
+	// Test: 4th attempt should be rate limited
+	limited := limiter.checkRateLimit(testIP)
+	assert.True(t, limited, "4th attempt should be rate limited")
+
+	// Test: Multiple IPs should be tracked independently
+	otherIP := "192.168.1.200"
+	limited = limiter.checkRateLimit(otherIP)
+	assert.False(t, limited, "Different IP should not be rate limited")
+}
+
+func TestEmergencySecurityReset_RateLimiting(t *testing.T) {
+	// Setup
+	db := setupEmergencyTestDB(t)
+	handler := NewEmergencyHandler(db)
+	router := setupEmergencyRouter(handler)
+
+	validToken := "this-is-a-valid-emergency-token-with-32-chars-minimum"
+	os.Setenv(EmergencyTokenEnvVar, validToken)
+	defer os.Unsetenv(EmergencyTokenEnvVar)
+
+	// Reset global rate limiter
+	globalEmergencyLimiter = &emergencyRateLimiter{
+		attempts: make(map[string][]time.Time),
+	}
+
+	// Make 3 successful requests (within rate limit)
+	for i := 0; i < emergencyRateLimit; i++ {
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+		req.Header.Set(EmergencyTokenHeader, validToken)
+		req.RemoteAddr = "192.168.1.100:12345"
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		// First 3 should succeed
+		assert.Equal(t, http.StatusOK, w.Code, "Request %d should succeed", i+1)
+	}
+
+	// 4th request should be rate limited
+	req, _ := http.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req.Header.Set(EmergencyTokenHeader, validToken)
+	req.RemoteAddr = "192.168.1.100:12345"
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusTooManyRequests, w.Code, "4th request should be rate limited")
+
+	var response map[string]interface{}
+	err := json.NewDecoder(w.Body).Decode(&response)
+	require.NoError(t, err)
+
+	assert.Equal(t, "rate limit exceeded", response["error"])
+	assert.Contains(t, response["message"], "Maximum 3 attempts per minute")
+}
+
+func TestLogEnhancedAudit(t *testing.T) {
+	// Setup
+	db := setupEmergencyTestDB(t)
+	handler := NewEmergencyHandler(db)
+
+	// Test enhanced audit logging
+	clientIP := "192.168.1.100"
+	action := "emergency_reset_test"
+	details := "Test audit log"
+	duration := 150 * time.Millisecond
+
+	handler.logEnhancedAudit(clientIP, action, details, true, duration)
+
+	// Verify audit log was created
+	var audit models.SecurityAudit
+	err := db.Where("actor = ?", clientIP).First(&audit).Error
+	require.NoError(t, err, "Audit log should be created")
+
+	assert.Equal(t, clientIP, audit.Actor)
+	assert.Equal(t, action, audit.Action)
+	assert.Contains(t, audit.Details, "result=success")
+	assert.Contains(t, audit.Details, "duration=")
+	assert.Contains(t, audit.Details, "timestamp=")
 }

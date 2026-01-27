@@ -320,3 +320,101 @@ func TestEmergencyServer_MultipleEndpoints(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
 }
+
+// TestEmergencyServer_StartupValidation tests that server fails fast if token is empty or whitespace
+func TestEmergencyServer_StartupValidation(t *testing.T) {
+	db := setupTestDB(t)
+
+	tests := []struct {
+		name          string
+		token         string
+		expectSuccess bool
+		description   string
+	}{
+		{
+			name:          "EmptyToken",
+			token:         "",
+			expectSuccess: false,
+			description:   "Server should fail to start with empty token",
+		},
+		{
+			name:          "WhitespaceToken",
+			token:         "   ",
+			expectSuccess: false,
+			description:   "Server should fail to start with whitespace-only token",
+		},
+		{
+			name:          "ValidToken",
+			token:         "test-emergency-token-for-testing-32chars",
+			expectSuccess: true,
+			description:   "Server should start successfully with valid token",
+		},
+		{
+			name:          "ShortToken",
+			token:         "short",
+			expectSuccess: true, // Server starts but logs warning
+			description:   "Server should start with short token but log warning",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set token
+			if tt.token != "" {
+				os.Setenv("CHARON_EMERGENCY_TOKEN", tt.token)
+			} else {
+				os.Unsetenv("CHARON_EMERGENCY_TOKEN")
+			}
+			defer os.Unsetenv("CHARON_EMERGENCY_TOKEN")
+
+			cfg := config.EmergencyConfig{
+				Enabled:     true,
+				BindAddress: "127.0.0.1:0",
+			}
+
+			server := NewEmergencyServer(db, cfg)
+			err := server.Start()
+
+			if tt.expectSuccess {
+				assert.NoError(t, err, tt.description)
+				if err == nil {
+					server.Stop(context.Background())
+				}
+			} else {
+				assert.Error(t, err, tt.description)
+			}
+		})
+	}
+}
+
+// TestEmergencyServer_TokenRedaction tests the token redaction function
+func TestEmergencyServer_TokenRedaction(t *testing.T) {
+	tests := []struct {
+		name     string
+		token    string
+		expected string
+	}{
+		{
+			name:     "EmptyToken",
+			token:    "",
+			expected: "[EMERGENCY_TOKEN:empty]",
+		},
+		{
+			name:     "ShortToken",
+			token:    "short",
+			expected: "[EMERGENCY_TOKEN:***]",
+		},
+		{
+			name:     "ValidToken",
+			token:    "f51dedd6a4f2eaa200dcbf4feecae78ff926e06d9094d726f3613729b66d346b",
+			expected: "[EMERGENCY_TOKEN:f51d...346b]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := redactToken(tt.token)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

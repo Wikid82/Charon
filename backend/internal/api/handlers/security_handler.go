@@ -851,3 +851,132 @@ func sanitizeString(s string, maxLen int) string {
 	}
 	return s
 }
+
+// Security module enable/disable endpoints (Phase 2)
+// These endpoints allow granular control over individual security modules
+
+// EnableACL enables the  Access Control List security module
+// POST /api/v1/security/acl/enable
+func (h *SecurityHandler) EnableACL(c *gin.Context) {
+	h.toggleSecurityModule(c, "security.acl.enabled", true)
+}
+
+// DisableACL disables the Access Control List security module
+// POST /api/v1/security/acl/disable
+func (h *SecurityHandler) DisableACL(c *gin.Context) {
+	h.toggleSecurityModule(c, "security.acl.enabled", false)
+}
+
+// PatchACL handles PATCH requests to enable/disable ACL based on JSON body
+// PATCH /api/v1/security/acl
+// Expects: {"enabled": true/false}
+func (h *SecurityHandler) PatchACL(c *gin.Context) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	h.toggleSecurityModule(c, "security.acl.enabled", req.Enabled)
+}
+
+// EnableWAF enables the Web Application Firewall security module
+// POST /api/v1/security/waf/enable
+func (h *SecurityHandler) EnableWAF(c *gin.Context) {
+	h.toggleSecurityModule(c, "security.waf.enabled", true)
+}
+
+// DisableWAF disables the Web Application Firewall security module
+// POST /api/v1/security/waf/disable
+func (h *SecurityHandler) DisableWAF(c *gin.Context) {
+	h.toggleSecurityModule(c, "security.waf.enabled", false)
+}
+
+// EnableCerberus enables the Cerberus security monitoring module
+// POST /api/v1/security/cerberus/enable
+func (h *SecurityHandler) EnableCerberus(c *gin.Context) {
+	h.toggleSecurityModule(c, "feature.cerberus.enabled", true)
+}
+
+// DisableCerberus disables the Cerberus security monitoring module
+// POST /api/v1/security/cerberus/disable
+func (h *SecurityHandler) DisableCerberus(c *gin.Context) {
+	h.toggleSecurityModule(c, "feature.cerberus.enabled", false)
+}
+
+// EnableCrowdSec enables the CrowdSec security module
+// POST /api/v1/security/crowdsec/enable
+func (h *SecurityHandler) EnableCrowdSec(c *gin.Context) {
+	h.toggleSecurityModule(c, "security.crowdsec.enabled", true)
+}
+
+// DisableCrowdSec disables the CrowdSec security module
+// POST /api/v1/security/crowdsec/disable
+func (h *SecurityHandler) DisableCrowdSec(c *gin.Context) {
+	h.toggleSecurityModule(c, "security.crowdsec.enabled", false)
+}
+
+// EnableRateLimit enables the Rate Limiting security module
+// POST /api/v1/security/rate-limit/enable
+func (h *SecurityHandler) EnableRateLimit(c *gin.Context) {
+	h.toggleSecurityModule(c, "security.rate_limit.enabled", true)
+}
+
+// DisableRateLimit disables the Rate Limiting security module
+// POST /api/v1/security/rate-limit/disable
+func (h *SecurityHandler) DisableRateLimit(c *gin.Context) {
+	h.toggleSecurityModule(c, "security.rate_limit.enabled", false)
+}
+
+// toggleSecurityModule is a helper function that handles enabling/disabling security modules
+// It updates the setting, invalidates cache, and triggers Caddy config reload
+func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string, enabled bool) {
+	// Check admin role
+	role, exists := c.Get("role")
+	if !exists || role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	// Update setting
+	value := "false"
+	if enabled {
+		value = "true"
+	}
+
+	setting := models.Setting{
+		Key:      settingKey,
+		Value:    value,
+		Category: "security",
+		Type:     "bool",
+	}
+
+	if err := h.db.Where(models.Setting{Key: settingKey}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
+		log.WithError(err).Errorf("Failed to update setting %s", settingKey)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
+		return
+	}
+
+	// Trigger Caddy config reload
+	if h.caddyManager != nil {
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			log.WithError(err).Warn("Failed to reload Caddy config after security module toggle")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload configuration"})
+			return
+		}
+	}
+
+	log.WithFields(log.Fields{
+		"module":  settingKey,
+		"enabled": enabled,
+	}).Info("Security module toggled")
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"module":  settingKey,
+		"enabled": enabled,
+	})
+}

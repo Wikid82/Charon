@@ -167,6 +167,32 @@ jobs:
         with:
           name: docker-image
 
+      - name: Validate Emergency Token Configuration
+        run: |
+          echo "🔐 Validating emergency token configuration..."
+
+          if [ -z "$CHARON_EMERGENCY_TOKEN" ]; then
+            echo "::error title=Missing Secret::CHARON_EMERGENCY_TOKEN secret not configured in repository settings"
+            echo "::error::Navigate to: Repository Settings → Secrets and Variables → Actions"
+            echo "::error::Create secret: CHARON_EMERGENCY_TOKEN"
+            echo "::error::Generate value with: openssl rand -hex 32"
+            echo "::error::See docs/github-setup.md for detailed instructions"
+            exit 1
+          fi
+
+          TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
+          if [ $TOKEN_LENGTH -lt 64 ]; then
+            echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters (current: $TOKEN_LENGTH)"
+            echo "::error::Generate new token with: openssl rand -hex 32"
+            exit 1
+          fi
+
+          # Mask token in output (show first 8 chars only)
+          MASKED_TOKEN="${CHARON_EMERGENCY_TOKEN:0:8}...${CHARON_EMERGENCY_TOKEN: -4}"
+          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH, preview: $MASKED_TOKEN)"
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+
       - name: Load Docker image
         run: |
           docker load -i charon-e2e-image.tar
@@ -181,10 +207,10 @@ jobs:
 
       - name: Start test environment
         run: |
-          # Use the committed docker-compose.playwright.yml for E2E testing
+          # Use docker-compose.playwright-ci.yml for CI (no .env file, uses GitHub Secrets)
           # Note: Using pre-built image loaded from artifact - no rebuild needed
-          docker compose -f .docker/compose/docker-compose.playwright.yml --profile security-tests up -d
-          echo "✅ Container started via docker-compose.playwright.yml"
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
+          echo "✅ Container started via docker-compose.playwright-ci.yml"
 
       - name: Wait for service health
         run: |
@@ -206,7 +232,7 @@ jobs:
           done
 
           echo "❌ Health check failed"
-          docker compose -f .docker/compose/docker-compose.playwright.yml logs
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs
           exit 1
 
       - name: Install dependencies
@@ -271,7 +297,7 @@ jobs:
         if: failure()
         run: |
           echo "📋 Container logs:"
-          docker compose -f .docker/compose/docker-compose.playwright.yml logs > docker-logs-shard-${{ matrix.shard }}.txt 2>&1
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-shard-${{ matrix.shard }}.txt 2>&1
 
       - name: Upload Docker logs on failure
         if: failure()
@@ -284,7 +310,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker compose -f .docker/compose/docker-compose.playwright.yml down -v 2>/dev/null || true
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
   # Merge reports from all shards
   merge-reports:

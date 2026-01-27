@@ -24,7 +24,7 @@ echo "✅ PLAYWRIGHT_BASE_URL is localhost or unset (defaults to localhost)"
 # Check 2: Verify Docker container is running
 if ! docker ps | grep -q charon-e2e; then
   echo "⚠️ charon-e2e container not running. Starting..."
-  docker compose -f .docker/compose/docker-compose.e2e.yml up -d
+  docker compose -f .docker/compose/docker-compose.playwright-local.yml up -d
   echo "Waiting for container health..."
   sleep 10
 fi
