@@ -50,9 +50,18 @@ type EmergencyConfig struct {
 	Enabled bool `env:"CHARON_EMERGENCY_SERVER_ENABLED" envDefault:"false"`
 
 	// BindAddress is the address to bind the emergency server to
-	// Default: 127.0.0.1:2019 (localhost only for security)
+	// Default: 127.0.0.1:2020 (localhost IPv4 only for security)
+	// Note: Port 2020 avoids conflict with Caddy admin API (port 2019)
+	//
+	// IPv4/IPv6 Binding Options:
+	//   - "127.0.0.1:2020"  → IPv4 localhost only (most secure, default)
+	//   - "[::1]:2020"      → IPv6 localhost only
+	//   - "0.0.0.0:2020"    → All IPv4 interfaces (dual-stack on capable systems)
+	//   - "[::]:2020"       → All IPv6 interfaces (dual-stack on capable systems)
+	//   - ":2020"          → All interfaces (IPv4/IPv6 based on system config)
+	//
 	// Production: Should be accessible only via VPN/SSH tunnel
-	BindAddress string `env:"CHARON_EMERGENCY_BIND" envDefault:"127.0.0.1:2019"`
+	BindAddress string `env:"CHARON_EMERGENCY_BIND" envDefault:"127.0.0.1:2020"`
 
 	// BasicAuthUsername for emergency server authentication
 	// If empty, NO authentication is enforced (not recommended)
@@ -129,7 +138,7 @@ func loadSecurityConfig() SecurityConfig {
 func loadEmergencyConfig() EmergencyConfig {
 	return EmergencyConfig{
 		Enabled:           getEnvAny("false", "CHARON_EMERGENCY_SERVER_ENABLED") == "true",
-		BindAddress:       getEnvAny("127.0.0.1:2019", "CHARON_EMERGENCY_BIND"),
+		BindAddress:       getEnvAny("127.0.0.1:2020", "CHARON_EMERGENCY_BIND"),
 		BasicAuthUsername: getEnvAny("", "CHARON_EMERGENCY_USERNAME"),
 		BasicAuthPassword: getEnvAny("", "CHARON_EMERGENCY_PASSWORD"),
 	}

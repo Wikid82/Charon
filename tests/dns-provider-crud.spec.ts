@@ -1,4 +1,5 @@
 import { test, expect } from '@bgotink/playwright-coverage';
+import { getToastLocator, refreshListAndWait } from './utils/ui-helpers';
 
 /**
  * DNS Provider CRUD Operations E2E Tests
@@ -68,9 +69,12 @@ test.describe('DNS Provider CRUD Operations', () => {
       });
 
       await test.step('Verify success', async () => {
-        // Wait for success toast - use first() to avoid strict mode violation
-        const successToast = page.locator('[data-testid="toast-success"]').first();
+        // Wait for success toast using shared helper
+        const successToast = getToastLocator(page, /success|created/i, { type: 'success' });
         await expect(successToast).toBeVisible({ timeout: 5000 });
+
+        // Refresh list to ensure provider appears
+        await refreshListAndWait(page, { timeout: 5000 });
       });
     });
 
@@ -208,7 +212,7 @@ test.describe('DNS Provider CRUD Operations', () => {
         const dialogClosed = await page.getByRole('dialog').isHidden({ timeout: 5000 }).catch(() => false);
         console.log('Dialog closed:', dialogClosed);
 
-        const successToast = page.locator('[data-testid="toast-success"]').first();
+        const successToast = getToastLocator(page, /success|created/i, { type: 'success' });
         const toastVisible = await successToast.isVisible({ timeout: 3000 }).catch(() => false);
         console.log('Success toast visible:', toastVisible);
 
@@ -384,7 +388,8 @@ test.describe('DNS Provider CRUD Operations', () => {
 
         await test.step('Save changes', async () => {
           await page.getByRole('button', { name: /update/i }).click();
-          await expect(page.locator('[data-testid="toast-success"]').first()).toBeVisible({ timeout: 5000 });
+          const successToast = getToastLocator(page, /success|updated/i, { type: 'success' });
+          await expect(successToast).toBeVisible({ timeout: 5000 });
         });
 
         await test.step('Revert name for test cleanup', async () => {

@@ -19,6 +19,7 @@ import {
   waitForModal,
   waitForAPIResponse,
 } from '../utils/wait-helpers';
+import { getCertificateValidationMessage } from '../utils/ui-helpers';
 
 test.describe('Account Settings', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -311,7 +312,8 @@ test.describe('Account Settings', () => {
         // Click elsewhere to trigger validation
         await page.locator('body').click();
 
-        const errorMessage = page.getByText(/invalid.*email|email.*invalid/i);
+        // Use helper to find validation message with proper role/text targeting
+        const errorMessage = getCertificateValidationMessage(page, /invalid.*email|email.*invalid/i);
         await expect(errorMessage).toBeVisible({ timeout: 3000 });
       });
 

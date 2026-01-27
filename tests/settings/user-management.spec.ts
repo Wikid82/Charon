@@ -19,6 +19,7 @@ import {
   waitForModal,
   waitForAPIResponse,
 } from '../utils/wait-helpers';
+import { getRowScopedButton, getRowScopedIconButton } from '../utils/ui-helpers';
 
 test.describe('User Management', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -978,16 +979,26 @@ test.describe('User Management', () => {
       });
 
       await test.step('Look for resend option', async () => {
-        // Find resend button by aria-label (Mail icon button)
-        const resendButton = page.getByRole('button', { name: /resend invite/i });
-        const hasResend = await resendButton.first().isVisible({ timeout: 3000 }).catch(() => false);
+        // Use row-scoped helper to find resend button in the specific user's row
+        const resendButton = getRowScopedButton(page, testEmail, /resend invite/i);
+
+        const hasResend = await resendButton.isVisible({ timeout: 3000 }).catch(() => false);
 
         if (hasResend) {
-          await resendButton.first().click();
+          await resendButton.click();
           await waitForToast(page, /sent|resend/i, { type: 'success' });
         } else {
-          // Resend functionality may not be implemented - skip
-          test.skip();
+          // Try icon-based button (mail icon) if role-based button not found
+          const resendIconButton = getRowScopedIconButton(page, testEmail, 'lucide-mail');
+          const hasIconButton = await resendIconButton.isVisible({ timeout: 3000 }).catch(() => false);
+
+          if (hasIconButton) {
+            await resendIconButton.click();
+            await waitForToast(page, /sent|resend/i, { type: 'success' });
+          } else {
+            // Resend functionality may not be implemented - skip
+            test.skip();
+          }
         }
       });
     });

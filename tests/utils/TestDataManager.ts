@@ -472,6 +472,43 @@ export class TestDataManager {
   }
 
   /**
+   * Assert that ACL and rate limiting are disabled before proceeding with ACL-dependent operations.
+   * Fails fast with actionable error if security is still enabled.
+   * Use this before tests that create/modify resources (proxy hosts, certificates, etc.)
+   * to prevent 403 errors from security modules.
+   *
+   * @throws Error if ACL or rate limiting is enabled
+   */
+  async assertSecurityDisabled(): Promise<void> {
+    try {
+      const response = await this.request.get('/api/v1/security/config', { timeout: 3000 });
+      if (!response.ok()) {
+        // Endpoint might not exist or requires different auth - skip check
+        return;
+      }
+
+      const config = await response.json();
+      const aclEnabled = config.acl?.enabled === true;
+      const rateLimitEnabled = config.rateLimit?.enabled === true;
+
+      if (aclEnabled || rateLimitEnabled) {
+        throw new Error(
+          `\n❌ SECURITY MODULES ARE ENABLED - OPERATION WILL FAIL\n` +
+          `   ACL: ${aclEnabled}, Rate Limiting: ${rateLimitEnabled}\n` +
+          `   Cannot proceed with resource creation.\n` +
+          `   Check: global-setup.ts emergency reset completed successfully\n`
+        );
+      }
+    } catch (error) {
+      // Re-throw if it's our security error
+      if (error instanceof Error && error.message.includes('SECURITY MODULES ARE ENABLED')) {
+        throw error;
+      }
+      // Otherwise, skip check (endpoint might not exist in this environment)
+    }
+  }
+
+  /**
    * Force cleanup all test-created resources by pattern matching.
    * This is a nuclear option for cleaning up orphaned test data from previous runs.
    * Use sparingly - prefer the regular cleanup() method.

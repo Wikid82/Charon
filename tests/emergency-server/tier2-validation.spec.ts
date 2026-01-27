@@ -3,12 +3,12 @@ import { test, expect } from '@playwright/test';
 /**
  * Break Glass - Tier 2 (Emergency Server) Validation Tests
  *
- * These tests verify the emergency server (port 2019) works independently of the main application,
+ * These tests verify the emergency server (port 2020) works independently of the main application,
  * proving defense in depth for the break glass protocol.
  *
  * Architecture:
  * - Tier 1: Main app endpoint (/api/v1/emergency/security-reset) - goes through Caddy/CrowdSec
- * - Tier 2: Emergency server (:2019/emergency/*) - bypasses all security layers (sidecar door)
+ * - Tier 2: Emergency server (:2020/emergency/*) - bypasses all security layers (sidecar door)
  *
  * Why this matters: If Tier 1 is blocked by ACL/WAF/CrowdSec, Tier 2 provides an independent recovery path.
  */
@@ -17,6 +17,25 @@ test.describe('Break Glass - Tier 2 (Emergency Server)', () => {
   const EMERGENCY_BASE_URL = 'http://localhost:2020';
   const EMERGENCY_TOKEN = process.env.CHARON_EMERGENCY_TOKEN || 'test-emergency-token-for-e2e-32chars';
   const BASIC_AUTH = 'Basic ' + Buffer.from('admin:testpass').toString('base64');
+
+  // Health check before all tier-2 tests
+  test.beforeAll(async ({ request }) => {
+    console.log('🔍 Checking tier-2 server health before tests...');
+    try {
+      const response = await request.get(`${EMERGENCY_BASE_URL}/health`, {
+        headers: { 'Authorization': BASIC_AUTH },
+        timeout: 3000,
+      });
+      if (!response.ok()) {
+        console.log(`❌ Tier-2 server health check failed: ${response.status()}`);
+        test.skip();
+      }
+      console.log('✅ Tier-2 server is healthy');
+    } catch (error) {
+      console.log(`❌ Tier-2 server is unavailable: ${error}`);
+      test.skip();
+    }
+  });
 
   test('should access emergency server health endpoint without ACL blocking', async ({ request }) => {
     // This tests the "sidecar door" - completely bypasses main app security

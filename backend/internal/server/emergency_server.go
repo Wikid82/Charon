@@ -18,11 +18,16 @@ import (
 // EmergencyServer provides a minimal HTTP server for emergency operations.
 // This server runs on a separate port with minimal security for failsafe access.
 //
+// Port Assignment:
+// - Port 2019: Reserved for Caddy admin API
+// - Port 2020: Emergency server (tier-2 break glass)
+//
 // Security Philosophy:
 // - Separate port bypasses Caddy/CrowdSec/WAF entirely
 // - Optional Basic Auth (configurable via env)
 // - Should ONLY be accessible via VPN/SSH tunnel
-// - Default bind to localhost (127.0.0.1) for safety
+// - Default bind to localhost IPv4 (127.0.0.1:2020) for safety
+// - IPv6 support available via config (e.g., 0.0.0.0:2020 or [::]:2020 for dual-stack)
 //
 // Use Cases:
 // - Layer 7 reverse proxy blocking requests (CrowdSec bouncer at Caddy)
@@ -84,7 +89,20 @@ func (s *EmergencyServer) Start() error {
 		}).Info("Emergency server request")
 	})
 
+	// Emergency endpoints only
+	emergencyHandler := handlers.NewEmergencyHandler(s.db)
+
+	// GET /health - Health check endpoint (NO AUTH - must be accessible for monitoring)
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status": "ok",
+			"server": "emergency",
+			"time":   time.Now().UTC().Format(time.RFC3339),
+		})
+	})
+
 	// Middleware 3: Basic Auth (if configured)
+	// Applied AFTER /health endpoint so health checks don't require auth
 	if s.cfg.BasicAuthUsername != "" && s.cfg.BasicAuthPassword != "" {
 		accounts := gin.Accounts{
 			s.cfg.BasicAuthUsername: s.cfg.BasicAuthPassword,
@@ -93,20 +111,8 @@ func (s *EmergencyServer) Start() error {
 		logger.Log().WithField("username", s.cfg.BasicAuthUsername).Info("Emergency server Basic Auth enabled")
 	}
 
-	// Emergency endpoints only
-	emergencyHandler := handlers.NewEmergencyHandler(s.db)
-
 	// POST /emergency/security-reset - Disable all security modules
 	router.POST("/emergency/security-reset", emergencyHandler.SecurityReset)
-
-	// GET /health - Health check endpoint
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status": "ok",
-			"server": "emergency",
-			"time":   time.Now().UTC().Format(time.RFC3339),
-		})
-	})
 
 	// Create HTTP server with sensible timeouts
 	s.server = &http.Server{

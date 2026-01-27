@@ -15,9 +15,10 @@ export const EMERGENCY_TOKEN =
 
 /**
  * Emergency server configuration for E2E tests
+ * Port 2020 is used to avoid conflict with Caddy admin API (port 2019)
  */
 export const EMERGENCY_SERVER = {
-  baseURL: 'http://localhost:2019',
+  baseURL: 'http://localhost:2020',
   username: 'admin',
   password: 'changeme',
 };
@@ -107,7 +108,7 @@ export async function testEmergencyAccess(request: APIRequestContext): Promise<b
 
 /**
  * Test emergency server access (Tier 2 break glass).
- * This tests the separate emergency server on port 2019.
+ * This tests the separate emergency server on port 2020.
  *
  * @param request - Playwright APIRequestContext
  * @returns true if emergency server is accessible, false otherwise

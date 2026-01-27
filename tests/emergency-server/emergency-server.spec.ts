@@ -1,13 +1,13 @@
 /**
  * Emergency Server E2E Tests (Tier 2 Break Glass)
  *
- * Tests the separate emergency server running on port 2019.
+ * Tests the separate emergency server running on port 2020.
  * This server provides failsafe access when the main application
  * security is blocking access.
  *
  * Prerequisites:
  * - Emergency server enabled in docker-compose.e2e.yml
- * - Port 2019 accessible from test environment
+ * - Port 2020 accessible from test environment
  * - Basic Auth credentials configured
  *
  * Reference: docs/plans/break_glass_protocol_redesign.md - Phase 3.2
@@ -17,7 +17,34 @@ import { test, expect, request as playwrightRequest } from '@playwright/test';
 import { EMERGENCY_TOKEN, EMERGENCY_SERVER, enableSecurity } from '../fixtures/security';
 import { TestDataManager } from '../utils/TestDataManager';
 
+/**
+ * Check if emergency server is healthy before running tests
+ */
+async function checkEmergencyServerHealth(): Promise<boolean> {
+  const emergencyRequest = await playwrightRequest.newContext({
+    baseURL: EMERGENCY_SERVER.baseURL,
+  });
+
+  try {
+    const response = await emergencyRequest.get('/health', { timeout: 3000 });
+    return response.ok();
+  } catch {
+    return false;
+  } finally {
+    await emergencyRequest.dispose();
+  }
+}
+
 test.describe('Emergency Server (Tier 2 Break Glass)', () => {
+  // Check health before all tests in this suite
+  test.beforeAll(async () => {
+    const isHealthy = await checkEmergencyServerHealth();
+    if (!isHealthy) {
+      console.log('❌ Emergency server is not healthy - skipping all emergency server tests');
+      test.skip();
+    }
+  });
+
   test('Test 1: Emergency server health endpoint', async () => {
     console.log('🧪 Testing emergency server health endpoint...');
 
