@@ -301,3 +301,6 @@ docs/plans/supply_chain_security_implementation.md.backup
 /playwright/.cache/
 /playwright/.auth/
 test-data/**
+
+# GORM Security Scanner Reports
+docs/reports/gorm-scan-*.txt

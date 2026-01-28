@@ -4,7 +4,7 @@ import "time"
 
 // CrowdsecConsoleEnrollment stores enrollment status and secrets for console registration.
 type CrowdsecConsoleEnrollment struct {
-	ID                 uint       `json:"id" gorm:"primarykey"`
+	ID                 uint       `json:"-" gorm:"primaryKey"`
 	UUID               string     `json:"uuid" gorm:"uniqueIndex"`
 	Status             string     `json:"status" gorm:"index"`
 	Tenant             string     `json:"tenant"`
