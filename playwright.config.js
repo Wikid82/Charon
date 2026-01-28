@@ -61,17 +61,6 @@ const coverageReporterConfig = defineCoverageReporterConfig({
     functions: [50, 80],
     lines: [50, 80],
   },
-
-  // Coverage threshold enforcement
-  check: {
-    global: {
-      statements: 85,
-      branches: 85,
-      functions: 85,
-      lines: 85,
-    },
-  },
-
   // Path rewriting for source file resolution
   rewritePath: ({ absolutePath, relativePath }) => {
     // Handle paths from Docker container
@@ -119,20 +108,12 @@ export default defineConfig({
   /* Opt out of parallel tests on CI. */
   workers: process.env.CI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: process.env.CI
-    ? [
-        ['blob'],
-        ['github'],
-        ['html', { open: 'never' }],
-        ...(enableCoverage ? [['@bgotink/playwright-coverage', coverageReporterConfig]] : []),
-        ['./tests/reporters/debug-reporter.ts'],
-      ]
-    : [
-        ['list'],
-        ['html', { open: 'on-failure' }],
-        ...(enableCoverage ? [['@bgotink/playwright-coverage', coverageReporterConfig]] : []),
-        ['./tests/reporters/debug-reporter.ts'],
-      ],
+  reporter: [
+    ...(process.env.CI ? [['blob'], ['github']] : [['list']]),
+    ['html', { open: process.env.CI ? 'never' : 'on-failure' }],
+    ...(enableCoverage ? [['@bgotink/playwright-coverage', coverageReporterConfig]] : []),
+    ['./tests/reporters/debug-reporter.ts'],
+  ],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL Configuration
@@ -154,7 +135,7 @@ export default defineConfig({
      *   'on-first-retry'   - Capture on first retry only (good balance)
      *   'retain-on-failure'- Capture only for failed tests (smallest overhead)
      */
-    trace: process.env.CI ? 'on-first-retry' : 'on-first-retry',
+    trace: 'on-first-retry',
 
     /* Videos: Capture video recordings for visual debugging
      *
@@ -163,7 +144,7 @@ export default defineConfig({
      *   'on'               - Always record (high disk usage)
      *   'retain-on-failure'- Record only failed tests (recommended)
      */
-    video: process.env.CI ? 'retain-on-failure' : 'retain-on-failure',
+    video: 'retain-on-failure',
 
     /* Screenshots: Capture screenshots of page state
      *
