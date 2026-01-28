@@ -280,12 +280,14 @@ docker run -d \
 
 **Install golangci-lint** (for contributors): `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest`
 
-**GORM Security Scanner:** Charon includes an automated security scanner that detects GORM vulnerabilities (ID leaks, exposed secrets, DTO embedding issues). Run it via:
+**GORM Security Scanner:** Charon includes an automated security scanner that detects GORM vulnerabilities (ID leaks, exposed secrets, DTO embedding issues). Runs automatically in CI on all PRs. Run locally via:
 
 ```bash
 # VS Code: Command Palette → "Lint: GORM Security Scan"
 # Or via pre-commit:
 pre-commit run --hook-stage manual gorm-security-scan --all-files
+# Or directly:
+./scripts/scan-gorm-security.sh --report
 ```
 
 See [GORM Security Scanner Documentation](docs/implementation/gorm_security_scanner_complete.md) for details.
