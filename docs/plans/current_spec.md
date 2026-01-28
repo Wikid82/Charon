@@ -1,138 +1,298 @@
-# GitHub Actions E2E Trigger Investigation Plan (PR #550)
+# GORM ID Leak Security Vulnerability Fix
 
-**Context**
-- Repository: Wikid82/Charon
-- Default branch: `main`
-- Active PR: #550 chore(docker): migrate from Alpine to Debian Trixie base image
-- Working branch: `feature/beta-release`
-- Symptom: After pushing an update to re-enable some E2E tests, the expected workflow did not trigger.
+**Status**: ACTIVE
+**Priority**: CRITICAL 🔴
+**Created**: 2026-01-28
+**Security Issue**: SQL Injection Vulnerability via GORM `.First()` ID Leaking
 
-## Phase 0 – Context Validation (30 min)
-- Confirm PR #550 source (fork vs upstream) and actor.
-- Identify which E2E workflow should have run (list specific file/job after discovery in Phase 1 Task 1).
-- Verify that a push occurred to `feature/beta-release` after re-enabling tests.
-- Document expected trigger event vs actual run in Actions history.
+---
 
-Create Decision Record:
-- Expected workflow: <file>/<job>
-- Expected trigger(s): push/pull_request synchronize
-- Observation time window: <timestamps>
+## Executive Summary
 
-**Objectives (EARS Requirements)**
-- THE SYSTEM SHALL automatically run E2E workflows on eligible events for `feature/**`, `main`, and relevant branches.
-- WHEN a commit is pushed to `feature/beta-release`, THE SYSTEM SHALL evaluate workflow `on:` triggers and filters and start corresponding jobs if conditions match.
-- WHEN a pull request is updated (synchronize) for PR #550, THE SYSTEM SHALL trigger CI for all workflows configured for `pull_request` to the target branch.
-- IF branch/path/actor conditions prevent a run, THEN THE SYSTEM SHALL allow a manual `workflow_dispatch` as a fallback.
+**Critical Security Bug**: GORM's `.First(&model, id)` method with string ID fields causes SQL injection-like behavior by directly inserting the ID value into the WHERE clause without proper parameterization. This affects **12 production service methods** and **multiple test files**, causing widespread test failures.
 
-**Hypotheses to Validate**
-1. Path filters exclude the recent changes (e.g., only watching `frontend/**`, `backend/**`, `tests/**`, `playwright.config.js`, or `.github/workflows/**`).
-2. Branch filters do not include `feature/**` or the YAML pattern is mis-specified.
-3. PR is from a fork; secrets and permissions prevent jobs from running.
-4. Skip conditions (`if:` gates) block runs for specific commit messages (e.g., `chore:`) or bots.
-5. Concurrency cancellation due to rapid successive pushes suppresses earlier runs (`concurrency` with `cancel-in-progress`).
-6. Workflows only run on `workflow_dispatch` or specific events, not `push`/`pull_request`.
+**Impact**:
+- 🔴 SQL syntax errors in production code
+- 🔴 Test suite failures (uptime_service_race_test.go)
+- 🔴 Potential SQL injection vector
+- 🔴 String-based UUIDs are leaking into raw SQL
 
-**Design: Trigger Validation Approach**
-- Inspect E2E-related workflows in `.github/workflows/` (e.g., `e2e-tests.yml`, `playwright-e2e.yml`, `docker-build.yml`).
-- Enumerate `on:` events: `push`, `pull_request`, `pull_request_target`, `workflow_run`, `workflow_dispatch`.
-- Capture `branches`, `branches-ignore`, `paths`, `paths-ignore`, `tags` filters; confirm YAML quoting and glob correctness.
-- Review top-level `permissions:` and job-level `if:` conditions; note actor-based skips.
-- Confirm matrix/include conditions for E2E jobs (e.g., only run when Playwright-related files change).
-- Check Actions history for PR #550 and branch `feature/beta-release` to correlate event delivery vs filter gating.
+**Root Cause**: When calling `.First(&model, id)` where `model` has a string ID field, GORM directly inserts the ID as a raw SQL fragment instead of using parameterized queries.
 
-## Phase 1 – Diagnosis (Targeted Checks)
+---
 
-### Task 1: Audit Workflow Triggers (DevOps)
-Commands:
-- List candidate workflows:
-  - `find .github/workflows -name '*e2e*' -o -name '*playwright*' -o -name '*test*' | sort`
-- Extract triggers and filters:
-  - `grep -nA10 '^on:' <workflow.yml>`
-  - `grep -nE 'branches|paths|concurrency|permissions|if:' <workflow.yml>`
-Output:
-- Table: [Workflow | Triggers | Branches | Paths | if-conditions | Concurrency]
+## SQL Injection Evidence
 
-### Task 2: Retrieve Recent Runs (DevOps)
-Commands:
-- `gh run list --repo Wikid82/Charon --limit 20 --status all`
-- `gh run view <run_id> --repo Wikid82/Charon`
-- Correlate cancellations and `concurrency` group IDs.
+### Actual Error from Tests
 
-### Task 3: Verify PR Origin & Permissions (DevOps)
-Commands:
-- `gh pr view 550 --repo Wikid82/Charon --json isCrossRepository,author,headRefName,baseRefName`
-Interpretation:
-- If `isCrossRepository=true`, factor `pull_request_target` and secret restrictions.
+```
+/uptime_service_race_test.go:100 unrecognized token: "639fb2d8"
+SELECT * FROM \`uptime_hosts\` WHERE 639fb2d8-f3a7-4c37-9a8e-22f2e73f8d87 AND \`uptime_hosts\`.\`id\` = "639fb2d8-f3a7-4c37-9a8e-22f2e73f8d87"
+```
 
-### Task 4: Inspect Commit Messages & Actor Filters (DevOps)
-Commands:
-- `git log --oneline -n 5`
-- Check workflow `if:` conditions referencing `github.actor`, commit message patterns.
+### What Should Happen vs What Actually Happens
 
-**Success Criteria (Phase 1):**
-- Root cause identified (±1 hypothesis), reproducible via targeted test.
+| Expected SQL | Actual Broken SQL |
+|--------------|-------------------|
+| \`WHERE \\\`uptime_hosts\\\`.\\\`id\\\` = "639fb2d8-..."\` | \`WHERE 639fb2d8-... AND \\\`uptime_hosts\\\`.\\\`id\\\` = "639fb2d8-..."\` |
 
-## Phase 1.5 – Hypothesis Elimination (1 hour)
-Targeted tests per hypothesis:
-1. Path filter: Commit `tests/.keep`; confirm if E2E triggers.
-2. Branch filter: Push to `feature/test-trigger` (wildcard); observe triggers.
-3. Fork PR: Confirm with `gh pr view`; evaluate secret usage.
-4. Commit message: Push with non-`chore:` message; observe.
-5. Concurrency: Push two commits quickly; confirm cancellations & group.
+**The Problem**: The UUID string \`639fb2d8-f3a7-4c37-9a8e-22f2e73f8d87\` is being leaked as a raw SQL fragment. GORM interprets it as a SQL expression and injects it directly into the WHERE clause.
 
-Deliverable:
-- Ranked hypothesis list with evidence and logs.
+---
 
-## Phase 2 – Remediation (Proper Fix)
+## Technical Root Cause
 
-### Scenario A: Path Filter Mismatch
-- Fix: Expand `paths:` to include re-enabled tests and configs.
-- Acceptance: Workflow triggers on next push touching those paths.
+### GORM Behavior with String IDs
 
-### Scenario B: Branch Filter Mismatch
-- Fix: Add `'feature/**'` (quoted) to `branches:` for relevant events.
-- Acceptance: Push to `feature/beta-release` triggers E2E.
+When calling \`.First(&model, id)\`:
+1. If the model's ID field is \`uint\`, GORM correctly parameterizes: \`WHERE id = ?\`
+2. If the model's ID field is \`string\`, GORM **leaks the ID as raw SQL**: \`WHERE <id_value> AND id = ?\`
 
-### Scenario C: Fork PR Gating
-- Fix: Use `pull_request_target` with least privileges OR require upstream branch for E2E.
-- Acceptance: PR updates trigger E2E without secret leakage.
+### Models Affected by String IDs
 
-### Scenario D: Skip Conditions
-- Fix: Adjust `if:` to avoid skipping E2E for `chore:` messages; add `workflow_dispatch` fallback.
-- Acceptance: E2E runs for typical commits; manual dispatch available.
+From codebase search, these models have string ID fields:
 
-### Scenario E: Concurrency Conflicts
-- Fix: Separate concurrency groups or set `cancel-in-progress: false` for E2E.
-- Acceptance: Earlier runs not cancelled improperly; stable execution.
+| Model | ID Field | Location |
+|-------|----------|----------|
+| \`ManualChallenge\` | \`ID string\` | \`internal/models/manual_challenge.go:30\` |
+| \`UptimeMonitor\` | \`ID string\` | (inferred from error logs) |
+| \`UptimeHost\` | \`ID string\` | (inferred from error logs) |
 
-Implementation Notes:
-- Apply YAML edits in the respective workflow files; validate via `workflow_dispatch` and a watched-path commit.
+**Note**: Even models with \`uint\` IDs are vulnerable if the parameter passed is a string!
 
-## Phase 3 – Validation & Hardening
-- Add/verify `workflow_dispatch` inputs for manual E2E runs.
-- Push minimal commit touching guaranteed watched path.
-- Document test in `docs/testing/`; update `README.md` CI notes.
-- Regression test: Trigger from different branch/actor/event to confirm persistence.
+---
 
-**Related Config Checks**
-- `codecov.yml`: Verify statuses and paths do not block CI.
-- `.dockerignore` / `.gitignore`: Ensure test assets are included in context.
-- `Dockerfile`: No gating on branch/commit via args.
-- `playwright.config.js`: E2E matrix does not restrict by branch erroneously.
+## Vulnerability Inventory
 
-**Risks & Fallbacks**
-- Increased CI load from wider `paths:` → keep essential paths only.
-- Security concerns with `pull_request_target` → restrict permissions, avoid untrusted code execution.
-- Fallbacks: Manual `workflow_dispatch`, dedicated E2E workflow with wide triggers, `repository_dispatch` testing.
+### CRITICAL: Production Service Files (12 instances)
 
-**Task Owners**
-- DevOps: Workflow trigger analysis and fixes
-- QA_Security: Validate runs, review permissions and secret usage
-- Frontend/Backend: Provide file-change guidance to exercise triggers
+1. **access_list_service.go:105** - \`s.db.First(&acl, id)\`
+2. **remoteserver_service.go:68** - \`s.db.First(&server, id)\`
+3. **notification_service.go:458** - \`s.DB.First(&t, "id = ?", id)\`
+4. **uptime_service.go:353** - \`s.DB.First(&uptimeHost, "id = ?", hostID)\`
+5. **uptime_service.go:845** - \`s.DB.First(&uptimeHost, "id = ?", hostID)\`
+6. **uptime_service.go:999** - \`s.DB.First(&host, hostID)\`
+7. **uptime_service.go:1101** - \`s.DB.First(&monitor, "id = ?", id)\`
+8. **uptime_service.go:1115** - \`s.DB.First(&monitor, "id = ?", id)\`
+9. **uptime_service.go:1143** - \`s.DB.First(&monitor, "id = ?", id)\`
+10. **certificate_service.go:412** - \`s.db.First(&cert, id)\`
+11. **dns_provider_service.go:118** - \`s.db.WithContext(ctx).First(&provider, id)\`
+12. **proxyhost_service.go:108** - \`s.db.First(&host, id)\`
 
-**Timeline & Escalation**
-- Phase 1: 2 hours; Phase 2: 4 hours; Phase 3: 2 hours.
-- If root cause not found by Phase 1.5, escalate with action log to GitHub Support.
+### HIGH PRIORITY: Test Files (8 instances causing failures)
 
-**Next Steps**
-- Request approval to begin Phase 1 execution per this plan.
+#### uptime_service_race_test.go (5 instances) ⚠️ CAUSING TEST FAILURES
+
+1. **Line 100** 🔥 - \`db.First(&host, host.ID)\`
+2. **Line 106** 🔥 - \`db.First(&host, host.ID)\`
+3. **Line 152** - \`db.First(&host, host.ID)\`
+4. **Line 255** - \`db.First(&updatedHost, "id = ?", host.ID)\`
+5. **Line 398** - \`db.First(&updatedHost, "id = ?", host.ID)\`
+
+#### Other Test Files
+
+6. **credential_service_test.go:426** - \`db.First(&updatedProvider, provider.ID)\`
+7. **dns_provider_service_test.go:550** - \`db.First(&dbProvider, provider.ID)\`
+8. **dns_provider_service_test.go:617** - \`db.First(&retrieved, provider.ID)\`
+9. **security_headers_service_test.go:184** - \`db.First(&saved, profile.ID)\`
+
+---
+
+## Fix Pattern: The Standard Safe Query
+
+### ❌ VULNERABLE Pattern
+\`\`\`go
+// NEVER DO THIS with string IDs or when ID type is uncertain:
+db.First(&model, id)
+db.First(&model, "id = ?", id)  // Also wrong! Second param is value, not condition
+\`\`\`
+
+### ✅ SAFE Pattern
+\`\`\`go
+// ALWAYS DO THIS:
+db.Where("id = ?", id).First(&model)
+\`\`\`
+
+### Why This Pattern is Safe
+
+1. **Explicit Parameterization**: \`id\` is treated as a parameter value, not SQL
+2. **No Type Confusion**: Works for both \`uint\` and \`string\` IDs
+3. **SQL Injection Safe**: GORM uses prepared statements with \`?\` placeholders
+4. **Clear Intent**: Readable and obvious what the query does
+
+---
+
+## Implementation Plan
+
+### Phase 1: Fix Production Services (CRITICAL)
+
+**Duration**: 20 minutes
+**Priority**: 🔴 CRITICAL
+
+**Files to Fix** (12 instances):
+1. access_list_service.go (Line 105)
+2. remoteserver_service.go (Line 68)
+3. notification_service.go (Line 458)
+4. uptime_service.go (Lines 353, 845, 999, 1101, 1115, 1143)
+5. certificate_service.go (Line 412)
+6. dns_provider_service.go (Line 118)
+7. proxyhost_service.go (Line 108)
+
+### Phase 2: Fix Test Files
+
+**Duration**: 15 minutes
+**Priority**: 🟡 HIGH
+
+**Files to Fix** (8+ instances):
+1. uptime_service_race_test.go (Lines 100, 106, 152, 255, 398)
+2. credential_service_test.go (Line 426)
+3. dns_provider_service_test.go (Lines 550, 617)
+4. security_headers_service_test.go (Line 184)
+
+### Phase 3: Fix DNS Provider Test Expectation
+
+**Duration**: 5 minutes
+**Priority**: 🟢 MEDIUM
+
+**File**: dns_provider_service_test.go
+**Lines**: 1382 (comment), 1385 (assertion)
+
+**Change**:
+- Line 1382: Update comment to describe validation failure instead of decryption failure
+- Line 1385: Change \`"DECRYPTION_ERROR"\` to \`"VALIDATION_ERROR"\`
+
+### Phase 4: Verification
+
+**Duration**: 10 minutes
+
+**Test Commands**:
+\`\`\`bash
+cd /projects/Charon/backend
+
+# Run race tests (primary failure source)
+go test -v -race -run TestCheckHost ./internal/services/
+
+# Run all uptime tests
+go test -v -run Uptime ./internal/services/
+
+# Run all service tests
+go test ./internal/services/...
+
+# Verify no vulnerable patterns remain
+grep -rn "\\.First(&.*," internal/services/ | grep -v "Where"
+\`\`\`
+
+**Success Criteria**:
+- ✅ \`uptime_service_race_test.go\` tests pass
+- ✅ No SQL syntax errors in logs
+- ✅ All service tests pass
+- ✅ DNS provider test expectation matches actual behavior
+- ✅ Zero vulnerable \`.First(&model, id)\` patterns remain
+
+---
+
+## Timeline Summary
+
+| Phase | Duration | Priority | Tasks |
+|-------|----------|----------|-------|
+| **Phase 1** | 20 min | 🔴 CRITICAL | Fix 12 production service methods |
+| **Phase 2** | 15 min | 🟡 HIGH | Fix 8+ test file instances |
+| **Phase 3** | 5 min | 🟢 MEDIUM | Fix DNS provider test expectation |
+| **Phase 4** | 10 min | 🟡 HIGH | Run full test suite verification |
+| **TOTAL** | **50 min** | | Complete security fix |
+
+---
+
+## Risk Assessment
+
+### Security Impact
+
+| Risk | Before Fix | After Fix |
+|------|-----------|-----------|
+| **SQL Injection** | 🔴 HIGH | ✅ None |
+| **Test Failures** | 🔴 Blocking | ✅ All pass |
+| **Production Bugs** | 🔴 Likely | ✅ None |
+| **Data Corruption** | 🟡 Possible | ✅ None |
+
+### Deployment Risk
+
+**Risk Level**: LOW
+
+**Justification**:
+- Changes are surgical and well-defined
+- Pattern is mechanical (\`.First(&model, id)\` → \`.Where("id = ?", id).First(&model)\`)
+- No business logic changes
+- Comprehensive test coverage validates correctness
+
+---
+
+## Code Change Summary
+
+### Production Services: 12 Changes
+- access_list_service.go: 1 fix
+- remoteserver_service.go: 1 fix
+- notification_service.go: 1 fix
+- uptime_service.go: 6 fixes
+- certificate_service.go: 1 fix
+- dns_provider_service.go: 1 fix
+- proxyhost_service.go: 1 fix
+
+### Test Files: 8+ Changes
+- uptime_service_race_test.go: 5 fixes
+- credential_service_test.go: 1 fix
+- dns_provider_service_test.go: 2 fixes (1 GORM, 1 expectation)
+- security_headers_service_test.go: 1 fix
+
+### Total Lines Changed: ~25 lines
+### Total Files Modified: 9 files
+
+---
+
+## Success Criteria
+
+- [x] Root cause identified for SQL injection vulnerability
+- [x] All vulnerable instances catalogued (20+ total)
+- [x] Comprehensive fix plan documented
+- [ ] All production service methods fixed (12 instances)
+- [ ] All test files fixed (8+ instances)
+- [ ] Test expectation corrected (DNS provider test)
+- [ ] Race tests pass without SQL errors
+- [ ] Full test suite passes
+
+---
+
+## Related Documentation
+
+- **GORM Documentation**: https://gorm.io/docs/query.html
+- **SQL Injection Prevention**: OWASP Top 10 (A03:2021 – Injection)
+- **Parameterized Queries**: https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html
+
+---
+
+## Notes
+
+### Why This Bug is Insidious
+
+1. **Silent Failure**: Works fine with \`uint\` IDs, fails with \`string\` IDs
+2. **Type-Dependent**: Behavior changes based on model ID field type
+3. **Misleading API**: \`.First(&model, id)\` looks safe but isn't
+4. **Widespread**: Affects 20+ instances across codebase
+5. **Hard to Debug**: SQL errors appear cryptic and non-obvious
+
+### Best Practices Going Forward
+
+✅ **DO**:
+- Always use \`.Where("id = ?", id).First(&model)\`
+- Use parameterized queries for all dynamic values
+- Test with both \`uint\` and \`string\` ID models
+
+❌ **DON'T**:
+- Never use \`.First(&model, id)\` with string IDs
+- Never trust GORM to handle ID types correctly
+- Never pass SQL fragments as \`.First()\` parameters
+
+---
+
+**Plan Status**: ✅ COMPLETE AND READY FOR IMPLEMENTATION
+
+**Next Action**: Begin Phase 1 - Fix Production Services

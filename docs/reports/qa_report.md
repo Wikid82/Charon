@@ -1,220 +1,379 @@
-# QA Security Validation Report
-## Feature/Beta-Release Branch - CI Flake Fixes
-
-**Date:** 2026-01-27
-**Auditor:** QA_Security
-**Branch:** feature/beta-release
-**Task:** Rebuild testing environment and validate CI flake fixes
+# QA Security Audit Report - GORM Security Fixes
+**Date:** 2026-01-28
+**Auditor:** QA Security Auditor
+**Status:** ❌ **FAILED - BLOCKING ISSUES FOUND**
 
 ---
 
 ## Executive Summary
 
-✅ **Infrastructure Rebuild:** Successful
-✅ **Port Configuration:** Validated (2019, 2020)
-⚠️ **Test Results:** 6 passed / 7 failed (functional issues, not infrastructure)
-✅ **Global Setup:** Health checks passing
+The GORM security fixes QA audit has **FAILED** due to **7 HIGH severity vulnerabilities** discovered in the Docker image scan. While all other quality gates passed successfully (backend tests, pre-commit hooks, CodeQL scans, and linting), the presence of HIGH severity vulnerabilities in system libraries is a **CRITICAL BLOCKER** that must be resolved before deployment.
 
-**Status:** Core infrastructure fixes validated. Functional test failures require additional investigation.
+### Overall Status: ❌ FAIL
 
----
-
-## 1. Environment Rebuild
-
-### Actions Taken
-- Stopped conflicting containers (main charon instance)
-- Rebuilt Docker image with `--no-cache` flag
-- Applied emergency server configuration fixes
-- Regenerated encryption key for clean state
-
-### Configuration Fixes Applied
-
-#### 1.1 Emergency Server Port Binding
-**Issue:** Emergency server bound to `127.0.0.1:2020` inside container, blocking Docker port mapping.
-**Fix:** Changed to `0.0.0.0:2020` in `docker-compose.playwright.yml`
-**Result:** ✅ Port 2020 now accessible from host
-
-```yaml
-- CHARON_EMERGENCY_BIND=0.0.0.0:2020
-```
-
-#### 1.2 Emergency Token Mismatch
-**Issue:** `.env` file had hex token, but container used default test token.
-**Fix:** Aligned `.env` to use `test-emergency-token-for-e2e-32chars`
-**Result:** ✅ Global setup emergency reset working
-
-#### 1.3 Basic Authentication Configuration
-**Issue:** Emergency server had no authentication, causing test failures.
-**Fix:** Added credentials to `docker-compose.playwright.yml`
-**Result:** ✅ Basic Auth enforced on protected endpoints
-
-```yaml
-- CHARON_EMERGENCY_USERNAME=admin
-- CHARON_EMERGENCY_PASSWORD=changeme
-```
-
-#### 1.4 Health Endpoint Authentication
-**Issue:** Health endpoint required auth, blocking health checks.
-**Fix:** Moved health endpoint registration before BasicAuth middleware in `emergency_server.go`
-**Result:** ✅ Health checks pass without authentication
+| Check | Status | Details |
+|-------|--------|---------|
+| Backend Coverage Tests | ✅ PASS | 85.2% coverage (meets 85% minimum) |
+| Pre-commit Hooks | ✅ PASS | All hooks passing |
+| Trivy Filesystem Scan | ✅ PASS | 0 vulnerabilities, 0 secrets |
+| **Docker Image Scan** | ❌ **FAIL** | **7 HIGH, 20 MEDIUM vulnerabilities** |
+| CodeQL Security Scan | ✅ PASS | 0 errors, 0 warnings |
+| Go Vet | ✅ PASS | No issues |
+| Staticcheck | ✅ PASS | 0 issues |
 
 ---
 
-## 2. Port Validation Results
+## 1. Backend Coverage Tests ✅
 
-### 2.1 Caddy Admin API (Port 2019)
-```bash
-$ curl -sf http://127.0.0.1:2019/config/
-✅ Status: Accessible
-✅ Response: Valid JSON config
-```
+**Status:** PASSED
+**Task:** \`Test: Backend with Coverage\`
+**Command:** \`.github/skills/scripts/skill-runner.sh test-backend-coverage\`
 
-### 2.2 Emergency Tier-2 Server (Port 2020)
-```bash
-$ curl -sf http://127.0.0.1:2020/health
-✅ Status: Accessible
-✅ Response: {"status":"ok","server":"emergency","time":"2026-01-27T01:38:04Z"}
-```
+### Results:
+- **Total Coverage:** 85.2% (statements)
+- **Minimum Required:** 85%
+- **Status:** ✅ Coverage requirement met
+- **Test Result:** All tests PASSED
 
-### 2.3 Global Setup Health Checks
-```
-🔍 Checking Caddy admin API health at http://localhost:2019...
-  ✅ Caddy admin API (port 2019) is healthy
-🔍 Checking emergency tier-2 server health at http://localhost:2020...
-  ✅ Emergency tier-2 server (port 2020) is healthy
-```
+### Coverage Breakdown:
+\`\`\`
+total: (statements) 85.2%
+\`\`\`
 
-**Verdict:** ✅ All ports accessible and healthy
+### Test Execution:
+- All test suites passed successfully
+- No test failures detected
+- Coverage filtering completed successfully
+
+**Verdict:** ✅ **PASS** - Meets minimum coverage threshold
 
 ---
 
-## 3. Emergency Server Test Results
+## 2. Pre-commit Hooks ✅
 
-### Test Suite: `tests/emergency-server/`
-**Execution:** `npx playwright test --project=chromium tests/emergency-server/`
+**Status:** PASSED
+**Command:** \`pre-commit run --all-files\`
 
-| Test | Status | Notes |
-|------|--------|-------|
-| **Test 1:** Health endpoint | ✅ Pass | Endpoint accessible without auth |
-| **Test 2:** Basic Auth requirement | ✅ Pass | Auth properly enforced on protected endpoints |
-| **Test 3:** Bypass main app security | ❌ Fail | ACL blocking access list creation |
-| **Test 4:** Security reset functionality | ❌ Fail | Response disposal error (test bug) |
-| **Test 5:** Minimal middleware validation | ✅ Pass | Confirmed WAF/CrowdSec/ACL bypass |
-| **Test 6:** Health endpoint without ACL | ✅ Pass | Tier-2 accessible despite ACL |
-| **Test 7:** Reset via emergency server | ❌ Fail | Reset request not succeeding |
-| **Test 8:** Defense in depth | ❌ Fail | Tier interaction issue |
-| **Test 9:** Enforce Basic Auth | ❌ Fail | Auth check returning 200 instead of 401 |
-| **Test 10:** Reject invalid token | ❌ Fail | JSON parse error on 401 response |
-| **Test 11:** Rate limiting (lenient) | ❌ Fail | Requests being rejected |
-| **Test 12:** Independent access | ✅ Pass | Emergency server accessible when main blocked |
-| **Test 13:** ACL blocking validation | ✅ Pass | ACL properly blocks main app |
+### Results:
+All hooks passed on final run:
+- ✅ fix end of files
+- ✅ trim trailing whitespace (auto-fixed)
+- ✅ check yaml
+- ✅ check for added large files
+- ✅ dockerfile validation (auto-fixed)
+- ✅ Go Vet
+- ✅ golangci-lint (Fast Linters - BLOCKING)
+- ✅ Check .version matches latest Git tag
+- ✅ Prevent large files that are not tracked by LFS
+- ✅ Prevent committing CodeQL DB artifacts
+- ✅ Prevent committing data/backups files
+- ✅ Frontend TypeScript Check
+- ✅ Frontend Lint (Fix)
 
-**Results:** 6 passed, 7 failed
+### Issues Resolved:
+1. **Trailing whitespace** in \`docs/plans/current_spec.md\` - Auto-fixed
+2. **Dockerfile validation** - Auto-fixed
 
----
-
-## 4. ACL Disable Verification
-
-### Global Setup Reset
-```
-🔓 Performing emergency security reset...
-  ✅ Emergency reset successful
-  ✅ Disabled modules: security.waf.enabled, security.acl.enabled,
-                      security.rate_limit.enabled, security.crowdsec.enabled,
-                      feature.cerberus.enabled
-  ⏳ Waiting for security reset to propagate...
-  ✅ Security reset complete
-```
-
-**Verdict:** ✅ ACL disable works deterministically in global setup
-
-### Individual Test ACL Handling
-Tests 3, 7, 8 fail to disable ACL or interact properly with ACL-enabled state, indicating:
-- Possible timing/propagation issues
-- Auth header mismatches
-- Test implementation bugs (not infrastructure)
+**Verdict:** ✅ **PASS** - All hooks passing after auto-fixes
 
 ---
 
-## 5. Issues Found
+## 3. Security Scans
 
-### 5.1 Infrastructure Issues (RESOLVED ✅)
-1. **Port 2019 conflict** - Main charon container conflicting
-   → Fixed by stopping main container
-2. **Emergency server port binding** - Incorrect binding for Docker
-   → Fixed with `0.0.0.0:2020` binding
-3. **Emergency token mismatch** - .env vs compose mismatch
-   → Fixed by aligning tokens
-4. **Health endpoint auth** - Health checks being blocked
-   → Fixed by moving endpoint before auth middleware
+### 3.1 Trivy Filesystem Scan ✅
 
-### 5.2 Functional Issues (REQUIRE INVESTIGATION ⚠️)
-1. **Test 3, 7, 8:** Security reset not working in test context
-2. **Test 4:** Response disposal - test implementation bug
-3. **Test 9:** Auth check mismatch (expect 401, got 200)
-4. **Test 10:** Invalid token returning HTML 401 page instead of JSON
-5. **Test 11:** Rate limiting rejecting when it should allow
+**Status:** PASSED
+**Task:** \`Security: Trivy Scan\`
+**Command:** \`.github/skills/scripts/skill-runner.sh security-scan-trivy\`
+
+### Results:
+\`\`\`
+┌────────────────────────────┬───────┬─────────────────┬─────────┐
+│           Target           │ Type  │ Vulnerabilities │ Secrets │
+├────────────────────────────┼───────┼─────────────────┼─────────┤
+│ backend/go.mod             │ gomod │        0        │    -    │
+│ frontend/package-lock.json │  npm  │        0        │    -    │
+│ package-lock.json          │  npm  │        0        │    -    │
+│ playwright/.auth/user.json │ text  │        -        │    0    │
+└────────────────────────────┴───────┴─────────────────┴─────────┘
+\`\`\`
+
+- **Vulnerabilities:** 0
+- **Secrets:** 0
+- **Scanners:** vuln, secret
+- **Severity:** CRITICAL, HIGH, MEDIUM
+
+**Verdict:** ✅ **PASS** - No vulnerabilities or secrets found
+
+### 3.2 Docker Image Scan ❌ **CRITICAL FAILURE**
+
+**Status:** FAILED
+**Command:** \`.github/skills/scripts/skill-runner.sh security-scan-docker-image\`
+
+### Critical Findings:
+
+#### Summary:
+\`\`\`
+  🔴 Critical: 0
+  🟠 High: 7
+  🟡 Medium: 20
+  🟢 Low: 2
+  ⚪ Negligible: 380
+  📊 Total: 409
+\`\`\`
+
+#### HIGH Severity Vulnerabilities (BLOCKING):
+
+1. **CVE-2026-0915** in \`libc-bin@2.41-12+deb13u1\`
+   - **Description:** Calling getnetbyaddr or getnetbyaddr_r with a configured nsswitch.conf
+   - **Fixed:** No fix available
+   - **CVSS:** N/A
+
+2. **CVE-2026-0861** in \`libc-bin@2.41-12+deb13u1\`
+   - **Description:** Passing too large an alignment to the memalign suite of functions
+   - **Fixed:** No fix available
+   - **CVSS:** N/A
+
+3. **CVE-2025-15281** in \`libc-bin@2.41-12+deb13u1\`
+   - **Description:** Calling wordexp with WRDE_REUSE in conjunction with WRDE_APPEND
+   - **Fixed:** No fix available
+   - **CVSS:** N/A
+
+4. **CVE-2026-0915** in \`libc6@2.41-12+deb13u1\`
+   - **Description:** Calling getnetbyaddr or getnetbyaddr_r with a configured nsswitch.conf
+   - **Fixed:** No fix available
+   - **CVSS:** N/A
+
+5. **CVE-2026-0861** in \`libc6@2.41-12+deb13u1\`
+   - **Description:** Passing too large an alignment to the memalign suite of functions
+   - **Fixed:** No fix available
+   - **CVSS:** N/A
+
+6. **CVE-2025-15281** in \`libc6@2.41-12+deb13u1\`
+   - **Description:** Calling wordexp with WRDE_REUSE in conjunction with WRDE_APPEND
+   - **Fixed:** No fix available
+   - **CVSS:** N/A
+
+7. **CVE-2025-13151** in \`libtasn1-6@4.20.0-2\`
+   - **Description:** Stack-based buffer overflow in libtasn1 version: v4.20.0
+   - **Fixed:** No fix available
+   - **CVSS:** N/A
+
+#### Artifacts Generated:
+- \`sbom.cyclonedx.json\` - SBOM with 830 packages
+- \`grype-results.json\` - Detailed vulnerability report
+- \`grype-results.sarif\` - GitHub Security format
+
+**Verdict:** ❌ **CRITICAL FAILURE** - 7 HIGH severity vulnerabilities MUST be resolved
+
+### 3.3 CodeQL Security Scan ✅
+
+**Status:** PASSED
+**Command:** \`.github/skills/scripts/skill-runner.sh security-scan-codeql\`
+
+### Results:
+
+#### Go Language:
+- **Errors:** 0
+- **Warnings:** 0
+- **Notes:** 0
+- **SARIF Output:** \`codeql-results-go.sarif\`
+
+#### JavaScript/TypeScript:
+- **Errors:** 0
+- **Warnings:** 0
+- **Notes:** 0
+- **Files Scanned:** 318 out of 318
+- **SARIF Output:** \`codeql-results-javascript.sarif\`
+
+**Verdict:** ✅ **PASS** - No security issues detected
 
 ---
 
-## 6. Recommendations
+## 4. Linting ✅
 
-### Immediate Actions Required
-1. **Investigate ACL propagation timing** - Tests may need longer wait periods
-2. **Fix Test 4 response disposal** - Ensure responses not accessed after disposal
-3. **Fix Test 9 auth check** - Verify health endpoint vs protected endpoint distinction
-4. **Fix Test 10 JSON parsing** - Emergency server should return JSON on 401, not HTML
-5. **Review Test 11 rate limiting** - Verify test mode settings for emergency server
+### 4.1 Go Vet ✅
 
-### Configuration to Commit
-The following compose file changes should be committed:
-- `CHARON_EMERGENCY_BIND=0.0.0.0:2020`
-- `CHARON_EMERGENCY_USERNAME=admin`
-- `CHARON_EMERGENCY_PASSWORD=changeme`
+**Status:** PASSED
+**Task:** \`Lint: Go Vet\`
+**Command:** \`cd backend && go vet ./...\`
 
-The backend change (health endpoint before auth middleware) should be reviewed and committed.
+### Results:
+- No issues reported
+- All packages analyzed successfully
 
-### Not Blocking Beta Release
-The infrastructure fixes have been validated. Remaining test failures appear to be:
-- Test implementation issues (response disposal)
-- Timing/synchronization issues (ACL propagation)
-- Minor API behavior mismatches (JSON vs HTML error responses)
+**Verdict:** ✅ **PASS**
 
-These do not indicate critical infrastructure flakes and can be addressed in follow-up work.
+### 4.2 Staticcheck (Fast) ✅
 
----
+**Status:** PASSED
+**Task:** \`Lint: Staticcheck (Fast)\`
+**Command:** \`cd backend && golangci-lint run --config .golangci-fast.yml ./...\`
 
-## 7. Test Execution Metrics
+### Results:
+\`\`\`
+0 issues.
+\`\`\`
 
-- **Total Tests:** 13
-- **Passed:** 6 (46%)
-- **Failed:** 7 (54%)
-- **Skipped:** 0
-- **Execution Time:** 9.7s
-- **Workers:** 2
-
-### Improvement from Initial State
-- **Before fixes:** 0 tests passed (12 skipped due to unhealthy infrastructure)
-- **After fixes:** 6 tests passed (infrastructure healthy)
-- **Improvement:** Infrastructure blocking resolved, functional issues identified
+**Verdict:** ✅ **PASS**
 
 ---
 
-## 8. Conclusion
+## Critical Issues Requiring Remediation
 
-**Core Objective: ACHIEVED ✅**
+### 🔴 BLOCKER: Docker Image Vulnerabilities
 
-The E2E testing environment has been successfully rebuilt with all critical infrastructure fixes validated:
-- ✅ Ports 2019 and 2020 accessible and properly configured
-- ✅ Emergency server responding correctly
-- ✅ Global setup health checks passing
-- ✅ ACL disable working deterministically in setup
+**Issue:** 7 HIGH severity vulnerabilities in system libraries
 
-The remaining test failures are functional/implementation issues that do not block validation of the CI flake fixes related to port configuration and emergency server initialization. These issues have been documented for follow-up investigation.
+**Affected Packages:**
+1. \`libc-bin@2.41-12+deb13u1\` (3 CVEs)
+2. \`libc6@2.41-12+deb13u1\` (3 CVEs)
+3. \`libtasn1-6@4.20.0-2\` (1 CVE)
 
-**Recommendation:** Proceed with beta release. Address remaining test failures in follow-up tickets.
+**Root Cause:** These are Debian base image vulnerabilities with no upstream fixes available yet.
+
+**Recommended Actions:**
+
+1. **Immediate Options:**
+   - [ ] Wait for Debian security updates for these packages
+   - [ ] Consider switching to alternative base image (e.g., Alpine, Distroless)
+   - [ ] Document risk acceptance if vulnerabilities are not exploitable in Charon's context
+   - [ ] Add vulnerability exceptions with justification in security policy
+
+2. **Risk Assessment Required:**
+   - [ ] Analyze if these libc CVEs are exploitable in Charon's deployment context
+   - [ ] Check if the application uses the vulnerable functions (getnetbyaddr, memalign, wordexp)
+   - [ ] Verify libtasn1-6 exposure (ASN.1 parsing)
+
+3. **Mitigation Options:**
+   - [ ] Use runtime security controls (AppArmor, Seccomp) to prevent exploitation
+   - [ ] Implement network segmentation to reduce attack surface
+   - [ ] Add monitoring for exploitation attempts
+
+4. **Long-term Strategy:**
+   - [ ] Establish vulnerability exception process
+   - [ ] Define acceptable risk thresholds
+   - [ ] Implement automated vulnerability tracking
+   - [ ] Plan for base image updates/migrations
 
 ---
 
-**Report Generated:** 2026-01-27
-**Validation Complete**
+## Test Coverage Analysis
+
+### Backend Test Results:
+- **Total Coverage:** 85.2%
+- **Threshold:** 85% (minimum)
+- **Status:** ✅ Meeting minimum requirement by **0.2 percentage points**
+
+### Recommendations:
+- Consider increasing coverage to create buffer above minimum threshold
+- Target 90% coverage to allow for fluctuations
+- Focus on critical paths and security-sensitive code
+
+---
+
+## Summary of Findings
+
+### Passed Checks (6/7):
+✅ Backend coverage tests (85.2%)
+✅ Pre-commit hooks (all passing)
+✅ Trivy filesystem scan (0 vulnerabilities)
+✅ CodeQL security scans (0 issues)
+✅ Go Vet (no issues)
+✅ Staticcheck (0 issues)
+
+### Failed Checks (1/7):
+❌ **Docker image scan (7 HIGH vulnerabilities)**
+
+### Critical Metrics:
+- **Test Coverage:** 85.2% ✅
+- **Code Quality:** No linting issues ✅
+- **Source Code Security:** No vulnerabilities ✅
+- **Image Security:** 7 HIGH + 20 MEDIUM vulnerabilities ❌
+
+---
+
+## Approval Status
+
+### ❌ **NOT APPROVED FOR DEPLOYMENT**
+
+**Reason:** The presence of 7 HIGH severity vulnerabilities in the Docker image violates the mandatory security requirements stated in the Definition of Done:
+
+> "Zero Critical/High severity vulnerabilities (MANDATORY)"
+
+**Next Steps:**
+1. **REQUIRED:** Remediate or risk-accept HIGH severity vulnerabilities
+2. Address MEDIUM severity vulnerabilities where feasible
+3. Document risk acceptance decisions
+4. Re-run security scans after remediation
+5. Obtain security team approval for any exceptions
+
+---
+
+## Artifacts and Evidence
+
+### Generated Files:
+- \`sbom.cyclonedx.json\` - Software Bill of Materials (830 packages)
+- \`grype-results.json\` - Detailed vulnerability report
+- \`grype-results.sarif\` - GitHub Security format
+- \`codeql-results-go.sarif\` - Go security analysis
+- \`codeql-results-javascript.sarif\` - JavaScript/TypeScript security analysis
+- \`backend/coverage.txt\` - Backend test coverage report
+
+### Scan Logs:
+- All scan outputs captured in task terminals
+- Full Grype scan results available in \`grype-results.json\`
+
+---
+
+## Recommendations for Next QA Cycle
+
+1. **Security:**
+   - Establish vulnerability exception process
+   - Define risk acceptance criteria
+   - Implement automated security scanning in PR checks
+   - Consider migrating to more secure base images
+
+2. **Testing:**
+   - Increase backend coverage threshold to 90%
+   - Add integration tests for GORM security fixes
+   - Implement E2E security testing
+
+3. **Process:**
+   - Make Docker image scanning a PR requirement
+   - Add security sign-off step to deployment pipeline
+   - Create vulnerability remediation SLA policy
+
+---
+
+## Sign-off
+
+**QA Security Auditor:** GitHub Copilot
+**Date:** 2026-01-28
+**Status:** ❌ **REJECTED**
+**Reason:** 7 HIGH severity vulnerabilities in Docker image
+
+**Approval Required From:**
+- [ ] Security Team (vulnerability risk assessment)
+- [ ] Engineering Lead (remediation plan approval)
+- [ ] Release Manager (deployment decision)
+
+---
+
+## Audit Trail
+
+| Timestamp | Action | Result |
+|-----------|--------|--------|
+| 2026-01-28 09:49:00 | Backend Coverage Tests | ✅ PASS (85.2%) |
+| 2026-01-28 09:48:00 | Pre-commit Hooks | ✅ PASS (after auto-fixes) |
+| 2026-01-28 09:49:38 | Trivy Filesystem Scan | ✅ PASS (0 vulnerabilities) |
+| 2026-01-28 09:50:00 | Docker Image Scan | ❌ FAIL (7 HIGH, 20 MEDIUM) |
+| 2026-01-28 09:51:00 | CodeQL Go Scan | ✅ PASS (0 issues) |
+| 2026-01-28 09:51:00 | CodeQL JS Scan | ✅ PASS (0 issues) |
+| 2026-01-28 09:51:30 | Go Vet | ✅ PASS |
+| 2026-01-28 09:51:30 | Staticcheck | ✅ PASS (0 issues) |
+| 2026-01-28 09:52:00 | QA Report Generated | ❌ AUDIT FAILED |
+
+---
+
+*End of QA Security Audit Report*
