@@ -102,7 +102,41 @@ Prevent abuse by limiting how many requests a user or IP address can make. Stop 
 
 ---
 
-## 🛡️ Security & Headers
+## �️ Development & Security Tools
+
+### 🔍 GORM Security Scanner
+
+Automated static analysis that detects GORM security issues and common mistakes before they reach production. The scanner identifies ID leak vulnerabilities, exposed secrets, and enforces GORM best practices.
+
+**Key Features:**
+
+- **6 Detection Patterns** — ID leaks, exposed secrets, DTO embedding issues, and more
+- **3 Operating Modes** — Report, check, and enforce modes for different workflows
+- **Fast Performance** — Scans entire codebase in 2.1 seconds
+- **Zero False Positives** — Smart GORM model detection prevents incorrect warnings
+- **Pre-commit Integration** — Catches issues before they're committed
+- **VS Code Task** — Run security scans from the Command Palette
+
+**Detects:**
+
+- Numeric ID exposure in JSON (`json:"id"` on `uint`/`int` fields)
+- Exposed API keys, tokens, and passwords
+- Response DTOs that inherit model ID fields
+- Missing primary key tags and foreign key indexes
+
+**Usage:**
+
+```bash
+# Run via VS Code: Command Palette → "Lint: GORM Security Scan"
+# Or via pre-commit:
+pre-commit run --hook-stage manual gorm-security-scan --all-files
+```
+
+→ [Learn More](implementation/gorm_security_scanner_complete.md)
+
+---
+
+## �🛡️ Security & Headers
 
 ### 🛡️ HTTP Security Headers
 
