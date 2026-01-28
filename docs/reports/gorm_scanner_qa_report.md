@@ -416,9 +416,12 @@ The scanner correctly identified **60 pre-existing security issues**:
    - Change `.pre-commit-config.yaml` from `stages: [manual]` to `stages: [commit]`
    - This will enforce scanner on every commit
 
-4. **Add CI Integration:**
-   - Add scanner step to `.github/workflows/test.yml`
-   - Block PRs if scanner finds issues
+4. **✅ CI Integration Complete:**
+   - Scanner integrated into `.github/workflows/quality-checks.yml`
+   - Runs on all PRs and pushes to main, development, feature branches
+   - Blocks PRs if scanner finds issues
+   - GitHub annotations show file:line for issues
+   - Summary output in GitHub Actions job summary
 
 ### 8.3 Documentation Updates
 

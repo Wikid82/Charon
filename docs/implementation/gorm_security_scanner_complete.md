@@ -203,24 +203,39 @@ The scanner correctly identified **60 pre-existing security issues** in the code
 
 **Status:** ✅ Accessible from Command Palette
 
-### 3. CI Pipeline (Not Yet Implemented)
+### 3. CI Pipeline (GitHub Actions)
 
-**Recommended Addition** to `.github/workflows/test.yml`:
+**Configuration:** `.github/workflows/quality-checks.yml`
+
+The scanner is integrated into the `backend-quality` job:
 
 ```yaml
 - name: GORM Security Scanner
+  id: gorm-scan
   run: |
     chmod +x scripts/scan-gorm-security.sh
     ./scripts/scan-gorm-security.sh --check
   continue-on-error: false
 
-- name: Annotate GORM Security Issues
-  if: failure()
+- name: GORM Security Scan Summary
+  if: always()
   run: |
-    echo "::error title=GORM Security Issues::Run './scripts/scan-gorm-security.sh --report' locally for details"
+    echo "## 🔒 GORM Security Scan Results" >> $GITHUB_STEP_SUMMARY
+    # ... detailed summary output
+
+- name: Annotate GORM Security Issues
+  if: failure() && steps.gorm-scan.outcome == 'failure'
+  run: |
+    echo "::error title=GORM Security Issues Detected::Run './scripts/scan-gorm-security.sh --report' locally for details"
 ```
 
-**Status:** ⚠️ **Pending** — Add after remediation complete
+**Status:** ✅ **ACTIVE** — Runs on all PRs and pushes to main, development, feature branches
+
+**Behavior:**
+- Scanner executes on every PR and push
+- Failures are annotated in GitHub PR view
+- Summary appears in GitHub Actions job summary
+- Exit code 1 blocks PR merge if issues detected
 
 ---
 
