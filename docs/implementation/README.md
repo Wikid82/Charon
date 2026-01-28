@@ -20,6 +20,7 @@ Documents will be organized here after migration from the project root:
 |----------|-------------|
 | `AGENT_SKILLS_MIGRATION_SUMMARY.md` | Agent skills system migration details |
 | `BULK_ACL_FEATURE.md` | Bulk ACL feature implementation |
+| `gorm_security_scanner_complete.md` | GORM Security Scanner implementation and usage |
 | `I18N_IMPLEMENTATION_SUMMARY.md` | Internationalization implementation |
 | `IMPLEMENTATION_SUMMARY.md` | General implementation summary |
 | `INVESTIGATION_SUMMARY.md` | Investigation and debugging records |
