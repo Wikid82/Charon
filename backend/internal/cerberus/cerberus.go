@@ -15,7 +15,9 @@ import (
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/metrics"
 	"github.com/Wikid82/charon/backend/internal/models"
+	securitypkg "github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 // Cerberus provides a lightweight facade for security checks (WAF, CrowdSec, ACL).
@@ -114,6 +116,7 @@ func (c *Cerberus) IsEnabled() bool {
 			return strings.EqualFold(s.Value, "true")
 		}
 		// Fallback to legacy setting for backward compatibility
+		s = models.Setting{} // Reset to prevent ID leakage from previous query
 		if err := c.db.Where("key = ?", "security.cerberus.enabled").First(&s).Error; err == nil {
 			return strings.EqualFold(s.Value, "true")
 		}
@@ -179,13 +182,26 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 		}
 
 		if aclEnabled {
+			clientIP := util.CanonicalizeIPForSecurity(ctx.ClientIP())
+			isAdmin := c.isAuthenticatedAdmin(ctx)
+			adminWhitelistConfigured := false
+			if isAdmin {
+				whitelisted, hasWhitelist := c.adminWhitelistStatus(clientIP)
+				adminWhitelistConfigured = hasWhitelist
+				if whitelisted {
+					ctx.Next()
+					return
+				}
+			}
+
 			acls, err := c.accessSvc.List()
 			if err == nil {
-				clientIP := ctx.ClientIP()
+				activeCount := 0
 				for _, acl := range acls {
 					if !acl.Enabled {
 						continue
 					}
+					activeCount++
 					allowed, _, err := c.accessSvc.TestIP(acl.ID, clientIP)
 					if err == nil && !allowed {
 						// Send security notification
@@ -206,6 +222,14 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 						return
 					}
 				}
+				if activeCount == 0 {
+					if isAdmin && !adminWhitelistConfigured {
+						ctx.Next()
+						return
+					}
+					ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Blocked by access control list"})
+					return
+				}
 			}
 		}
 
@@ -220,8 +244,47 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 			logger.Log().WithField("client_ip", ctx.ClientIP()).WithField("path", ctx.Request.URL.Path).Debug("Request evaluated by CrowdSec bouncer at Caddy layer")
 		}
 
-		// Rate limiting placeholder (no-op for the moment)
-
 		ctx.Next()
 	}
+}
+
+func (c *Cerberus) isAuthenticatedAdmin(ctx *gin.Context) bool {
+	role, exists := ctx.Get("role")
+	if !exists {
+		return false
+	}
+	roleStr, ok := role.(string)
+	if !ok || roleStr != "admin" {
+		return false
+	}
+	userID, exists := ctx.Get("userID")
+	if !exists {
+		return false
+	}
+	switch id := userID.(type) {
+	case uint:
+		return id > 0
+	case int:
+		return id > 0
+	case int64:
+		return id > 0
+	default:
+		return false
+	}
+}
+
+func (c *Cerberus) adminWhitelistStatus(clientIP string) (bool, bool) {
+	if c.db == nil {
+		return false, false
+	}
+
+	var sc models.SecurityConfig
+	if err := c.db.Where("name = ?", "default").First(&sc).Error; err != nil {
+		return false, false
+	}
+	if strings.TrimSpace(sc.AdminWhitelist) == "" {
+		return false, false
+	}
+
+	return securitypkg.IsIPInCIDRList(clientIP, sc.AdminWhitelist), true
 }

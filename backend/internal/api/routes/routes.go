@@ -31,6 +31,18 @@ import (
 
 // Register wires up API routes and performs automatic migrations.
 func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
+	// Caddy Manager - created early so it can be used by settings handlers for config reload
+	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
+	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
+
+	// Cerberus middleware applies the optional security suite checks (WAF, ACL, CrowdSec)
+	cerb := cerberus.New(cfg.Security, db)
+
+	return RegisterWithDeps(router, db, cfg, caddyManager, cerb)
+}
+
+// RegisterWithDeps wires up API routes and performs automatic migrations with prebuilt dependencies.
+func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyManager *caddy.Manager, cerb *cerberus.Cerberus) error {
 	// Emergency bypass must be registered FIRST.
 	// When a valid X-Emergency-Token is present from an authorized source,
 	// it sets an emergency context flag and strips the token header so downstream
@@ -107,8 +119,16 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP(c.Writer, c.Request)
 	})
 
+	if caddyManager == nil {
+		caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
+		caddyManager = caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
+	}
+	if cerb == nil {
+		cerb = cerberus.New(cfg.Security, db)
+	}
+
 	// Emergency endpoint
-	emergencyHandler := handlers.NewEmergencyHandler(db)
+	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(db, caddyManager, cerb)
 	emergency := router.Group("/api/v1/emergency")
 	emergency.POST("/security-reset", emergencyHandler.SecurityReset)
 
@@ -120,20 +140,14 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	emergency.DELETE("/token", emergencyTokenHandler.RevokeToken)
 	emergency.PATCH("/token/expiration", emergencyTokenHandler.UpdateTokenExpiration)
 
-	api := router.Group("/api/v1")
-
-	// Cerberus middleware applies the optional security suite checks (WAF, ACL, CrowdSec)
-	cerb := cerberus.New(cfg.Security, db)
-	api.Use(cerb.Middleware())
-
-	// Caddy Manager - created early so it can be used by settings handlers for config reload
-	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
-	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
-
 	// Auth routes
 	authService := services.NewAuthService(db, cfg)
 	authHandler := handlers.NewAuthHandlerWithDB(authService, db)
 	authMiddleware := middleware.AuthMiddleware(authService)
+
+	api := router.Group("/api/v1")
+	api.Use(middleware.OptionalAuth(authService))
+	api.Use(cerb.Middleware())
 
 	// Backup routes
 	backupService := services.NewBackupService(&cfg)
@@ -216,24 +230,6 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 		// Settings - with CaddyManager and Cerberus for security settings reload
 		settingsHandler := handlers.NewSettingsHandlerWithDeps(db, caddyManager, cerb)
-
-		// Emergency-token-aware fallback (used by E2E when X-Emergency-Token is supplied)
-		// Returns 404 when no emergency token is present so public surface is unchanged.
-		router.PATCH("/api/v1/settings", func(c *gin.Context) {
-			token := c.GetHeader("X-Emergency-Token")
-			if token == "" {
-				c.AbortWithStatus(404)
-				return
-			}
-			svc := services.NewEmergencyTokenService(db)
-			if _, err := svc.Validate(token); err != nil {
-				c.AbortWithStatus(404)
-				return
-			}
-			// Grant temporary admin context and call the same handler
-			c.Set("role", "admin")
-			settingsHandler.UpdateSetting(c)
-		})
 
 		protected.GET("/settings", settingsHandler.GetSettings)
 		protected.POST("/settings", settingsHandler.UpdateSetting)
@@ -436,6 +432,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 			ticker := time.NewTicker(1 * time.Minute)
 			for range ticker.C {
 				// Check feature flag each tick
+				s = models.Setting{} // Reset to prevent ID leakage from previous query
 				enabled := true
 				if err := db.Where("key = ?", "feature.uptime.enabled").First(&s).Error; err == nil {
 					enabled = s.Value == "true"
@@ -475,27 +472,10 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		}
 
 		// Security Status
-		securityHandler := handlers.NewSecurityHandler(cfg.Security, db, caddyManager)
+		securityHandler := handlers.NewSecurityHandlerWithDeps(cfg.Security, db, caddyManager, cerb)
 		if geoipSvc != nil {
 			securityHandler.SetGeoIPService(geoipSvc)
 		}
-
-		// Emergency-token-aware shortcut for ACL toggles (used by E2E/test harness)
-		// Only accepts requests that present a valid X-Emergency-Token; otherwise return 404.
-		router.PATCH("/api/v1/security/acl", func(c *gin.Context) {
-			token := c.GetHeader("X-Emergency-Token")
-			if token == "" {
-				c.AbortWithStatus(404)
-				return
-			}
-			svc := services.NewEmergencyTokenService(db)
-			if _, err := svc.Validate(token); err != nil {
-				c.AbortWithStatus(404)
-				return
-			}
-			c.Set("role", "admin")
-			securityHandler.PatchACL(c)
-		})
 
 		protected.GET("/security/status", securityHandler.GetStatus)
 		// Security Config management

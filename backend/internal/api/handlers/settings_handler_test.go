@@ -122,7 +122,7 @@ func setupSettingsTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		panic("failed to connect to test database")
 	}
-	_ = db.AutoMigrate(&models.Setting{})
+	_ = db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{})
 	return db
 }
 
@@ -213,6 +213,146 @@ func TestSettingsHandler_UpdateSettings(t *testing.T) {
 
 	db.Where("key = ?", "new_key").First(&setting)
 	assert.Equal(t, "updated_value", setting.Value)
+}
+
+func TestSettingsHandler_UpdateSetting_SyncsAdminWhitelist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := gin.New()
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{
+		"key":   "security.admin_whitelist",
+		"value": "192.0.2.1/32",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var cfg models.SecurityConfig
+	err := db.Where("name = ?", "default").First(&cfg).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "192.0.2.1/32", cfg.AdminWhitelist)
+}
+
+func TestSettingsHandler_UpdateSetting_EnablesCerberusWhenACLEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := gin.New()
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{
+		"key":   "security.acl.enabled",
+		"value": "true",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var setting models.Setting
+	err := db.Where("key = ?", "feature.cerberus.enabled").First(&setting).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "true", setting.Value)
+
+	var legacySetting models.Setting
+	err = db.Where("key = ?", "security.cerberus.enabled").First(&legacySetting).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "true", legacySetting.Value)
+
+	var aclSetting models.Setting
+	err = db.Where("key = ?", "security.acl.enabled").First(&aclSetting).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "true", aclSetting.Value)
+
+	var cfg models.SecurityConfig
+	err = db.Where("name = ?", "default").First(&cfg).Error
+	assert.NoError(t, err)
+	assert.True(t, cfg.Enabled)
+}
+
+func TestSettingsHandler_PatchConfig_SyncsAdminWhitelist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.PATCH("/config", handler.PatchConfig)
+
+	payload := map[string]any{
+		"security": map[string]any{
+			"admin_whitelist": "203.0.113.0/24",
+		},
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/config", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var cfg models.SecurityConfig
+	err := db.Where("name = ?", "default").First(&cfg).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "203.0.113.0/24", cfg.AdminWhitelist)
+}
+
+func TestSettingsHandler_PatchConfig_EnablesCerberusWhenACLEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.PATCH("/config", handler.PatchConfig)
+
+	payload := map[string]any{
+		"security": map[string]any{
+			"acl": map[string]any{
+				"enabled": true,
+			},
+		},
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/config", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var setting models.Setting
+	err := db.Where("key = ?", "feature.cerberus.enabled").First(&setting).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "true", setting.Value)
+
+	var cfg models.SecurityConfig
+	err = db.Where("name = ?", "default").First(&cfg).Error
+	assert.NoError(t, err)
+	assert.True(t, cfg.Enabled)
 }
 
 func TestSettingsHandler_UpdateSetting_DatabaseError(t *testing.T) {

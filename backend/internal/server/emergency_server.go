@@ -40,13 +40,22 @@ type EmergencyServer struct {
 	listener net.Listener
 	db       *gorm.DB
 	cfg      config.EmergencyConfig
+	cerberus handlers.CacheInvalidator
+	caddy    handlers.CaddyConfigManager
 }
 
 // NewEmergencyServer creates a new emergency server instance
 func NewEmergencyServer(db *gorm.DB, cfg config.EmergencyConfig) *EmergencyServer {
+	return NewEmergencyServerWithDeps(db, cfg, nil, nil)
+}
+
+// NewEmergencyServerWithDeps creates a new emergency server instance with optional dependencies.
+func NewEmergencyServerWithDeps(db *gorm.DB, cfg config.EmergencyConfig, caddyManager handlers.CaddyConfigManager, cerberus handlers.CacheInvalidator) *EmergencyServer {
 	return &EmergencyServer{
-		db:  db,
-		cfg: cfg,
+		db:       db,
+		cfg:      cfg,
+		caddy:    caddyManager,
+		cerberus: cerberus,
 	}
 }
 
@@ -110,7 +119,7 @@ func (s *EmergencyServer) Start() error {
 	})
 
 	// Emergency endpoints only
-	emergencyHandler := handlers.NewEmergencyHandler(s.db)
+	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(s.db, s.caddy, s.cerberus)
 
 	// GET /health - Health check endpoint (NO AUTH - must be accessible for monitoring)
 	router.GET("/health", func(c *gin.Context) {

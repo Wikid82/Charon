@@ -396,7 +396,7 @@ func (s *SecurityService) UpsertRuleSet(r *models.SecurityRuleSet) error {
 // DeleteRuleSet removes a ruleset by id
 func (s *SecurityService) DeleteRuleSet(id uint) error {
 	var rs models.SecurityRuleSet
-	if err := s.db.First(&rs, id).Error; err != nil {
+	if err := s.db.Where("id = ?", id).First(&rs).Error; err != nil {
 		return err
 	}
 	return s.db.Delete(&rs).Error

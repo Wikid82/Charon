@@ -631,6 +631,7 @@ func (m *Manager) computeEffectiveFlags(_ context.Context) (cerbEnabled, aclEnab
 		}
 
 		// runtime override for ACL enabled
+		s = models.Setting{} // Reset to prevent ID leakage from previous query
 		if err := m.db.Where("key = ?", "security.acl.enabled").First(&s).Error; err == nil {
 			if strings.EqualFold(s.Value, "true") {
 				aclEnabled = true

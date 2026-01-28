@@ -102,7 +102,7 @@ func (s *AccessListService) Create(acl *models.AccessList) error {
 // GetByID retrieves an access list by ID
 func (s *AccessListService) GetByID(id uint) (*models.AccessList, error) {
 	var acl models.AccessList
-	if err := s.db.First(&acl, id).Error; err != nil {
+	if err := s.db.Where("id = ?", id).First(&acl).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrAccessListNotFound
 		}

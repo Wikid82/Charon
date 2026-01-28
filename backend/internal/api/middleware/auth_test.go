@@ -41,6 +41,29 @@ func TestAuthMiddleware_MissingHeader(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "Authorization header required")
 }
 
+func TestAuthMiddleware_EmergencyBypass(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("emergency_bypass", true)
+		c.Next()
+	})
+	r.Use(AuthMiddleware(nil))
+	r.GET("/test", func(c *gin.Context) {
+		role, _ := c.Get("role")
+		userID, _ := c.Get("userID")
+		assert.Equal(t, "admin", role)
+		assert.Equal(t, uint(0), userID)
+		c.Status(http.StatusOK)
+	})
+
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
 func TestRequireRole_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

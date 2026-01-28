@@ -15,7 +15,9 @@ import (
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
+	securitypkg "github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 // WAFExclusionRequest represents a rule exclusion for false positives
@@ -39,12 +41,19 @@ type SecurityHandler struct {
 	svc          *services.SecurityService
 	caddyManager *caddy.Manager
 	geoipSvc     *services.GeoIPService
+	cerberus     CacheInvalidator
 }
 
 // NewSecurityHandler creates a new SecurityHandler.
 func NewSecurityHandler(cfg config.SecurityConfig, db *gorm.DB, caddyManager *caddy.Manager) *SecurityHandler {
 	svc := services.NewSecurityService(db)
 	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: caddyManager}
+}
+
+// NewSecurityHandlerWithDeps creates a new SecurityHandler with optional cache invalidation.
+func NewSecurityHandlerWithDeps(cfg config.SecurityConfig, db *gorm.DB, caddyManager *caddy.Manager, cerberus CacheInvalidator) *SecurityHandler {
+	svc := services.NewSecurityService(db)
+	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: caddyManager, cerberus: cerberus}
 }
 
 // SetGeoIPService sets the GeoIP service for the handler.
@@ -117,8 +126,10 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		}
 
 		// CrowdSec enabled override
+		crowdSecEnabledOverride := false
 		setting = struct{ Value string }{}
 		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
+			crowdSecEnabledOverride = true
 			if strings.EqualFold(setting.Value, "true") {
 				crowdSecMode = "local"
 			} else {
@@ -126,10 +137,12 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 			}
 		}
 
-		// CrowdSec mode override
-		setting = struct{ Value string }{}
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.mode").Scan(&setting).Error; err == nil && setting.Value != "" {
-			crowdSecMode = setting.Value
+		// CrowdSec mode override (deprecated - only applies when enabled override is absent)
+		if !crowdSecEnabledOverride {
+			setting = struct{ Value string }{}
+			if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.mode").Scan(&setting).Error; err == nil && setting.Value != "" {
+				crowdSecMode = setting.Value
+			}
 		}
 
 		// ACL enabled override
@@ -941,6 +954,42 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		return
 	}
 
+	if settingKey == "security.acl.enabled" && enabled {
+		if !h.allowACLEnable(c) {
+			return
+		}
+	}
+
+	if settingKey == "security.acl.enabled" && enabled {
+		if err := h.ensureSecurityConfigEnabled(); err != nil {
+			log.WithError(err).Error("Failed to enable SecurityConfig while enabling ACL")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
+			return
+		}
+		cerberusSetting := models.Setting{
+			Key:      "feature.cerberus.enabled",
+			Value:    "true",
+			Category: "feature",
+			Type:     "bool",
+		}
+		if err := h.db.Where(models.Setting{Key: cerberusSetting.Key}).Assign(cerberusSetting).FirstOrCreate(&cerberusSetting).Error; err != nil {
+			log.WithError(err).Error("Failed to enable Cerberus while enabling ACL")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
+			return
+		}
+		legacyCerberus := models.Setting{
+			Key:      "security.cerberus.enabled",
+			Value:    "true",
+			Category: "security",
+			Type:     "bool",
+		}
+		if err := h.db.Where(models.Setting{Key: legacyCerberus.Key}).Assign(legacyCerberus).FirstOrCreate(&legacyCerberus).Error; err != nil {
+			log.WithError(err).Error("Failed to enable legacy Cerberus while enabling ACL")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
+			return
+		}
+	}
+
 	// Update setting
 	value := "false"
 	if enabled {
@@ -958,6 +1007,33 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		log.WithError(err).Errorf("Failed to update setting %s", settingKey)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
 		return
+	}
+
+	if settingKey == "security.acl.enabled" && enabled {
+		var count int64
+		if err := h.db.Model(&models.SecurityConfig{}).Count(&count).Error; err != nil {
+			log.WithError(err).Error("Failed to count security configs after enabling ACL")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
+			return
+		}
+		if count == 0 {
+			cfg := models.SecurityConfig{Name: "default", Enabled: true}
+			if err := h.db.Create(&cfg).Error; err != nil {
+				log.WithError(err).Error("Failed to create security config after enabling ACL")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
+				return
+			}
+		} else {
+			if err := h.db.Model(&models.SecurityConfig{}).Where("name = ?", "default").Update("enabled", true).Error; err != nil {
+				log.WithError(err).Error("Failed to update security config after enabling ACL")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
+				return
+			}
+		}
+	}
+
+	if h.cerberus != nil {
+		h.cerberus.InvalidateCache()
 	}
 
 	// Trigger Caddy config reload
@@ -979,4 +1055,48 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		"module":  settingKey,
 		"enabled": enabled,
 	})
+}
+
+func (h *SecurityHandler) ensureSecurityConfigEnabled() error {
+	if h.db == nil {
+		return errors.New("security config database not configured")
+	}
+	cfg := models.SecurityConfig{Name: "default", Enabled: true}
+	if err := h.db.Where("name = ?", "default").FirstOrCreate(&cfg).Error; err != nil {
+		return err
+	}
+	if cfg.Enabled {
+		return nil
+	}
+	return h.db.Model(&cfg).Update("enabled", true).Error
+}
+
+func (h *SecurityHandler) allowACLEnable(c *gin.Context) bool {
+	if bypass, exists := c.Get("emergency_bypass"); exists {
+		if bypassActive, ok := bypass.(bool); ok && bypassActive {
+			return true
+		}
+	}
+
+	cfg, err := h.svc.Get()
+	if err != nil {
+		if errors.Is(err, services.ErrSecurityConfigNotFound) {
+			return true
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read security config"})
+		return false
+	}
+
+	whitelist := strings.TrimSpace(cfg.AdminWhitelist)
+	if whitelist == "" {
+		return true
+	}
+
+	clientIP := util.CanonicalizeIPForSecurity(c.ClientIP())
+	if securitypkg.IsIPInCIDRList(clientIP, whitelist) {
+		return true
+	}
+
+	c.JSON(http.StatusForbidden, gin.H{"error": "admin IP not present in admin_whitelist"})
+	return false
 }

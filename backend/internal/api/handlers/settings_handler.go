@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -83,6 +84,13 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 		return
 	}
 
+	if req.Key == "security.admin_whitelist" {
+		if err := validateAdminWhitelist(req.Value); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid admin_whitelist: %v", err)})
+			return
+		}
+	}
+
 	setting := models.Setting{
 		Key:   req.Key,
 		Value: req.Value,
@@ -99,6 +107,44 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	if err := h.DB.Where(models.Setting{Key: req.Key}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save setting"})
 		return
+	}
+
+	if req.Key == "security.acl.enabled" && strings.EqualFold(strings.TrimSpace(req.Value), "true") {
+		cerberusSetting := models.Setting{
+			Key:      "feature.cerberus.enabled",
+			Value:    "true",
+			Category: "feature",
+			Type:     "bool",
+		}
+		if err := h.DB.Where(models.Setting{Key: cerberusSetting.Key}).Assign(cerberusSetting).FirstOrCreate(&cerberusSetting).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
+			return
+		}
+		legacyCerberus := models.Setting{
+			Key:      "security.cerberus.enabled",
+			Value:    "true",
+			Category: "security",
+			Type:     "bool",
+		}
+		if err := h.DB.Where(models.Setting{Key: legacyCerberus.Key}).Assign(legacyCerberus).FirstOrCreate(&legacyCerberus).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
+			return
+		}
+		if err := h.ensureSecurityConfigEnabled(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
+			return
+		}
+	}
+
+	if req.Key == "security.admin_whitelist" {
+		if err := h.syncAdminWhitelist(req.Value); err != nil {
+			if errors.Is(err, services.ErrInvalidAdminCIDR) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid admin_whitelist"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security config"})
+			return
+		}
 	}
 
 	// Trigger cache invalidation and config reload for security settings
@@ -148,6 +194,14 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 	updates := make(map[string]string)
 	flattenConfig(configUpdates, "", updates)
 
+	adminWhitelist, hasAdminWhitelist := updates["security.admin_whitelist"]
+
+	aclEnabled := false
+	if value, ok := updates["security.acl.enabled"]; ok && strings.EqualFold(value, "true") {
+		aclEnabled = true
+		updates["feature.cerberus.enabled"] = "true"
+	}
+
 	// Validate and apply each update
 	for key, value := range updates {
 		// Special validation for admin_whitelist (CIDR format)
@@ -168,6 +222,24 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 
 		if err := h.DB.Where(models.Setting{Key: key}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to save setting %s", key)})
+			return
+		}
+	}
+
+	if hasAdminWhitelist {
+		if err := h.syncAdminWhitelist(adminWhitelist); err != nil {
+			if errors.Is(err, services.ErrInvalidAdminCIDR) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid admin_whitelist"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security config"})
+			return
+		}
+	}
+
+	if aclEnabled {
+		if err := h.ensureSecurityConfigEnabled(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
 			return
 		}
 	}
@@ -218,6 +290,22 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, settingsMap)
 }
 
+func (h *SettingsHandler) ensureSecurityConfigEnabled() error {
+	var cfg models.SecurityConfig
+	err := h.DB.Where("name = ?", "default").First(&cfg).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			cfg = models.SecurityConfig{Name: "default", Enabled: true}
+			return h.DB.Create(&cfg).Error
+		}
+		return err
+	}
+	if cfg.Enabled {
+		return nil
+	}
+	return h.DB.Model(&cfg).Update("enabled", true).Error
+}
+
 // flattenConfig converts nested map to flat key-value pairs with dot notation
 func flattenConfig(config map[string]interface{}, prefix string, result map[string]string) {
 	for k, v := range config {
@@ -257,6 +345,22 @@ func validateAdminWhitelist(whitelist string) error {
 	}
 
 	return nil
+}
+
+func (h *SettingsHandler) syncAdminWhitelist(whitelist string) error {
+	securitySvc := services.NewSecurityService(h.DB)
+	cfg, err := securitySvc.Get()
+	if err != nil {
+		if err != services.ErrSecurityConfigNotFound {
+			return err
+		}
+		cfg = &models.SecurityConfig{Name: "default"}
+	}
+	if cfg.Name == "" {
+		cfg.Name = "default"
+	}
+	cfg.AdminWhitelist = whitelist
+	return securitySvc.Upsert(cfg)
 }
 
 // SMTPConfigRequest represents the request body for SMTP configuration.

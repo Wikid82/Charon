@@ -423,7 +423,7 @@ func TestCredentialService_EnableMultiCredentials(t *testing.T) {
 
 	// Verify provider is now in multi-credential mode
 	var updatedProvider models.DNSProvider
-	err = db.First(&updatedProvider, provider.ID).Error
+	err = db.Where("id = ?", provider.ID).First(&updatedProvider).Error
 	require.NoError(t, err)
 	assert.True(t, updatedProvider.UseMultiCredentials)
 
