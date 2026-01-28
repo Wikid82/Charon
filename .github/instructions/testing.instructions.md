@@ -100,3 +100,85 @@ Before pushing code, verify E2E coverage:
 * **Threshold Compliance:** You must compare the final coverage percentage against the project's threshold (Default: 85% unless specified otherwise). If coverage drops, you must identify the "uncovered lines" and add targeted tests.
 * **Patch Coverage Gate (Codecov):** If production code is modified, Codecov **patch coverage must be 100%** for the modified lines. Do not relax thresholds; add targeted tests.
 * **Patch Triage Requirement:** Plans must include the exact missing/partial patch line ranges copied from Codecov’s **Patch** view.
+## 4. GORM Security Validation (Manual Stage)
+
+**Requirement:** All backend changes involving GORM models or database interactions must pass the GORM Security Scanner.
+
+### When to Run
+
+* **Before Committing:** When modifying GORM models (files in `backend/internal/models/`)
+* **Before Opening PR:** Verify no security issues introduced
+* **After Code Review:** If model-related changes were requested
+* **Definition of Done:** Scanner must pass with zero CRITICAL/HIGH issues
+
+### Running the Scanner
+
+**Via VS Code (Recommended for Development):**
+1. Open Command Palette (`Cmd/Ctrl+Shift+P`)
+2. Select "Tasks: Run Task"
+3. Choose "Lint: GORM Security Scan"
+
+**Via Pre-commit (Manual Stage):**
+```bash
+# Run on all Go files
+pre-commit run --hook-stage manual gorm-security-scan --all-files
+
+# Run on staged files only
+pre-commit run --hook-stage manual gorm-security-scan
+```
+
+**Direct Execution:**
+```bash
+# Report mode - Show all issues, exit 0 (always)
+./scripts/scan-gorm-security.sh --report
+
+# Check mode - Exit 1 if issues found (use in CI)
+./scripts/scan-gorm-security.sh --check
+```
+
+### Expected Behavior
+
+**Pass (Exit Code 0):**
+- No security issues detected
+- Proceed with commit/PR
+
+**Fail (Exit Code 1):**
+- Issues detected (ID leaks, exposed secrets, DTO embedding, etc.)
+- Review scanner output for file:line references
+- Fix issues before committing
+- See [GORM Security Scanner Documentation](../docs/implementation/gorm_security_scanner_complete.md)
+
+### Common Issues Detected
+
+1. **🔴 CRITICAL: ID Leak** — Numeric ID with `json:"id"` tag
+   - Fix: Change to `json:"-"`, use UUID for external reference
+
+2. **🔴 CRITICAL: Exposed Secret** — APIKey/Token/Password with JSON tag
+   - Fix: Change to `json:"-"` to hide sensitive field
+
+3. **🟡 HIGH: DTO Embedding** — Response struct embeds model with exposed ID
+   - Fix: Use explicit field definitions instead of embedding
+
+### Integration Status
+
+**Current Stage:** Manual (soft launch)
+- Scanner available for manual invocation
+- Does not block commits automatically
+- Developers should run proactively
+
+**Future Stage:** Blocking (after remediation)
+- Scanner will block commits with CRITICAL/HIGH issues
+- CI integration will enforce on all PRs
+- See [GORM Scanner Roadmap](../docs/implementation/gorm_security_scanner_complete.md#remediation-roadmap)
+
+### Performance
+
+- **Execution Time:** ~2 seconds per full scan
+- **Fast enough** for pre-commit use
+- **No impact** on commit workflow when passing
+
+### Documentation
+
+- **Implementation Details:** [docs/implementation/gorm_security_scanner_complete.md](../docs/implementation/gorm_security_scanner_complete.md)
+- **Specification:** [docs/plans/gorm_security_scanner_spec.md](../docs/plans/gorm_security_scanner_spec.md)
+- **QA Report:** [docs/reports/gorm_scanner_qa_report.md](../docs/reports/gorm_scanner_qa_report.md)
