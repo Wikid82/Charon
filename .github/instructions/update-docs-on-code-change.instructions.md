@@ -107,6 +107,15 @@ Automatically check if documentation updates are needed when:
 - Installation or setup procedures change
 - Command-line interfaces or scripts are updated
 - Code examples in documentation become outdated
+- **ARCHITECTURE.md must be updated when:**
+  - System architecture or component interactions change
+  - New components are added or removed
+  - Technology stack changes (major version upgrades, library replacements)
+  - Directory structure or organizational conventions change
+  - Deployment model or infrastructure changes
+  - Security architecture or data flow changes
+  - Integration points or external dependencies change
+  - Development workflow or testing strategy changes
 
 ## Documentation Update Rules
 
@@ -219,6 +228,7 @@ If `apply-doc-file-structure == true`, then apply the following configurable ins
 Maintain these documentation files and update as needed:
 
 - **README.md**: Project overview, quick start, basic usage
+- **ARCHITECTURE.md**: System architecture, component design, technology stack, data flow
 - **CHANGELOG.md**: Version history and user-facing changes
 - **docs/**: Detailed documentation
   - `installation.md`: Setup and installation guide

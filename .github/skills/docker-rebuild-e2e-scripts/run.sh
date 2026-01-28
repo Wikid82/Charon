@@ -21,8 +21,8 @@ source "${SKILLS_SCRIPTS_DIR}/_environment_helpers.sh"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 # Docker compose file for Playwright E2E tests
-COMPOSE_FILE=".docker/compose/docker-compose.playwright-ci.yml"
-CONTAINER_NAME="charon-playwright"
+COMPOSE_FILE=".docker/compose/docker-compose.playwright-local.yml"
+CONTAINER_NAME="charon-e2e"
 IMAGE_NAME="charon:local"
 HEALTH_TIMEOUT=60
 HEALTH_INTERVAL=5
