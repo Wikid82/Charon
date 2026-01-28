@@ -444,6 +444,45 @@ export const useProxyHosts = () => {
 5. Caddy validates and applies new configuration
 6. Traffic flows through new proxy route
 
+**Route Pattern: Emergency + Main**
+
+For each proxy host, Charon generates **two routes** with the same domain:
+
+1. **Emergency Route** (with path matchers):
+   - Matches: `/api/v1/emergency/*` paths
+   - Purpose: Bypass security features for administrative access
+   - Priority: Evaluated first (more specific match)
+   - Handlers: No WAF, ACL, or Rate Limiting
+
+2. **Main Route** (without path matchers):
+   - Matches: All other paths for the domain
+   - Purpose: Normal application traffic with full security
+   - Priority: Evaluated second (catch-all)
+   - Handlers: Full Cerberus security suite
+
+This pattern is **intentional and valid**:
+- Emergency route provides break-glass access to security controls
+- Main route protects application with enterprise security features
+- Caddy processes routes in order (emergency matches first)
+- Validator allows duplicate hosts when one has paths and one doesn't
+
+**Example:**
+```json
+// Emergency Route (evaluated first)
+{
+  "match": [{"host": ["app.example.com"], "path": ["/api/v1/emergency/*"]}],
+  "handle": [/* Emergency handlers - no security */],
+  "terminal": true
+}
+
+// Main Route (evaluated second)
+{
+  "match": [{"host": ["app.example.com"]}],
+  "handle": [/* Security middleware + proxy */],
+  "terminal": true
+}
+```
+
 ### 4. Database (SQLite + GORM)
 
 **Purpose:** Persistent data storage

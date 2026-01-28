@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **CRITICAL**: Fixed Caddy validator rejecting emergency+main route pattern affecting all 18 proxy hosts
+  - Validator now allows duplicate hosts when one has path matchers and one doesn't (emergency bypass pattern)
+  - Updated validator logic to track path configuration per host instead of simple boolean
+  - All proxy hosts restored with 39 routes loaded in Caddy
+  - Comprehensive test suite added with 100% coverage on validator.go and config.go
 - **CrowdSec integration tests failing when hub API is unavailable (404 fallback)**: Integration test script now gracefully handles hub unavailability by checking for hub-sourced presets and falling back to curated presets when the hub returns 404. Added 404 status code to fallback conditions in `hub_sync.go` to enable automatic mirror URL fallback.
 - **GitHub Actions workflows failing with 'invalid reference format' for feature branches containing slashes**: Branch names like `feature/beta-release` now properly sanitized (replacing `/` with `-`) in Docker image tags and artifact names across `playwright.yml`, `supply-chain-verify.yml`, and `supply-chain-pr.yml` workflows
 - **PermissionsModal State Synchronization**: Fixed React anti-pattern where `useState` was used like `useEffect`, causing potential stale state when editing different users' permissions
