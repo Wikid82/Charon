@@ -97,13 +97,13 @@ func TestCheckHost_Debouncing(t *testing.T) {
 
 	// First failure - should NOT mark as down
 	svc.checkHost(ctx, &host)
-	db.First(&host, host.ID)
+	db.Where("id = ?", host.ID).First(&host)
 	assert.Equal(t, "up", host.Status, "Host should remain up after first failure")
 	assert.Equal(t, 1, host.FailureCount, "Failure count should be 1")
 
 	// Second failure - should mark as down
 	svc.checkHost(ctx, &host)
-	db.First(&host, host.ID)
+	db.Where("id = ?", host.ID).First(&host)
 	assert.Equal(t, "down", host.Status, "Host should be down after second failure")
 	assert.Equal(t, 2, host.FailureCount, "Failure count should be 2")
 }
@@ -149,7 +149,7 @@ func TestCheckHost_FailureCountReset(t *testing.T) {
 	svc.checkHost(ctx, &host)
 
 	// Verify failure count is reset on success
-	db.First(&host, host.ID)
+	db.Where("id = ?", host.ID).First(&host)
 	assert.Equal(t, "up", host.Status, "Host should be up")
 	assert.Equal(t, 0, host.FailureCount, "Failure count should be reset to 0 on success")
 }
@@ -252,7 +252,7 @@ func TestCheckHost_ConcurrentChecks(t *testing.T) {
 
 	// Verify no race conditions or deadlocks
 	var updatedHost models.UptimeHost
-	db.First(&updatedHost, "id = ?", host.ID)
+	db.Where("id = ?", host.ID).First(&updatedHost)
 	assert.Equal(t, "up", updatedHost.Status, "Host should be up")
 	assert.NotZero(t, updatedHost.LastCheck, "LastCheck should be set")
 }
@@ -395,7 +395,7 @@ func TestCheckHost_HostMutexPreventsRaceCondition(t *testing.T) {
 
 	// Verify database consistency (no corruption from race conditions)
 	var updatedHost models.UptimeHost
-	db.First(&updatedHost, "id = ?", host.ID)
+	db.Where("id = ?", host.ID).First(&updatedHost)
 	assert.NotEmpty(t, updatedHost.Status, "Host status should be set")
 	assert.Equal(t, "up", updatedHost.Status, "Host should be up")
 	assert.GreaterOrEqual(t, updatedHost.Latency, int64(0), "Latency should be non-negative")

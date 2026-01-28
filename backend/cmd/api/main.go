@@ -17,6 +17,8 @@ import (
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/api/routes"
+	"github.com/Wikid82/charon/backend/internal/caddy"
+	"github.com/Wikid82/charon/backend/internal/cerberus"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/database"
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -245,8 +247,13 @@ func main() {
 	// Attach a recovery middleware that logs stack traces when debug is enabled
 	router.Use(middleware.Recovery(cfg.Debug))
 
+	// Shared Caddy manager and Cerberus instance for API + emergency server
+	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
+	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
+	cerb := cerberus.New(cfg.Security, db)
+
 	// Pass config to routes for auth service and certificate service
-	if err := routes.Register(router, db, cfg); err != nil {
+	if err := routes.RegisterWithDeps(router, db, cfg, caddyManager, cerb); err != nil {
 		log.Fatalf("register routes: %v", err)
 	}
 
@@ -259,7 +266,7 @@ func main() {
 	}
 
 	// Initialize emergency server (Tier 2 break glass)
-	emergencyServer := server.NewEmergencyServer(db, cfg.Emergency)
+	emergencyServer := server.NewEmergencyServerWithDeps(db, cfg.Emergency, caddyManager, cerb)
 	if err := emergencyServer.Start(); err != nil {
 		logger.Log().WithError(err).Fatal("Failed to start emergency server")
 	}

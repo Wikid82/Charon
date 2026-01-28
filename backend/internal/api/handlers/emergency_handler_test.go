@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -18,13 +19,15 @@ import (
 )
 
 func setupEmergencyTestDB(t *testing.T) *gorm.DB {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 
 	err = db.AutoMigrate(
 		&models.Setting{},
 		&models.SecurityConfig{},
 		&models.SecurityAudit{},
+		&models.EmergencyToken{},
 	)
 	require.NoError(t, err)
 
@@ -37,6 +40,23 @@ func setupEmergencyRouter(handler *EmergencyHandler) *gin.Engine {
 	_ = router.SetTrustedProxies(nil)
 	router.POST("/api/v1/emergency/security-reset", handler.SecurityReset)
 	return router
+}
+
+type mockCaddyManager struct {
+	calls int
+}
+
+func (m *mockCaddyManager) ApplyConfig(_ context.Context) error {
+	m.calls++
+	return nil
+}
+
+type mockCacheInvalidator struct {
+	calls int
+}
+
+func (m *mockCacheInvalidator) InvalidateCache() {
+	m.calls++
 }
 
 func TestEmergencySecurityReset_Success(t *testing.T) {
@@ -85,6 +105,12 @@ func TestEmergencySecurityReset_Success(t *testing.T) {
 	err = db.Where("key = ?", "feature.cerberus.enabled").First(&setting).Error
 	require.NoError(t, err)
 	assert.Equal(t, "false", setting.Value)
+	assert.NotEmpty(t, setting.Value)
+
+	var crowdsecMode models.Setting
+	err = db.Where("key = ?", "security.crowdsec.mode").First(&crowdsecMode).Error
+	require.NoError(t, err)
+	assert.Equal(t, "disabled", crowdsecMode.Value)
 
 	// Verify SecurityConfig was updated
 	var updatedConfig models.SecurityConfig
@@ -214,31 +240,7 @@ func TestEmergencySecurityReset_TokenTooShort(t *testing.T) {
 	assert.Contains(t, response["message"], "minimum length")
 }
 
-func TestEmergencyRateLimiter(t *testing.T) {
-	// Reset global limiter
-	limiter := &emergencyRateLimiter{
-		attempts: make(map[string][]time.Time),
-	}
-
-	testIP := "192.168.1.100"
-
-	// Test: First 3 attempts should succeed
-	for i := 0; i < emergencyRateLimit; i++ {
-		limited := limiter.checkRateLimit(testIP)
-		assert.False(t, limited, "Attempt %d should not be rate limited", i+1)
-	}
-
-	// Test: 4th attempt should be rate limited
-	limited := limiter.checkRateLimit(testIP)
-	assert.True(t, limited, "4th attempt should be rate limited")
-
-	// Test: Multiple IPs should be tracked independently
-	otherIP := "192.168.1.200"
-	limited = limiter.checkRateLimit(otherIP)
-	assert.False(t, limited, "Different IP should not be rate limited")
-}
-
-func TestEmergencySecurityReset_RateLimiting(t *testing.T) {
+func TestEmergencySecurityReset_NoRateLimit(t *testing.T) {
 	// Setup
 	db := setupEmergencyTestDB(t)
 	handler := NewEmergencyHandler(db)
@@ -248,40 +250,46 @@ func TestEmergencySecurityReset_RateLimiting(t *testing.T) {
 	os.Setenv(EmergencyTokenEnvVar, validToken)
 	defer os.Unsetenv(EmergencyTokenEnvVar)
 
-	// Reset global rate limiter
-	globalEmergencyLimiter = &emergencyRateLimiter{
-		attempts: make(map[string][]time.Time),
-	}
+	wrongToken := "wrong-token-for-no-rate-limit-test-32chars"
 
-	// Make 3 successful requests (within rate limit)
-	for i := 0; i < emergencyRateLimit; i++ {
+	// Make rapid requests with invalid token; all should be unauthorized
+	for i := 0; i < 10; i++ {
 		req, _ := http.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
-		req.Header.Set(EmergencyTokenHeader, validToken)
-		req.RemoteAddr = "192.168.1.100:12345"
-
+		req.Header.Set(EmergencyTokenHeader, wrongToken)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
-		// First 3 should succeed
-		assert.Equal(t, http.StatusOK, w.Code, "Request %d should succeed", i+1)
+		assert.Equal(t, http.StatusUnauthorized, w.Code, "Request %d should be unauthorized", i+1)
+
+		var response map[string]interface{}
+		err := json.NewDecoder(w.Body).Decode(&response)
+		require.NoError(t, err)
+		assert.Equal(t, "unauthorized", response["error"])
 	}
+}
 
-	// 4th request should be rate limited
-	req, _ := http.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+func TestEmergencySecurityReset_TriggersReloadAndCacheInvalidate(t *testing.T) {
+	// Setup
+	db := setupEmergencyTestDB(t)
+	mockCaddy := &mockCaddyManager{}
+	mockCache := &mockCacheInvalidator{}
+	handler := NewEmergencyHandlerWithDeps(db, mockCaddy, mockCache)
+	router := setupEmergencyRouter(handler)
+
+	validToken := "this-is-a-valid-emergency-token-with-32-chars-minimum"
+	os.Setenv(EmergencyTokenEnvVar, validToken)
+	defer os.Unsetenv(EmergencyTokenEnvVar)
+
+	// Make request with valid token
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
 	req.Header.Set(EmergencyTokenHeader, validToken)
-	req.RemoteAddr = "192.168.1.100:12345"
-
 	w := httptest.NewRecorder()
+
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusTooManyRequests, w.Code, "4th request should be rate limited")
-
-	var response map[string]interface{}
-	err := json.NewDecoder(w.Body).Decode(&response)
-	require.NoError(t, err)
-
-	assert.Equal(t, "rate limit exceeded", response["error"])
-	assert.Contains(t, response["message"], "Maximum 3 attempts per minute")
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, 1, mockCaddy.calls)
+	assert.Equal(t, 1, mockCache.calls)
 }
 
 func TestLogEnhancedAudit(t *testing.T) {

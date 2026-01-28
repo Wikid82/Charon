@@ -181,7 +181,7 @@ func TestApplyPreset_Success(t *testing.T) {
 
 	// Verify it was saved
 	var saved models.SecurityHeaderProfile
-	err = db.First(&saved, profile.ID).Error
+	err = db.Where("id = ?", profile.ID).First(&saved).Error
 	assert.NoError(t, err)
 	assert.Equal(t, profile.Name, saved.Name)
 }

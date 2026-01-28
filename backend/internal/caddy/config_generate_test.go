@@ -2,6 +2,7 @@ package caddy
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -40,3 +41,65 @@ func TestGenerateConfig_CustomCertsAndTLS(t *testing.T) {
 }
 
 func ptrUint(v uint) *uint { return &v }
+
+func TestGenerateConfig_EmergencyRoutesBypassSecurity(t *testing.T) {
+	hosts := []models.ProxyHost{
+		{
+			UUID:        "h1",
+			DomainNames: "example.com",
+			ForwardHost: "127.0.0.1",
+			ForwardPort: 8080,
+			Enabled:     true,
+			AccessList: &models.AccessList{
+				Enabled: true,
+				Type:    "whitelist",
+				IPRules: `[ { "cidr": "10.0.0.0/8", "description": "allow" } ]`,
+			},
+			AccessListID: ptrUint(1),
+		},
+	}
+
+	secCfg := &models.SecurityConfig{
+		WAFMode:            "enabled",
+		WAFRulesSource:     "owasp-crs",
+		RateLimitMode:      "enabled",
+		RateLimitRequests:  10,
+		RateLimitWindowSec: 60,
+	}
+
+	rulesets := []models.SecurityRuleSet{
+		{Name: "owasp-crs", Content: "SecRuleEngine On"},
+	}
+	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp-crs.conf"}
+
+	cfg, err := GenerateConfig(hosts, "/data/caddy/data", "admin@example.com", "/frontend/dist", "letsencrypt", false, false, true, true, true, "", rulesets, rulesetPaths, nil, secCfg, nil)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	server := cfg.Apps.HTTP.Servers["charon_server"]
+	require.NotNil(t, server)
+
+	var emergencyRoute *Route
+	for _, route := range server.Routes {
+		if route == nil {
+			continue
+		}
+		for _, match := range route.Match {
+			for _, path := range match.Path {
+				if strings.Contains(path, "/api/v1/emergency") || strings.Contains(path, "/emergency/") {
+					emergencyRoute = route
+					break
+				}
+			}
+		}
+	}
+
+	require.NotNil(t, emergencyRoute, "expected emergency bypass route")
+
+	for _, handler := range emergencyRoute.Handle {
+		name, _ := handler["handler"].(string)
+		require.NotEqual(t, "rate_limit", name)
+		require.NotEqual(t, "waf", name)
+		require.NotEqual(t, "crowdsec", name)
+	}
+}

@@ -350,7 +350,7 @@ func (s *UptimeService) CheckAll() {
 		// If host is down, mark all monitors as down without individual checks
 		if hostID != "" {
 			var uptimeHost models.UptimeHost
-			if err := s.DB.First(&uptimeHost, "id = ?", hostID).Error; err == nil {
+			if err := s.DB.Where("id = ?", hostID).First(&uptimeHost).Error; err == nil {
 				if uptimeHost.Status == "down" {
 					s.markHostMonitorsDown(monitors, &uptimeHost)
 					continue
@@ -842,7 +842,7 @@ func (s *UptimeService) queueDownNotification(monitor models.UptimeMonitor, reas
 	var uptimeHost models.UptimeHost
 	hostName := monitor.UpstreamHost
 	if hostID != "" {
-		if err := s.DB.First(&uptimeHost, "id = ?", hostID).Error; err == nil {
+		if err := s.DB.Where("id = ?", hostID).First(&uptimeHost).Error; err == nil {
 			hostName = uptimeHost.Name
 		}
 	}
@@ -996,7 +996,7 @@ func (s *UptimeService) FlushPendingNotifications() {
 // Returns nil if no monitor exists for the host (does not create one).
 func (s *UptimeService) SyncMonitorForHost(hostID uint) error {
 	var host models.ProxyHost
-	if err := s.DB.First(&host, hostID).Error; err != nil {
+	if err := s.DB.Where("id = ?", hostID).First(&host).Error; err != nil {
 		return err
 	}
 
@@ -1098,7 +1098,7 @@ func (s *UptimeService) CreateMonitor(name, urlStr, monitorType string, interval
 
 func (s *UptimeService) GetMonitorByID(id string) (*models.UptimeMonitor, error) {
 	var monitor models.UptimeMonitor
-	if err := s.DB.First(&monitor, "id = ?", id).Error; err != nil {
+	if err := s.DB.Where("id = ?", id).First(&monitor).Error; err != nil {
 		return nil, err
 	}
 	return &monitor, nil
@@ -1112,7 +1112,7 @@ func (s *UptimeService) GetMonitorHistory(id string, limit int) ([]models.Uptime
 
 func (s *UptimeService) UpdateMonitor(id string, updates map[string]any) (*models.UptimeMonitor, error) {
 	var monitor models.UptimeMonitor
-	if err := s.DB.First(&monitor, "id = ?", id).Error; err != nil {
+	if err := s.DB.Where("id = ?", id).First(&monitor).Error; err != nil {
 		return nil, err
 	}
 
@@ -1140,7 +1140,7 @@ func (s *UptimeService) UpdateMonitor(id string, updates map[string]any) (*model
 func (s *UptimeService) DeleteMonitor(id string) error {
 	// Find monitor
 	var monitor models.UptimeMonitor
-	if err := s.DB.First(&monitor, "id = ?", id).Error; err != nil {
+	if err := s.DB.Where("id = ?", id).First(&monitor).Error; err != nil {
 		return err
 	}
 

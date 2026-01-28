@@ -1,10 +1,10 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -25,57 +25,15 @@ const (
 
 	// MinTokenLength is the minimum required length for the emergency token
 	MinTokenLength = 32
-
-	// Rate limiting for emergency endpoint (3 attempts per minute per IP)
-	emergencyRateLimit  = 3
-	emergencyRateWindow = 1 * time.Minute
 )
-
-// emergencyRateLimiter implements a simple in-memory rate limiter for emergency endpoint
-type emergencyRateLimiter struct {
-	mu       sync.RWMutex
-	attempts map[string][]time.Time // IP -> timestamps of attempts
-}
-
-var globalEmergencyLimiter = &emergencyRateLimiter{
-	attempts: make(map[string][]time.Time),
-}
-
-// checkRateLimit returns true if the IP has exceeded rate limit
-func (rl *emergencyRateLimiter) checkRateLimit(ip string) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	now := time.Now()
-	cutoff := now.Add(-emergencyRateWindow)
-
-	// Get and clean old attempts
-	attempts := rl.attempts[ip]
-	validAttempts := []time.Time{}
-	for _, t := range attempts {
-		if t.After(cutoff) {
-			validAttempts = append(validAttempts, t)
-		}
-	}
-
-	// Check if rate limit exceeded
-	if len(validAttempts) >= emergencyRateLimit {
-		rl.attempts[ip] = validAttempts
-		return true
-	}
-
-	// Add new attempt
-	validAttempts = append(validAttempts, now)
-	rl.attempts[ip] = validAttempts
-
-	return false
-}
 
 // EmergencyHandler handles emergency security reset operations
 type EmergencyHandler struct {
 	db              *gorm.DB
 	securityService *services.SecurityService
 	tokenService    *services.EmergencyTokenService
+	caddyManager    CaddyConfigManager
+	cerberus        CacheInvalidator
 }
 
 // NewEmergencyHandler creates a new EmergencyHandler
@@ -84,6 +42,17 @@ func NewEmergencyHandler(db *gorm.DB) *EmergencyHandler {
 		db:              db,
 		securityService: services.NewSecurityService(db),
 		tokenService:    services.NewEmergencyTokenService(db),
+	}
+}
+
+// NewEmergencyHandlerWithDeps creates a new EmergencyHandler with optional cache invalidation and config reload.
+func NewEmergencyHandlerWithDeps(db *gorm.DB, caddyManager CaddyConfigManager, cerberus CacheInvalidator) *EmergencyHandler {
+	return &EmergencyHandler{
+		db:              db,
+		securityService: services.NewSecurityService(db),
+		tokenService:    services.NewEmergencyTokenService(db),
+		caddyManager:    caddyManager,
+		cerberus:        cerberus,
 	}
 }
 
@@ -103,26 +72,10 @@ func NewEmergencyTokenHandler(tokenService *services.EmergencyTokenService) *Eme
 //
 // Security measures:
 // - EmergencyBypass middleware validates token and IP (timing-safe comparison)
-// - Rate limiting: 3 attempts per minute per IP
 // - All attempts (success and failure) are logged to audit trail with timestamp and IP
 func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	clientIP := util.CanonicalizeIPForSecurity(c.ClientIP())
 	startTime := time.Now()
-
-	// Rate limiting check
-	if globalEmergencyLimiter.checkRateLimit(clientIP) {
-		h.logEnhancedAudit(clientIP, "emergency_reset_rate_limited", "Rate limit exceeded", false, time.Since(startTime))
-		log.WithFields(log.Fields{
-			"ip":     clientIP,
-			"action": "emergency_reset_rate_limited",
-		}).Warn("Emergency reset rate limit exceeded")
-
-		c.JSON(http.StatusTooManyRequests, gin.H{
-			"error":   "rate limit exceeded",
-			"message": fmt.Sprintf("Too many attempts. Maximum %d attempts per minute.", emergencyRateLimit),
-		})
-		return
-	}
 
 	// Check if request has been pre-validated by EmergencyBypass middleware
 	bypassActive, exists := c.Get("emergency_bypass")
@@ -231,6 +184,8 @@ func (h *EmergencyHandler) performSecurityReset(c *gin.Context, clientIP string,
 		return
 	}
 
+	h.syncSecurityState(c.Request.Context())
+
 	// Log successful reset
 	h.logEnhancedAudit(clientIP, "emergency_reset_success", fmt.Sprintf("Disabled modules: %v", disabledModules), true, time.Since(startTime))
 	log.WithFields(log.Fields{
@@ -254,10 +209,12 @@ func (h *EmergencyHandler) disableAllSecurityModules() ([]string, error) {
 	// Settings to disable
 	securitySettings := map[string]string{
 		"feature.cerberus.enabled":    "false",
+		"security.cerberus.enabled":   "false",
 		"security.acl.enabled":        "false",
 		"security.waf.enabled":        "false",
 		"security.rate_limit.enabled": "false",
 		"security.crowdsec.enabled":   "false",
+		"security.crowdsec.mode":      "disabled",
 	}
 
 	// Disable each module via settings
@@ -334,6 +291,22 @@ func (h *EmergencyHandler) logEnhancedAudit(actor, action, details string, succe
 
 	if err := h.securityService.LogAudit(audit); err != nil {
 		log.WithError(err).Error("Failed to log emergency audit event")
+	}
+}
+
+func (h *EmergencyHandler) syncSecurityState(ctx context.Context) {
+	if h.cerberus != nil {
+		h.cerberus.InvalidateCache()
+	}
+	if h.caddyManager == nil {
+		return
+	}
+
+	applyCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	if err := h.caddyManager.ApplyConfig(applyCtx); err != nil {
+		log.WithError(err).Warn("Failed to reload Caddy config after emergency reset")
 	}
 }
 

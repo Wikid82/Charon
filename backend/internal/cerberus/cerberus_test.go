@@ -119,6 +119,11 @@ func TestCerberus_Middleware_Disabled(t *testing.T) {
 	cerb := cerberus.New(cfg, db)
 
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
 	router.Use(cerb.Middleware())
 	router.GET("/test", func(c *gin.Context) {
 		c.String(http.StatusOK, "OK")
@@ -141,6 +146,11 @@ func TestCerberus_Middleware_WAFEnabled(t *testing.T) {
 	cerb := cerberus.New(cfg, db)
 
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
 	router.Use(cerb.Middleware())
 	router.GET("/test", func(c *gin.Context) {
 		c.String(http.StatusOK, "OK")
@@ -163,6 +173,11 @@ func TestCerberus_Middleware_ACLEnabled_NoAccessLists(t *testing.T) {
 	cerb := cerberus.New(cfg, db)
 
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
 	router.Use(cerb.Middleware())
 	router.GET("/test", func(c *gin.Context) {
 		c.String(http.StatusOK, "OK")
@@ -194,6 +209,11 @@ func TestCerberus_Middleware_ACLEnabled_DisabledList(t *testing.T) {
 	cerb := cerberus.New(cfg, db)
 
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
 	router.Use(cerb.Middleware())
 	router.GET("/test", func(c *gin.Context) {
 		c.String(http.StatusOK, "OK")

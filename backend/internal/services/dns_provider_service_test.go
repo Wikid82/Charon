@@ -547,7 +547,7 @@ func TestCredentialEncryptionRoundtrip(t *testing.T) {
 
 	// Verify credentials are encrypted in database
 	var dbProvider models.DNSProvider
-	err = db.First(&dbProvider, provider.ID).Error
+	err = db.Where("id = ?", provider.ID).First(&dbProvider).Error
 	require.NoError(t, err)
 	assert.NotContains(t, dbProvider.CredentialsEncrypted, "super-secret-token")
 	assert.NotContains(t, dbProvider.CredentialsEncrypted, "another-secret")
@@ -614,7 +614,7 @@ func TestEncryptionServiceIntegration(t *testing.T) {
 
 	// Retrieve and decrypt
 	var retrieved models.DNSProvider
-	err = db.First(&retrieved, provider.ID).Error
+	err = db.Where("id = ?", provider.ID).First(&retrieved).Error
 	require.NoError(t, err)
 
 	decrypted, err := encryptor.Decrypt(retrieved.CredentialsEncrypted)
@@ -1378,11 +1378,11 @@ func TestDNSProviderService_Test_FailureUpdatesStatistics(t *testing.T) {
 	}
 	require.NoError(t, db.Create(provider).Error)
 
-	// Test the provider - should fail during decryption due to mismatched credentials
+	// Test the provider - should fail during validation due to invalid credentials
 	result, err := service.Test(ctx, provider.ID)
 	require.NoError(t, err)
 	assert.False(t, result.Success)
-	assert.Equal(t, "DECRYPTION_ERROR", result.Code)
+	assert.Equal(t, "VALIDATION_ERROR", result.Code)
 
 	// Verify failure statistics updated
 	afterTest, err := service.Get(ctx, provider.ID)

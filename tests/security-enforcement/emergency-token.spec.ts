@@ -8,7 +8,7 @@
  * Reference: docs/plans/break_glass_protocol_redesign.md
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, request as playwrightRequest } from '@playwright/test';
 import { EMERGENCY_TOKEN } from '../fixtures/security';
 
 test.describe('Emergency Token Break Glass Protocol', () => {
@@ -46,7 +46,11 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     console.log('🧪 Testing emergency token bypass with ACL enabled...');
 
     // Step 1: Verify ACL is blocking regular requests (403)
-    const blockedResponse = await request.get('/api/v1/security/status');
+    const unauthenticatedRequest = await playwrightRequest.newContext({
+      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080',
+    });
+    const blockedResponse = await unauthenticatedRequest.get('/api/v1/security/status');
+    await unauthenticatedRequest.dispose();
     expect(blockedResponse.status()).toBe(403);
     const blockedBody = await blockedResponse.json();
     expect(blockedBody.error).toContain('Blocked by access control');

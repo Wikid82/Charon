@@ -115,7 +115,7 @@ func (s *dnsProviderService) List(ctx context.Context) ([]models.DNSProvider, er
 // Get retrieves a DNS provider by ID.
 func (s *dnsProviderService) Get(ctx context.Context, id uint) (*models.DNSProvider, error) {
 	var provider models.DNSProvider
-	err := s.db.WithContext(ctx).First(&provider, id).Error
+	err := s.db.WithContext(ctx).Where("id = ?", id).First(&provider).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrDNSProviderNotFound
