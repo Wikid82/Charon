@@ -701,6 +701,13 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			Handle:   emergencyHandlers,
 			Terminal: true,
 		}
+		logger.Log().WithFields(map[string]any{
+			"host_id":        host.ID,
+			"host_uuid":      host.UUID,
+			"unique_domains": uniqueDomains,
+			"has_paths":      true,
+			"path_count":     len(emergencyPaths),
+		}).Debug("[CONFIG DEBUG] Creating EMERGENCY route")
 		routes = append(routes, emergencyRoute)
 
 		mainHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
@@ -713,6 +720,14 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			Handle:   mainHandlers,
 			Terminal: true,
 		}
+
+		logger.Log().WithFields(map[string]any{
+			"host_id":        host.ID,
+			"host_uuid":      host.UUID,
+			"unique_domains": uniqueDomains,
+			"has_paths":      false,
+			"route_type":     "main",
+		}).Debug("[CONFIG DEBUG] Creating MAIN route (no path matchers)")
 
 		routes = append(routes, route)
 	}
