@@ -55,6 +55,7 @@ Agent Skills are self-documenting, AI-discoverable task definitions that combine
 
 | Skill Name | Category | Description | Status |
 |------------|----------|-------------|--------|
+| [security-scan-gorm](./security-scan-gorm.SKILL.md) | security | Detect GORM ID leaks, exposed secrets, and misconfigurations | ✅ Active |
 | [security-scan-trivy](./security-scan-trivy.SKILL.md) | security | Run Trivy vulnerability scanner | ✅ Active |
 | [security-scan-go-vuln](./security-scan-go-vuln.SKILL.md) | security | Run Go vulnerability check | ✅ Active |
 

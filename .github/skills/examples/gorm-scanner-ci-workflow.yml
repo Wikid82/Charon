@@ -1,0 +1,124 @@
+# Example GitHub Actions Workflow - GORM Security Scanner with Report Artifacts
+# This demonstrates how to use the GORM scanner skill in CI/CD with report export
+
+name: GORM Security Scan
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**/*.go'
+      - 'backend/go.mod'
+  push:
+    branches:
+      - main
+      - development
+
+jobs:
+  gorm-security-scan:
+    name: GORM Security Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Run GORM Security Scanner
+        id: gorm-scan
+        run: |
+          # Generate report file for artifact upload
+          .github/skills/scripts/skill-runner.sh security-scan-gorm \
+            --check \
+            docs/reports/gorm-scan-ci-${{ github.run_id }}.txt
+        continue-on-error: true
+
+      - name: Parse Report for PR Comment
+        if: always() && github.event_name == 'pull_request'
+        id: parse-report
+        run: |
+          REPORT_FILE="docs/reports/gorm-scan-ci-${{ github.run_id }}.txt"
+
+          # Extract summary metrics
+          CRITICAL=$(grep -oP '🔴 CRITICAL: \K\d+' "$REPORT_FILE" || echo "0")
+          HIGH=$(grep -oP '🟡 HIGH: \K\d+' "$REPORT_FILE" || echo "0")
+          MEDIUM=$(grep -oP '🔵 MEDIUM: \K\d+' "$REPORT_FILE" || echo "0")
+          INFO=$(grep -oP '🟢 INFO: \K\d+' "$REPORT_FILE" || echo "0")
+
+          # Create summary for PR comment
+          echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+          echo "high=$HIGH" >> $GITHUB_OUTPUT
+          echo "medium=$MEDIUM" >> $GITHUB_OUTPUT
+          echo "info=$INFO" >> $GITHUB_OUTPUT
+
+      - name: Comment on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const critical = ${{ steps.parse-report.outputs.critical }};
+            const high = ${{ steps.parse-report.outputs.high }};
+            const medium = ${{ steps.parse-report.outputs.medium }};
+            const info = ${{ steps.parse-report.outputs.info }};
+
+            const status = (critical > 0 || high > 0) ? '❌' : '✅';
+            const message = `## ${status} GORM Security Scan Results
+
+            | Severity | Count |
+            |----------|-------|
+            | 🔴 CRITICAL | ${critical} |
+            | 🟡 HIGH | ${high} |
+            | 🔵 MEDIUM | ${medium} |
+            | 🟢 INFO | ${info} |
+
+            **Total Issues:** ${critical + high + medium} (excluding informational)
+
+            ${critical > 0 || high > 0 ? '⚠️ **Action Required:** Fix CRITICAL/HIGH issues before merge.' : '✅ No critical issues found.'}
+
+            📄 Full report available in workflow artifacts.`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
+
+      - name: Upload GORM Scan Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gorm-security-report-${{ github.run_id }}
+          path: docs/reports/gorm-scan-ci-*.txt
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Fail Build on Critical Issues
+        if: steps.gorm-scan.outcome == 'failure'
+        run: |
+          echo "::error title=GORM Security Issues::Critical security issues detected. See report artifact for details."
+          exit 1
+
+# Usage in other workflows:
+#
+# 1. Download previous report for comparison:
+#    - uses: actions/download-artifact@v4
+#      with:
+#        name: gorm-security-report-previous
+#        path: reports/previous/
+#
+# 2. Compare reports:
+#    - run: |
+#        diff reports/previous/gorm-scan-ci-*.txt \
+#             docs/reports/gorm-scan-ci-*.txt \
+#             || echo "Issues changed"
+#
+# 3. AI Agent Analysis:
+#    - name: Analyze with AI
+#      run: |
+#        # AI agent reads the report file
+#        REPORT=$(cat docs/reports/gorm-scan-ci-*.txt)
+#        # Process findings, suggest fixes, create issues, etc.
