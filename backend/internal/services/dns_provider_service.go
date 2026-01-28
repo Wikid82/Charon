@@ -52,9 +52,46 @@ type UpdateDNSProviderRequest struct {
 }
 
 // DNSProviderResponse represents the API response for a DNS provider.
+// Uses explicit fields to avoid exposing internal database IDs.
 type DNSProviderResponse struct {
-	models.DNSProvider
-	HasCredentials bool `json:"has_credentials"`
+	UUID                string     `json:"uuid"`
+	Name                string     `json:"name"`
+	ProviderType        string     `json:"provider_type"`
+	Enabled             bool       `json:"enabled"`
+	IsDefault           bool       `json:"is_default"`
+	UseMultiCredentials bool       `json:"use_multi_credentials"`
+	KeyVersion          int        `json:"key_version"`
+	PropagationTimeout  int        `json:"propagation_timeout"`
+	PollingInterval     int        `json:"polling_interval"`
+	LastUsedAt          *time.Time `json:"last_used_at,omitempty"`
+	SuccessCount        int        `json:"success_count"`
+	FailureCount        int        `json:"failure_count"`
+	LastError           string     `json:"last_error,omitempty"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+	HasCredentials      bool       `json:"has_credentials"`
+}
+
+// NewDNSProviderResponse creates a DNSProviderResponse from a DNSProvider model.
+func NewDNSProviderResponse(provider *models.DNSProvider) DNSProviderResponse {
+	return DNSProviderResponse{
+		UUID:                provider.UUID,
+		Name:                provider.Name,
+		ProviderType:        provider.ProviderType,
+		Enabled:             provider.Enabled,
+		IsDefault:           provider.IsDefault,
+		UseMultiCredentials: provider.UseMultiCredentials,
+		KeyVersion:          provider.KeyVersion,
+		PropagationTimeout:  provider.PropagationTimeout,
+		PollingInterval:     provider.PollingInterval,
+		LastUsedAt:          provider.LastUsedAt,
+		SuccessCount:        provider.SuccessCount,
+		FailureCount:        provider.FailureCount,
+		LastError:           provider.LastError,
+		CreatedAt:           provider.CreatedAt,
+		UpdatedAt:           provider.UpdatedAt,
+		HasCredentials:      provider.CredentialsEncrypted != "",
+	}
 }
 
 // TestResult represents the result of testing DNS provider credentials.

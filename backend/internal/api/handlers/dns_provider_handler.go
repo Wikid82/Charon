@@ -34,10 +34,8 @@ func (h *DNSProviderHandler) List(c *gin.Context) {
 	// Convert to response format with has_credentials indicator
 	responses := make([]services.DNSProviderResponse, len(providers))
 	for i, p := range providers {
-		responses[i] = services.DNSProviderResponse{
-			DNSProvider:    p,
-			HasCredentials: p.CredentialsEncrypted != "",
-		}
+		pCopy := p // Create a copy to take address of
+		responses[i] = services.NewDNSProviderResponse(&pCopy)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -65,10 +63,7 @@ func (h *DNSProviderHandler) Get(c *gin.Context) {
 		return
 	}
 
-	response := services.DNSProviderResponse{
-		DNSProvider:    *provider,
-		HasCredentials: provider.CredentialsEncrypted != "",
-	}
+	response := services.NewDNSProviderResponse(provider)
 
 	c.JSON(http.StatusOK, response)
 }
@@ -101,10 +96,7 @@ func (h *DNSProviderHandler) Create(c *gin.Context) {
 		return
 	}
 
-	response := services.DNSProviderResponse{
-		DNSProvider:    *provider,
-		HasCredentials: provider.CredentialsEncrypted != "",
-	}
+	response := services.NewDNSProviderResponse(provider)
 
 	c.JSON(http.StatusCreated, response)
 }
@@ -144,10 +136,7 @@ func (h *DNSProviderHandler) Update(c *gin.Context) {
 		return
 	}
 
-	response := services.DNSProviderResponse{
-		DNSProvider:    *provider,
-		HasCredentials: provider.CredentialsEncrypted != "",
-	}
+	response := services.NewDNSProviderResponse(provider)
 
 	c.JSON(http.StatusOK, response)
 }

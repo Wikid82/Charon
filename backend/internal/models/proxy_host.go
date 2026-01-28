@@ -6,7 +6,7 @@ import (
 
 // ProxyHost represents a reverse proxy configuration.
 type ProxyHost struct {
-	ID                   uint            `json:"id" gorm:"primaryKey"`
+	ID                   uint            `json:"-" gorm:"primaryKey"`
 	UUID                 string          `json:"uuid" gorm:"uniqueIndex;not null"`
 	Name                 string          `json:"name" gorm:"index"`
 	DomainNames          string          `json:"domain_names" gorm:"not null;index"` // Comma-separated list

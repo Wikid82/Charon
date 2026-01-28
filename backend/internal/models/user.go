@@ -20,10 +20,10 @@ const (
 // User represents authenticated users with role-based access control.
 // Supports local auth, SSO integration, and invite-based onboarding.
 type User struct {
-	ID                  uint       `json:"id" gorm:"primaryKey"`
+	ID                  uint       `json:"-" gorm:"primaryKey"`
 	UUID                string     `json:"uuid" gorm:"uniqueIndex"`
 	Email               string     `json:"email" gorm:"uniqueIndex"`
-	APIKey              string     `json:"api_key" gorm:"uniqueIndex"` // For external API access
+	APIKey              string     `json:"-" gorm:"uniqueIndex"` // For external API access, never exposed in JSON
 	PasswordHash        string     `json:"-"`                          // Never serialize password hash
 	Name                string     `json:"name"`
 	Role                string     `json:"role" gorm:"default:'user'"` // "admin", "user", "viewer"

@@ -209,7 +209,7 @@ func TestDNSProviderHandler_Get(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		assert.Equal(t, uint(1), response.ID)
+		assert.Equal(t, "uuid-1", response.UUID)
 		assert.Equal(t, "Test Provider", response.Name)
 		assert.True(t, response.HasCredentials)
 
@@ -282,7 +282,7 @@ func TestDNSProviderHandler_Create(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		assert.Equal(t, uint(1), response.ID)
+		assert.Equal(t, "uuid-1", response.UUID)
 		assert.Equal(t, "Test Provider", response.Name)
 		assert.True(t, response.HasCredentials)
 

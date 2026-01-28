@@ -331,7 +331,8 @@ detect_missing_primary_key() {
             report_issue "MEDIUM" "MISSING-PK" "$file" "$line_num" "${struct_name:-Unknown}" \
                 "ID Field Missing Primary Key Tag" \
                 "💡 Fix: Add 'primaryKey' to gorm tag: gorm:\"primaryKey\""
-        done < <(grep -n 'ID.*gorm:' "$file" 2>/dev/null || true)
+        # Only match primary key ID field (not foreign keys like CertificateID, AccessListID, etc.)
+        done < <(grep -n -E '^\s+ID\s+' "$file" 2>/dev/null || true)
     done < <(find "$SCAN_DIR/internal/models" -name "*.go" -type f 2>/dev/null || true)
 }
 

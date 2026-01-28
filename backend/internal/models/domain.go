@@ -8,7 +8,7 @@ import (
 )
 
 type Domain struct {
-	ID        uint           `json:"id" gorm:"primarykey"`
+	ID        uint           `json:"-" gorm:"primaryKey"`
 	UUID      string         `json:"uuid" gorm:"uniqueIndex;not null"`
 	Name      string         `json:"name" gorm:"uniqueIndex;not null"`
 	CreatedAt time.Time      `json:"created_at"`

@@ -39,8 +39,8 @@ type ManualChallenge struct {
 	// Example: "_acme-challenge.example.com"
 	FQDN string `json:"fqdn" gorm:"index;not null;size:255"`
 
-	// Token is the ACME challenge token (for identification).
-	Token string `json:"token" gorm:"size:255"`
+	// Token is the ACME challenge token (for identification), never exposed in JSON.
+	Token string `json:"-" gorm:"size:255"`
 
 	// Value is the TXT record value that must be created.
 	Value string `json:"value" gorm:"not null;size:255"`

@@ -7,7 +7,7 @@ import (
 // RemoteServer represents a known backend server that can be selected
 // when creating proxy hosts, eliminating manual IP/port entry.
 type RemoteServer struct {
-	ID          uint       `json:"id" gorm:"primaryKey"`
+	ID          uint       `json:"-" gorm:"primaryKey"`
 	UUID        string     `json:"uuid" gorm:"uniqueIndex"`
 	Name        string     `json:"name" gorm:"index"`
 	Provider    string     `json:"provider" gorm:"index"` // e.g., "docker", "vm", "cloud", "manual"

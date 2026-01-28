@@ -7,7 +7,7 @@ import (
 // SecurityConfig represents global Cerberus/CrowdSec/WAF/RateLimit settings
 // used by the server and propagated into the generated Caddy config.
 type SecurityConfig struct {
-	ID                  uint      `json:"id" gorm:"primaryKey"`
+	ID                  uint      `json:"-" gorm:"primaryKey"`
 	UUID                string    `json:"uuid" gorm:"uniqueIndex"`
 	Name                string    `json:"name" gorm:"index"`
 	Enabled             bool      `json:"enabled" gorm:"index"`

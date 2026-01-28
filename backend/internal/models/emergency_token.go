@@ -7,7 +7,7 @@ import (
 // EmergencyToken stores metadata for database-backed emergency access tokens.
 // Tokens are stored as bcrypt hashes for security.
 type EmergencyToken struct {
-	ID               uint       `json:"id" gorm:"primaryKey"`
+	ID               uint       `json:"-" gorm:"primaryKey"`
 	TokenHash        string     `json:"-" gorm:"type:text;not null"` // bcrypt hash, never exposed in JSON
 	CreatedAt        time.Time  `json:"created_at"`
 	ExpiresAt        *time.Time `json:"expires_at"`                                  // NULL = never expires

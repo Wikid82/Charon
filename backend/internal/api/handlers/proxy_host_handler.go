@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -27,9 +28,82 @@ type ProxyHostWarning struct {
 }
 
 // ProxyHostResponse wraps a proxy host with optional advisory warnings.
+// Uses explicit fields to avoid exposing internal database IDs.
 type ProxyHostResponse struct {
-	models.ProxyHost
-	Warnings []ProxyHostWarning `json:"warnings,omitempty"`
+	UUID                    string                        `json:"uuid"`
+	Name                    string                        `json:"name"`
+	DomainNames             string                        `json:"domain_names"`
+	ForwardScheme           string                        `json:"forward_scheme"`
+	ForwardHost             string                        `json:"forward_host"`
+	ForwardPort             int                           `json:"forward_port"`
+	SSLForced               bool                          `json:"ssl_forced"`
+	HTTP2Support            bool                          `json:"http2_support"`
+	HSTSEnabled             bool                          `json:"hsts_enabled"`
+	HSTSSubdomains          bool                          `json:"hsts_subdomains"`
+	BlockExploits           bool                          `json:"block_exploits"`
+	WebsocketSupport        bool                          `json:"websocket_support"`
+	Application             string                        `json:"application"`
+	Enabled                 bool                          `json:"enabled"`
+	CertificateID           *uint                         `json:"certificate_id"`
+	Certificate             *models.SSLCertificate        `json:"certificate,omitempty"`
+	AccessListID            *uint                         `json:"access_list_id"`
+	AccessList              *models.AccessList            `json:"access_list,omitempty"`
+	Locations               []models.Location             `json:"locations"`
+	AdvancedConfig          string                        `json:"advanced_config"`
+	AdvancedConfigBackup    string                        `json:"advanced_config_backup"`
+	ForwardAuthEnabled      bool                          `json:"forward_auth_enabled"`
+	WAFDisabled             bool                          `json:"waf_disabled"`
+	SecurityHeaderProfileID *uint                         `json:"security_header_profile_id"`
+	SecurityHeaderProfile   *models.SecurityHeaderProfile `json:"security_header_profile,omitempty"`
+	SecurityHeadersEnabled  bool                          `json:"security_headers_enabled"`
+	SecurityHeadersCustom   string                        `json:"security_headers_custom"`
+	EnableStandardHeaders   *bool                         `json:"enable_standard_headers,omitempty"`
+	DNSProviderID           *uint                         `json:"dns_provider_id,omitempty"`
+	DNSProvider             *models.DNSProvider           `json:"dns_provider,omitempty"`
+	UseDNSChallenge         bool                          `json:"use_dns_challenge"`
+	CreatedAt               time.Time                     `json:"created_at"`
+	UpdatedAt               time.Time                     `json:"updated_at"`
+	Warnings                []ProxyHostWarning            `json:"warnings,omitempty"`
+}
+
+// NewProxyHostResponse creates a ProxyHostResponse from a ProxyHost model.
+func NewProxyHostResponse(host *models.ProxyHost, warnings []ProxyHostWarning) ProxyHostResponse {
+	return ProxyHostResponse{
+		UUID:                    host.UUID,
+		Name:                    host.Name,
+		DomainNames:             host.DomainNames,
+		ForwardScheme:           host.ForwardScheme,
+		ForwardHost:             host.ForwardHost,
+		ForwardPort:             host.ForwardPort,
+		SSLForced:               host.SSLForced,
+		HTTP2Support:            host.HTTP2Support,
+		HSTSEnabled:             host.HSTSEnabled,
+		HSTSSubdomains:          host.HSTSSubdomains,
+		BlockExploits:           host.BlockExploits,
+		WebsocketSupport:        host.WebsocketSupport,
+		Application:             host.Application,
+		Enabled:                 host.Enabled,
+		CertificateID:           host.CertificateID,
+		Certificate:             host.Certificate,
+		AccessListID:            host.AccessListID,
+		AccessList:              host.AccessList,
+		Locations:               host.Locations,
+		AdvancedConfig:          host.AdvancedConfig,
+		AdvancedConfigBackup:    host.AdvancedConfigBackup,
+		ForwardAuthEnabled:      host.ForwardAuthEnabled,
+		WAFDisabled:             host.WAFDisabled,
+		SecurityHeaderProfileID: host.SecurityHeaderProfileID,
+		SecurityHeaderProfile:   host.SecurityHeaderProfile,
+		SecurityHeadersEnabled:  host.SecurityHeadersEnabled,
+		SecurityHeadersCustom:   host.SecurityHeadersCustom,
+		EnableStandardHeaders:   host.EnableStandardHeaders,
+		DNSProviderID:           host.DNSProviderID,
+		DNSProvider:             host.DNSProvider,
+		UseDNSChallenge:         host.UseDNSChallenge,
+		CreatedAt:               host.CreatedAt,
+		UpdatedAt:               host.UpdatedAt,
+		Warnings:                warnings,
+	}
 }
 
 // generateForwardHostWarnings checks the forward_host value and returns advisory warnings.
@@ -176,10 +250,7 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 
 	// Return response with warnings if any
 	if len(warnings) > 0 {
-		c.JSON(http.StatusCreated, ProxyHostResponse{
-			ProxyHost: host,
-			Warnings:  warnings,
-		})
+		c.JSON(http.StatusCreated, NewProxyHostResponse(&host, warnings))
 		return
 	}
 
@@ -448,10 +519,7 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 
 	// Return response with warnings if any
 	if len(warnings) > 0 {
-		c.JSON(http.StatusOK, ProxyHostResponse{
-			ProxyHost: *host,
-			Warnings:  warnings,
-		})
+		c.JSON(http.StatusOK, NewProxyHostResponse(host, warnings))
 		return
 	}
 
