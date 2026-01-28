@@ -13,32 +13,104 @@ import { EMERGENCY_TOKEN } from '../fixtures/security';
 
 test.describe('Emergency Token Break Glass Protocol', () => {
   /**
-   * CRITICAL: Ensure ACL is enabled before running these tests
-   * This ensures Test 1 has a proper security barrier to bypass
+   * CRITICAL: Ensure Cerberus AND ACL are enabled before running these tests
+   *
+   * WHY CERBERUS MUST BE ENABLED FIRST:
+   * - global-setup.ts disables ALL security modules including feature.cerberus.enabled
+   * - The Cerberus middleware is the master switch that gates ALL security enforcement
+   * - If Cerberus is disabled, the middleware short-circuits and ACL is never checked
+   * - Therefore: Cerberus must be enabled BEFORE ACL for security to actually be enforced
    */
   test.beforeAll(async ({ request }) => {
-    console.log('🔧 Setting up test suite: Ensuring ACL is enabled...');
+    console.log('🔧 Setting up test suite: Ensuring Cerberus and ACL are enabled...');
 
     const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
     if (!emergencyToken) {
       throw new Error('CHARON_EMERGENCY_TOKEN not set - cannot configure test environment');
     }
 
-    // Use emergency token to enable ACL (bypasses any existing security)
-    const enableResponse = await request.patch('/api/v1/settings', {
+    // STEP 1: Enable Cerberus master switch FIRST
+    // Without this, the Cerberus middleware short-circuits and ACL is never enforced
+    const cerberusResponse = await request.patch('/api/v1/settings', {
+      data: { key: 'feature.cerberus.enabled', value: 'true' },
+      headers: {
+        'X-Emergency-Token': emergencyToken,
+      },
+    });
+
+    if (!cerberusResponse.ok()) {
+      throw new Error(`Failed to enable Cerberus: ${cerberusResponse.status()}`);
+    }
+    console.log('  ✓ Cerberus master switch enabled');
+
+    // Wait for Cerberus to activate
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // STEP 2: Enable ACL (now that Cerberus is active, this will actually be enforced)
+    const aclResponse = await request.patch('/api/v1/settings', {
       data: { key: 'security.acl.enabled', value: 'true' },
       headers: {
         'X-Emergency-Token': emergencyToken,
       },
     });
 
-    if (!enableResponse.ok()) {
-      throw new Error(`Failed to enable ACL for test suite: ${enableResponse.status()}`);
+    if (!aclResponse.ok()) {
+      throw new Error(`Failed to enable ACL: ${aclResponse.status()}`);
     }
+    console.log('  ✓ ACL enabled');
 
     // Wait for security propagation
     await new Promise(resolve => setTimeout(resolve, 2000));
-    console.log('✅ ACL enabled for test suite');
+
+    // STEP 3: Verify ACL is actually active
+    console.log('  🔍 Verifying ACL is active...');
+    const statusResponse = await request.get('/api/v1/security/status', {
+      headers: {
+        'X-Emergency-Token': emergencyToken,
+      },
+    });
+
+    if (statusResponse.ok()) {
+      const status = await statusResponse.json();
+      if (!status.acl?.enabled) {
+        throw new Error('ACL verification failed - ACL not showing as enabled in security status');
+      }
+      console.log('  ✓ ACL verified as enabled');
+    } else {
+      console.warn(`  ⚠️ Could not verify ACL status: ${statusResponse.status()}`);
+    }
+
+    console.log('✅ Cerberus and ACL enabled for test suite');
+  });
+
+  /**
+   * Cleanup: Reset security state after all tests complete
+   * This ensures other test suites start with a clean slate
+   */
+  test.afterAll(async ({ request }) => {
+    console.log('🧹 Cleaning up: Resetting security state...');
+
+    const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
+    if (!emergencyToken) {
+      console.warn('⚠️ No emergency token available for cleanup');
+      return;
+    }
+
+    try {
+      const response = await request.post('/api/v1/emergency/security-reset', {
+        headers: {
+          'X-Emergency-Token': emergencyToken,
+        },
+      });
+
+      if (response.ok()) {
+        console.log('✅ Security state reset successfully');
+      } else {
+        console.warn(`⚠️ Security reset returned status: ${response.status()}`);
+      }
+    } catch (error) {
+      console.warn(`⚠️ Cleanup error (non-fatal): ${error}`);
+    }
   });
 
   test('Test 1: Emergency token bypasses ACL', async ({ request }) => {
