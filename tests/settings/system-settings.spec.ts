@@ -411,16 +411,25 @@ test.describe('System Settings', () => {
      * Priority: P0
      */
     test('should save general settings successfully', async ({ page }) => {
-      await test.step('Find and click save button', async () => {
+      await test.step('Find and click save button and wait for response', async () => {
         const saveButton = page.getByRole('button', { name: /save.*settings|save/i });
         await expect(saveButton.first()).toBeVisible();
-        await saveButton.first().click();
+
+        // Click and wait for API response to ensure mutation completes
+        await Promise.all([
+          page.waitForResponse(resp => resp.url().includes('/settings') && resp.status() === 200),
+          saveButton.first().click()
+        ]);
       });
 
       await test.step('Verify success feedback', async () => {
-        // Use more flexible locator with fallbacks and longer timeout
-        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
-        await expect(toast.filter({ hasText: /success|saved/i })).toBeVisible({ timeout: 10000 });
+        // First try the specific data-testid for custom ToastContainer
+        const toastByTestId = page.getByTestId('toast-success');
+        const toastByRole = page.getByRole('status').filter({ hasText: /saved|success/i });
+
+        // Use either selector - custom toast has data-testid, role="status", and the message
+        const successToast = toastByTestId.or(toastByRole).first();
+        await expect(successToast).toBeVisible({ timeout: 10000 });
       });
     });
   });

@@ -217,7 +217,8 @@ test.describe('Notification Providers', () => {
         // Wait for form to close or success message
         const successIndicator = page
           .getByText(providerName)
-          .or(page.getByRole('alert').filter({ hasText: /success|saved|created/i }));
+          .or(page.locator('[data-testid="toast-success"]'))
+          .or(page.getByRole('status').filter({ hasText: /success|saved|created/i }));
 
         await expect(successIndicator.first()).toBeVisible({ timeout: 10000 });
       });
@@ -369,7 +370,8 @@ test.describe('Notification Providers', () => {
         // Form should close or show success
         await page.waitForTimeout(1000);
         const updateIndicator = page.getByText('Updated Provider Name')
-          .or(page.getByRole('alert').filter({ hasText: /updated|saved/i }));
+          .or(page.locator('[data-testid="toast-success"]'))
+          .or(page.getByRole('status').filter({ hasText: /updated|saved/i }));
 
         await expect(updateIndicator.first()).toBeVisible({ timeout: 10000 });
       });
@@ -441,7 +443,8 @@ test.describe('Notification Providers', () => {
       await test.step('Verify deletion', async () => {
         await page.waitForTimeout(1000);
         // Provider should be gone or success message shown
-        const successIndicator = page.getByRole('alert').filter({ hasText: /deleted|removed/i })
+        const successIndicator = page.locator('[data-testid="toast-success"]')
+          .or(page.getByRole('status').filter({ hasText: /deleted|removed/i }))
           .or(page.getByText(/no.*providers/i));
 
         // Either success toast or empty state

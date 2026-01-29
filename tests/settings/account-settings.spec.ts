@@ -75,7 +75,7 @@ test.describe('Account Settings', () => {
       });
 
       await test.step('Verify success toast', async () => {
-        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
+        const toast = page.getByRole('status').or(page.getByRole('alert'));
         await expect(toast.filter({ hasText: /updated|saved|success/i })).toBeVisible({ timeout: 10000 });
       });
 
@@ -125,7 +125,7 @@ test.describe('Account Settings', () => {
       });
 
       await test.step('Verify success toast', async () => {
-        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
+        const toast = page.getByRole('status').or(page.getByRole('alert'));
         await expect(toast.filter({ hasText: /updated|saved|success/i })).toBeVisible({ timeout: 10000 });
       });
     });
@@ -328,6 +328,16 @@ test.describe('Account Settings', () => {
 
       await test.step('Verify save button is disabled', async () => {
         const saveButton = page.getByRole('button', { name: /save.*certificate/i });
+
+        // Wait for both React state attributes to be correct:
+        // 1. useUserEmail must be false (checkbox unchecked)
+        // 2. certEmailValid must be false (invalid email)
+        // Both conditions are required for the button to be disabled
+        await expect(saveButton).toHaveAttribute('data-use-user-email', 'false', { timeout: 5000 });
+        await expect(saveButton).toHaveAttribute('data-cert-email-valid', 'false', { timeout: 5000 });
+
+        // Now verify the button is actually disabled
+        // (disabled logic: useUserEmail ? false : certEmailValid !== true)
         await expect(saveButton).toBeDisabled();
       });
     });
@@ -365,7 +375,7 @@ test.describe('Account Settings', () => {
       });
 
       await test.step('Verify success toast', async () => {
-        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
+        const toast = page.getByRole('status').or(page.getByRole('alert'));
         await expect(toast.filter({ hasText: /updated|saved|success/i })).toBeVisible({ timeout: 10000 });
       });
 
@@ -415,7 +425,7 @@ test.describe('Account Settings', () => {
       });
 
       await test.step('Verify success toast', async () => {
-        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
+        const toast = page.getByRole('status').or(page.getByRole('alert'));
         await expect(toast.filter({ hasText: /updated|changed|success/i })).toBeVisible({ timeout: 10000 });
       });
 
@@ -452,9 +462,11 @@ test.describe('Account Settings', () => {
         const updateButton = page.getByRole('button', { name: /update.*password/i });
         await updateButton.click();
 
-        // Should show error about incorrect password
-        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
-        await expect(toast.filter({ hasText: /incorrect|invalid|wrong|failed/i })).toBeVisible({ timeout: 10000 });
+        // Error toast uses role="alert" (with data-testid fallback)
+        const errorToast = page.locator('[data-testid="toast-error"]')
+          .or(page.getByRole('alert'))
+          .filter({ hasText: /incorrect|invalid|wrong|failed/i });
+        await expect(errorToast.first()).toBeVisible({ timeout: 10000 });
       });
     });
 
@@ -600,7 +612,7 @@ test.describe('Account Settings', () => {
       });
 
       await test.step('Verify success toast', async () => {
-        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
+        const toast = page.getByRole('status').or(page.getByRole('alert'));
         await expect(toast.filter({ hasText: /copied|clipboard/i })).toBeVisible({ timeout: 10000 });
       });
 
@@ -644,7 +656,7 @@ test.describe('Account Settings', () => {
       });
 
       await test.step('Verify success toast', async () => {
-        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
+        const toast = page.getByRole('status').or(page.getByRole('alert'));
         await expect(toast.filter({ hasText: /regenerated|generated|new.*key/i })).toBeVisible({ timeout: 10000 });
       });
 
@@ -685,7 +697,7 @@ test.describe('Account Settings', () => {
 
         // Button may show loading indicator or be disabled briefly
         // Then success toast should appear
-        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
+        const toast = page.getByRole('status').or(page.getByRole('alert'));
         await expect(toast.filter({ hasText: /regenerated|generated|success/i })).toBeVisible({ timeout: 10000 });
       });
     });

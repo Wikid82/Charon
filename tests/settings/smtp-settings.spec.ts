@@ -322,7 +322,7 @@ test.describe('SMTP Settings', () => {
       await test.step('Verify success feedback', async () => {
         const successToast = page
           .locator('[data-testid="toast-success"]')
-          .or(page.getByRole('alert').filter({ hasText: /success|saved/i }))
+          .or(page.getByRole('status').filter({ hasText: /success|saved/i }))
           .or(page.getByText(/settings.*saved|saved.*success|configuration.*saved/i));
 
         await expect(successToast.first()).toBeVisible({ timeout: 10000 });
@@ -353,7 +353,8 @@ test.describe('SMTP Settings', () => {
         await saveButton.click();
 
         const successToast = page
-          .getByRole('alert').filter({ hasText: /success|saved/i })
+          .locator('[data-testid="toast-success"]')
+          .or(page.getByRole('status').filter({ hasText: /success|saved/i }))
           .or(page.getByText(/saved/i));
 
         await expect(successToast.first()).toBeVisible({ timeout: 10000 });
@@ -455,7 +456,7 @@ test.describe('SMTP Settings', () => {
         await hostInput.fill('new-smtp.test.local');
         await saveButton.click();
 
-        // Use waitForToast helper which uses correct data-testid selectors
+        // Use waitForToast helper (react-hot-toast uses role="status" for success)
         await waitForToast(page, /success|saved/i, { type: 'success', timeout: 10000 });
       });
     });

@@ -71,10 +71,16 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
   };
 
   const changePassword = async (oldPassword: string, newPassword: string) => {
-    await client.post('/auth/change-password', {
-      old_password: oldPassword,
-      new_password: newPassword,
-    });
+    try {
+      await client.post('/auth/change-password', {
+        old_password: oldPassword,
+        new_password: newPassword,
+      });
+    } catch (error: any) {
+      // Extract error message from API response
+      const message = error.response?.data?.error || error.message || 'Password change failed';
+      throw new Error(message);
+    }
   };
 
   // Auto-logout logic

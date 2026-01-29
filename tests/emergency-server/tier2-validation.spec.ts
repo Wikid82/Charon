@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, request as playwrightRequest } from '@playwright/test';
 import { EMERGENCY_TOKEN, EMERGENCY_SERVER } from '../fixtures/security';
 
 /**
@@ -14,26 +14,54 @@ import { EMERGENCY_TOKEN, EMERGENCY_SERVER } from '../fixtures/security';
  * Why this matters: If Tier 1 is blocked by ACL/WAF/CrowdSec, Tier 2 provides an independent recovery path.
  */
 
+// Store health status in a way that persists correctly across hooks
+const testState = {
+  emergencyServerHealthy: undefined as boolean | undefined,
+  healthCheckComplete: false,
+};
+
+async function checkEmergencyServerHealth(): Promise<boolean> {
+  const BASIC_AUTH = 'Basic ' + Buffer.from(`${EMERGENCY_SERVER.username}:${EMERGENCY_SERVER.password}`).toString('base64');
+  const emergencyRequest = await playwrightRequest.newContext({
+    baseURL: EMERGENCY_SERVER.baseURL,
+  });
+
+  try {
+    const response = await emergencyRequest.get('/health', {
+      headers: { 'Authorization': BASIC_AUTH },
+      timeout: 3000,
+    });
+    return response.ok();
+  } catch {
+    return false;
+  } finally {
+    await emergencyRequest.dispose();
+  }
+}
+
+async function ensureHealthChecked(): Promise<boolean> {
+  if (!testState.healthCheckComplete) {
+    console.log('🔍 Checking tier-2 server health before tests...');
+    testState.emergencyServerHealthy = await checkEmergencyServerHealth();
+    testState.healthCheckComplete = true;
+    if (!testState.emergencyServerHealthy) {
+      console.log('⚠️ Tier-2 server is unavailable - tests will be skipped');
+    } else {
+      console.log('✅ Tier-2 server is healthy');
+    }
+  }
+  return testState.emergencyServerHealthy ?? false;
+}
+
 test.describe('Break Glass - Tier 2 (Emergency Server)', () => {
   const EMERGENCY_BASE_URL = EMERGENCY_SERVER.baseURL;
   const BASIC_AUTH = 'Basic ' + Buffer.from(`${EMERGENCY_SERVER.username}:${EMERGENCY_SERVER.password}`).toString('base64');
 
-  // Health check before all tier-2 tests
-  test.beforeAll(async ({ request }) => {
-    console.log('🔍 Checking tier-2 server health before tests...');
-    try {
-      const response = await request.get(`${EMERGENCY_BASE_URL}/health`, {
-        headers: { 'Authorization': BASIC_AUTH },
-        timeout: 3000,
-      });
-      if (!response.ok()) {
-        console.log(`❌ Tier-2 server health check failed: ${response.status()}`);
-        test.skip();
-      }
-      console.log('✅ Tier-2 server is healthy');
-    } catch (error) {
-      console.log(`❌ Tier-2 server is unavailable: ${error}`);
-      test.skip();
+  // Skip individual tests if emergency server is not healthy
+  test.beforeEach(async ({}, testInfo) => {
+    const isHealthy = await ensureHealthChecked();
+    if (!isHealthy) {
+      testInfo.skip(true, 'Emergency server not accessible from test environment');
     }
   });
 
@@ -49,11 +77,13 @@ test.describe('Break Glass - Tier 2 (Emergency Server)', () => {
     expect(response.ok()).toBeTruthy();
     let body;
     try {
-      body = await response.clone().json();
-    } catch {
-      body = {};
+      body = await response.json();
+    } catch (e) {
+      // Note: Can't get text after json() fails because body is consumed
+      console.error(`❌ JSON parse failed: ${String(e)}`);
+      body = { _parseError: String(e) };
     }
-    expect(body.status).toBe('ok');
+    expect(body.status, `Expected 'ok' but got '${body.status}'. Parse error: ${body._parseError || 'none'}`).toBe('ok');
     expect(body.server).toBe('emergency');
   });
 
@@ -70,7 +100,7 @@ test.describe('Break Glass - Tier 2 (Emergency Server)', () => {
     expect(response.ok()).toBeTruthy();
     let result;
     try {
-      result = await response.clone().json();
+      result = await response.json();
     } catch {
       result = { success: false, disabled_modules: [] };
     }
@@ -104,21 +134,28 @@ test.describe('Break Glass - Tier 2 (Emergency Server)', () => {
     expect(healthCheck.ok()).toBeTruthy();
     let health;
     try {
-      health = await healthCheck.clone().json();
-    } catch {
-      health = { status: 'unknown' };
+      health = await healthCheck.json();
+    } catch (e) {
+      // Note: Can't get text after json() fails because body is consumed
+      console.error(`❌ JSON parse failed: ${String(e)}`);
+      health = { status: 'unknown', _parseError: String(e) };
     }
-    expect(health.status).toBe('ok');
+    expect(health.status, `Expected 'ok' but got '${health.status}'. Parse error: ${health._parseError || 'none'}`).toBe('ok');
   });
 
   test('should enforce Basic Auth on emergency server', async ({ request }) => {
-    // Verify that emergency server still requires authentication
+    // /health is intentionally unauthenticated for monitoring probes
+    // Protected endpoints like /emergency/security-reset require Basic Auth
 
-    const response = await request.get(`${EMERGENCY_BASE_URL}/health`, {
+    const response = await request.post(`${EMERGENCY_BASE_URL}/emergency/security-reset`, {
+      headers: {
+        'X-Emergency-Token': EMERGENCY_TOKEN,
+        // Deliberately omitting Authorization header to test auth enforcement
+      },
       failOnStatusCode: false,
     });
 
-    // Should get 401 without credentials
+    // Should get 401 without Basic Auth credentials
     expect(response.status()).toBe(401);
   });
 

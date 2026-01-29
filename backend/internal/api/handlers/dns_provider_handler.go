@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"sort"
 	"strconv"
 
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 	"github.com/gin-gonic/gin"
@@ -20,6 +22,23 @@ func NewDNSProviderHandler(service services.DNSProviderService) *DNSProviderHand
 	return &DNSProviderHandler{
 		service: service,
 	}
+}
+
+// resolveProvider resolves a DNS provider by either numeric ID or UUID.
+// It first attempts to parse as uint (backward compatibility), then tries UUID.
+func (h *DNSProviderHandler) resolveProvider(ctx context.Context, idOrUUID string) (*models.DNSProvider, error) {
+	// Try parsing as numeric ID first (backward compatibility)
+	if id, err := strconv.ParseUint(idOrUUID, 10, 32); err == nil {
+		return h.service.Get(ctx, uint(id))
+	}
+
+	// Empty string check
+	if idOrUUID == "" {
+		return nil, services.ErrDNSProviderNotFound
+	}
+
+	// Try as UUID
+	return h.service.GetByUUID(ctx, idOrUUID)
 }
 
 // List handles GET /api/v1/dns-providers
@@ -46,14 +65,9 @@ func (h *DNSProviderHandler) List(c *gin.Context) {
 
 // Get handles GET /api/v1/dns-providers/:id
 // Returns a single DNS provider without exposing credentials.
+// Accepts either numeric ID or UUID for flexibility.
 func (h *DNSProviderHandler) Get(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider ID"})
-		return
-	}
-
-	provider, err := h.service.Get(c.Request.Context(), uint(id))
+	provider, err := h.resolveProvider(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		if err == services.ErrDNSProviderNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "DNS provider not found"})
@@ -103,9 +117,15 @@ func (h *DNSProviderHandler) Create(c *gin.Context) {
 
 // Update handles PUT /api/v1/dns-providers/:id
 // Updates an existing DNS provider.
+// Accepts either numeric ID or UUID for flexibility.
 func (h *DNSProviderHandler) Update(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	// Resolve provider first to get internal ID
+	provider, err := h.resolveProvider(c.Request.Context(), c.Param("id"))
 	if err != nil {
+		if err == services.ErrDNSProviderNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "DNS provider not found"})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider ID"})
 		return
 	}
@@ -116,7 +136,7 @@ func (h *DNSProviderHandler) Update(c *gin.Context) {
 		return
 	}
 
-	provider, err := h.service.Update(c.Request.Context(), uint(id), req)
+	updatedProvider, err := h.service.Update(c.Request.Context(), provider.ID, req)
 	if err != nil {
 		statusCode := http.StatusBadRequest
 		errorMessage := err.Error()
@@ -136,21 +156,27 @@ func (h *DNSProviderHandler) Update(c *gin.Context) {
 		return
 	}
 
-	response := services.NewDNSProviderResponse(provider)
+	response := services.NewDNSProviderResponse(updatedProvider)
 
 	c.JSON(http.StatusOK, response)
 }
 
 // Delete handles DELETE /api/v1/dns-providers/:id
 // Deletes a DNS provider.
+// Accepts either numeric ID or UUID for flexibility.
 func (h *DNSProviderHandler) Delete(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	// Resolve provider first to get internal ID
+	provider, err := h.resolveProvider(c.Request.Context(), c.Param("id"))
 	if err != nil {
+		if err == services.ErrDNSProviderNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "DNS provider not found"})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider ID"})
 		return
 	}
 
-	err = h.service.Delete(c.Request.Context(), uint(id))
+	err = h.service.Delete(c.Request.Context(), provider.ID)
 	if err != nil {
 		if err == services.ErrDNSProviderNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "DNS provider not found"})
@@ -165,14 +191,20 @@ func (h *DNSProviderHandler) Delete(c *gin.Context) {
 
 // Test handles POST /api/v1/dns-providers/:id/test
 // Tests a saved DNS provider's credentials.
+// Accepts either numeric ID or UUID for flexibility.
 func (h *DNSProviderHandler) Test(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	// Resolve provider first to get internal ID
+	provider, err := h.resolveProvider(c.Request.Context(), c.Param("id"))
 	if err != nil {
+		if err == services.ErrDNSProviderNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "DNS provider not found"})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider ID"})
 		return
 	}
 
-	result, err := h.service.Test(c.Request.Context(), uint(id))
+	result, err := h.service.Test(c.Request.Context(), provider.ID)
 	if err != nil {
 		if err == services.ErrDNSProviderNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "DNS provider not found"})

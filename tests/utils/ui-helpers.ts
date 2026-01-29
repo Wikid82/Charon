@@ -21,6 +21,10 @@ export interface ToastHelperOptions {
  * Get a toast locator with proper role-based selection and short retries.
  * Uses data-testid for our custom toast system to avoid strict-mode violations.
  *
+ * react-hot-toast uses:
+ * - role="status" for success/info toasts
+ * - role="alert" for error toasts
+ *
  * @param page - Playwright Page instance
  * @param text - Text or RegExp to match in toast (optional for type-only match)
  * @param options - Configuration options
@@ -40,18 +44,26 @@ export function getToastLocator(
   const { type } = options;
 
   // Build selector with fallbacks for reliability
-  // Primary: data-testid (custom), Secondary: data-sonner-toast (Sonner), Tertiary: role="alert"
+  // react-hot-toast: role="status" for success/info, role="alert" for errors
   let baseLocator: Locator;
 
-  if (type) {
-    // Type-specific toast: match data-testid with fallback to sonner
+  if (type === 'error') {
+    // Error toasts use role="alert"
     baseLocator = page.locator(`[data-testid="toast-${type}"]`)
-      .or(page.locator('[data-sonner-toast]'))
+      .or(page.getByRole('alert'));
+  } else if (type === 'success' || type === 'info') {
+    // Success/info toasts use role="status"
+    baseLocator = page.locator(`[data-testid="toast-${type}"]`)
+      .or(page.getByRole('status'));
+  } else if (type === 'warning') {
+    // Warning toasts - check both roles as fallback
+    baseLocator = page.locator(`[data-testid="toast-${type}"]`)
+      .or(page.getByRole('status'))
       .or(page.getByRole('alert'));
   } else {
-    // Any toast: match our custom toast container with fallbacks
+    // Any toast: match our custom toast container with fallbacks for both roles
     baseLocator = page.locator('[data-testid^="toast-"]')
-      .or(page.locator('[data-sonner-toast]'))
+      .or(page.getByRole('status'))
       .or(page.getByRole('alert'));
   }
 
