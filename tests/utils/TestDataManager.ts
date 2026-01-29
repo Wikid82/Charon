@@ -344,14 +344,22 @@ export class TestDataManager {
     }
 
     const result = await response.json();
+
+    // DNS provider IDs must be numeric (backend uses strconv.ParseUint)
+    const id = result.id;
+    if (id !== undefined && typeof id !== 'number') {
+      console.warn(`DNS provider returned non-numeric ID: ${id} (type: ${typeof id}), using as-is`);
+    }
+    const resourceId = String(id ?? result.uuid);
+
     this.resources.push({
-      id: result.id?.toString() ?? result.uuid,
+      id: resourceId,
       type: 'dns-provider',
       namespace: this.namespace,
       createdAt: new Date(),
     });
 
-    return { id: result.id?.toString() ?? result.uuid, name: namespacedName };
+    return { id: resourceId, name: namespacedName };
   }
 
   /**

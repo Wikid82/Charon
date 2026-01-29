@@ -160,13 +160,23 @@ func TestAccessListHandler_Get(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "get existing ACL",
+			name:       "get existing ACL by numeric ID",
 			id:         "1",
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "get non-existent ACL",
+			name:       "get existing ACL by UUID",
+			id:         "test-uuid",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "get non-existent ACL by numeric ID",
 			id:         "9999",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "get non-existent ACL by UUID",
+			id:         "non-existent-uuid",
 			wantStatus: http.StatusNotFound,
 		},
 	}
@@ -209,7 +219,7 @@ func TestAccessListHandler_Update(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name: "update successfully",
+			name: "update by numeric ID successfully",
 			id:   "1",
 			payload: map[string]any{
 				"name":        "Updated Name",
@@ -221,8 +231,30 @@ func TestAccessListHandler_Update(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name: "update non-existent ACL",
+			name: "update by UUID successfully",
+			id:   "test-uuid",
+			payload: map[string]any{
+				"name":        "Updated via UUID",
+				"description": "UUID update description",
+				"enabled":     true,
+				"type":        "whitelist",
+				"ip_rules":    `[]`,
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "update non-existent ACL by numeric ID",
 			id:   "9999",
+			payload: map[string]any{
+				"name":     "Test",
+				"type":     "whitelist",
+				"ip_rules": `[]`,
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "update non-existent ACL by UUID",
+			id:   "non-existent-uuid",
 			payload: map[string]any{
 				"name":     "Test",
 				"type":     "whitelist",
@@ -270,6 +302,15 @@ func TestAccessListHandler_Delete(t *testing.T) {
 	}
 	db.Create(&acl)
 
+	// Create ACL that will be deleted by UUID
+	aclByUUID := models.AccessList{
+		UUID:    "delete-by-uuid",
+		Name:    "Delete By UUID ACL",
+		Type:    "whitelist",
+		Enabled: true,
+	}
+	db.Create(&aclByUUID)
+
 	// Create ACL in use
 	aclInUse := models.AccessList{
 		UUID:    "in-use-uuid",
@@ -295,18 +336,28 @@ func TestAccessListHandler_Delete(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "delete successfully",
+			name:       "delete by numeric ID successfully",
 			id:         "1",
 			wantStatus: http.StatusOK,
 		},
 		{
+			name:       "delete by UUID successfully",
+			id:         "delete-by-uuid",
+			wantStatus: http.StatusOK,
+		},
+		{
 			name:       "fail to delete ACL in use",
-			id:         "2",
+			id:         "3",
 			wantStatus: http.StatusConflict,
 		},
 		{
-			name:       "delete non-existent ACL",
+			name:       "delete non-existent ACL by numeric ID",
 			id:         "9999",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "delete non-existent ACL by UUID",
+			id:         "non-existent-uuid",
 			wantStatus: http.StatusNotFound,
 		},
 	}
@@ -343,8 +394,14 @@ func TestAccessListHandler_TestIP(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "test IP in whitelist",
-			id:         "1", // Use numeric ID
+			name:       "test IP in whitelist by numeric ID",
+			id:         "1",
+			payload:    map[string]string{"ip_address": "192.168.1.100"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "test IP in whitelist by UUID",
+			id:         "test-uuid",
 			payload:    map[string]string{"ip_address": "192.168.1.100"},
 			wantStatus: http.StatusOK,
 		},
@@ -361,8 +418,14 @@ func TestAccessListHandler_TestIP(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "test non-existent ACL",
+			name:       "test non-existent ACL by numeric ID",
 			id:         "9999",
+			payload:    map[string]string{"ip_address": "192.168.1.100"},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "test non-existent ACL by UUID",
+			id:         "non-existent-uuid",
 			payload:    map[string]string{"ip_address": "192.168.1.100"},
 			wantStatus: http.StatusNotFound,
 		},
@@ -411,5 +474,69 @@ func TestAccessListHandler_GetTemplates(t *testing.T) {
 		assert.Contains(t, template, "name")
 		assert.Contains(t, template, "description")
 		assert.Contains(t, template, "type")
+	}
+}
+
+func TestAccessListHandler_resolveAccessList(t *testing.T) {
+	_, db := setupAccessListTestRouter(t)
+
+	handler := NewAccessListHandler(db)
+
+	// Create test ACL with known UUID
+	acl := models.AccessList{
+		UUID:    "resolve-test-uuid",
+		Name:    "Resolve Test ACL",
+		Type:    "whitelist",
+		Enabled: true,
+	}
+	db.Create(&acl)
+
+	tests := []struct {
+		name     string
+		idOrUUID string
+		wantErr  bool
+		wantName string
+	}{
+		{
+			name:     "resolve by numeric ID",
+			idOrUUID: "1",
+			wantErr:  false,
+			wantName: "Resolve Test ACL",
+		},
+		{
+			name:     "resolve by UUID",
+			idOrUUID: "resolve-test-uuid",
+			wantErr:  false,
+			wantName: "Resolve Test ACL",
+		},
+		{
+			name:     "fail with non-existent numeric ID",
+			idOrUUID: "9999",
+			wantErr:  true,
+		},
+		{
+			name:     "fail with non-existent UUID",
+			idOrUUID: "non-existent-uuid",
+			wantErr:  true,
+		},
+		{
+			name:     "fail with empty string",
+			idOrUUID: "",
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := handler.resolveAccessList(tt.idOrUUID)
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Nil(t, result)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, result)
+				assert.Equal(t, tt.wantName, result.Name)
+			}
+		})
 	}
 }

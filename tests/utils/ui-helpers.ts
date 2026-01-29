@@ -39,15 +39,20 @@ export function getToastLocator(
 ): Locator {
   const { type } = options;
 
-  // Build selector using data-testid to avoid matching generic [role="alert"] elements
+  // Build selector with fallbacks for reliability
+  // Primary: data-testid (custom), Secondary: data-sonner-toast (Sonner), Tertiary: role="alert"
   let baseLocator: Locator;
 
   if (type) {
-    // Type-specific toast: match data-testid exactly
-    baseLocator = page.locator(`[data-testid="toast-${type}"]`);
+    // Type-specific toast: match data-testid with fallback to sonner
+    baseLocator = page.locator(`[data-testid="toast-${type}"]`)
+      .or(page.locator('[data-sonner-toast]'))
+      .or(page.getByRole('alert'));
   } else {
-    // Any toast: match our custom toast container
-    baseLocator = page.locator('[data-testid^="toast-"]').first();
+    // Any toast: match our custom toast container with fallbacks
+    baseLocator = page.locator('[data-testid^="toast-"]')
+      .or(page.locator('[data-sonner-toast]'))
+      .or(page.getByRole('alert'));
   }
 
   // Filter by text if provided

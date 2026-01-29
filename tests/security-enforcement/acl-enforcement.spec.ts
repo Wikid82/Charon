@@ -145,8 +145,9 @@ test.describe('ACL Enforcement', () => {
     // If there are any access lists, test an IP against the first one
     if (lists.length > 0) {
       const testIp = '192.168.1.1';
-      const testResponse = await requestContext.get(
-        `/api/v1/access-lists/${lists[0].id}/test?ip=${testIp}`
+      const testResponse = await requestContext.post(
+        `/api/v1/access-lists/${lists[0].uuid}/test`,
+        { data: { ip_address: testIp } }
       );
       expect(testResponse.ok()).toBe(true);
 
@@ -173,29 +174,23 @@ test.describe('ACL Enforcement', () => {
     const createResponse = await requestContext.post('/api/v1/access-lists', {
       data: {
         name: 'Test Enforcement ACL',
-        satisfy: 'any',
-        pass_auth: false,
-        items: [
-          {
-            type: 'deny',
-            address: '10.255.255.255/32',
-            directive: 'deny',
-            comment: 'Test blocked IP',
-          },
-        ],
+        type: 'blacklist',
+        ip_rules: JSON.stringify([{ cidr: '10.255.255.255/32', description: 'Test blocked IP' }]),
+        enabled: true,
       },
     });
 
     if (createResponse.ok()) {
       const createdList = await createResponse.json();
-      expect(createdList.id).toBeDefined();
+      expect(createdList.uuid).toBeDefined();
 
       // Verify the list was created with correct structure
       expect(createdList.name).toBe('Test Enforcement ACL');
 
-      // Test IP against the list
-      const testResponse = await requestContext.get(
-        `/api/v1/access-lists/${createdList.id}/test?ip=10.255.255.255`
+      // Test IP against the list using POST
+      const testResponse = await requestContext.post(
+        `/api/v1/access-lists/${createdList.uuid}/test`,
+        { data: { ip_address: '10.255.255.255' } }
       );
       expect(testResponse.ok()).toBe(true);
       const testResult = await testResponse.json();
@@ -203,7 +198,7 @@ test.describe('ACL Enforcement', () => {
 
       // Cleanup: Delete the test ACL
       const deleteResponse = await requestContext.delete(
-        `/api/v1/access-lists/${createdList.id}`
+        `/api/v1/access-lists/${createdList.uuid}`
       );
       expect(deleteResponse.ok()).toBe(true);
     } else {

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -25,6 +26,23 @@ func NewAccessListHandler(db *gorm.DB) *AccessListHandler {
 // SetGeoIPService sets the GeoIP service for geo-based ACL lookups.
 func (h *AccessListHandler) SetGeoIPService(geoipSvc *services.GeoIPService) {
 	h.service.SetGeoIPService(geoipSvc)
+}
+
+// resolveAccessList resolves an access list by either numeric ID or UUID.
+// It first attempts to parse as uint (backward compatibility), then tries UUID.
+func (h *AccessListHandler) resolveAccessList(idOrUUID string) (*models.AccessList, error) {
+	// Try parsing as numeric ID first (backward compatibility)
+	if id, err := strconv.ParseUint(idOrUUID, 10, 32); err == nil {
+		return h.service.GetByID(uint(id))
+	}
+
+	// Empty string check
+	if idOrUUID == "" {
+		return nil, fmt.Errorf("invalid ID or UUID")
+	}
+
+	// Try as UUID
+	return h.service.GetByUUID(idOrUUID)
 }
 
 // Create handles POST /api/v1/access-lists
@@ -55,19 +73,13 @@ func (h *AccessListHandler) List(c *gin.Context) {
 
 // Get handles GET /api/v1/access-lists/:id
 func (h *AccessListHandler) Get(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ID"})
-		return
-	}
-
-	acl, err := h.service.GetByID(uint(id))
+	acl, err := h.resolveAccessList(c.Param("id"))
 	if err != nil {
 		if err == services.ErrAccessListNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		return
 	}
 
@@ -76,9 +88,14 @@ func (h *AccessListHandler) Get(c *gin.Context) {
 
 // Update handles PUT /api/v1/access-lists/:id
 func (h *AccessListHandler) Update(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	// Resolve access list first to get the internal ID
+	acl, err := h.resolveAccessList(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ID"})
+		if err == services.ErrAccessListNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		return
 	}
 
@@ -88,7 +105,7 @@ func (h *AccessListHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.Update(uint(id), &updates); err != nil {
+	if err := h.service.Update(acl.ID, &updates); err != nil {
 		if err == services.ErrAccessListNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
 			return
@@ -98,19 +115,24 @@ func (h *AccessListHandler) Update(c *gin.Context) {
 	}
 
 	// Fetch updated record
-	acl, _ := h.service.GetByID(uint(id))
-	c.JSON(http.StatusOK, acl)
+	updatedAcl, _ := h.service.GetByID(acl.ID)
+	c.JSON(http.StatusOK, updatedAcl)
 }
 
 // Delete handles DELETE /api/v1/access-lists/:id
 func (h *AccessListHandler) Delete(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	// Resolve access list first to get the internal ID
+	acl, err := h.resolveAccessList(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ID"})
+		if err == services.ErrAccessListNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		return
 	}
 
-	if err := h.service.Delete(uint(id)); err != nil {
+	if err := h.service.Delete(acl.ID); err != nil {
 		if err == services.ErrAccessListNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
 			return
@@ -128,9 +150,14 @@ func (h *AccessListHandler) Delete(c *gin.Context) {
 
 // TestIP handles POST /api/v1/access-lists/:id/test
 func (h *AccessListHandler) TestIP(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	// Resolve access list first to get the internal ID
+	acl, err := h.resolveAccessList(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ID"})
+		if err == services.ErrAccessListNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		return
 	}
 
@@ -142,12 +169,8 @@ func (h *AccessListHandler) TestIP(c *gin.Context) {
 		return
 	}
 
-	allowed, reason, err := h.service.TestIP(uint(id), req.IPAddress)
+	allowed, reason, err := h.service.TestIP(acl.ID, req.IPAddress)
 	if err != nil {
-		if err == services.ErrAccessListNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
-			return
-		}
 		if err == services.ErrInvalidIPAddress {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid IP address"})
 			return
