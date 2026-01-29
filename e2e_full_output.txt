@@ -1,0 +1,318 @@
+nohup: ignoring input
+[dotenv@17.2.3] injecting env (2) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+
+🧹 Running global test setup...
+
+🔐 Validating emergency token configuration...
+  🔑 Token present: f51dedd6...346b
+  ✓ Token length: 64 chars (valid)
+  ✓ Token format: Valid hexadecimal
+  ✓ Token appears to be unique (not a placeholder)
+✅ Emergency token validation passed
+
+📍 Base URL: http://localhost:8080
+⏳ Waiting for container to be ready at http://localhost:8080...
+  ✅ Container ready after 1 attempt(s) [2000ms]
+   └─ Hostname: localhost
+   ├─ Port: 8080
+   ├─ Protocol: http:
+   ├─ IPv6: No
+   └─ Localhost: Yes
+
+📊 Port Connectivity Checks:
+🔍 Checking Caddy admin API health at http://localhost:2019...
+  ✅ Caddy admin API (port 2019) is healthy [9ms]
+🔍 Checking emergency tier-2 server health at http://localhost:2020...
+  ✅ Emergency tier-2 server (port 2020) is healthy [11ms]
+
+✅ Connectivity Summary: Caddy=✓ Emergency=✓
+
+🔓 Performing emergency security reset...
+  🔑 Token configured: f51dedd6...346b (64 chars)
+  📍 Emergency URL: http://localhost:2020/emergency/security-reset
+  📊 Emergency reset status: 200 [24ms]
+  ✅ Emergency reset successful [24ms]
+  ✓ Disabled modules: feature.cerberus.enabled, security.cerberus.enabled, security.acl.enabled, security.waf.enabled, security.rate_limit.enabled, security.crowdsec.enabled, security.crowdsec.mode
+  ⏳ Waiting for security reset to propagate...
+  ✅ Security reset complete [528ms]
+🔍 Checking application health...
+✅ Application is accessible
+🗑️  Cleaning up orphaned test data...
+Force cleanup completed: {"proxyHosts":0,"accessLists":0,"dnsProviders":0,"certificates":0}
+   No orphaned test data found
+✅ Global setup complete
+
+🔓 Performing emergency security reset...
+  🔑 Token configured: f51dedd6...346b (64 chars)
+  📍 Emergency URL: http://localhost:2020/emergency/security-reset
+  📊 Emergency reset status: 200 [13ms]
+  ✅ Emergency reset successful [13ms]
+  ✓ Disabled modules: security.cerberus.enabled, security.acl.enabled, security.waf.enabled, security.rate_limit.enabled, security.crowdsec.enabled, security.crowdsec.mode, feature.cerberus.enabled
+  ⏳ Waiting for security reset to propagate...
+  ✅ Security reset complete [523ms]
+✓ Authenticated security reset complete
+🔒 Verifying security modules are disabled...
+  ✅ Security modules confirmed disabled
+
+Running 959 tests using 2 workers
+
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+Logging in as test user...
+Login successful
+Auth state saved to /projects/Charon/playwright/.auth/user.json
+✅ Cookie domain "localhost" matches baseURL host "localhost"
+  ✓    1 [setup] › tests/auth.setup.ts:26:1 › authenticate (167ms)
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+  ✓    2 [security-tests] › tests/security/audit-logs.spec.ts:26:5 › Audit Logs › Page Loading › should display audit logs page (2.3s)
+  ✓    3 [security-tests] › tests/security/audit-logs.spec.ts:47:5 › Audit Logs › Page Loading › should display log data table (2.3s)
+  ✓    4 [security-tests] › tests/security/audit-logs.spec.ts:88:5 › Audit Logs › Log Table Structure › should display timestamp column (2.0s)
+  ✓    5 [security-tests] › tests/security/audit-logs.spec.ts:100:5 › Audit Logs › Log Table Structure › should display action/event column (2.0s)
+  ✓    6 [security-tests] › tests/security/audit-logs.spec.ts:112:5 › Audit Logs › Log Table Structure › should display user column (1.8s)
+  ✓    7 [security-tests] › tests/security/audit-logs.spec.ts:124:5 › Audit Logs › Log Table Structure › should display log entries (2.1s)
+  ✓    8 [security-tests] › tests/security/audit-logs.spec.ts:142:5 › Audit Logs › Filtering › should have search input (2.0s)
+  ✓    9 [security-tests] › tests/security/audit-logs.spec.ts:151:5 › Audit Logs › Filtering › should filter by action type (1.8s)
+  ✓   10 [security-tests] › tests/security/audit-logs.spec.ts:163:5 › Audit Logs › Filtering › should filter by date range (2.0s)
+  ✓   11 [security-tests] › tests/security/audit-logs.spec.ts:172:5 › Audit Logs › Filtering › should filter by user (1.9s)
+  ✓   12 [security-tests] › tests/security/audit-logs.spec.ts:181:5 › Audit Logs › Filtering › should perform search when input changes (1.8s)
+  ✓   13 [security-tests] › tests/security/audit-logs.spec.ts:199:5 › Audit Logs › Export Functionality › should have export button (2.0s)
+  ✓   14 [security-tests] › tests/security/audit-logs.spec.ts:208:5 › Audit Logs › Export Functionality › should export logs to CSV (1.9s)
+  ✓   15 [security-tests] › tests/security/audit-logs.spec.ts:228:5 › Audit Logs › Pagination › should have pagination controls (2.0s)
+  ✓   16 [security-tests] › tests/security/audit-logs.spec.ts:237:5 › Audit Logs › Pagination › should display current page info (1.8s)
+  ✓   17 [security-tests] › tests/security/audit-logs.spec.ts:244:5 › Audit Logs › Pagination › should navigate between pages (1.9s)
+  ✓   18 [security-tests] › tests/security/audit-logs.spec.ts:267:5 › Audit Logs › Log Details › should show log details on row click (3.0s)
+  ✓   19 [security-tests] › tests/security/audit-logs.spec.ts:290:5 › Audit Logs › Refresh › should have refresh button (2.2s)
+  ✓   20 [security-tests] › tests/security/audit-logs.spec.ts:304:5 › Audit Logs › Navigation › should navigate back to security dashboard (2.1s)
+  ✓   21 [security-tests] › tests/security/audit-logs.spec.ts:316:5 › Audit Logs › Accessibility › should have accessible table structure (1.8s)
+  ✓   22 [security-tests] › tests/security/audit-logs.spec.ts:328:5 › Audit Logs › Accessibility › should be keyboard navigable (2.7s)
+  ✓   23 [security-tests] › tests/security/audit-logs.spec.ts:358:5 › Audit Logs › Empty State › should show empty state message when no logs (1.9s)
+  ✓   24 [security-tests] › tests/security/crowdsec-config.spec.ts:26:5 › CrowdSec Configuration › Page Loading › should display CrowdSec configuration page (2.2s)
+  ✓   25 [security-tests] › tests/security/crowdsec-config.spec.ts:31:5 › CrowdSec Configuration › Page Loading › should show navigation back to security dashboard (1.9s)
+  ✓   26 [security-tests] › tests/security/crowdsec-config.spec.ts:56:5 › CrowdSec Configuration › Page Loading › should display presets section (2.0s)
+  ✓   27 [security-tests] › tests/security/crowdsec-config.spec.ts:75:5 › CrowdSec Configuration › Preset Management › should display list of available presets (2.3s)
+  ✓   28 [security-tests] › tests/security/crowdsec-config.spec.ts:107:5 › CrowdSec Configuration › Preset Management › should allow searching presets (2.1s)
+  ✓   29 [security-tests] › tests/security/crowdsec-config.spec.ts:120:5 › CrowdSec Configuration › Preset Management › should show preset preview when selected (1.9s)
+  ✓   30 [security-tests] › tests/security/crowdsec-config.spec.ts:132:5 › CrowdSec Configuration › Preset Management › should apply preset with confirmation (2.1s)
+  ✓   31 [security-tests] › tests/security/crowdsec-config.spec.ts:158:5 › CrowdSec Configuration › Configuration Files › should display configuration file list (1.9s)
+  ✓   32 [security-tests] › tests/security/crowdsec-config.spec.ts:171:5 › CrowdSec Configuration › Configuration Files › should show file content when selected (1.9s)
+  ✓   33 [security-tests] › tests/security/crowdsec-config.spec.ts:188:5 › CrowdSec Configuration › Import/Export › should have export functionality (2.4s)
+  ✓   34 [security-tests] › tests/security/crowdsec-config.spec.ts:197:5 › CrowdSec Configuration › Import/Export › should have import functionality (2.1s)
+  ✓   35 [security-tests] › tests/security/crowdsec-config.spec.ts:218:5 › CrowdSec Configuration › Console Enrollment › should display console enrollment section if feature enabled (1.8s)
+  ✓   36 [security-tests] › tests/security/crowdsec-config.spec.ts:243:5 › CrowdSec Configuration › Console Enrollment › should show enrollment status when enrolled (2.0s)
+  ✓   37 [security-tests] › tests/security/crowdsec-config.spec.ts:258:5 › CrowdSec Configuration › Status Indicators › should display CrowdSec running status (2.2s)
+  ✓   38 [security-tests] › tests/security/crowdsec-config.spec.ts:271:5 › CrowdSec Configuration › Status Indicators › should display LAPI status (2.1s)
+  ✓   39 [security-tests] › tests/security/crowdsec-config.spec.ts:282:5 › CrowdSec Configuration › Accessibility › should have accessible form controls (2.1s)
+  -   40 [security-tests] › tests/security/crowdsec-decisions.spec.ts:28:5 › CrowdSec Decisions Management › Decisions List › should display decisions page
+  -   41 [security-tests] › tests/security/crowdsec-decisions.spec.ts:42:5 › CrowdSec Decisions Management › Decisions List › should show active decisions if any exist
+  -   42 [security-tests] › tests/security/crowdsec-decisions.spec.ts:64:5 › CrowdSec Decisions Management › Decisions List › should display decision columns (IP, type, duration, reason)
+  -   43 [security-tests] › tests/security/crowdsec-decisions.spec.ts:87:5 › CrowdSec Decisions Management › Add Decision (Ban IP) › should have add ban button
+  -   44 [security-tests] › tests/security/crowdsec-decisions.spec.ts:101:5 › CrowdSec Decisions Management › Add Decision (Ban IP) › should open ban modal on add button click
+  -   45 [security-tests] › tests/security/crowdsec-decisions.spec.ts:127:5 › CrowdSec Decisions Management › Add Decision (Ban IP) › should validate IP address format
+  -   46 [security-tests] › tests/security/crowdsec-decisions.spec.ts:163:5 › CrowdSec Decisions Management › Remove Decision (Unban) › should show unban action for each decision
+  -   47 [security-tests] › tests/security/crowdsec-decisions.spec.ts:172:5 › CrowdSec Decisions Management › Remove Decision (Unban) › should confirm before unbanning
+  -   48 [security-tests] › tests/security/crowdsec-decisions.spec.ts:193:5 › CrowdSec Decisions Management › Filtering and Search › should have search/filter input
+  -   49 [security-tests] › tests/security/crowdsec-decisions.spec.ts:202:5 › CrowdSec Decisions Management › Filtering and Search › should filter decisions by type
+  -   50 [security-tests] › tests/security/crowdsec-decisions.spec.ts:216:5 › CrowdSec Decisions Management › Refresh and Sync › should have refresh button
+  -   51 [security-tests] › tests/security/crowdsec-decisions.spec.ts:231:5 › CrowdSec Decisions Management › Navigation › should navigate back to CrowdSec config
+  -   52 [security-tests] › tests/security/crowdsec-decisions.spec.ts:244:5 › CrowdSec Decisions Management › Accessibility › should be keyboard navigable
+  ✓   53 [security-tests] › tests/security/rate-limiting.spec.ts:25:5 › Rate Limiting Configuration › Page Loading › should display rate limiting configuration page (2.3s)
+  ✓   54 [security-tests] › tests/security/rate-limiting.spec.ts:37:5 › Rate Limiting Configuration › Page Loading › should display rate limiting status (2.0s)
+  ✓   55 [security-tests] › tests/security/rate-limiting.spec.ts:48:5 › Rate Limiting Configuration › Rate Limiting Toggle › should have enable/disable toggle (2.0s)
+  -   56 [security-tests] › tests/security/rate-limiting.spec.ts:70:5 › Rate Limiting Configuration › Rate Limiting Toggle › should toggle rate limiting on/off
+  ✓   57 [security-tests] › tests/security/rate-limiting.spec.ts:102:5 › Rate Limiting Configuration › RPS Settings › should display RPS input field (2.0s)
+  ✓   58 [security-tests] › tests/security/rate-limiting.spec.ts:114:5 › Rate Limiting Configuration › RPS Settings › should validate RPS input (minimum value) (1.9s)
+  ✓   59 [security-tests] › tests/security/rate-limiting.spec.ts:135:5 › Rate Limiting Configuration › RPS Settings › should accept valid RPS value (2.2s)
+  ✓   60 [security-tests] › tests/security/rate-limiting.spec.ts:158:5 › Rate Limiting Configuration › Burst Settings › should display burst limit input (3.3s)
+  ✓   61 [security-tests] › tests/security/rate-limiting.spec.ts:172:5 › Rate Limiting Configuration › Time Window Settings › should display time window setting (2.2s)
+  ✓   62 [security-tests] › tests/security/rate-limiting.spec.ts:185:5 › Rate Limiting Configuration › Save Settings › should have save button (2.0s)
+  ✓   63 [security-tests] › tests/security/rate-limiting.spec.ts:196:5 › Rate Limiting Configuration › Navigation › should navigate back to security dashboard (2.0s)
+  ✓   64 [security-tests] › tests/security/rate-limiting.spec.ts:208:5 › Rate Limiting Configuration › Accessibility › should have labeled input fields (1.9s)
+  ✓   65 [security-tests] › tests/security/security-dashboard.spec.ts:32:5 › Security Dashboard › Page Loading › should display security dashboard page title (2.5s)
+  ✓   66 [security-tests] › tests/security/security-dashboard.spec.ts:36:5 › Security Dashboard › Page Loading › should display Cerberus dashboard header (2.4s)
+  ✓   67 [security-tests] › tests/security/security-dashboard.spec.ts:40:5 › Security Dashboard › Page Loading › should show all 4 security module cards (2.4s)
+  ✓   68 [security-tests] › tests/security/security-dashboard.spec.ts:58:5 › Security Dashboard › Page Loading › should display layer badges for each module (2.4s)
+  ✓   69 [security-tests] › tests/security/security-dashboard.spec.ts:65:5 › Security Dashboard › Page Loading › should show audit logs button in header (2.3s)
+  ✓   70 [security-tests] › tests/security/security-dashboard.spec.ts:70:5 › Security Dashboard › Page Loading › should show docs button in header (2.2s)
+  ✓   71 [security-tests] › tests/security/security-dashboard.spec.ts:77:5 › Security Dashboard › Module Status Indicators › should show enabled/disabled badge for each module (2.3s)
+  ✓   72 [security-tests] › tests/security/security-dashboard.spec.ts:93:5 › Security Dashboard › Module Status Indicators › should display CrowdSec toggle switch (2.2s)
+  ✓   73 [security-tests] › tests/security/security-dashboard.spec.ts:98:5 › Security Dashboard › Module Status Indicators › should display ACL toggle switch (2.3s)
+  ✓   74 [security-tests] › tests/security/security-dashboard.spec.ts:103:5 › Security Dashboard › Module Status Indicators › should display WAF toggle switch (2.2s)
+  ✓   75 [security-tests] › tests/security/security-dashboard.spec.ts:108:5 › Security Dashboard › Module Status Indicators › should display Rate Limiting toggle switch (2.3s)
+  -   76 [security-tests] › tests/security/security-dashboard.spec.ts:147:5 › Security Dashboard › Module Toggle Actions › should toggle ACL enabled/disabled
+  -   77 [security-tests] › tests/security/security-dashboard.spec.ts:171:5 › Security Dashboard › Module Toggle Actions › should toggle WAF enabled/disabled
+  -   78 [security-tests] › tests/security/security-dashboard.spec.ts:195:5 › Security Dashboard › Module Toggle Actions › should toggle Rate Limiting enabled/disabled
+✓ Security state restored after toggle tests
+  -   79 [security-tests] › tests/security/security-dashboard.spec.ts:219:5 › Security Dashboard › Module Toggle Actions › should persist toggle state after page reload
+  -   80 [security-tests] › tests/security/security-dashboard.spec.ts:257:5 › Security Dashboard › Navigation › should navigate to CrowdSec page when configure clicked
+  ✓   81 [security-tests] › tests/security/security-dashboard.spec.ts:284:5 › Security Dashboard › Navigation › should navigate to Access Lists page when clicked (3.1s)
+  -   82 [security-tests] › tests/security/security-dashboard.spec.ts:316:5 › Security Dashboard › Navigation › should navigate to WAF page when configure clicked
+  -   83 [security-tests] › tests/security/security-dashboard.spec.ts:342:5 › Security Dashboard › Navigation › should navigate to Rate Limiting page when configure clicked
+  ✓   84 [security-tests] › tests/security/security-dashboard.spec.ts:368:5 › Security Dashboard › Navigation › should navigate to Audit Logs page (3.2s)
+  ✓   85 [security-tests] › tests/security/security-dashboard.spec.ts:377:5 › Security Dashboard › Admin Whitelist › should display admin whitelist section when Cerberus enabled (2.5s)
+  ✓   86 [security-tests] › tests/security/security-dashboard.spec.ts:399:5 › Security Dashboard › Accessibility › should have accessible toggle switches with labels (2.4s)
+  ✓   87 [security-tests] › tests/security/security-dashboard.spec.ts:416:5 › Security Dashboard › Accessibility › should navigate with keyboard (2.0s)
+  ✓   88 [security-tests] › tests/security/security-headers.spec.ts:26:5 › Security Headers Configuration › Page Loading › should display security headers page (2.3s)
+  ✓   89 [security-tests] › tests/security/security-headers.spec.ts:40:5 › Security Headers Configuration › Header Score Display › should display security score (2.0s)
+  ✓   90 [security-tests] › tests/security/security-headers.spec.ts:49:5 › Security Headers Configuration › Header Score Display › should show score breakdown (2.0s)
+  ✓   91 [security-tests] › tests/security/security-headers.spec.ts:60:5 › Security Headers Configuration › Preset Profiles › should display preset profiles (1.8s)
+  ✓   92 [security-tests] › tests/security/security-headers.spec.ts:69:5 › Security Headers Configuration › Preset Profiles › should have preset options (Basic, Strict, Custom) (2.0s)
+  ✓   93 [security-tests] › tests/security/security-headers.spec.ts:78:5 › Security Headers Configuration › Preset Profiles › should apply preset when selected (2.1s)
+  ✓   94 [security-tests] › tests/security/security-headers.spec.ts:95:5 › Security Headers Configuration › Individual Header Configuration › should display CSP (Content-Security-Policy) settings (1.8s)
+  ✓   95 [security-tests] › tests/security/security-headers.spec.ts:104:5 › Security Headers Configuration › Individual Header Configuration › should display HSTS settings (1.8s)
+  ✓   96 [security-tests] › tests/security/security-headers.spec.ts:113:5 › Security Headers Configuration › Individual Header Configuration › should display X-Frame-Options settings (2.1s)
+  ✓   97 [security-tests] › tests/security/security-headers.spec.ts:120:5 › Security Headers Configuration › Individual Header Configuration › should display X-Content-Type-Options settings (1.9s)
+  ✓   98 [security-tests] › tests/security/security-headers.spec.ts:129:5 › Security Headers Configuration › Header Toggle Controls › should have toggles for individual headers (1.9s)
+  ✓   99 [security-tests] › tests/security/security-headers.spec.ts:137:5 › Security Headers Configuration › Header Toggle Controls › should toggle header on/off (2.0s)
+  ✓  100 [security-tests] › tests/security/security-headers.spec.ts:156:5 › Security Headers Configuration › Profile Management › should have create profile button (2.0s)
+  ✓  101 [security-tests] › tests/security/security-headers.spec.ts:165:5 › Security Headers Configuration › Profile Management › should open profile creation modal (2.1s)
+  ✓  102 [security-tests] › tests/security/security-headers.spec.ts:183:5 › Security Headers Configuration › Profile Management › should list existing profiles (1.9s)
+  ✓  103 [security-tests] › tests/security/security-headers.spec.ts:194:5 › Security Headers Configuration › Save Configuration › should have save button (1.9s)
+  ✓  104 [security-tests] › tests/security/security-headers.spec.ts:205:5 › Security Headers Configuration › Navigation › should navigate back to security dashboard (1.9s)
+  ✓  105 [security-tests] › tests/security/security-headers.spec.ts:217:5 › Security Headers Configuration › Accessibility › should have accessible toggle controls (2.1s)
+  ✓  106 [security-tests] › tests/security/waf-config.spec.ts:26:5 › WAF Configuration › Page Loading › should display WAF configuration page (2.2s)
+  ✓  107 [security-tests] › tests/security/waf-config.spec.ts:40:5 › WAF Configuration › Page Loading › should display WAF status indicator (2.0s)
+  ✓  108 [security-tests] › tests/security/waf-config.spec.ts:54:5 › WAF Configuration › WAF Mode Toggle › should display current WAF mode (2.0s)
+  ✓  109 [security-tests] › tests/security/waf-config.spec.ts:63:5 › WAF Configuration › WAF Mode Toggle › should have mode toggle switch or selector (2.0s)
+  ✓  110 [security-tests] › tests/security/waf-config.spec.ts:77:5 › WAF Configuration › WAF Mode Toggle › should toggle between blocking and detection mode (2.2s)
+  ✓  111 [security-tests] › tests/security/waf-config.spec.ts:96:5 › WAF Configuration › Ruleset Management › should display available rulesets (2.2s)
+  ✓  112 [security-tests] › tests/security/waf-config.spec.ts:101:5 › WAF Configuration › Ruleset Management › should show rule groups with toggle controls (2.3s)
+  ✓  113 [security-tests] › tests/security/waf-config.spec.ts:112:5 › WAF Configuration › Ruleset Management › should allow enabling/disabling rule groups (2.7s)
+  ✓  114 [security-tests] › tests/security/waf-config.spec.ts:135:5 › WAF Configuration › Anomaly Threshold › should display anomaly threshold setting (2.2s)
+  ✓  115 [security-tests] › tests/security/waf-config.spec.ts:144:5 › WAF Configuration › Anomaly Threshold › should have threshold input control (2.0s)
+  ✓  116 [security-tests] › tests/security/waf-config.spec.ts:157:5 › WAF Configuration › Whitelist/Exclusions › should display whitelist section (1.8s)
+  ✓  117 [security-tests] › tests/security/waf-config.spec.ts:166:5 › WAF Configuration › Whitelist/Exclusions › should have ability to add whitelist entries (1.6s)
+  ✓  118 [security-tests] › tests/security/waf-config.spec.ts:177:5 › WAF Configuration › Save and Apply › should have save button (1.5s)
+  ✓  119 [security-tests] › tests/security/waf-config.spec.ts:186:5 › WAF Configuration › Save and Apply › should show confirmation on save (1.6s)
+  ✓  120 [security-tests] › tests/security/waf-config.spec.ts:206:5 › WAF Configuration › Navigation › should navigate back to security dashboard (1.6s)
+  ✓  121 [security-tests] › tests/security/waf-config.spec.ts:219:5 › WAF Configuration › Accessibility › should have accessible controls (1.6s)
+✅ Admin whitelist configured for test IP ranges
+✓ Cerberus enabled
+✓ ACL enabled
+  ✓  122 [security-tests] › tests/security-enforcement/acl-enforcement.spec.ts:114:3 › ACL Enforcement › should verify ACL is enabled (9ms)
+  ✓  123 [security-tests] › tests/security-enforcement/acl-enforcement.spec.ts:120:3 › ACL Enforcement › should return security status with ACL mode (7ms)
+  ✓  124 [security-tests] › tests/security-enforcement/acl-enforcement.spec.ts:130:3 › ACL Enforcement › should list access lists when ACL enabled (9ms)
+  ✓  125 [security-tests] › tests/security-enforcement/acl-enforcement.spec.ts:138:3 › ACL Enforcement › should test IP against access list (11ms)
+✓ Security state restored
+  ✓  126 [security-tests] › tests/security-enforcement/acl-enforcement.spec.ts:162:3 › ACL Enforcement › should show correct error response format for blocked requests (16ms)
+  -  127 [security-tests] › tests/security-enforcement/combined-enforcement.spec.ts:99:8 › Combined Security Enforcement › should enable all security modules simultaneously
+✅ Admin whitelist configured for test IP ranges
+Audit logs endpoint returned 404
+  ✓  128 [security-tests] › tests/security-enforcement/combined-enforcement.spec.ts:106:3 › Combined Security Enforcement › should log security events to audit log (1.5s)
+✓ Rapid toggle completed without race conditions
+  ✓  129 [security-tests] › tests/security-enforcement/combined-enforcement.spec.ts:129:3 › Combined Security Enforcement › should handle rapid module toggle without race conditions (538ms)
+✓ Settings persisted across API calls
+  ✓  130 [security-tests] › tests/security-enforcement/combined-enforcement.spec.ts:157:3 › Combined Security Enforcement › should persist settings across API calls (1.5s)
+✓ Security state restored
+  -  131 [security-tests] › tests/security-enforcement/combined-enforcement.spec.ts:182:3 › Combined Security Enforcement › should enforce correct priority when multiple modules enabled
+✅ Admin whitelist configured for test IP ranges
+✓ Cerberus enabled
+✓ CrowdSec enabled
+  ✓  132 [security-tests] › tests/security-enforcement/crowdsec-enforcement.spec.ts:110:3 › CrowdSec Enforcement › should verify CrowdSec is enabled (6ms)
+  ✓  133 [security-tests] › tests/security-enforcement/crowdsec-enforcement.spec.ts:116:3 › CrowdSec Enforcement › should list CrowdSec decisions (4ms)
+✓ Security state restored
+  ✓  134 [security-tests] › tests/security-enforcement/crowdsec-enforcement.spec.ts:135:3 › CrowdSec Enforcement › should return CrowdSec status with mode and API URL (7ms)
+  ✓  135 [security-tests] › tests/security-enforcement/emergency-reset.spec.ts:15:3 › Emergency Security Reset (Break-Glass) › should reset security when called with valid token (18ms)
+  ✓  136 [security-tests] › tests/security-enforcement/emergency-reset.spec.ts:31:3 › Emergency Security Reset (Break-Glass) › should reject request with invalid token (7ms)
+  ✓  137 [security-tests] › tests/security-enforcement/emergency-reset.spec.ts:42:3 › Emergency Security Reset (Break-Glass) › should reject request without token (9ms)
+  ✓  138 [security-tests] › tests/security-enforcement/emergency-reset.spec.ts:47:3 › Emergency Security Reset (Break-Glass) › should allow recovery when ACL blocks everything (18ms)
+  -  139 [security-tests] › tests/security-enforcement/emergency-reset.spec.ts:69:8 › Emergency Security Reset (Break-Glass) › should rate limit after 5 attempts
+🔧 Setting up test suite: Ensuring Cerberus and ACL are enabled...
+  ✓ Cerberus master switch enabled
+  ✓ ACL enabled
+  ⏳ ACL not yet enabled, retrying... (15 left)
+  ⏳ ACL not yet enabled, retrying... (14 left)
+  ⏳ ACL not yet enabled, retrying... (13 left)
+  ⏳ ACL not yet enabled, retrying... (12 left)
+  ⏳ ACL not yet enabled, retrying... (11 left)
+  ⏳ ACL not yet enabled, retrying... (10 left)
+  ⏳ ACL not yet enabled, retrying... (9 left)
+  ⏳ ACL not yet enabled, retrying... (8 left)
+  ⏳ ACL not yet enabled, retrying... (7 left)
+  ⏳ ACL not yet enabled, retrying... (6 left)
+  ⏳ ACL not yet enabled, retrying... (5 left)
+  ⏳ ACL not yet enabled, retrying... (4 left)
+  ⏳ ACL not yet enabled, retrying... (3 left)
+  ⏳ ACL not yet enabled, retrying... (2 left)
+  ⏳ ACL not yet enabled, retrying... (1 left)
+🧹 Cleaning up: Resetting security state...
+✅ Security state reset successfully
+  ✘  140 [security-tests] › tests/security-enforcement/emergency-token.spec.ts:160:3 › Emergency Token Break Glass Protocol › Test 1: Emergency token bypasses ACL (6ms)
+  -  141 [security-tests] › tests/security-enforcement/emergency-token.spec.ts:231:3 › Emergency Token Break Glass Protocol › Test 2: Emergency endpoint has NO rate limiting
+  -  142 [security-tests] › tests/security-enforcement/emergency-token.spec.ts:258:3 › Emergency Token Break Glass Protocol › Test 3: Emergency token requires valid token
+  -  143 [security-tests] › tests/security-enforcement/emergency-token.spec.ts:281:3 › Emergency Token Break Glass Protocol › Test 4: Emergency token audit logging
+  -  144 [security-tests] › tests/security-enforcement/emergency-token.spec.ts:325:3 › Emergency Token Break Glass Protocol › Test 5: Emergency token from unauthorized IP (documentation test)
+  -  145 [security-tests] › tests/security-enforcement/emergency-token.spec.ts:335:3 › Emergency Token Break Glass Protocol › Test 6: Emergency token minimum length validation
+  -  146 [security-tests] › tests/security-enforcement/emergency-token.spec.ts:356:3 › Emergency Token Break Glass Protocol › Test 7: Emergency token header stripped
+  -  147 [security-tests] › tests/security-enforcement/emergency-token.spec.ts:400:3 › Emergency Token Break Glass Protocol › Test 8: Emergency reset idempotency
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+✅ Admin whitelist configured for test IP ranges
+✓ Cerberus enabled
+✓ Rate Limiting enabled
+  ✓  148 [security-tests] › tests/security-enforcement/rate-limit-enforcement.spec.ts:115:3 › Rate Limit Enforcement › should verify rate limiting is enabled (47ms)
+  ✓  149 [security-tests] › tests/security-enforcement/rate-limit-enforcement.spec.ts:151:3 › Rate Limit Enforcement › should return rate limit presets (13ms)
+Rate limiting configured - threshold enforcement active at Caddy layer
+✓ Security state restored
+  ✓  150 [security-tests] › tests/security-enforcement/rate-limit-enforcement.spec.ts:168:3 › Rate Limit Enforcement › should document threshold behavior when rate exceeded (14ms)
+  ✓  151 [security-tests] › tests/security-enforcement/security-headers-enforcement.spec.ts:31:3 › Security Headers Enforcement › should return X-Content-Type-Options header (10ms)
+  ✓  152 [security-tests] › tests/security-enforcement/security-headers-enforcement.spec.ts:47:3 › Security Headers Enforcement › should return X-Frame-Options header (8ms)
+HSTS not present on HTTP (expected behavior)
+  ✓  153 [security-tests] › tests/security-enforcement/security-headers-enforcement.spec.ts:63:3 › Security Headers Enforcement › should document HSTS behavior on HTTPS (12ms)
+CSP not configured (optional - set per proxy host)
+  ✓  154 [security-tests] › tests/security-enforcement/security-headers-enforcement.spec.ts:87:3 › Security Headers Enforcement › should verify Content-Security-Policy when configured (6ms)
+✅ Admin whitelist configured for test IP ranges
+✓ Cerberus enabled
+✓ WAF enabled
+  ✓  155 [security-tests] › tests/security-enforcement/waf-enforcement.spec.ts:126:3 › WAF Enforcement › should verify WAF is enabled (6ms)
+  ✓  156 [security-tests] › tests/security-enforcement/waf-enforcement.spec.ts:141:3 › WAF Enforcement › should return WAF configuration from security status (10ms)
+  -  157 [security-tests] › tests/security-enforcement/waf-enforcement.spec.ts:151:8 › WAF Enforcement › should detect SQL injection patterns in request validation
+✓ Security state restored
+  -  158 [security-tests] › tests/security-enforcement/waf-enforcement.spec.ts:158:3 › WAF Enforcement › should document XSS blocking behavior
+  ✓  159 [security-tests] › tests/security-enforcement/zzz-admin-whitelist-blocking.spec.ts:52:3 › Admin Whitelist IP Blocking (RUN LAST) › Test 1: should block non-whitelisted IP when Cerberus enabled (42ms)
+  ✓  160 [security-tests] › tests/security-enforcement/zzz-admin-whitelist-blocking.spec.ts:88:3 › Admin Whitelist IP Blocking (RUN LAST) › Test 2: should allow whitelisted IP to enable Cerberus (94ms)
+🔧 Emergency reset - cleaning up admin whitelist test
+✅ Emergency reset completed - test IP unblocked
+  ✓  161 [security-tests] › tests/security-enforcement/zzz-admin-whitelist-blocking.spec.ts:123:3 › Admin Whitelist IP Blocking (RUN LAST) › Test 3: should allow emergency token to bypass admin whitelist (246ms)
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+
+🔒 Security Teardown: Disabling all security modules...
+  ✓ Disabled via API: security.acl.enabled
+  ✓ Disabled via API: security.waf.enabled
+  ✓ Disabled via API: security.crowdsec.enabled
+  ✓ Disabled via API: security.rate_limit.enabled
+  ✓ Disabled via API: feature.cerberus.enabled
+  ⏳ Waiting for Caddy config reload...
+✅ Security teardown complete: All modules disabled
+
+  ✓  162 [security-teardown] › tests/security-teardown.setup.ts:20:1 › disable-all-security-modules (1.2s)
+
+
+  1) [security-tests] › tests/security-enforcement/emergency-token.spec.ts:160:3 › Emergency Token Break Glass Protocol › Test 1: Emergency token bypasses ACL
+
+    Error: ACL verification failed - ACL not showing as enabled after retries
+
+      88 |
+      89 |     if (!aclEnabled) {
+    > 90 |       throw new Error('ACL verification failed - ACL not showing as enabled after retries');
+         |             ^
+      91 |     }
+      92 |
+      93 |     // STEP 4: Delete ALL access lists to ensure clean blocking state
+        at /projects/Charon/tests/security-enforcement/emergency-token.spec.ts:90:13
+
+  1 failed
+    [security-tests] › tests/security-enforcement/emergency-token.spec.ts:160:3 › Emergency Token Break Glass Protocol › Test 1: Emergency token bypasses ACL
+  26 skipped
+  804 did not run
+  128 passed (4.7m)
+
+╔════════════════════════════════════════════════════════════╗
+║              E2E Test Execution Summary                      ║
+╠════════════════════════════════════════════════════════════╣
+║ Total Tests:        162                                       ║
+║ ✅ Passed:          128 (79%)                                 ║
+║ ❌ Failed:          1                                         ║
+║ ⏭️  Skipped:         33                                        ║
+╚════════════════════════════════════════════════════════════╝
+
+🔍 Failure Analysis by Type:
+────────────────────────────────────────────────────────────
+other        │ ████████████████████ 1/1 (100%)

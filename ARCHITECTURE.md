@@ -616,6 +616,71 @@ graph LR
 
 ---
 
+## Network Architecture
+
+### Dual-Port Model
+
+Charon operates with **two distinct traffic flows** on separate ports, each with different security characteristics:
+
+#### Management Interface (Port 8080)
+
+**Purpose:** Admin UI and REST API for Charon configuration
+
+- **Protocol:** HTTPS (via Gin HTTP server)
+- **Frontend:** React SPA served by Gin
+- **Backend:** REST API at `/api/v1/*`
+- **Middleware:** Standard HTTP middleware (CORS, GZIP, auth, logging, metrics, panic recovery)
+- **Security:** JWT authentication, CSRF protection, input validation
+- **NO Cerberus Middleware:** Rate limiting, ACL, WAF, and CrowdSec are NOT applied to management interface
+- **Testing:** Playwright E2E tests verify UI/UX functionality on this port
+
+**Why No Middleware?**
+- Management interface must remain accessible even when security modules are misconfigured
+- Emergency endpoints (`/api/v1/emergency/*`) require unrestricted access for system recovery
+- Separation of concerns: admin access control is handled by JWT, not proxy-level security
+
+#### Proxy Traffic (Ports 80/443)
+
+**Purpose:** User-configured reverse proxy hosts with full security enforcement
+
+- **Protocol:** HTTP/HTTPS (via Caddy server)
+- **Routes:** User-defined proxy configurations (e.g., `app.example.com → http://localhost:3000`)
+- **Middleware:** Full Cerberus Security Suite
+  - Rate Limiting (Cerberus)
+  - IP Reputation (CrowdSec Bouncer)
+  - Access Control Lists (ACL)
+  - Web Application Firewall (Coraza WAF)
+- **Security:** All middleware enforced in order (Rate Limit → CrowdSec → ACL → WAF)
+- **Testing:** Integration tests in `backend/integration/` verify middleware behavior
+
+**Traffic Separation Example:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Charon Container                        │
+│                                                             │
+│  Port 8080 (Management)        Port 80/443 (Proxy)        │
+│  ┌─────────────────────┐       ┌──────────────────────┐   │
+│  │ React UI            │       │ Caddy Proxy          │   │
+│  │ REST API            │       │ + Cerberus           │   │
+│  │ NO middleware       │       │   - Rate Limiting    │   │
+│  │                     │       │   - CrowdSec         │   │
+│  │ Used by:            │       │   - ACL              │   │
+│  │ - Admins            │       │   - WAF              │   │
+│  │ - E2E tests         │       │                      │   │
+│  └─────────────────────┘       │ Used by:             │   │
+│           ▲                    │ - End users          │   │
+│           │                    │ - Integration tests  │   │
+│           │                    └──────────────────────┘   │
+│           │                             ▲                 │
+└───────────┼─────────────────────────────┼─────────────────┘
+            │                             │
+       Admin access                  Public traffic
+    (localhost:8080)              (example.com:80/443)
+```
+
+---
+
 ## Data Flow
 
 ### Request Flow: Create Proxy Host

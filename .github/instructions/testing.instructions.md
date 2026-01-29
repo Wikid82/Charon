@@ -6,7 +6,24 @@ description: 'Strict protocols for test execution, debugging, and coverage valid
 
 ## 0. E2E Verification First (Playwright)
 
-**MANDATORY**: Before running unit tests, verify the application functions correctly end-to-end.
+**MANDATORY**: Before running unit tests, verify the application UI/UX functions correctly end-to-end.
+
+### Testing Scope Clarification
+
+**Playwright E2E Tests (UI/UX):**
+- Test user interactions with the React frontend
+- Verify UI state changes when settings are toggled
+- Ensure forms submit correctly
+- Check navigation and page rendering
+- **Port: 8080 (Charon Management Interface)**
+
+**Integration Tests (Middleware Enforcement):**
+- Test Cerberus security module enforcement
+- Verify ACL, WAF, Rate Limiting, CrowdSec actually block/allow requests
+- Test requests routing through Caddy proxy with full middleware
+- **Port: 80 (User Traffic via Caddy)**
+- **Location: `backend/integration/` with `//go:build integration` tag**
+- **CI: Runs in separate workflows (cerberus-integration.yml, waf-integration.yml, etc.)**
 
 ### Two Modes: Docker vs Vite
 

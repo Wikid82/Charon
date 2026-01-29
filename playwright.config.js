@@ -122,8 +122,9 @@ export default defineConfig({
      * stores cookies for the domain in this baseURL. TestDataManager and
      * browser tests must use the SAME domain for cookies to be sent.
      *
-     * For local testing, always use http://localhost:8080 (not IP addresses).
-     * CI sets PLAYWRIGHT_BASE_URL=http://localhost:8080 automatically.
+     * E2E tests verify UI/UX on the Charon management interface (port 8080).
+     * Middleware enforcement is tested separately via integration tests (backend/integration/).
+     * CI can override with PLAYWRIGHT_BASE_URL environment variable if needed.
      */
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080',
 

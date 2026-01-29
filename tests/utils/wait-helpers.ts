@@ -79,21 +79,27 @@ export async function waitForToast(
 ): Promise<void> {
   const { timeout = 10000, type } = options;
 
-  // Build reliable toast locator with multiple fallback selectors
-  // Primary: data-testid (custom), Secondary: data-sonner-toast (Sonner), Tertiary: role="alert"
-  let toast;
+  // react-hot-toast uses:
+  // - role="status" for success/info toasts
+  // - role="alert" for error toasts
+  let toast: Locator;
 
-  if (type) {
-    // Type-specific toast with fallbacks
+  if (type === 'error') {
+    // Error toasts use role="alert"
     toast = page.locator(`[data-testid="toast-${type}"]`)
-      .or(page.locator('[data-sonner-toast]'))
       .or(page.getByRole('alert'))
       .filter({ hasText: text })
       .first();
+  } else if (type === 'success' || type === 'info') {
+    // Success/info toasts use role="status"
+    toast = page.locator(`[data-testid="toast-${type}"]`)
+      .or(page.getByRole('status'))
+      .filter({ hasText: text })
+      .first();
   } else {
-    // Any toast with fallbacks
+    // Any toast: check both roles
     toast = page.locator('[data-testid^="toast-"]:not([data-testid="toast-container"])')
-      .or(page.locator('[data-sonner-toast]'))
+      .or(page.getByRole('status'))
       .or(page.getByRole('alert'))
       .filter({ hasText: text })
       .first();

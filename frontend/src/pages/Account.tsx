@@ -37,6 +37,7 @@ export default function Account() {
   const [certEmail, setCertEmail] = useState('')
   const [certEmailValid, setCertEmailValid] = useState<boolean | null>(null)
   const [useUserEmail, setUseUserEmail] = useState(true)
+  const [certEmailInitialized, setCertEmailInitialized] = useState(false)
 
   const queryClient = useQueryClient()
   const { changePassword } = useAuth()
@@ -68,10 +69,9 @@ export default function Account() {
     }
   }, [email])
 
-  // Initialize cert email state (only once on mount)
-  // Empty dependency array ensures initialization runs exactly once and is never affected by React Query refetches
+  // Initialize cert email state only once, when both settings and profile are loaded
   useEffect(() => {
-    if (settings && profile) {
+    if (!certEmailInitialized && settings && profile) {
       const savedEmail = settings['caddy.email']
       if (savedEmail && savedEmail !== profile.email) {
         setCertEmail(savedEmail)
@@ -80,8 +80,9 @@ export default function Account() {
         setCertEmail(profile.email)
         setUseUserEmail(true)
       }
+      setCertEmailInitialized(true)
     }
-  }, [])
+  }, [settings, profile, certEmailInitialized])
 
   // Validate cert email
   useEffect(() => {

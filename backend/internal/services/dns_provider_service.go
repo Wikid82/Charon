@@ -107,6 +107,7 @@ type TestResult struct {
 type DNSProviderService interface {
 	List(ctx context.Context) ([]models.DNSProvider, error)
 	Get(ctx context.Context, id uint) (*models.DNSProvider, error)
+	GetByUUID(ctx context.Context, uuid string) (*models.DNSProvider, error)
 	Create(ctx context.Context, req CreateDNSProviderRequest) (*models.DNSProvider, error)
 	Update(ctx context.Context, id uint, req UpdateDNSProviderRequest) (*models.DNSProvider, error)
 	Delete(ctx context.Context, id uint) error
@@ -153,6 +154,19 @@ func (s *dnsProviderService) List(ctx context.Context) ([]models.DNSProvider, er
 func (s *dnsProviderService) Get(ctx context.Context, id uint) (*models.DNSProvider, error) {
 	var provider models.DNSProvider
 	err := s.db.WithContext(ctx).Where("id = ?", id).First(&provider).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrDNSProviderNotFound
+		}
+		return nil, err
+	}
+	return &provider, nil
+}
+
+// GetByUUID retrieves a DNS provider by UUID.
+func (s *dnsProviderService) GetByUUID(ctx context.Context, uuid string) (*models.DNSProvider, error) {
+	var provider models.DNSProvider
+	err := s.db.WithContext(ctx).Where("uuid = ?", uuid).First(&provider).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrDNSProviderNotFound

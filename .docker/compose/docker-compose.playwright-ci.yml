@@ -37,8 +37,9 @@ services:
       - "8080:8080"            # Management UI (Charon)
       - "127.0.0.1:2019:2019" # Caddy admin API (IPv4 loopback)
       - "[::1]:2019:2019"     # Caddy admin API (IPv6 loopback)
-      - "127.0.0.1:2020:2020" # Emergency tier-2 API (IPv4 loopback)
-      - "[::1]:2020:2020"     # Emergency tier-2 API (IPv6 loopback)
+      - "2020:2020"           # Emergency tier-2 API (all interfaces for E2E tests)
+      - "80:80"               # Caddy proxy (all interfaces for E2E tests)
+      - "443:443"             # Caddy proxy HTTPS (all interfaces for E2E tests)
     environment:
       # Core configuration
       - CHARON_ENV=test

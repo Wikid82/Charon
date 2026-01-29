@@ -95,10 +95,8 @@ test.describe('Authentication Flows', () => {
       await test.step('Submit and verify error', async () => {
         await page.getByRole('button', { name: /sign in/i }).click();
 
-        // Wait for error message to appear
-        const errorMessage = page
-          .getByRole('alert')
-          .or(page.getByText(/invalid|incorrect|wrong|failed/i));
+        // Wait for error toast to appear (use specific test ID to avoid strict mode violation)
+        const errorMessage = page.getByTestId('toast-error');
         await expect(errorMessage).toBeVisible({ timeout: 10000 });
       });
 
@@ -150,10 +148,8 @@ test.describe('Authentication Flows', () => {
       await test.step('Submit and verify error', async () => {
         await page.getByRole('button', { name: /sign in/i }).click();
 
-        // Wait for error message - should not reveal if user exists
-        const errorMessage = page
-          .getByRole('alert')
-          .or(page.getByText(/invalid|incorrect|not found|failed/i));
+        // Wait for error toast to appear (use specific test ID to avoid strict mode violation)
+        const errorMessage = page.getByTestId('toast-error');
         await expect(errorMessage).toBeVisible({ timeout: 10000 });
       });
 

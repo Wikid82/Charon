@@ -66,7 +66,12 @@ test.describe('Emergency Security Reset (Break-Glass)', () => {
   });
 
   // Rate limit test runs LAST to avoid blocking subsequent tests
-  test.skip('should rate limit after 5 attempts', async ({ request }) => {
+  test('should rate limit after 5 attempts', async ({ request }) => {
+    test.skip(
+      true,
+      'Rate limiting enforced via Cerberus middleware (port 80). Verified in integration tests (backend/integration/).'
+    );
+
     // Rate limiting is covered in emergency-token.spec.ts (Test 2), which also
     // waits for the limiter window to reset to avoid affecting subsequent specs.
     for (let i = 0; i < 5; i++) {

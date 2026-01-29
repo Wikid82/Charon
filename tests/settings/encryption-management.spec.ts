@@ -326,7 +326,7 @@ test.describe('Encryption Management', () => {
         // Look for success indicators on the page
         const successToast = page
           .locator('[data-testid="toast-success"]')
-          .or(page.getByRole('alert').filter({ hasText: /success|completed|rotated/i }))
+          .or(page.getByRole('status').filter({ hasText: /success|completed|rotated/i }))
           .or(page.getByText(/rotation.*success|key.*rotated|completed.*successfully/i));
 
         // Check if success message is already visible (from previous test)
@@ -461,7 +461,7 @@ test.describe('Encryption Management', () => {
 
         const successToast = page
           .locator('[data-testid="toast-success"]')
-          .or(page.getByRole('alert').filter({ hasText: /success|valid/i }))
+          .or(page.getByRole('status').filter({ hasText: /success|valid/i }))
           .or(page.getByText(/validation.*success|keys.*valid|configuration.*valid/i));
 
         const hasSuccess = await successToast.first().isVisible({ timeout: 5000 }).catch(() => false);
