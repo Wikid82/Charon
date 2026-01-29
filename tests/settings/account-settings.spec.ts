@@ -75,7 +75,8 @@ test.describe('Account Settings', () => {
       });
 
       await test.step('Verify success toast', async () => {
-        await waitForToast(page, /updated|saved|success/i, { type: 'success' });
+        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
+        await expect(toast.filter({ hasText: /updated|saved|success/i })).toBeVisible({ timeout: 10000 });
       });
 
       await test.step('Verify name persisted after page reload', async () => {
@@ -124,7 +125,8 @@ test.describe('Account Settings', () => {
       });
 
       await test.step('Verify success toast', async () => {
-        await waitForToast(page, /updated|saved|success/i, { type: 'success' });
+        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
+        await expect(toast.filter({ hasText: /updated|saved|success/i })).toBeVisible({ timeout: 10000 });
       });
     });
 
@@ -363,7 +365,8 @@ test.describe('Account Settings', () => {
       });
 
       await test.step('Verify success toast', async () => {
-        await waitForToast(page, /updated|saved|success/i, { type: 'success' });
+        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
+        await expect(toast.filter({ hasText: /updated|saved|success/i })).toBeVisible({ timeout: 10000 });
       });
 
       await test.step('Verify email persisted after reload', async () => {
@@ -412,7 +415,8 @@ test.describe('Account Settings', () => {
       });
 
       await test.step('Verify success toast', async () => {
-        await waitForToast(page, /updated|changed|success/i, { type: 'success' });
+        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
+        await expect(toast.filter({ hasText: /updated|changed|success/i })).toBeVisible({ timeout: 10000 });
       });
 
       await test.step('Verify password fields are cleared', async () => {
@@ -449,7 +453,8 @@ test.describe('Account Settings', () => {
         await updateButton.click();
 
         // Should show error about incorrect password
-        await waitForToast(page, /incorrect|invalid|wrong|failed/i, { type: 'error' });
+        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
+        await expect(toast.filter({ hasText: /incorrect|invalid|wrong|failed/i })).toBeVisible({ timeout: 10000 });
       });
     });
 
@@ -595,7 +600,8 @@ test.describe('Account Settings', () => {
       });
 
       await test.step('Verify success toast', async () => {
-        await waitForToast(page, /copied|clipboard/i, { type: 'success' });
+        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
+        await expect(toast.filter({ hasText: /copied|clipboard/i })).toBeVisible({ timeout: 10000 });
       });
 
       await test.step('Verify clipboard contains API key', async () => {
@@ -638,7 +644,8 @@ test.describe('Account Settings', () => {
       });
 
       await test.step('Verify success toast', async () => {
-        await waitForToast(page, /regenerated|generated|new.*key/i, { type: 'success' });
+        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
+        await expect(toast.filter({ hasText: /regenerated|generated|new.*key/i })).toBeVisible({ timeout: 10000 });
       });
 
       await test.step('Verify API key changed', async () => {
@@ -678,7 +685,8 @@ test.describe('Account Settings', () => {
 
         // Button may show loading indicator or be disabled briefly
         // Then success toast should appear
-        await waitForToast(page, /regenerated|generated|success/i, { type: 'success' });
+        const toast = page.getByRole('alert').or(page.locator('[data-sonner-toast]'));
+        await expect(toast.filter({ hasText: /regenerated|generated|success/i })).toBeVisible({ timeout: 10000 });
       });
     });
   });

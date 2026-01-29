@@ -84,6 +84,8 @@ test.describe('Rate Limit Enforcement', () => {
     // Enable Rate Limiting
     try {
       await setSecurityModuleEnabled(requestContext, 'rateLimit', true);
+      // Wait for rate limiting to propagate
+      await new Promise(r => setTimeout(r, 2000));
       console.log('✓ Rate Limiting enabled');
     } catch (error) {
       console.error('Failed to enable Rate Limiting:', error);

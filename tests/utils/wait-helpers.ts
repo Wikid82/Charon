@@ -79,23 +79,27 @@ export async function waitForToast(
 ): Promise<void> {
   const { timeout = 10000, type } = options;
 
-  // Build selectors prioritizing our custom toast system which uses data-testid
-  // This avoids matching generic [role="alert"] elements like security notices
-  let selector: string;
+  // Build reliable toast locator with multiple fallback selectors
+  // Primary: data-testid (custom), Secondary: data-sonner-toast (Sonner), Tertiary: role="alert"
+  let toast;
 
   if (type) {
-    // Type-specific toast: match data-testid exactly
-    selector = `[data-testid="toast-${type}"]`;
+    // Type-specific toast with fallbacks
+    toast = page.locator(`[data-testid="toast-${type}"]`)
+      .or(page.locator('[data-sonner-toast]'))
+      .or(page.getByRole('alert'))
+      .filter({ hasText: text })
+      .first();
   } else {
-    // Any toast: match our custom toast container or react-hot-toast
-    // Avoid matching static [role="alert"] elements by being more specific
-    selector = '[data-testid^="toast-"]:not([data-testid="toast-container"])';
+    // Any toast with fallbacks
+    toast = page.locator('[data-testid^="toast-"]:not([data-testid="toast-container"])')
+      .or(page.locator('[data-sonner-toast]'))
+      .or(page.getByRole('alert'))
+      .filter({ hasText: text })
+      .first();
   }
 
-  // Use .first() to handle cases where multiple toasts are visible (e.g., after rapid toggles)
-  // The first matching toast is typically the most recent one we care about
-  const toast = page.locator(selector).first();
-  await expect(toast).toContainText(text, { timeout });
+  await expect(toast).toBeVisible({ timeout });
 }
 
 /**

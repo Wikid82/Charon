@@ -1,395 +1,625 @@
-# E2E Test Failure Remediation Plan - Emergency Token ACL Bypass
+# Access List Handler: UUID Support Plan
 
-**Status**: ACTIVE - READY FOR IMPLEMENTATION
-**Priority**: 🔴 CRITICAL - CI Blocking
-**Created**: 2026-01-28
-**CI Run**: [#53 (e892669)](https://github.com/Wikid82/Charon/actions/runs/21456401944)
-**Branch**: feature/beta-release
-**PR**: #574 (Merge pull request from renovate/feature/beta-release-we...)
+**Version:** 1.0
+**Created:** January 29, 2026
+**Status:** Ready for Implementation
 
 ---
 
-## Executive Summary
+## Problem Statement
 
-| Metric | Value |
-|--------|-------|
-| **Total Tests** | 362 (across 4 shards) |
-| **Passed** | 139 per shard (~556 total runs) |
-| **Failed** | 1 unique test (runs in each shard) |
-| **Skipped** | 22 per shard |
-| **Total Duration** | 8m 55s |
-
-### Failure Summary
-
-| Test File | Test Name | Error | Category |
-|-----------|-----------|-------|----------|
-| `emergency-token.spec.ts:44` | Test 1: Emergency token bypasses ACL | Expected 403, Received 200 | 🔴 CRITICAL |
-
-### Root Cause Identified
-
-**The test fails because the `beforeAll` hook enables ACL but does NOT re-enable Cerberus (the security master switch).**
-
-The emergency security reset (run in `global-setup.ts`) disables ALL security modules including `feature.cerberus.enabled`. When the test's `beforeAll` only enables `security.acl.enabled = true`, the Cerberus middleware short-circuits at line 162-165 because `IsEnabled()` returns `false`.
+The Access List model uses a security design that hides the numeric ID from JSON responses:
 
 ```go
-// cerberus.go:162-165
-if !c.IsEnabled() {
-    ctx.Next()  // ← Request passes through without ACL check
-    return
+// backend/internal/models/access_list.go:9-10
+ID   uint   `json:"-" gorm:"primaryKey"`    // HIDDEN from JSON
+UUID string `json:"uuid" gorm:"uniqueIndex"` // Exposed as "uuid"
+```
+
+However, all four handler endpoints (`Get`, `Update`, `Delete`, `TestIP`) only accept numeric IDs:
+
+```go
+// backend/internal/api/handlers/access_list_handler.go:58, 79, 107, 131
+id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+```
+
+This causes E2E test failures because the JSON response returns `uuid` but tests attempt to use `id`:
+
+1. **Line 138**: `lists[0].id` is `undefined` because `id` is hidden from JSON
+2. **Line 162**: `createdList.id` is `undefined` for the same reason
+
+---
+
+## Requirements (EARS Notation)
+
+### R1: UUID Path Parameter Support
+WHEN a request is made to `/api/v1/access-lists/:id` endpoints,
+THE SYSTEM SHALL accept either a numeric ID or a UUID string in the `:id` path parameter.
+
+### R2: Backward Compatibility
+WHEN a numeric ID is provided in the `:id` path parameter,
+THE SYSTEM SHALL resolve it to an access list using the existing `GetByID()` method.
+
+### R3: UUID Resolution
+WHEN a non-numeric string is provided in the `:id` path parameter,
+THE SYSTEM SHALL attempt to resolve it as a UUID using the existing `GetByUUID()` method.
+
+### R4: Error Handling
+IF neither numeric ID nor UUID matches an access list,
+THEN THE SYSTEM SHALL return HTTP 404 with error message "access list not found".
+
+### R5: Invalid Identifier
+IF the `:id` parameter is empty or cannot be parsed as either uint or valid UUID format,
+THE SYSTEM SHALL return HTTP 400 with error message "invalid ID or UUID".
+
+---
+
+## Technical Design
+
+### Approach: Helper Function in Handler
+
+Create a helper function `resolveAccessList()` that:
+1. First attempts to parse as uint (numeric ID) for backward compatibility
+2. If parsing fails, treats it as UUID and calls `GetByUUID()`
+3. Returns the resolved `*models.AccessList` or appropriate error
+
+This approach:
+- Minimizes code duplication across 4 handlers
+- Preserves backward compatibility with numeric IDs
+- Leverages existing `GetByUUID()` service method
+- Requires no service layer changes
+
+### Implementation Pattern
+
+```go
+// resolveAccessList resolves an access list by either numeric ID or UUID.
+// It first attempts to parse as uint (backward compatibility), then tries UUID.
+func (h *AccessListHandler) resolveAccessList(idOrUUID string) (*models.AccessList, error) {
+    // Try parsing as numeric ID first (backward compatibility)
+    if id, err := strconv.ParseUint(idOrUUID, 10, 32); err == nil {
+        return h.service.GetByID(uint(id))
+    }
+
+    // Try as UUID
+    return h.service.GetByUUID(idOrUUID)
 }
 ```
 
-**Impact**:
-- 🔴 **CI pipeline blocked** - Cannot merge to feature/beta-release
-- 🔴 **1 E2E test fails** - emergency-token.spec.ts Test 1
-- 🟢 **No production code issue** - Cerberus ACL logic is correct
-- 🟢 **Test issue only** - beforeAll hook missing Cerberus enable step
-
-**The Fix**: Update the test's `beforeAll` hook to enable `feature.cerberus.enabled = true` BEFORE enabling `security.acl.enabled = true`.
-
-**Complexity**: LOW - Single test file fix, ~15 minutes
-
 ---
 
-## Phase 1: Critical Fix (🔴 BLOCKING)
+## Implementation Tasks
 
-### Failure Analysis
+### Phase 1: Handler Modifications (Critical)
 
-#### Test: `emergency-token.spec.ts:44:3` - "Test 1: Emergency token bypasses ACL"
+#### Task 1.1: Add resolveAccessList Helper
+**File:** [access_list_handler.go](../../backend/internal/api/handlers/access_list_handler.go)
+**Location:** After line 27 (after `SetGeoIPService` method)
+**Priority:** Critical
 
-**File:** [tests/security-enforcement/emergency-token.spec.ts](../../../tests/security-enforcement/emergency-token.spec.ts#L44)
-
-**Error Message:**
-```
-Error: expect(received).toBe(expected) // Object.is equality
-Expected: 403
-Received: 200
-
-52 | const blockedResponse = await unauthenticatedRequest.get('/api/v1/security/status');
-53 | await unauthenticatedRequest.dispose();
-54 | expect(blockedResponse.status()).toBe(403);
-```
-
-**Expected Behavior:**
-- When ACL is enabled, unauthenticated requests to `/api/v1/security/status` should return 403
-
-**Actual Behavior:**
-- Request returns 200 (ACL check is bypassed)
-
-**Root Cause Chain:**
-
-1. `global-setup.ts` calls `/api/v1/emergency/security-reset`
-2. Emergency reset disables: `feature.cerberus.enabled`, `security.acl.enabled`, `security.waf.enabled`, `security.rate_limit.enabled`, `security.crowdsec.enabled`
-3. Test's `beforeAll` only enables: `security.acl.enabled = true`
-4. Cerberus middleware checks `IsEnabled()` which reads `feature.cerberus.enabled` (still false)
-5. Cerberus returns early without checking ACL → request passes through
-
-**Issue Type:** Test Issue (incomplete setup)
-
----
-
-## EARS Requirements
-
-### REQ-001: Cerberus Master Switch Precondition
-
-**Priority:** 🔴 CRITICAL
-
-**EARS Notation:**
-> WHEN security test suite `beforeAll` hook enables any individual security module (ACL, WAF, rate limiting),
-> THE SYSTEM SHALL first ensure `feature.cerberus.enabled` is set to `true` before enabling the specific module.
-
-**Acceptance Criteria:**
-- [ ] Test's `beforeAll` enables `feature.cerberus.enabled = true` BEFORE `security.acl.enabled`
-- [ ] Wait for security propagation between setting changes
-- [ ] Verify Cerberus is active by checking `/api/v1/security/status` response
-
----
-
-### REQ-002: Security Module Dependency Validation
-
-**Priority:** 🟡 MEDIUM
-
-**EARS Notation:**
-> WHILE the Cerberus master switch (`feature.cerberus.enabled`) is disabled,
-> THE SYSTEM SHALL ignore individual security module settings (ACL, WAF, rate limiting) and allow all requests through.
-
-**Documentation Note:** This is DOCUMENTED behavior, but tests must respect this precondition.
-
----
-
-### REQ-003: ACL Blocking Verification
-
-**Priority:** 🔴 CRITICAL
-
-**EARS Notation:**
-> WHEN ACL is enabled AND Cerberus is enabled AND there are no active access lists AND the request is NOT from an authenticated admin,
-> THE SYSTEM SHALL return HTTP 403 with error message containing "Blocked by access control".
-
-**Verification:**
 ```go
-// cerberus.go:233-238
-if activeCount == 0 {
-    if isAdmin && !adminWhitelistConfigured {
-        ctx.Next()
+// resolveAccessList resolves an access list by either numeric ID or UUID.
+// It first attempts to parse as uint (backward compatibility), then tries UUID.
+func (h *AccessListHandler) resolveAccessList(idOrUUID string) (*models.AccessList, error) {
+    // Try parsing as numeric ID first (backward compatibility)
+    if id, err := strconv.ParseUint(idOrUUID, 10, 32); err == nil {
+        return h.service.GetByID(uint(id))
+    }
+
+    // Empty string check
+    if idOrUUID == "" {
+        return nil, fmt.Errorf("invalid ID or UUID")
+    }
+
+    // Try as UUID
+    return h.service.GetByUUID(idOrUUID)
+}
+```
+
+**Import Required:** Add `"fmt"` to imports (line 4).
+
+#### Task 1.2: Update Get Handler
+**File:** [access_list_handler.go](../../backend/internal/api/handlers/access_list_handler.go)
+**Location:** Lines 54-72 (Get method)
+
+**Current Code:**
+```go
+func (h *AccessListHandler) Get(c *gin.Context) {
+    id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ID"})
         return
     }
-    ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Blocked by access control list"})
-    return
+
+    acl, err := h.service.GetByID(uint(id))
+    if err != nil {
+        if err == services.ErrAccessListNotFound {
+            c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
+            return
+        }
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusOK, acl)
+}
+```
+
+**New Code:**
+```go
+func (h *AccessListHandler) Get(c *gin.Context) {
+    acl, err := h.resolveAccessList(c.Param("id"))
+    if err != nil {
+        if err == services.ErrAccessListNotFound {
+            c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
+            return
+        }
+        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ID or UUID"})
+        return
+    }
+
+    c.JSON(http.StatusOK, acl)
+}
+```
+
+#### Task 1.3: Update Update Handler
+**File:** [access_list_handler.go](../../backend/internal/api/handlers/access_list_handler.go)
+**Location:** Lines 75-101 (Update method)
+
+**Current Code:**
+```go
+func (h *AccessListHandler) Update(c *gin.Context) {
+    id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ID"})
+        return
+    }
+
+    var updates models.AccessList
+    if err := c.ShouldBindJSON(&updates); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    if err := h.service.Update(uint(id), &updates); err != nil {
+        if err == services.ErrAccessListNotFound {
+            c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
+            return
+        }
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // Fetch updated record
+    acl, _ := h.service.GetByID(uint(id))
+    c.JSON(http.StatusOK, acl)
+}
+```
+
+**New Code:**
+```go
+func (h *AccessListHandler) Update(c *gin.Context) {
+    // Resolve access list first to get the internal ID
+    acl, err := h.resolveAccessList(c.Param("id"))
+    if err != nil {
+        if err == services.ErrAccessListNotFound {
+            c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
+            return
+        }
+        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ID or UUID"})
+        return
+    }
+
+    var updates models.AccessList
+    if err := c.ShouldBindJSON(&updates); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    if err := h.service.Update(acl.ID, &updates); err != nil {
+        if err == services.ErrAccessListNotFound {
+            c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
+            return
+        }
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // Fetch updated record
+    updatedAcl, _ := h.service.GetByID(acl.ID)
+    c.JSON(http.StatusOK, updatedAcl)
+}
+```
+
+#### Task 1.4: Update Delete Handler
+**File:** [access_list_handler.go](../../backend/internal/api/handlers/access_list_handler.go)
+**Location:** Lines 104-125 (Delete method)
+
+**Current Code:**
+```go
+func (h *AccessListHandler) Delete(c *gin.Context) {
+    id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ID"})
+        return
+    }
+
+    if err := h.service.Delete(uint(id)); err != nil {
+        if err == services.ErrAccessListNotFound {
+            c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
+            return
+        }
+        if err == services.ErrAccessListInUse {
+            c.JSON(http.StatusConflict, gin.H{"error": "access list is in use by proxy hosts"})
+            return
+        }
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"message": "access list deleted"})
+}
+```
+
+**New Code:**
+```go
+func (h *AccessListHandler) Delete(c *gin.Context) {
+    // Resolve access list first to get the internal ID
+    acl, err := h.resolveAccessList(c.Param("id"))
+    if err != nil {
+        if err == services.ErrAccessListNotFound {
+            c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
+            return
+        }
+        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ID or UUID"})
+        return
+    }
+
+    if err := h.service.Delete(acl.ID); err != nil {
+        if err == services.ErrAccessListNotFound {
+            c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
+            return
+        }
+        if err == services.ErrAccessListInUse {
+            c.JSON(http.StatusConflict, gin.H{"error": "access list is in use by proxy hosts"})
+            return
+        }
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"message": "access list deleted"})
+}
+```
+
+#### Task 1.5: Update TestIP Handler
+**File:** [access_list_handler.go](../../backend/internal/api/handlers/access_list_handler.go)
+**Location:** Lines 128-157 (TestIP method)
+
+**Current Code:**
+```go
+func (h *AccessListHandler) TestIP(c *gin.Context) {
+    id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ID"})
+        return
+    }
+
+    var req struct {
+        IPAddress string `json:"ip_address" binding:"required"`
+    }
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    allowed, reason, err := h.service.TestIP(uint(id), req.IPAddress)
+    if err != nil {
+        if err == services.ErrAccessListNotFound {
+            c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
+            return
+        }
+        if err == services.ErrInvalidIPAddress {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "invalid IP address"})
+            return
+        }
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "allowed": allowed,
+        "reason":  reason,
+    })
+}
+```
+
+**New Code:**
+```go
+func (h *AccessListHandler) TestIP(c *gin.Context) {
+    // Resolve access list first to get the internal ID
+    acl, err := h.resolveAccessList(c.Param("id"))
+    if err != nil {
+        if err == services.ErrAccessListNotFound {
+            c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
+            return
+        }
+        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ID or UUID"})
+        return
+    }
+
+    var req struct {
+        IPAddress string `json:"ip_address" binding:"required"`
+    }
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    allowed, reason, err := h.service.TestIP(acl.ID, req.IPAddress)
+    if err != nil {
+        if err == services.ErrInvalidIPAddress {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "invalid IP address"})
+            return
+        }
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "allowed": allowed,
+        "reason":  reason,
+    })
 }
 ```
 
 ---
 
-## Implementation Plan
+### Phase 2: Unit Test Updates (High)
 
-### Task 1: Fix Test `beforeAll` Hook (🔴 CRITICAL)
+#### Task 2.1: Add UUID Test Cases
+**File:** [access_list_handler_test.go](../../backend/internal/api/handlers/access_list_handler_test.go)
 
-**File:** [tests/security-enforcement/emergency-token.spec.ts](../../../tests/security-enforcement/emergency-token.spec.ts#L18-L40)
+Add test cases for UUID-based lookups to existing test functions.
 
-**Current Code (Lines 18-40):**
-```typescript
-test.beforeAll(async ({ request }) => {
-  console.log('🔧 Setting up test suite: Ensuring ACL is enabled...');
+**TestAccessListHandler_Get** (add to tests slice at line 166):
+```go
+{
+    name:       "get by UUID",
+    id:         "test-uuid",
+    wantStatus: http.StatusOK,
+},
+{
+    name:       "get by invalid format",
+    id:         "",
+    wantStatus: http.StatusBadRequest,
+},
+```
 
-  const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
-  if (!emergencyToken) {
-    throw new Error('CHARON_EMERGENCY_TOKEN not set - cannot configure test environment');
-  }
-
-  // Use emergency token to enable ACL (bypasses any existing security)
-  const enableResponse = await request.patch('/api/v1/settings', {
-    data: { key: 'security.acl.enabled', value: 'true' },
-    headers: {
-      'X-Emergency-Token': emergencyToken,
+**TestAccessListHandler_Update** (add to tests slice at line 216):
+```go
+{
+    name: "update by UUID successfully",
+    id:   "test-uuid",
+    payload: map[string]any{
+        "name":     "Updated via UUID",
+        "type":     "whitelist",
+        "ip_rules": `[]`,
     },
-  });
-
-  if (!enableResponse.ok()) {
-    throw new Error(`Failed to enable ACL for test suite: ${enableResponse.status()}`);
-  }
-
-  // Wait for security propagation
-  await new Promise(resolve => setTimeout(resolve, 2000));
-  console.log('✅ ACL enabled for test suite');
-});
+    wantStatus: http.StatusOK,
+},
 ```
 
-**Fixed Code:**
-```typescript
-test.beforeAll(async ({ request }) => {
-  console.log('🔧 Setting up test suite: Ensuring Cerberus and ACL are enabled...');
+**TestAccessListHandler_Delete** - Create new ACL with known UUID for delete-by-UUID test.
 
-  const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
-  if (!emergencyToken) {
-    throw new Error('CHARON_EMERGENCY_TOKEN not set - cannot configure test environment');
-  }
+**TestAccessListHandler_TestIP** (add to tests slice at line 359):
+```go
+{
+    name:       "test IP by UUID",
+    id:         "test-uuid",
+    payload:    map[string]string{"ip_address": "192.168.1.100"},
+    wantStatus: http.StatusOK,
+},
+```
 
-  // CRITICAL: Must enable Cerberus master switch FIRST
-  // The emergency reset disables feature.cerberus.enabled, which makes
-  // all other security modules ineffective (IsEnabled() returns false).
-  const cerberusResponse = await request.patch('/api/v1/settings', {
-    data: { key: 'feature.cerberus.enabled', value: 'true' },
-    headers: { 'X-Emergency-Token': emergencyToken },
-  });
-  if (!cerberusResponse.ok()) {
-    throw new Error(`Failed to enable Cerberus: ${cerberusResponse.status()}`);
-  }
-  console.log('  ✓ Cerberus master switch enabled');
+#### Task 2.2: Add Dedicated resolveAccessList Tests
+**File:** [access_list_handler_test.go](../../backend/internal/api/handlers/access_list_handler_test.go)
+**Location:** After `TestAccessListHandler_GetTemplates` (after line 410)
 
-  // Wait for Cerberus to activate
-  await new Promise(resolve => setTimeout(resolve, 1000));
+```go
+func TestAccessListHandler_resolveAccessList(t *testing.T) {
+    router, db := setupAccessListTestRouter(t)
+    _ = router // Needed for handler creation
 
-  // Now enable ACL (will be effective since Cerberus is active)
-  const aclResponse = await request.patch('/api/v1/settings', {
-    data: { key: 'security.acl.enabled', value: 'true' },
-    headers: { 'X-Emergency-Token': emergencyToken },
-  });
-  if (!aclResponse.ok()) {
-    throw new Error(`Failed to enable ACL: ${aclResponse.status()}`);
-  }
-  console.log('  ✓ ACL enabled');
+    handler := NewAccessListHandler(db)
 
-  // Wait for security propagation (settings cache TTL is 60s, but changes are immediate)
-  await new Promise(resolve => setTimeout(resolve, 2000));
-
-  // VALIDATION: Verify security is actually blocking before proceeding
-  console.log('  🔍 Verifying ACL is active...');
-  const statusResponse = await request.get('/api/v1/security/status');
-  if (statusResponse.ok()) {
-    const status = await statusResponse.json();
-    if (!status.acl?.enabled) {
-      throw new Error('ACL verification failed: ACL not reported as enabled in status');
+    // Create test ACL with known UUID
+    acl := models.AccessList{
+        UUID:    "resolve-test-uuid",
+        Name:    "Resolve Test ACL",
+        Type:    "whitelist",
+        Enabled: true,
     }
-    console.log('  ✓ ACL verified as enabled');
-  }
+    db.Create(&acl)
 
-  console.log('✅ Cerberus and ACL enabled for test suite');
-});
+    tests := []struct {
+        name      string
+        idOrUUID  string
+        wantErr   bool
+        wantName  string
+    }{
+        {
+            name:     "resolve by numeric ID",
+            idOrUUID: "1",
+            wantErr:  false,
+            wantName: "Resolve Test ACL",
+        },
+        {
+            name:     "resolve by UUID",
+            idOrUUID: "resolve-test-uuid",
+            wantErr:  false,
+            wantName: "Resolve Test ACL",
+        },
+        {
+            name:     "fail with non-existent numeric ID",
+            idOrUUID: "9999",
+            wantErr:  true,
+        },
+        {
+            name:     "fail with non-existent UUID",
+            idOrUUID: "non-existent-uuid",
+            wantErr:  true,
+        },
+        {
+            name:     "fail with empty string",
+            idOrUUID: "",
+            wantErr:  true,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            result, err := handler.resolveAccessList(tt.idOrUUID)
+            if tt.wantErr {
+                assert.Error(t, err)
+                assert.Nil(t, result)
+            } else {
+                assert.NoError(t, err)
+                assert.NotNil(t, result)
+                assert.Equal(t, tt.wantName, result.Name)
+            }
+        })
+    }
+}
 ```
-
-**Estimated Time:** 15 minutes
 
 ---
 
-### Task 2: Add `afterAll` Cleanup Hook
+### Phase 3: E2E Test Fixes (High)
 
-**File:** [tests/security-enforcement/emergency-token.spec.ts](../../../tests/security-enforcement/emergency-token.spec.ts)
+#### Task 3.1: Update acl-enforcement.spec.ts
+**File:** [acl-enforcement.spec.ts](../../tests/security-enforcement/acl-enforcement.spec.ts)
 
-**New Code (add after `beforeAll`):**
+**Line 138** - Change from `lists[0].id` to `lists[0].uuid`:
 ```typescript
-test.afterAll(async ({ request }) => {
-  console.log('🧹 Cleaning up test suite: Resetting security state...');
+// Before:
+const testResponse = await requestContext.post(
+  `/api/v1/access-lists/${lists[0].id}/test`,
+  { data: { ip_address: testIp } }
+);
 
-  const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
-  if (!emergencyToken) {
-    console.warn('⚠️ No emergency token for cleanup');
-    return;
-  }
-
-  // Reset to safe state for other tests
-  const response = await request.post('/api/v1/emergency/security-reset', {
-    headers: { 'X-Emergency-Token': emergencyToken },
-  });
-
-  if (response.ok()) {
-    console.log('✅ Security state reset for next test suite');
-  } else {
-    console.warn(`⚠️ Security reset returned: ${response.status()}`);
-  }
-});
+// After:
+const testResponse = await requestContext.post(
+  `/api/v1/access-lists/${lists[0].uuid}/test`,
+  { data: { ip_address: testIp } }
+);
 ```
 
-**Estimated Time:** 5 minutes
+**Line 162 and beyond** - Change from `createdList.id` to `createdList.uuid`:
+```typescript
+// Before:
+expect(createdList.id).toBeDefined();
+// ...
+const testResponse = await requestContext.post(
+  `/api/v1/access-lists/${createdList.id}/test`,
+  { data: { ip_address: '10.255.255.255' } }
+);
+// ...
+const deleteResponse = await requestContext.delete(
+  `/api/v1/access-lists/${createdList.id}`
+);
 
----
-
-## Dependency Diagram
-
-```
-┌───────────────────────────────────────────────────────────────────┐
-│                        Global Setup                                │
-│  (global-setup.ts → emergency security reset → ALL modules OFF)    │
-└───────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌───────────────────────────────────────────────────────────────────┐
-│                        Auth Setup                                  │
-│  (auth.setup.ts → authenticates test user)                        │
-└───────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌───────────────────────────────────────────────────────────────────┐
-│                  Test Suite: beforeAll                             │
-│  ┌─────────────────────────────────────────────────────────────┐  │
-│  │ STEP 1: enable feature.cerberus.enabled = true              │  │
-│  │         (Cerberus master switch - REQUIRED FIRST!)          │  │
-│  └─────────────────────────────────────────────────────────────┘  │
-│                              │                                     │
-│                              ▼                                     │
-│  ┌─────────────────────────────────────────────────────────────┐  │
-│  │ STEP 2: enable security.acl.enabled = true                  │  │
-│  │         (Now effective because Cerberus is ON)              │  │
-│  └─────────────────────────────────────────────────────────────┘  │
-│                              │                                     │
-│                              ▼                                     │
-│  ┌─────────────────────────────────────────────────────────────┐  │
-│  │ STEP 3: Verify /api/v1/security/status shows ACL enabled    │  │
-│  └─────────────────────────────────────────────────────────────┘  │
-└───────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌───────────────────────────────────────────────────────────────────┐
-│                     Test 1 Execution                               │
-│  • Unauthenticated request → should get 403                       │
-│  • Emergency token request → should get 200                       │
-└───────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌───────────────────────────────────────────────────────────────────┐
-│                  Test Suite: afterAll                              │
-│  • Call emergency security reset                                   │
-│  • Restore clean state for next suite                              │
-└───────────────────────────────────────────────────────────────────┘
+// After:
+expect(createdList.uuid).toBeDefined();
+// ...
+const testResponse = await requestContext.post(
+  `/api/v1/access-lists/${createdList.uuid}/test`,
+  { data: { ip_address: '10.255.255.255' } }
+);
+// ...
+const deleteResponse = await requestContext.delete(
+  `/api/v1/access-lists/${createdList.uuid}`
+);
 ```
 
 ---
 
-## Success Criteria
+## Validation Checklist
 
-### Phase 1 Complete When:
+### Unit Tests
+- [ ] All existing tests pass with numeric IDs (backward compatibility)
+- [ ] New UUID-based test cases pass
+- [ ] `resolveAccessList` helper tests pass
+- [ ] Coverage remains above 85%
 
-- [ ] `emergency-token.spec.ts` passes locally with `npx playwright test tests/security-enforcement/emergency-token.spec.ts`
-- [ ] All 4 CI shards pass the emergency token test
-- [ ] No regressions in other security enforcement tests
-- [ ] Test properly cleans up in `afterAll`
+### E2E Tests
+- [ ] `should test IP against access list` passes (line 138)
+- [ ] `should show correct error response format` passes (line 162)
+- [ ] All other ACL enforcement tests remain green
 
-### Verification Commands:
-
+### Manual Verification
 ```bash
-# Local verification
-npx playwright test tests/security-enforcement/emergency-token.spec.ts --project=chromium
+# Create access list
+curl -X POST http://localhost:8080/api/v1/access-lists \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Test ACL","type":"whitelist","enabled":true}'
+# Response: {"uuid":"abc-123-def", "name":"Test ACL", ...}
 
-# Full security test suite
-npx playwright test tests/security-enforcement/ --project=chromium
+# Get by UUID (new)
+curl http://localhost:8080/api/v1/access-lists/abc-123-def
+# Should return the access list
 
-# View report after run
-npx playwright show-report
+# Get by numeric ID (backward compat - requires direct DB access)
+curl http://localhost:8080/api/v1/access-lists/1
+# Should return the access list
+
+# Test IP by UUID
+curl -X POST http://localhost:8080/api/v1/access-lists/abc-123-def/test \
+  -H "Content-Type: application/json" \
+  -d '{"ip_address":"192.168.1.1"}'
+# Should return {"allowed": true/false, "reason": "..."}
 ```
 
 ---
 
-## Estimated Total Remediation Time
+## Dependencies
 
-| Task | Time |
-|------|------|
-| Task 1: Fix beforeAll hook | 15 min |
-| Task 2: Add afterAll cleanup | 5 min |
-| Local testing & verification | 15 min |
-| **Total** | **35 min** |
-
----
-
-## Related Files
-
-| File | Purpose |
-|------|---------|
-| [tests/security-enforcement/emergency-token.spec.ts](../../../tests/security-enforcement/emergency-token.spec.ts) | Failing test (FIX HERE) |
-| [tests/global-setup.ts](../../../tests/global-setup.ts) | Global setup with emergency reset |
-| [tests/fixtures/security.ts](../../../tests/fixtures/security.ts) | Security test helpers |
-| [backend/internal/cerberus/cerberus.go](../../../backend/internal/cerberus/cerberus.go) | Cerberus middleware |
+| Component | Dependency | Risk |
+|-----------|------------|------|
+| Handler | Service `GetByUUID()` | Already exists (line 115) |
+| Handler | Service `GetByID()` | Already exists (line 103) |
+| Handler | `strconv.ParseUint` | Standard library |
+| Tests | Test fixtures | UUID must be set explicitly |
 
 ---
 
-## Appendix: Other Observations
+## Risk Assessment
 
-### Skipped Test Analysis
-
-**File:** `emergency-reset.spec.ts:69` - "should rate limit after 5 attempts"
-
-This test is marked `.skip` in the source. The skip is intentional and documented:
-
-```typescript
-// Rate limiting is covered in emergency-token.spec.ts (Test 2)
-test.skip('should rate limit after 5 attempts', ...)
-```
-
-**No action required** - this is expected behavior.
-
-### CI Workflow Observations
-
-1. **4-shard parallel execution** - Each shard runs the same failing test independently
-2. **139 passing tests per shard** - Good overall health
-3. **22 skipped tests** - Expected (tagged tests, conditional skips)
-4. **Merge Test Reports failed** - Cascading failure from E2E test failure
+| Risk | Likelihood | Impact | Mitigation |
+|------|------------|--------|------------|
+| Performance (UUID lookup) | Low | Low | UUID is indexed, same performance as ID |
+| Numeric string as UUID | Low | Medium | Check numeric first, then UUID |
+| Breaking changes | Low | High | Backward compatible - numeric IDs still work |
+| Test fixture setup | Medium | Low | Ensure test ACLs have known UUIDs |
 
 ---
 
-## Remediation Status
+## Estimated Effort
 
-| Phase | Status | Assignee | ETA |
-|-------|--------|----------|-----|
-| Phase 1: Critical Fix | 🟡 Ready for Implementation | - | ~35 min |
+| Task | Complexity | Duration |
+|------|------------|----------|
+| Add resolveAccessList helper | Simple | 10 min |
+| Update 4 handlers | Simple | 20 min |
+| Update unit tests | Medium | 30 min |
+| Update E2E tests | Simple | 10 min |
+| Validation & QA | Medium | 20 min |
+| **Total** | | **~90 min** |
 
 ---
 
-*Generated by Planning Agent on 2026-01-28*
+## Acceptance Criteria
+
+1. ✅ All 4 access list handlers accept both numeric ID and UUID
+2. ✅ Numeric ID lookup is attempted first (backward compatibility)
+3. ✅ E2E tests `acl-enforcement.spec.ts` pass without modifications to test logic (only changing `.id` to `.uuid`)
+4. ✅ Unit test coverage remains above 85%
+5. ✅ No breaking changes to existing API consumers using numeric IDs

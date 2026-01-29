@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { EMERGENCY_TOKEN, EMERGENCY_SERVER } from '../fixtures/security';
 
 /**
  * Break Glass - Tier 2 (Emergency Server) Validation Tests
@@ -14,9 +15,8 @@ import { test, expect } from '@playwright/test';
  */
 
 test.describe('Break Glass - Tier 2 (Emergency Server)', () => {
-  const EMERGENCY_BASE_URL = 'http://localhost:2020';
-  const EMERGENCY_TOKEN = process.env.CHARON_EMERGENCY_TOKEN || 'test-emergency-token-for-e2e-32chars';
-  const BASIC_AUTH = 'Basic ' + Buffer.from('admin:testpass').toString('base64');
+  const EMERGENCY_BASE_URL = EMERGENCY_SERVER.baseURL;
+  const BASIC_AUTH = 'Basic ' + Buffer.from(`${EMERGENCY_SERVER.username}:${EMERGENCY_SERVER.password}`).toString('base64');
 
   // Health check before all tier-2 tests
   test.beforeAll(async ({ request }) => {

@@ -123,11 +123,15 @@ test.describe('Combined Security Enforcement', () => {
       return;
     }
 
-    // Enable all sub-modules
+    // Enable all sub-modules with delays for propagation
     await setSecurityModuleEnabled(requestContext, 'acl', true);
+    await new Promise(r => setTimeout(r, 500));
     await setSecurityModuleEnabled(requestContext, 'waf', true);
+    await new Promise(r => setTimeout(r, 500));
     await setSecurityModuleEnabled(requestContext, 'rateLimit', true);
+    await new Promise(r => setTimeout(r, 500));
     await setSecurityModuleEnabled(requestContext, 'crowdsec', true);
+    await new Promise(r => setTimeout(r, 2000));
 
     // Verify all are enabled with retry logic for timing tolerance
     const allModulesEnabled = (s: SecurityStatus) =>
