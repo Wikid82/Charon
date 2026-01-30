@@ -5,6 +5,12 @@
 Every session should improve the codebase, not just add to it. Actively refactor code you encounter, even outside of your immediate task scope. Think about long-term maintainability and consistency. Make a detailed plan before writing code. Always create unit tests for new code coverage.
 
 - **MANDATORY**: Read all relevant instructions in `.github/instructions/` for the specific task before starting.
+- **ARCHITECTURE AWARENESS**: Always consult `ARCHITECTURE.md` at the repository root before making significant changes to:
+  - Core components (Backend API, Frontend, Caddy Manager, Security layers)
+  - System architecture or data flow
+  - Technology stack or dependencies
+  - Deployment configuration
+  - Directory structure or file organization
 - **DRY**: Consolidate duplicate patterns into reusable functions, types, or components after the second occurrence.
 - **CLEAN**: Delete dead code immediately. Remove unused imports, variables, functions, types, commented code, and console logs.
 - **LEVERAGE**: Use battle-tested packages over custom implementations.
@@ -101,6 +107,13 @@ Before proposing ANY code change or fix, you must build a mental map of the feat
 
 ## Documentation
 
+- **Architecture**: Update `ARCHITECTURE.md` when making changes to:
+  - System architecture or component interactions
+  - Technology stack (major version upgrades, library replacements)
+  - Directory structure or organizational conventions
+  - Deployment model or infrastructure
+  - Security architecture or data flow
+  - Integration points or external dependencies
 - **Features**: Update `docs/features.md` when adding capabilities. This is a short "marketing" style list. Keep details to their individual docs.
 - **Links**: Use GitHub Pages URLs (`https://wikid82.github.io/charon/`) for docs and GitHub blob links for repo files.
 

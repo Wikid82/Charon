@@ -1,0 +1,25 @@
+# Hadolint configuration for Charon Dockerfile
+# See: https://github.com/hadolint/hadolint#configure
+
+# Global switch to ignore all these rules
+ignored:
+  # DL3008: Pin versions in apt-get install
+  # IGNORED: Debian Trixie is a rolling release where package versions change
+  # frequently and vary by architecture. Pinning exact versions creates a
+  # maintenance nightmare and breaks cross-architecture builds. The standard
+  # practice for Debian-based images is to use apt-get upgrade instead.
+  - DL3008
+
+  # DL3059: Multiple consecutive RUN instructions
+  # IGNORED: In multi-stage builds, separate RUN instructions are often
+  # intentional for:
+  # 1. Better layer caching (xx-apt installs target-arch packages separately)
+  # 2. Cross-compilation with xx-go requires separate setup steps
+  # 3. Clearer separation of concerns in complex builds
+  - DL3059
+
+# Trusted registries for FROM directives
+trustedRegistries:
+  - docker.io
+  - ghcr.io
+  - gcr.io

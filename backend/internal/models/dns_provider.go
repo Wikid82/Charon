@@ -8,7 +8,7 @@ import (
 // DNSProvider represents a DNS provider configuration for ACME DNS-01 challenges.
 // Credentials are stored encrypted at rest using AES-256-GCM.
 type DNSProvider struct {
-	ID           uint   `json:"id" gorm:"primaryKey"`
+	ID           uint   `json:"-" gorm:"primaryKey"`
 	UUID         string `json:"uuid" gorm:"uniqueIndex;size:36"`
 	Name         string `json:"name" gorm:"index;not null;size:255"`
 	ProviderType string `json:"provider_type" gorm:"index;not null;size:50"`

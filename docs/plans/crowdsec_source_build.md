@@ -34,7 +34,7 @@ ARG TARGETOS
 ARG TARGETARCH
 # CrowdSec version - Renovate can update this
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.7.4
+ARG CROWDSEC_VERSION=1.7.6
 
 RUN apk add --no-cache git clang lld
 RUN xx-apk add --no-cache gcc musl-dev
@@ -122,7 +122,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 ### Research Findings
 
-**From CrowdSec GitHub (crowdsecurity/crowdsec v1.7.4):**
+**From CrowdSec GitHub (crowdsecurity/crowdsec v1.7.5):**
 
 - **Language:** Go 81.3%
 - **License:** MIT
@@ -199,7 +199,7 @@ ARG TARGETOS
 ARG TARGETARCH
 # CrowdSec version - Renovate can update this
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.7.4
+ARG CROWDSEC_VERSION=1.7.6
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache git clang lld
@@ -444,7 +444,7 @@ docker rm crowdsec-test
 
 **Expected Results:**
 
-- ✅ `cscli version` shows CrowdSec v1.7.4
+- ✅ `cscli version` shows CrowdSec v1.7.5
 - ✅ `cscli hub list` displays installed scenarios/parsers
 - ✅ `cscli metrics` shows metrics (or "No data" if no logs processed yet)
 - ✅ No critical errors in logs
@@ -597,8 +597,8 @@ rm ./cscli_test ./crowdsec_test
 
 **CrowdSec Version Pinning:**
 
-- Current: `v1.7.4` (December 2025 release)
-- expr-lang in v1.7.4: Likely `v1.17.2` (vulnerable)
+- Current: `v1.7.6` (January 2026 release)
+- expr-lang in v1.7.6: Uses patched `v1.17.7`
 - Post-patch: `v1.17.7` (forced upgrade via `go get`)
 
 **Potential Issues:**
@@ -859,7 +859,7 @@ docker exec <container-id> cscli parsers list
 
 ```bash
 # Clone CrowdSec
-git clone --depth 1 --branch v1.7.4 https://github.com/crowdsecurity/crowdsec.git
+git clone --depth 1 --branch v1.7.6 https://github.com/crowdsecurity/crowdsec.git
 cd crowdsec
 
 # Patch expr-lang
@@ -868,11 +868,11 @@ go mod tidy
 
 # Build binaries
 CGO_ENABLED=1 go build -o crowdsec \
-  -ldflags "-s -w -X github.com/crowdsecurity/crowdsec/pkg/cwversion.Version=v1.7.4" \
+  -ldflags "-s -w -X github.com/crowdsecurity/crowdsec/pkg/cwversion.Version=v1.7.6" \
   ./cmd/crowdsec
 
 CGO_ENABLED=1 go build -o cscli \
-  -ldflags "-s -w -X github.com/crowdsecurity/crowdsec/pkg/cwversion.Version=v1.7.4" \
+  -ldflags "-s -w -X github.com/crowdsecurity/crowdsec/pkg/cwversion.Version=v1.7.6" \
   ./cmd/crowdsec-cli
 
 # Verify expr-lang version
@@ -892,7 +892,7 @@ strings /usr/local/bin/cscli | grep -i "expr-lang"
 # Check version
 cscli version
 # Output:
-# version: v1.7.4
+# version: v1.7.5
 # ...
 ```
 

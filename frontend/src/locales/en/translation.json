@@ -69,6 +69,8 @@
     "accountManagement": "Account Management",
     "import": "Import",
     "caddyfile": "Caddyfile",
+    "importNPM": "Import NPM",
+    "importJSON": "Import JSON",
     "backups": "Backups",
     "logs": "Logs",
     "securityHeaders": "Security Headers",
@@ -462,7 +464,18 @@
     "failedToDeleteMonitor": "Failed to delete monitor",
     "failedToUpdateMonitor": "Failed to update monitor",
     "failedToTriggerCheck": "Failed to trigger health check",
-    "noHistoryAvailable": "No history available"
+    "noHistoryAvailable": "No history available",
+    "addMonitor": "Add Monitor",
+    "syncWithHosts": "Sync with Hosts",
+    "createMonitor": "Create Monitor",
+    "monitorCreated": "Monitor created successfully",
+    "syncComplete": "Sync complete",
+    "syncing": "Syncing...",
+    "monitorType": "Type",
+    "monitorUrl": "URL",
+    "monitorTypeHttp": "HTTP",
+    "monitorTypeTcp": "TCP",
+    "urlPlaceholder": "https://example.com or tcp://host:port"
   },
   "domains": {
     "title": "Domains",
@@ -589,7 +602,11 @@
     "deleteUser": "Delete User",
     "inviteUrlPreview": "Invite Link Preview",
     "inviteUrlWarning": "Application URL is not configured. This link may not work for external users.",
-    "configureApplicationUrl": "Configure Application URL"
+    "configureApplicationUrl": "Configure Application URL",
+    "resendInvite": "Resend Invite",
+    "inviteResent": "Invitation resent successfully",
+    "inviteCreatedNoEmail": "New invite created. Email could not be sent.",
+    "resendFailed": "Failed to resend invitation"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -749,6 +766,38 @@
     "importFailed": "Import failed: {{error}}",
     "creatingBackup": "Creating backup...",
     "importing": "Importing CrowdSec..."
+  },
+  "importNPM": {
+    "title": "Import from NPM",
+    "description": "Import proxy hosts from Nginx Proxy Manager export",
+    "enterContent": "Please paste NPM export JSON",
+    "invalidJSON": "Invalid JSON format",
+    "upload": "Upload & Preview",
+    "import": "Import",
+    "success": "Import completed successfully",
+    "previewTitle": "Preview Import",
+    "conflict": "Conflict",
+    "new": "New",
+    "skip": "Skip",
+    "keep": "Keep Existing",
+    "replace": "Replace",
+    "cancelConfirm": "Are you sure you want to cancel this import?"
+  },
+  "importJSON": {
+    "title": "Import from JSON",
+    "description": "Import configuration from JSON export",
+    "enterContent": "Please paste JSON configuration",
+    "invalidJSON": "Invalid JSON format",
+    "upload": "Upload & Preview",
+    "import": "Import",
+    "success": "Import completed successfully",
+    "previewTitle": "Preview Import",
+    "conflict": "Conflict",
+    "new": "New",
+    "skip": "Skip",
+    "keep": "Keep Existing",
+    "replace": "Replace",
+    "cancelConfirm": "Are you sure you want to cancel this import?"
   },
   "systemSettings": {
     "title": "System Settings",

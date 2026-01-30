@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -139,7 +140,7 @@ func TestCredentialService_List(t *testing.T) {
 
 	provider := createTestProvider(t, db, encryptor, true)
 
-	// Create multiple credentials
+	// Create multiple credentials with slight delay to avoid SQLite locking
 	for i := 0; i < 3; i++ {
 		req := services.CreateCredentialRequest{
 			Label:       "Credential " + string(rune('A'+i)),
@@ -148,6 +149,9 @@ func TestCredentialService_List(t *testing.T) {
 		}
 		_, err := service.Create(ctx, provider.ID, req)
 		require.NoError(t, err)
+		if i < 2 {
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 
 	creds, err := service.List(ctx, provider.ID)
@@ -419,7 +423,7 @@ func TestCredentialService_EnableMultiCredentials(t *testing.T) {
 
 	// Verify provider is now in multi-credential mode
 	var updatedProvider models.DNSProvider
-	err = db.First(&updatedProvider, provider.ID).Error
+	err = db.Where("id = ?", provider.ID).First(&updatedProvider).Error
 	require.NoError(t, err)
 	assert.True(t, updatedProvider.UseMultiCredentials)
 

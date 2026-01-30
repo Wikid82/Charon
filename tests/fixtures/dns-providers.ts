@@ -5,6 +5,8 @@
  * These fixtures provide consistent test data across test files.
  */
 
+import * as crypto from 'crypto';
+
 /**
  * Expected provider types from the API
  */
@@ -175,4 +177,104 @@ export async function deleteTestProvider(
   providerId: number
 ): Promise<void> {
   await request.delete(`/api/v1/dns-providers/${providerId}`);
+}
+
+/**
+ * DNS provider type options
+ */
+export type DnsProviderType = 'cloudflare' | 'manual' | 'route53' | 'webhook' | 'rfc2136' | 'script' | 'digitalocean' | 'googleclouddns' | 'azuredns' | 'godaddy' | 'namecheap' | 'hetzner' | 'vultr' | 'dnsimple';
+
+/**
+ * DNS provider configuration interface
+ */
+export interface DnsProviderConfig {
+  /** Provider name */
+  name: string;
+  /** Provider type */
+  provider_type: DnsProviderType;
+  /** Provider credentials (type-specific) */
+  credentials: Record<string, string>;
+  /** Optional description */
+  description?: string;
+  /** Enable/disable the provider */
+  enabled?: boolean;
+}
+
+/**
+ * Generate a unique DNS provider configuration
+ * Creates a DNS provider with unique name to avoid conflicts
+ * @param overrides - Optional configuration overrides
+ * @returns DnsProviderConfig with unique name
+ *
+ * @example
+ * ```typescript
+ * const provider = generateDnsProvider({ provider_type: 'cloudflare' });
+ * ```
+ */
+export function generateDnsProvider(
+  overrides: Partial<DnsProviderConfig> = {}
+): DnsProviderConfig {
+  const timestamp = Date.now().toString(36);
+  const random = crypto.randomBytes(4).toString('hex');
+  const uniqueId = `${timestamp}-${random}`;
+  const providerType = overrides.provider_type || 'manual';
+
+  // Generate type-specific credentials
+  let credentials: Record<string, string> = {};
+  switch (providerType) {
+    case 'cloudflare':
+      credentials = { api_token: `test-token-${uniqueId}` };
+      break;
+    case 'route53':
+      credentials = {
+        access_key_id: `AKIATEST${uniqueId.toUpperCase()}`,
+        secret_access_key: `secretkey${uniqueId}`,
+        region: 'us-east-1',
+      };
+      break;
+    case 'webhook':
+      credentials = {
+        create_url: `https://example.com/dns/${uniqueId}/create`,
+        delete_url: `https://example.com/dns/${uniqueId}/delete`,
+      };
+      break;
+    case 'rfc2136':
+      credentials = {
+        nameserver: 'ns.example.com:53',
+        tsig_key_name: `ddns-${uniqueId}.example.com`,
+        tsig_key: 'base64-encoded-key==',
+        tsig_algorithm: 'hmac-sha256',
+      };
+      break;
+    case 'script':
+      credentials = { script_path: '/usr/local/bin/dns-update.sh' };
+      break;
+    case 'digitalocean':
+      credentials = { api_token: `do-token-${uniqueId}` };
+      break;
+    case 'manual':
+    default:
+      credentials = {};
+      break;
+  }
+
+  return {
+    name: `DNS-${providerType}-${uniqueId}`,
+    provider_type: providerType,
+    credentials,
+    ...overrides,
+  };
+}
+
+/**
+ * Generate multiple unique DNS providers
+ * @param count - Number of DNS providers to generate
+ * @param overrides - Optional configuration overrides for all providers
+ * @returns Array of DnsProviderConfig
+ */
+export function generateDnsProviders(
+  count: number,
+  overrides: Partial<DnsProviderConfig> = {}
+): DnsProviderConfig[] {
+  return Array.from({ length: count }, () => generateDnsProvider(overrides));
 }

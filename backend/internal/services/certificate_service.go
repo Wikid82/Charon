@@ -409,7 +409,7 @@ func (s *CertificateService) DeleteCertificate(id uint) error {
 	}
 
 	var cert models.SSLCertificate
-	if err := s.db.First(&cert, id).Error; err != nil {
+	if err := s.db.Where("id = ?", id).First(&cert).Error; err != nil {
 		return err
 	}
 

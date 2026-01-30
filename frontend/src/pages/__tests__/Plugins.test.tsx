@@ -8,7 +8,7 @@ import type { PluginInfo } from '../../api/plugins'
 // Mock i18n
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, defaultValue?: string | Record<string, any>) => {
+    t: (key: string, defaultValue?: string | Record<string, unknown>) => {
       const translations: Record<string, string> = {
         'plugins.title': 'DNS Provider Plugins',
         'plugins.description': 'Manage built-in and external DNS provider plugins for certificate automation',
@@ -180,10 +180,10 @@ describe('Plugins page', () => {
     const user = userEvent.setup()
     const { useReloadPlugins } = await import('../../hooks/usePlugins')
     const mockReloadMutation = vi.fn().mockResolvedValue({ message: 'Reloaded', count: 3 })
-    vi.mocked(useReloadPlugins).mockReturnValue({
+    vi.mocked(useReloadPlugins).mockReturnValueOnce({
       mutateAsync: mockReloadMutation,
       isPending: false,
-    } as any)
+    } as unknown as ReturnType<typeof useReloadPlugins>)
 
     renderWithQueryClient(<Plugins />)
 
@@ -259,10 +259,10 @@ describe('Plugins page', () => {
   it('handles enable/disable toggle action', async () => {
     const { useDisablePlugin } = await import('../../hooks/usePlugins')
     const mockDisableMutation = vi.fn().mockResolvedValue({ message: 'Disabled' })
-    vi.mocked(useDisablePlugin).mockReturnValue({
+    vi.mocked(useDisablePlugin).mockReturnValueOnce({
       mutateAsync: mockDisableMutation,
       isPending: false,
-    } as any)
+    } as unknown as ReturnType<typeof useDisablePlugin>)
 
     renderWithQueryClient(<Plugins />)
 
@@ -274,11 +274,11 @@ describe('Plugins page', () => {
 
   it('shows loading state', async () => {
     const { usePlugins } = await import('../../hooks/usePlugins')
-    vi.mocked(usePlugins).mockReturnValue({
+    vi.mocked(usePlugins).mockReturnValueOnce({
       data: undefined,
       isLoading: true,
       refetch: vi.fn(),
-    } as any)
+    } as unknown as ReturnType<typeof usePlugins>)
 
     renderWithQueryClient(<Plugins />)
 
@@ -289,11 +289,11 @@ describe('Plugins page', () => {
 
   it('shows empty state when no plugins', async () => {
     const { usePlugins } = await import('../../hooks/usePlugins')
-    vi.mocked(usePlugins).mockReturnValue({
+    vi.mocked(usePlugins).mockReturnValueOnce({
       data: [],
       isLoading: false,
       refetch: vi.fn(),
-    } as any)
+    } as unknown as ReturnType<typeof usePlugins>)
 
     renderWithQueryClient(<Plugins />)
 
@@ -308,5 +308,168 @@ describe('Plugins page', () => {
     expect(
       screen.getByText(/External plugins extend Charon with custom DNS providers/i)
     ).toBeInTheDocument()
+  })
+
+  // Phase 2: Additional coverage tests
+
+  it('closes metadata modal when close button is clicked', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Plugins />)
+
+    const detailsButtons = await screen.findAllByRole('button', { name: /details/i })
+    await user.click(detailsButtons[0])
+
+    expect(await screen.findByText(/Plugin Details:/i)).toBeInTheDocument()
+
+    // Get all close buttons and click the primary one (not the X)
+    const closeButtons = screen.getAllByRole('button', { name: /close/i })
+    const primaryCloseButton = closeButtons.find(btn => btn.textContent === 'Close')
+    await user.click(primaryCloseButton!)
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Plugin Details:/i)).not.toBeInTheDocument()
+    })
+  })
+
+  it('displays all metadata fields in modal', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Plugins />)
+
+    const detailsButtons = await screen.findAllByRole('button', { name: /details/i })
+    await user.click(detailsButtons[1]) // PowerDNS plugin
+
+    expect(await screen.findByText('Version')).toBeInTheDocument()
+    expect(screen.getByText('Author')).toBeInTheDocument()
+    expect(screen.getByText('Plugin Type')).toBeInTheDocument()
+    // Text appears in both card and modal, so use getAllByText
+    expect(screen.getAllByText('PowerDNS provider plugin').length).toBeGreaterThan(0)
+  })
+
+  it('displays error status badge for failed plugins', async () => {
+    renderWithQueryClient(<Plugins />)
+
+    // The error plugin should be rendered with an error indicator
+    // Look for the error message which is more reliable than the badge text
+    expect(await screen.findByText(/Failed to load: signature mismatch/i)).toBeInTheDocument()
+    // Also verify the broken plugin name is present
+    expect(screen.getByText('Broken Plugin')).toBeInTheDocument()
+  })
+
+  it('displays pending status badge for pending plugins', async () => {
+    const mockPendingPlugin: PluginInfo = {
+      ...mockExternalPlugin,
+      status: 'pending',
+    }
+
+    const { usePlugins } = await import('../../hooks/usePlugins')
+    vi.mocked(usePlugins).mockReturnValueOnce({
+      data: [mockPendingPlugin],
+      isLoading: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof usePlugins>)
+
+    renderWithQueryClient(<Plugins />)
+
+    expect(await screen.findByText('Pending')).toBeInTheDocument()
+  })
+
+  it('opens documentation URL in new tab', async () => {
+    const mockWindowOpen = vi.fn()
+    window.open = mockWindowOpen
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<Plugins />)
+
+    const docsLinks = await screen.findAllByText('Docs')
+    await user.click(docsLinks[0])
+
+    expect(mockWindowOpen).toHaveBeenCalledWith('https://developers.cloudflare.com', '_blank')
+  })
+
+  it('handles missing documentation URL gracefully', async () => {
+    const mockPluginWithoutDocs: PluginInfo = {
+      ...mockExternalPlugin,
+      documentation_url: undefined,
+    }
+
+    const { usePlugins } = await import('../../hooks/usePlugins')
+    vi.mocked(usePlugins).mockReturnValueOnce({
+      data: [mockPluginWithoutDocs],
+      isLoading: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof usePlugins>)
+
+    renderWithQueryClient(<Plugins />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Docs')).not.toBeInTheDocument()
+    })
+  })
+
+  it('displays loaded at timestamp in metadata modal', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Plugins />)
+
+    const detailsButtons = await screen.findAllByRole('button', { name: /details/i })
+    await user.click(detailsButtons[1]) // PowerDNS plugin with loaded_at
+
+    expect(await screen.findByText('Loaded At')).toBeInTheDocument()
+  })
+
+  it('displays error message inline for failed plugins', async () => {
+    renderWithQueryClient(<Plugins />)
+
+    // Error message should be visible in the card itself
+    expect(await screen.findByText('Failed to load: signature mismatch')).toBeInTheDocument()
+  })
+
+  it('renders documentation buttons for plugins with docs', async () => {
+    renderWithQueryClient(<Plugins />)
+
+    // Should have at least one Docs button for plugins with documentation_url
+    await waitFor(() => {
+      const docsButtons = screen.queryAllByText('Docs')
+      expect(docsButtons.length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  it('shows reload button loading state', async () => {
+    const { useReloadPlugins } = await import('../../hooks/usePlugins')
+    vi.mocked(useReloadPlugins).mockReturnValueOnce({
+      mutateAsync: vi.fn(),
+      isPending: true,
+    } as unknown as ReturnType<typeof useReloadPlugins>)
+
+    renderWithQueryClient(<Plugins />)
+
+    const reloadButton = await screen.findByRole('button', { name: /reload plugins/i })
+    expect(reloadButton).toBeInTheDocument()
+  })
+
+  it('has details button for each plugin', async () => {
+    renderWithQueryClient(<Plugins />)
+
+    // Each plugin should have a details button
+    const detailsButtons = await screen.findAllByRole('button', { name: /details/i })
+    expect(detailsButtons.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('shows disabled status badge for disabled plugins', async () => {
+    const mockDisabledPlugin: PluginInfo = {
+      ...mockExternalPlugin,
+      enabled: false,
+      status: 'loaded',
+    }
+
+    const { usePlugins } = await import('../../hooks/usePlugins')
+    vi.mocked(usePlugins).mockReturnValueOnce({
+      data: [mockDisabledPlugin],
+      isLoading: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof usePlugins>)
+
+    renderWithQueryClient(<Plugins />)
+
+    expect(await screen.findByText('Disabled')).toBeInTheDocument()
   })
 })

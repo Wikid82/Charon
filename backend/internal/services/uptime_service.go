@@ -350,7 +350,7 @@ func (s *UptimeService) CheckAll() {
 		// If host is down, mark all monitors as down without individual checks
 		if hostID != "" {
 			var uptimeHost models.UptimeHost
-			if err := s.DB.First(&uptimeHost, "id = ?", hostID).Error; err == nil {
+			if err := s.DB.Where("id = ?", hostID).First(&uptimeHost).Error; err == nil {
 				if uptimeHost.Status == "down" {
 					s.markHostMonitorsDown(monitors, &uptimeHost)
 					continue
@@ -842,7 +842,7 @@ func (s *UptimeService) queueDownNotification(monitor models.UptimeMonitor, reas
 	var uptimeHost models.UptimeHost
 	hostName := monitor.UpstreamHost
 	if hostID != "" {
-		if err := s.DB.First(&uptimeHost, "id = ?", hostID).Error; err == nil {
+		if err := s.DB.Where("id = ?", hostID).First(&uptimeHost).Error; err == nil {
 			hostName = uptimeHost.Name
 		}
 	}
@@ -996,7 +996,7 @@ func (s *UptimeService) FlushPendingNotifications() {
 // Returns nil if no monitor exists for the host (does not create one).
 func (s *UptimeService) SyncMonitorForHost(hostID uint) error {
 	var host models.ProxyHost
-	if err := s.DB.First(&host, hostID).Error; err != nil {
+	if err := s.DB.Where("id = ?", hostID).First(&host).Error; err != nil {
 		return err
 	}
 
@@ -1040,9 +1040,65 @@ func (s *UptimeService) ListMonitors() ([]models.UptimeMonitor, error) {
 	return monitors, result.Error
 }
 
+// CreateMonitor creates a new uptime monitor with the given parameters
+func (s *UptimeService) CreateMonitor(name, urlStr, monitorType string, interval, maxRetries int) (*models.UptimeMonitor, error) {
+	// Validate URL format
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL format: %w", err)
+	}
+
+	// For HTTP/HTTPS, ensure the scheme is present
+	if monitorType == "http" || monitorType == "https" {
+		if parsedURL.Scheme == "" {
+			return nil, errors.New("URL must include scheme (http:// or https://)")
+		}
+		if parsedURL.Host == "" {
+			return nil, errors.New("URL must include host")
+		}
+	}
+
+	// For TCP, validate host:port format
+	if monitorType == "tcp" {
+		if _, _, err := net.SplitHostPort(urlStr); err != nil {
+			return nil, fmt.Errorf("TCP URL must be in host:port format: %w", err)
+		}
+	}
+
+	// Set defaults
+	if interval <= 0 {
+		interval = 60 // Default 60 seconds
+	}
+	if maxRetries <= 0 {
+		maxRetries = 3 // Default 3 retries
+	}
+
+	monitor := &models.UptimeMonitor{
+		Name:       name,
+		URL:        urlStr,
+		Type:       monitorType,
+		Interval:   interval,
+		MaxRetries: maxRetries,
+		Enabled:    true,
+		Status:     "pending",
+	}
+
+	if err := s.DB.Create(monitor).Error; err != nil {
+		return nil, fmt.Errorf("failed to create monitor: %w", err)
+	}
+
+	logger.Log().WithFields(map[string]any{
+		"monitor_id":   monitor.ID,
+		"monitor_name": monitor.Name,
+		"monitor_type": monitor.Type,
+	}).Info("Created new uptime monitor")
+
+	return monitor, nil
+}
+
 func (s *UptimeService) GetMonitorByID(id string) (*models.UptimeMonitor, error) {
 	var monitor models.UptimeMonitor
-	if err := s.DB.First(&monitor, "id = ?", id).Error; err != nil {
+	if err := s.DB.Where("id = ?", id).First(&monitor).Error; err != nil {
 		return nil, err
 	}
 	return &monitor, nil
@@ -1056,7 +1112,7 @@ func (s *UptimeService) GetMonitorHistory(id string, limit int) ([]models.Uptime
 
 func (s *UptimeService) UpdateMonitor(id string, updates map[string]any) (*models.UptimeMonitor, error) {
 	var monitor models.UptimeMonitor
-	if err := s.DB.First(&monitor, "id = ?", id).Error; err != nil {
+	if err := s.DB.Where("id = ?", id).First(&monitor).Error; err != nil {
 		return nil, err
 	}
 
@@ -1084,7 +1140,7 @@ func (s *UptimeService) UpdateMonitor(id string, updates map[string]any) (*model
 func (s *UptimeService) DeleteMonitor(id string) error {
 	// Find monitor
 	var monitor models.UptimeMonitor
-	if err := s.DB.First(&monitor, "id = ?", id).Error; err != nil {
+	if err := s.DB.Where("id = ?", id).First(&monitor).Error; err != nil {
 		return err
 	}
 

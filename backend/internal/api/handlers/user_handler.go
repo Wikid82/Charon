@@ -716,6 +716,75 @@ type UpdateUserPermissionsRequest struct {
 	PermittedHosts []uint `json:"permitted_hosts"`
 }
 
+// ResendInvite regenerates and resends an invitation to a pending user (admin only).
+func (h *UserHandler) ResendInvite(c *gin.Context) {
+	role, _ := c.Get("role")
+	if role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	idParam := c.Param("id")
+	id, err := strconv.ParseUint(idParam, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	var user models.User
+	if err := h.DB.First(&user, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	// Verify user has a pending invite
+	if user.InviteStatus != "pending" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User does not have a pending invite"})
+		return
+	}
+
+	// Generate new invite token
+	inviteToken, err := generateSecureToken(32)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate invite token"})
+		return
+	}
+
+	// Set new invite expiration (48 hours)
+	inviteExpires := time.Now().Add(48 * time.Hour)
+
+	// Update user with new token
+	if err := h.DB.Model(&user).Updates(map[string]any{
+		"invite_token":   inviteToken,
+		"invite_expires": inviteExpires,
+	}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update invite token"})
+		return
+	}
+
+	// Try to send invite email
+	emailSent := false
+	if h.MailService.IsConfigured() {
+		baseURL, ok := utils.GetConfiguredPublicURL(h.DB)
+		if ok {
+			appName := getAppName(h.DB)
+			if err := h.MailService.SendInvite(user.Email, inviteToken, appName, baseURL); err == nil {
+				emailSent = true
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":           user.ID,
+		"uuid":         user.UUID,
+		"email":        user.Email,
+		"role":         user.Role,
+		"invite_token": inviteToken,
+		"email_sent":   emailSent,
+		"expires_at":   inviteExpires,
+	})
+}
+
 // UpdateUserPermissions updates a user's permission mode and host exceptions (admin only).
 func (h *UserHandler) UpdateUserPermissions(c *gin.Context) {
 	role, _ := c.Get("role")

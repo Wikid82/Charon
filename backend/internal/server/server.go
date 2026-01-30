@@ -11,8 +11,9 @@ import (
 // NewRouter creates a new Gin router with frontend static file serving.
 func NewRouter(frontendDir string) *gin.Engine {
 	router := gin.Default()
-	// Silence "trusted all proxies" warning by not trusting any by default.
-	// If running behind a proxy, this should be configured to trust that proxy's IP.
+	// Gin trusts all proxies by default. In v1.11.x, SetTrustedProxies(nil) disables
+	// trusting forwarded headers entirely, making Context.ClientIP() use the remote
+	// socket address. Only enable trusted proxies via an explicit allow-list.
 	_ = router.SetTrustedProxies(nil)
 
 	// Serve frontend static files

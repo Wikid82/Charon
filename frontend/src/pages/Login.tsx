@@ -45,8 +45,10 @@ export default function Login() {
       toast.success(t('auth.loginSuccess'))
       navigate('/')
     } catch (err) {
-      const error = err as { response?: { data?: { error?: string } } }
-      toast.error(error.response?.data?.error || t('auth.loginFailed'))
+      const error = err as Error & { response?: { data?: { error?: string } } }
+      // The axios interceptor extracts error.response.data.error to error.message
+      const message = error.response?.data?.error || error.message || t('auth.loginFailed')
+      toast.error(message)
     } finally {
       setLoading(false)
     }

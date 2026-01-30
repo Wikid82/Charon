@@ -7,7 +7,7 @@ import (
 // AccessList defines IP-based or auth-based access control rules
 // that can be applied to proxy hosts.
 type AccessList struct {
-	ID               uint      `json:"id" gorm:"primaryKey"`
+	ID               uint      `json:"-" gorm:"primaryKey"`
 	UUID             string    `json:"uuid" gorm:"uniqueIndex"`
 	Name             string    `json:"name" gorm:"index"`
 	Description      string    `json:"description"`

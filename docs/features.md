@@ -51,6 +51,25 @@ Your credentials are stored securely with encryption and automatic key rotation.
 
 Enterprise-grade protection that "just works." Cerberus bundles multiple security layers into one easy-to-manage system.
 
+### 🎛️ Security Dashboard Toggles
+
+Control your security modules with a single click. The Security Dashboard provides instant toggles for each security layer:
+
+- **ACL Toggle** — Enable/disable Access Control Lists without editing config files
+- **WAF Toggle** — Turn the Web Application Firewall on/off in real-time
+- **Rate Limiting Toggle** — Activate or deactivate request rate limits instantly
+
+**Key Features:**
+
+- **Instant Updates** — Changes take effect immediately with automatic Caddy config reload
+- **Persistent State** — Toggle settings persist across page reloads and container restarts
+- **Optimistic UI** — Toggle changes reflect instantly with automatic rollback on failure
+- **Performance Optimized** — 60-second cache layer minimizes database queries in middleware
+
+→ [Learn More](features/security-dashboard.md)
+
+---
+
 ### 🕵️ CrowdSec Integration
 
 Protect your applications using behavior-based threat detection powered by a global community of security data. Bad actors get blocked automatically before they can cause harm.
@@ -83,7 +102,41 @@ Prevent abuse by limiting how many requests a user or IP address can make. Stop 
 
 ---
 
-## 🛡️ Security & Headers
+## �️ Development & Security Tools
+
+### 🔍 GORM Security Scanner
+
+Automated static analysis that detects GORM security issues and common mistakes before they reach production. The scanner identifies ID leak vulnerabilities, exposed secrets, and enforces GORM best practices.
+
+**Key Features:**
+
+- **6 Detection Patterns** — ID leaks, exposed secrets, DTO embedding issues, and more
+- **3 Operating Modes** — Report, check, and enforce modes for different workflows
+- **Fast Performance** — Scans entire codebase in 2.1 seconds
+- **Zero False Positives** — Smart GORM model detection prevents incorrect warnings
+- **Pre-commit Integration** — Catches issues before they're committed
+- **VS Code Task** — Run security scans from the Command Palette
+
+**Detects:**
+
+- Numeric ID exposure in JSON (`json:"id"` on `uint`/`int` fields)
+- Exposed API keys, tokens, and passwords
+- Response DTOs that inherit model ID fields
+- Missing primary key tags and foreign key indexes
+
+**Usage:**
+
+```bash
+# Run via VS Code: Command Palette → "Lint: GORM Security Scan"
+# Or via pre-commit:
+pre-commit run --hook-stage manual gorm-security-scan --all-files
+```
+
+→ [Learn More](implementation/gorm_security_scanner_complete.md)
+
+---
+
+## �🛡️ Security & Headers
 
 ### 🛡️ HTTP Security Headers
 
@@ -128,7 +181,23 @@ Migrating from another Caddy setup? Import your existing Caddyfile configuration
 
 ---
 
-### 🔌 WebSocket Support
+### � Nginx Proxy Manager Import
+
+Migrating from Nginx Proxy Manager? Import your proxy host configurations directly from NPM export files. Charon parses your domains, upstream servers, SSL settings, and access lists, giving you a preview before committing.
+
+→ [Learn More](features/npm-import.md)
+
+---
+
+### 📄 JSON Configuration Import
+
+Import configurations from generic JSON exports or Charon backup files. Supports both Charon's native export format and Nginx Proxy Manager format with automatic detection. Perfect for restoring backups or migrating between Charon instances.
+
+→ [Learn More](features/json-import.md)
+
+---
+
+### �🔌 WebSocket Support
 
 Real-time applications like chat servers, live dashboards, and collaborative tools work out of the box. Charon handles WebSocket connections automatically with no special configuration needed.
 

@@ -374,18 +374,528 @@ Now only devices on `192.168.x.x` or `10.x.x.x` can access it. The public intern
 
 Now you can never accidentally block yourself.
 
-### Break-Glass Token (Emergency Exit)
+---
 
-If you do lock yourself out:
+## Break Glass Protocol Architecture
 
-1. Log into your server directly (SSH)
-2. Run this command:
+Charon provides a **3-Tier Break Glass Protocol** for emergency lockout recovery. This system ensures you always have a way to regain access, even when security modules block legitimate administrative traffic.
+
+### Overview of the 3-Tier System
+
+| Tier | Method | Use When | Security Layer |
+|------|--------|----------|----------------|
+| **Tier 1** | Emergency Token (Digital Key) | Application accessible but security blocking | Layer 7 bypass middleware |
+| **Tier 2** | Emergency Server (Sidecar Door) | Caddy/CrowdSec blocking main endpoint | Separate port with minimal security |
+| **Tier 3** | Direct System Access (Physical Key) | Complete system failure | SSH/console access to host |
+
+### When to Use Each Tier
+
+**Tier 1: Emergency Token**
+
+Use when you can reach the Charon application but security middleware (ACL, WAF, Rate Limiting) is blocking your requests. The emergency token bypasses all Cerberus security checks at the middleware layer.
+
+**Example scenario:** You enabled ACL with a restrictive whitelist and your IP isn't included.
+
+**Solution:**
 
 ```bash
-docker exec charon charon break-glass
+curl -X POST https://charon.example.com/api/v1/emergency/security-reset \
+  -H "X-Emergency-Token: your-64-char-hex-token"
 ```
 
-It generates a one-time token that lets you disable security and get back in.
+**Tier 2: Emergency Server**
+
+Use when the main application endpoint is blocked at the Caddy reverse proxy layer (CrowdSec bans, WAF rules) or you need a completely separate entry point.
+
+**Example scenario:** CrowdSec banned your IP at the Caddy layer, and Tier 1 is unreachable.
+
+**Solution:**
+
+```bash
+# Create SSH tunnel
+ssh -L 2020:localhost:2020 admin@server
+
+# Use emergency server
+curl -X POST http://localhost:2020/emergency/security-reset \
+  -H "X-Emergency-Token: your-token" \
+  -u admin:password
+```
+
+**Tier 3: Direct System Access**
+
+Use when all application-level recovery methods fail, or you need to perform system-level repairs (clear CrowdSec bans directly, edit database, restart services).
+
+**Example scenario:** Complete lockout with no network access to Charon endpoints.
+
+**Solution:** SSH to the host and use direct database access or CrowdSec CLI commands.
+
+### Diagram: 3-Tier Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    TIER 1: DIGITAL KEY                  │
+│  Emergency Token → Emergency Bypass Middleware → PASS   │
+│  ✓ Fast (no SSH required)                               │
+│  ✓ Works when application is reachable                  │
+│  ⚠️ Blocked if Caddy/CrowdSec blocks at proxy layer     │
+└─────────────────────────────────────────────────────────┘
+                           ↓ (If Tier 1 fails)
+┌─────────────────────────────────────────────────────────┐
+│                  TIER 2: SIDECAR DOOR                   │
+│  SSH Tunnel → Emergency Server (Port 2020) → PASS       │
+│  ✓ Separate network path (bypasses main proxy)          │
+│  ✓ Minimal security (Basic Auth only)                   │
+│  ⚠️ Requires SSH access and emergency server enabled    │
+└─────────────────────────────────────────────────────────┘
+                           ↓ (If Tier 2 fails)
+┌─────────────────────────────────────────────────────────┐
+│                  TIER 3: PHYSICAL KEY                   │
+│  SSH → Direct Database Access / CrowdSec CLI → PASS     │
+│  ✓ Always works (direct system access)                  │
+│  ✓ Can fix any issue (database, config, processes)      │
+│  ⚠️ Requires root/sudo access to host                   │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Security Considerations
+
+**Tier 1 Security:**
+
+- ✅ **Double authentication**: Emergency token + source IP verification (management CIDR)
+- ✅ **Timing-safe comparison**: Prevents timing attacks on token validation
+- ✅ **Rate limiting**: 5 attempts per minute per IP
+- ✅ **Audit logging**: All emergency token usage is logged
+- ⚠️ **Token in headers**: Use HTTPS only to protect token in transit
+- ⚠️ **ClientIP spoofing**: Configure trusted proxies correctly
+
+**Tier 2 Security:**
+
+- ✅ **Network isolation**: Separate port, can bind to localhost only
+- ✅ **Basic Auth**: Optional username/password authentication
+- ✅ **SSH tunneling**: Force access through encrypted SSH connection
+- ⚠️ **Public exposure risk**: Port 2020 should NEVER be publicly accessible
+- ⚠️ **Basic Auth is weak**: Consider mTLS for production (future enhancement)
+
+**Tier 3 Security:**
+
+- ✅ **Physical access required**: Attackers need SSH credentials
+- ✅ **Audit trail**: All SSH sessions and commands are logged
+- ⚠️ **No application-level protection**: Direct database access bypasses all security
+- ⚠️ **Root required**: Most Tier 3 operations require elevated privileges
+
+---
+
+## Emergency Token Management
+
+### Generating Secure Tokens
+
+Always use cryptographically secure random generators:
+
+```bash
+# Recommended: OpenSSL
+openssl rand -hex 32
+
+# Alternative: Python
+python3 -c "import secrets; print(secrets.token_hex(32))"
+
+# Alternative: /dev/urandom
+head -c 32 /dev/urandom | xxd -p -c 64
+```
+
+**Token Requirements:**
+
+- Minimum 32 bytes (produces 64-character hex string)
+- Must be unique per deployment
+- Never reuse tokens across environments
+- Store in secrets manager, never commit to version control
+
+### Token Storage Recommendations
+
+**Priority 1: Secrets Manager**
+
+- HashiCorp Vault
+- AWS Secrets Manager
+- Azure Key Vault
+- Kubernetes Secrets (with encryption at rest)
+
+**Priority 2: Password Manager**
+
+- 1Password
+- LastPass
+- Bitwarden (self-hosted)
+- KeePassXC
+
+**Priority 3: Environment File**
+
+- `.env` file (add to `.gitignore`)
+- Environment variables (systemd, Docker secrets)
+
+**❌ NEVER:**
+
+- Hardcode in `docker-compose.yml` tracked by git
+- Store in plain text files
+- Share via email or unencrypted chat
+- Include in screenshots or documentation
+
+### Token Rotation Procedures
+
+**Rotate every 90 days or immediately if:**
+
+- Token was used during an emergency
+- Token may have been exposed (logs, screenshots, source control)
+- Team member with token access has left
+- Security audit requires rotation
+
+**Rotation Steps:**
+
+1. Generate new token: `openssl rand -hex 32`
+2. Update secrets manager with new token
+3. Update `CHARON_EMERGENCY_TOKEN` in docker-compose.yml or .env
+4. Restart Charon container: `docker-compose restart charon`
+5. Verify new token works: Test emergency endpoint
+6. Verify old token is revoked: Test should return 401 Unauthorized
+7. Document rotation in change log
+
+**See [Emergency Token Rotation Guide](runbooks/emergency-token-rotation.md) for detailed procedures.**
+
+### Token Expiration Policy Recommendations
+
+**For organizations with compliance requirements:**
+
+| Environment | Rotation Frequency | Minimum Length | Additional Requirements |
+|-------------|-------------------|----------------|------------------------|
+| Development | 180 days | 32 bytes | Document in dev handbook |
+| Staging | 90 days | 32 bytes | Separate from production |
+| Production | 90 days | 32 bytes | Secrets manager, audit trail |
+| High Security | 30 days | 64 bytes | mTLS, HSM storage, 2FA |
+
+---
+
+## Management Network Configuration
+
+### What are Management CIDRs?
+
+Management CIDRs (Classless Inter-Domain Routing) define IP address ranges that are allowed to use the emergency token for Tier 1 access. This provides defense-in-depth: even if an attacker obtains the emergency token, they can't use it unless they're coming from an authorized network.
+
+### Default Values (RFC1918)
+
+Charon defaults to private network ranges if `CHARON_MANAGEMENT_CIDRS` is not configured:
+
+```bash
+CHARON_MANAGEMENT_CIDRS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8
+```
+
+**What this means:**
+
+- `10.0.0.0/8` — Private network (10.0.0.0 to 10.255.255.255)
+- `172.16.0.0/12` — Private network (172.16.0.0 to 172.31.255.255)
+- `192.168.0.0/16` — Private network (192.168.0.0 to 192.168.255.255)
+- `127.0.0.0/8` — Localhost (127.0.0.1)
+
+### How to Configure Management CIDRs
+
+**Example 1: Office Network Only**
+
+```yaml
+environment:
+  - CHARON_MANAGEMENT_CIDRS=192.168.1.0/24
+```
+
+**Example 2: Office + VPN**
+
+```yaml
+environment:
+  - CHARON_MANAGEMENT_CIDRS=192.168.1.0/24,10.8.0.0/24
+```
+
+**Example 3: Multiple Offices**
+
+```yaml
+environment:
+  - CHARON_MANAGEMENT_CIDRS=192.168.1.0/24,192.168.2.0/24,10.10.0.0/16
+```
+
+**Example 4: Single Admin IP (Most Restrictive)**
+
+```yaml
+environment:
+  - CHARON_MANAGEMENT_CIDRS=203.0.113.42/32
+```
+
+### Security Implications
+
+**Restrictive CIDRs (Recommended):**
+
+- ✅ **Defense in depth**: Token + network location required
+- ✅ **Limits attack surface**: Only trusted networks can attempt emergency access
+- ✅ **Audit precision**: Know exactly where emergency access came from
+- ⚠️ **Operational risk**: Admin locked out if not in allowed network
+
+**Permissive CIDRs (Not Recommended):**
+
+```yaml
+# ❌ DO NOT USE IN PRODUCTION
+- CHARON_MANAGEMENT_CIDRS=0.0.0.0/0,::/0
+```
+
+- ❌ **No geographic protection**: Token works from anywhere
+- ❌ **Increased attack surface**: Attackers can attempt brute force globally
+- ❌ **Compliance issues**: May violate security policies (ISO 27001, SOC 2)
+- ✅ **Operational safety**: Admin can always use token (no lockout risk)
+
+### Best Practices
+
+1. **Start restrictive, expand if needed**: Begin with office/VPN networks only
+2. **Include VPN subnet**: Ensure emergency access works when remote
+3. **Document IP changes**: Update CIDRs when networks change
+4. **Test after changes**: Verify emergency token works from expected locations
+5. **Monitor audit logs**: Review where emergency access attempts come from
+
+---
+
+## Emergency Server Security
+
+### Why Port 2020 Should NEVER Be Publicly Exposed
+
+The emergency server is designed as a **failsafe access mechanism** with minimal security controls. Exposing it to the public internet creates a high-risk attack surface.
+
+**Note:** Port 2020 is used for the emergency server to avoid conflict with Caddy's admin API on port 2019.
+
+**Risks of public exposure:**
+
+- ❌ **Weak authentication**: Basic Auth is vulnerable to brute force
+- ❌ **No rate limiting at proxy layer**: Emergency server has minimal DoS protection
+- ❌ **Credentials in HTTP headers**: Basic Auth sends credentials in every request
+- ❌ **Bypass all security**: Emergency server has direct database access
+- ❌ **Compliance violations**: Exposure may violate security policies
+
+### How to Use SSH Tunnels
+
+SSH tunneling provides encrypted, authenticated access to the emergency server without exposing it to the internet.
+
+**Create SSH tunnel:**
+
+```bash
+# Basic tunnel (port 2020 on localhost → port 2020 on server)
+ssh -L 2020:localhost:2020 admin@server.example.com
+
+# Keep terminal open - tunnel stays active
+# In new terminal, access emergency server:
+curl http://localhost:2020/health
+```
+
+**Persistent tunnel with autossh:**
+
+```bash
+# Install autossh
+sudo apt install autossh
+
+# Create persistent tunnel (auto-reconnect on disconnect)
+autossh -M 0 -f -N -L 2020:localhost:2020 admin@server.example.com
+
+# Verify tunnel is active
+ps aux | grep autossh
+
+# Stop tunnel
+pkill autossh
+```
+
+### VPN Configuration Recommendations
+
+**Option 1: WireGuard (Recommended)**
+
+```bash
+# Server: Install WireGuard
+sudo apt install wireguard
+
+# Generate keys
+wg genkey | tee privatekey | wg pubkey > publickey
+
+# Configure tunnel
+sudo nano /etc/wireguard/wg0.conf
+```
+
+**Option 2: OpenVPN**
+
+```bash
+# Server: Install OpenVPN
+sudo apt install openvpn
+
+# Use Easy-RSA for certificate generation
+make-cadir ~/openvpn-ca
+```
+
+**Configure Charon to listen on VPN interface:**
+
+```yaml
+environment:
+  - CHARON_EMERGENCY_BIND=10.8.0.1:2020  # VPN interface IP
+  - CHARON_MANAGEMENT_CIDRS=10.8.0.0/24  # VPN subnet
+```
+
+### Basic Auth vs mTLS Trade-offs
+
+**Basic Auth (Current Implementation)**
+
+**Pros:**
+
+- ✅ Simple to configure
+- ✅ Works with curl and standard HTTP clients
+- ✅ No certificate management required
+
+**Cons:**
+
+- ❌ Credentials sent in every request
+- ❌ Vulnerable to brute force
+- ❌ No protection against credential theft
+- ❌ Requires HTTPS/SSH tunnel for security
+
+**mTLS (Future Enhancement)**
+
+**Pros:**
+
+- ✅ Strong authentication (client certificate)
+- ✅ Credentials not sent over wire
+- ✅ Protection against brute force
+- ✅ Certificate-based access control
+
+**Cons:**
+
+- ❌ Complex certificate management
+- ❌ Requires client-side configuration
+- ❌ Certificate rotation overhead
+- ❌ Not yet implemented in Charon
+
+**Recommendation:** Use Basic Auth with SSH tunneling until mTLS is implemented.
+
+---
+
+## Audit Logging
+
+### What Events Are Logged During Emergency Access
+
+Charon logs all emergency access attempts with detailed context:
+
+**Logged Events:**
+
+| Event | Log Level | Fields Captured |
+|-------|-----------|-----------------|
+| Emergency token attempt (success) | WARN | Timestamp, IP, user-agent, path, token_valid=true |
+| Emergency token attempt (failure) | WARN | Timestamp, IP, user-agent, path, token_valid=false, reason |
+| Emergency token rate limit hit | WARN | Timestamp, IP, user-agent, attempts=6+ |
+| Security module disabled | INFO | Timestamp, IP, module_name, disabled_by=emergency_token |
+| Emergency server access | INFO | Timestamp, IP, endpoint, basic_auth_user |
+
+**Example Log Entries:**
+
+```
+[WARN] Emergency bypass active: IP=192.168.1.100, path=/api/v1/emergency/security-reset
+[INFO] Emergency token validation: result=success, ip=192.168.1.100, timing=2ms
+[INFO] Security module disabled: module=security.acl.enabled, reason=emergency_reset, ip=192.168.1.100
+[WARN] Emergency token rate limit exceeded: ip=192.168.1.100, attempts=6, window=60s
+```
+
+### How to Review Audit Logs Post-Incident
+
+**View container logs:**
+
+```bash
+# Recent emergency events
+docker logs charon | grep -i emergency
+
+# With timestamps
+docker logs charon --timestamps | grep -i emergency
+
+# Last 24 hours (requires log driver with time filtering)
+docker logs charon --since 24h | grep -i emergency
+
+# Export to file for analysis
+docker logs charon > /tmp/charon-incident-$(date +%Y%m%d).log
+```
+
+**Query audit log API:**
+
+```bash
+# Get all audit logs
+curl http://localhost:8080/api/v1/audit-logs | jq
+
+# Filter for emergency events
+curl http://localhost:8080/api/v1/audit-logs | jq '.[] | select(.action | contains("emergency"))'
+
+# Get logs from specific time range
+curl "http://localhost:8080/api/v1/audit-logs?start=2026-01-26T00:00:00Z&end=2026-01-26T23:59:59Z" | jq
+```
+
+**Analyze log patterns:**
+
+```bash
+# Count emergency token attempts by IP
+docker logs charon | grep "emergency token" | awk '{print $5}' | sort | uniq -c
+
+# Find failed attempts
+docker logs charon | grep "emergency" | grep "fail"
+
+# Timeline of events
+docker logs charon --timestamps | grep "emergency" | sort
+```
+
+### Alerting Recommendations
+
+**Critical Alerts (Immediate Response):**
+
+- ✅ Emergency token successfully used
+- ✅ Security modules disabled via emergency endpoint
+- ✅ Emergency server accessed
+
+**Warning Alerts (Review within 1 hour):**
+
+- ⚠️ Failed emergency token attempts (3+ in 5 minutes)
+- ⚠️ Emergency token rate limit exceeded
+- ⚠️ Emergency token used from unexpected IP
+
+**Info Alerts (Review daily):**
+
+- ℹ️ Emergency token configuration changed
+- ℹ️ Emergency server enabled/disabled
+
+**Prometheus Alert Example:**
+
+```yaml
+- alert: EmergencyTokenUsed
+  expr: increase(charon_emergency_token_success_total[5m]) > 0
+  labels:
+    severity: critical
+  annotations:
+    summary: "Emergency break glass token was used"
+    description: "Someone used the emergency token at {{ $labels.source_ip }}. Review audit logs immediately."
+```
+
+**Webhook Notification Example (Discord):**
+
+```json
+{
+  "embeds": [{
+    "title": "🚨 CRITICAL: Emergency Token Used",
+    "description": "The emergency break glass token was just used to disable Charon security.",
+    "color": 15158332,
+    "fields": [
+      {"name": "Source IP", "value": "192.168.1.100", "inline": true},
+      {"name": "Timestamp", "value": "2026-01-26 10:30:45 UTC", "inline": true},
+      {"name": "Disabled Modules", "value": "ACL, WAF, CrowdSec, Rate Limiting", "inline": false}
+    ],
+    "footer": {"text": "Review audit logs: docker logs charon | grep emergency"}
+  }]
+}
+```
+
+---
+
+## Additional Resources
+
+- **[Complete Emergency Recovery Runbook](runbooks/emergency-lockout-recovery.md)** — Step-by-step procedures for all 3 tiers
+- **[Emergency Token Rotation Guide](runbooks/emergency-token-rotation.md)** — Token rotation procedures
+- **[Configuration Examples](configuration/emergency-setup.md)** — Docker Compose configurations and firewall rules
+- **[Break Glass Protocol Design](plans/break_glass_protocol_redesign.md)** — Detailed architecture and design decisions
 
 ---
 
@@ -871,7 +1381,7 @@ services:
       # - ./my-existing-Caddyfile:/import/Caddyfile:ro
 
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/health"]
+      test: ["CMD", "curl", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3

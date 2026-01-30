@@ -2,17 +2,23 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/api/routes"
+	"github.com/Wikid82/charon/backend/internal/caddy"
+	"github.com/Wikid82/charon/backend/internal/cerberus"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/database"
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -137,6 +143,7 @@ func main() {
 				&models.SecurityRuleSet{},
 				&models.CrowdsecPresetEvent{},
 				&models.CrowdsecConsoleEnrollment{},
+				&models.EmergencyToken{}, // Phase 2: Database-backed emergency tokens
 				// DNS Provider models (Issue #21)
 				&models.DNSProvider{},
 				&models.DNSProviderCredential{},
@@ -240,8 +247,13 @@ func main() {
 	// Attach a recovery middleware that logs stack traces when debug is enabled
 	router.Use(middleware.Recovery(cfg.Debug))
 
+	// Shared Caddy manager and Cerberus instance for API + emergency server
+	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
+	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
+	cerb := cerberus.New(cfg.Security, db)
+
 	// Pass config to routes for auth service and certificate service
-	if err := routes.Register(router, db, cfg); err != nil {
+	if err := routes.RegisterWithDeps(router, db, cfg, caddyManager, cerb); err != nil {
 		log.Fatalf("register routes: %v", err)
 	}
 
@@ -253,10 +265,38 @@ func main() {
 		logger.Log().WithError(err).Warn("WARNING: failed to process mounted Caddyfile")
 	}
 
-	addr := fmt.Sprintf(":%s", cfg.HTTPPort)
-	logger.Log().Infof("starting %s backend on %s", version.Name, addr)
-
-	if err := router.Run(addr); err != nil {
-		log.Fatalf("server error: %v", err)
+	// Initialize emergency server (Tier 2 break glass)
+	emergencyServer := server.NewEmergencyServerWithDeps(db, cfg.Emergency, caddyManager, cerb)
+	if err := emergencyServer.Start(); err != nil {
+		logger.Log().WithError(err).Fatal("Failed to start emergency server")
 	}
+
+	// Setup graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	// Start main HTTP server in goroutine
+	go func() {
+		addr := fmt.Sprintf(":%s", cfg.HTTPPort)
+		logger.Log().Infof("starting %s backend on %s", version.Name, addr)
+
+		if err := router.Run(addr); err != nil {
+			logger.Log().WithError(err).Fatal("server error")
+		}
+	}()
+
+	// Wait for interrupt signal
+	sig := <-quit
+	logger.Log().Infof("Received signal %v, initiating graceful shutdown...", sig)
+
+	// Graceful shutdown with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Stop emergency server
+	if err := emergencyServer.Stop(ctx); err != nil {
+		logger.Log().WithError(err).Error("Emergency server shutdown error")
+	}
+
+	logger.Log().Info("Server shutdown complete")
 }

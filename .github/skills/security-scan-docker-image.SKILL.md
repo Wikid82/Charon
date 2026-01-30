@@ -40,7 +40,7 @@ environment_variables:
     required: false
   - name: "GRYPE_VERSION"
     description: "Grype version to use for vulnerability scanning"
-    default: "v0.85.0"
+    default: "v0.107.0"
     required: false
   - name: "IMAGE_TAG"
     description: "Docker image tag to build and scan"
@@ -145,7 +145,7 @@ brew install syft  # macOS
 
 ```bash
 # Linux/macOS
-curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.85.0
+curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.107.0
 
 # Or via package manager
 brew install grype  # macOS
@@ -191,7 +191,7 @@ Override default versions or behavior:
 
 ```bash
 # Use specific tool versions
-SYFT_VERSION=v1.17.0 GRYPE_VERSION=v0.85.0 \
+SYFT_VERSION=v1.17.0 GRYPE_VERSION=v0.107.0 \
   .github/skills/scripts/skill-runner.sh security-scan-docker-image
 
 # Change failure threshold
@@ -211,7 +211,7 @@ FAIL_ON_SEVERITY="Critical" \
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | SYFT_VERSION | No | v1.17.0 | Syft version (matches CI) |
-| GRYPE_VERSION | No | v0.85.0 | Grype version (matches CI) |
+| GRYPE_VERSION | No | v0.107.0 | Grype version (matches CI) |
 | IMAGE_TAG | No | charon:local | Default image tag if not provided |
 | FAIL_ON_SEVERITY | No | Critical,High | Severities that cause exit code 1 |
 
@@ -239,7 +239,7 @@ FAIL_ON_SEVERITY="Critical" \
 [SBOM] Generating SBOM using Syft v1.17.0...
 [SBOM] Generated SBOM contains 247 packages
 
-[SCAN] Scanning for vulnerabilities using Grype v0.85.0...
+[SCAN] Scanning for vulnerabilities using Grype v0.107.0...
 [SCAN] Vulnerability Summary:
   🔴 Critical: 0
   🟠 High: 0
@@ -266,7 +266,7 @@ $ .github/skills/scripts/skill-runner.sh security-scan-docker-image
 [SBOM] Scanning image: charon:local
 [SBOM] Generated SBOM contains 247 packages
 
-[SCAN] Scanning for vulnerabilities using Grype v0.85.0...
+[SCAN] Scanning for vulnerabilities using Grype v0.107.0...
 [SCAN] Vulnerability Summary:
   🔴 Critical: 0
   🟠 High: 2
@@ -413,7 +413,7 @@ Solution: Install Syft v1.17.0 using installation instructions above
 **Grype not installed**:
 ```bash
 [ERROR] Grype not found - install from: https://github.com/anchore/grype
-Solution: Install Grype v0.85.0 using installation instructions above
+Solution: Install Grype v0.107.0 using installation instructions above
 ```
 
 **Build failure**:
@@ -476,7 +476,7 @@ This skill **exactly replicates** the supply-chain-pr.yml workflow:
 | Build Image | ✅ Docker build | ✅ Docker build | ✅ |
 | Load Image | ✅ Load from artifact | ✅ Use built image | ✅ |
 | Syft Version | v1.17.0 | v1.17.0 | ✅ |
-| Grype Version | v0.85.0 | v0.85.0 | ✅ |
+| Grype Version | v0.107.0 | v0.107.0 | ✅ |
 | SBOM Format | CycloneDX JSON | CycloneDX JSON | ✅ |
 | Scan Target | Docker image | Docker image | ✅ |
 | Severity Counts | Critical/High/Medium/Low | Critical/High/Medium/Low | ✅ |
@@ -571,7 +571,7 @@ Verify versions match:
 
 ```bash
 syft version  # Should be v1.17.0
-grype version # Should be v0.85.0
+grype version # Should be v0.107.0
 ```
 
 Update if needed:
@@ -579,7 +579,7 @@ Update if needed:
 ```bash
 # Reinstall specific versions
 curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v1.17.0
-curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.85.0
+curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.107.0
 ```
 
 ## Notes

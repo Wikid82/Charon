@@ -125,27 +125,27 @@ describe('CredentialManager', () => {
       data: mockCredentials,
       isLoading: false,
       refetch: mockRefetch,
-    } as any)
+    } as unknown as ReturnType<typeof useCredentials>)
 
     vi.mocked(useCreateCredential).mockReturnValue({
       mutateAsync: mockMutateAsync,
       isPending: false,
-    } as any)
+    } as unknown as ReturnType<typeof useCreateCredential>)
 
     vi.mocked(useUpdateCredential).mockReturnValue({
       mutateAsync: mockMutateAsync,
       isPending: false,
-    } as any)
+    } as unknown as ReturnType<typeof useUpdateCredential>)
 
     vi.mocked(useDeleteCredential).mockReturnValue({
       mutateAsync: mockMutateAsync,
       isPending: false,
-    } as any)
+    } as unknown as ReturnType<typeof useDeleteCredential>)
 
     vi.mocked(useTestCredential).mockReturnValue({
       mutateAsync: mockMutateAsync,
       isPending: false,
-    } as any)
+    } as unknown as ReturnType<typeof useTestCredential>)
   })
 
   describe('Rendering', () => {
@@ -242,7 +242,7 @@ describe('CredentialManager', () => {
         data: [],
         isLoading: false,
         refetch: mockRefetch,
-      } as any)
+      } as unknown as ReturnType<typeof useCredentials>)
 
       renderWithClient(
         <CredentialManager
@@ -266,7 +266,7 @@ describe('CredentialManager', () => {
         data: [],
         isLoading: false,
         refetch: mockRefetch,
-      } as any)
+      } as unknown as ReturnType<typeof useCredentials>)
 
       renderWithClient(
         <CredentialManager
@@ -298,7 +298,7 @@ describe('CredentialManager', () => {
         data: undefined,
         isLoading: true,
         refetch: mockRefetch,
-      } as any)
+      } as unknown as ReturnType<typeof useCredentials>)
 
       renderWithClient(
         <CredentialManager
@@ -477,7 +477,7 @@ describe('CredentialManager', () => {
         isError: true,
         error: new Error('Failed to fetch'),
         refetch: mockRefetch,
-      } as any)
+      } as unknown as ReturnType<typeof useCredentials>)
 
       renderWithClient(
         <CredentialManager

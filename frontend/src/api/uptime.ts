@@ -73,13 +73,30 @@ export const deleteMonitor = async (id: string) => {
 };
 
 /**
+ * Creates a new uptime monitor.
+ * @param data - Monitor configuration (name, url, type, interval, max_retries)
+ * @returns Promise resolving to the created UptimeMonitor
+ * @throws {AxiosError} If creation fails
+ */
+export const createMonitor = async (data: {
+  name: string;
+  url: string;
+  type: string;
+  interval?: number;
+  max_retries?: number;
+}): Promise<UptimeMonitor> => {
+  const response = await client.post<UptimeMonitor>('/uptime/monitors', data);
+  return response.data;
+};
+
+/**
  * Syncs monitors with proxy hosts and remote servers.
  * @param body - Optional configuration for sync (interval, max_retries)
- * @returns Promise resolving to sync result
+ * @returns Promise resolving to sync result with message
  * @throws {AxiosError} If sync fails
  */
-export async function syncMonitors(body?: { interval?: number; max_retries?: number }) {
-  const res = await client.post('/uptime/sync', body || {});
+export async function syncMonitors(body?: { interval?: number; max_retries?: number }): Promise<{ message: string }> {
+  const res = await client.post<{ message: string }>('/uptime/sync', body || {});
   return res.data;
 }
 

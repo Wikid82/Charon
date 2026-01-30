@@ -2021,3 +2021,177 @@ func TestUserHandler_CreateUser_NonExistentPermittedHosts(t *testing.T) {
 	db.Preload("PermittedHosts").Where("email = ?", "nonexistenthosts@example.com").First(&user)
 	assert.Len(t, user.PermittedHosts, 0)
 }
+
+// ============= ResendInvite Tests =============
+
+func TestResendInvite_NonAdmin(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "user")
+		c.Next()
+	})
+	r.POST("/users/:id/resend-invite", handler.ResendInvite)
+
+	req := httptest.NewRequest("POST", "/users/1/resend-invite", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "Admin access required")
+}
+
+func TestResendInvite_InvalidID(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users/:id/resend-invite", handler.ResendInvite)
+
+	req := httptest.NewRequest("POST", "/users/invalid/resend-invite", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "Invalid user ID")
+}
+
+func TestResendInvite_UserNotFound(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users/:id/resend-invite", handler.ResendInvite)
+
+	req := httptest.NewRequest("POST", "/users/999/resend-invite", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "User not found")
+}
+
+func TestResendInvite_UserNotPending(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create user with accepted invite (not pending)
+	user := &models.User{
+		UUID:         uuid.NewString(),
+		APIKey:       uuid.NewString(),
+		Email:        "accepted-user@example.com",
+		Name:         "Accepted User",
+		InviteStatus: "accepted",
+		Enabled:      true,
+	}
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users/:id/resend-invite", handler.ResendInvite)
+
+	req := httptest.NewRequest("POST", "/users/"+strconv.FormatUint(uint64(user.ID), 10)+"/resend-invite", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "does not have a pending invite")
+}
+
+func TestResendInvite_Success(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create user with pending invite
+	expires := time.Now().Add(24 * time.Hour)
+	user := &models.User{
+		UUID:          uuid.NewString(),
+		APIKey:        uuid.NewString(),
+		Email:         "pending-user@example.com",
+		Name:          "Pending User",
+		InviteStatus:  "pending",
+		InviteToken:   "oldtoken123",
+		InviteExpires: &expires,
+		Enabled:       false,
+	}
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users/:id/resend-invite", handler.ResendInvite)
+
+	req := httptest.NewRequest("POST", "/users/"+strconv.FormatUint(uint64(user.ID), 10)+"/resend-invite", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NotEmpty(t, resp["invite_token"])
+	assert.NotEqual(t, "oldtoken123", resp["invite_token"])
+	assert.Equal(t, "pending-user@example.com", resp["email"])
+	assert.Equal(t, false, resp["email_sent"].(bool)) // No SMTP configured
+
+	// Verify token was updated in DB
+	var updatedUser models.User
+	db.First(&updatedUser, user.ID)
+	assert.NotEqual(t, "oldtoken123", updatedUser.InviteToken)
+	assert.Equal(t, resp["invite_token"], updatedUser.InviteToken)
+}
+
+func TestResendInvite_WithExpiredInvite(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create user with expired pending invite
+	expired := time.Now().Add(-24 * time.Hour)
+	user := &models.User{
+		UUID:          uuid.NewString(),
+		APIKey:        uuid.NewString(),
+		Email:         "expired-pending@example.com",
+		Name:          "Expired Pending User",
+		InviteStatus:  "pending",
+		InviteToken:   "expiredtoken",
+		InviteExpires: &expired,
+		Enabled:       false,
+	}
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users/:id/resend-invite", handler.ResendInvite)
+
+	req := httptest.NewRequest("POST", "/users/"+strconv.FormatUint(uint64(user.ID), 10)+"/resend-invite", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Should succeed - resend should work even if previous invite expired
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NotEmpty(t, resp["invite_token"])
+	assert.NotEqual(t, "expiredtoken", resp["invite_token"])
+
+	// Verify new expiration is in the future
+	var updatedUser models.User
+	db.First(&updatedUser, user.ID)
+	assert.True(t, updatedUser.InviteExpires.After(time.Now()))
+}

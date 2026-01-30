@@ -1,5 +1,5 @@
 ---
-agent: 'agent'
+mode: 'agent'
 description: 'Generate targeted tests to achieve 100% Codecov patch coverage when CI reports uncovered lines'
 tools: ['changes', 'search/codebase', 'edit/editFiles', 'fetch', 'findTestFiles', 'problems', 'runCommands', 'runTasks', 'runTests', 'search', 'search/searchResults', 'runCommands/terminalLastCommand', 'runCommands/terminalSelection', 'testFailure', 'usages']
 ---

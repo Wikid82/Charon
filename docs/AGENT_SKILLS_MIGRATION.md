@@ -99,7 +99,7 @@ scripts/trivy-scan.sh
 - `debug_db.py` - Interactive debugging tool
 - `debug_rate_limit.sh` - Interactive debugging tool
 - `gopls_collect.sh` - IDE-specific tooling
-- `install-go-1.25.5.sh` - One-time setup script
+- `install-go-1.25.6.sh` - One-time setup script
 - `create_bulk_acl_issues.sh` - Ad-hoc administrative script
 
 ---

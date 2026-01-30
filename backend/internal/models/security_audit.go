@@ -6,7 +6,7 @@ import (
 
 // SecurityAudit records admin actions or important changes related to security.
 type SecurityAudit struct {
-	ID            uint      `json:"id" gorm:"primaryKey"`
+	ID            uint      `json:"-" gorm:"primaryKey"`
 	UUID          string    `json:"uuid" gorm:"uniqueIndex"`
 	Actor         string    `json:"actor" gorm:"index"`
 	Action        string    `json:"action"`

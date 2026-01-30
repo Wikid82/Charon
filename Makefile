@@ -37,10 +37,10 @@ install-tools:
 	go install gotest.tools/gotestsum@latest
 	@echo "Tools installed successfully"
 
-# Install Go 1.25.5 system-wide and setup GOPATH/bin
+# Install Go 1.25.6 system-wide and setup GOPATH/bin
 install-go:
-	@echo "Installing Go 1.25.5 and gopls (requires sudo)"
-	sudo ./scripts/install-go-1.25.5.sh
+	@echo "Installing Go 1.25.6 and gopls (requires sudo)"
+	sudo ./scripts/install-go-1.25.6.sh
 
 # Clear Go and gopls caches
 clear-go-cache:

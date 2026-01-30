@@ -1,6 +1,6 @@
 ---
 description: "Comprehensive AI prompt engineering safety review and improvement prompt. Analyzes prompts for safety, bias, security vulnerabilities, and effectiveness while providing detailed improvement recommendations with extensive frameworks, testing methodologies, and educational content."
-agent: 'agent'
+mode: 'agent'
 ---
 
 # AI Prompt Engineering Safety Review & Improvement

@@ -7,7 +7,6 @@
     "helpers:pinGitHubActionDigests"
   ],
   "baseBranches": [
-    "feature/beta-release",
     "development"
   ],
   "timezone": "America/New_York",
@@ -45,6 +44,17 @@
       ],
       "datasourceTemplate": "go",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Debian base image digest in Dockerfile for security updates",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=docker\\s+depName=debian.*\\nARG CADDY_IMAGE=debian:(?<currentValue>trixie-slim@sha256:[a-f0-9]+)"
+      ],
+      "depNameTemplate": "debian",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
     }
   ],
 

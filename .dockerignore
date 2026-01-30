@@ -57,9 +57,11 @@ package.json
 # -----------------------------------------------------------------------------
 backend/bin/
 backend/api
+backend/main
 backend/*.out
 backend/*.cover
 backend/*.html
+backend/*.test
 backend/coverage/
 backend/coverage*.out
 backend/coverage*.txt
@@ -68,11 +70,17 @@ backend/handler_coverage.txt
 backend/handlers.out
 backend/services.test
 backend/test-output.txt
+backend/test-output*.txt
+backend/test_output*.txt
 backend/tr_no_cover.txt
 backend/nohup.out
 backend/package.json
 backend/package-lock.json
+backend/node_modules/
 backend/internal/api/tests/data/
+backend/lint*.txt
+backend/fix_*.sh
+backend/codeql-db-*/
 
 # Backend data (created at runtime)
 backend/data/
@@ -187,20 +195,50 @@ codeql-results*.sarif
 import/
 
 # -----------------------------------------------------------------------------
+# Playwright & E2E Testing
+# -----------------------------------------------------------------------------
+playwright/
+playwright-report/
+blob-report/
+test-results/
+tests/
+test-data/
+playwright.config.js
+
+# -----------------------------------------------------------------------------
+# Root-level artifacts
+# -----------------------------------------------------------------------------
+coverage/
+coverage.txt
+provenance*.json
+trivy-*.txt
+grype-results*.json
+grype-results*.sarif
+my-codeql-db/
+
+# -----------------------------------------------------------------------------
 # Project Documentation & Planning (not needed in image)
 # -----------------------------------------------------------------------------
 *.md.bak
 ACME_STAGING_IMPLEMENTATION.md*
 ARCHITECTURE_PLAN.md
+AUTO_VERSIONING_CI_FIX_SUMMARY.md
 BULK_ACL_FEATURE.md
+CODEQL_EMAIL_INJECTION_REMEDIATION_COMPLETE.md
+COMMIT_MSG.txt
+COVERAGE_ANALYSIS.md
+COVERAGE_REPORT.md
 DOCKER_TASKS.md*
 DOCUMENTATION_POLISH_SUMMARY.md
 GHCR_MIGRATION_SUMMARY.md
 ISSUE_*_IMPLEMENTATION.md*
+ISSUE_*.md
+PATCH_COVERAGE_IMPLEMENTATION_SUMMARY.md
 PHASE_*_SUMMARY.md
 PROJECT_BOARD_SETUP.md
 PROJECT_PLANNING.md
 SECURITY_IMPLEMENTATION_PLAN.md
+SECURITY_REMEDIATION_COMPLETE.md
 VERSIONING_IMPLEMENTATION.md
 QA_AUDIT_REPORT*.md
 VERSION.md

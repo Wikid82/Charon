@@ -67,7 +67,7 @@ sha256sum powerdns.so
    Download the `.so` file for your platform:
 
    ```bash
-   wget https://example.com/plugins/powerdns-linux-amd64.so -O powerdns.so
+   curl https://example.com/plugins/powerdns-linux-amd64.so -O powerdns.so
    ```
 
 2. **Verify Plugin Integrity (Recommended)**

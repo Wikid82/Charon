@@ -150,6 +150,16 @@ repos:
         verbose: true
         stages: [manual]  # Only runs after CodeQL scans
 
+      - id: gorm-security-scan
+        name: GORM Security Scanner (Manual)
+        entry: scripts/pre-commit-hooks/gorm-security-check.sh
+        language: script
+        files: '\.go$'
+        pass_filenames: false
+        stages: [manual]  # Manual stage initially (soft launch)
+        verbose: true
+        description: "Detects GORM ID leaks and common GORM security mistakes"
+
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.47.0
     hooks:

@@ -659,6 +659,50 @@ func TestAccessListService_GeoACL_NoGeoIPService(t *testing.T) {
 	})
 }
 
+// TestAccessListService_List_EmptyDatabase tests List with empty database.
+func TestAccessListService_List_EmptyDatabase(t *testing.T) {
+	db := setupTestDB(t)
+	service := NewAccessListService(db)
+
+	acls, err := service.List()
+	assert.NoError(t, err)
+	assert.Empty(t, acls)
+}
+
+// TestAccessListService_GetTemplates_Structure tests template structure and content.
+func TestAccessListService_GetTemplates_Structure(t *testing.T) {
+	db := setupTestDB(t)
+	service := NewAccessListService(db)
+
+	templates := service.GetTemplates()
+
+	t.Run("templates contain required fields", func(t *testing.T) {
+		for _, template := range templates {
+			assert.Contains(t, template, "name")
+			assert.Contains(t, template, "description")
+			assert.Contains(t, template, "type")
+			assert.NotEmpty(t, template["name"])
+			assert.NotEmpty(t, template["description"])
+			assert.NotEmpty(t, template["type"])
+		}
+	})
+
+	t.Run("templates have valid types", func(t *testing.T) {
+		validTypes := map[string]bool{
+			"whitelist":     true,
+			"blacklist":     true,
+			"geo_whitelist": true,
+			"geo_blacklist": true,
+		}
+
+		for _, template := range templates {
+			templateType, ok := template["type"].(string)
+			assert.True(t, ok, "Template type should be a string")
+			assert.True(t, validTypes[templateType], "Template type should be valid: %s", templateType)
+		}
+	})
+}
+
 // TestAccessListService_ParseCountryCodes tests the country code parsing helper.
 func TestAccessListService_ParseCountryCodes(t *testing.T) {
 	db := setupTestDB(t)
@@ -692,5 +736,66 @@ func TestAccessListService_ParseCountryCodes(t *testing.T) {
 	t.Run("parse with empty entries", func(t *testing.T) {
 		codes := service.parseCountryCodes("US,,GB,,,DE")
 		assert.Equal(t, []string{"US", "GB", "DE"}, codes)
+	})
+}
+
+// TestAccessListService_ValidateACLRules tests ACL rule validation.
+func TestAccessListService_ValidateACLRules(t *testing.T) {
+	db := setupTestDB(t)
+	service := NewAccessListService(db)
+
+	t.Run("validate valid IP rules", func(t *testing.T) {
+		rules := []models.AccessListRule{
+			{CIDR: "192.168.1.0/24", Description: "Valid subnet"},
+			{CIDR: "10.0.0.1", Description: "Valid single IP"},
+		}
+		rulesJSON, _ := json.Marshal(rules)
+
+		acl := &models.AccessList{
+			Name:    "Valid Rules",
+			Type:    "whitelist",
+			IPRules: string(rulesJSON),
+			Enabled: true,
+		}
+
+		err := service.Create(acl)
+		assert.NoError(t, err)
+	})
+
+	t.Run("fail validation with invalid CIDR", func(t *testing.T) {
+		rules := []models.AccessListRule{
+			{CIDR: "256.256.256.256", Description: "Invalid IP"},
+		}
+		rulesJSON, _ := json.Marshal(rules)
+
+		acl := &models.AccessList{
+			Name:    "Invalid Rules",
+			Type:    "whitelist",
+			IPRules: string(rulesJSON),
+			Enabled: true,
+		}
+
+		err := service.Create(acl)
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, ErrInvalidIPAddress)
+	})
+
+	t.Run("fail validation with mixed valid and invalid rules", func(t *testing.T) {
+		rules := []models.AccessListRule{
+			{CIDR: "192.168.1.0/24", Description: "Valid"},
+			{CIDR: "not-an-ip", Description: "Invalid"},
+		}
+		rulesJSON, _ := json.Marshal(rules)
+
+		acl := &models.AccessList{
+			Name:    "Mixed Rules",
+			Type:    "whitelist",
+			IPRules: string(rulesJSON),
+			Enabled: true,
+		}
+
+		err := service.Create(acl)
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, ErrInvalidIPAddress)
 	})
 }

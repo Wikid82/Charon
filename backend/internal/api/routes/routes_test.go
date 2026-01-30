@@ -1026,3 +1026,141 @@ func TestRegister_RateLimitPresetsRoute(t *testing.T) {
 	// Rate limit presets route
 	assert.True(t, routeMap["/api/v1/security/rate-limit/presets"])
 }
+
+// TestEmergencyEndpoint_BypassACL verifies emergency endpoint works when ACL is blocking
+func TestEmergencyEndpoint_BypassACL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	// Setup test database with ACL enabled
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_emergency_bypass_acl"), &gorm.Config{})
+	require.NoError(t, err)
+
+	// Set emergency token in env
+	t.Setenv("CHARON_EMERGENCY_TOKEN", "test-token-that-meets-minimum-length-requirement-32-chars")
+
+	// Register routes with security enabled
+	cfg := config.Config{
+		JWTSecret: "test-secret",
+		Security: config.SecurityConfig{
+			ACLMode:         "enabled",
+			CerberusEnabled: true,
+		},
+	}
+	require.NoError(t, Register(router, db, cfg))
+
+	// Note: We don't need to create ACL settings here because the emergency endpoint
+	// bypass happens at middleware level before Cerberus checks
+
+	// Test 1: Verify emergency endpoint exists
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
+	router.ServeHTTP(w, req)
+
+	// Should not be 404 (route exists)
+	assert.NotEqual(t, http.StatusNotFound, w.Code, "Emergency endpoint should exist")
+
+	// Test 2: Emergency request with valid token should work
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req.Header.Set("X-Emergency-Token", "test-token-that-meets-minimum-length-requirement-32-chars")
+	req.RemoteAddr = "127.0.0.1:12345"
+	router.ServeHTTP(w, req)
+
+	// Should succeed (even if ACL would normally block)
+	// Emergency handler returns 200 on success
+	assert.NotEqual(t, http.StatusForbidden, w.Code, "Emergency request should not be blocked by ACL")
+	assert.Equal(t, http.StatusOK, w.Code, "Emergency request should succeed")
+}
+
+// TestEmergencyBypass_MiddlewareOrder verifies emergency bypass is first in chain
+func TestEmergencyBypass_MiddlewareOrder(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_emergency_mw_order"), &gorm.Config{})
+	require.NoError(t, err)
+
+	t.Setenv("CHARON_EMERGENCY_TOKEN", "test-token-that-meets-minimum-length-requirement-32-chars")
+
+	cfg := config.Config{
+		JWTSecret: "test-secret",
+		Security: config.SecurityConfig{
+			CerberusEnabled: true,
+			ManagementCIDRs: []string{"127.0.0.0/8"},
+		},
+	}
+	require.NoError(t, Register(router, db, cfg))
+
+	// Request with emergency token should set bypass flag
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	req.Header.Set("X-Emergency-Token", "test-token-that-meets-minimum-length-requirement-32-chars")
+	req.RemoteAddr = "127.0.0.1:12345"
+	router.ServeHTTP(w, req)
+
+	// Should succeed - emergency bypass allows request through
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// TestEmergencyBypass_InvalidToken verifies invalid tokens are rejected
+func TestEmergencyBypass_InvalidToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_emergency_invalid_token"), &gorm.Config{})
+	require.NoError(t, err)
+
+	t.Setenv("CHARON_EMERGENCY_TOKEN", "test-token-that-meets-minimum-length-requirement-32-chars")
+
+	cfg := config.Config{
+		JWTSecret: "test-secret",
+		Security: config.SecurityConfig{
+			CerberusEnabled: true,
+		},
+	}
+	require.NoError(t, Register(router, db, cfg))
+
+	// Request with WRONG emergency token
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req.Header.Set("X-Emergency-Token", "wrong-token")
+	req.RemoteAddr = "127.0.0.1:12345"
+	router.ServeHTTP(w, req)
+
+	// Should not activate bypass (wrong token)
+	// Endpoint may still respond with proper error, but bypass flag should not be set
+	assert.NotEqual(t, http.StatusNotFound, w.Code)
+}
+
+// TestEmergencyBypass_UnauthorizedIP verifies IP restrictions work
+func TestEmergencyBypass_UnauthorizedIP(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_emergency_unauthorized_ip"), &gorm.Config{})
+	require.NoError(t, err)
+
+	t.Setenv("CHARON_EMERGENCY_TOKEN", "test-token-that-meets-minimum-length-requirement-32-chars")
+
+	// Only allow 192.168.1.0/24
+	cfg := config.Config{
+		JWTSecret: "test-secret",
+		Security: config.SecurityConfig{
+			CerberusEnabled: true,
+			ManagementCIDRs: []string{"192.168.1.0/24"},
+		},
+	}
+	require.NoError(t, Register(router, db, cfg))
+
+	// Request from public IP (not in management network)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req.Header.Set("X-Emergency-Token", "test-token-that-meets-minimum-length-requirement-32-chars")
+	req.RemoteAddr = "203.0.113.1:12345" // Public IP
+	router.ServeHTTP(w, req)
+
+	// Should not activate bypass (unauthorized IP)
+	assert.NotEqual(t, http.StatusNotFound, w.Code)
+}

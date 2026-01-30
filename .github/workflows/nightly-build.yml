@@ -15,8 +15,12 @@ on:
       default: "false"
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  GO_VERSION: '1.25.6'
+  NODE_VERSION: '24.12.0'
+  GOTOOLCHAIN: auto
+  GHCR_REGISTRY: ghcr.io
+  DOCKERHUB_REGISTRY: docker.io
+  IMAGE_NAME: wikid82/charon
 
 jobs:
   sync-development-to-nightly:
@@ -28,7 +32,7 @@ jobs:
 
     steps:
       - name: Checkout nightly branch
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: nightly
           fetch-depth: 0
@@ -64,6 +68,8 @@ jobs:
   build-and-push-nightly:
     needs: sync-development-to-nightly
     runs-on: ubuntu-latest
+    env:
+      HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
     permissions:
       contents: read
       packages: write
@@ -75,7 +81,7 @@ jobs:
 
     steps:
       - name: Checkout nightly branch
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: nightly
           fetch-depth: 0
@@ -90,17 +96,27 @@ jobs:
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef  # v3.6.0
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: env.HAS_DOCKERHUB_TOKEN == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5.10.0
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: |
+            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
+            ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=nightly
             type=raw,value=nightly-{{date 'YYYY-MM-DD'}}
@@ -126,9 +142,9 @@ jobs:
           sbom: true
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@0b82b0b1a22399a1c542d4d656f70cd903571b5c  # v0.21.1
+        uses: anchore/sbom-action@deef08a0db64bfad603422135db61477b16cef56  # v0.22.1
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}:nightly
+          image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly
           format: cyclonedx-json
           output-file: sbom-nightly.json
 
@@ -139,6 +155,33 @@ jobs:
           path: sbom-nightly.json
           retention-days: 30
 
+      # Install Cosign for keyless signing
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad  # v4.0.0
+
+      # Sign GHCR image with keyless signing (Sigstore/Fulcio)
+      - name: Sign GHCR Image
+        run: |
+          echo "Signing GHCR nightly image with keyless signing..."
+          cosign sign --yes ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          echo "✅ GHCR nightly image signed successfully"
+
+      # Sign Docker Hub image with keyless signing (Sigstore/Fulcio)
+      - name: Sign Docker Hub Image
+        if: env.HAS_DOCKERHUB_TOKEN == 'true'
+        run: |
+          echo "Signing Docker Hub nightly image with keyless signing..."
+          cosign sign --yes ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          echo "✅ Docker Hub nightly image signed successfully"
+
+      # Attach SBOM to Docker Hub image
+      - name: Attach SBOM to Docker Hub
+        if: env.HAS_DOCKERHUB_TOKEN == 'true'
+        run: |
+          echo "Attaching SBOM to Docker Hub nightly image..."
+          cosign attach sbom --sbom sbom-nightly.json ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          echo "✅ SBOM attached to Docker Hub nightly image"
+
   test-nightly-image:
     needs: build-and-push-nightly
     runs-on: ubuntu-latest
@@ -148,7 +191,7 @@ jobs:
 
     steps:
       - name: Checkout nightly branch
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: nightly
 
@@ -156,20 +199,20 @@ jobs:
         run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> $GITHUB_ENV
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef  # v3.6.0
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull nightly image
-        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}:nightly
+        run: docker pull ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly
 
       - name: Run container smoke test
         run: |
           docker run --name charon-nightly -d \
             -p 8080:8080 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}:nightly
+            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly
 
           # Wait for container to start
           sleep 10
@@ -192,7 +235,7 @@ jobs:
 
     steps:
       - name: Checkout nightly branch
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: nightly
           fetch-depth: 0
@@ -244,7 +287,7 @@ jobs:
 
     steps:
       - name: Checkout nightly branch
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           ref: nightly
 
@@ -257,7 +300,7 @@ jobs:
           name: sbom-nightly
 
       - name: Scan with Grype
-        uses: anchore/scan-action@62b74fb7bb810d2c45b1865f47a77655621862a5  # v7.2.3
+        uses: anchore/scan-action@8d2fce09422cd6037e577f4130e9b925e9a37175  # v7.3.1
         with:
           sbom: sbom-nightly.json
           fail-build: false
@@ -266,12 +309,12 @@ jobs:
       - name: Scan with Trivy
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8  # 0.33.1
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}:nightly
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly
           format: 'sarif'
           output: 'trivy-nightly.sarif'
 
       - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@cdefb33c0f6224e58673d9004f47f7cb3e328b89  # v4.31.10
+        uses: github/codeql-action/upload-sarif@b20883b0cd1f46c72ae0ba6d1090936928f9fa30  # v4.32.0
         with:
           sarif_file: 'trivy-nightly.sarif'
           category: 'trivy-nightly'

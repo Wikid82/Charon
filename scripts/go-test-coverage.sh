@@ -40,18 +40,27 @@ EXCLUDE_PACKAGES=(
 # test failures after the coverage check.
 # Note: Using -v for verbose output and -race for race detection
 GO_TEST_STATUS=0
+TEST_OUTPUT_FILE=$(mktemp)
+trap 'rm -f "$TEST_OUTPUT_FILE"' EXIT
+
 if command -v gotestsum &> /dev/null; then
-    if ! gotestsum --format pkgname -- -race -mod=readonly -coverprofile="$COVERAGE_FILE" ./...; then
+    if ! gotestsum --format pkgname -- -race -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"; then
         GO_TEST_STATUS=$?
     fi
 else
-    if ! go test -race -v -mod=readonly -coverprofile="$COVERAGE_FILE" ./...; then
+    if ! go test -race -v -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"; then
         GO_TEST_STATUS=$?
     fi
 fi
 
 if [ "$GO_TEST_STATUS" -ne 0 ]; then
     echo "Warning: go test returned non-zero (status ${GO_TEST_STATUS}); checking coverage file presence"
+    echo ""
+    echo "============================================"
+    echo "FAILED TEST SUMMARY:"
+    echo "============================================"
+    grep -E "(FAIL:|--- FAIL:)" "$TEST_OUTPUT_FILE" || echo "No specific failures captured in output"
+    echo "============================================"
 fi
 
 # Filter out excluded packages from coverage file

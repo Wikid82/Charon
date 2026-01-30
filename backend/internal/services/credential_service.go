@@ -84,7 +84,7 @@ func NewCredentialService(db *gorm.DB, encryptor *crypto.EncryptionService) Cred
 func (s *credentialService) List(ctx context.Context, providerID uint) ([]models.DNSProviderCredential, error) {
 	// Verify provider exists and has multi-credential enabled
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).First(&provider, providerID).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrDNSProviderNotFound
 		}
@@ -125,7 +125,7 @@ func (s *credentialService) Get(ctx context.Context, providerID, credentialID ui
 func (s *credentialService) Create(ctx context.Context, providerID uint, req CreateCredentialRequest) (*models.DNSProviderCredential, error) {
 	// Verify provider exists and has multi-credential enabled
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).First(&provider, providerID).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrDNSProviderNotFound
 		}
@@ -230,7 +230,7 @@ func (s *credentialService) Update(ctx context.Context, providerID, credentialID
 
 	// Fetch provider for validation and audit logging
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).First(&provider, providerID).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
 		return nil, err
 	}
 
@@ -347,7 +347,7 @@ func (s *credentialService) Delete(ctx context.Context, providerID, credentialID
 	}
 
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).First(&provider, providerID).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
 		return err
 	}
 
@@ -389,7 +389,7 @@ func (s *credentialService) Test(ctx context.Context, providerID, credentialID u
 	}
 
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).First(&provider, providerID).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
 		return nil, err
 	}
 
@@ -465,7 +465,7 @@ func (s *credentialService) Test(ctx context.Context, providerID, credentialID u
 func (s *credentialService) GetCredentialForDomain(ctx context.Context, providerID uint, domain string) (*models.DNSProviderCredential, error) {
 	// Verify provider exists
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).First(&provider, providerID).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrDNSProviderNotFound
 		}
@@ -561,7 +561,7 @@ func matchesDomain(zoneFilter, domain string, exactOnly bool) bool {
 func (s *credentialService) EnableMultiCredentials(ctx context.Context, providerID uint) error {
 	// Fetch provider
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).First(&provider, providerID).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrDNSProviderNotFound
 		}
