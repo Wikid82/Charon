@@ -1,4 +1,4 @@
-version: 1
+version: 2
 
 project_name: charon
 
@@ -8,9 +8,7 @@ builds:
     main: ./cmd/api
     binary: charon
     env:
-      - CGO_ENABLED=1
-      - CC=zig cc -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-linux-gnu
-      - CXX=zig c++ -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-linux-gnu
+      - CGO_ENABLED=0
     goos:
       - linux
     goarch:
@@ -27,9 +25,7 @@ builds:
     main: ./cmd/api
     binary: charon
     env:
-      - CGO_ENABLED=1
-      - CC=zig cc -target x86_64-windows-gnu
-      - CXX=zig c++ -target x86_64-windows-gnu
+      - CGO_ENABLED=0
     goos:
       - windows
     goarch:
@@ -45,9 +41,7 @@ builds:
     main: ./cmd/api
     binary: charon
     env:
-      - CGO_ENABLED=1
-      - CC=zig cc -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-macos-gnu
-      - CXX=zig c++ -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-macos-gnu
+      - CGO_ENABLED=0
     goos:
       - darwin
     goarch:
@@ -60,9 +54,10 @@ builds:
       - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
 
 archives:
-  - format: tar.gz
+  - formats:
+      - tar.gz
     id: nix
-    builds:
+    ids:
       - linux
       - darwin
     name_template: >-
@@ -74,9 +69,10 @@ archives:
       - LICENSE
       - README.md
 
-  - format: zip
+  - formats:
+      - zip
     id: windows
-    builds:
+    ids:
       - windows
     name_template: >-
       {{ .ProjectName }}_
@@ -89,7 +85,7 @@ archives:
 
 nfpms:
   - id: packages
-    builds:
+    ids:
       - linux
     package_name: charon
     vendor: Charon
@@ -115,7 +111,7 @@ checksum:
   name_template: 'checksums.txt'
 
 snapshot:
-  name_template: "{{ .Tag }}-next"
+  version_template: "{{ .Tag }}-next"
 
 changelog:
   sort: asc

@@ -55,6 +55,61 @@
       "depNameTemplate": "debian",
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Delve version in Dockerfile",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": [
+        "ARG DLV_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/go-delve/delve",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track xcaddy version in Dockerfile",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": [
+        "ARG XCADDY_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddyserver/xcaddy",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track govulncheck version in scripts",
+      "managerFilePatterns": ["/^scripts\\/security-scan\\.sh$/"],
+      "matchStrings": [
+        "govulncheck@v(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "golang.org/x/vuln",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track gopls version in Go install script",
+      "managerFilePatterns": ["/^scripts\\/install-go-1\\.25\\.6\\.sh$/"],
+      "matchStrings": [
+        "gopls@v(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "golang.org/x/tools",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Go toolchain version in go.work for the dl shim",
+      "managerFilePatterns": ["/^go\\.work$/"],
+      "matchStrings": [
+        "^go (?<currentValue>\\d+\\.\\d+\\.\\d+)$"
+      ],
+      "depNameTemplate": "golang/go",
+      "datasourceTemplate": "golang-version",
+      "versioningTemplate": "semver"
     }
   ],
 

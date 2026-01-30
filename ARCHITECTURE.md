@@ -1,7 +1,7 @@
 # Charon System Architecture
 
 **Version:** 1.0
-**Last Updated:** January 28, 2026
+**Last Updated:** 2026-01-30
 **Status:** Living Document
 
 ---
@@ -1389,8 +1389,8 @@ docker exec charon /app/scripts/restore-backup.sh \
 ### Known Issues
 
 1. **GORM Struct Reuse:**
-   - Fixed in v1.2.0 (see `docs/plans/current_spec.md`)
-   - Prior versions had ID leakage in Settings queries
+    - Fixed in v1.2.0 (see [docs/implementation/gorm_security_scanner_complete.md](docs/implementation/gorm_security_scanner_complete.md))
+    - Prior versions had ID leakage in Settings queries
 
 2. **Docker Discovery:**
    - Requires `docker.sock` mount (security trade-off)
