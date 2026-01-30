@@ -155,7 +155,7 @@ jobs:
       # Enable security-focused endpoints and test gating
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "true"
-      CHARON_E2E_IMAGE_DIGEST: ${{ needs.build.outputs.image_digest }}
+      CHARON_E2E_IMAGE_TAG: charon:e2e-test
     strategy:
       fail-fast: false
       matrix:

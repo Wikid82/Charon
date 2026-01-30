@@ -1,20 +1,21 @@
-# CI Workflow Failures - Fix Plan
+# Docker Compose CI Failure Remediation Plan
 
-**Version:** 1.0
-**Status:** Ready for Implementation
-**Priority:** HIGH
-**Created:** 2026-01-30
-**Scope:** Three CI failures in GitHub Actions workflows
+**Status**: Active  
+**Created**: 2026-01-30  
+**Priority**: CRITICAL (Blocking CI)
 
 ---
 
 ## Executive Summary
 
-Three CI workflows are failing in production. This plan documents the root causes, affected files, and specific fixes required for each issue:
+The E2E test workflow (`e2e-tests.yml`) is failing when attempting to start containers via `docker-compose.playwright-ci.yml`. The root cause is an incorrect Docker image reference format in the compose file that attempts to use a bare SHA256 digest instead of a fully-qualified image reference with registry and repository.
 
-1. **Nightly Build Failure**: GoReleaser macOS cross-compile failing with incorrect Zig target
-2. **Playwright E2E Failure**: Emergency server unreachable on port 2020 due to missing env var
-3. **Trivy Scan Failure**: Invalid Docker image reference when PR number is missing
+**Error Message**:
+```
+charon-app Error pull access denied for sha256, repository does not exist or may require 'docker login': denied: requested access to the resource is denied
+```
+
+**Root Cause**: The compose file's `image:` directive evaluates to a bare SHA256 digest (e.g., `sha256:057a9998...`) instead of a properly formatted image reference like `ghcr.io/wikid82/charon@sha256:057a9998...`.
 
 ---
 

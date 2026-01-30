@@ -1,3 +1,144 @@
+# QA Report: Docker Compose CI Fix Verification
+
+**Date**: 2026-01-30
+**Verification**: Docker Compose E2E Image Tag Fix
+
+---
+
+## Summary
+
+**RESULT: ✅ PASS**
+
+The Docker Compose CI fix has been correctly implemented. The environment variable change from `CHARON_E2E_IMAGE_DIGEST` to `CHARON_E2E_IMAGE_TAG` is properly configured in both the workflow and compose files.
+
+---
+
+## Verification Results
+
+### 1. Workflow File Analysis (`.github/workflows/e2e-tests.yml`)
+
+**Status**: ✅ PASS
+
+| Check | Result | Details |
+|-------|--------|---------|
+| `CHARON_E2E_IMAGE_TAG` defined | ✅ | Set to `charon:e2e-test` at line 159 in `e2e-tests` job env block |
+| No `CHARON_E2E_IMAGE_DIGEST` references | ✅ | Searched entire file (533 lines) - no occurrences found |
+| Image build tag matches | ✅ | Build job uses `tags: charon:e2e-test` at line 122 |
+| Image save/load flow | ✅ | Saves as `charon-e2e-image.tar`, loads in test shards |
+
+**Relevant Code (lines 157-160)**:
+```yaml
+env:
+  CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+  CHARON_EMERGENCY_SERVER_ENABLED: "true"
+  CHARON_SECURITY_TESTS_ENABLED: "true"
+  CHARON_E2E_IMAGE_TAG: charon:e2e-test
+```
+
+### 2. Compose File Analysis (`.docker/compose/docker-compose.playwright-ci.yml`)
+
+**Status**: ✅ PASS
+
+| Check | Result | Details |
+|-------|--------|---------|
+| Variable substitution syntax | ✅ | Uses `${CHARON_E2E_IMAGE_TAG:-charon:e2e-test}` |
+| Fallback default value | ✅ | Falls back to `charon:e2e-test` when env var not set |
+| Service definition correct | ✅ | `charon-app` service uses the image reference at line 30 |
+
+**Relevant Code (lines 28-31)**:
+```yaml
+charon-app:
+  # CI provides CHARON_E2E_IMAGE_TAG=charon:e2e-test (locally built image)
+  # Local development uses the default fallback value
+  image: ${CHARON_E2E_IMAGE_TAG:-charon:e2e-test}
+```
+
+### 3. Variable Substitution Verification
+
+**Status**: ✅ PASS (Verified via code analysis)
+
+| Scenario | Expected Image | Analysis |
+|----------|----------------|----------|
+| CI with `CHARON_E2E_IMAGE_TAG=charon:e2e-test` | `charon:e2e-test` | ✅ Env var value used |
+| Local without env var | `charon:e2e-test` | ✅ Default fallback used |
+| Custom tag override | User-specified value | ✅ Bash variable substitution syntax correct |
+
+### 4. YAML Syntax Validation
+
+**Status**: ✅ PASS (Verified via structure analysis)
+
+| File | Status | Details |
+|------|--------|---------|
+| `e2e-tests.yml` | ✅ Valid | 533 lines, proper YAML structure |
+| `docker-compose.playwright-ci.yml` | ✅ Valid | 159 lines, proper compose v3 structure |
+
+### 5. Consistency Checks
+
+**Status**: ✅ PASS
+
+| Check | Result |
+|-------|--------|
+| Build tag matches runtime tag | ✅ Both use `charon:e2e-test` |
+| Environment variable naming consistent | ✅ `CHARON_E2E_IMAGE_TAG` used everywhere |
+| No digest-based references remain | ✅ No `@sha256:` references for the app image |
+| Compose file references in workflow | ✅ All 4 references use correct path `.docker/compose/docker-compose.playwright-ci.yml` |
+
+---
+
+## Architecture Summary
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    E2E Test Workflow                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  [Build Job]                                                    │
+│    ├── Build image with tag: charon:e2e-test                    │
+│    ├── Save to: charon-e2e-image.tar                            │
+│    └── Upload artifact                                          │
+│                                                                 │
+│  [E2E Tests Job] (4 shards)                                     │
+│    ├── Download artifact                                        │
+│    ├── docker load -i charon-e2e-image.tar                      │
+│    ├── env: CHARON_E2E_IMAGE_TAG=charon:e2e-test                │
+│    └── docker compose up (uses ${CHARON_E2E_IMAGE_TAG})         │
+│                                                                 │
+│  [docker-compose.playwright-ci.yml]                             │
+│    └── image: ${CHARON_E2E_IMAGE_TAG:-charon:e2e-test}          │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Issues Found
+
+**None** - The implementation is correct and ready for CI testing.
+
+---
+
+## Recommendations
+
+1. **Merge and Test**: The fix is ready for CI validation
+2. **Monitor First Run**: Watch the first CI run to confirm the compose file resolves the image correctly
+3. **Log Verification**: Check `docker images | grep charon` output in CI logs shows `charon:e2e-test`
+
+---
+
+## Conclusion
+
+The Docker Compose CI fix has been **correctly implemented**:
+
+- ✅ Environment variable renamed from `CHARON_E2E_IMAGE_DIGEST` to `CHARON_E2E_IMAGE_TAG`
+- ✅ Compose file uses proper variable substitution with fallback
+- ✅ Build and runtime tags are consistent (`charon:e2e-test`)
+- ✅ No legacy digest references remain
+- ✅ YAML syntax is valid
+
+**Ready for CI testing.**
+
+---
+
 # QA Validation Report: CI Workflow Fixes
 
 **Report Date:** 2026-01-30
