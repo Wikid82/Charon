@@ -1,4 +1,140 @@
-# Renovate and Playwright Configuration Issues - Investigation Report
+# Propagate-Changes Workflow Failure - Investigation Report
+
+**Date:** January 30, 2026  
+**Investigator:** Planning Agent  
+**Status:** 🔴 ROOT CAUSE IDENTIFIED - Configuration file blocking workflow changes
+
+---
+
+## Executive Summary
+
+Investigation of workflow run [#21532969700](https://github.com/Wikid82/Charon/actions/runs/21532969700/job/62053071596) reveals that the **propagate-changes workflow completed successfully but did NOT create a PR** because `.github/workflows/` is still listed in the `sensitive_paths` configuration file, causing all workflow file changes to be blocked from propagation.
+
+**Root Cause:** Mismatch between workflow code comment (claiming `.github/workflows/` was removed from sensitive paths) and the actual configuration file (`.github/propagate-config.yml`) which still blocks workflow paths.
+
+---
+
+## 1. Root Cause Analysis
+
+### 🔴 CRITICAL: Configuration File Still Blocks Workflow Changes
+
+**Evidence from `.github/propagate-config.yml`:**
+```yaml
+sensitive_paths:
+  - scripts/history-rewrite/
+  - data/backups
+  - docs/plans/history_rewrite.md
+  - .github/workflows/           # <-- THIS BLOCKS ALL WORKFLOW CHANGES
+  - scripts/history-rewrite/preview_removals.sh
+  - scripts/history-rewrite/clean_history.sh
+```
+
+**Contradicting Comment in Workflow (line 84-85):**
+```javascript
+// NOTE: .github/workflows/ was removed from defaults - workflow updates SHOULD propagate
+// to ensure downstream branches have correct CI/CD configurations
+```
+
+### Logic Flow That Caused the Skip
+
+1. Push made to `main` branch (triggering workflow)
+2. Workflow compared `main` to `development` 
+3. Found files changed included `.github/workflows/*` paths
+4. Loaded `.github/propagate-config.yml` which contains `.github/workflows/`
+5. **Matched sensitive path** → `core.info()` logged skip message
+6. PR creation skipped, workflow exits with green status ✅
+
+---
+
+## 2. Other Potential Causes Eliminated
+
+| Potential Cause | Verdict | Evidence |
+|----------------|---------|----------|
+| Push by github-actions[bot] | ❌ Unlikely | User-triggered push would have different actor |
+| `github.event.pusher == null` | ❌ Unlikely | Push events always have pusher context |
+| Main already synced with dev | ❌ No | Workflow CI changes would create diff |
+| Existing open PR | ❌ Unknown | Would need `gh pr list` to verify |
+| **Sensitive path blocking** | ✅ **ROOT CAUSE** | `.github/workflows/` in config file |
+
+---
+
+## 3. Recommended Fix
+
+### Option A: Remove `.github/workflows/` from Sensitive Paths (Recommended)
+
+Edit `.github/propagate-config.yml`:
+
+```yaml
+sensitive_paths:
+  - scripts/history-rewrite/
+  - data/backups
+  - docs/plans/history_rewrite.md
+  # REMOVED: .github/workflows/ - workflow updates should propagate
+  - scripts/history-rewrite/preview_removals.sh
+  - scripts/history-rewrite/clean_history.sh
+```
+
+**Rationale:** 
+- CI/CD changes SHOULD propagate to keep all branches in sync
+- The original intent (documented in workflow comment) was to allow this
+- Downstream branches with outdated workflows cause CI failures
+
+### Option B: Add Specific Exclusions Instead
+
+If certain workflows should NOT propagate, use specific paths:
+
+```yaml
+sensitive_paths:
+  - scripts/history-rewrite/
+  - data/backups
+  - docs/plans/history_rewrite.md
+  - .github/workflows/propagate-changes.yml  # Only block self-propagation
+  - scripts/history-rewrite/preview_removals.sh
+  - scripts/history-rewrite/clean_history.sh
+```
+
+---
+
+## 4. Additional Findings
+
+### Workflow Logic Analysis
+
+The workflow has robust logic for:
+- ✅ Checking existing PRs before creating duplicates
+- ✅ Comparing commits (ahead_by check)
+- ✅ Loading external config file for sensitive paths
+- ✅ Proper error handling with `core.warning()`
+
+### Potential Edge Case: Skip Condition
+
+```yaml
+if: github.actor != 'github-actions[bot]' && github.event.pusher != null
+```
+
+This condition is **generally safe**, but:
+- If a merge is performed by GitHub's merge queue or rebase, `pusher` context may vary
+- Consider adding logging to track when this condition fails
+
+---
+
+## 5. Verification Steps After Fix
+
+1. **Apply fix** to `.github/propagate-config.yml`
+2. **Push a test change** to `main` that includes workflow modifications
+3. **Verify PR creation** in GitHub Actions logs
+4. **Check `core.info()` messages** for:
+   - `"Checking propagation from main to development..."`
+   - `"Created PR #XXX to merge main into development"`
+
+---
+
+## 6. Previous Investigation (Archived)
+
+The following sections document a previous investigation into Renovate and Playwright configuration issues.
+
+---
+
+# Renovate and Playwright Configuration Issues - Investigation Report (Archived)
 
 **Date:** January 30, 2026  
 **Investigator:** Planning Agent  
@@ -6,7 +142,7 @@
 
 ---
 
-## Executive Summary
+## Executive Summary (Archived)
 
 Investigation reveals that **both Renovate and Playwright workflows have incorrect configurations** that deviate from the user's required behavior. The Renovate configuration is missing feature branch support and has incorrect automerge settings. The Playwright workflow is missing push event triggers.
 
