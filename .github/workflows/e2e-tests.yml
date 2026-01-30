@@ -107,7 +107,7 @@ jobs:
           cache: 'npm'
 
       - name: Cache npm dependencies
-        uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7 # v5
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         with:
           path: ~/.npm
           key: npm-${{ hashFiles('package-lock.json') }}
@@ -246,7 +246,7 @@ jobs:
         run: npm ci
 
       - name: Cache Playwright browsers
-        uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7 # v5
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
