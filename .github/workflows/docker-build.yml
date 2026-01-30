@@ -180,7 +180,7 @@ jobs:
       # 2. Image doesn't exist locally after build
       # 3. Artifact creation fails
       - name: Save Docker Image as Artifact
-        if: github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true'
+        if: success() && steps.skip.outputs.skip_build != 'true' && (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true')
         run: |
           # Extract the first tag from metadata action (PR tag)
           IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
@@ -211,7 +211,7 @@ jobs:
           ls -lh /tmp/charon-pr-image.tar
 
       - name: Upload Image Artifact
-        if: github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true'
+        if: success() && steps.skip.outputs.skip_build != 'true' && (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true')
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ${{ github.event_name == 'pull_request' && format('pr-image-{0}', github.event.pull_request.number) || 'push-image' }}
