@@ -37,6 +37,9 @@ echo "🔄 Updating Go from $CURRENT_VERSION to $REQUIRED_VERSION..."
 
 # Download the new Go version using the official dl tool
 echo "📥 Downloading Go $REQUIRED_VERSION..."
+# Exception: golang.org/dl requires @latest to resolve the versioned shim.
+# Compensating controls: REQUIRED_VERSION is pinned in go.work, and the dl tool
+# downloads the official Go release for that exact version.
 go install "golang.org/dl/go${REQUIRED_VERSION}@latest"
 
 # Download the SDK
