@@ -394,12 +394,16 @@ test.describe('Dashboard', () => {
      * Test: Dashboard has proper heading structure
      */
     test('should have proper heading hierarchy', async ({ page }) => {
-      await page.goto('/');
+      // Note: beforeEach already navigated to dashboard and logged in
+      // No need to navigate again - just wait for content to stabilize
+      await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page);
-      await page.waitForTimeout(300); // Allow content to fully render
 
       await test.step('Verify heading structure', async () => {
-        // Check for any semantic structure on the page
+        // Wait for main content area to be visible first
+        await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
+
+        // Check for semantic heading structure
         const h1Count = await page.locator('h1').count();
         const h2Count = await page.locator('h2').count();
         const h3Count = await page.locator('h3').count();
@@ -408,13 +412,23 @@ test.describe('Dashboard', () => {
         // Check for visually styled headings or title elements
         const hasTitleElements = await page.locator('[class*="title"]').count() > 0;
         const hasCards = await page.locator('[class*="card"]').count() > 0;
-        const hasMain = await page.getByRole('main').isVisible().catch(() => false);
         const hasLinks = await page.locator('a[href]').count() > 0;
 
         // Dashboard may use cards/titles instead of traditional headings
         // Pass if any meaningful structure exists
         const hasHeadingStructure = h1Count > 0 || h2Count > 0 || h3Count > 0 || anyHeading > 0;
-        const hasOtherStructure = hasTitleElements || hasCards || hasMain || hasLinks;
+        const hasOtherStructure = hasTitleElements || hasCards || hasLinks;
+
+        // Debug output in case of failure
+        if (!hasHeadingStructure && !hasOtherStructure) {
+          console.log('Dashboard structure check failed:');
+          console.log(`  H1: ${h1Count}, H2: ${h2Count}, H3: ${h3Count}`);
+          console.log(`  Any headings: ${anyHeading}`);
+          console.log(`  Title elements: ${hasTitleElements}`);
+          console.log(`  Cards: ${hasCards}`);
+          console.log(`  Links: ${hasLinks}`);
+          console.log(`  Page URL: ${page.url()}`);
+        }
 
         expect(hasHeadingStructure || hasOtherStructure).toBeTruthy();
       });
