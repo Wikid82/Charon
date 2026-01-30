@@ -509,7 +509,7 @@ jobs:
           docker run -d \
             --name whoami \
             --network charon-test-net \
-            traefik/whoami
+            traefik/whoami:latest@sha256:200689790a0a0ea48ca45992e0450bc26ccab5307375b41c84dfc4f2475937ab
 
       - name: Run Charon Container
         timeout-minutes: 3

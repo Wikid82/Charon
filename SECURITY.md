@@ -279,6 +279,39 @@ Integrate supply chain verification into your deployment pipeline:
 - **Build Process**: SLSA Level 3 compliant build provenance
 - **Dependencies**: Complete SBOM including all direct and transitive dependencies
 
+### Digest Pinning Policy
+
+Charon uses digest pinning to reduce supply chain risk and ensure CI runs against immutable artifacts.
+
+**Scope (Required):**
+
+- **CI workflows**: `.github/workflows/*.yml`, `.github/workflows/*.yaml`
+- **CI compose files**: `.docker/compose/*.yml`, `.docker/compose/*.yaml`, `.docker/compose/docker-compose*.yml`, `.docker/compose/docker-compose*.yaml`
+- **CI helper actions with container refs**: `.github/actions/**/*.yml`, `.github/actions/**/*.yaml`
+- CI workflows and CI compose files MUST use digest-pinned images for third-party services.
+- Tag+digest pairs are preferred for human-readable references with immutable resolution.
+- Self-built images MUST propagate digests to downstream jobs and tests.
+
+**Rationale:**
+
+- Prevent tag drift and supply chain substitution in automated runs.
+- Ensure deterministic builds, reproducible scans, and stable SBOM generation.
+- Reduce rollback risk by guaranteeing CI uses immutable artifacts.
+
+**Local Development Exceptions:**
+
+- Local-only overrides (e.g., `CHARON_E2E_IMAGE`, `CHARON_IMAGE`, `CHARON_DEV_IMAGE`) MAY use tags for developer iteration.
+- Tag-only overrides MUST NOT be used in CI contexts.
+
+**Documented Exceptions & Compensating Controls:**
+
+1. **Go toolchain shim** (`golang.org/dl/goX.Y.Z@latest`)
+  - **Exception:** Uses `@latest` to install the shim.
+  - **Compensating controls:** The target toolchain version is pinned in `go.work`, and Renovate tracks the required version for updates.
+2. **Unpinnable dependencies** (no stable digest or checksum source)
+  - **Exception:** Dependency cannot be pinned by digest.
+  - **Compensating controls:** Require documented justification, prefer vendor-provided checksums or signed releases when available, and keep SBOM/vulnerability scans in CI.
+
 ### Learn More
 
 - **[User Guide](docs/guides/supply-chain-security-user-guide.md)**: Step-by-step verification instructions
@@ -477,5 +510,5 @@ This security policy is part of the Charon project, licensed under the MIT Licen
 
 ---
 
-**Last Updated**: December 31, 2025
+**Last Updated**: January 30, 2026
 **Version**: 1.2
