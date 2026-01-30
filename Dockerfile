@@ -108,8 +108,10 @@ RUN xx-apt install -y gcc libc6-dev libsqlite3-dev
 # Install Delve (cross-compile for target)
 # Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
 # We find it and move it to /go/bin/dlv so it's in a consistent location for the next stage.
+# renovate: datasource=go depName=github.com/go-delve/delve
+ARG DLV_VERSION=1.26.0
 # hadolint ignore=DL3059,DL4006
-RUN CGO_ENABLED=0 xx-go install github.com/go-delve/delve/cmd/dlv@latest && \
+RUN CGO_ENABLED=0 xx-go install github.com/go-delve/delve/cmd/dlv@v${DLV_VERSION} && \
     DLV_PATH=$(find /go/bin -name dlv -type f | head -n 1) && \
     if [ -n "$DLV_PATH" ] && [ "$DLV_PATH" != "/go/bin/dlv" ]; then \
         mv "$DLV_PATH" /go/bin/dlv; \
@@ -164,12 +166,14 @@ FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:fb4b74a39c7318d53539ebd
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
+# renovate: datasource=go depName=github.com/caddyserver/xcaddy
+ARG XCADDY_VERSION=0.4.5
 
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 # hadolint ignore=DL3062
 RUN --mount=type=cache,target=/go/pkg/mod \
-    go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+    go install github.com/caddyserver/xcaddy/cmd/xcaddy@v${XCADDY_VERSION}
 
 # Build Caddy for the target architecture with security plugins.
 # Two-stage approach: xcaddy generates go.mod, we patch it, then build from scratch.
@@ -234,6 +238,8 @@ ARG TARGETARCH
 # CrowdSec version - Renovate can update this
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
 ARG CROWDSEC_VERSION=1.7.6
+# CrowdSec fallback tarball checksum (v${CROWDSEC_VERSION})
+ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git clang lld \
@@ -288,6 +294,7 @@ ARG TARGETARCH
 # CrowdSec version - Renovate can update this
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
 ARG CROWDSEC_VERSION=1.7.6
+ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
 
 # Note: Debian slim does NOT include tar by default - must be explicitly installed
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -303,6 +310,7 @@ RUN set -eux; \
         echo "Downloading CrowdSec binaries for amd64 (fallback)..."; \
         curl -fSL "https://github.com/crowdsecurity/crowdsec/releases/download/v${CROWDSEC_VERSION}/crowdsec-release.tgz" \
             -o /tmp/crowdsec.tar.gz && \
+        echo "${CROWDSEC_RELEASE_SHA256}  /tmp/crowdsec.tar.gz" | sha256sum -c - && \
         tar -xzf /tmp/crowdsec.tar.gz -C /tmp && \
         cp "/tmp/crowdsec-v${CROWDSEC_VERSION}/cmd/crowdsec-cli/cscli" /crowdsec-out/bin/ && \
         cp "/tmp/crowdsec-v${CROWDSEC_VERSION}/cmd/crowdsec/crowdsec" /crowdsec-out/bin/ && \
@@ -341,9 +349,11 @@ RUN groupadd -g 1000 charon && \
 # Download MaxMind GeoLite2 Country database
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
+ARG GEOLITE2_COUNTRY_SHA256=6b778471c086c44d15bd4df954661d441a5513ec48f1af5545cb05af8f2e15b9
 RUN mkdir -p /app/data/geoip && \
-    curl -L "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-    -o /app/data/geoip/GeoLite2-Country.mmdb
+    curl -fSL "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
+    -o /app/data/geoip/GeoLite2-Country.mmdb && \
+    echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c -
 
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy

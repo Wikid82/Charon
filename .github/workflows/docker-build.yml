@@ -180,7 +180,7 @@ jobs:
       # 2. Image doesn't exist locally after build
       # 3. Artifact creation fails
       - name: Save Docker Image as Artifact
-        if: github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true'
+        if: success() && steps.skip.outputs.skip_build != 'true' && (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true')
         run: |
           # Extract the first tag from metadata action (PR tag)
           IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
@@ -211,7 +211,7 @@ jobs:
           ls -lh /tmp/charon-pr-image.tar
 
       - name: Upload Image Artifact
-        if: github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true'
+        if: success() && steps.skip.outputs.skip_build != 'true' && (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true')
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ${{ github.event_name == 'pull_request' && format('pr-image-{0}', github.event.pull_request.number) || 'push-image' }}
@@ -228,9 +228,18 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}"
+            PR_NUM="${{ github.event.pull_request.number }}"
+            if [ -z "${PR_NUM}" ]; then
+              echo "❌ ERROR: Pull request number is empty"
+              exit 1
+            fi
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${PR_NUM}"
             echo "Using PR image: $IMAGE_REF"
           else
+            if [ -z "${{ steps.build-and-push.outputs.digest }}" ]; then
+              echo "❌ ERROR: Build digest is empty"
+              exit 1
+            fi
             IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
             echo "Using digest: $IMAGE_REF"
           fi
@@ -244,6 +253,24 @@ jobs:
           CONTAINER_ID=$(docker create --pull=never $IMAGE_REF)
           docker cp ${CONTAINER_ID}:/usr/bin/caddy ./caddy_binary
           docker rm ${CONTAINER_ID}
+
+          # Determine the image reference based on event type
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            PR_NUM="${{ github.event.pull_request.number }}"
+            if [ -z "${PR_NUM}" ]; then
+              echo "❌ ERROR: Pull request number is empty"
+              exit 1
+            fi
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${PR_NUM}"
+            echo "Using PR image: $IMAGE_REF"
+          else
+            if [ -z "${{ steps.build-and-push.outputs.digest }}" ]; then
+              echo "❌ ERROR: Build digest is empty"
+              exit 1
+            fi
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
+            echo "Using digest: $IMAGE_REF"
+          fi
 
           echo ""
           echo "==> Checking if Go toolchain is available locally..."
@@ -297,9 +324,18 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}"
+            PR_NUM="${{ github.event.pull_request.number }}"
+            if [ -z "${PR_NUM}" ]; then
+              echo "❌ ERROR: Pull request number is empty"
+              exit 1
+            fi
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${PR_NUM}"
             echo "Using PR image: $IMAGE_REF"
           else
+            if [ -z "${{ steps.build-and-push.outputs.digest }}" ]; then
+              echo "❌ ERROR: Build digest is empty"
+              exit 1
+            fi
             IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
             echo "Using digest: $IMAGE_REF"
           fi
@@ -509,7 +545,7 @@ jobs:
           docker run -d \
             --name whoami \
             --network charon-test-net \
-            traefik/whoami
+            traefik/whoami:latest@sha256:200689790a0a0ea48ca45992e0450bc26ccab5307375b41c84dfc4f2475937ab
 
       - name: Run Charon Container
         timeout-minutes: 3

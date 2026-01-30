@@ -10,7 +10,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 

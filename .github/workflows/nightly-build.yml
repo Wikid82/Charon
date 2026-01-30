@@ -141,10 +141,15 @@ jobs:
           provenance: true
           sbom: true
 
+      - name: Record nightly image digest
+        run: |
+          echo "## 🧾 Nightly Image Digest" >> $GITHUB_STEP_SUMMARY
+          echo "- ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+
       - name: Generate SBOM
         uses: anchore/sbom-action@deef08a0db64bfad603422135db61477b16cef56  # v0.22.1
         with:
-          image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly
+          image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.build.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom-nightly.json
 
@@ -206,13 +211,13 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull nightly image
-        run: docker pull ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly
+        run: docker pull ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}
 
       - name: Run container smoke test
         run: |
           docker run --name charon-nightly -d \
             -p 8080:8080 \
-            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly
+            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}
 
           # Wait for container to start
           sleep 10
@@ -309,7 +314,7 @@ jobs:
       - name: Scan with Trivy
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8  # 0.33.1
         with:
-          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-and-push-nightly.outputs.digest }}
           format: 'sarif'
           output: 'trivy-nightly.sarif'
 
