@@ -4,30 +4,18 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
 // Connect opens a SQLite database connection with optimized settings.
 // Uses WAL mode for better concurrent read/write performance.
 func Connect(dbPath string) (*gorm.DB, error) {
-	// Add SQLite performance pragmas if not already present
-	dsn := dbPath
-	if !strings.Contains(dsn, "?") {
-		dsn += "?"
-	} else {
-		dsn += "&"
-	}
-	// WAL mode: better concurrent access, faster writes
-	// busy_timeout: wait up to 5s instead of failing immediately on lock
-	// cache: shared cache for better memory usage
-	// synchronous=NORMAL: good balance of safety and speed
-	dsn += "_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=-64000"
-
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
+	// Open the database connection
+	// Note: PRAGMA settings are applied after connection for modernc.org/sqlite compatibility
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
 		// Skip default transaction for single operations (faster)
 		SkipDefaultTransaction: true,
 		// Prepare statements for reuse
@@ -44,12 +32,27 @@ func Connect(dbPath string) (*gorm.DB, error) {
 	}
 	configurePool(sqlDB)
 
+	// Set SQLite performance pragmas via SQL execution
+	// This is required for modernc.org/sqlite (pure-Go driver) which doesn't
+	// support DSN-based pragma parameters like mattn/go-sqlite3
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL",      // Better concurrent access, faster writes
+		"PRAGMA busy_timeout=5000",     // Wait up to 5s instead of failing immediately on lock
+		"PRAGMA synchronous=NORMAL",    // Good balance of safety and speed
+		"PRAGMA cache_size=-64000",     // 64MB cache for better performance
+	}
+	for _, pragma := range pragmas {
+		if _, err := sqlDB.Exec(pragma); err != nil {
+			return nil, fmt.Errorf("failed to execute %s: %w", pragma, err)
+		}
+	}
+
 	// Verify WAL mode is enabled and log confirmation
 	var journalMode string
 	if err := db.Raw("PRAGMA journal_mode").Scan(&journalMode).Error; err != nil {
 		logger.Log().WithError(err).Warn("Failed to verify SQLite journal mode")
 	} else {
-		logger.Log().WithField("journal_mode", journalMode).Info("SQLite database connected with WAL mode enabled")
+		logger.Log().WithField("journal_mode", journalMode).Info("SQLite database connected with optimized settings")
 	}
 
 	// Run quick integrity check on startup (non-blocking, warn-only)
