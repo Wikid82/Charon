@@ -213,8 +213,24 @@ jobs:
           if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
             # Use sanitized branch name for Docker tag (/ is invalid in tags)
             IMAGE_REF="ghcr.io/${IMAGE_NAME}:${{ steps.sanitize.outputs.branch }}"
-          else
+          elif [[ -n "${{ steps.pr-info.outputs.pr_number }}" ]]; then
             IMAGE_REF="ghcr.io/${IMAGE_NAME}:pr-${{ steps.pr-info.outputs.pr_number }}"
+          else
+            echo "❌ ERROR: Cannot determine image reference"
+            echo "  - is_push: ${{ steps.pr-info.outputs.is_push }}"
+            echo "  - pr_number: ${{ steps.pr-info.outputs.pr_number }}"
+            echo "  - branch: ${{ steps.sanitize.outputs.branch }}"
+            echo ""
+            echo "This can happen when:"
+            echo "  1. workflow_dispatch without pr_number input"
+            echo "  2. workflow_run triggered by non-PR, non-push event"
+            exit 1
+          fi
+
+          # Validate the image reference format
+          if [[ ! "${IMAGE_REF}" =~ ^ghcr\.io/[a-z0-9_-]+/[a-z0-9_-]+:[a-zA-Z0-9._-]+$ ]]; then
+            echo "❌ ERROR: Invalid image reference format: ${IMAGE_REF}"
+            exit 1
           fi
 
           echo "📦 Starting container with image: ${IMAGE_REF}"
@@ -230,6 +246,10 @@ jobs:
             -e CHARON_ENCRYPTION_KEY="${CHARON_ENCRYPTION_KEY}" \
             -e CHARON_EMERGENCY_TOKEN="${CHARON_EMERGENCY_TOKEN}" \
             -e CHARON_EMERGENCY_SERVER_ENABLED="${CHARON_EMERGENCY_SERVER_ENABLED}" \
+            -e CHARON_EMERGENCY_BIND="0.0.0.0:2020" \
+            -e CHARON_EMERGENCY_USERNAME="admin" \
+            -e CHARON_EMERGENCY_PASSWORD="changeme" \
+            -e CHARON_SECURITY_TESTS_ENABLED="true" \
             "${IMAGE_REF}"
 
           echo "✅ Container started"

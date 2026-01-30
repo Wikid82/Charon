@@ -46,8 +46,8 @@ builds:
     binary: charon
     env:
       - CGO_ENABLED=1
-      - CC=zig cc -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-macos-gnu
-      - CXX=zig c++ -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-macos-gnu
+      - CC=zig cc -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-macos-none
+      - CXX=zig c++ -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-macos-none
     goos:
       - darwin
     goarch:
