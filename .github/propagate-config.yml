@@ -7,6 +7,7 @@ sensitive_paths:
   - scripts/history-rewrite/
   - data/backups
   - docs/plans/history_rewrite.md
-  - .github/workflows/
+  - .github/agents/
+  - .vscode/
   - scripts/history-rewrite/preview_removals.sh
   - scripts/history-rewrite/clean_history.sh
