@@ -31,6 +31,24 @@ import (
 
 // Register wires up API routes and performs automatic migrations.
 func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
+	// Caddy Manager - created early so it can be used by settings handlers for config reload
+	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
+	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
+
+	// Cerberus middleware applies the optional security suite checks (WAF, ACL, CrowdSec)
+	cerb := cerberus.New(cfg.Security, db)
+
+	return RegisterWithDeps(router, db, cfg, caddyManager, cerb)
+}
+
+// RegisterWithDeps wires up API routes and performs automatic migrations with prebuilt dependencies.
+func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyManager *caddy.Manager, cerb *cerberus.Cerberus) error {
+	// Emergency bypass must be registered FIRST.
+	// When a valid X-Emergency-Token is present from an authorized source,
+	// it sets an emergency context flag and strips the token header so downstream
+	// middleware (Cerberus/ACL/WAF/etc.) can honor the bypass without logging it.
+	router.Use(middleware.EmergencyBypass(cfg.Security.ManagementCIDRs, db))
+
 	// Enable gzip compression for API responses (reduces payload size ~70%)
 	router.Use(gzip.Gzip(gzip.DefaultCompression))
 
@@ -101,19 +119,35 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP(c.Writer, c.Request)
 	})
 
-	api := router.Group("/api/v1")
+	if caddyManager == nil {
+		caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
+		caddyManager = caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
+	}
+	if cerb == nil {
+		cerb = cerberus.New(cfg.Security, db)
+	}
 
-	// Cerberus middleware applies the optional security suite checks (WAF, ACL, CrowdSec)
-	cerb := cerberus.New(cfg.Security, db)
-	api.Use(cerb.Middleware())
+	// Emergency endpoint
+	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(db, caddyManager, cerb)
+	emergency := router.Group("/api/v1/emergency")
+	emergency.POST("/security-reset", emergencyHandler.SecurityReset)
 
-	// Caddy Manager declaration so it can be used across the entire Register function
-	var caddyManager *caddy.Manager
+	// Emergency token management (admin-only, protected by EmergencyBypass middleware)
+	emergencyTokenService := services.NewEmergencyTokenService(db)
+	emergencyTokenHandler := handlers.NewEmergencyTokenHandler(emergencyTokenService)
+	emergency.POST("/token/generate", emergencyTokenHandler.GenerateToken)
+	emergency.GET("/token/status", emergencyTokenHandler.GetTokenStatus)
+	emergency.DELETE("/token", emergencyTokenHandler.RevokeToken)
+	emergency.PATCH("/token/expiration", emergencyTokenHandler.UpdateTokenExpiration)
 
 	// Auth routes
 	authService := services.NewAuthService(db, cfg)
 	authHandler := handlers.NewAuthHandlerWithDB(authService, db)
 	authMiddleware := middleware.AuthMiddleware(authService)
+
+	api := router.Group("/api/v1")
+	api.Use(middleware.OptionalAuth(authService))
+	api.Use(cerb.Middleware())
 
 	// Backup routes
 	backupService := services.NewBackupService(&cfg)
@@ -194,10 +228,13 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/audit-logs", auditLogHandler.List)
 		protected.GET("/audit-logs/:uuid", auditLogHandler.Get)
 
-		// Settings
-		settingsHandler := handlers.NewSettingsHandler(db)
+		// Settings - with CaddyManager and Cerberus for security settings reload
+		settingsHandler := handlers.NewSettingsHandlerWithDeps(db, caddyManager, cerb)
+
 		protected.GET("/settings", settingsHandler.GetSettings)
 		protected.POST("/settings", settingsHandler.UpdateSetting)
+		protected.PATCH("/settings", settingsHandler.UpdateSetting) // E2E tests use PATCH
+		protected.PATCH("/config", settingsHandler.PatchConfig)     // Bulk configuration update
 
 		// SMTP Configuration
 		protected.GET("/settings/smtp", settingsHandler.GetSMTPConfig)
@@ -232,6 +269,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.PUT("/users/:id", userHandler.UpdateUser)
 		protected.DELETE("/users/:id", userHandler.DeleteUser)
 		protected.PUT("/users/:id/permissions", userHandler.UpdateUserPermissions)
+		protected.POST("/users/:id/resend-invite", userHandler.ResendInvite)
 
 		// Updates
 		updateService := services.NewUpdateService()
@@ -336,6 +374,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		uptimeService := services.NewUptimeService(db, notificationService)
 		uptimeHandler := handlers.NewUptimeHandler(uptimeService)
 		protected.GET("/uptime/monitors", uptimeHandler.List)
+		protected.POST("/uptime/monitors", uptimeHandler.Create)
 		protected.GET("/uptime/monitors/:id/history", uptimeHandler.GetHistory)
 		protected.PUT("/uptime/monitors/:id", uptimeHandler.Update)
 		protected.DELETE("/uptime/monitors/:id", uptimeHandler.Delete)
@@ -393,6 +432,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 			ticker := time.NewTicker(1 * time.Minute)
 			for range ticker.C {
 				// Check feature flag each tick
+				s = models.Setting{} // Reset to prevent ID leakage from previous query
 				enabled := true
 				if err := db.Where("key = ?", "feature.uptime.enabled").First(&s).Error; err == nil {
 					enabled = s.Value == "true"
@@ -410,9 +450,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 			c.JSON(200, gin.H{"message": "Uptime check started"})
 		})
 
-		// Caddy Manager
-		caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
-		caddyManager = caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
+		// caddyManager is already created early in Register() for use by settingsHandler
 
 		// Initialize GeoIP service if database exists
 		geoipPath := os.Getenv("CHARON_GEOIP_DB_PATH")
@@ -434,10 +472,11 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		}
 
 		// Security Status
-		securityHandler := handlers.NewSecurityHandler(cfg.Security, db, caddyManager)
+		securityHandler := handlers.NewSecurityHandlerWithDeps(cfg.Security, db, caddyManager, cerb)
 		if geoipSvc != nil {
 			securityHandler.SetGeoIPService(geoipSvc)
 		}
+
 		protected.GET("/security/status", securityHandler.GetStatus)
 		// Security Config management
 		protected.GET("/security/config", securityHandler.GetConfig)
@@ -459,6 +498,19 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/security/waf/exclusions", securityHandler.GetWAFExclusions)
 		protected.POST("/security/waf/exclusions", securityHandler.AddWAFExclusion)
 		protected.DELETE("/security/waf/exclusions/:rule_id", securityHandler.DeleteWAFExclusion)
+
+		// Security module enable/disable endpoints (granular control)
+		protected.POST("/security/acl/enable", securityHandler.EnableACL)
+		protected.POST("/security/acl/disable", securityHandler.DisableACL)
+		protected.PATCH("/security/acl", securityHandler.PatchACL) // E2E tests use PATCH
+		protected.POST("/security/waf/enable", securityHandler.EnableWAF)
+		protected.POST("/security/waf/disable", securityHandler.DisableWAF)
+		protected.POST("/security/cerberus/enable", securityHandler.EnableCerberus)
+		protected.POST("/security/cerberus/disable", securityHandler.DisableCerberus)
+		protected.POST("/security/crowdsec/enable", securityHandler.EnableCrowdSec)
+		protected.POST("/security/crowdsec/disable", securityHandler.DisableCrowdSec)
+		protected.POST("/security/rate-limit/enable", securityHandler.EnableRateLimit)
+		protected.POST("/security/rate-limit/disable", securityHandler.DisableRateLimit)
 
 		// CrowdSec process management and import
 		// Data dir for crowdsec (persisted on host via volumes)
@@ -582,4 +634,12 @@ func RegisterImportHandler(router *gin.Engine, db *gorm.DB, caddyBinary, importD
 	importHandler := handlers.NewImportHandler(db, caddyBinary, importDir, mountPath)
 	api := router.Group("/api/v1")
 	importHandler.RegisterRoutes(api)
+
+	// NPM Import Handler - supports Nginx Proxy Manager export format
+	npmImportHandler := handlers.NewNPMImportHandler(db)
+	npmImportHandler.RegisterRoutes(api)
+
+	// JSON Import Handler - supports both Charon and NPM export formats
+	jsonImportHandler := handlers.NewJSONImportHandler(db)
+	jsonImportHandler.RegisterRoutes(api)
 }

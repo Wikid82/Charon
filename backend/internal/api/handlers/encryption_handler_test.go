@@ -43,11 +43,11 @@ func setupEncryptionTestRouter(handler *EncryptionHandler, isAdmin bool) *gin.En
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	// Mock admin middleware
+	// Mock admin middleware - matches production auth middleware key names
 	router.Use(func(c *gin.Context) {
 		if isAdmin {
-			c.Set("user_role", "admin")
-			c.Set("user_id", uint(1))
+			c.Set("role", "admin")
+			c.Set("userID", uint(1))
 		}
 		c.Next()
 	})
@@ -583,7 +583,7 @@ func TestEncryptionHandler_HelperFunctions(t *testing.T) {
 		router := gin.New()
 		var capturedActor string
 		router.Use(func(c *gin.Context) {
-			c.Set("user_id", "user-string-123")
+			c.Set("userID", "user-string-123")
 			c.Next()
 		})
 		router.GET("/test", func(c *gin.Context) {
@@ -602,7 +602,7 @@ func TestEncryptionHandler_HelperFunctions(t *testing.T) {
 		router := gin.New()
 		var capturedActor string
 		router.Use(func(c *gin.Context) {
-			c.Set("user_id", uint(42))
+			c.Set("userID", uint(42))
 			c.Next()
 		})
 		router.GET("/test", func(c *gin.Context) {
@@ -790,7 +790,7 @@ func TestEncryptionHandler_GetActorFromGinContext_InvalidType(t *testing.T) {
 	router := gin.New()
 	var capturedActor string
 	router.Use(func(c *gin.Context) {
-		c.Set("user_id", int64(999)) // int64 instead of uint or string
+		c.Set("userID", int64(999)) // int64 instead of uint or string
 		c.Next()
 	})
 	router.GET("/test", func(c *gin.Context) {

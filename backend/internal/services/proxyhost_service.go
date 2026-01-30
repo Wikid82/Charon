@@ -105,7 +105,7 @@ func (s *ProxyHostService) Delete(id uint) error {
 // GetByID retrieves a proxy host by ID.
 func (s *ProxyHostService) GetByID(id uint) (*models.ProxyHost, error) {
 	var host models.ProxyHost
-	if err := s.db.First(&host, id).Error; err != nil {
+	if err := s.db.Where("id = ?", id).First(&host).Error; err != nil {
 		return nil, err
 	}
 	return &host, nil

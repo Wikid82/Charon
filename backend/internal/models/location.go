@@ -6,7 +6,7 @@ import (
 
 // Location represents a custom path-based proxy configuration within a ProxyHost.
 type Location struct {
-	ID            uint      `json:"id" gorm:"primaryKey"`
+	ID            uint      `json:"-" gorm:"primaryKey"`
 	UUID          string    `json:"uuid" gorm:"uniqueIndex;not null"`
 	ProxyHostID   uint      `json:"proxy_host_id" gorm:"not null;index"`
 	Path          string    `json:"path" gorm:"not null;index"` // e.g., /api, /admin

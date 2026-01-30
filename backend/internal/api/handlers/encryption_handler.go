@@ -199,7 +199,8 @@ func (h *EncryptionHandler) Validate(c *gin.Context) {
 // This should ideally use the existing auth middleware context.
 func isAdmin(c *gin.Context) bool {
 	// Check if user is authenticated and is admin
-	userRole, exists := c.Get("user_role")
+	// Auth middleware sets "role" context key (not "user_role")
+	userRole, exists := c.Get("role")
 	if !exists {
 		return false
 	}
@@ -214,7 +215,8 @@ func isAdmin(c *gin.Context) bool {
 
 // getActorFromGinContext extracts the user ID from Gin context for audit logging.
 func getActorFromGinContext(c *gin.Context) string {
-	if userID, exists := c.Get("user_id"); exists {
+	// Auth middleware sets "userID" (not "user_id")
+	if userID, exists := c.Get("userID"); exists {
 		if id, ok := userID.(uint); ok {
 			return strconv.FormatUint(uint64(id), 10)
 		}

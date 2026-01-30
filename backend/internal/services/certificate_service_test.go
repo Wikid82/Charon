@@ -1016,6 +1016,308 @@ func TestCertificateService_CacheBehavior(t *testing.T) {
 	})
 }
 
+func TestCertificateService_UploadCertificate_ParsingErrors(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+	cs := newTestCertificateService(tmpDir, db)
+
+	t.Run("certificate with corrupted DER bytes", func(t *testing.T) {
+		// Valid PEM structure but invalid base64 that decodes but fails x509 parsing
+		corruptedPEM := `-----BEGIN CERTIFICATE-----
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+-----END CERTIFICATE-----`
+
+		cert, err := cs.UploadCertificate("Corrupted", corruptedPEM, "")
+		assert.Error(t, err)
+		assert.Nil(t, cert)
+		assert.Contains(t, err.Error(), "failed to parse certificate")
+	})
+
+	t.Run("valid PEM but wrong type", func(t *testing.T) {
+		// Using a private key PEM instead of certificate
+		wrongTypePEM := `-----BEGIN PRIVATE KEY-----
+MIICdgIBADANBgkqhkiG9w0BAQEFAASCAmAwggJcAgEAAoGBALRiMLAh9iimur8V
+A7qVvdqxevEuUkW4K+2KdMXmnQbG9Aa7k7eBjK1S+0LYmVjPKlJGNXHDGuy5Fw/d
+7rjVJ0BLB+ubPK8iA/Tw3hLQgXMRRGRXXCn8ikfuQfjUS1uZSatdLB81mydBETlJ
+hI6GH4twrbDJCR2Bwy/XWXgqgGRzAgMBAAECgYBYWVtLze8R+KrZdHj0hLjZEPnl
+-----END PRIVATE KEY-----`
+
+		cert, err := cs.UploadCertificate("Wrong Type", wrongTypePEM, "")
+		assert.Error(t, err)
+		assert.Nil(t, cert)
+		assert.Contains(t, err.Error(), "failed to parse certificate")
+	})
+
+	t.Run("certificate with no subject and no SANs", func(t *testing.T) {
+		// Create cert with empty subject and no SANs (edge case)
+		priv, err := rsa.GenerateKey(rand.Reader, 2048)
+		require.NoError(t, err)
+
+		template := x509.Certificate{
+			SerialNumber: big.NewInt(1),
+			Subject:      pkix.Name{}, // Empty subject
+			NotBefore:    time.Now(),
+			NotAfter:     time.Now().Add(24 * time.Hour),
+			KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		}
+
+		derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+		require.NoError(t, err)
+		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+
+		cert, err := cs.UploadCertificate("Empty Subject", string(certPEM), "")
+		assert.NoError(t, err) // Upload succeeds
+		assert.NotNil(t, cert)
+		assert.Equal(t, "", cert.Domains) // Empty domains field
+	})
+}
+
+func TestCertificateService_SyncFromDisk_ErrorHandling(t *testing.T) {
+	t.Run("database error during sync", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := newTestCertificateService(tmpDir, db)
+
+		// Create a valid cert
+		domain := "dbtest.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+
+		certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
+		err = os.MkdirAll(certDir, 0o755)
+		require.NoError(t, err)
+		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0o644)
+		require.NoError(t, err)
+
+		// Close the database connection to simulate DB error
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		sqlDB.Close()
+
+		// Sync should handle DB errors gracefully
+		err = cs.SyncFromDisk()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to refresh cache")
+	})
+
+	t.Run("unreadable certificate directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		// Create cert directory with no read permissions
+		certRoot := filepath.Join(tmpDir, "certificates")
+		err = os.MkdirAll(certRoot, 0o200) // Write-only, no read
+		require.NoError(t, err)
+
+		cs := newTestCertificateService(tmpDir, db)
+
+		// Should handle gracefully
+		err = cs.SyncFromDisk()
+		// Should complete without crash, possibly with logged error
+		assert.NoError(t, err) // Service handles this gracefully
+
+		// Clean up - restore permissions for cleanup
+		_ = os.Chmod(certRoot, 0o755)
+	})
+
+	t.Run("certificate file with mixed valid and invalid content", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := newTestCertificateService(tmpDir, db)
+
+		// Create directory with two files: one valid, one invalid
+		certDir := filepath.Join(tmpDir, "certificates", "test-provider")
+		err = os.MkdirAll(certDir, 0o755)
+		require.NoError(t, err)
+
+		// Valid cert
+		validDomain := "valid.com"
+		validExpiry := time.Now().Add(24 * time.Hour)
+		validCertPEM := generateTestCert(t, validDomain, validExpiry)
+		err = os.WriteFile(filepath.Join(certDir, validDomain+".crt"), validCertPEM, 0o644)
+		require.NoError(t, err)
+
+		// Invalid cert
+		err = os.WriteFile(filepath.Join(certDir, "invalid.crt"), []byte("not a cert"), 0o644)
+		require.NoError(t, err)
+
+		err = cs.SyncFromDisk()
+		assert.NoError(t, err)
+
+		// Should have parsed only the valid cert
+		certs, err := cs.ListCertificates()
+		assert.NoError(t, err)
+		assert.Len(t, certs, 1)
+		assert.Equal(t, validDomain, certs[0].Domain)
+	})
+}
+
+func TestCertificateService_RefreshCacheFromDB_EdgeCases(t *testing.T) {
+	t.Run("certificate without expiry date", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := newTestCertificateService(tmpDir, db)
+
+		// Create cert with nil expiry
+		cert := models.SSLCertificate{
+			UUID:        "test-no-expiry",
+			Name:        "No Expiry",
+			Provider:    "custom",
+			Domains:     "noexpiry.com",
+			Certificate: "fake-cert",
+			ExpiresAt:   nil, // No expiry
+		}
+		require.NoError(t, db.Create(&cert).Error)
+
+		cs.InvalidateCache()
+		certs, err := cs.ListCertificates()
+		assert.NoError(t, err)
+		require.Len(t, certs, 1)
+		assert.Zero(t, certs[0].ExpiresAt) // Should handle nil expiry
+	})
+
+	t.Run("multiple domains comma-separated", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
+
+		cs := newTestCertificateService(tmpDir, db)
+
+		expiry := time.Now().Add(24 * time.Hour)
+		cert := models.SSLCertificate{
+			UUID:        "test-multi",
+			Name:        "Multi Domain",
+			Provider:    "custom",
+			Domains:     "example.com,www.example.com,api.example.com",
+			Certificate: "fake-cert",
+			ExpiresAt:   &expiry,
+		}
+		require.NoError(t, db.Create(&cert).Error)
+
+		// Create proxy host matching one of the domains
+		ph := models.ProxyHost{
+			UUID:        "ph-match",
+			Name:        "Matched Proxy",
+			DomainNames: "www.example.com",
+			ForwardHost: "localhost",
+			ForwardPort: 8080,
+		}
+		require.NoError(t, db.Create(&ph).Error)
+
+		cs.InvalidateCache()
+		certs, err := cs.ListCertificates()
+		assert.NoError(t, err)
+		require.Len(t, certs, 1)
+		// Should use proxy host name
+		assert.Equal(t, "Matched Proxy", certs[0].Name)
+		assert.Contains(t, certs[0].Domain, "www.example.com")
+	})
+}
+
+func TestCertificateService_ListCertificates_CacheBehavior(t *testing.T) {
+	t.Run("stale cache triggers background rescan", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
+
+		cs := newTestCertificateService(tmpDir, db)
+
+		// Initialize cache
+		err = cs.SyncFromDisk()
+		require.NoError(t, err)
+
+		// Get fresh cache
+		certs1, err := cs.ListCertificates()
+		require.NoError(t, err)
+		assert.Len(t, certs1, 0)
+
+		// Artificially make cache stale by setting lastScan way in the past
+		cs.cacheMu.Lock()
+		cs.lastScan = time.Now().Add(-10 * time.Minute) // More than scanTTL (5 min)
+		cs.cacheMu.Unlock()
+
+		// This should still return quickly but trigger background rescan
+		certs2, err := cs.ListCertificates()
+		require.NoError(t, err)
+		assert.Len(t, certs2, 0)
+
+		// Give background goroutine time to complete
+		time.Sleep(100 * time.Millisecond)
+	})
+
+	t.Run("uninitialized service triggers blocking sync", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
+
+		cs := newTestCertificateService(tmpDir, db)
+
+		// Don't call SyncFromDisk - service is uninitialized
+		// Mark as uninitialized
+		cs.cacheMu.Lock()
+		cs.initialized = false
+		cs.cacheMu.Unlock()
+
+		// Should trigger blocking sync on first call
+		certs, err := cs.ListCertificates()
+		require.NoError(t, err)
+		assert.NotNil(t, certs)
+
+		// Should now be initialized
+		cs.cacheMu.RLock()
+		isInit := cs.initialized
+		cs.cacheMu.RUnlock()
+		assert.True(t, isInit)
+	})
+
+	t.Run("fresh cache returns immediately", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
+
+		cs := newTestCertificateService(tmpDir, db)
+
+		// Initialize
+		err = cs.SyncFromDisk()
+		require.NoError(t, err)
+
+		// Multiple calls should hit cache without blocking
+		for i := 0; i < 3; i++ {
+			certs, err := cs.ListCertificates()
+			require.NoError(t, err)
+			assert.NotNil(t, certs)
+		}
+	})
+}
+
 // generateTestCertWithSANs generates a test certificate with Subject Alternative Names
 func generateTestCertWithSANs(t *testing.T, cn string, sans []string, expiry time.Time) []byte {
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)

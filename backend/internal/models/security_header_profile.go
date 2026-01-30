@@ -7,7 +7,7 @@ import (
 // SecurityHeaderProfile stores reusable security header configurations.
 // Users can create profiles and assign them to proxy hosts.
 type SecurityHeaderProfile struct {
-	ID   uint   `json:"id" gorm:"primaryKey"`
+	ID   uint   `json:"-" gorm:"primaryKey"`
 	UUID string `json:"uuid" gorm:"uniqueIndex;not null"`
 	Name string `json:"name" gorm:"index;not null"`
 

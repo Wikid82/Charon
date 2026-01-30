@@ -21,6 +21,9 @@ export function LanguageSelector() {
     <div className="flex items-center gap-3">
       <Globe className="h-5 w-5 text-content-secondary" />
       <select
+        id="language-selector"
+        data-testid="language-selector"
+        aria-label="Language"
         value={language}
         onChange={handleChange}
         className="bg-surface-elevated border border-border rounded-md px-3 py-2 text-content-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"

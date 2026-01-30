@@ -110,7 +110,7 @@ func (s *AuthService) GenerateToken(user *models.User) (string, error) {
 
 func (s *AuthService) ChangePassword(userID uint, oldPassword, newPassword string) error {
 	var user models.User
-	if err := s.db.First(&user, userID).Error; err != nil {
+	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
 		return errors.New("user not found")
 	}
 
@@ -144,7 +144,7 @@ func (s *AuthService) ValidateToken(tokenString string) (*Claims, error) {
 
 func (s *AuthService) GetUserByID(id uint) (*models.User, error) {
 	var user models.User
-	if err := s.db.First(&user, id).Error; err != nil {
+	if err := s.db.Where("id = ?", id).First(&user).Error; err != nil {
 		return nil, err
 	}
 	return &user, nil

@@ -212,8 +212,9 @@ export default function ManualDNSChallenge({
       } else if (!result.dns_found) {
         toast.warning(t('dnsProvider.manual.dnsNotFound'))
       }
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || t('dnsProvider.manual.verifyFailed'))
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } }
+      toast.error(err.response?.data?.message || t('dnsProvider.manual.verifyFailed'))
     }
   }, [verifyMutation, providerId, challenge.id, t])
 
@@ -226,8 +227,9 @@ export default function ManualDNSChallenge({
       })
       toast.info(t('dnsProvider.manual.challengeCancelled'))
       onCancel()
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || t('dnsProvider.manual.cancelFailed'))
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } }
+      toast.error(err.response?.data?.message || t('dnsProvider.manual.cancelFailed'))
     }
   }, [deleteMutation, providerId, challenge.id, onCancel, t])
 

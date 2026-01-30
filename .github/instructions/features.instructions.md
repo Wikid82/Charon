@@ -20,7 +20,7 @@ When creating or updating the `docs/features.md` file, please adhere to the foll
 ## Content
     - Start with a brief summary of the feature.
     - Explain the purpose and benefits of the feature.
-    - Keep
+    - Keep descriptions concise and focused.
     - Ensure accuracy and up-to-date information.
 
 ## Review

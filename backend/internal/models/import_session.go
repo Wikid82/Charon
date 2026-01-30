@@ -7,7 +7,7 @@ import (
 // ImportSession tracks Caddyfile import operations with pending state
 // until user reviews and confirms via UI.
 type ImportSession struct {
-	ID              uint       `json:"id" gorm:"primaryKey"`
+	ID              uint       `json:"-" gorm:"primaryKey"`
 	UUID            string     `json:"uuid" gorm:"uniqueIndex"`
 	SourceFile      string     `json:"source_file"`                       // Path to original Caddyfile
 	Status          string     `json:"status" gorm:"default:'pending'"`   // "pending", "reviewing", "committed", "rejected", "failed"

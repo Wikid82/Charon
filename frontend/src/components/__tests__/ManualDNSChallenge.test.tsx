@@ -144,7 +144,7 @@ describe('ManualDNSChallenge', () => {
       isLoading: false,
       isError: false,
       error: null,
-    } as any)
+    } as unknown as ReturnType<typeof useChallengePoll>)
 
     vi.mocked(useManualChallengeMutations).mockReturnValue({
       verifyMutation: {
@@ -159,7 +159,7 @@ describe('ManualDNSChallenge', () => {
         mutateAsync: vi.fn(),
         isPending: false,
       },
-    } as any)
+    } as unknown as ReturnType<typeof useManualChallengeMutations>)
   })
 
   afterEach(() => {
@@ -401,7 +401,7 @@ describe('ManualDNSChallenge', () => {
         isLoading: false,
         isError: false,
         error: null,
-      } as any)
+      } as unknown as ReturnType<typeof useChallengePoll>)
 
       const verifiedChallenge: ManualChallenge = {
         ...mockChallenge,
@@ -424,7 +424,7 @@ describe('ManualDNSChallenge', () => {
         isLoading: false,
         isError: false,
         error: null,
-      } as any)
+      } as unknown as ReturnType<typeof useChallengePoll>)
 
       const expiredChallenge: ManualChallenge = {
         ...mockChallenge,
@@ -449,7 +449,7 @@ describe('ManualDNSChallenge', () => {
         isLoading: false,
         isError: false,
         error: null,
-      } as any)
+      } as unknown as ReturnType<typeof useChallengePoll>)
 
       const failedChallenge: ManualChallenge = {
         ...mockChallenge,
@@ -477,7 +477,7 @@ describe('ManualDNSChallenge', () => {
         isLoading: false,
         isError: false,
         error: null,
-      } as any)
+      } as unknown as ReturnType<typeof useChallengePoll>)
 
       // Re-render to trigger effect
       const verifiedChallenge: ManualChallenge = {
@@ -517,7 +517,7 @@ describe('ManualDNSChallenge', () => {
         isLoading: false,
         isError: false,
         error: null,
-      } as any)
+      } as unknown as ReturnType<typeof useChallengePoll>)
 
       const expiredChallenge: ManualChallenge = {
         ...mockChallenge,
@@ -611,7 +611,7 @@ describe('ManualDNSChallenge', () => {
         isLoading: false,
         isError: false,
         error: null,
-      } as any)
+      } as unknown as ReturnType<typeof useChallengePoll>)
 
       const verifiedChallenge: ManualChallenge = {
         ...mockChallenge,
@@ -639,7 +639,7 @@ describe('ManualDNSChallenge', () => {
           mutateAsync: vi.fn(),
           isPending: false,
         },
-      } as any)
+      } as unknown as ReturnType<typeof useManualChallengeMutations>)
 
       renderComponent()
 
@@ -661,7 +661,7 @@ describe('ManualDNSChallenge', () => {
           mutateAsync: vi.fn(),
           isPending: false,
         },
-      } as any)
+      } as unknown as ReturnType<typeof useManualChallengeMutations>)
 
       renderComponent()
 
@@ -683,7 +683,7 @@ describe('ManualDNSChallenge', () => {
         isLoading: false,
         isError: false,
         error: null,
-      } as any)
+      } as unknown as ReturnType<typeof useChallengePoll>)
 
       const failedChallenge: ManualChallenge = {
         ...mockChallenge,

@@ -199,7 +199,7 @@ describe('createDNSProvider', () => {
     })
 
     await expect(
-      createDNSProvider({ ...validRequest, provider_type: 'invalid' as any })
+      createDNSProvider({ ...validRequest, provider_type: 'invalid' as DNSProviderRequest['provider_type'] })
     ).rejects.toMatchObject({
       response: { status: 400 },
     })

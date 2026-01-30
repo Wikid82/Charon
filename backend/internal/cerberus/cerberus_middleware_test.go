@@ -20,7 +20,7 @@ func setupDB(t *testing.T) *gorm.DB {
 	dsn := fmt.Sprintf("file:cerberus_middleware_test_%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.AccessList{}, &models.AccessListRule{}))
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.AccessList{}, &models.AccessListRule{}, &models.SecurityConfig{}))
 	return db
 }
 
@@ -97,6 +97,68 @@ func TestMiddleware_ACLAllowsClientIP(t *testing.T) {
 	require.False(t, ctx.IsAborted())
 }
 
+func TestMiddleware_ACLDefaultDenyWhenNoLists(t *testing.T) {
+	db := setupDB(t)
+	cfg := config.SecurityConfig{ACLMode: "enabled"}
+
+	c := cerberus.New(cfg, db)
+
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req.RemoteAddr = "203.0.113.5:1234"
+	ctx.Request = req
+
+	mw := c.Middleware()
+	mw(ctx)
+
+	require.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestMiddleware_ACLAdminWhitelistBypass(t *testing.T) {
+	db := setupDB(t)
+	cfg := config.SecurityConfig{ACLMode: "enabled"}
+
+	whitelist := "203.0.113.5/32"
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: whitelist}).Error)
+
+	c := cerberus.New(cfg, db)
+
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Set("role", "admin")
+	ctx.Set("userID", uint(1))
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req.RemoteAddr = "203.0.113.5:1234"
+	ctx.Request = req
+
+	mw := c.Middleware()
+	mw(ctx)
+
+	require.False(t, ctx.IsAborted())
+}
+
+func TestMiddleware_ACLAdminWhitelistBypass_RequiresAuthenticatedAdmin(t *testing.T) {
+	db := setupDB(t)
+	cfg := config.SecurityConfig{ACLMode: "enabled"}
+
+	whitelist := "203.0.113.5/32"
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: whitelist}).Error)
+
+	c := cerberus.New(cfg, db)
+
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req.RemoteAddr = "203.0.113.5:1234"
+	ctx.Request = req
+
+	mw := c.Middleware()
+	mw(ctx)
+
+	require.Equal(t, http.StatusForbidden, w.Code)
+}
+
 func TestMiddleware_NotEnabledSkips(t *testing.T) {
 	db := setupDB(t)
 	// All modes disabled by default
@@ -171,6 +233,8 @@ func TestMiddleware_ACLDisabledDoesNotBlock(t *testing.T) {
 	// Setup gin context with remote address 8.8.8.8
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
+	ctx.Set("role", "admin")
+	ctx.Set("userID", uint(1))
 	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	req.RemoteAddr = "8.8.8.8:1234"
 	ctx.Request = req

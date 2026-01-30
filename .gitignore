@@ -2,6 +2,18 @@
 # .gitignore - Files to exclude from version control
 # =============================================================================
 
+
+# -----------------------------------------------------------------------------
+# Docs & Plans
+# -----------------------------------------------------------------------------
+docs/reports/performance_diagnostics.md
+docs/plans/chores.md
+
+# -----------------------------------------------------------------------------
+# VS Code
+# -----------------------------------------------------------------------------
+.vscode/**
+
 # -----------------------------------------------------------------------------
 # Python (pre-commit, tooling)
 # -----------------------------------------------------------------------------
@@ -54,12 +66,21 @@ backend/handlers.out
 backend/services.test
 backend/*.test
 backend/test-output.txt
+backend/test-output*.txt
+backend/test_output*.txt
 backend/tr_no_cover.txt
 backend/nohup.out
 backend/charon
+backend/main
 backend/codeql-db/
+backend/codeql-db-*/
 backend/.venv/
 backend/internal/api/tests/data/
+backend/lint*.txt
+backend/fix_*.sh
+backend/node_modules/
+backend/package.json
+backend/package-lock.json
 
 # -----------------------------------------------------------------------------
 # Databases
@@ -138,8 +159,10 @@ dist/
 # -----------------------------------------------------------------------------
 coverage/
 coverage.out
+coverage.txt
 *.xml
 *.crdownload
+provenance*.json
 
 # -----------------------------------------------------------------------------
 # CodeQL & Security Scanning
@@ -153,6 +176,8 @@ codeql-*.sarif
 *.sarif
 .codeql/
 .codeql/**
+my-codeql-db/
+codeql-linux64.zip
 
 # -----------------------------------------------------------------------------
 # Scripts & Temp Files (project-specific)
@@ -168,13 +193,21 @@ test.caddyfile
 *.md.bak
 ACME_STAGING_IMPLEMENTATION.md*
 ARCHITECTURE_PLAN.md
+AUTO_VERSIONING_CI_FIX_SUMMARY.md
+CODEQL_EMAIL_INJECTION_REMEDIATION_COMPLETE.md
+COMMIT_MSG.txt
+COVERAGE_ANALYSIS.md
+COVERAGE_REPORT.md
 DOCKER_TASKS.md*
 DOCUMENTATION_POLISH_SUMMARY.md
 GHCR_MIGRATION_SUMMARY.md
 ISSUE_*_IMPLEMENTATION.md*
+ISSUE_*.md
+PATCH_COVERAGE_IMPLEMENTATION_SUMMARY.md
 PHASE_*_SUMMARY.md
 PROJECT_BOARD_SETUP.md
 PROJECT_PLANNING.md
+SECURITY_REMEDIATION_COMPLETE.md
 VERSIONING_IMPLEMENTATION.md
 backend/internal/api/handlers/import_handler.go.bak
 
@@ -241,7 +274,13 @@ grype-results*.sarif
 # Docker Overrides (new location)
 # -----------------------------------------------------------------------------
 .docker/compose/docker-compose.override.yml
+
+# Personal test compose file (contains local paths - user-specific)
 docker-compose.test.yml
+.docker/compose/docker-compose.test.yml
+
+# Note: docker-compose.playwright.yml is NOT ignored - it must be committed
+# for CI/CD E2E testing workflows
 .github/agents/prompt_template/
 my-codeql-db/**
 codeql-linux64.zip
@@ -255,4 +294,7 @@ docs/plans/supply_chain_security_implementation.md.backup
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
-docs/reports/performance_diagnostics.md
+test-data/**
+
+# GORM Security Scanner Reports
+docs/reports/gorm-scan-*.txt

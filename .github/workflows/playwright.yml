@@ -34,6 +34,10 @@ jobs:
       CHARON_ENV: development
       CHARON_DEBUG: "1"
       CHARON_ENCRYPTION_KEY: ${{ secrets.CHARON_CI_ENCRYPTION_KEY }}
+      # Emergency server enabled for triage; token supplied via GitHub secret (redacted)
+      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+      CHARON_EMERGENCY_SERVER_ENABLED: "true"
+      PLAYWRIGHT_BASE_URL: http://localhost:8080
 
     steps:
       - name: Checkout repository
@@ -83,6 +87,16 @@ jobs:
           else
             echo "is_push=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Sanitize branch name
+        id: sanitize
+        run: |
+          # Sanitize branch name for use in Docker tags and artifact names
+          # Replace / with - to avoid invalid reference format errors
+          BRANCH="${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}"
+          SANITIZED=$(echo "$BRANCH" | tr '/' '-')
+          echo "branch=${SANITIZED}" >> "$GITHUB_OUTPUT"
+          echo "📋 Sanitized branch name: ${BRANCH} -> ${SANITIZED}"
 
       - name: Check for PR image artifact
         id: check-artifact
@@ -145,6 +159,33 @@ jobs:
           echo "  - Manual dispatch without PR number"
           exit 0
 
+      - name: Guard triage from coverage/Vite mode
+        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        run: |
+          if [[ "${PLAYWRIGHT_BASE_URL:-}" =~ 5173 ]]; then
+            echo "❌ Coverage/Vite base URL is disabled during triage: ${PLAYWRIGHT_BASE_URL}"
+            exit 1
+          fi
+          case "${PLAYWRIGHT_COVERAGE:-}" in
+            1|true|TRUE|True|yes|YES)
+              echo "❌ Coverage collection is disabled during triage (PLAYWRIGHT_COVERAGE=${PLAYWRIGHT_COVERAGE})"
+              exit 1
+              ;;
+          esac
+          echo "✅ Coverage/Vite guard passed (PLAYWRIGHT_BASE_URL=${PLAYWRIGHT_BASE_URL:-unset})"
+
+      - name: Log triage environment (non-secret)
+        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        run: |
+          echo "CHARON_EMERGENCY_SERVER_ENABLED=${CHARON_EMERGENCY_SERVER_ENABLED}"
+          if [[ -n "${CHARON_EMERGENCY_TOKEN:-}" ]]; then
+            echo "CHARON_EMERGENCY_TOKEN=*** (GitHub secret configured)"
+          else
+            echo "CHARON_EMERGENCY_TOKEN not set; container will fall back to image default"
+          fi
+          echo "Ports bound: 8080 (app), 2019 (admin), 2020 (tier-2) on IPv4/IPv6 loopback"
+          echo "PLAYWRIGHT_BASE_URL=${PLAYWRIGHT_BASE_URL}"
+
       - name: Download PR image artifact
         if: steps.check-artifact.outputs.artifact_exists == 'true'
         # actions/download-artifact v4.1.8
@@ -170,7 +211,8 @@ jobs:
           # Normalize image name (GitHub lowercases repository owner names in GHCR)
           IMAGE_NAME=$(echo "${{ github.repository_owner }}/charon" | tr '[:upper:]' '[:lower:]')
           if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
-            IMAGE_REF="ghcr.io/${IMAGE_NAME}:${{ github.event.workflow_run.head_branch }}"
+            # Use sanitized branch name for Docker tag (/ is invalid in tags)
+            IMAGE_REF="ghcr.io/${IMAGE_NAME}:${{ steps.sanitize.outputs.branch }}"
           else
             IMAGE_REF="ghcr.io/${IMAGE_NAME}:pr-${{ steps.pr-info.outputs.pr_number }}"
           fi
@@ -179,9 +221,15 @@ jobs:
           docker run -d \
             --name charon-test \
             -p 8080:8080 \
+            -p 127.0.0.1:2019:2019 \
+            -p "[::1]:2019:2019" \
+            -p 127.0.0.1:2020:2020 \
+            -p "[::1]:2020:2020" \
             -e CHARON_ENV="${CHARON_ENV}" \
             -e CHARON_DEBUG="${CHARON_DEBUG}" \
             -e CHARON_ENCRYPTION_KEY="${CHARON_ENCRYPTION_KEY}" \
+            -e CHARON_EMERGENCY_TOKEN="${CHARON_EMERGENCY_TOKEN}" \
+            -e CHARON_EMERGENCY_SERVER_ENABLED="${CHARON_EMERGENCY_SERVER_ENABLED}" \
             "${IMAGE_REF}"
 
           echo "✅ Container started"
@@ -237,7 +285,7 @@ jobs:
         # actions/upload-artifact v4.4.3
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
-          name: ${{ steps.pr-info.outputs.is_push == 'true' && format('playwright-report-{0}', github.event.workflow_run.head_branch) || format('playwright-report-pr-{0}', steps.pr-info.outputs.pr_number) }}
+          name: ${{ steps.pr-info.outputs.is_push == 'true' && format('playwright-report-{0}', steps.sanitize.outputs.branch) || format('playwright-report-pr-{0}', steps.pr-info.outputs.pr_number) }}
           path: playwright-report/
           retention-days: 14
 

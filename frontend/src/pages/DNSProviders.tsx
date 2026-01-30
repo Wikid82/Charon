@@ -30,11 +30,12 @@ export default function DNSProviders() {
     try {
       await deleteMutation.mutateAsync(id)
       toast.success(t('dnsProviders.deleteSuccess'))
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: string } }; message?: string }
       toast.error(
         t('dnsProviders.deleteFailed') +
           ': ' +
-          (error.response?.data?.error || error.message)
+          (err.response?.data?.error || err.message)
       )
     }
   }
@@ -48,11 +49,12 @@ export default function DNSProviders() {
       } else {
         toast.error(result.error || t('dnsProviders.testFailed'))
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: string } }; message?: string }
       toast.error(
         t('dnsProviders.testFailed') +
           ': ' +
-          (error.response?.data?.error || error.message)
+          (err.response?.data?.error || err.message)
       )
     } finally {
       setTestingProviderId(null)

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from '@bgotink/playwright-coverage'
 
 const base = process.env.CHARON_BASE_URL || 'http://localhost:8080'
 

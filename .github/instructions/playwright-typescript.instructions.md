@@ -30,6 +30,84 @@ applyTo: '**'
 - **Text Content**: Use `toHaveText` for exact text matches and `toContainText` for partial matches.
 - **Navigation**: Use `toHaveURL` to verify the page URL after an action.
 
+### Testing Scope: E2E vs Integration
+
+**CRITICAL:** Playwright E2E tests verify **UI/UX functionality** on the Charon management interface (port 8080). They should NOT test middleware enforcement behavior.
+
+#### What E2E Tests SHOULD Cover
+
+✅ **User Interface Interactions:**
+- Form submissions and validation
+- Navigation and routing
+- Visual state changes (toggles, badges, status indicators)
+- Authentication flows (login, logout, session management)
+- CRUD operations via the management API
+- Responsive design (mobile vs desktop layouts)
+- Accessibility (ARIA labels, keyboard navigation)
+
+✅ **Example E2E Assertions:**
+```typescript
+// GOOD: Testing UI state
+await expect(aclToggle).toBeChecked();
+await expect(statusBadge).toHaveText('Active');
+await expect(page).toHaveURL('/proxy-hosts');
+
+// GOOD: Testing API responses in management interface
+const response = await request.post('/api/v1/proxy-hosts', { data: hostConfig });
+expect(response.ok()).toBeTruthy();
+```
+
+#### What E2E Tests should NOT Cover
+
+❌ **Middleware Enforcement Behavior:**
+- Rate limiting blocking requests (429 responses)
+- ACL denying access based on IP rules (403 responses)
+- WAF blocking malicious payloads (SQL injection, XSS)
+- CrowdSec IP bans
+
+❌ **Example Wrong E2E Assertions:**
+```typescript
+// BAD: Testing middleware behavior (rate limiting)
+for (let i = 0; i < 6; i++) {
+  await request.post('/api/v1/emergency/reset');
+}
+expect(response.status()).toBe(429); // ❌ This tests Caddy middleware
+
+// BAD: Testing WAF blocking
+await request.post('/api/v1/data', { data: "'; DROP TABLE users--" });
+expect(response.status()).toBe(403); // ❌ This tests Coraza WAF
+```
+
+#### Integration Tests for Middleware
+
+Middleware enforcement is verified by **integration tests** in `backend/integration/`:
+
+- `cerberus_integration_test.go` - Overall security suite behavior
+- `coraza_integration_test.go` - WAF blocking (SQL injection, XSS)
+- `crowdsec_integration_test.go` - IP reputation and bans
+- `rate_limit_integration_test.go` - Request throttling
+
+These tests run in Docker Compose with full Caddy+Cerberus stack and are executed in separate CI workflows.
+
+#### When to Skip Tests
+
+Use `test.skip()` for tests that require middleware enforcement:
+
+```typescript
+test('should rate limit after 5 attempts', async ({ request }) => {
+  test.skip(
+    true,
+    'Rate limiting enforced via Cerberus middleware (port 80). Verified in integration tests (backend/integration/).'
+  );
+  // Test body...
+});
+```
+
+**Skip Reason Template:**
+```
+"[Behavior] enforced via Cerberus middleware (port 80). Verified in integration tests (backend/integration/)."
+```
+
 
 ## Example Test Structure
 
@@ -75,6 +153,11 @@ test.describe('Movie Search Feature', () => {
 3. **Iterate**: Refine locators, assertions, or test logic as needed
 4. **Validate**: Ensure tests pass consistently and cover the intended functionality
 5. **Report**: Provide feedback on test results and any issues discovered
+
+### Execution Constraints
+
+- **No Truncation**: Never pipe Playwright test output through `head`, `tail`, or other truncating commands. Playwright runs interactively and requires user input to quit when piped, causing the command to hang indefinitely.
+- **Full Output**: Always capture the complete test output to analyze failures accurately.
 
 ## Quality Checklist
 

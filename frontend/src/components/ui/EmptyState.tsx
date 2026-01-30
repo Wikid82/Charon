@@ -8,13 +8,12 @@ export interface EmptyStateAction {
   variant?: ButtonProps['variant']
 }
 
-export interface EmptyStateProps {
+export interface EmptyStateProps extends React.HTMLAttributes<HTMLDivElement> {
   icon?: React.ReactNode
   title: string
   description: string
   action?: EmptyStateAction
   secondaryAction?: EmptyStateAction
-  className?: string
 }
 
 /**
@@ -33,6 +32,7 @@ export function EmptyState({
   action,
   secondaryAction,
   className,
+  ...props
 }: EmptyStateProps) {
   return (
     <div
@@ -41,6 +41,7 @@ export function EmptyState({
         'rounded-xl border border-dashed border-border bg-surface-subtle/50',
         className
       )}
+      {...props}
     >
       {icon && (
         <div className="mb-4 rounded-full bg-surface-muted p-4 text-content-muted">

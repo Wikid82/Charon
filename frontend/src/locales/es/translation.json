@@ -541,7 +541,11 @@
     "deleteUser": "Eliminar usuario",
     "inviteUrlPreview": "Vista previa del enlace de invitación",
     "inviteUrlWarning": "La URL de la aplicación no está configurada. Este enlace puede no funcionar para usuarios externos.",
-    "configureApplicationUrl": "Configurar URL de aplicación"
+    "configureApplicationUrl": "Configurar URL de aplicación",
+    "resendInvite": "Reenviar invitación",
+    "inviteResent": "Invitación reenviada exitosamente",
+    "inviteCreatedNoEmail": "Nueva invitación creada. No se pudo enviar el correo electrónico.",
+    "resendFailed": "Error al reenviar la invitación"
   },
   "dashboard": {
     "title": "Panel de Control",

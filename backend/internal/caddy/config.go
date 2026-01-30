@@ -682,9 +682,35 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			}
 		}
 		// Build main handlers: security pre-handlers, other host-level handlers, then reverse proxy
-		mainHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
 		// Determine if standard headers should be enabled (default true if nil)
 		enableStdHeaders := host.EnableStandardHeaders == nil || *host.EnableStandardHeaders
+		emergencyPaths := []string{
+			"/api/v1/emergency/security-reset",
+			"/api/v1/emergency/*",
+			"/emergency/security-reset",
+			"/emergency/*",
+		}
+		emergencyHandlers := append(append([]Handler{}, handlers...), ReverseProxyHandler(dial, host.WebsocketSupport, host.Application, enableStdHeaders))
+		emergencyRoute := &Route{
+			Match: []Match{
+				{
+					Host: uniqueDomains,
+					Path: emergencyPaths,
+				},
+			},
+			Handle:   emergencyHandlers,
+			Terminal: true,
+		}
+		logger.Log().WithFields(map[string]any{
+			"host_id":        host.ID,
+			"host_uuid":      host.UUID,
+			"unique_domains": uniqueDomains,
+			"has_paths":      true,
+			"path_count":     len(emergencyPaths),
+		}).Debug("[CONFIG DEBUG] Creating EMERGENCY route")
+		routes = append(routes, emergencyRoute)
+
+		mainHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
 		mainHandlers = append(mainHandlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application, enableStdHeaders))
 
 		route := &Route{
@@ -694,6 +720,14 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			Handle:   mainHandlers,
 			Terminal: true,
 		}
+
+		logger.Log().WithFields(map[string]any{
+			"host_id":        host.ID,
+			"host_uuid":      host.UUID,
+			"unique_domains": uniqueDomains,
+			"has_paths":      false,
+			"route_type":     "main",
+		}).Debug("[CONFIG DEBUG] Creating MAIN route (no path matchers)")
 
 		routes = append(routes, route)
 	}

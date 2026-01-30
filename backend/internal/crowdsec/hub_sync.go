@@ -458,7 +458,7 @@ func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (
 			loc := resp.Header.Get("Location")
 			return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, inner: fmt.Errorf("hub index redirect to %s; install cscli or set HUB_BASE_URL to a JSON hub endpoint", firstNonEmpty(loc, target)), fallback: true}
 		}
-		return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, fallback: resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500}
+		return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, fallback: resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500}
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxArchiveSize))
 	if err != nil {
@@ -753,7 +753,7 @@ func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string) ([]b
 		}
 	}()
 	if resp.StatusCode != http.StatusOK {
-		return nil, hubHTTPError{url: url, statusCode: resp.StatusCode, fallback: resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500}
+		return nil, hubHTTPError{url: url, statusCode: resp.StatusCode, fallback: resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500}
 	}
 	lr := io.LimitReader(resp.Body, maxArchiveSize+1024)
 	data, err := io.ReadAll(lr)

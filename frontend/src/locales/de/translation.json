@@ -541,7 +541,11 @@
     "deleteUser": "Benutzer löschen",
     "inviteUrlPreview": "Einladungslink-Vorschau",
     "inviteUrlWarning": "Anwendungs-URL ist nicht konfiguriert. Dieser Link funktioniert möglicherweise nicht für externe Benutzer.",
-    "configureApplicationUrl": "Anwendungs-URL konfigurieren"
+    "configureApplicationUrl": "Anwendungs-URL konfigurieren",
+    "resendInvite": "Einladung erneut senden",
+    "inviteResent": "Einladung erfolgreich erneut gesendet",
+    "inviteCreatedNoEmail": "Neue Einladung erstellt. E-Mail konnte nicht gesendet werden.",
+    "resendFailed": "Einladung konnte nicht erneut gesendet werden"
   },
   "dashboard": {
     "title": "Dashboard",

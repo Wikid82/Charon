@@ -49,9 +49,10 @@ export default function Plugins() {
         toast.success(t('plugins.enableSuccess', 'Plugin enabled successfully'))
       }
       refetch()
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: string } }; message?: string }
       const message =
-        error.response?.data?.error || error.message || t('plugins.toggleFailed', 'Failed to toggle plugin')
+        err.response?.data?.error || err.message || t('plugins.toggleFailed', 'Failed to toggle plugin')
       toast.error(message)
     }
   }
@@ -63,9 +64,10 @@ export default function Plugins() {
         t('plugins.reloadSuccess', 'Plugins reloaded: {{count}} loaded', { count: result.count })
       )
       refetch()
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: string } }; message?: string }
       const message =
-        error.response?.data?.error || error.message || t('plugins.reloadFailed', 'Failed to reload plugins')
+        err.response?.data?.error || err.message || t('plugins.reloadFailed', 'Failed to reload plugins')
       toast.error(message)
     }
   }

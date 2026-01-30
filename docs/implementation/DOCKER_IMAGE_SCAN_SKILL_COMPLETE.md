@@ -26,7 +26,7 @@ Successfully created a comprehensive Agent Skill that closes a critical security
 - **Size**: 18KB comprehensive documentation
 - **Features**:
   - Complete metadata (name, version, description, author, license)
-  - Tool requirements (Docker 24.0+, Syft v1.17.0, Grype v0.85.0)
+  - Tool requirements (Docker 24.0+, Syft v1.17.0, Grype v0.107.0)
   - Environment variables with CI-aligned defaults
   - Parameters for image tag and build options
   - Detailed usage examples and troubleshooting
@@ -82,10 +82,10 @@ Application: syft
 Version:    1.17.0
 BuildDate:  2024-11-21T14:39:38Z
 
-# Grype v0.85.0 installed
+# Grype v0.107.0 installed
 $ grype version
 Application:         grype
-Version:             0.85.0
+Version:             0.107.0
 BuildDate:           2024-11-21T15:21:23Z
 Syft Version:        v1.17.0
 ```
@@ -109,8 +109,8 @@ $ .github/skills/scripts/skill-runner.sh security-scan-docker-image test-quick
 [ENVIRONMENT] Validating prerequisites
 [INFO] Installed Syft version: 1.17.0
 [INFO] Expected Syft version: v1.17.0
-[INFO] Installed Grype version: 0.85.0
-[INFO] Expected Grype version: v0.85.0
+[INFO] Installed Grype version: 0.107.0
+[INFO] Expected Grype version: v0.107.0
 [INFO] Image tag: test-quick
 [INFO] Fail on severity: Critical,High
 [BUILD] Building Docker image: test-quick
@@ -128,7 +128,7 @@ $ .github/skills/scripts/skill-runner.sh security-scan-docker-image test-quick
 |------|------------|------------|-------|
 | Build Image | ✅ Docker build | ✅ Docker build | ✅ |
 | Syft Version | v1.17.0 | v1.17.0 | ✅ |
-| Grype Version | v0.85.0 | v0.85.0 | ✅ |
+| Grype Version | v0.107.0 | v0.107.0 | ✅ |
 | SBOM Format | CycloneDX JSON | CycloneDX JSON | ✅ |
 | Scan Target | Docker image | Docker image | ✅ |
 | Severity Counts | Critical/High/Medium/Low | Critical/High/Medium/Low | ✅ |
@@ -243,7 +243,7 @@ Solution: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install
 ```bash
 [ERROR] Grype not found
 Solution: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | \
-  sh -s -- -b /usr/local/bin v0.85.0
+  sh -s -- -b /usr/local/bin v0.107.0
 ```
 
 **Version mismatch**:
