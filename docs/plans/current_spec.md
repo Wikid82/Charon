@@ -1,53 +1,438 @@
-# Architecture Analysis: Docker-Only vs Cross-Platform Binaries
+# Renovate and Playwright Configuration Issues - Investigation Report
 
-**Date:** 2026-01-30  
-**Status:** Analysis Complete - Recommendation Ready  
-**Decision Type:** Critical Path Simplification  
-**Priority:** High (Blocks unnecessary complexity)
+**Date:** January 30, 2026  
+**Investigator:** Planning Agent  
+**Status:** ⚠️ CRITICAL - Multiple configuration issues found
 
 ---
 
 ## Executive Summary
 
-**RECOMMENDATION: Remove Windows/macOS build targets from GoReleaser and simplify to Docker-only distribution.**
-
-Charon is documented, architected, and distributed **exclusively as a Docker container**. The cross-platform binary builds in `.goreleaser.yaml` are **artifacts from template boilerplate** that serve no practical purpose and waste CI resources.
+Investigation reveals that **both Renovate and Playwright workflows have incorrect configurations** that deviate from the user's required behavior. The Renovate configuration is missing feature branch support and has incorrect automerge settings. The Playwright workflow is missing push event triggers.
 
 ---
 
-## Evidence Gathered
+## 1. Renovate Configuration Issues
 
-### 1. Architecture Verification ✅
+### File Locations
+- **Primary Config:** `.github/renovate.json` (154 lines)
+- **Workflow:** `.github/workflows/renovate.yml` (31 lines)
 
-**Source:** `ARCHITECTURE.md` (Lines 1-1300)
+### 🔴 CRITICAL ISSUE #1: Missing Feature Branch Support
 
-```markdown
-## System Architecture
-Charon follows a **monolithic architecture** with an embedded reverse proxy, 
-packaged as a single Docker container.
+**Current State (BROKEN):**
+```json
+"baseBranches": [
+  "development"
+]
+```
+- **Line:** `.github/renovate.json:9`
+- **Problem:** Only targets `development` branch
+- **Impact:** Feature branches (`feature/*`) receive NO Renovate updates
 
-### Single Container Architecture
-**Rationale:** Simplicity over scalability - target audience is home users and small teams
-
-**Container Contents:**
-- Frontend static files (Vite build output)
-- Go backend binary
-- Embedded Caddy server
-- SQLite database file
-- Caddy certificates
-- CrowdSec local database
+**Required State:**
+```json
+"baseBranches": [
+  "development",
+  "feature/*"
+]
 ```
 
-**Verdict:** Documented as Docker-only, single-container architecture.
+---
+
+### 🔴 CRITICAL ISSUE #2: Automerge Enabled Globally
+
+**Current State (BROKEN):**
+```json
+"automerge": true,
+"automergeType": "pr",
+"platformAutomerge": true,
+```
+- **Lines:** `.github/renovate.json:28-30`
+- **Problem:** All non-major updates auto-merge immediately
+- **Impact:** Updates merge before compatibility is proven
+
+**Required State:**
+- **Feature Branches:** Manual approval required (automerge: false)
+- **Development Branch:** Let PRs sit until proven compatible
+- **Major Updates:** Already correctly set to manual review (line 148)
 
 ---
 
-### 2. User Documentation ✅
+### 🟡 ISSUE #3: Grouped Updates Configuration
 
-**Source:** `README.md` (Lines 1-150)
+**Current State (PARTIALLY CORRECT):**
+```json
+{
+  "description": "THE MEGAZORD: Group ALL non-major updates (NPM, Docker, Go, Actions) into one weekly PR",
+  "matchPackagePatterns": ["*"],
+  "matchUpdateTypes": [
+    "minor",
+    "patch",
+    "pin",
+    "digest"
+  ],
+  "groupName": "weekly-non-major-updates",
+  "automerge": true
+}
+```
+- **Lines:** `.github/renovate.json:116-127`
+- **Status:** ✅ Grouping behavior is CORRECT
+- **Problem:** ❌ Automerge should be conditional on branch
 
-**Installation Methods Documented:**
-1. Docker Compose (Recommended)
+---
+
+### 🟢 CORRECT Configuration
+
+**These are working as intended:**
+- ✅ Major updates are separate and require manual review (line 145-148)
+- ✅ Weekly schedule (Monday 8am, line 23-25)
+- ✅ Grouped minor/patch updates (line 116-127)
+- ✅ Custom managers for Dockerfile, scripts (lines 32-113)
+
+---
+
+## 2. Playwright Workflow Issues
+
+### File Locations
+- **Primary Workflow:** `.github/workflows/playwright.yml` (319 lines)
+- **Alternative E2E:** `.github/workflows/e2e-tests.yml` (533 lines)
+
+### 🔴 CRITICAL ISSUE #4: Missing Push Event Triggers
+
+**Current State (BROKEN):**
+```yaml
+on:
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types:
+      - completed
+
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to test (optional)'
+        required: false
+        type: string
+```
+- **Lines:** `.github/workflows/playwright.yml:4-15`
+- **Problem:** Only runs after `docker-build.yml` completes, NOT on direct pushes
+- **Impact:** User pushed code and Playwright tests did NOT run
+
+**Root Cause Analysis:**
+The workflow uses `workflow_run` trigger which:
+1. Waits for "Docker Build, Publish & Test" to finish
+2. Only triggers if that workflow was triggered by `pull_request` or `push`
+3. BUT the condition on line 28-30 filters execution:
+   ```yaml
+   if: >-
+     github.event_name == 'workflow_dispatch' ||
+     ((github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'push') &&
+      github.event.workflow_run.conclusion == 'success')
+   ```
+
+**Required State:**
+```yaml
+on:
+  push:
+    branches:
+      - main
+      - development
+      - 'feature/**'
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'tests/**'
+      - 'playwright.config.js'
+      - '.github/workflows/playwright.yml'
+
+  pull_request:
+    branches:
+      - main
+      - development
+      - 'feature/**'
+
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types:
+      - completed
+
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to test (optional)'
+        required: false
+        type: string
+```
+
+---
+
+### 🟡 ISSUE #5: Alternative E2E Workflow Exists
+
+**Discovery:**
+- File: `.github/workflows/e2e-tests.yml`
+- **Lines 31-50:** Has CORRECT push/PR triggers:
+  ```yaml
+  on:
+    pull_request:
+      branches:
+        - main
+        - development
+        - 'feature/**'
+      paths:
+        - 'frontend/**'
+        - 'backend/**'
+        - 'tests/**'
+        - 'playwright.config.js'
+        - '.github/workflows/e2e-tests.yml'
+
+    push:
+      branches:
+        - main
+        - development
+        - 'feature/**'
+  ```
+
+**Question:** Are there TWO Playwright workflows?
+- `playwright.yml` - Runs after Docker build (BROKEN triggers)
+- `e2e-tests.yml` - Runs on push/PR (CORRECT triggers)
+
+**Impact:** Confusion about which workflow should be the primary E2E test runner
+
+---
+
+## 3. Required Changes Summary
+
+### Renovate Configuration Changes
+
+**File:** `.github/renovate.json`
+
+#### Change #1: Add Feature Branch Support
+```diff
+  "baseBranches": [
+-   "development"
++   "development",
++   "feature/*"
+  ],
+```
+- **Line:** 9
+- **Priority:** 🔴 CRITICAL
+
+#### Change #2: Conditional Automerge by Branch
+```diff
+- "automerge": true,
+- "automergeType": "pr",
+- "platformAutomerge": true,
+```
+
+Replace with:
+```json
+"packageRules": [
+  {
+    "description": "Feature branches: Require manual approval",
+    "matchBaseBranches": ["feature/*"],
+    "automerge": false
+  },
+  {
+    "description": "Development branch: Automerge after compatibility proven",
+    "matchBaseBranches": ["development"],
+    "automerge": true,
+    "automergeType": "pr",
+    "platformAutomerge": true,
+    "minimumReleaseAge": "3 days"
+  }
+]
+```
+- **Lines:** 28-30 (delete) + add to packageRules section
+- **Priority:** 🔴 CRITICAL
+
+#### Change #3: Update Grouped Updates Rule
+```diff
+  {
+    "description": "THE MEGAZORD: Group ALL non-major updates (NPM, Docker, Go, Actions) into one weekly PR",
+    "matchPackagePatterns": ["*"],
+    "matchUpdateTypes": [
+      "minor",
+      "patch",
+      "pin",
+      "digest"
+    ],
+    "groupName": "weekly-non-major-updates",
+-   "automerge": true
+  }
+```
+- **Lines:** 116-127
+- **Priority:** 🟡 HIGH (automerge now controlled by branch-specific rules)
+
+---
+
+### Playwright Workflow Changes
+
+**File:** `.github/workflows/playwright.yml`
+
+#### Option A: Add Direct Push Triggers (Recommended)
+
+```diff
+  on:
++   push:
++     branches:
++       - main
++       - development
++       - 'feature/**'
++     paths:
++       - 'frontend/**'
++       - 'backend/**'
++       - 'tests/**'
++       - 'playwright.config.js'
++       - '.github/workflows/playwright.yml'
++ 
++   pull_request:
++     branches:
++       - main
++       - development
++       - 'feature/**'
++ 
+    workflow_run:
+      workflows: ["Docker Build, Publish & Test"]
+      types:
+        - completed
+```
+- **Lines:** 4 (insert after)
+- **Priority:** 🔴 CRITICAL
+
+#### Option B: Consolidate Workflows
+
+**Alternative Solution:**
+1. Delete `playwright.yml` (post-docker workflow)
+2. Keep `e2e-tests.yml` as the primary E2E test runner
+3. Update documentation to reference `e2e-tests.yml`
+
+**Pros:**
+- `e2e-tests.yml` already has correct triggers
+- Includes sharding and coverage collection
+- More comprehensive test execution
+
+**Cons:**
+- Requires updating CI documentation
+- May have different artifact/image handling
+
+---
+
+## 4. Verification Steps
+
+### After Applying Renovate Changes
+
+1. **Create test feature branch:**
+   ```bash
+   git checkout -b feature/test-renovate-config
+   ```
+
+2. **Manually trigger Renovate:**
+   ```bash
+   # Via GitHub Actions UI
+   # Or via API
+   gh workflow run renovate.yml
+   ```
+
+3. **Verify Renovate creates PRs against feature branch**
+
+4. **Verify automerge behavior:**
+   - Feature branch: PR should NOT automerge
+   - Development branch: PR should automerge after 3 days
+
+### After Applying Playwright Changes
+
+1. **Create test commit on feature branch:**
+   ```bash
+   git checkout -b feature/test-playwright-trigger
+   # Make trivial change to frontend
+   git commit -am "test: trigger playwright"
+   git push origin feature/test-playwright-trigger
+   ```
+
+2. **Verify Playwright workflow runs immediately on push**
+
+3. **Check GitHub Actions UI:**
+   - Workflow should appear in "Actions" tab
+   - Status should show "running" or "completed"
+   - Should NOT wait for docker-build workflow
+
+---
+
+## 5. Root Cause Analysis
+
+### Why These Changes Occurred
+
+**Hypothesis:**
+Another AI model likely:
+1. **Simplified baseBranches** to reduce complexity
+2. **Enabled automerge globally** to reduce manual PR overhead
+3. **Removed direct push triggers** to avoid duplicate test runs
+
+**Problems with this approach:**
+- Violates user's explicit requirements for manual feature branch approval
+- Creates risk by auto-merging untested updates
+- Breaks CI/CD by preventing push-triggered tests
+
+---
+
+## 6. Implementation Priority
+
+### Immediate (Block Development)
+1. 🔴 **Renovate:** Add feature branch support (`.github/renovate.json:9`)
+2. 🔴 **Playwright:** Add push triggers (`.github/workflows/playwright.yml:4`)
+
+### High Priority (Block Production)
+3. 🟡 **Renovate:** Fix automerge behavior (branch-specific rules)
+
+### Medium Priority (Technical Debt)
+4. 🟢 **Consolidate:** Decide on single E2E workflow (playwright.yml vs e2e-tests.yml)
+
+---
+
+## 7. Configuration Comparison Table
+
+| Setting | Current (Broken) | Required | Priority |
+|---------|-----------------|----------|----------|
+| **Renovate baseBranches** | `["development"]` | `["development", "feature/*"]` | 🔴 CRITICAL |
+| **Renovate automerge** | Global `true` | Conditional by branch | 🔴 CRITICAL |
+| **Renovate grouping** | ✅ Weekly grouped | ✅ Weekly grouped | 🟢 OK |
+| **Renovate major updates** | ✅ Manual review | ✅ Manual review | 🟢 OK |
+| **Playwright triggers** | `workflow_run` only | `push` + `pull_request` + `workflow_run` | 🔴 CRITICAL |
+| **E2E workflow count** | 2 workflows | 1 workflow (consolidate) | 🟡 HIGH |
+
+---
+
+## 8. Next Steps
+
+1. **Review this specification** with the user
+2. **Apply critical changes** to Renovate and Playwright configs
+3. **Test changes** on feature branch before merging
+4. **Document decision** on e2e-tests.yml vs playwright.yml consolidation
+5. **Update CI/CD documentation** to reflect correct workflow triggers
+
+---
+
+## Appendix: File References
+
+### Renovate Configuration
+- **Primary Config:** `.github/renovate.json`
+  - Line 9: `baseBranches` (NEEDS FIX)
+  - Lines 28-30: Global `automerge` (NEEDS FIX)
+  - Lines 116-127: Grouped updates (NEEDS UPDATE)
+  - Lines 145-148: Major updates (CORRECT)
+
+### Playwright Workflows
+- **Primary:** `.github/workflows/playwright.yml`
+  - Lines 4-15: `on:` triggers (NEEDS FIX)
+  - Lines 28-30: Execution condition (REVIEW)
+  
+- **Alternative:** `.github/workflows/e2e-tests.yml`
+  - Lines 31-50: `on:` triggers (CORRECT - consider as model)
+
+---
+
+**End of Investigation Report**
 2. Docker Run (One Command)
 3. Alternative: GitHub Container Registry
 
