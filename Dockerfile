@@ -22,8 +22,8 @@ ARG CADDY_VERSION=2.11.0-beta.2
 ## upstream caddy image tags while still shipping a pinned caddy binary.
 ## Using trixie (Debian 13 testing) for faster security updates - bookworm
 ## packages marked "wont-fix" are actively maintained in trixie.
-# renovate: datasource=docker depName=debian
-ARG CADDY_IMAGE=debian:trixie-slim
+# renovate: datasource=docker depName=debian versioning=docker
+ARG CADDY_IMAGE=debian:trixie-slim@sha256:77ba0164de17b88dd0bf6cdc8f65569e6e5fa6cd256562998b62553134a00ef0
 
 # ---- Cross-Compilation Helpers ----
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0 AS xx

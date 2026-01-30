@@ -47,13 +47,14 @@
     },
     {
       "customType": "regex",
-      "description": "Track Debian base image in Dockerfile",
+      "description": "Track Debian base image digest in Dockerfile for security updates",
       "managerFilePatterns": ["/^Dockerfile$/"],
       "matchStrings": [
-        "ARG CADDY_IMAGE=debian:(?<currentValue>[\\w.-]+)"
+        "#\\s*renovate:\\s*datasource=docker\\s+depName=debian.*\\nARG CADDY_IMAGE=debian:(?<currentValue>trixie-slim@sha256:[a-f0-9]+)"
       ],
       "depNameTemplate": "debian",
-      "datasourceTemplate": "docker"
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
     }
   ],
 
