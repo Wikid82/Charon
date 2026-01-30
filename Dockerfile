@@ -127,7 +127,8 @@ ARG BUILD_DEBUG=0
 
 # Build the Go binary with version information injected via ldflags
 # xx-go handles CGO and cross-compilation flags automatically
-# Note: Go 1.25 uses gold linker for ARM64; binutils-gold is installed above
+# Note: Go 1.25 defaults to gold linker for ARM64, but clang doesn't support -fuse-ld=gold
+# We override with -extldflags=-fuse-ld=bfd to use the BFD linker for cross-compilation
 # When BUILD_DEBUG=1, we preserve debug symbols (no -s -w) and disable optimizations
 # for Delve debugging. Otherwise, strip symbols for smaller production binaries.
 RUN --mount=type=cache,target=/root/.cache/go-build \
@@ -136,14 +137,15 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         echo "Building with debug symbols for Delve..."; \
         CGO_ENABLED=1 xx-go build \
             -gcflags="all=-N -l" \
-            -ldflags "-X github.com/Wikid82/charon/backend/internal/version.Version=${VERSION} \
+            -ldflags "-extldflags=-fuse-ld=bfd \
+                      -X github.com/Wikid82/charon/backend/internal/version.Version=${VERSION} \
                       -X github.com/Wikid82/charon/backend/internal/version.GitCommit=${VCS_REF} \
                       -X github.com/Wikid82/charon/backend/internal/version.BuildTime=${BUILD_DATE}" \
             -o charon ./cmd/api; \
     else \
         echo "Building optimized production binary..."; \
         CGO_ENABLED=1 xx-go build \
-            -ldflags "-s -w \
+            -ldflags "-s -w -extldflags=-fuse-ld=bfd \
                       -X github.com/Wikid82/charon/backend/internal/version.Version=${VERSION} \
                       -X github.com/Wikid82/charon/backend/internal/version.GitCommit=${VCS_REF} \
                       -X github.com/Wikid82/charon/backend/internal/version.BuildTime=${BUILD_DATE}" \
