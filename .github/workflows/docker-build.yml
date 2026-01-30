@@ -228,9 +228,18 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}"
+            PR_NUM="${{ github.event.pull_request.number }}"
+            if [ -z "${PR_NUM}" ]; then
+              echo "❌ ERROR: Pull request number is empty"
+              exit 1
+            fi
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${PR_NUM}"
             echo "Using PR image: $IMAGE_REF"
           else
+            if [ -z "${{ steps.build-and-push.outputs.digest }}" ]; then
+              echo "❌ ERROR: Build digest is empty"
+              exit 1
+            fi
             IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
             echo "Using digest: $IMAGE_REF"
           fi
@@ -244,6 +253,24 @@ jobs:
           CONTAINER_ID=$(docker create --pull=never $IMAGE_REF)
           docker cp ${CONTAINER_ID}:/usr/bin/caddy ./caddy_binary
           docker rm ${CONTAINER_ID}
+
+          # Determine the image reference based on event type
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            PR_NUM="${{ github.event.pull_request.number }}"
+            if [ -z "${PR_NUM}" ]; then
+              echo "❌ ERROR: Pull request number is empty"
+              exit 1
+            fi
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${PR_NUM}"
+            echo "Using PR image: $IMAGE_REF"
+          else
+            if [ -z "${{ steps.build-and-push.outputs.digest }}" ]; then
+              echo "❌ ERROR: Build digest is empty"
+              exit 1
+            fi
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
+            echo "Using digest: $IMAGE_REF"
+          fi
 
           echo ""
           echo "==> Checking if Go toolchain is available locally..."
@@ -297,9 +324,18 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}"
+            PR_NUM="${{ github.event.pull_request.number }}"
+            if [ -z "${PR_NUM}" ]; then
+              echo "❌ ERROR: Pull request number is empty"
+              exit 1
+            fi
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${PR_NUM}"
             echo "Using PR image: $IMAGE_REF"
           else
+            if [ -z "${{ steps.build-and-push.outputs.digest }}" ]; then
+              echo "❌ ERROR: Build digest is empty"
+              exit 1
+            fi
             IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
             echo "Using digest: $IMAGE_REF"
           fi

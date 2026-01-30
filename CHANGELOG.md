@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **CI/CD Workflows**: Fixed multiple GitHub Actions workflow failures
+  - **Nightly Build**: Resolved GoReleaser macOS cross-compilation failure by properly configuring Zig toolchain
+  - **Playwright E2E**: Fixed test failures by ensuring admin backend service availability and proper Docker networking
+  - **Trivy Scan**: Fixed invalid Docker image reference format by adding PR number validation and branch name sanitization
+  - Resolution Date: January 30, 2026
+  - See action failure docs in `docs/actions/` for technical details
+
 ### Added
 
 - **Security test helpers for Playwright E2E tests to prevent ACL deadlock** (PR #XXX)

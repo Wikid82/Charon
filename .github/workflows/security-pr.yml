@@ -171,9 +171,26 @@ jobs:
           # Normalize image name for reference
           IMAGE_NAME=$(echo "${{ github.repository_owner }}/charon" | tr '[:upper:]' '[:lower:]')
           if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
-            IMAGE_REF="ghcr.io/${IMAGE_NAME}:${{ github.event.workflow_run.head_branch }}"
-          else
+            BRANCH_NAME="${{ github.event.workflow_run.head_branch }}"
+            if [[ -z "${BRANCH_NAME}" ]]; then
+              echo "❌ ERROR: Branch name is empty for push build"
+              exit 1
+            fi
+            IMAGE_REF="ghcr.io/${IMAGE_NAME}:${BRANCH_NAME}"
+          elif [[ -n "${{ steps.pr-info.outputs.pr_number }}" ]]; then
             IMAGE_REF="ghcr.io/${IMAGE_NAME}:pr-${{ steps.pr-info.outputs.pr_number }}"
+          else
+            echo "❌ ERROR: Cannot determine image reference"
+            echo "  - is_push: ${{ steps.pr-info.outputs.is_push }}"
+            echo "  - pr_number: ${{ steps.pr-info.outputs.pr_number }}"
+            echo "  - branch: ${{ github.event.workflow_run.head_branch }}"
+            exit 1
+          fi
+
+          # Validate the image reference format
+          if [[ ! "${IMAGE_REF}" =~ ^ghcr\.io/[a-z0-9_-]+/[a-z0-9_-]+:[a-zA-Z0-9._-]+$ ]]; then
+            echo "❌ ERROR: Invalid image reference format: ${IMAGE_REF}"
+            exit 1
           fi
 
           echo "🔍 Extracting binary from: ${IMAGE_REF}"
