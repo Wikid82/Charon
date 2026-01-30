@@ -1,229 +1,208 @@
-# GoReleaser v2 Migration & Nightly Build Failure Remediation
+# Architecture Analysis: Docker-Only vs Cross-Platform Binaries
 
-**Status**: Active  
-**Created**: 2026-01-30  
-**Priority**: CRITICAL (Blocking Nightly Builds)
+**Date:** 2026-01-30  
+**Status:** Analysis Complete - Recommendation Ready  
+**Decision Type:** Critical Path Simplification  
+**Priority:** High (Blocks unnecessary complexity)
 
 ---
 
 ## Executive Summary
 
-The nightly build workflow (`nightly-build.yml`) is failing with multiple issues:
+**RECOMMENDATION: Remove Windows/macOS build targets from GoReleaser and simplify to Docker-only distribution.**
 
-1. **GoReleaser v2 Compatibility**: Config uses deprecated v1 syntax
-2. **Zig Cross-Compilation**: Incorrect macOS target triple format
-3. **🆕 CGO/SQLite Dependency**: Disabling CGO for darwin breaks SQLite (`mattn/go-sqlite3` requires CGO)
-
-**Error Messages**:
-```
-only version: 2 configuration files are supported, yours is version: 1, please update your configuration
-```
-
-**Deprecation Warnings**:
-- `snapshot.name_template` is deprecated
-- `archives.format` is deprecated
-- `archives.builds` is deprecated
-- `nfpms.builds` is deprecated
-
-**Build Error** (Zig):
-```
-error: unable to find or provide libc for target 'x86_64-macos.11.7.1...13.3-gnu'
-info: zig can provide libc for related target x86_64-macos.11-none
-```
+Charon is documented, architected, and distributed **exclusively as a Docker container**. The cross-platform binary builds in `.goreleaser.yaml` are **artifacts from template boilerplate** that serve no practical purpose and waste CI resources.
 
 ---
 
-## 🔴 Critical Dependency: SQLite CGO Issue
+## Evidence Gathered
 
-### Problem Statement
+### 1. Architecture Verification ✅
 
-The current SQLite driver (`gorm.io/driver/sqlite`) depends on `mattn/go-sqlite3`, which is a CGO-based library. This means:
+**Source:** `ARCHITECTURE.md` (Lines 1-1300)
 
-- **CGO_ENABLED=0** will cause build failures when SQLite is used
-- **Cross-compilation** for darwin from Linux is blocked by CGO complexity
-- The proposed fix of disabling CGO for darwin builds **will break the application**
+```markdown
+## System Architecture
+Charon follows a **monolithic architecture** with an embedded reverse proxy, 
+packaged as a single Docker container.
 
-### Solution: Migrate to Pure-Go SQLite
+### Single Container Architecture
+**Rationale:** Simplicity over scalability - target audience is home users and small teams
 
-**Recommended Migration Path:**
+**Container Contents:**
+- Frontend static files (Vite build output)
+- Go backend binary
+- Embedded Caddy server
+- SQLite database file
+- Caddy certificates
+- CrowdSec local database
+```
 
-| Current | New | Notes |
-|---------|-----|-------|
-| `gorm.io/driver/sqlite` | `github.com/glebarez/sqlite` | GORM-compatible pure-Go driver |
-| `mattn/go-sqlite3` (indirect) | `modernc.org/sqlite` (indirect) | Pure-Go SQLite implementation |
-
-**Benefits:**
-1. ✅ No CGO required for any platform
-2. ✅ Simplified cross-compilation (no Zig needed for SQLite)
-3. ✅ Smaller binary size
-4. ✅ Faster build times
-5. ✅ Same GORM API - minimal code changes required
-
-### Files Requiring SQLite Driver Changes
-
-| File | Line | Change Required |
-|------|------|-----------------|
-| [backend/internal/database/database.go](../../backend/internal/database/database.go#L10) | 10 | `gorm.io/driver/sqlite` → `github.com/glebarez/sqlite` |
-| [backend/internal/testutil/db_test.go](../../backend/internal/testutil/db_test.go#L6) | 6 | `gorm.io/driver/sqlite` → `github.com/glebarez/sqlite` |
-| [backend/cmd/seed/main.go](../../backend/cmd/seed/main.go#L13) | 13 | `gorm.io/driver/sqlite` → `github.com/glebarez/sqlite` |
-| [backend/go.mod](../../backend/go.mod#L19) | 19 | Replace `gorm.io/driver/sqlite` with `github.com/glebarez/sqlite` |
+**Verdict:** Documented as Docker-only, single-container architecture.
 
 ---
 
-## Issue 1: GoReleaser v1 → v2 Migration (CRITICAL)
+### 2. User Documentation ✅
 
-### Problem Statement
+**Source:** `README.md` (Lines 1-150)
 
-GoReleaser v2 (currently v2.13.3) no longer supports `version: 1` configuration files. The nightly workflow uses GoReleaser `~> v2` which requires v2 config syntax.
+**Installation Methods Documented:**
+1. Docker Compose (Recommended)
+2. Docker Run (One Command)
+3. Alternative: GitHub Container Registry
 
-### Root Cause Analysis
+**Code Sample:**
+```yaml
+services:
+  charon:
+    image: wikid82/charon:latest
+    container_name: charon
+    restart: unless-stopped
+```
 
-Current `.goreleaser.yaml` uses deprecated v1 syntax:
+**Verdict:** Zero mention of standalone binaries, native installation, or platform-specific installers.
+
+---
+
+### 3. Distribution Method ✅
+
+**Source:** `docs/getting-started.md` (Lines 1-150)
+
+**Supported Installation:**
+- Docker Hub: `wikid82/charon:latest`
+- GitHub Container Registry: `ghcr.io/wikid82/charon:latest`
+
+**Migration Commands:**
+```bash
+docker exec charon /app/charon migrate
+```
+
+**Verdict:** All documentation assumes Docker runtime.
+
+---
+
+### 4. GoReleaser Configuration ⚠️
+
+**Source:** `.goreleaser.yaml` (Lines 1-122)
+
+**Current Build Targets:**
+```yaml
+builds:
+  - id: linux
+    goos: [linux]
+    goarch: [amd64, arm64]
+  
+  - id: windows
+    goos: [windows]
+    goarch: [amd64]
+  
+  - id: darwin
+    goos: [darwin]
+    goarch: [amd64, arm64]
+```
+
+**Observations:**
+- Builds binaries for `linux`, `windows`, `darwin`
+- Creates archives (`.tar.gz`, `.zip`)
+- Generates Debian/RPM packages
+- **These artifacts are never referenced in user documentation**
+- **No installation instructions for standalone binaries**
+
+**Verdict:** Unnecessary build targets creating unused artifacts.
+
+---
+
+### 5. Release Workflow Analysis ✅
+
+**Source:** `.github/workflows/release-goreleaser.yml`
+
+**What Gets Published:**
+1. ✅ Docker images (multi-platform: `linux/amd64`, `linux/arm64`)
+2. ✅ SBOM (Software Bill of Materials)
+3. ✅ SLSA provenance attestation
+4. ✅ Cryptographic signatures (Cosign)
+5. ⚠️ Standalone binaries (unused)
+6. ⚠️ Archives (`.tar.gz`, `.zip` - unused)
+7. ⚠️ Debian/RPM packages (unused)
+
+**Verdict:** Docker images are the primary (and only documented) distribution method.
+
+---
+
+### 6. Dockerfile Base Image ✅
+
+**Source:** `Dockerfile` (Lines 1-50)
+
+```dockerfile
+# renovate: datasource=docker depName=debian versioning=docker
+ARG CADDY_IMAGE=debian:trixie-slim@sha256:...
+```
+
+**Verdict:** Debian-based Linux container. No Windows/macOS container images exist.
+
+---
+
+### 7. User Base & Use Cases ✅
+
+**Source:** `ARCHITECTURE.md`
+
+**Target Audience:**
+> "Simplify website and application hosting for **home users and small teams**"
+
+**Deployment Model:**
+> "Monolithic architecture packaged as a **single Docker container**"
+
+**Verdict:** Docker-first design with no enterprise/cloud-native multi-platform requirements.
+
+---
+
+## Current Issue: Disk Space Implementation
+
+**Original Problem:**
+```go
+// backend/internal/models/systemmetrics.go
+func UpdateDiskMetrics(db *gorm.DB) error {
+    // TODO: Cross-platform disk space implementation
+    // Currently hardcoded to "/" for Linux
+    // Need platform detection for Windows (C:\) and macOS
+}
+```
+
+**Why This Is Complex:**
+- Windows uses drive letters (`C:\`, `D:\`)
+- macOS uses `/System/Volumes/Data`
+- Windows requires `golang.org/x/sys/windows` syscalls
+- macOS requires `golang.org/x/sys/unix` with special mount handling
+- Testing requires platform-specific CI runners
+
+**Why This Is Unnecessary:**
+- Charon **only runs in Linux containers** (Debian base image)
+- The host OS (Windows/macOS) is irrelevant - Docker abstracts it
+- The disk space check should monitor `/app/data` (container filesystem)
+
+---
+
+## Old Plan Context (Now Superseded)
+
+### Previous Problem Description
+
+The `GetAvailableSpace()` method in `backend/internal/services/backup_service.go` (lines 363-394) used Unix-specific syscalls that blocked Windows cross-compilation. This was mistakenly interpreted as requiring platform-specific implementations.
+
+### Why The Problem Was Misunderstood
+
+- **Assumption**: Users need to run Charon natively on Windows/macOS
+- **Reality**: Charon is Docker-only, runs in Linux containers regardless of host OS
+- **Root Cause**: GoReleaser configured to build unused Windows/macOS binaries
+
+---
+
+## Recommended Solution
+
+### Simple Solution: Remove Unnecessary Build Targets
+
+**Changes to `.goreleaser.yaml`:**
 
 ```yaml
-version: 1  # ❌ v2 requires "version: 2"
-```
-
-Multiple deprecated fields need updating:
-| Deprecated Field | v2 Replacement |
-|-----------------|----------------|
-| `snapshot.name_template` | `snapshot.version_template` |
-| `archives.format` | `archives.formats` (array) |
-| `archives.builds` | `archives.ids` |
-| `nfpms.builds` | `nfpms.ids` |
-
-### GoReleaser Deprecation Reference
-
-From [goreleaser.com/deprecations](https://goreleaser.com/deprecations):
-
-1. **`snapshot.name_template`** → `snapshot.version_template`
-   - Changed in v2.0.0
-   - The template generates a version string, not a "name"
-
-2. **`archives.format`** → `archives.formats`
-   - Changed to array to support multiple formats per archive config
-   - Must be `formats: [tar.gz]` not `format: tar.gz`
-
-3. **`archives.builds`** → `archives.ids`
-   - Renamed for clarity: it filters by build `id`, not "builds"
-
-4. **`nfpms.builds`** → `nfpms.ids`
-   - Same rationale as archives
-
-### Required Changes
-
-```diff
---- a/.goreleaser.yaml
-+++ b/.goreleaser.yaml
-@@ -1,4 +1,4 @@
--version: 1
-+version: 2
-
- project_name: charon
-
-@@ -62,10 +62,10 @@
-       - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
-
- archives:
--  - format: tar.gz
-+  - formats: [tar.gz]
-     id: nix
--    builds:
-+    ids:
-       - linux
-       - darwin
-     name_template: >-
-@@ -76,9 +76,9 @@
-       - LICENSE
-       - README.md
-
--  - format: zip
-+  - formats: [zip]
-     id: windows
--    builds:
-+    ids:
-       - windows
-     name_template: >-
-       {{ .ProjectName }}_
-@@ -90,7 +90,7 @@
-
- nfpms:
-   - id: packages
--    builds:
-+    ids:
-       - linux
-     package_name: charon
-     vendor: Charon
-@@ -116,7 +116,7 @@
-   name_template: 'checksums.txt'
-
- snapshot:
--  name_template: "{{ .Tag }}-next"
-+  version_template: "{{ .Tag }}-next"
-
- changelog:
-   sort: asc
-```
-
----
-
-## Issue 2: Zig Cross-Compilation for macOS
-
-### Problem Statement
-
-The nightly build fails during GoReleaser release step when cross-compiling for macOS (darwin) using Zig:
-
-```text
-error: unable to find or provide libc for target 'x86_64-macos.11.7.1...13.3-gnu'
-info: zig can provide libc for related target x86_64-macos.11-none
-```
-
-### Root Cause Analysis
-
-The `.goreleaser.yaml` darwin build uses **`-macos-none`** which is correct, but examining the actual file shows **`-macos-none`** is already in place. The error message suggests something is injecting version numbers.
-
-**Wait** - Re-reading the current config, I see it actually says `-macos-none` already. Let me check if there's a different issue.
-
-Actually, looking at the error more carefully:
-```
-target 'x86_64-macos.11.7.1...13.3-gnu'
-```
-
-This suggests the **Go runtime/cgo is detecting the macOS version range** and passing it to Zig incorrectly. The `-gnu` suffix shouldn't be there for macOS.
-
-**Current Configuration**:
-```yaml
-CC=zig cc -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-macos-none
-```
-
-The current config is correct (`-macos-none`), but CGO may be interfering.
-
-### ~~Recommended Fix: Disable CGO for Darwin~~
-
-> **⚠️ UPDATE:** This section is superseded by the SQLite driver migration (see "Critical Dependency: SQLite CGO Issue" above). Simply disabling CGO for darwin **breaks SQLite functionality**.
-
-### ✅ Actual Fix: Migrate to Pure-Go SQLite
-
-By migrating from `gorm.io/driver/sqlite` (CGO) to `github.com/glebarez/sqlite` (pure-Go):
-
-1. **Zig is no longer required** for any platform
-2. **CGO_ENABLED=0** can be used for ALL platforms (linux, darwin, windows)
-3. **Cross-compilation is trivial** - standard Go cross-compilation works
-4. **Build times are faster** - no C compiler invocation
-
-This completely eliminates Issue 2 as a side effect of fixing the SQLite dependency issue.
-
----
-
-## Complete Updated `.goreleaser.yaml`
-
-> **Note:** After migrating to pure-Go SQLite (`github.com/glebarez/sqlite`), Zig cross-compilation is no longer required. All platforms now use `CGO_ENABLED=0` for simpler, faster builds.
-
-```yaml
-version: 2
-
-project_name: charon
-
 builds:
   - id: linux
     dir: backend
@@ -242,58 +221,12 @@ builds:
       - -X github.com/Wikid82/charon/backend/internal/version.GitCommit={{.Commit}}
       - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
 
-  - id: windows
-    dir: backend
-    main: ./cmd/api
-    binary: charon
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - windows
-    goarch:
-      - amd64
-    ldflags:
-      - -s -w
-      - -X github.com/Wikid82/charon/backend/internal/version.Version={{.Version}}
-      - -X github.com/Wikid82/charon/backend/internal/version.GitCommit={{.Commit}}
-      - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
-
-  - id: darwin
-    dir: backend
-    main: ./cmd/api
-    binary: charon
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - darwin
-    goarch:
-      - amd64
-      - arm64
-    ldflags:
-      - -s -w
-      - -X github.com/Wikid82/charon/backend/internal/version.Version={{.Version}}
-      - -X github.com/Wikid82/charon/backend/internal/version.GitCommit={{.Commit}}
-      - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
-
 archives:
-  - formats: [tar.gz]
-    id: nix
+  - formats:
+      - tar.gz
+    id: linux
     ids:
       - linux
-      - darwin
-    name_template: >-
-      {{ .ProjectName }}_
-      {{- .Version }}_
-      {{- .Os }}_
-      {{- .Arch }}
-    files:
-      - LICENSE
-      - README.md
-
-  - formats: [zip]
-    id: windows
-    ids:
-      - windows
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
@@ -316,242 +249,1117 @@ nfpms:
     formats:
       - deb
       - rpm
-    contents:
-      - src: ./backend/data/
-        dst: /var/lib/charon/data/
-        type: dir
-      - src: ./frontend/dist/
-        dst: /usr/share/charon/frontend/
-        type: dir
-    dependencies:
-      - libc6
-      - ca-certificates
-
-checksum:
-  name_template: 'checksums.txt'
-
-snapshot:
-  version_template: "{{ .Tag }}-next"
-
-changelog:
-  sort: asc
-  filters:
-    exclude:
-      - '^docs:'
-      - '^test:'
 ```
+
+**Removals:**
+- ❌ `windows` build ID (lines 23-35)
+- ❌ `darwin` build ID (lines 37-51)
+- ❌ Windows archive format
+
+**Benefits:**
+- ✅ Faster CI builds (no cross-compilation overhead)
+- ✅ Smaller release artifacts
+- ✅ Clearer distribution model (Docker-only)
+- ✅ Reduced maintenance burden
+- ✅ No platform-specific disk space code needed
 
 ---
 
-## Implementation Plan
+### Simplified Disk Space Implementation
 
-### Phase 0: SQLite Driver Migration (PREREQUISITE)
+**File:** `backend/internal/services/backup_service.go`
 
-**Objective:** Migrate from CGO-dependent SQLite to pure-Go implementation.
+**Current Implementation (already Linux-compatible):**
+```go
+func (s *BackupService) GetAvailableSpace() (int64, error) {
+    var stat syscall.Statfs_t
+    if err := syscall.Statfs(s.BackupDir, &stat); err != nil {
+        return 0, fmt.Errorf("failed to get disk space: %w", err)
+    }
+    
+    bsize := stat.Bsize
+    bavail := stat.Bavail
+    
+    if bsize < 0 {
+        return 0, fmt.Errorf("invalid block size %d", bsize)
+    }
+    
+    if bavail > uint64(math.MaxInt64) {
+        return math.MaxInt64, nil
+    }
+    
+    available := int64(bavail) * int64(bsize)
+    return available, nil
+}
+```
 
-**Files to Modify:**
+**Recommended Change:** Monitor `/app/data` instead of `/` for more accurate container volume metrics:
 
-| File | Change | Reason |
-|------|--------|--------|
-| `backend/go.mod` | Replace `gorm.io/driver/sqlite` with `github.com/glebarez/sqlite` | Pure-Go SQLite driver |
-| `backend/internal/database/database.go` | Update import statement | New driver package |
-| `backend/internal/testutil/db_test.go` | Update import statement | New driver package |
-| `backend/cmd/seed/main.go` | Update import statement | New driver package |
+```go
+func (s *BackupService) GetAvailableSpace() (int64, error) {
+    // Monitor the container data volume (or fallback to root)
+    dataPath := "/app/data"
+    
+    var stat syscall.Statfs_t
+    if err := syscall.Statfs(dataPath, &stat); err != nil {
+        // Fallback to root filesystem if data mount doesn't exist
+        if err := syscall.Statfs("/", &stat); err != nil {
+            return 0, fmt.Errorf("failed to get disk space: %w", err)
+        }
+    }
+    
+    // Existing overflow protection logic...
+    bsize := stat.Bsize
+    bavail := stat.Bavail
+    
+    if bsize < 0 {
+        return 0, fmt.Errorf("invalid block size %d", bsize)
+    }
+    
+    if bavail > uint64(math.MaxInt64) {
+        return math.MaxInt64, nil
+    }
+    
+    available := int64(bavail) * int64(bsize)
+    return available, nil
+}
+```
 
-**Steps:**
+**Rationale:**
+- Monitors `/app/data` (user's persistent volume)
+- Falls back to `/` if volume not mounted
+- No platform detection needed
+- Works in all Docker environments (Linux host, macOS Docker Desktop, Windows WSL2)
 
+---
+
+## Decision Matrix
+
+| Approach | Pros | Cons | Recommendation |
+|----------|------|------|----------------|
+| **Remove Windows/macOS targets** | ✅ Aligns with actual architecture<br>✅ Faster CI builds<br>✅ Simpler codebase<br>✅ No cross-platform complexity | ⚠️ Can't distribute standalone binaries (never documented anyway) | **✅ RECOMMENDED** |
+| **Keep all platforms** | ⚠️ "Future-proofs" for potential pivot | ❌ Wastes CI resources<br>❌ Adds complexity<br>❌ Misleads users<br>❌ No documented use case | ❌ NOT RECOMMENDED |
+
+---
+
+## Implementation Tasks
+
+### Task 1: Update GoReleaser Configuration
+**File:** `.goreleaser.yaml`  
+**Changes:**
+- Remove `windows` and `darwin` build definitions
+- Remove Windows archive format (zip)
+- Keep only `linux/amd64` and `linux/arm64`
+- Update `nfpms` to reference only `linux` build ID
+
+**Estimated Effort:** 15 minutes
+
+---
+
+### Task 2: Remove Zig Cross-Compilation from CI
+**File:** `.github/workflows/release-goreleaser.yml`  
+**Changes:**
+- Remove `Install Cross-Compilation Tools (Zig)` step (lines 52-56)
+- No longer needed for Linux-only builds
+
+**Estimated Effort:** 5 minutes
+
+---
+
+### Task 3: Simplify Disk Metrics (Optional Enhancement)
+**File:** `backend/internal/models/systemmetrics.go`  
+**Changes:**
+- Update `UpdateDiskMetrics()` to monitor `/app/data` instead of `/`
+- Add fallback to `/` if data volume not mounted
+- Update comments to clarify Docker-only scope
+
+**Estimated Effort:** 10 minutes
+
+---
+
+### Task 4: Update Documentation
+**Files:**
+- `ARCHITECTURE.md` - Add note about Docker-only distribution in "Build & Release Process" section
+- `CONTRIBUTING.md` - Remove any Windows/macOS build instructions
+
+**Estimated Effort:** 10 minutes
+
+---
+
+## Validation Checklist
+
+After implementation:
+- [ ] CI release workflow completes successfully
+- [ ] Docker images build for `linux/amd64` and `linux/arm64`
+- [ ] No Windows/macOS binaries in GitHub releases
+- [ ] `backend/internal/services/backup_service.go` still compiles
+- [ ] E2E tests pass against built image
+- [ ] Documentation reflects Docker-only distribution model
+
+---
+
+## Future Considerations
+
+**If standalone binary distribution is needed in the future:**
+
+1. **Revisit Architecture:**
+   - Extract backend into CLI tool
+   - Bundle frontend as embedded assets
+   - Provide platform-specific installers (`.exe`, `.dmg`, `.deb`)
+
+2. **Update Documentation:**
+   - Add installation guides for each platform
+   - Provide troubleshooting for native installs
+
+3. **Re-add Build Targets:**
+   - Restore `windows` and `darwin` in `.goreleaser.yaml`
+   - Implement platform detection for disk metrics with build tags
+   - Add CI runners for each platform (Windows Server, macOS)
+
+**Current Priority:** None. Docker-only distribution meets all documented use cases.
+
+---
+
+## Conclusion
+
+Charon is **explicitly designed, documented, and distributed as a Docker-only application**. The Windows and macOS build targets in GoReleaser serve no purpose and should be removed.
+
+**Recommended Next Steps:**
+1. Remove unused build targets from `.goreleaser.yaml`
+2. Remove Zig cross-compilation step from release workflow
+3. (Optional) Update disk metrics to monitor `/app/data` volume
+4. Update documentation to clarify Docker-only scope
+5. Proceed with simplified implementation (no platform detection needed)
+
+---
+
+**Plan Status:** Ready for Implementation  
+**Confidence Level:** High (100% - all evidence aligns)  
+**Risk Assessment:** Low (removing unused features)  
+**Total Estimated Effort:** 40 minutes (configuration changes + testing)
+
+---
+
+## Archived: Old Plan (Platform-Specific Build Tags)
+
+The previous plan assumed cross-platform binary support was needed and proposed implementing platform-specific disk space checks using build tags. This approach is no longer necessary given the Docker-only distribution model.
+
+**Key Insight from Research:**
+- Charon runs in Linux containers regardless of host OS
+- Windows/macOS users run Docker Desktop (which uses Linux VMs internally)
+- The container always sees a Linux filesystem
+- No platform detection needed
+
+**Historical Context:**
+
+	}
+
+	// Safe to convert now
+	availBlocks := int64(bavail)
+	blockSize := int64(bsize)
+
+	// Check for multiplication overflow
+	if availBlocks > 0 && blockSize > math.MaxInt64/availBlocks {
+		return math.MaxInt64, nil
+	}
+
+	return availBlocks * blockSize, nil
+}
+```
+
+**Key Points:**
+- Preserves existing overflow protection logic
+- Maintains gosec compliance (G115)
+- No functional changes from current implementation
+
+---
+
+### Phase 3: Windows Implementation
+
+#### File: `backup_service_disk_windows.go`
+
+```go
+//go:build windows
+
+package services
+
+import (
+	"fmt"
+	"math"
+	"path/filepath"
+	"strings"
+
+	"golang.org/x/sys/windows"
+)
+
+// getAvailableSpace returns the available disk space in bytes for the given directory.
+// Windows implementation using GetDiskFreeSpaceExW with long path support.
+func getAvailableSpace(dir string) (int64, error) {
+	// Normalize path for Windows
+	cleanPath := filepath.Clean(dir)
+	
+	// Handle long paths (>260 chars) by prepending \\?\ prefix
+	// This enables paths up to 32,767 characters on Windows
+	if len(cleanPath) > 260 && !strings.HasPrefix(cleanPath, `\\?\`) {
+		// Convert to absolute path first
+		absPath, err := filepath.Abs(cleanPath)
+		if err != nil {
+			return 0, fmt.Errorf("failed to resolve absolute path for '%s': %w", dir, err)
+		}
+		// Add long path prefix
+		cleanPath = `\\?\` + absPath
+	}
+	
+	// Convert to UTF-16 for Windows API
+	utf16Ptr, err := windows.UTF16PtrFromString(cleanPath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to convert path '%s' to UTF16: %w", dir, err)
+	}
+
+	var freeBytesAvailable, totalBytes, totalFreeBytes uint64
+	err = windows.GetDiskFreeSpaceEx(
+		utf16Ptr,
+		&freeBytesAvailable,
+		&totalBytes,
+		&totalFreeBytes,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get disk space for path '%s': %w", dir, err)
+	}
+
+	// freeBytesAvailable already accounts for quotas and user restrictions
+	// Check if value exceeds max int64
+	if freeBytesAvailable > uint64(math.MaxInt64) {
+		return math.MaxInt64, nil
+	}
+
+	return int64(freeBytesAvailable), nil
+}
+```
+
+**Key Points:**
+
+1. **API Choice**: `GetDiskFreeSpaceEx` vs `GetDiskFreeSpace`
+   - `GetDiskFreeSpaceEx` respects disk quotas (correct behavior)
+   - Returns bytes directly (no block size calculation needed)
+   - Supports paths > 260 characters with proper handling
+
+2. **Path Handling**:
+   - Converts Go string to UTF-16 (Windows native format)
+   - Handles Unicode paths correctly
+   - **Windows Long Path Support**: For paths > 260 characters, automatically prepends `\\?\` prefix
+   - Normalizes forward slashes to backslashes for Windows API compatibility
+
+3. **Overflow Protection**:
+   - Maintains same logic as Unix version
+   - Caps at `math.MaxInt64` for consistency
+
+4. **Return Value**:
+   - Uses `freeBytesAvailable` (not `totalFreeBytes`)
+   - Correctly accounts for user quotas and restrictions
+
+---
+
+### Phase 4: Refactor Main File
+
+#### File: `backup_service.go`
+
+**Modification:**
+
+```go
+// BEFORE (lines 363-394): Direct implementation
+
+// AFTER: Delegate to platform-specific function
+func (s *BackupService) GetAvailableSpace() (int64, error) {
+	return getAvailableSpace(s.BackupDir)
+}
+```
+
+**Changes:**
+1. Remove `var stat syscall.Statfs_t` and all calculation logic
+2. Replace with single call to platform-specific `getAvailableSpace()`
+3. Platform selection handled at compile-time via build tags
+
+**Benefits:**
+- Simplified main file
+- No runtime conditionals
+- Zero performance overhead
+- Same API for all callers
+
+---
+
+### Phase 5: Dependency Management
+
+#### 5.1 Add Windows Dependency
+
+**Command:**
 ```bash
-# 1. Update go.mod - replace CGO driver with pure-Go driver
 cd backend
-go get github.com/glebarez/sqlite
-go mod edit -droprequire gorm.io/driver/sqlite
-
-# 2. Update import statements in Go files
-# (Manual step - update imports in 3 files listed above)
-
-# 3. Tidy dependencies
+go get golang.org/x/sys/windows@latest
 go mod tidy
-
-# 4. Verify build works without CGO
-CGO_ENABLED=0 go build ./cmd/api
-CGO_ENABLED=0 go build ./cmd/seed
-
-# 5. Run tests to verify SQLite functionality
-CGO_ENABLED=0 go test ./internal/database/... -v
-CGO_ENABLED=0 go test ./internal/testutil/... -v
 ```
 
-**Validation:**
-- ✅ `CGO_ENABLED=0 go build ./backend/cmd/api` succeeds
-- ✅ `CGO_ENABLED=0 go build ./backend/cmd/seed` succeeds  
-- ✅ All database tests pass with CGO disabled
-- ✅ `go.mod` no longer references `gorm.io/driver/sqlite` or `mattn/go-sqlite3`
+**Expected `go.mod` Change:**
+```go
+require (
+    // ... existing deps ...
+    golang.org/x/sys v0.40.0  // existing
+)
+```
+
+**Note:** `golang.org/x/sys` is already present in `go.mod` (line 95), but we need to ensure `windows` subpackage is available. It's part of the same module, so no new direct dependency needed.
+
+#### 5.2 Verify Build Tags
+
+**Test Matrix:**
+```bash
+# Test Unix build
+GOOS=linux GOARCH=amd64 go build ./cmd/api
+
+# Test Darwin build
+GOOS=darwin GOARCH=arm64 go build ./cmd/api
+
+# Test Windows build (this currently fails)
+GOOS=windows GOARCH=amd64 go build ./cmd/api
+```
 
 ---
 
-### Phase 1: Update GoReleaser Config
+### Phase 6: Testing Strategy
 
-**Files to Modify:**
+#### 6.1 Unit Tests
 
-| File | Change | Reason |
-|------|--------|--------|
-| `.goreleaser.yaml` | Update to version 2 syntax | Required for GoReleaser ~> v2 |
-| `.goreleaser.yaml` | Remove Zig cross-compilation | No longer needed with pure-Go SQLite |
-| `.goreleaser.yaml` | Set `CGO_ENABLED=0` for ALL platforms | Consistent pure-Go builds |
+**New Test Files:**
+```
+backend/internal/services/
+├── backup_service_disk_unix_test.go
+└── backup_service_disk_windows_test.go
+```
 
-**Simplified Build Configuration (No Zig Required):**
+**Unix Test (`backup_service_disk_unix_test.go`):**
+```go
+//go:build unix
+
+package services
+
+import (
+	"os"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestGetAvailableSpace_Unix(t *testing.T) {
+	// Test with temp directory
+	tmpDir := t.TempDir()
+	
+	space, err := getAvailableSpace(tmpDir)
+	require.NoError(t, err)
+	assert.Greater(t, space, int64(0), "Available space should be positive")
+	
+	// Test with invalid directory
+	space, err = getAvailableSpace("/nonexistent/path")
+	assert.Error(t, err)
+	assert.Equal(t, int64(0), space)
+}
+
+func TestGetAvailableSpace_UnixRootFS(t *testing.T) {
+	// Test with root filesystem
+	space, err := getAvailableSpace("/")
+	require.NoError(t, err)
+	assert.Greater(t, space, int64(0))
+}
+
+func TestGetAvailableSpace_UnixPermissionDenied(t *testing.T) {
+	// Test permission denied scenario
+	// Try to stat a path we definitely don't have access to
+	if os.Getuid() == 0 {
+		t.Skip("Test requires non-root user")
+	}
+	
+	// Most Unix systems have restricted directories
+	restrictedPaths := []string{"/root", "/lost+found"}
+	
+	for _, path := range restrictedPaths {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			continue // Path doesn't exist on this system
+		}
+		
+		space, err := getAvailableSpace(path)
+		if err != nil {
+			// Expected: permission denied
+			assert.Contains(t, err.Error(), "failed to get disk space")
+			assert.Equal(t, int64(0), space)
+			return // Test passed
+		}
+	}
+	
+	t.Skip("No restricted paths found to test permission denial")
+}
+
+func TestGetAvailableSpace_UnixSymlink(t *testing.T) {
+	// Test symlink resolution - statfs follows symlinks
+	tmpDir := t.TempDir()
+	targetDir := filepath.Join(tmpDir, "target")
+	symlinkPath := filepath.Join(tmpDir, "link")
+	
+	err := os.Mkdir(targetDir, 0755)
+	require.NoError(t, err)
+	
+	err = os.Symlink(targetDir, symlinkPath)
+	require.NoError(t, err)
+	
+	// Should follow symlink and return space for target
+	space, err := getAvailableSpace(symlinkPath)
+	require.NoError(t, err)
+	assert.Greater(t, space, int64(0))
+	
+	// Compare with direct target query (should match filesystem)
+	targetSpace, err := getAvailableSpace(targetDir)
+	require.NoError(t, err)
+	assert.Equal(t, targetSpace, space, "Symlink should resolve to same filesystem")
+}
+```
+
+**Windows Test (`backup_service_disk_windows_test.go`):**
+```go
+//go:build windows
+
+package services
+
+import (
+	"os"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestGetAvailableSpace_Windows(t *testing.T) {
+	// Test with temp directory
+	tmpDir := t.TempDir()
+	
+	space, err := getAvailableSpace(tmpDir)
+	require.NoError(t, err)
+	assert.Greater(t, space, int64(0), "Available space should be positive")
+	
+	// Test with C: drive (usually exists on Windows)
+	space, err = getAvailableSpace("C:\\")
+	require.NoError(t, err)
+	assert.Greater(t, space, int64(0))
+}
+
+func TestGetAvailableSpace_WindowsInvalidPath(t *testing.T) {
+	// Test with invalid drive letter
+	space, err := getAvailableSpace("Z:\\nonexistent\\path")
+	// May error or return 0 depending on Windows version
+	if err != nil {
+		assert.Equal(t, int64(0), space)
+	}
+}
+
+func TestGetAvailableSpace_WindowsLongPath(t *testing.T) {
+	// Test long path handling (>260 characters)
+	tmpBase := t.TempDir()
+	
+	// Create a deeply nested directory structure to exceed MAX_PATH
+	longPath := tmpBase
+	for i := 0; i < 20; i++ {
+		longPath = filepath.Join(longPath, "verylongdirectorynamewithlotsofcharacters")
+	}
+	
+	err := os.MkdirAll(longPath, 0755)
+	require.NoError(t, err, "Should create long path with \\\\?\\ prefix support")
+	
+	// Test disk space check on long path
+	space, err := getAvailableSpace(longPath)
+	require.NoError(t, err, "Should query disk space for paths >260 chars")
+	assert.Greater(t, space, int64(0), "Available space should be positive")
+}
+
+func TestGetAvailableSpace_WindowsUnicodePath(t *testing.T) {
+	// Test Unicode path handling to ensure UTF-16 conversion works correctly
+	tmpBase := t.TempDir()
+	
+	// Create directory with Unicode characters (emoji, CJK, Arabic)
+	unicodeDirName := "test_🚀_测试_اختبار"
+	unicodePath := filepath.Join(tmpBase, unicodeDirName)
+	
+	err := os.Mkdir(unicodePath, 0755)
+	require.NoError(t, err, "Should create directory with Unicode name")
+	
+	// Test disk space check on Unicode path
+	space, err := getAvailableSpace(unicodePath)
+	require.NoError(t, err, "Should handle Unicode path names")
+	assert.Greater(t, space, int64(0), "Available space should be positive")
+}
+
+func TestGetAvailableSpace_WindowsPermissionDenied(t *testing.T) {
+	// Test permission denied scenario
+	// On Windows, system directories like C:\System Volume Information
+	// typically deny access to non-admin users
+	space, err := getAvailableSpace("C:\\System Volume Information")
+	if err != nil {
+		// Expected: access denied error
+		assert.Contains(t, err.Error(), "failed to get disk space")
+		assert.Equal(t, int64(0), space)
+	} else {
+		// If no error (running as admin), space should still be valid
+		assert.GreaterOrEqual(t, space, int64(0))
+	}
+}
+```
+
+#### 6.2 Integration Testing
+
+**Existing Tests Impact:**
+- `backend/internal/services/backup_service_test.go` should work unchanged
+- If tests mock disk space, update mocks to use new signature
+- Add CI matrix testing for Windows builds
+
+**CI/CD Testing:**
+
+Add platform-specific test matrix to ensure all implementations are validated:
 
 ```yaml
-builds:
-  - id: linux
-    dir: backend
-    main: ./cmd/api
-    binary: charon
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-    goarch:
-      - amd64
-      - arm64
-    ldflags:
-      - -s -w
-      - -X github.com/Wikid82/charon/backend/internal/version.Version={{.Version}}
-      - -X github.com/Wikid82/charon/backend/internal/version.GitCommit={{.Commit}}
-      - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
+# .github/workflows/go-tests.yml
+name: Go Tests
 
-  - id: windows
-    dir: backend
-    main: ./cmd/api
-    binary: charon
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - windows
-    goarch:
-      - amd64
-    ldflags:
-      - -s -w
-      - -X github.com/Wikid82/charon/backend/internal/version.Version={{.Version}}
-      - -X github.com/Wikid82/charon/backend/internal/version.GitCommit={{.Commit}}
-      - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
+on:
+  pull_request:
+    paths:
+      - 'backend/**/*.go'
+      - 'backend/go.mod'
+      - 'backend/go.sum'
+  push:
+    branches:
+      - main
 
-  - id: darwin
-    dir: backend
-    main: ./cmd/api
-    binary: charon
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - darwin
-    goarch:
-      - amd64
-      - arm64
-    ldflags:
-      - -s -w
-      - -X github.com/Wikid82/charon/backend/internal/version.Version={{.Version}}
-      - -X github.com/Wikid82/charon/backend/internal/version.GitCommit={{.Commit}}
-      - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
+jobs:
+  test-cross-platform:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go-version: ['1.25.6']
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Run platform-specific tests
+        working-directory: backend
+        run: |
+          go test -v -race -coverprofile=coverage.txt -covermode=atomic ./internal/services/...
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./backend/coverage.txt
+          flags: ${{ matrix.os }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  verify-cross-compilation:
+    name: Cross-compile for ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.6'
+
+      - name: Build for ${{ matrix.goos }}/${{ matrix.goarch }}
+        working-directory: backend
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -v -o /tmp/charon-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/api
+```
+
+#### 6.3 Manual Testing Checklist
+
+**Unix/Linux:**
+- [ ] Backup creation succeeds with sufficient space
+- [ ] Backup creation fails gracefully with insufficient space
+- [ ] Log messages show correct available space
+
+**Windows:**
+- [ ] Binary compiles successfully
+- [ ] Same functionality as Unix version
+- [ ] Handles UNC paths (\\server\share)
+- [ ] Respects disk quotas
+
+---
+
+### Phase 7: Documentation Updates
+
+#### 7.1 Code Documentation
+
+**File-level comments:**
+```go
+// backup_service_disk_unix.go
+// Platform-specific implementation of disk space queries for Unix-like systems.
+// This file is compiled only on Linux, macOS, BSD, and other Unix variants.
+
+// backup_service_disk_windows.go
+// Platform-specific implementation of disk space queries for Windows.
+// Uses Win32 API GetDiskFreeSpaceEx to query filesystem statistics.
+```
+
+#### 7.2 Architecture Documentation
+
+**Update `ARCHITECTURE.md`:**
+- Add section on platform-specific implementations
+- Document build tag strategy
+- List platform-specific files
+
+**Update `docs/development/building.md` (if exists):**
+- Cross-compilation requirements
+- Platform-specific testing instructions
+
+#### 7.3 Developer Guidance
+
+**Create `docs/development/platform-specific-code.md`:**
+```markdown
+# Platform-Specific Code Guidelines
+
+## When to Use Build Tags
+
+Use build tags when:
+- Accessing OS-specific APIs (syscalls, Win32, etc.)
+- Functionality differs by platform
+- No cross-platform abstraction exists
+
+## Build Tag Reference
+
+- `//go:build unix` - Linux, macOS, BSD, Solaris
+- `//go:build windows` - Windows
+- `//go:build darwin` - macOS only
+- `//go:build linux` - Linux only
+
+## File Naming Convention
+
+Pattern: `{feature}_{platform}.go`
+Examples:
+- `backup_service_disk_unix.go`
+- `backup_service_disk_windows.go`
 ```
 
 ---
 
-### Phase 2: Verification Steps
+### Phase 8: Configuration Updates
 
+#### 8.1 Codecov Configuration
+
+**Current `codecov.yml` (line 15-31):**
+```yaml
+ignore:
+  - "**/*_test.go"
+  - "**/testdata/**"
+  - "**/mocks/**"
+```
+
+**No changes needed:**
+- Platform-specific files are production code
+- Should be included in coverage
+- Tests run on each platform will cover respective implementation
+
+**Rationale:**
+- Unix tests run on Linux CI runners → cover `*_unix.go`
+- Windows tests run on Windows CI runners → cover `*_windows.go`
+- Combined coverage shows full platform coverage
+
+#### 8.2 .gitignore Updates
+
+**Current `.gitignore`:**
+No changes needed for source files.
+
+**Verify exclusions:**
+```gitignore
+# Already covered:
+*.test
+*.out
+backend/bin/
+```
+
+#### 8.3 Linter Configuration
+
+**Verify gopls/staticcheck:**
+- Build tags are standard Go feature
+- No linter configuration changes needed
+- GoReleaser will compile each platform separately
+
+---
+
+## Build Validation
+
+### Pre-Merge Checklist
+
+**Compilation Tests:**
 ```bash
-# 1. Verify SQLite migration (Phase 0 complete)
-cd backend
-CGO_ENABLED=0 go build ./cmd/api
-CGO_ENABLED=0 go test ./... -count=1
+# Unix targets
+GOOS=linux GOARCH=amd64 go build -o /dev/null ./backend/cmd/api
+GOOS=darwin GOARCH=arm64 go build -o /dev/null ./backend/cmd/api
 
-# 2. Validate the GoReleaser config locally
-goreleaser check
-
-# 3. Test snapshot build locally (no Zig required!)
-goreleaser release --snapshot --skip=publish --clean
-
-# 4. Trigger nightly workflow manually
-gh workflow run nightly-build.yml -f reason="Test GoReleaser v2 migration with pure-Go SQLite"
-
-# 5. Monitor workflow execution
-gh run watch
+# Windows target (currently fails)
+GOOS=windows GOARCH=amd64 go build -o /dev/null ./backend/cmd/api
 ```
 
----
+**Post-Implementation:**
+All three commands should succeed with exit code 0.
 
-### Phase 3: Rollback Plan
+**Unit Test Validation:**
+```bash
+# Run on each platform
+go test ./backend/internal/services/... -v
 
-If the fix fails:
+# Expected output includes:
+# - TestGetAvailableSpace_Unix (on Unix)
+# - TestGetAvailableSpace_Windows (on Windows)
+```
 
-**SQLite Rollback:**
-1. Revert `go.mod` to use `gorm.io/driver/sqlite`
-2. Revert import statement changes
-3. Re-enable CGO in GoReleaser config
+### GoReleaser Integration
 
-**GoReleaser Rollback:**
-1. Revert `.goreleaser.yaml` changes
-2. Pin GoReleaser to v1.x in workflows:
-   ```yaml
-   version: '1.26.2'  # Last v1 release
-   ```
+**`.goreleaser.yaml` (lines 23-35):**
+```yaml
+- id: windows
+  dir: backend
+  main: ./cmd/api
+  binary: charon
+  env:
+    - CGO_ENABLED=0  # ✅ Maintained: static binary
+  goos:
+    - windows
+  goarch:
+    - amd64
+```
 
----
-
-## Requirements (EARS Notation)
-
-1. WHEN building for any platform, THE SYSTEM SHALL use `CGO_ENABLED=0` (pure-Go builds).
-2. WHEN importing the SQLite driver, THE SYSTEM SHALL use `github.com/glebarez/sqlite` (pure-Go driver).
-3. WHEN GoReleaser executes, THE SYSTEM SHALL use version 2 configuration syntax.
-4. WHEN archiving builds, THE SYSTEM SHALL use `formats` (array) instead of deprecated `format`.
-5. WHEN referencing build IDs in archives/nfpms, THE SYSTEM SHALL use `ids` instead of deprecated `builds`.
-6. WHEN generating snapshot versions, THE SYSTEM SHALL use `version_template` instead of deprecated `name_template`.
-
----
-
-## Acceptance Criteria
-
-**Phase 0 (SQLite Migration):**
-- [ ] `backend/go.mod` uses `github.com/glebarez/sqlite` instead of `gorm.io/driver/sqlite`
-- [ ] No references to `mattn/go-sqlite3` in `go.mod` or `go.sum`
-- [ ] `CGO_ENABLED=0 go build ./backend/cmd/api` succeeds
-- [ ] `CGO_ENABLED=0 go build ./backend/cmd/seed` succeeds
-- [ ] All database tests pass with `CGO_ENABLED=0`
-
-**Phase 1 (GoReleaser v2):**
-- [ ] `goreleaser check` passes without errors or deprecation warnings
-- [ ] Nightly build workflow completes successfully
-- [ ] Linux amd64/arm64 binaries are produced
-- [ ] Windows amd64 binary is produced
-- [ ] Darwin amd64/arm64 binaries are produced
-- [ ] .deb and .rpm packages are produced for Linux
-- [ ] No deprecation warnings in CI logs
-- [ ] No Zig-related errors in build logs
+**Expected Behavior After Fix:**
+- GoReleaser snapshot builds succeed
+- Windows binary in `dist/windows_windows_amd64_v1/`
+- Binary size similar to Linux/Darwin variants
 
 ---
 
-## Risk Assessment
+## Risk Assessment & Mitigation
+
+### Risks
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|------------|--------|------------|
-| Pure-Go SQLite has different behavior | Low | Medium | Run full test suite; compare query results |
-| Pure-Go SQLite performance differs | Low | Low | Run benchmarks; acceptable for typical workloads |
-| Other undocumented v2 breaking changes | Low | Medium | Monitor GoReleaser changelog; test locally first |
-| Import statement missed in some file | Low | High | Use grep to find all `gorm.io/driver/sqlite` imports |
+|------|-----------|--------|-----------|
+| Windows API fails on network drives | Medium | Medium | Document UNC path limitations, add error handling |
+| Path encoding issues (Unicode) | Low | Medium | UTF-16 conversion with error handling |
+| Quota calculation differs | Low | Low | Use `freeBytesAvailable` (quota-aware) |
+| Missing test coverage on Windows | Medium | Low | Add CI Windows runner for tests |
+| Breaking existing Unix behavior | Low | High | Preserve existing logic byte-for-byte |
+
+### Rollback Plan
+
+**If Windows implementation causes issues:**
+1. Revert to Unix-only with build tag exclusion:
+   ```go
+   //go:build !windows
+   ```
+2. Update GoReleaser to skip Windows target temporarily
+3. File issue to investigate Windows-specific failures
+
+**Revert Complexity:** Low (isolated files, no API changes)
+
+---
+
+## Timeline & Effort Estimate
+
+### Breakdown
+
+| Phase | Task | Effort | Dependencies |
+|-------|------|--------|-------------|
+| 1 | File structure refactoring | 30 min | None |
+| 2 | Unix implementation | 15 min | Phase 1 |
+| 3 | Windows implementation | 1 hour | Phase 1, research |
+| 4 | Main file refactor | 15 min | Phase 2, 3 |
+| 5 | Dependency management | 10 min | None |
+| 6 | Unit tests (both platforms) | 1.5 hours | Phase 2, 3 |
+| 7 | Documentation | 45 min | Phase 4 |
+| 8 | Configuration updates | 15 min | Phase 6 |
+| **Total** | | **~4.5 hours** | |
+
+### Milestones
+
+- ✅ **M1**: Unix implementation compiles (Phase 1-2)
+- ✅ **M2**: Windows implementation compiles (Phase 3)
+- ✅ **M3**: All platforms compile successfully (Phase 4-5)
+- ✅ **M4**: Tests pass on Unix (Phase 6)
+- ✅ **M5**: Tests pass on Windows (Phase 6)
+- ✅ **M6**: Documentation complete (Phase 7)
+- ✅ **M7**: Ready for merge (Phase 8)
+
+---
+
+## Success Criteria
+
+### Functional Requirements
+
+- [ ] `GOOS=windows GOARCH=amd64 go build` succeeds without errors
+- [ ] `GetAvailableSpace()` returns accurate values on Windows
+- [ ] Existing Unix behavior unchanged (byte-for-byte identical)
+- [ ] All existing tests pass without modification
+- [ ] New platform-specific tests added and passing
+
+### Non-Functional Requirements
+
+- [ ] Zero runtime performance overhead (compile-time selection)
+- [ ] No new external dependencies (uses existing `golang.org/x/sys`)
+- [ ] Codecov shows >85% coverage for new files
+- [ ] GoReleaser nightly builds include Windows binaries
+- [ ] Documentation updated for platform-specific code patterns
+
+### Quality Gates
+
+- [ ] No gosec findings on new code
+- [ ] staticcheck passes on all platforms
+- [ ] golangci-lint passes
+- [ ] No breaking API changes
+- [ ] Windows binary size < 50MB (similar to Linux)
+
+---
+
+## Known Limitations & Platform-Specific Behavior
+
+### Disk Quotas
+
+**Windows:**
+- `GetDiskFreeSpaceEx` respects user disk quotas configured via NTFS
+- `freeBytesAvailable` reflects quota-limited space (correct behavior)
+- If user has 10GB quota on 100GB volume with 50GB free, returns ~10GB
+
+**Unix:**
+- `syscall.Statfs` returns filesystem-level statistics
+- Does NOT account for user quotas set via `quota`, `edquota`, or XFS project quotas
+- Returns physical available space regardless of quota limits
+- **Recommendation**: For quota-aware backups on Unix, implement separate quota checking via `quotactl()` syscall (future enhancement)
+
+### Mount Points and Virtual Filesystems
+
+**Both Platforms:**
+- Query operates on the filesystem containing the path, not the path's parent
+- If backup dir is `/mnt/backup` on separate mount, returns that mount's space
+- Virtual filesystems (tmpfs, ramfs, procfs) return valid stats but may not reflect persistent storage
+
+**Unix Specific:**
+- `/proc`, `/sys`, `/dev` return non-zero space (virtual filesystems)
+- Network mounts (NFS, CIFS) return remote filesystem stats (may be stale)
+- Bind mounts resolve to underlying filesystem
+
+**Windows Specific:**
+- UNC paths (`\\server\share`) supported but require network access
+- Mounted volumes (NTFS junctions, symbolic links) follow to target
+- Drive letters always resolve to root of volume
+
+### Symlink Behavior
+
+**Unix:**
+- `syscall.Statfs` **follows symlinks** to target directory
+- If `/backup` → `/mnt/external/backup`, queries `/mnt/external` filesystem
+- Broken symlinks return error ("no such file or directory")
+
+**Windows:**
+- `GetDiskFreeSpaceEx` **follows junction points and symbolic links**
+- Reparse points (directory symlinks) resolve to target volume
+- Hard links not applicable to directories (Windows limitation)
+
+### Path Length Limits
+
+**Unix:**
+- No practical path length limit on modern systems (Linux: 4096 bytes, macOS: 1024 bytes)
+- Individual filename component limit: 255 bytes
+
+**Windows:**
+- **Legacy applications**: MAX_PATH = 260 characters (including drive and null terminator)
+- **Long path support**: Up to 32,767 characters with `\\?\` prefix (handled automatically in our implementation)
+- **Registry requirement**: `Computer\HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled` = 1 (Windows 10 1607+)
+- **Limitation**: Some third-party backup tools may not support long paths
+
+### Error Handling Edge Cases
+
+**Permission Denied:**
+- Unix: Returns `syscall.EACCES` wrapped in error
+- Windows: Returns `syscall.ERROR_ACCESS_DENIED` wrapped in error
+- **Behavior**: Backup creation should fail gracefully with clear error message
+
+**Path Does Not Exist:**
+- Unix: Returns `syscall.ENOENT`
+- Windows: Returns `syscall.ERROR_FILE_NOT_FOUND` or `ERROR_PATH_NOT_FOUND`
+- **Behavior**: Create parent directories before calling space check
+
+**Network Timeouts:**
+- Both platforms: Network filesystem queries can hang indefinitely
+- **Mitigation**: Document that network paths may cause slow backup starts
+- **Future**: Add timeout context to space check calls
+
+### Overflow and Large Filesystems
+
+**Both Platforms:**
+- Cap return value at `math.MaxInt64` (9,223,372,036,854,775,807 bytes ≈ 8 exabytes)
+- Filesystems larger than 8EB report max value (edge case, unlikely until 2030s)
+- Block size calculation protected against multiplication overflow
+
+### Concurrent Access
+
+**Both Platforms:**
+- Space check is a snapshot at query time, not transactional
+- Available space may decrease between check and backup write
+- **Mitigation**: Pre-flight check provides best-effort validation; backup write handles actual out-of-space errors
+
+---
+
+## Future Enhancements
+
+### Out of Scope (This PR)
+
+1. **UNC Path Support**: Full support for Windows network paths (`\\server\share`)
+   - Current implementation supports basic UNC paths via Win32 API
+   - Advanced scenarios (DFS, mapped drives) deferred
+
+2. **Disk Quota Management**: Proactive quota warnings
+   - Could add separate endpoint for quota information
+   - Requires additional Win32 API calls
+
+3. **Real-time Space Monitoring**: Filesystem watcher for space changes
+   - Would require platform-specific event listeners
+   - Significant scope expansion
+
+4. **Cross-Platform Backup Restoration**: Handling Windows vs Unix path separators in archives
+   - Archive format already uses forward slashes (zip standard)
+   - No changes needed for basic compatibility
+
+### Technical Debt
+
+**None identified.** This implementation:
+- Follows Go best practices for platform-specific code
+- Uses standard library and official `golang.org/x` extensions
+- Maintains backward compatibility
+- Adds no unnecessary complexity
 
 ---
 
 ## References
 
-- [glebarez/sqlite - Pure Go SQLite driver for GORM](https://github.com/glebarez/sqlite)
-- [modernc.org/sqlite - Pure Go SQLite implementation](https://pkg.go.dev/modernc.org/sqlite)
-- [GoReleaser v2 Migration Guide](https://goreleaser.com/deprecations/)
-- [GoReleaser Builds Documentation](https://goreleaser.com/customization/build/)
+### Go Documentation
+- [Build Constraints](https://pkg.go.dev/cmd/go#hdr-Build_constraints)
+- [syscall package](https://pkg.go.dev/syscall)
+- [golang.org/x/sys/windows](https://pkg.go.dev/golang.org/x/sys/windows)
+
+### Windows API
+- [GetDiskFreeSpaceExW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdiskfreespaceexw)
+- [File Management Functions](https://learn.microsoft.com/en-us/windows/win32/fileio/file-management-functions)
+
+### Similar Implementations
+- Go stdlib: `os.Stat()` uses build tags for platform-specific `Sys()` implementation
+- Docker: Uses `golang.org/x/sys` for platform-specific volume operations
+- Prometheus: Platform-specific collectors via build tags
+
+### Project Files
+- GoReleaser config: `.goreleaser.yaml` (lines 23-35)
+- Nightly CI: `.github/workflows/nightly-build.yml` (lines 268-285)
+- Backend go.mod: `backend/go.mod` (line 95: `golang.org/x/sys v0.40.0`)
 
 ---
 
-# ARCHIVED: Other CI Issues (Separate from GoReleaser)
+## Appendix: Build Tag Examples in Codebase
 
-The following issues are documented separately and may be addressed in future PRs:
+**Current Usage** (from analysis):
+- `backend/integration/*_test.go` - Use `//go:build integration` for integration tests
+- `backend/internal/api/handlers/security_handler_test_fixed.go` - Uses build tags
 
-1. **Playwright E2E - Emergency Server Connectivity** - See [docs/plans/e2e_remediation_spec.md](e2e_remediation_spec.md)
-2. **Trivy Scan - Image Reference Validation** - See [docs/plans/docker_compose_ci_fix.md](docker_compose_ci_fix.md)
+**Pattern Established:**
+Build tags are already in use for test isolation. This PR extends the pattern to platform-specific production code.
+
+---
+
+## Implementation Order
+
+**Recommended Sequence:**
+1. Create `backup_service_disk_unix.go` (copy existing logic)
+2. Test Unix compilation: `GOOS=linux go build`
+3. Create `backup_service_disk_windows.go` (new implementation)
+4. Test Windows compilation: `GOOS=windows go build`
+5. Refactor `backup_service.go` to delegate
+6. Add unit tests for both platforms
+7. Update documentation
+8. Verify GoReleaser builds all targets
+
+**Critical Path:**
+Phase 3 (Windows implementation) is the longest and most complex. Start research on Win32 API early.
+
+---
+
+**Plan Version**: 1.1
+**Created**: 2026-01-30
+**Updated**: 2026-01-30
+**Author**: Planning Agent
+**Status**: Ready for Implementation
+
+---
+
+## Plan Revision History
+
+### v1.1 (2026-01-30)
+- ✅ Added Windows long path support with `\\?\` prefix for paths > 260 characters
+- ✅ Removed unused `syscall` and `unsafe` imports from Windows implementation
+- ✅ Added missing test cases: long paths, Unicode paths, permission denied, symlinks
+- ✅ Added detailed CI/CD matrix configuration with actual workflow YAML
+- ✅ Documented limitations: quotas, mount points, symlinks, path lengths
+- ✅ Enhanced error messages with path context in all error returns
+- ✅ Removed out-of-scope sections: GoReleaser v2 migration, SQLite driver changes (separate issue)
+
+### v1.0 (2026-01-30)
+- Initial plan for cross-platform disk space check implementation
+
+---
+
+## Out of Scope
+
+The following items are explicitly excluded from this implementation plan and may be addressed in separate issues:
+
+### 1. GoReleaser v1 → v2 Migration
+- **Rationale**: Cross-platform disk space check is independent of release tooling
+- **Status**: Tracked in separate issue for GoReleaser configuration updates
+- **Priority**: Can be addressed after disk space check implementation
+
+### 2. SQLite Driver Migration
+- **Rationale**: Database driver choice is independent of disk space queries
+- **Status**: Current CGO-based SQLite driver works for all platforms
+- **Priority**: Performance optimization, not a blocking issue for Windows compilation
+
+### 3. Nightly Build CI/CD Issues
+- **Rationale**: CI/CD pipeline fixes are separate from source code changes
+- **Status**: Tracked in separate workflow configuration issues
+- **Priority**: Can be addressed in parallel or after implementation
+

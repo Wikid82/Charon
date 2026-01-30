@@ -1,5 +1,13 @@
 version: 2
 
+# NOTE: Charon uses a Docker-only deployment model.
+# This GoReleaser configuration is used exclusively for changelog generation.
+# The builds, archives, and nfpms sections below are kept for potential
+# future use but are not currently utilized in the release workflow.
+# All distribution happens via Docker images:
+#   - Docker Hub: docker pull wikid82/charon:latest
+#   - GHCR: docker pull ghcr.io/wikid82/charon:latest
+
 project_name: charon
 
 builds:
@@ -20,60 +28,12 @@ builds:
       - -X github.com/Wikid82/charon/backend/internal/version.GitCommit={{.Commit}}
       - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
 
-  - id: windows
-    dir: backend
-    main: ./cmd/api
-    binary: charon
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - windows
-    goarch:
-      - amd64
-    ldflags:
-      - -s -w
-      - -X github.com/Wikid82/charon/backend/internal/version.Version={{.Version}}
-      - -X github.com/Wikid82/charon/backend/internal/version.GitCommit={{.Commit}}
-      - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
-
-  - id: darwin
-    dir: backend
-    main: ./cmd/api
-    binary: charon
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - darwin
-    goarch:
-      - amd64
-      - arm64
-    ldflags:
-      - -s -w
-      - -X github.com/Wikid82/charon/backend/internal/version.Version={{.Version}}
-      - -X github.com/Wikid82/charon/backend/internal/version.GitCommit={{.Commit}}
-      - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
-
 archives:
   - formats:
       - tar.gz
-    id: nix
+    id: linux
     ids:
       - linux
-      - darwin
-    name_template: >-
-      {{ .ProjectName }}_
-      {{- .Version }}_
-      {{- .Os }}_
-      {{- .Arch }}
-    files:
-      - LICENSE
-      - README.md
-
-  - formats:
-      - zip
-    id: windows
-    ids:
-      - windows
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
