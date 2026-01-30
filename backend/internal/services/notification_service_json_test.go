@@ -341,7 +341,7 @@ func TestSendExternal_UsesJSONForSupportedServices(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called.Store(true)
 		var payload map[string]any
-		json.NewDecoder(r.Body).Decode(&payload)
+		_ = json.NewDecoder(r.Body).Decode(&payload)
 		assert.NotNil(t, payload["content"])
 		w.WriteHeader(http.StatusOK)
 	}))

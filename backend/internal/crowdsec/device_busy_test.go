@@ -30,7 +30,7 @@ func TestApplyWithOpenFileHandles(t *testing.T) {
 	// This would cause os.Rename to fail with "device or resource busy" on some systems
 	f, err := os.Open(cacheFile)
 	require.NoError(t, err)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Create and cache a preset
 	archive := makeTarGz(t, map[string]string{"new/preset.yaml": "new: preset"})

@@ -541,7 +541,11 @@
     "deleteUser": "Supprimer l'utilisateur",
     "inviteUrlPreview": "Aperçu du lien d'invitation",
     "inviteUrlWarning": "L'URL de l'application n'est pas configurée. Ce lien peut ne pas fonctionner pour les utilisateurs externes.",
-    "configureApplicationUrl": "Configurer l'URL de l'application"
+    "configureApplicationUrl": "Configurer l'URL de l'application",
+    "resendInvite": "Renvoyer l'invitation",
+    "inviteResent": "Invitation renvoyée avec succès",
+    "inviteCreatedNoEmail": "Nouvelle invitation créée. L'e-mail n'a pas pu être envoyé.",
+    "resendFailed": "Échec du renvoi de l'invitation"
   },
   "dashboard": {
     "title": "Tableau de bord",

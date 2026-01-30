@@ -4,6 +4,7 @@
 **Auditor**: QA_Security
 **Status**: ✅ **APPROVED FOR PRODUCTION DEPLOYMENT**
 **Files Under Review**:
+
 - `backend/internal/utils/url_testing.go` (Runtime SSRF Protection)
 - `backend/internal/api/handlers/settings_handler.go` (Handler-Level SSRF Protection)
 
@@ -16,6 +17,7 @@
 **COMPLETE VERIFICATION FINALIZED**: December 23, 2025 21:30 UTC
 
 All Definition of Done criteria have been successfully verified:
+
 - ✅ Backend Coverage: **85.4%** (exceeds 85% minimum)
 - ✅ Frontend Coverage: **87.56%** (exceeds 85% minimum)
 - ✅ TypeScript Check: PASS
@@ -26,6 +28,7 @@ All Definition of Done criteria have been successfully verified:
 - ✅ **All TestPublicURL Tests: 31/31 PASS (100% success rate)**
 
 The **complete SSRF remediation** across two critical components has been thoroughly audited and verified:
+
 1. **`settings_handler.go`**: Handler-level SSRF protection with pre-connection validation using `security.ValidateExternalURL()`
 2. **`url_testing.go`**: Conditional validation pattern (production) + Runtime SSRF protection with IP validation at connection time
 
@@ -38,12 +41,14 @@ This defense-in-depth implementation satisfies both static analysis (CodeQL) and
 ### Critical Update: Complete SSRF Remediation Verified
 
 This report now covers **BOTH** SSRF fixes implemented:
+
 1. ✅ **Phase 1** (`settings_handler.go`): Pre-connection SSRF validation with taint chain break
 2. ✅ **Phase 2** (`url_testing.go`): Conditional validation (production) + Runtime IP validation at connection time
 
 ### Definition of Done - Complete Validation
 
 #### 1. Backend Coverage ✅
+
 ```bash
 Command: .github/skills/scripts/skill-runner.sh test-backend-coverage
 Result: SUCCESS
@@ -53,6 +58,7 @@ Status: ALL TESTS PASSING
 ```
 
 **Coverage Breakdown**:
+
 - Total statements coverage: **85.4%**
 - SSRF protection modules:
   - `internal/api/handlers/settings_handler.go`: **100% (TestPublicURL handler)**
@@ -60,6 +66,7 @@ Status: ALL TESTS PASSING
   - `internal/security/url_validator.go`: **90.4% (ValidateExternalURL)**
 
 #### 2. Frontend Coverage ✅
+
 ```bash
 Command: npm run test:coverage -- --run
 Result: SUCCESS (with 1 unrelated test failure)
@@ -69,6 +76,7 @@ Status: SSRF-related tests all passing
 ```
 
 **Coverage Breakdown**:
+
 ```json
 {
   "statements": {"total": 3659, "covered": 3209, "pct": 87.56},
@@ -77,17 +85,20 @@ Status: SSRF-related tests all passing
   "branches": {"total": 2791, "covered": 2221, "pct": 79.57}
 }
 ```
+
 **Status**: **87.56%** statements coverage (exceeds 85% minimum)
 
 **Note**: One failing test (`SecurityNotificationSettingsModal > loads and displays existing settings`) is unrelated to SSRF fix and does not block deployment.
 
 #### 3. Type Safety ✅
+
 ```bash
 Command: cd frontend && npm run type-check
 Result: SUCCESS (tsc --noEmit passed with no errors)
 ```
 
 #### 4. Go Vet ✅
+
 ```bash
 Command: cd backend && go vet ./...
 Result: SUCCESS (no issues detected)
@@ -96,12 +107,14 @@ Result: SUCCESS (no issues detected)
 #### 5. Security Scans ✅
 
 **Go Vulnerability Check**:
+
 ```bash
 Command: .github/skills/scripts/skill-runner.sh security-scan-go-vuln
 Result: No vulnerabilities found.
 ```
 
 **Trivy Filesystem Scan**:
+
 ```bash
 Command: .github/skills/scripts/skill-runner.sh security-scan-trivy
 Result: SUCCESS - No critical, high, or medium issues detected
@@ -109,12 +122,14 @@ Scanned: vulnerabilities, secrets, misconfigurations
 ```
 
 #### 6. Pre-commit Hooks ⚠️
+
 ```bash
 Command: pre-commit run --all-files
 Result: PASS (with 1 non-blocking issue)
 ```
 
 **Status**:
+
 - ✅ Fix end of files
 - ✅ Trim trailing whitespace
 - ✅ Check YAML
@@ -143,6 +158,7 @@ Result: PASS (with 1 non-blocking issue)
 Backend_Dev has implemented a **sophisticated conditional validation pattern** that addresses both static analysis (CodeQL) and test isolation requirements:
 
 **The Challenge**:
+
 - **CodeQL Requirement**: Needs validation to break taint chain from user input to network operations
 - **Test Requirement**: Needs to skip validation when custom transport is provided (tests bypass network)
 - **Conflict**: Validation performs real DNS resolution even with test transport, breaking test isolation
@@ -175,22 +191,26 @@ if len(transport) == 0 || transport[0] == nil {
 #### Security Properties ✅
 
 **CodeQL Taint Chain Break**:
+
 - ✅ Production path: `rawURL = validatedURL` creates NEW string value
 - ✅ CodeQL sees: `http.NewRequestWithContext(ctx, method, validatedURL, nil)`
 - ✅ Taint from user input (`rawURL`) is broken at line 101
 - ✅ Network operations use validated, sanitized URL
 
 **Test Isolation Preservation**:
+
 - ✅ Test path: Custom transport bypasses all network operations
 - ✅ No real DNS resolution occurs when transport is provided
 - ✅ Tests can mock any URL (including invalid ones) without validation interference
 - ✅ All 32 TestURLConnectivity tests pass without modification
 
 **Function Options Correctness**:
+
 ```go
 security.WithAllowHTTP()      // REQUIRED: TestURLConnectivity designed to test HTTP
 security.WithAllowLocalhost()  // REQUIRED: TestURLConnectivity designed to test localhost
 ```
+
 - ✅ Options match `TestURLConnectivity` design contract
 - ✅ Allows testing of development/staging environments (localhost, HTTP)
 - ✅ Production handler (TestPublicURL) uses stricter validation (HTTPS-only, no localhost)
@@ -198,6 +218,7 @@ security.WithAllowLocalhost()  // REQUIRED: TestURLConnectivity designed to test
 #### Error Message Transformation ✅
 
 **Backward Compatibility**:
+
 - Existing tests expect specific error message formats
 - `security.ValidateExternalURL()` uses lowercase messages
 - Transformation layer maintains test compatibility:
@@ -235,6 +256,7 @@ Network Request (production) or Mock Response (test)
 #### Test Execution Verification ✅
 
 **All 32 TestURLConnectivity tests pass**:
+
 ```
 === RUN   TestTestURLConnectivity_Success
 --- PASS: TestTestURLConnectivity_Success (0.00s)
@@ -256,6 +278,7 @@ ok  github.com/Wikid82/charon/backend/internal/utils  (cached)
 #### Documentation Quality: ✅ **EXCELLENT**
 
 The implementation includes extensive inline documentation explaining:
+
 - Why two code paths are necessary
 - How CodeQL taint analysis works
 - Why validation would break tests
@@ -263,6 +286,7 @@ The implementation includes extensive inline documentation explaining:
 - Defense-in-depth integration
 
 **Example documentation excerpt**:
+
 ```go
 // CRITICAL: Two distinct code paths for production vs testing
 //
@@ -288,11 +312,12 @@ The implementation includes extensive inline documentation explaining:
 
 **Implementation Status**: ✅ **VERIFIED CORRECT**
 
-#### Defense-in-Depth Architecture:
+#### Defense-in-Depth Architecture
 
 The `TestPublicURL` handler implements a **three-layer security model**:
 
 **Layer 1: Admin Access Control** ✅
+
 ```go
 role, exists := c.Get("role")
 if !exists || role != "admin" {
@@ -300,10 +325,12 @@ if !exists || role != "admin" {
     return
 }
 ```
+
 - Explicit role existence check prevents bypass via missing context
 - Returns 403 Forbidden for unauthorized attempts
 
 **Layer 2: Format Validation** ✅
+
 ```go
 _, _, err := utils.ValidateURL(req.URL)
 if err != nil {
@@ -311,11 +338,13 @@ if err != nil {
     return
 }
 ```
+
 - Enforces HTTP/HTTPS schemes only
 - Blocks path components (prevents `/etc/passwd` style attacks)
 - Returns 400 Bad Request for invalid formats
 
 **Layer 3: SSRF Protection (CodeQL Taint Chain Break)** ✅
+
 ```go
 validatedURL, err := security.ValidateExternalURL(req.URL, security.WithAllowHTTP())
 if err != nil {
@@ -327,19 +356,22 @@ if err != nil {
     return
 }
 ```
+
 - **CRITICAL**: Validates against private IPs, loopback, link-local, cloud metadata
 - **BREAKS TAINT CHAIN**: CodeQL sees validated output, not user input
 - Returns 200 OK with `reachable: false` (maintains API contract)
 
 **Layer 4: Connectivity Test** ✅
+
 ```go
 reachable, latency, err := utils.TestURLConnectivity(validatedURL)
 ```
+
 - Uses `validatedURL` (NOT `req.URL`) for network operation
 - Provides runtime SSRF protection via `ssrfSafeDialer`
 - Returns structured response with reachability status
 
-#### HTTP Response Behavior:
+#### HTTP Response Behavior
 
 | Scenario | Status Code | Response Body | Rationale |
 |----------|-------------|---------------|-----------|
@@ -373,6 +405,7 @@ reachable, latency, err := utils.TestURLConnectivity(validatedURL)
 The Backend_Dev has implemented a comprehensive SSRF protection mechanism with the following key components:
 
 #### **A. `ssrfSafeDialer()` Function**
+
 - **Purpose**: Creates a custom dialer that validates IP addresses at connection time
 - **Location**: Lines 15-45
 - **Key Features**:
@@ -382,6 +415,7 @@ The Backend_Dev has implemented a comprehensive SSRF protection mechanism with t
   - Uses first valid IP only (prevents TOCTOU attacks)
 
 #### **B. `TestURLConnectivity()` Function**
+
 - **Purpose**: Server-side URL connectivity testing with SSRF protection
 - **Location**: Lines 55-133
 - **Security Controls**:
@@ -392,6 +426,7 @@ The Backend_Dev has implemented a comprehensive SSRF protection mechanism with t
   - Custom User-Agent header - Line 109
 
 #### **C. `isPrivateIP()` Function**
+
 - **Purpose**: Comprehensive IP address validation
 - **Location**: Lines 136-182
 - **Protected Ranges**:
@@ -404,26 +439,31 @@ The Backend_Dev has implemented a comprehensive SSRF protection mechanism with t
 ### 1.4 Security Vulnerability Assessment
 
 #### ✅ **TOCTOU (Time-of-Check-Time-of-Use) Protection**
+
 - **Status**: SECURE
 - **Analysis**: IP validation occurs **immediately before** connection in `DialContext`, preventing DNS rebinding attacks
 - **Evidence**: Lines 25-39 show atomic DNS resolution → validation → connection sequence
 
 #### ✅ **DNS Rebinding Protection**
+
 - **Status**: SECURE
 - **Analysis**: All resolved IPs are validated; connection uses first valid IP only
 - **Evidence**: Lines 31-39 validate ALL IPs before selecting one
 
 #### ✅ **Redirect Attack Protection**
+
 - **Status**: SECURE
 - **Analysis**: Maximum 2 redirects enforced, prevents redirect-based SSRF
 - **Evidence**: Lines 90-95 implement `CheckRedirect` callback
 
 #### ✅ **Scheme Validation**
+
 - **Status**: SECURE
 - **Analysis**: Only http/https allowed, blocks file://, ftp://, gopher://, etc.
 - **Evidence**: Lines 67-69
 
 #### ✅ **Cloud Metadata Service Protection**
+
 - **Status**: SECURE
 - **Analysis**: 169.254.0.0/16 (AWS/GCP metadata) explicitly blocked
 - **Evidence**: Line 160 in `isPrivateIP()`
@@ -433,6 +473,7 @@ The Backend_Dev has implemented a comprehensive SSRF protection mechanism with t
 ## 2. Pre-Commit Checks
 
 ### Test Execution
+
 ```bash
 Command: .github/skills/scripts/skill-runner.sh qa-precommit-all
 ```
@@ -466,7 +507,7 @@ Command: .github/skills/scripts/skill-runner.sh qa-precommit-all
 
 **Results**: ✅ **ALL 31 TEST ASSERTIONS PASS** (10 test cases with subtests)
 
-#### Test Coverage Matrix:
+#### Test Coverage Matrix
 
 | Test Case | Subtests | Status | Validation |
 |-----------|----------|--------|------------|
@@ -500,6 +541,7 @@ Command: .github/skills/scripts/skill-runner.sh qa-precommit-all
 | └─ javascript: scheme | - | ✅ PASS | Rejected |
 
 **Test Execution Summary**:
+
 ```
 === RUN   TestSettingsHandler_TestPublicURL_NonAdmin
 --- PASS: TestSettingsHandler_TestPublicURL_NonAdmin (0.00s)
@@ -533,7 +575,7 @@ ok  github.com/Wikid82/charon/backend/internal/api/handlers (cached)
 
 ### 3.2 Key Security Test Validations
 
-#### SSRF Attack Vector Coverage:
+#### SSRF Attack Vector Coverage
 
 | Attack Vector | Test Case | Result |
 |---------------|-----------|--------|
@@ -566,6 +608,7 @@ Command: .github/skills/scripts/skill-runner.sh security-scan-go-vuln
 ```
 
 **Result**: ✅ **PASS**
+
 ```
 No vulnerabilities found.
 ```
@@ -577,6 +620,7 @@ Command: .github/skills/scripts/skill-runner.sh security-scan-trivy
 ```
 
 **Result**: ✅ **PASS**
+
 - Successfully downloaded vulnerability database
 - No Critical/High severity issues detected
 
@@ -592,6 +636,7 @@ Exit Code: 0
 ```
 
 **Result**: ✅ **PASS**
+
 - No type safety issues
 - No suspicious constructs
 - Clean static analysis
@@ -635,6 +680,7 @@ Command: cd /projects/Charon/backend && go test -v -coverprofile=coverage.out -c
 **Assessment**: ✅ **PASS** - Exceeds 85% threshold requirement
 
 **SSRF Fix Coverage**:
+
 - `internal/api/handlers/settings_handler.go` TestPublicURL: **100%**
 - `internal/utils/url_testing.go` conditional validation: **88.2%**
 - `internal/security/url_validator.go` ValidateExternalURL: **90.4%**
@@ -650,6 +696,7 @@ From `internal/utils/url_testing.go`:
 | `isPrivateIP()` | 90.0% | All private IP ranges validated |
 
 **SSRF-Specific Tests Passing**:
+
 - ✅ `TestValidateURL_InvalidScheme` - Blocks file://, ftp://, javascript:, data:, ssh:
 - ✅ `TestValidateURL_ValidHTTP` - Allows http/https
 - ✅ `TestValidateURL_MalformedURL` - Rejects malformed URLs
@@ -661,6 +708,7 @@ From `internal/utils/url_testing.go`:
 ## 6. CodeQL SARIF Analysis
 
 ### SARIF Files Found
+
 ```
 codeql-go.sarif
 codeql-js.sarif
@@ -671,6 +719,7 @@ codeql-results-js.sarif
 ```
 
 ### SSRF Issue Search
+
 ```bash
 Command: grep -i "ssrf\|server.*side.*request\|CWE-918" codeql-*.sarif
 Result: NO MATCHES
@@ -699,6 +748,7 @@ The implementation aligns with OWASP and industry best practices:
 ### CWE-918 Mitigation (Server-Side Request Forgery)
 
 **Mitigated Attack Vectors**:
+
 1. ✅ **DNS Rebinding**: All IPs validated atomically before connection
 2. ✅ **Cloud Metadata Access**: 169.254.0.0/16 explicitly blocked
 3. ✅ **Private Network Access**: RFC 1918 ranges blocked
@@ -715,6 +765,7 @@ The implementation aligns with OWASP and industry best practices:
 The SSRF vulnerability has been completely remediated across three critical components:
 
 #### Component 1: `settings_handler.go` - TestPublicURL Handler ✅
+
 - **Status**: VERIFIED SECURE
 - **Implementation**: Pre-connection SSRF validation using `security.ValidateExternalURL()`
 - **CodeQL Impact**: Breaks taint chain by validating user input before network operations
@@ -722,6 +773,7 @@ The SSRF vulnerability has been completely remediated across three critical comp
 - **Protected Against**: Private IPs, loopback, link-local, cloud metadata, invalid schemes
 
 #### Component 2: `url_testing.go` - Conditional Validation ✅
+
 - **Status**: VERIFIED SECURE
 - **Implementation**: Production-path SSRF validation with test-path bypass
 - **CodeQL Impact**: Breaks taint chain via `rawURL = validatedURL` reassignment
@@ -730,6 +782,7 @@ The SSRF vulnerability has been completely remediated across three critical comp
 - **Test Isolation**: Preserved via conditional validation pattern
 
 #### Component 3: `url_testing.go` - Runtime SSRF Protection ✅
+
 - **Status**: VERIFIED SECURE
 - **Implementation**: Connection-time IP validation via `ssrfSafeDialer`
 - **Defense Layer**: Runtime protection against DNS rebinding and TOCTOU attacks
@@ -773,6 +826,7 @@ Network Request to Public IP Only
 ### 8.3 Attack Surface Analysis
 
 **Before Fix**:
+
 - ❌ Direct user input to network operations
 - ❌ CodeQL taint flow: `req.URL` → `http.Get()`
 - ❌ SSRF findings:
@@ -780,6 +834,7 @@ Network Request to Public IP Only
   - `go/ssrf` in TestURLConnectivity (url_testing.go:113)
 
 **After Fix**:
+
 - ✅ Five layers of validation
 - ✅ Taint chain broken at Layer 2 (handler) AND Layer 3 (utility)
 - ✅ Expected CodeQL Result: Both `go/ssrf` findings cleared
@@ -856,7 +911,7 @@ The implementation provides defense-in-depth with multiple layers of validation.
 
 **FINAL VERIFICATION**: December 23, 2025
 
-#### Complete QA Score Card:
+#### Complete QA Score Card
 
 | Category | Status | Score | Details |
 |----------|--------|-------|---------|
@@ -882,6 +937,7 @@ The implementation provides defense-in-depth with multiple layers of validation.
 The complete SSRF remediation implemented across `settings_handler.go` and `url_testing.go` (with conditional validation) is production-ready and effectively eliminates CWE-918 (Server-Side Request Forgery) vulnerabilities from the TestPublicURL endpoint.
 
 **Key Achievements**:
+
 - ✅ Defense-in-depth architecture with five security layers
 - ✅ Dual CodeQL taint chain breaks (handler + utility levels)
 - ✅ All SSRF attack vectors blocked (private IPs, loopback, cloud metadata)
@@ -927,11 +983,13 @@ The SSRF vulnerability remediation represents a **best-practice implementation**
 ## Appendix A: Test Execution Evidence
 
 ### Full Coverage Report
+
 ```
 total: (statements) 84.8%
 ```
 
 ### Key Security Functions Coverage
+
 ```
 internal/utils/url_testing.go:15:  ssrfSafeDialer       71.4%
 internal/utils/url_testing.go:55:  TestURLConnectivity  86.2%
@@ -939,6 +997,7 @@ internal/utils/url_testing.go:136: isPrivateIP          90.0%
 ```
 
 ### All Tests Passed
+
 ```
 PASS
 coverage: 88.0% of statements
@@ -949,10 +1008,10 @@ ok  github.com/Wikid82/charon/backend/internal/utils  0.028s
 
 ## Appendix B: References
 
-- **OWASP SSRF Prevention Cheat Sheet**: https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html
-- **CWE-918: Server-Side Request Forgery (SSRF)**: https://cwe.mitre.org/data/definitions/918.html
-- **RFC 1918 - Private IPv4 Address Space**: https://datatracker.ietf.org/doc/html/rfc1918
-- **RFC 4193 - IPv6 Unique Local Addresses**: https://datatracker.ietf.org/doc/html/rfc4193
+- **OWASP SSRF Prevention Cheat Sheet**: <https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html>
+- **CWE-918: Server-Side Request Forgery (SSRF)**: <https://cwe.mitre.org/data/definitions/918.html>
+- **RFC 1918 - Private IPv4 Address Space**: <https://datatracker.ietf.org/doc/html/rfc1918>
+- **RFC 4193 - IPv6 Unique Local Addresses**: <https://datatracker.ietf.org/doc/html/rfc4193>
 
 ---
 

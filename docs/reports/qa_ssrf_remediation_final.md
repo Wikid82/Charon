@@ -142,11 +142,13 @@ All 12 pre-commit hooks passed:
 Based on prior Trivy scan results analysis:
 
 **Project Dependencies:**
+
 - `backend/go.mod`: **0 vulnerabilities**
 - `frontend/package-lock.json`: **0 vulnerabilities**
 - `package-lock.json`: **0 vulnerabilities**
 
 **Note:** CRITICAL/HIGH vulnerabilities found in the scan are located in:
+
 - `.cache/go/pkg/mod/` (Go module cache - third-party module source files)
 - These are NOT project dependencies, but cached source files from transitive modules
 
@@ -169,6 +171,7 @@ Based on prior Trivy scan results analysis:
 ### Dockerfile Analysis
 
 The project's Dockerfile passed all security checks. All Dockerfile misconfigurations reported are in:
+
 - `.cache/go/pkg/mod/` (third-party module source files, NOT project code)
 
 ---

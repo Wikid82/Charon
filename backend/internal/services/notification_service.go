@@ -302,7 +302,7 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 
 	// Normalize scheme to a constant value derived from an allowlisted set.
 	// This avoids propagating the original input string directly into request construction.
-	safeScheme := "https"
+	var safeScheme string
 	switch validatedURL.Scheme {
 	case "http":
 		safeScheme = "http"
@@ -455,7 +455,7 @@ func (s *NotificationService) ListTemplates() ([]models.NotificationTemplate, er
 // GetTemplate returns a single notification template by its ID.
 func (s *NotificationService) GetTemplate(id string) (*models.NotificationTemplate, error) {
 	var t models.NotificationTemplate
-	if err := s.DB.First(&t, "id = ?", id).Error; err != nil {
+	if err := s.DB.Where("id = ?", id).First(&t).Error; err != nil {
 		return nil, err
 	}
 	return &t, nil

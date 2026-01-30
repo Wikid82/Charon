@@ -7,12 +7,14 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/builtin" // Auto-register DNS providers
+	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/custom"  // Auto-register custom providers (manual)
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -31,6 +33,14 @@ func (m *MockDNSProviderService) List(ctx context.Context) ([]models.DNSProvider
 
 func (m *MockDNSProviderService) Get(ctx context.Context, id uint) (*models.DNSProvider, error) {
 	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.DNSProvider), args.Error(1)
+}
+
+func (m *MockDNSProviderService) GetByUUID(ctx context.Context, uuid string) (*models.DNSProvider, error) {
+	args := m.Called(ctx, uuid)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -207,7 +217,7 @@ func TestDNSProviderHandler_Get(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		assert.Equal(t, uint(1), response.ID)
+		assert.Equal(t, "uuid-1", response.UUID)
 		assert.Equal(t, "Test Provider", response.Name)
 		assert.True(t, response.HasCredentials)
 
@@ -280,7 +290,7 @@ func TestDNSProviderHandler_Create(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		assert.Equal(t, uint(1), response.ID)
+		assert.Equal(t, "uuid-1", response.UUID)
 		assert.Equal(t, "Test Provider", response.Name)
 		assert.True(t, response.HasCredentials)
 
@@ -546,41 +556,175 @@ func TestDNSProviderHandler_TestCredentials(t *testing.T) {
 func TestDNSProviderHandler_GetTypes(t *testing.T) {
 	router, _ := setupDNSProviderTestRouter()
 
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/dns-providers/types", nil)
-	router.ServeHTTP(w, req)
+	t.Run("returns registry-driven types", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/types", nil)
+		router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	require.NoError(t, err)
+		var response map[string]interface{}
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
 
-	types := response["types"].([]interface{})
-	assert.NotEmpty(t, types)
+		types := response["types"].([]interface{})
+		assert.NotEmpty(t, types)
 
-	// Verify structure of first type
-	cloudflare := types[0].(map[string]interface{})
-	assert.Equal(t, "cloudflare", cloudflare["type"])
-	assert.Equal(t, "Cloudflare", cloudflare["name"])
-	assert.NotEmpty(t, cloudflare["fields"])
-	assert.NotEmpty(t, cloudflare["documentation_url"])
+		// Build a map for easier lookup
+		typeMap := make(map[string]map[string]interface{})
+		for _, providerData := range types {
+			typeData := providerData.(map[string]interface{})
+			typeMap[typeData["type"].(string)] = typeData
+		}
 
-	// Verify all expected provider types are present
-	providerTypes := make(map[string]bool)
-	for _, t := range types {
-		typeMap := t.(map[string]interface{})
-		providerTypes[typeMap["type"].(string)] = true
-	}
+		// Verify cloudflare (built-in) is present with correct metadata
+		cloudflare, exists := typeMap["cloudflare"]
+		assert.True(t, exists, "cloudflare provider should exist")
+		if exists {
+			assert.Equal(t, "Cloudflare", cloudflare["name"])
+			assert.Equal(t, true, cloudflare["is_built_in"])
+			assert.NotEmpty(t, cloudflare["description"])
+			assert.NotEmpty(t, cloudflare["documentation_url"])
+			assert.NotEmpty(t, cloudflare["fields"])
 
-	expectedTypes := []string{
-		"cloudflare", "route53", "digitalocean", "googleclouddns",
-		"namecheap", "godaddy", "azure", "hetzner", "vultr", "dnsimple",
-	}
+			// Verify field structure
+			fields := cloudflare["fields"].([]interface{})
+			assert.NotEmpty(t, fields)
+			firstField := fields[0].(map[string]interface{})
+			assert.NotEmpty(t, firstField["name"])
+			assert.NotEmpty(t, firstField["label"])
+			assert.NotEmpty(t, firstField["type"])
+			_, hasRequired := firstField["required"]
+			assert.True(t, hasRequired, "field should have required attribute")
+		}
 
-	for _, expected := range expectedTypes {
-		assert.True(t, providerTypes[expected], "Missing provider type: "+expected)
-	}
+		// Verify manual (custom, non-built-in) is present
+		manual, exists := typeMap["manual"]
+		assert.True(t, exists, "manual provider should exist")
+		if exists {
+			assert.Equal(t, "Manual (No Automation)", manual["name"])
+			assert.Equal(t, false, manual["is_built_in"])
+			assert.NotEmpty(t, manual["description"])
+		}
+
+		// Verify types are sorted alphabetically
+		var typeNames []string
+		for _, providerData := range types {
+			typeData := providerData.(map[string]interface{})
+			typeNames = append(typeNames, typeData["type"].(string))
+		}
+		sortedNames := make([]string, len(typeNames))
+		copy(sortedNames, typeNames)
+		sort.Strings(sortedNames)
+		assert.Equal(t, sortedNames, typeNames, "Types should be sorted alphabetically")
+	})
+
+	t.Run("includes all expected built-in providers", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/types", nil)
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response map[string]interface{}
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		types := response["types"].([]interface{})
+
+		// Build type map
+		providerTypes := make(map[string]bool)
+		for _, providerData := range types {
+			typeData := providerData.(map[string]interface{})
+			providerTypes[typeData["type"].(string)] = true
+		}
+
+		// Expected built-in types
+		expectedTypes := []string{
+			"cloudflare", "route53", "digitalocean", "googleclouddns",
+			"namecheap", "godaddy", "azure", "hetzner", "vultr", "dnsimple",
+		}
+
+		for _, expected := range expectedTypes {
+			assert.True(t, providerTypes[expected], "Missing provider type: "+expected)
+		}
+
+		// Verify manual provider is included (custom, not built-in)
+		assert.True(t, providerTypes["manual"], "Missing manual provider type")
+	})
+
+	t.Run("fields include required flag", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/types", nil)
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response map[string]interface{}
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		types := response["types"].([]interface{})
+
+		// Find cloudflare to test required fields
+		for _, providerData := range types {
+			typeData := providerData.(map[string]interface{})
+			if typeData["type"] == "cloudflare" {
+				fields := typeData["fields"].([]interface{})
+				// Cloudflare has at least one required field (api_token)
+				foundRequired := false
+				for _, f := range fields {
+					field := f.(map[string]interface{})
+					if field["name"] == "api_token" {
+						assert.Equal(t, true, field["required"])
+						foundRequired = true
+					}
+				}
+				assert.True(t, foundRequired, "Cloudflare should have required api_token field")
+			}
+
+			// Manual provider has optional fields
+			if typeData["type"] == "manual" {
+				fields := typeData["fields"].([]interface{})
+				for _, f := range fields {
+					field := f.(map[string]interface{})
+					// Manual provider's fields are optional
+					assert.Equal(t, false, field["required"])
+				}
+			}
+		}
+	})
+
+	t.Run("optional field attributes are included when present", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/types", nil)
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response map[string]interface{}
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		types := response["types"].([]interface{})
+
+		// Find a provider with hint/placeholder to verify optional fields
+		for _, providerData := range types {
+			typeData := providerData.(map[string]interface{})
+			if typeData["type"] == "cloudflare" {
+				fields := typeData["fields"].([]interface{})
+				for _, f := range fields {
+					field := f.(map[string]interface{})
+					if field["name"] == "api_token" {
+						// Cloudflare api_token should have hint and/or placeholder
+						_, hasHint := field["hint"]
+						_, hasPlaceholder := field["placeholder"]
+						assert.True(t, hasHint || hasPlaceholder, "api_token field should have hint or placeholder")
+					}
+				}
+			}
+		}
+	})
 }
 
 func TestDNSProviderHandler_CredentialsNeverExposed(t *testing.T) {

@@ -4,7 +4,7 @@ import "time"
 
 // CrowdsecPresetEvent captures audit trail for preset pull/apply events.
 type CrowdsecPresetEvent struct {
-	ID         uint      `gorm:"primarykey" json:"id"`
+	ID         uint      `gorm:"primarykey" json:"-"`
 	Slug       string    `json:"slug"`
 	Action     string    `json:"action"`
 	Status     string    `json:"status"`

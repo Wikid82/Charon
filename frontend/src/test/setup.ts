@@ -1,10 +1,16 @@
+/// <reference types="vitest/globals" />
+// eslint-disable-next-line @typescript-eslint/triple-slash-reference
+/// <reference types="@testing-library/jest-dom/vitest" />
+
+// Import jest-dom matchers at runtime to extend expect()
+import '@testing-library/jest-dom/vitest'
+
 // Ensure React's act environment flag is set for React 18+ to avoid warnings
 // This must be set before importing testing utilities.
 // See: https://github.com/facebook/react/issues/24560#issuecomment-1021997243
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean | undefined }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 
@@ -17,11 +23,10 @@ vi.mock('react-i18next', async () => {
   // Helper to get nested translation value by dot-notation key
   function getTranslation(key: string): string {
     const keys = key.split('.')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let result: any = enTranslations
+    let result: unknown = enTranslations
     for (const k of keys) {
-      if (result && typeof result === 'object' && k in result) {
-        result = result[k]
+      if (result && typeof result === 'object' && k in (result as Record<string, unknown>)) {
+        result = (result as Record<string, unknown>)[k]
       } else {
         // Key not found, return the key itself
         return key

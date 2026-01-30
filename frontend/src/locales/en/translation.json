@@ -69,6 +69,8 @@
     "accountManagement": "Account Management",
     "import": "Import",
     "caddyfile": "Caddyfile",
+    "importNPM": "Import NPM",
+    "importJSON": "Import JSON",
     "backups": "Backups",
     "logs": "Logs",
     "securityHeaders": "Security Headers",
@@ -462,7 +464,18 @@
     "failedToDeleteMonitor": "Failed to delete monitor",
     "failedToUpdateMonitor": "Failed to update monitor",
     "failedToTriggerCheck": "Failed to trigger health check",
-    "noHistoryAvailable": "No history available"
+    "noHistoryAvailable": "No history available",
+    "addMonitor": "Add Monitor",
+    "syncWithHosts": "Sync with Hosts",
+    "createMonitor": "Create Monitor",
+    "monitorCreated": "Monitor created successfully",
+    "syncComplete": "Sync complete",
+    "syncing": "Syncing...",
+    "monitorType": "Type",
+    "monitorUrl": "URL",
+    "monitorTypeHttp": "HTTP",
+    "monitorTypeTcp": "TCP",
+    "urlPlaceholder": "https://example.com or tcp://host:port"
   },
   "domains": {
     "title": "Domains",
@@ -589,7 +602,11 @@
     "deleteUser": "Delete User",
     "inviteUrlPreview": "Invite Link Preview",
     "inviteUrlWarning": "Application URL is not configured. This link may not work for external users.",
-    "configureApplicationUrl": "Configure Application URL"
+    "configureApplicationUrl": "Configure Application URL",
+    "resendInvite": "Resend Invite",
+    "inviteResent": "Invitation resent successfully",
+    "inviteCreatedNoEmail": "New invite created. Email could not be sent.",
+    "resendFailed": "Failed to resend invitation"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -749,6 +766,38 @@
     "importFailed": "Import failed: {{error}}",
     "creatingBackup": "Creating backup...",
     "importing": "Importing CrowdSec..."
+  },
+  "importNPM": {
+    "title": "Import from NPM",
+    "description": "Import proxy hosts from Nginx Proxy Manager export",
+    "enterContent": "Please paste NPM export JSON",
+    "invalidJSON": "Invalid JSON format",
+    "upload": "Upload & Preview",
+    "import": "Import",
+    "success": "Import completed successfully",
+    "previewTitle": "Preview Import",
+    "conflict": "Conflict",
+    "new": "New",
+    "skip": "Skip",
+    "keep": "Keep Existing",
+    "replace": "Replace",
+    "cancelConfirm": "Are you sure you want to cancel this import?"
+  },
+  "importJSON": {
+    "title": "Import from JSON",
+    "description": "Import configuration from JSON export",
+    "enterContent": "Please paste JSON configuration",
+    "invalidJSON": "Invalid JSON format",
+    "upload": "Upload & Preview",
+    "import": "Import",
+    "success": "Import completed successfully",
+    "previewTitle": "Preview Import",
+    "conflict": "Conflict",
+    "new": "New",
+    "skip": "Skip",
+    "keep": "Keep Existing",
+    "replace": "Replace",
+    "cancelConfirm": "Are you sure you want to cancel this import?"
   },
   "systemSettings": {
     "title": "System Settings",
@@ -1084,7 +1133,68 @@
       "azure": "Azure DNS",
       "hetzner": "Hetzner",
       "vultr": "Vultr",
-      "dnsimple": "DNSimple"
+      "dnsimple": "DNSimple",
+      "manual": "Manual (No Automation)",
+      "webhook": "Webhook (HTTP)",
+      "rfc2136": "RFC 2136 (Dynamic DNS)",
+      "script": "Script (Shell)"
+    },
+    "categories": {
+      "builtIn": "Built-in Providers",
+      "custom": "Custom Integrations"
+    }
+  },
+  "dnsProvider": {
+    "manual": {
+      "title": "Manual DNS Challenge",
+      "instructions": "To obtain a certificate for {{domain}}, create the following TXT record at your DNS provider:",
+      "createRecord": "Create this TXT record at your DNS provider",
+      "recordName": "Record Name",
+      "recordValue": "Record Value",
+      "recordType": "Record Type",
+      "ttl": "TTL",
+      "seconds": "seconds",
+      "minutes": "minutes",
+      "timeRemaining": "Time remaining",
+      "progressPercent": "{{percent}}% time remaining",
+      "challengeProgress": "Challenge timeout progress",
+      "copy": "Copy",
+      "copied": "Copied!",
+      "copyFailed": "Failed to copy to clipboard",
+      "copyRecordName": "Copy record name to clipboard",
+      "copyRecordValue": "Copy record value to clipboard",
+      "checkDnsNow": "Check DNS Now",
+      "checkDnsDescription": "Immediately check if the DNS record has propagated",
+      "verifyButton": "I've Created the Record - Verify",
+      "verifyDescription": "Verify that the DNS record exists and complete the challenge",
+      "cancelChallenge": "Cancel Challenge",
+      "lastCheck": "Last checked",
+      "lastCheckSecondsAgo": "{{seconds}} seconds ago",
+      "lastCheckMinutesAgo": "{{minutes}} minutes ago",
+      "notPropagated": "DNS record not yet propagated",
+      "dnsNotFound": "DNS record not found. Please ensure the TXT record is created correctly.",
+      "verifySuccess": "DNS challenge verified successfully!",
+      "verifyFailed": "DNS verification failed",
+      "challengeExpired": "Challenge expired. Please try again.",
+      "challengeCancelled": "Challenge cancelled",
+      "cancelFailed": "Failed to cancel challenge",
+      "statusChanged": "Challenge status changed to {{status}}",
+      "status": {
+        "created": "Created",
+        "pending": "Pending",
+        "verifying": "Verifying...",
+        "verified": "Verified",
+        "expired": "Expired",
+        "failed": "Failed"
+      },
+      "statusMessage": {
+        "created": "Challenge created. Create the DNS record to continue.",
+        "pending": "Waiting for DNS propagation...",
+        "verifying": "Verifying DNS record...",
+        "verified": "DNS challenge verified successfully!",
+        "expired": "Challenge has expired. Please start a new challenge.",
+        "failed": "DNS verification failed. Please check the record and try again."
+      }
     }
   },
   "dns_detection": {

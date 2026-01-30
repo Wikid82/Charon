@@ -1,10 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
+	"sort"
 	"strconv"
 
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 	"github.com/gin-gonic/gin"
 )
 
@@ -20,6 +24,23 @@ func NewDNSProviderHandler(service services.DNSProviderService) *DNSProviderHand
 	}
 }
 
+// resolveProvider resolves a DNS provider by either numeric ID or UUID.
+// It first attempts to parse as uint (backward compatibility), then tries UUID.
+func (h *DNSProviderHandler) resolveProvider(ctx context.Context, idOrUUID string) (*models.DNSProvider, error) {
+	// Try parsing as numeric ID first (backward compatibility)
+	if id, err := strconv.ParseUint(idOrUUID, 10, 32); err == nil {
+		return h.service.Get(ctx, uint(id))
+	}
+
+	// Empty string check
+	if idOrUUID == "" {
+		return nil, services.ErrDNSProviderNotFound
+	}
+
+	// Try as UUID
+	return h.service.GetByUUID(ctx, idOrUUID)
+}
+
 // List handles GET /api/v1/dns-providers
 // Returns all DNS providers without exposing credentials.
 func (h *DNSProviderHandler) List(c *gin.Context) {
@@ -32,10 +53,8 @@ func (h *DNSProviderHandler) List(c *gin.Context) {
 	// Convert to response format with has_credentials indicator
 	responses := make([]services.DNSProviderResponse, len(providers))
 	for i, p := range providers {
-		responses[i] = services.DNSProviderResponse{
-			DNSProvider:    p,
-			HasCredentials: p.CredentialsEncrypted != "",
-		}
+		pCopy := p // Create a copy to take address of
+		responses[i] = services.NewDNSProviderResponse(&pCopy)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -46,14 +65,9 @@ func (h *DNSProviderHandler) List(c *gin.Context) {
 
 // Get handles GET /api/v1/dns-providers/:id
 // Returns a single DNS provider without exposing credentials.
+// Accepts either numeric ID or UUID for flexibility.
 func (h *DNSProviderHandler) Get(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider ID"})
-		return
-	}
-
-	provider, err := h.service.Get(c.Request.Context(), uint(id))
+	provider, err := h.resolveProvider(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		if err == services.ErrDNSProviderNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "DNS provider not found"})
@@ -63,10 +77,7 @@ func (h *DNSProviderHandler) Get(c *gin.Context) {
 		return
 	}
 
-	response := services.DNSProviderResponse{
-		DNSProvider:    *provider,
-		HasCredentials: provider.CredentialsEncrypted != "",
-	}
+	response := services.NewDNSProviderResponse(provider)
 
 	c.JSON(http.StatusOK, response)
 }
@@ -99,19 +110,22 @@ func (h *DNSProviderHandler) Create(c *gin.Context) {
 		return
 	}
 
-	response := services.DNSProviderResponse{
-		DNSProvider:    *provider,
-		HasCredentials: provider.CredentialsEncrypted != "",
-	}
+	response := services.NewDNSProviderResponse(provider)
 
 	c.JSON(http.StatusCreated, response)
 }
 
 // Update handles PUT /api/v1/dns-providers/:id
 // Updates an existing DNS provider.
+// Accepts either numeric ID or UUID for flexibility.
 func (h *DNSProviderHandler) Update(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	// Resolve provider first to get internal ID
+	provider, err := h.resolveProvider(c.Request.Context(), c.Param("id"))
 	if err != nil {
+		if err == services.ErrDNSProviderNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "DNS provider not found"})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider ID"})
 		return
 	}
@@ -122,7 +136,7 @@ func (h *DNSProviderHandler) Update(c *gin.Context) {
 		return
 	}
 
-	provider, err := h.service.Update(c.Request.Context(), uint(id), req)
+	updatedProvider, err := h.service.Update(c.Request.Context(), provider.ID, req)
 	if err != nil {
 		statusCode := http.StatusBadRequest
 		errorMessage := err.Error()
@@ -142,24 +156,27 @@ func (h *DNSProviderHandler) Update(c *gin.Context) {
 		return
 	}
 
-	response := services.DNSProviderResponse{
-		DNSProvider:    *provider,
-		HasCredentials: provider.CredentialsEncrypted != "",
-	}
+	response := services.NewDNSProviderResponse(updatedProvider)
 
 	c.JSON(http.StatusOK, response)
 }
 
 // Delete handles DELETE /api/v1/dns-providers/:id
 // Deletes a DNS provider.
+// Accepts either numeric ID or UUID for flexibility.
 func (h *DNSProviderHandler) Delete(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	// Resolve provider first to get internal ID
+	provider, err := h.resolveProvider(c.Request.Context(), c.Param("id"))
 	if err != nil {
+		if err == services.ErrDNSProviderNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "DNS provider not found"})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider ID"})
 		return
 	}
 
-	err = h.service.Delete(c.Request.Context(), uint(id))
+	err = h.service.Delete(c.Request.Context(), provider.ID)
 	if err != nil {
 		if err == services.ErrDNSProviderNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "DNS provider not found"})
@@ -174,14 +191,20 @@ func (h *DNSProviderHandler) Delete(c *gin.Context) {
 
 // Test handles POST /api/v1/dns-providers/:id/test
 // Tests a saved DNS provider's credentials.
+// Accepts either numeric ID or UUID for flexibility.
 func (h *DNSProviderHandler) Test(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	// Resolve provider first to get internal ID
+	provider, err := h.resolveProvider(c.Request.Context(), c.Param("id"))
 	if err != nil {
+		if err == services.ErrDNSProviderNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "DNS provider not found"})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider ID"})
 		return
 	}
 
-	result, err := h.service.Test(c.Request.Context(), uint(id))
+	result, err := h.service.Test(c.Request.Context(), provider.ID)
 	if err != nil {
 		if err == services.ErrDNSProviderNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "DNS provider not found"})
@@ -214,210 +237,80 @@ func (h *DNSProviderHandler) TestCredentials(c *gin.Context) {
 
 // GetTypes handles GET /api/v1/dns-providers/types
 // Returns the list of supported DNS provider types with their required fields.
+// Types are sourced from the provider registry (built-in, custom, and external plugins).
 func (h *DNSProviderHandler) GetTypes(c *gin.Context) {
-	types := []gin.H{
-		{
-			"type": "cloudflare",
-			"name": "Cloudflare",
-			"fields": []gin.H{
-				{
-					"name":     "api_token",
-					"label":    "API Token",
-					"type":     "password",
-					"required": true,
-					"hint":     "Token with Zone:DNS:Edit permissions",
-				},
-			},
-			"documentation_url": "https://developers.cloudflare.com/api/tokens/",
-		},
-		{
-			"type": "route53",
-			"name": "Amazon Route 53",
-			"fields": []gin.H{
-				{
-					"name":     "access_key_id",
-					"label":    "Access Key ID",
-					"type":     "text",
-					"required": true,
-				},
-				{
-					"name":     "secret_access_key",
-					"label":    "Secret Access Key",
-					"type":     "password",
-					"required": true,
-				},
-				{
-					"name":     "region",
-					"label":    "AWS Region",
-					"type":     "text",
-					"required": true,
-					"default":  "us-east-1",
-				},
-			},
-			"documentation_url": "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/dns-routing-traffic.html",
-		},
-		{
-			"type": "digitalocean",
-			"name": "DigitalOcean",
-			"fields": []gin.H{
-				{
-					"name":     "auth_token",
-					"label":    "API Token",
-					"type":     "password",
-					"required": true,
-					"hint":     "Personal Access Token with read/write scope",
-				},
-			},
-			"documentation_url": "https://docs.digitalocean.com/reference/api/api-reference/",
-		},
-		{
-			"type": "googleclouddns",
-			"name": "Google Cloud DNS",
-			"fields": []gin.H{
-				{
-					"name":     "service_account_json",
-					"label":    "Service Account JSON",
-					"type":     "textarea",
-					"required": true,
-					"hint":     "JSON key file for service account with DNS Administrator role",
-				},
-				{
-					"name":     "project",
-					"label":    "Project ID",
-					"type":     "text",
-					"required": true,
-				},
-			},
-			"documentation_url": "https://cloud.google.com/dns/docs/",
-		},
-		{
-			"type": "namecheap",
-			"name": "Namecheap",
-			"fields": []gin.H{
-				{
-					"name":     "api_user",
-					"label":    "API Username",
-					"type":     "text",
-					"required": true,
-				},
-				{
-					"name":     "api_key",
-					"label":    "API Key",
-					"type":     "password",
-					"required": true,
-				},
-				{
-					"name":     "client_ip",
-					"label":    "Client IP Address",
-					"type":     "text",
-					"required": true,
-					"hint":     "Your server's public IP address (whitelisted in Namecheap)",
-				},
-			},
-			"documentation_url": "https://www.namecheap.com/support/api/intro/",
-		},
-		{
-			"type": "godaddy",
-			"name": "GoDaddy",
-			"fields": []gin.H{
-				{
-					"name":     "api_key",
-					"label":    "API Key",
-					"type":     "text",
-					"required": true,
-				},
-				{
-					"name":     "api_secret",
-					"label":    "API Secret",
-					"type":     "password",
-					"required": true,
-				},
-			},
-			"documentation_url": "https://developer.godaddy.com/",
-		},
-		{
-			"type": "azure",
-			"name": "Azure DNS",
-			"fields": []gin.H{
-				{
-					"name":     "tenant_id",
-					"label":    "Tenant ID",
-					"type":     "text",
-					"required": true,
-				},
-				{
-					"name":     "client_id",
-					"label":    "Client ID",
-					"type":     "text",
-					"required": true,
-				},
-				{
-					"name":     "client_secret",
-					"label":    "Client Secret",
-					"type":     "password",
-					"required": true,
-				},
-				{
-					"name":     "subscription_id",
-					"label":    "Subscription ID",
-					"type":     "text",
-					"required": true,
-				},
-				{
-					"name":     "resource_group",
-					"label":    "Resource Group",
-					"type":     "text",
-					"required": true,
-				},
-			},
-			"documentation_url": "https://docs.microsoft.com/en-us/azure/dns/",
-		},
-		{
-			"type": "hetzner",
-			"name": "Hetzner",
-			"fields": []gin.H{
-				{
-					"name":     "api_key",
-					"label":    "API Key",
-					"type":     "password",
-					"required": true,
-				},
-			},
-			"documentation_url": "https://docs.hetzner.com/dns-console/dns/general/dns-overview/",
-		},
-		{
-			"type": "vultr",
-			"name": "Vultr",
-			"fields": []gin.H{
-				{
-					"name":     "api_key",
-					"label":    "API Key",
-					"type":     "password",
-					"required": true,
-				},
-			},
-			"documentation_url": "https://www.vultr.com/api/",
-		},
-		{
-			"type": "dnsimple",
-			"name": "DNSimple",
-			"fields": []gin.H{
-				{
-					"name":     "oauth_token",
-					"label":    "OAuth Token",
-					"type":     "password",
-					"required": true,
-				},
-				{
-					"name":     "account_id",
-					"label":    "Account ID",
-					"type":     "text",
-					"required": true,
-				},
-			},
-			"documentation_url": "https://developer.dnsimple.com/",
-		},
+	// Get all registered providers from the global registry
+	providers := dnsprovider.Global().List()
+
+	// Build response with provider metadata and fields
+	types := make([]gin.H, 0, len(providers))
+	for _, provider := range providers {
+		metadata := provider.Metadata()
+
+		// Combine required and optional fields
+		requiredFields := provider.RequiredCredentialFields()
+		optionalFields := provider.OptionalCredentialFields()
+
+		// Convert fields to response format with required flag
+		fields := make([]gin.H, 0, len(requiredFields)+len(optionalFields))
+
+		for _, f := range requiredFields {
+			field := gin.H{
+				"name":     f.Name,
+				"label":    f.Label,
+				"type":     f.Type,
+				"required": true,
+			}
+			if f.Placeholder != "" {
+				field["placeholder"] = f.Placeholder
+			}
+			if f.Hint != "" {
+				field["hint"] = f.Hint
+			}
+			if len(f.Options) > 0 {
+				field["options"] = f.Options
+			}
+			fields = append(fields, field)
+		}
+
+		for _, f := range optionalFields {
+			field := gin.H{
+				"name":     f.Name,
+				"label":    f.Label,
+				"type":     f.Type,
+				"required": false,
+			}
+			if f.Placeholder != "" {
+				field["placeholder"] = f.Placeholder
+			}
+			if f.Hint != "" {
+				field["hint"] = f.Hint
+			}
+			if len(f.Options) > 0 {
+				field["options"] = f.Options
+			}
+			fields = append(fields, field)
+		}
+
+		providerType := gin.H{
+			"type":        metadata.Type,
+			"name":        metadata.Name,
+			"description": metadata.Description,
+			"is_built_in": metadata.IsBuiltIn,
+			"fields":      fields,
+		}
+
+		if metadata.DocumentationURL != "" {
+			providerType["documentation_url"] = metadata.DocumentationURL
+		}
+
+		types = append(types, providerType)
 	}
+
+	// Sort by type for stable, predictable output (registry.List already sorts, but explicit for safety)
+	sort.Slice(types, func(i, j int) bool {
+		return types[i]["type"].(string) < types[j]["type"].(string)
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"types": types,

@@ -8,8 +8,8 @@ The CI pipeline failed on the feature/beta-release branch due to a WAF Integrati
 
 ## Workflow Run Information
 
-- **Failed Run**: https://github.com/Wikid82/Charon/actions/runs/20449607151
-- **Cancelled Run** (not the issue): https://github.com/Wikid82/Charon/actions/runs/20452768958
+- **Failed Run**: <https://github.com/Wikid82/Charon/actions/runs/20449607151>
+- **Cancelled Run** (not the issue): <https://github.com/Wikid82/Charon/actions/runs/20452768958>
 - **Branch**: feature/beta-release
 - **Failed Job**: Coraza WAF Integration
 - **Commit**: 0543a15 (fix(security): resolve CrowdSec startup permission failures)
@@ -44,7 +44,7 @@ The proxy host creation endpoints were moved to the authenticated API group in a
 
 **Commit**: 430eb85c9f020515bf4fdc5211e32c3ce5c26877
 
-### Changes Made to `scripts/coraza_integration.sh`:
+### Changes Made to `scripts/coraza_integration.sh`
 
 1. **Moved authentication block** from line ~207 to after line 146 (after API ready check, before proxy host creation)
 2. **Added `-b ${TMP_COOKIE}`** to proxy host creation curl command
@@ -90,6 +90,7 @@ The proxy host creation endpoints were moved to the authenticated API group in a
 ## Previous Incorrect Analysis
 
 The initial analysis incorrectly focused on Go version 1.25.5 as a potential issue. This was completely incorrect:
+
 - Go 1.25.5 is the current correct version (released Dec 2, 2025)
 - No Go version issues existed
 - The actual failure was an integration test authentication bug

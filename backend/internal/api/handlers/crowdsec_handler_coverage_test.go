@@ -218,7 +218,7 @@ func TestCrowdsec_ExportConfig_NotFound(t *testing.T) {
 	db := setupCrowdDB(t)
 	// Use a non-existent directory
 	nonExistentDir := "/tmp/crowdsec-nonexistent-dir-12345"
-	os.RemoveAll(nonExistentDir) // Make sure it doesn't exist
+	_ = os.RemoveAll(nonExistentDir) // Make sure it doesn't exist
 
 	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", nonExistentDir)
 	// remove any cache dir created during handler init so Export sees missing dir
@@ -254,7 +254,7 @@ func TestCrowdsec_ListFiles_EmptyDir(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	// Files may be nil or empty array when dir is empty
 	files := resp["files"]
 	if files != nil {
@@ -266,7 +266,7 @@ func TestCrowdsec_ListFiles_NonExistent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	nonExistentDir := "/tmp/crowdsec-nonexistent-dir-67890"
-	os.RemoveAll(nonExistentDir)
+	_ = os.RemoveAll(nonExistentDir)
 
 	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", nonExistentDir)
 
@@ -280,7 +280,7 @@ func TestCrowdsec_ListFiles_NonExistent(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	// Should return empty array (nil) for non-existent dir
 	// The files key should exist
 	_, ok := resp["files"]
@@ -330,7 +330,7 @@ func TestCrowdsec_ReadFile_NestedPath(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, "nested content", resp["content"])
 }
 

@@ -1,0 +1,229 @@
+/**
+ * UI Helpers - Shared utilities for common UI interactions
+ *
+ * These helpers provide reusable, robust locator strategies for common UI patterns
+ * to reduce duplication and prevent flaky tests.
+ */
+
+import { Page, Locator, expect } from '@playwright/test';
+
+/**
+ * Options for toast helper
+ */
+export interface ToastHelperOptions {
+  /** Maximum time to wait for toast (default: 5000ms) */
+  timeout?: number;
+  /** Toast type to match (success, error, info, warning) */
+  type?: 'success' | 'error' | 'info' | 'warning';
+}
+
+/**
+ * Get a toast locator with proper role-based selection and short retries.
+ * Uses data-testid for our custom toast system to avoid strict-mode violations.
+ *
+ * react-hot-toast uses:
+ * - role="status" for success/info toasts
+ * - role="alert" for error toasts
+ *
+ * @param page - Playwright Page instance
+ * @param text - Text or RegExp to match in toast (optional for type-only match)
+ * @param options - Configuration options
+ * @returns Locator for the toast
+ *
+ * @example
+ * ```typescript
+ * const toast = getToastLocator(page, /success/i, { type: 'success' });
+ * await expect(toast).toBeVisible({ timeout: 5000 });
+ * ```
+ */
+export function getToastLocator(
+  page: Page,
+  text?: string | RegExp,
+  options: ToastHelperOptions = {}
+): Locator {
+  const { type } = options;
+
+  // Build selector with fallbacks for reliability
+  // react-hot-toast: role="status" for success/info, role="alert" for errors
+  let baseLocator: Locator;
+
+  if (type === 'error') {
+    // Error toasts use role="alert"
+    baseLocator = page.locator(`[data-testid="toast-${type}"]`)
+      .or(page.getByRole('alert'));
+  } else if (type === 'success' || type === 'info') {
+    // Success/info toasts use role="status"
+    baseLocator = page.locator(`[data-testid="toast-${type}"]`)
+      .or(page.getByRole('status'));
+  } else if (type === 'warning') {
+    // Warning toasts - check both roles as fallback
+    baseLocator = page.locator(`[data-testid="toast-${type}"]`)
+      .or(page.getByRole('status'))
+      .or(page.getByRole('alert'));
+  } else {
+    // Any toast: match our custom toast container with fallbacks for both roles
+    baseLocator = page.locator('[data-testid^="toast-"]')
+      .or(page.getByRole('status'))
+      .or(page.getByRole('alert'));
+  }
+
+  // Filter by text if provided
+  if (text) {
+    return baseLocator.filter({ hasText: text }).first();
+  }
+
+  return baseLocator.first();
+}
+
+/**
+ * Wait for a toast to appear with specific text and type.
+ * Wrapper around getToastLocator with built-in wait.
+ *
+ * @param page - Playwright Page instance
+ * @param text - Text or RegExp to match in toast
+ * @param options - Configuration options
+ */
+export async function waitForToast(
+  page: Page,
+  text: string | RegExp,
+  options: ToastHelperOptions = {}
+): Promise<void> {
+  const { timeout = 5000 } = options;
+  const toast = getToastLocator(page, text, options);
+  await expect(toast).toBeVisible({ timeout });
+}
+
+/**
+ * Options for row-scoped button locator
+ */
+export interface RowScopedButtonOptions {
+  /** Maximum time to wait for button (default: 5000ms) */
+  timeout?: number;
+  /** Button role (default: 'button') */
+  role?: 'button' | 'link';
+}
+
+/**
+ * Get a button locator scoped to a specific table row, avoiding strict-mode violations.
+ * Use this when multiple rows have buttons with the same name (e.g., "Invite", "Resend").
+ *
+ * @param page - Playwright Page instance
+ * @param rowIdentifier - Text to identify the row (e.g., email, name)
+ * @param buttonName - Button name/label or accessible name pattern
+ * @param options - Configuration options
+ * @returns Locator for the button within the row
+ *
+ * @example
+ * ```typescript
+ * // Find "Invite" button in row containing "user@example.com"
+ * const inviteBtn = getRowScopedButton(page, 'user@example.com', /invite/i);
+ * await inviteBtn.click();
+ * ```
+ */
+export function getRowScopedButton(
+  page: Page,
+  rowIdentifier: string | RegExp,
+  buttonName: string | RegExp,
+  options: RowScopedButtonOptions = {}
+): Locator {
+  const { role = 'button' } = options;
+
+  // Find the row containing the identifier
+  const row = page.getByRole('row').filter({ hasText: rowIdentifier });
+
+  // Find the button within that row
+  return row.getByRole(role, { name: buttonName });
+}
+
+/**
+ * Get an action button in a table row by icon class (e.g., lucide-mail for resend).
+ * Use when buttons don't have proper accessible names.
+ *
+ * @param page - Playwright Page instance
+ * @param rowIdentifier - Text to identify the row
+ * @param iconClass - Icon class to match (e.g., 'lucide-mail', 'lucide-trash-2')
+ * @returns Locator for the button
+ *
+ * @example
+ * ```typescript
+ * // Find resend button (mail icon) in row containing "user@example.com"
+ * const resendBtn = getRowScopedIconButton(page, 'user@example.com', 'lucide-mail');
+ * await resendBtn.click();
+ * ```
+ */
+export function getRowScopedIconButton(
+  page: Page,
+  rowIdentifier: string | RegExp,
+  iconClass: string
+): Locator {
+  const row = page.getByRole('row').filter({ hasText: rowIdentifier });
+  return row.locator(`button:has(svg.${iconClass})`).first();
+}
+
+/**
+ * Wait for a certificate form validation message (email field).
+ * Targets the visible validation message with proper role/text.
+ *
+ * @param page - Playwright Page instance
+ * @param messagePattern - Pattern to match in validation message
+ * @param options - Configuration options
+ * @returns Locator for the validation message
+ *
+ * @example
+ * ```typescript
+ * const validationMsg = getCertificateValidationMessage(page, /valid.*email/i);
+ * await expect(validationMsg).toBeVisible();
+ * ```
+ */
+export function getCertificateValidationMessage(
+  page: Page,
+  messagePattern: string | RegExp
+): Locator {
+  // Look for validation message in common locations:
+  // 1. Adjacent to input with aria-describedby
+  // 2. Role="alert" or "status" for live region
+  // 3. Common validation message containers
+  return page
+    .locator('[role="alert"], [role="status"], .text-red-500, [class*="error"]')
+    .filter({ hasText: messagePattern })
+    .first();
+}
+
+/**
+ * Refresh a list/table and wait for it to stabilize.
+ * Use after creating resources via API or UI to ensure list reflects changes.
+ *
+ * @param page - Playwright Page instance
+ * @param options - Configuration options
+ */
+export async function refreshListAndWait(
+  page: Page,
+  options: { timeout?: number } = {}
+): Promise<void> {
+  const { timeout = 5000 } = options;
+
+  // Reload the page
+  await page.reload();
+
+  // Wait for list to be visible (supports table, grid, or card layouts)
+  // Try table first, then grid, then card container
+  let listElement = page.getByRole('table');
+  let isVisible = await listElement.isVisible({ timeout: 1000 }).catch(() => false);
+
+  if (!isVisible) {
+    // Fallback to grid layout (e.g., DNS providers in grid)
+    listElement = page.locator('.grid > div, [data-testid="list-container"]');
+    isVisible = await listElement.first().isVisible({ timeout: 1000 }).catch(() => false);
+  }
+
+  // If still not visible, wait for the page to stabilize with any content
+  if (!isVisible) {
+    await page.waitForLoadState('networkidle', { timeout });
+  }
+
+  // Wait for any loading indicators to clear
+  const loader = page.locator('[role="progressbar"], [aria-busy="true"], .loading-spinner');
+  await expect(loader).toHaveCount(0, { timeout: 3000 }).catch(() => {
+    // Ignore if no loader exists
+  });
+}

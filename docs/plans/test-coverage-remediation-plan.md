@@ -101,6 +101,7 @@ func TestNewInternalServiceHTTPClient_RespectsTimeout(t *testing.T) {
 **Test File:** `backend/internal/crypto/encryption_test.go` (EXTEND)
 
 **Uncovered Code Paths:**
+
 - Lines 35-37: `aes.NewCipher` error (difficult to trigger)
 - Lines 38-40: `cipher.NewGCM` error (difficult to trigger)
 - Lines 43-45: `io.ReadFull(rand.Reader, nonce)` error
@@ -176,6 +177,7 @@ func TestEncryptDecrypt_LargeData(t *testing.T) {
 **Test File:** `backend/internal/utils/url_testing_coverage_test.go` (CREATE NEW)
 
 **Uncovered Code Paths:**
+
 1. `resolveAllowedIP`: IP literal localhost allowed path
 2. `resolveAllowedIP`: DNS returning empty IPs
 3. `resolveAllowedIP`: Multiple IPs with first being loopback
@@ -329,6 +331,7 @@ func TestURLConnectivity_ServerError5xx(t *testing.T) {
 **Test File:** `backend/internal/services/dns_provider_service_test.go` (EXTEND)
 
 **Uncovered Code Paths:**
+
 1. `Create`: DB error during default provider update
 2. `Update`: Explicit IsDefault=false unsetting
 3. `Update`: DB error during save
@@ -500,6 +503,7 @@ func TestDNSProviderService_GetDecryptedCredentials_UpdatesLastUsed(t *testing.T
 **Test File:** `backend/internal/security/url_validator_test.go` (EXTEND)
 
 **Uncovered Code Paths:**
+
 1. `ValidateInternalServiceBaseURL`: All error paths
 2. `ParseExactHostnameAllowlist`: Invalid hostname filtering
 
@@ -662,6 +666,7 @@ func TestParseExactHostnameAllowlist_FiltersInvalidEntries(t *testing.T) {
 **Test File:** `backend/internal/services/notification_service_test.go` (CREATE OR EXTEND)
 
 **Uncovered Code Paths:**
+
 1. `sendJSONPayload`: Template size limit exceeded
 2. `sendJSONPayload`: Discord/Slack/Gotify validation
 3. `sendJSONPayload`: DNS resolution failure
@@ -790,6 +795,7 @@ func TestSendExternal_EventTypeFiltering(t *testing.T) {
 **Test File:** `backend/internal/api/handlers/crowdsec_handler_test.go` (EXTEND)
 
 **Uncovered:**
+
 1. `GetLAPIDecisions`: Non-JSON content-type fallback
 2. `CheckLAPIHealth`: Fallback to decisions endpoint
 

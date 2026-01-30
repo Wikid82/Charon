@@ -102,22 +102,42 @@ export default function Security() {
       await updateSetting(key, enabled ? 'true' : 'false', 'security', 'bool')
     },
     onMutate: async ({ key, enabled }: { key: string; enabled: boolean }) => {
+      // Cancel ongoing queries to avoid race conditions
       await queryClient.cancelQueries({ queryKey: ['security-status'] })
+
+      // Snapshot current state for rollback
       const previous = queryClient.getQueryData(['security-status'])
+
+      // Optimistic update: parse key like "security.acl.enabled" -> section "acl"
       queryClient.setQueryData(['security-status'], (old: unknown) => {
         if (!old || typeof old !== 'object') return old
+
+        const oldStatus = old as SecurityStatus
+        const copy = { ...oldStatus }
+
+        // Extract section from key (e.g., "security.acl.enabled" -> "acl")
         const parts = key.split('.')
-        const section = parts[1] as keyof SecurityStatus
-        const field = parts[2]
-        const copy = { ...(old as SecurityStatus) }
-        if (copy[section] && typeof copy[section] === 'object') {
-          copy[section] = { ...copy[section], [field]: enabled } as never
+        const section = parts[1]
+
+        // CRITICAL: Spread existing section data to preserve fields like 'mode'
+        // Update ONLY the enabled field, keep everything else intact
+        if (section === 'acl') {
+          copy.acl = { ...copy.acl, enabled }
+        } else if (section === 'waf') {
+          // Preserve mode field (detection/prevention)
+          copy.waf = { ...copy.waf, enabled }
+        } else if (section === 'rate_limit') {
+          // Preserve mode field (log/block)
+          copy.rate_limit = { ...copy.rate_limit, enabled }
         }
+
         return copy
       })
+
       return { previous }
     },
     onError: (_err, _vars, context: unknown) => {
+      // Rollback on error
       if (context && typeof context === 'object' && 'previous' in context) {
         queryClient.setQueryData(['security-status'], context.previous)
       }
@@ -125,11 +145,11 @@ export default function Security() {
       toast.error(`Failed to update setting: ${msg}`)
     },
     onSuccess: () => {
+      // Refresh data from server
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       queryClient.invalidateQueries({ queryKey: ['security-status'] })
       toast.success('Security setting updated')
     },
-
   })
 
   const fetchCrowdsecStatus = async () => {
@@ -419,7 +439,7 @@ export default function Security() {
                     <Switch
                       checked={crowdsecStatus?.running ?? status.crowdsec.enabled}
                       disabled={crowdsecToggleDisabled}
-                      onChange={(e) => crowdsecPowerMutation.mutate(e.target.checked)}
+                      onCheckedChange={(checked) => crowdsecPowerMutation.mutate(checked)}
                       data-testid="toggle-crowdsec"
                     />
                   </div>
@@ -473,7 +493,7 @@ export default function Security() {
                     <Switch
                       checked={status.acl.enabled}
                       disabled={!status.cerberus?.enabled}
-                      onChange={(e) => toggleServiceMutation.mutate({ key: 'security.acl.enabled', enabled: e.target.checked })}
+                      onCheckedChange={(checked) => toggleServiceMutation.mutate({ key: 'security.acl.enabled', enabled: checked })}
                       data-testid="toggle-acl"
                     />
                   </div>
@@ -528,7 +548,7 @@ export default function Security() {
                     <Switch
                       checked={status.waf.enabled}
                       disabled={!status.cerberus?.enabled}
-                      onChange={(e) => toggleServiceMutation.mutate({ key: 'security.waf.enabled', enabled: e.target.checked })}
+                      onCheckedChange={(checked) => toggleServiceMutation.mutate({ key: 'security.waf.enabled', enabled: checked })}
                       data-testid="toggle-waf"
                     />
                   </div>
@@ -581,7 +601,7 @@ export default function Security() {
                     <Switch
                       checked={status.rate_limit.enabled}
                       disabled={!status.cerberus?.enabled}
-                      onChange={(e) => toggleServiceMutation.mutate({ key: 'security.rate_limit.enabled', enabled: e.target.checked })}
+                      onCheckedChange={(checked) => toggleServiceMutation.mutate({ key: 'security.rate_limit.enabled', enabled: checked })}
                       data-testid="toggle-rate-limit"
                     />
                   </div>

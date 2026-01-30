@@ -1,4 +1,4 @@
-.PHONY: help install test build run clean docker-build docker-run release go-check gopls-logs
+.PHONY: help install test build run clean docker-build docker-run release go-check gopls-logs lint-fast lint-staticcheck-only
 
 # Default target
 help:
@@ -37,15 +37,15 @@ install-tools:
 	go install gotest.tools/gotestsum@latest
 	@echo "Tools installed successfully"
 
-# Install Go 1.25.5 system-wide and setup GOPATH/bin
+# Install Go 1.25.6 system-wide and setup GOPATH/bin
 install-go:
-	@echo "Installing Go 1.25.5 and gopls (requires sudo)"
-	sudo ./scripts/install-go-1.25.5.sh
+	@echo "Installing Go 1.25.6 and gopls (requires sudo)"
+	sudo ./scripts/install-go-1.25.6.sh
 
 # Clear Go and gopls caches
 clear-go-cache:
 	@echo "Clearing Go and gopls caches"
- 	./scripts/clear-go-cache.sh
+	./scripts/clear-go-cache.sh
 
 # Run all tests
 test:
@@ -162,6 +162,14 @@ security-scan-deps:
 lint-backend:
 	@echo "Running golangci-lint..."
 	cd backend && docker run --rm -v $(PWD)/backend:/app -w /app golangci/golangci-lint:latest golangci-lint run -v
+
+lint-fast:
+	@echo "Running fast linters (staticcheck, govet, errcheck, ineffassign, unused)..."
+	cd backend && golangci-lint run --config .golangci-fast.yml ./...
+
+lint-staticcheck-only:
+	@echo "Running staticcheck only..."
+	cd backend && golangci-lint run --config .golangci-fast.yml --disable-all --enable staticcheck ./...
 
 lint-docker:
 	@echo "Running Hadolint..."

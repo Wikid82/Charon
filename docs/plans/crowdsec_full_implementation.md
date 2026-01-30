@@ -541,7 +541,7 @@ if [ "$SECURITY_CROWDSEC_MODE" = "local" ]; then
         # Wait for LAPI to be ready
         echo "Waiting for CrowdSec LAPI..."
         for i in $(seq 1 30); do
-            if wget -q -O- http://127.0.0.1:8085/health >/dev/null 2>&1; then
+            if curl -q -O- http://127.0.0.1:8085/health >/dev/null 2>&1; then
                 echo "CrowdSec LAPI is ready!"
                 break
             fi
@@ -1770,7 +1770,7 @@ if docker logs ${CONTAINER_NAME} 2>&1 | grep -q "no datasource enabled"; then
 fi
 
 # Check if LAPI is healthy
-LAPI_HEALTH=$(docker exec ${CONTAINER_NAME} wget -q -O- http://127.0.0.1:8085/health 2>/dev/null || echo "failed")
+LAPI_HEALTH=$(docker exec ${CONTAINER_NAME} curl -q -O- http://127.0.0.1:8085/health 2>/dev/null || echo "failed")
 if [ "$LAPI_HEALTH" != "failed" ]; then
     echo "✅ PASS: CrowdSec LAPI is healthy"
 else
@@ -2026,7 +2026,7 @@ RUN chmod +x /usr/local/bin/register_bouncer.sh /usr/local/bin/install_hub_items
 3. **LAPI Health Test:**
 
    ```bash
-   docker exec charon-test wget -q -O- http://127.0.0.1:8085/health
+   docker exec charon-test curl -q -O- http://127.0.0.1:8085/health
    ```
 
 4. **Integration Test:**

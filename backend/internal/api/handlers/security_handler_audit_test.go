@@ -177,7 +177,7 @@ func TestSecurityHandler_UpsertRuleSet_EmptyName(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Contains(t, resp, "error")
 }
 
@@ -517,7 +517,7 @@ func TestSecurityHandler_Enable_WithoutWhitelist(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
 	var resp map[string]string
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Contains(t, resp["error"], "whitelist")
 }
 
@@ -578,7 +578,7 @@ func TestSecurityHandler_GetStatus_CrowdSecModeValidation(t *testing.T) {
 			assert.Equal(t, http.StatusOK, w.Code)
 
 			var resp map[string]map[string]any
-			json.Unmarshal(w.Body.Bytes(), &resp)
+			_ = json.Unmarshal(w.Body.Bytes(), &resp)
 
 			// Invalid modes should be normalized to "disabled"
 			assert.Equal(t, "disabled", resp["crowdsec"]["mode"],

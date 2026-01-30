@@ -152,7 +152,7 @@ cp -r ./charon-data /tmp/incident-backup-$(date +%Y%m%d%H%M%S)
 ls -la ./charon-data/backups/
 
 # Verify backup can be read
-docker run --rm -v ./charon-data/backups:/backups alpine ls -la /backups
+docker run --rm -v ./charon-data/backups:/backups debian:bookworm-slim ls -la /backups
 ```
 
 **Step 2: Restore from Clean State**
@@ -396,4 +396,5 @@ docker exec charon cscli lapi status
 **Owner:** Security Team
 
 **Last Reviewed:** 2025-12-21
+
 ```

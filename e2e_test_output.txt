@@ -1,0 +1,1375 @@
+[dotenv@17.2.3] injecting env (2) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+
+🧹 Running global test setup...
+
+🔐 Validating emergency token configuration...
+  🔑 Token present: f51dedd6...346b
+  ✓ Token length: 64 chars (valid)
+  ✓ Token format: Valid hexadecimal
+  ✓ Token appears to be unique (not a placeholder)
+✅ Emergency token validation passed
+
+📍 Base URL: http://localhost:8080
+⏳ Waiting for container to be ready at http://localhost:8080...
+  ✅ Container ready after 1 attempt(s) [2000ms]
+   └─ Hostname: localhost
+   ├─ Port: 8080
+   ├─ Protocol: http:
+   ├─ IPv6: No
+   └─ Localhost: Yes
+
+📊 Port Connectivity Checks:
+🔍 Checking Caddy admin API health at http://localhost:2019...
+  ✅ Caddy admin API (port 2019) is healthy [9ms]
+🔍 Checking emergency tier-2 server health at http://localhost:2020...
+  ✅ Emergency tier-2 server (port 2020) is healthy [5ms]
+
+✅ Connectivity Summary: Caddy=✓ Emergency=✓
+
+🔓 Performing emergency security reset...
+  🔑 Token configured: f51dedd6...346b (64 chars)
+  📍 Emergency URL: http://localhost:2020/emergency/security-reset
+  📊 Emergency reset status: 200 [12ms]
+  ✅ Emergency reset successful [12ms]
+  ✓ Disabled modules: security.crowdsec.mode, feature.cerberus.enabled, security.cerberus.enabled, security.acl.enabled, security.waf.enabled, security.rate_limit.enabled, security.crowdsec.enabled
+  ⏳ Waiting for security reset to propagate...
+  ✅ Security reset complete [513ms]
+🔍 Checking application health...
+✅ Application is accessible
+🗑️  Cleaning up orphaned test data...
+Force cleanup completed: {"proxyHosts":0,"accessLists":0,"dnsProviders":0,"certificates":0}
+   No orphaned test data found
+✅ Global setup complete
+
+🔓 Performing emergency security reset...
+  🔑 Token configured: f51dedd6...346b (64 chars)
+  📍 Emergency URL: http://localhost:2020/emergency/security-reset
+  📊 Emergency reset status: 200 [15ms]
+  ✅ Emergency reset successful [15ms]
+  ✓ Disabled modules: feature.cerberus.enabled, security.cerberus.enabled, security.acl.enabled, security.waf.enabled, security.rate_limit.enabled, security.crowdsec.enabled, security.crowdsec.mode
+  ⏳ Waiting for security reset to propagate...
+  ✅ Security reset complete [517ms]
+✓ Authenticated security reset complete
+🔒 Verifying security modules are disabled...
+  ✅ Security modules confirmed disabled
+
+Running 959 tests using 2 workers
+
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+Logging in as test user...
+Login successful
+Auth state saved to /projects/Charon/playwright/.auth/user.json
+✅ Cookie domain "localhost" matches baseURL host "localhost"
+  ✓    1 [setup] › tests/auth.setup.ts:26:1 › authenticate (110ms)
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+  ✓    2 [security-tests] › tests/security/audit-logs.spec.ts:26:5 › Audit Logs › Page Loading › should display audit logs page (1.7s)
+  ✓    3 [security-tests] › tests/security/audit-logs.spec.ts:47:5 › Audit Logs › Page Loading › should display log data table (2.3s)
+  ✓    4 [security-tests] › tests/security/audit-logs.spec.ts:88:5 › Audit Logs › Log Table Structure › should display timestamp column (1.5s)
+  ✓    5 [security-tests] › tests/security/audit-logs.spec.ts:100:5 › Audit Logs › Log Table Structure › should display action/event column (1.6s)
+  ✓    6 [security-tests] › tests/security/audit-logs.spec.ts:112:5 › Audit Logs › Log Table Structure › should display user column (1.6s)
+  ✓    7 [security-tests] › tests/security/audit-logs.spec.ts:124:5 › Audit Logs › Log Table Structure › should display log entries (1.8s)
+  ✓    8 [security-tests] › tests/security/audit-logs.spec.ts:142:5 › Audit Logs › Filtering › should have search input (1.6s)
+  ✓    9 [security-tests] › tests/security/audit-logs.spec.ts:151:5 › Audit Logs › Filtering › should filter by action type (1.6s)
+  ✓   10 [security-tests] › tests/security/audit-logs.spec.ts:163:5 › Audit Logs › Filtering › should filter by date range (1.6s)
+  ✓   11 [security-tests] › tests/security/audit-logs.spec.ts:172:5 › Audit Logs › Filtering › should filter by user (1.5s)
+  ✓   12 [security-tests] › tests/security/audit-logs.spec.ts:181:5 › Audit Logs › Filtering › should perform search when input changes (1.5s)
+  ✓   13 [security-tests] › tests/security/audit-logs.spec.ts:199:5 › Audit Logs › Export Functionality › should have export button (1.5s)
+  ✓   14 [security-tests] › tests/security/audit-logs.spec.ts:208:5 › Audit Logs › Export Functionality › should export logs to CSV (1.6s)
+  ✓   15 [security-tests] › tests/security/audit-logs.spec.ts:228:5 › Audit Logs › Pagination › should have pagination controls (1.6s)
+  ✓   16 [security-tests] › tests/security/audit-logs.spec.ts:237:5 › Audit Logs › Pagination › should display current page info (1.5s)
+  ✓   17 [security-tests] › tests/security/audit-logs.spec.ts:244:5 › Audit Logs › Pagination › should navigate between pages (1.7s)
+  ✓   18 [security-tests] › tests/security/audit-logs.spec.ts:267:5 › Audit Logs › Log Details › should show log details on row click (1.6s)
+  ✓   19 [security-tests] › tests/security/audit-logs.spec.ts:290:5 › Audit Logs › Refresh › should have refresh button (1.6s)
+  ✓   20 [security-tests] › tests/security/audit-logs.spec.ts:304:5 › Audit Logs › Navigation › should navigate back to security dashboard (1.6s)
+  ✓   21 [security-tests] › tests/security/audit-logs.spec.ts:316:5 › Audit Logs › Accessibility › should have accessible table structure (1.4s)
+  ✓   22 [security-tests] › tests/security/audit-logs.spec.ts:328:5 › Audit Logs › Accessibility › should be keyboard navigable (2.2s)
+  ✓   23 [security-tests] › tests/security/audit-logs.spec.ts:358:5 › Audit Logs › Empty State › should show empty state message when no logs (1.5s)
+  ✓   24 [security-tests] › tests/security/crowdsec-config.spec.ts:26:5 › CrowdSec Configuration › Page Loading › should display CrowdSec configuration page (1.9s)
+  ✓   25 [security-tests] › tests/security/crowdsec-config.spec.ts:31:5 › CrowdSec Configuration › Page Loading › should show navigation back to security dashboard (1.6s)
+  ✓   26 [security-tests] › tests/security/crowdsec-config.spec.ts:56:5 › CrowdSec Configuration › Page Loading › should display presets section (1.6s)
+  ✓   27 [security-tests] › tests/security/crowdsec-config.spec.ts:75:5 › CrowdSec Configuration › Preset Management › should display list of available presets (2.4s)
+  ✓   28 [security-tests] › tests/security/crowdsec-config.spec.ts:107:5 › CrowdSec Configuration › Preset Management › should allow searching presets (1.7s)
+  ✓   29 [security-tests] › tests/security/crowdsec-config.spec.ts:120:5 › CrowdSec Configuration › Preset Management › should show preset preview when selected (1.6s)
+  ✓   30 [security-tests] › tests/security/crowdsec-config.spec.ts:132:5 › CrowdSec Configuration › Preset Management › should apply preset with confirmation (1.6s)
+  ✓   31 [security-tests] › tests/security/crowdsec-config.spec.ts:158:5 › CrowdSec Configuration › Configuration Files › should display configuration file list (1.6s)
+  ✓   32 [security-tests] › tests/security/crowdsec-config.spec.ts:171:5 › CrowdSec Configuration › Configuration Files › should show file content when selected (1.6s)
+  ✓   33 [security-tests] › tests/security/crowdsec-config.spec.ts:188:5 › CrowdSec Configuration › Import/Export › should have export functionality (1.6s)
+  ✓   34 [security-tests] › tests/security/crowdsec-config.spec.ts:197:5 › CrowdSec Configuration › Import/Export › should have import functionality (1.5s)
+  ✓   35 [security-tests] › tests/security/crowdsec-config.spec.ts:218:5 › CrowdSec Configuration › Console Enrollment › should display console enrollment section if feature enabled (1.6s)
+  ✓   36 [security-tests] › tests/security/crowdsec-config.spec.ts:243:5 › CrowdSec Configuration › Console Enrollment › should show enrollment status when enrolled (1.6s)
+  ✓   37 [security-tests] › tests/security/crowdsec-config.spec.ts:258:5 › CrowdSec Configuration › Status Indicators › should display CrowdSec running status (1.5s)
+  ✓   38 [security-tests] › tests/security/crowdsec-config.spec.ts:271:5 › CrowdSec Configuration › Status Indicators › should display LAPI status (1.6s)
+  ✓   39 [security-tests] › tests/security/crowdsec-config.spec.ts:282:5 › CrowdSec Configuration › Accessibility › should have accessible form controls (1.5s)
+  -   40 [security-tests] › tests/security/crowdsec-decisions.spec.ts:28:5 › CrowdSec Decisions Management › Decisions List › should display decisions page
+  -   41 [security-tests] › tests/security/crowdsec-decisions.spec.ts:42:5 › CrowdSec Decisions Management › Decisions List › should show active decisions if any exist
+  -   42 [security-tests] › tests/security/crowdsec-decisions.spec.ts:64:5 › CrowdSec Decisions Management › Decisions List › should display decision columns (IP, type, duration, reason)
+  -   43 [security-tests] › tests/security/crowdsec-decisions.spec.ts:87:5 › CrowdSec Decisions Management › Add Decision (Ban IP) › should have add ban button
+  -   44 [security-tests] › tests/security/crowdsec-decisions.spec.ts:101:5 › CrowdSec Decisions Management › Add Decision (Ban IP) › should open ban modal on add button click
+  -   45 [security-tests] › tests/security/crowdsec-decisions.spec.ts:127:5 › CrowdSec Decisions Management › Add Decision (Ban IP) › should validate IP address format
+  -   46 [security-tests] › tests/security/crowdsec-decisions.spec.ts:163:5 › CrowdSec Decisions Management › Remove Decision (Unban) › should show unban action for each decision
+  -   47 [security-tests] › tests/security/crowdsec-decisions.spec.ts:172:5 › CrowdSec Decisions Management › Remove Decision (Unban) › should confirm before unbanning
+  -   48 [security-tests] › tests/security/crowdsec-decisions.spec.ts:193:5 › CrowdSec Decisions Management › Filtering and Search › should have search/filter input
+  -   49 [security-tests] › tests/security/crowdsec-decisions.spec.ts:202:5 › CrowdSec Decisions Management › Filtering and Search › should filter decisions by type
+  -   50 [security-tests] › tests/security/crowdsec-decisions.spec.ts:216:5 › CrowdSec Decisions Management › Refresh and Sync › should have refresh button
+  -   51 [security-tests] › tests/security/crowdsec-decisions.spec.ts:231:5 › CrowdSec Decisions Management › Navigation › should navigate back to CrowdSec config
+  -   52 [security-tests] › tests/security/crowdsec-decisions.spec.ts:244:5 › CrowdSec Decisions Management › Accessibility › should be keyboard navigable
+  ✓   53 [security-tests] › tests/security/rate-limiting.spec.ts:25:5 › Rate Limiting Configuration › Page Loading › should display rate limiting configuration page (1.8s)
+  ✓   54 [security-tests] › tests/security/rate-limiting.spec.ts:37:5 › Rate Limiting Configuration › Page Loading › should display rate limiting status (1.5s)
+  ✓   55 [security-tests] › tests/security/rate-limiting.spec.ts:48:5 › Rate Limiting Configuration › Rate Limiting Toggle › should have enable/disable toggle (1.5s)
+  -   56 [security-tests] › tests/security/rate-limiting.spec.ts:70:5 › Rate Limiting Configuration › Rate Limiting Toggle › should toggle rate limiting on/off
+  ✓   57 [security-tests] › tests/security/rate-limiting.spec.ts:102:5 › Rate Limiting Configuration › RPS Settings › should display RPS input field (1.5s)
+  ✓   58 [security-tests] › tests/security/rate-limiting.spec.ts:114:5 › Rate Limiting Configuration › RPS Settings › should validate RPS input (minimum value) (1.6s)
+  ✓   59 [security-tests] › tests/security/rate-limiting.spec.ts:135:5 › Rate Limiting Configuration › RPS Settings › should accept valid RPS value (1.5s)
+  ✓   60 [security-tests] › tests/security/rate-limiting.spec.ts:158:5 › Rate Limiting Configuration › Burst Settings › should display burst limit input (1.4s)
+  ✓   61 [security-tests] › tests/security/rate-limiting.spec.ts:172:5 › Rate Limiting Configuration › Time Window Settings › should display time window setting (1.6s)
+  ✓   62 [security-tests] › tests/security/rate-limiting.spec.ts:185:5 › Rate Limiting Configuration › Save Settings › should have save button (1.5s)
+  ✓   63 [security-tests] › tests/security/rate-limiting.spec.ts:196:5 › Rate Limiting Configuration › Navigation › should navigate back to security dashboard (1.5s)
+  ✓   64 [security-tests] › tests/security/rate-limiting.spec.ts:208:5 › Rate Limiting Configuration › Accessibility › should have labeled input fields (1.6s)
+  ✓   65 [security-tests] › tests/security/security-dashboard.spec.ts:32:5 › Security Dashboard › Page Loading › should display security dashboard page title (1.9s)
+  ✓   66 [security-tests] › tests/security/security-dashboard.spec.ts:36:5 › Security Dashboard › Page Loading › should display Cerberus dashboard header (1.9s)
+  ✓   67 [security-tests] › tests/security/security-dashboard.spec.ts:40:5 › Security Dashboard › Page Loading › should show all 4 security module cards (1.9s)
+  ✓   68 [security-tests] › tests/security/security-dashboard.spec.ts:58:5 › Security Dashboard › Page Loading › should display layer badges for each module (1.8s)
+  ✓   69 [security-tests] › tests/security/security-dashboard.spec.ts:65:5 › Security Dashboard › Page Loading › should show audit logs button in header (1.9s)
+  ✓   70 [security-tests] › tests/security/security-dashboard.spec.ts:70:5 › Security Dashboard › Page Loading › should show docs button in header (1.9s)
+  ✓   71 [security-tests] › tests/security/security-dashboard.spec.ts:77:5 › Security Dashboard › Module Status Indicators › should show enabled/disabled badge for each module (2.0s)
+  ✓   72 [security-tests] › tests/security/security-dashboard.spec.ts:93:5 › Security Dashboard › Module Status Indicators › should display CrowdSec toggle switch (1.9s)
+  ✓   73 [security-tests] › tests/security/security-dashboard.spec.ts:98:5 › Security Dashboard › Module Status Indicators › should display ACL toggle switch (1.8s)
+  ✓   74 [security-tests] › tests/security/security-dashboard.spec.ts:103:5 › Security Dashboard › Module Status Indicators › should display WAF toggle switch (1.9s)
+  ✓   75 [security-tests] › tests/security/security-dashboard.spec.ts:108:5 › Security Dashboard › Module Status Indicators › should display Rate Limiting toggle switch (3.5s)
+  -   76 [security-tests] › tests/security/security-dashboard.spec.ts:147:5 › Security Dashboard › Module Toggle Actions › should toggle ACL enabled/disabled
+  -   77 [security-tests] › tests/security/security-dashboard.spec.ts:171:5 › Security Dashboard › Module Toggle Actions › should toggle WAF enabled/disabled
+  -   78 [security-tests] › tests/security/security-dashboard.spec.ts:195:5 › Security Dashboard › Module Toggle Actions › should toggle Rate Limiting enabled/disabled
+✓ Security state restored after toggle tests
+  -   79 [security-tests] › tests/security/security-dashboard.spec.ts:219:5 › Security Dashboard › Module Toggle Actions › should persist toggle state after page reload
+  -   80 [security-tests] › tests/security/security-dashboard.spec.ts:257:5 › Security Dashboard › Navigation › should navigate to CrowdSec page when configure clicked
+  ✓   81 [security-tests] › tests/security/security-dashboard.spec.ts:284:5 › Security Dashboard › Navigation › should navigate to Access Lists page when clicked (2.8s)
+  -   82 [security-tests] › tests/security/security-dashboard.spec.ts:316:5 › Security Dashboard › Navigation › should navigate to WAF page when configure clicked
+  -   83 [security-tests] › tests/security/security-dashboard.spec.ts:342:5 › Security Dashboard › Navigation › should navigate to Rate Limiting page when configure clicked
+  ✓   84 [security-tests] › tests/security/security-dashboard.spec.ts:368:5 › Security Dashboard › Navigation › should navigate to Audit Logs page (2.5s)
+  ✓   85 [security-tests] › tests/security/security-dashboard.spec.ts:377:5 › Security Dashboard › Admin Whitelist › should display admin whitelist section when Cerberus enabled (2.1s)
+  ✓   86 [security-tests] › tests/security/security-dashboard.spec.ts:399:5 › Security Dashboard › Accessibility › should have accessible toggle switches with labels (2.0s)
+  ✓   87 [security-tests] › tests/security/security-dashboard.spec.ts:416:5 › Security Dashboard › Accessibility › should navigate with keyboard (1.7s)
+  ✓   88 [security-tests] › tests/security/security-headers.spec.ts:26:5 › Security Headers Configuration › Page Loading › should display security headers page (2.0s)
+  ✓   89 [security-tests] › tests/security/security-headers.spec.ts:40:5 › Security Headers Configuration › Header Score Display › should display security score (1.6s)
+  ✓   90 [security-tests] › tests/security/security-headers.spec.ts:49:5 › Security Headers Configuration › Header Score Display › should show score breakdown (1.6s)
+  ✓   91 [security-tests] › tests/security/security-headers.spec.ts:60:5 › Security Headers Configuration › Preset Profiles › should display preset profiles (1.5s)
+  ✓   92 [security-tests] › tests/security/security-headers.spec.ts:69:5 › Security Headers Configuration › Preset Profiles › should have preset options (Basic, Strict, Custom) (1.7s)
+  ✓   93 [security-tests] › tests/security/security-headers.spec.ts:78:5 › Security Headers Configuration › Preset Profiles › should apply preset when selected (1.6s)
+  ✓   94 [security-tests] › tests/security/security-headers.spec.ts:95:5 › Security Headers Configuration › Individual Header Configuration › should display CSP (Content-Security-Policy) settings (1.7s)
+  ✓   95 [security-tests] › tests/security/security-headers.spec.ts:104:5 › Security Headers Configuration › Individual Header Configuration › should display HSTS settings (1.7s)
+  ✓   96 [security-tests] › tests/security/security-headers.spec.ts:113:5 › Security Headers Configuration › Individual Header Configuration › should display X-Frame-Options settings (1.7s)
+  ✓   97 [security-tests] › tests/security/security-headers.spec.ts:120:5 › Security Headers Configuration › Individual Header Configuration › should display X-Content-Type-Options settings (1.7s)
+  ✓   98 [security-tests] › tests/security/security-headers.spec.ts:129:5 › Security Headers Configuration › Header Toggle Controls › should have toggles for individual headers (1.6s)
+  ✓   99 [security-tests] › tests/security/security-headers.spec.ts:137:5 › Security Headers Configuration › Header Toggle Controls › should toggle header on/off (1.7s)
+  ✓  100 [security-tests] › tests/security/security-headers.spec.ts:156:5 › Security Headers Configuration › Profile Management › should have create profile button (1.7s)
+  ✓  101 [security-tests] › tests/security/security-headers.spec.ts:165:5 › Security Headers Configuration › Profile Management › should open profile creation modal (1.6s)
+  ✓  102 [security-tests] › tests/security/security-headers.spec.ts:183:5 › Security Headers Configuration › Profile Management › should list existing profiles (1.6s)
+  ✓  103 [security-tests] › tests/security/security-headers.spec.ts:194:5 › Security Headers Configuration › Save Configuration › should have save button (1.6s)
+  ✓  104 [security-tests] › tests/security/security-headers.spec.ts:205:5 › Security Headers Configuration › Navigation › should navigate back to security dashboard (1.6s)
+  ✓  105 [security-tests] › tests/security/security-headers.spec.ts:217:5 › Security Headers Configuration › Accessibility › should have accessible toggle controls (2.1s)
+  ✓  106 [security-tests] › tests/security/waf-config.spec.ts:26:5 › WAF Configuration › Page Loading › should display WAF configuration page (2.1s)
+  ✓  107 [security-tests] › tests/security/waf-config.spec.ts:40:5 › WAF Configuration › Page Loading › should display WAF status indicator (1.6s)
+  ✓  108 [security-tests] › tests/security/waf-config.spec.ts:54:5 › WAF Configuration › WAF Mode Toggle › should display current WAF mode (1.6s)
+  ✓  109 [security-tests] › tests/security/waf-config.spec.ts:63:5 › WAF Configuration › WAF Mode Toggle › should have mode toggle switch or selector (1.7s)
+  ✓  110 [security-tests] › tests/security/waf-config.spec.ts:77:5 › WAF Configuration › WAF Mode Toggle › should toggle between blocking and detection mode (1.6s)
+  ✓  111 [security-tests] › tests/security/waf-config.spec.ts:96:5 › WAF Configuration › Ruleset Management › should display available rulesets (1.8s)
+  ✓  112 [security-tests] › tests/security/waf-config.spec.ts:101:5 › WAF Configuration › Ruleset Management › should show rule groups with toggle controls (1.7s)
+  ✓  113 [security-tests] › tests/security/waf-config.spec.ts:112:5 › WAF Configuration › Ruleset Management › should allow enabling/disabling rule groups (1.7s)
+  ✓  114 [security-tests] › tests/security/waf-config.spec.ts:135:5 › WAF Configuration › Anomaly Threshold › should display anomaly threshold setting (1.8s)
+  ✓  115 [security-tests] › tests/security/waf-config.spec.ts:144:5 › WAF Configuration › Anomaly Threshold › should have threshold input control (1.6s)
+  ✓  116 [security-tests] › tests/security/waf-config.spec.ts:157:5 › WAF Configuration › Whitelist/Exclusions › should display whitelist section (1.7s)
+  ✓  117 [security-tests] › tests/security/waf-config.spec.ts:166:5 › WAF Configuration › Whitelist/Exclusions › should have ability to add whitelist entries (1.7s)
+  ✓  118 [security-tests] › tests/security/waf-config.spec.ts:177:5 › WAF Configuration › Save and Apply › should have save button (1.8s)
+  ✓  119 [security-tests] › tests/security/waf-config.spec.ts:186:5 › WAF Configuration › Save and Apply › should show confirmation on save (1.6s)
+  ✓  120 [security-tests] › tests/security/waf-config.spec.ts:206:5 › WAF Configuration › Navigation › should navigate back to security dashboard (1.5s)
+  ✓  121 [security-tests] › tests/security/waf-config.spec.ts:219:5 › WAF Configuration › Accessibility › should have accessible controls (1.6s)
+✅ Admin whitelist configured for test IP ranges
+✓ Cerberus enabled
+✓ ACL enabled
+  ✓  122 [security-tests] › tests/security-enforcement/acl-enforcement.spec.ts:114:3 › ACL Enforcement › should verify ACL is enabled (9ms)
+  ✓  123 [security-tests] › tests/security-enforcement/acl-enforcement.spec.ts:120:3 › ACL Enforcement › should return security status with ACL mode (7ms)
+  ✓  124 [security-tests] › tests/security-enforcement/acl-enforcement.spec.ts:130:3 › ACL Enforcement › should list access lists when ACL enabled (7ms)
+  ✓  125 [security-tests] › tests/security-enforcement/acl-enforcement.spec.ts:138:3 › ACL Enforcement › should test IP against access list (10ms)
+✓ Security state restored
+  ✓  126 [security-tests] › tests/security-enforcement/acl-enforcement.spec.ts:162:3 › ACL Enforcement › should show correct error response format for blocked requests (13ms)
+✅ Admin whitelist configured for test IP ranges
+✓ All security modules enabled simultaneously
+  ✓  127 [security-tests] › tests/security-enforcement/combined-enforcement.spec.ts:99:3 › Combined Security Enforcement › should enable all security modules simultaneously (21.6s)
+Audit logs endpoint returned 404
+  ✓  128 [security-tests] › tests/security-enforcement/combined-enforcement.spec.ts:147:3 › Combined Security Enforcement › should log security events to audit log (1.5s)
+✓ Rapid toggle completed without race conditions
+  ✓  129 [security-tests] › tests/security-enforcement/combined-enforcement.spec.ts:170:3 › Combined Security Enforcement › should handle rapid module toggle without race conditions (557ms)
+✓ Settings persisted across API calls
+  ✓  130 [security-tests] › tests/security-enforcement/combined-enforcement.spec.ts:198:3 › Combined Security Enforcement › should persist settings across API calls (1.5s)
+✓ Multiple modules enabled - priority enforcement is at middleware level
+✓ Security state restored
+  ✓  131 [security-tests] › tests/security-enforcement/combined-enforcement.spec.ts:223:3 › Combined Security Enforcement › should enforce correct priority when multiple modules enabled (2.1s)
+✅ Admin whitelist configured for test IP ranges
+✓ Cerberus enabled
+✓ CrowdSec enabled
+  ✓  132 [security-tests] › tests/security-enforcement/crowdsec-enforcement.spec.ts:110:3 › CrowdSec Enforcement › should verify CrowdSec is enabled (22ms)
+  ✓  133 [security-tests] › tests/security-enforcement/crowdsec-enforcement.spec.ts:116:3 › CrowdSec Enforcement › should list CrowdSec decisions (27ms)
+✓ Security state restored
+  ✓  134 [security-tests] › tests/security-enforcement/crowdsec-enforcement.spec.ts:135:3 › CrowdSec Enforcement › should return CrowdSec status with mode and API URL (9ms)
+  ✓  135 [security-tests] › tests/security-enforcement/emergency-reset.spec.ts:15:3 › Emergency Security Reset (Break-Glass) › should reset security when called with valid token (30ms)
+  ✓  136 [security-tests] › tests/security-enforcement/emergency-reset.spec.ts:31:3 › Emergency Security Reset (Break-Glass) › should reject request with invalid token (10ms)
+  ✓  137 [security-tests] › tests/security-enforcement/emergency-reset.spec.ts:42:3 › Emergency Security Reset (Break-Glass) › should reject request without token (21ms)
+  ✓  138 [security-tests] › tests/security-enforcement/emergency-reset.spec.ts:47:3 › Emergency Security Reset (Break-Glass) › should allow recovery when ACL blocks everything (31ms)
+  -  139 [security-tests] › tests/security-enforcement/emergency-reset.spec.ts:69:8 › Emergency Security Reset (Break-Glass) › should rate limit after 5 attempts
+🔧 Setting up test suite: Ensuring Cerberus and ACL are enabled...
+  ✓ Cerberus master switch enabled
+  ✓ ACL enabled
+  ✓ ACL verified as enabled
+  🗑️  Ensuring no access lists exist (required for ACL blocking)...
+  ✓ Deleted 4 access list(s)
+✅ Cerberus and ACL enabled for test suite
+🧪 Testing emergency token bypass with ACL enabled...
+  ✓ Confirmed ACL is enabled
+  ✓ Emergency token successfully accessed protected endpoint with ACL enabled
+✅ Test 1 passed: Emergency token bypasses ACL
+  ✓  140 [security-tests] › tests/security-enforcement/emergency-token.spec.ts:160:3 › Emergency Token Break Glass Protocol › Test 1: Emergency token bypasses ACL (16ms)
+🧪 Verifying emergency endpoint has no rate limiting...
+  ℹ️  Emergency endpoints are "break-glass" - they must work immediately without artificial delays
+✅ Test 2 passed: No rate limiting on emergency endpoint (10 rapid requests all got 401, not 429)
+  ℹ️  Emergency endpoints protected by: token validation + IP restrictions + audit logging
+  ✓  141 [security-tests] › tests/security-enforcement/emergency-token.spec.ts:231:3 › Emergency Token Break Glass Protocol › Test 2: Emergency endpoint has NO rate limiting (48ms)
+🧪 Testing emergency token validation...
+  ✓ Security settings were not modified by invalid token
+✅ Test 3 passed: Invalid token properly rejected
+  ✓  142 [security-tests] › tests/security-enforcement/emergency-token.spec.ts:258:3 › Emergency Token Break Glass Protocol › Test 3: Emergency token requires valid token (15ms)
+🧪 Testing emergency token audit logging...
+  ✓ Audit log found for emergency event
+  ✓ Audit log action: emergency_reset_success
+  ✓ Audit log timestamp: undefined
+✅ Test 4 passed: Audit logging verified
+  ✓  143 [security-tests] › tests/security-enforcement/emergency-token.spec.ts:281:3 › Emergency Token Break Glass Protocol › Test 4: Emergency token audit logging (1.0s)
+🧪 Testing emergency token IP restrictions (documentation)...
+✅ Test 5 passed: IP restriction behavior documented
+  ℹ️  Manual test required: Verify production blocks IPs outside management CIDR
+  ✓  144 [security-tests] › tests/security-enforcement/emergency-token.spec.ts:325:3 › Emergency Token Break Glass Protocol › Test 5: Emergency token from unauthorized IP (documentation test) (13ms)
+🧪 Testing emergency token minimum length validation...
+  ✓ E2E emergency token length: 64 chars (minimum: 32)
+✅ Test 6 passed: Minimum length requirement documented and verified
+  ℹ️  Backend unit test required: Verify startup rejects short tokens
+  ✓  145 [security-tests] › tests/security-enforcement/emergency-token.spec.ts:354:3 › Emergency Token Break Glass Protocol › Test 6: Emergency token minimum length validation (12ms)
+🧪 Testing emergency token header security...
+  ✓ Token not found in audit log (properly stripped)
+✅ Test 7 passed: Emergency token properly stripped for security
+  ✓  146 [security-tests] › tests/security-enforcement/emergency-token.spec.ts:375:3 › Emergency Token Break Glass Protocol › Test 7: Emergency token header stripped (1.0s)
+🧪 Testing emergency reset idempotency...
+  ✓ First reset successful
+  ✓ Second reset successful
+  ✓ No errors on repeated resets
+✅ Test 8 passed: Emergency reset is idempotent
+🧹 Cleaning up: Resetting security state...
+✅ Security state reset successfully
+  ✓  147 [security-tests] › tests/security-enforcement/emergency-token.spec.ts:419:3 › Emergency Token Break Glass Protocol › Test 8: Emergency reset idempotency (1.0s)
+✅ Admin whitelist configured for test IP ranges
+✓ Cerberus enabled
+✓ Rate Limiting enabled
+  ✓  148 [security-tests] › tests/security-enforcement/rate-limit-enforcement.spec.ts:115:3 › Rate Limit Enforcement › should verify rate limiting is enabled (6ms)
+  ✓  149 [security-tests] › tests/security-enforcement/rate-limit-enforcement.spec.ts:151:3 › Rate Limit Enforcement › should return rate limit presets (6ms)
+Rate limiting configured - threshold enforcement active at Caddy layer
+✓ Security state restored
+  ✓  150 [security-tests] › tests/security-enforcement/rate-limit-enforcement.spec.ts:168:3 › Rate Limit Enforcement › should document threshold behavior when rate exceeded (7ms)
+  ✓  151 [security-tests] › tests/security-enforcement/security-headers-enforcement.spec.ts:31:3 › Security Headers Enforcement › should return X-Content-Type-Options header (6ms)
+  ✓  152 [security-tests] › tests/security-enforcement/security-headers-enforcement.spec.ts:47:3 › Security Headers Enforcement › should return X-Frame-Options header (5ms)
+HSTS not present on HTTP (expected behavior)
+  ✓  153 [security-tests] › tests/security-enforcement/security-headers-enforcement.spec.ts:63:3 › Security Headers Enforcement › should document HSTS behavior on HTTPS (6ms)
+CSP not configured (optional - set per proxy host)
+  ✓  154 [security-tests] › tests/security-enforcement/security-headers-enforcement.spec.ts:87:3 › Security Headers Enforcement › should verify Content-Security-Policy when configured (4ms)
+✅ Admin whitelist configured for test IP ranges
+✓ Cerberus enabled
+✓ WAF enabled
+  ✓  155 [security-tests] › tests/security-enforcement/waf-enforcement.spec.ts:126:3 › WAF Enforcement › should verify WAF is enabled (7ms)
+  ✓  156 [security-tests] › tests/security-enforcement/waf-enforcement.spec.ts:141:3 › WAF Enforcement › should return WAF configuration from security status (6ms)
+WAF configured - SQL injection blocking active at Caddy/Coraza layer
+  ✓  157 [security-tests] › tests/security-enforcement/waf-enforcement.spec.ts:151:3 › WAF Enforcement › should detect SQL injection patterns in request validation (8ms)
+WAF configured - XSS blocking active at Caddy/Coraza layer
+✓ Security state restored
+  ✓  158 [security-tests] › tests/security-enforcement/waf-enforcement.spec.ts:179:3 › WAF Enforcement › should document XSS blocking behavior (6ms)
+  ✓  159 [security-tests] › tests/security-enforcement/zzz-admin-whitelist-blocking.spec.ts:52:3 › Admin Whitelist IP Blocking (RUN LAST) › Test 1: should block non-whitelisted IP when Cerberus enabled (22ms)
+  ✓  160 [security-tests] › tests/security-enforcement/zzz-admin-whitelist-blocking.spec.ts:88:3 › Admin Whitelist IP Blocking (RUN LAST) › Test 2: should allow whitelisted IP to enable Cerberus (25ms)
+🔧 Emergency reset - cleaning up admin whitelist test
+✅ Emergency reset completed - test IP unblocked
+  ✓  161 [security-tests] › tests/security-enforcement/zzz-admin-whitelist-blocking.spec.ts:123:3 › Admin Whitelist IP Blocking (RUN LAST) › Test 3: should allow emergency token to bypass admin whitelist (30ms)
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  override existing env vars with { override: true }
+  ✓  163 [chromium] › tests/core/access-lists-crud.spec.ts:64:5 › Access Lists - CRUD Operations › List View › should show correct table columns (2.4s)
+  ✓  162 [chromium] › tests/core/access-lists-crud.spec.ts:51:5 › Access Lists - CRUD Operations › List View › should display access lists page with title (2.6s)
+  ✓  164 [chromium] › tests/core/access-lists-crud.spec.ts:85:5 › Access Lists - CRUD Operations › List View › should display empty state when no ACLs exist (2.8s)
+  ✓  165 [chromium] › tests/core/access-lists-crud.spec.ts:105:5 › Access Lists - CRUD Operations › List View › should show loading skeleton while fetching data (4.2s)
+  ✓  166 [chromium] › tests/core/access-lists-crud.spec.ts:120:5 › Access Lists - CRUD Operations › List View › should navigate to access lists from sidebar (2.0s)
+  ✓  167 [chromium] › tests/core/access-lists-crud.spec.ts:146:5 › Access Lists - CRUD Operations › List View › should display ACL details (name, type, rules) (2.2s)
+  ✓  168 [chromium] › tests/core/access-lists-crud.spec.ts:170:5 › Access Lists - CRUD Operations › Create Access List › should open create form when Create button clicked (3.1s)
+  ✓  169 [chromium] › tests/core/access-lists-crud.spec.ts:189:5 › Access Lists - CRUD Operations › Create Access List › should validate required name field (3.2s)
+  ✓  170 [chromium] › tests/core/access-lists-crud.spec.ts:214:5 › Access Lists - CRUD Operations › Create Access List › should create ACL with name only (IP whitelist) (3.6s)
+  ✓  171 [chromium] › tests/core/access-lists-crud.spec.ts:258:5 › Access Lists - CRUD Operations › Create Access List › should add client IP addresses (4.1s)
+  ✓  172 [chromium] › tests/core/access-lists-crud.spec.ts:293:5 › Access Lists - CRUD Operations › Create Access List › should add CIDR ranges (4.0s)
+  ✓  173 [chromium] › tests/core/access-lists-crud.spec.ts:326:5 › Access Lists - CRUD Operations › Create Access List › should select blacklist type (3.1s)
+  ✓  174 [chromium] › tests/core/access-lists-crud.spec.ts:353:5 › Access Lists - CRUD Operations › Create Access List › should select geo-blacklist type and add countries (3.1s)
+  ✓  175 [chromium] › tests/core/access-lists-crud.spec.ts:386:5 › Access Lists - CRUD Operations › Create Access List › should toggle enabled/disabled state (3.0s)
+  ✓  176 [chromium] › tests/core/access-lists-crud.spec.ts:408:5 › Access Lists - CRUD Operations › Create Access List › should show success toast on creation (3.1s)
+  ✓  177 [chromium] › tests/core/access-lists-crud.spec.ts:433:5 › Access Lists - CRUD Operations › Create Access List › should show security presets for blacklist type (3.1s)
+  ✓  178 [chromium] › tests/core/access-lists-crud.spec.ts:465:5 › Access Lists - CRUD Operations › Create Access List › should have Get My IP button (2.9s)
+  ✓  179 [chromium] › tests/core/access-lists-crud.spec.ts:489:5 › Access Lists - CRUD Operations › Update Access List › should open edit form with existing values (1.9s)
+  ✓  180 [chromium] › tests/core/access-lists-crud.spec.ts:513:5 › Access Lists - CRUD Operations › Update Access List › should update ACL name (2.0s)
+  ✓  181 [chromium] › tests/core/access-lists-crud.spec.ts:542:5 › Access Lists - CRUD Operations › Update Access List › should add/remove client IPs (2.0s)
+  ✓  182 [chromium] › tests/core/access-lists-crud.spec.ts:571:5 › Access Lists - CRUD Operations › Update Access List › should toggle ACL type (1.9s)
+  ✓  183 [chromium] › tests/core/access-lists-crud.spec.ts:596:5 › Access Lists - CRUD Operations › Update Access List › should show success toast on update (1.8s)
+  ✓  184 [chromium] › tests/core/access-lists-crud.spec.ts:622:5 › Access Lists - CRUD Operations › Delete Access List › should show delete confirmation dialog (2.3s)
+  ✓  185 [chromium] › tests/core/access-lists-crud.spec.ts:650:5 › Access Lists - CRUD Operations › Delete Access List › should cancel delete when confirmation dismissed (2.8s)
+  ✓  186 [chromium] › tests/core/access-lists-crud.spec.ts:675:5 › Access Lists - CRUD Operations › Delete Access List › should show delete confirmation with ACL name (3.6s)
+  ✓  187 [chromium] › tests/core/access-lists-crud.spec.ts:696:5 › Access Lists - CRUD Operations › Delete Access List › should create backup before deletion (3.0s)
+  ✓  188 [chromium] › tests/core/access-lists-crud.spec.ts:718:5 › Access Lists - CRUD Operations › Delete Access List › should delete from edit form (2.2s)
+  ✓  189 [chromium] › tests/core/access-lists-crud.spec.ts:740:5 › Access Lists - CRUD Operations › Test IP Functionality › should open Test IP dialog (2.3s)
+  ✓  190 [chromium] › tests/core/access-lists-crud.spec.ts:765:5 › Access Lists - CRUD Operations › Test IP Functionality › should have IP input field in test dialog (2.2s)
+  ✓  191 [chromium] › tests/core/access-lists-crud.spec.ts:793:5 › Access Lists - CRUD Operations › Bulk Operations › should show row selection checkboxes (2.1s)
+  ✓  192 [chromium] › tests/core/access-lists-crud.spec.ts:817:5 › Access Lists - CRUD Operations › Bulk Operations › should show bulk delete button when items selected (2.2s)
+  ✓  193 [chromium] › tests/core/access-lists-crud.spec.ts:838:5 › Access Lists - CRUD Operations › ACL Integration with Proxy Hosts › should navigate between Access Lists and Proxy Hosts (3.0s)
+  ✓  194 [chromium] › tests/core/access-lists-crud.spec.ts:860:5 › Access Lists - CRUD Operations › Form Validation › should reject empty name (3.0s)
+  ✓  195 [chromium] › tests/core/access-lists-crud.spec.ts:877:5 › Access Lists - CRUD Operations › Form Validation › should handle special characters in name (3.0s)
+  ✓  197 [chromium] › tests/core/access-lists-crud.spec.ts:921:5 › Access Lists - CRUD Operations › CGNAT Warning › should show CGNAT warning when ACLs exist (1.9s)
+  ✓  196 [chromium] › tests/core/access-lists-crud.spec.ts:894:5 › Access Lists - CRUD Operations › Form Validation › should validate CIDR format (3.6s)
+  ✓  198 [chromium] › tests/core/access-lists-crud.spec.ts:938:5 › Access Lists - CRUD Operations › CGNAT Warning › should be dismissible (1.7s)
+  ✓  199 [chromium] › tests/core/access-lists-crud.spec.ts:954:5 › Access Lists - CRUD Operations › Best Practices Link › should show Best Practices button (2.4s)
+  ✓  200 [chromium] › tests/core/access-lists-crud.spec.ts:961:5 › Access Lists - CRUD Operations › Best Practices Link › should have external link to documentation (2.2s)
+  ✓  201 [chromium] › tests/core/access-lists-crud.spec.ts:975:5 › Access Lists - CRUD Operations › Form Accessibility › should have accessible form labels (3.2s)
+  ✓  202 [chromium] › tests/core/access-lists-crud.spec.ts:989:5 › Access Lists - CRUD Operations › Form Accessibility › should be keyboard navigable (3.2s)
+  ✓  203 [chromium] › tests/core/access-lists-crud.spec.ts:1011:5 › Access Lists - CRUD Operations › Local Network Only Mode › should toggle local network only (RFC1918) (3.1s)
+  ✓  204 [chromium] › tests/core/access-lists-crud.spec.ts:1029:5 › Access Lists - CRUD Operations › Local Network Only Mode › should hide IP rules when local network only is enabled (3.0s)
+  ✓  205 [chromium] › tests/core/authentication.spec.ts:28:5 › Authentication Flows › Login with Valid Credentials › should login with valid credentials and redirect to dashboard (1.5s)
+  ✓  206 [chromium] › tests/core/authentication.spec.ts:60:5 › Authentication Flows › Login with Valid Credentials › should show loading state during authentication (1.5s)
+  ✓  207 [chromium] › tests/core/authentication.spec.ts:85:5 › Authentication Flows › Login with Invalid Credentials › should show error message for wrong password (1.4s)
+  ✓  208 [chromium] › tests/core/authentication.spec.ts:111:5 › Authentication Flows › Login with Invalid Credentials › should show validation error for empty password (1.3s)
+  ✓  209 [chromium] › tests/core/authentication.spec.ts:137:5 › Authentication Flows › Login with Non-existent User › should show error message for non-existent user (1.1s)
+  ✓  210 [chromium] › tests/core/authentication.spec.ts:164:5 › Authentication Flows › Login with Non-existent User › should show validation error for invalid email format (1.3s)
+  ✓  211 [chromium] › tests/core/authentication.spec.ts:191:5 › Authentication Flows › Logout Functionality › should logout and redirect to login page (2.0s)
+  ✓  212 [chromium] › tests/core/authentication.spec.ts:215:5 › Authentication Flows › Logout Functionality › should clear authentication cookies on logout (1.7s)
+  ✓  213 [chromium] › tests/core/authentication.spec.ts:256:5 › Authentication Flows › Session Persistence › should maintain session after page refresh (2.2s)
+  ✓  214 [chromium] › tests/core/authentication.spec.ts:277:5 › Authentication Flows › Session Persistence › should maintain session when navigating between pages (2.2s)
+  ✓  215 [chromium] › tests/core/authentication.spec.ts:306:5 › Authentication Flows › Session Expiration Handling › should redirect to login when session expires (1.8s)
+  ✓  217 [chromium] › tests/core/authentication.spec.ts:380:5 › Authentication Flows › Authentication Accessibility › should be fully keyboard navigable (1.0s)
+  ✓  218 [chromium] › tests/core/authentication.spec.ts:409:5 › Authentication Flows › Authentication Accessibility › should have accessible form labels (906ms)
+  ✓  216 [chromium] › tests/core/authentication.spec.ts:332:5 › Authentication Flows › Session Expiration Handling › should handle 401 response gracefully (3.8s)
+  ✓  219 [chromium] › tests/core/authentication.spec.ts:431:5 › Authentication Flows › Authentication Accessibility › should announce errors to screen readers (1.1s)
+  ✓  220 [chromium] › tests/core/certificates.spec.ts:50:5 › SSL Certificates - CRUD Operations › List View › should display certificates page with title (2.3s)
+  ✓  221 [chromium] › tests/core/certificates.spec.ts:62:5 › SSL Certificates - CRUD Operations › List View › should show correct table columns (1.9s)
+  ✓  222 [chromium] › tests/core/certificates.spec.ts:84:5 › SSL Certificates - CRUD Operations › List View › should display empty state when no certificates exist (2.6s)
+  ✓  223 [chromium] › tests/core/certificates.spec.ts:98:5 › SSL Certificates - CRUD Operations › List View › should show loading spinner while fetching data (4.0s)
+  ✓  224 [chromium] › tests/core/certificates.spec.ts:113:5 › SSL Certificates - CRUD Operations › List View › should navigate to certificates from sidebar (1.9s)
+  ✓  225 [chromium] › tests/core/certificates.spec.ts:139:5 › SSL Certificates - CRUD Operations › List View › should display certificate details (name, domain, issuer, expiry) (1.9s)
+  ✓  226 [chromium] › tests/core/certificates.spec.ts:160:5 › SSL Certificates - CRUD Operations › List View › should show certificate status indicators (1.8s)
+  ✓  227 [chromium] › tests/core/certificates.spec.ts:171:5 › SSL Certificates - CRUD Operations › List View › should show staging badge for Let's Encrypt staging certificates (2.0s)
+  ✓  228 [chromium] › tests/core/certificates.spec.ts:184:5 › SSL Certificates - CRUD Operations › List View › should support sorting by name (2.0s)
+  ✓  229 [chromium] › tests/core/certificates.spec.ts:208:5 › SSL Certificates - CRUD Operations › List View › should support sorting by expiry date (2.1s)
+  ✓  230 [chromium] › tests/core/certificates.spec.ts:223:5 › SSL Certificates - CRUD Operations › List View › should show SSL info alert (2.0s)
+  ✓  231 [chromium] › tests/core/certificates.spec.ts:233:5 › SSL Certificates - CRUD Operations › Upload Custom Certificate › should open upload modal when Add Certificate clicked (2.9s)
+  ✓  232 [chromium] › tests/core/certificates.spec.ts:259:5 › SSL Certificates - CRUD Operations › Upload Custom Certificate › should have friendly name input field (2.8s)
+  ✓  233 [chromium] › tests/core/certificates.spec.ts:280:5 › SSL Certificates - CRUD Operations › Upload Custom Certificate › should have certificate file input (.pem, .crt, .cer) (2.9s)
+  ✓  234 [chromium] › tests/core/certificates.spec.ts:301:5 › SSL Certificates - CRUD Operations › Upload Custom Certificate › should have private key file input (.pem, .key) (3.0s)
+  ✓  235 [chromium] › tests/core/certificates.spec.ts:322:5 › SSL Certificates - CRUD Operations › Upload Custom Certificate › should validate required name field (3.3s)
+  ✓  236 [chromium] › tests/core/certificates.spec.ts:348:5 › SSL Certificates - CRUD Operations › Upload Custom Certificate › should require certificate file (3.2s)
+  ✓  238 [chromium] › tests/core/certificates.spec.ts:391:5 › SSL Certificates - CRUD Operations › Upload Custom Certificate › should show upload button with loading state (4.2s)
+  ✓  237 [chromium] › tests/core/certificates.spec.ts:373:5 › SSL Certificates - CRUD Operations › Upload Custom Certificate › should require private key file (4.5s)
+  ✓  239 [chromium] › tests/core/certificates.spec.ts:408:5 › SSL Certificates - CRUD Operations › Upload Custom Certificate › should close dialog when Cancel clicked (3.2s)
+  ✓  240 [chromium] › tests/core/certificates.spec.ts:421:5 › SSL Certificates - CRUD Operations › Upload Custom Certificate › should show proper file input styling (3.2s)
+  ✓  241 [chromium] › tests/core/certificates.spec.ts:445:5 › SSL Certificates - CRUD Operations › Certificate Details › should display certificate domain in table (2.2s)
+  ✓  242 [chromium] › tests/core/certificates.spec.ts:464:5 › SSL Certificates - CRUD Operations › Certificate Details › should display certificate issuer (2.3s)
+  ✓  243 [chromium] › tests/core/certificates.spec.ts:482:5 › SSL Certificates - CRUD Operations › Certificate Details › should display expiry date (2.1s)
+  ✓  244 [chromium] › tests/core/certificates.spec.ts:504:5 › SSL Certificates - CRUD Operations › Certificate Details › should show valid status for non-expired certificates (2.1s)
+  ✓  245 [chromium] › tests/core/certificates.spec.ts:518:5 › SSL Certificates - CRUD Operations › Certificate Details › should show expiring status for certificates near expiry (2.0s)
+  ✓  246 [chromium] › tests/core/certificates.spec.ts:532:5 › SSL Certificates - CRUD Operations › Certificate Details › should show expired status for expired certificates (2.0s)
+  ✓  247 [chromium] › tests/core/certificates.spec.ts:546:5 › SSL Certificates - CRUD Operations › Certificate Details › should show untrusted status for staging certificates (2.2s)
+  ✓  248 [chromium] › tests/core/certificates.spec.ts:562:5 › SSL Certificates - CRUD Operations › Delete Certificate › should show delete button for custom certificates (2.3s)
+  ✓  249 [chromium] › tests/core/certificates.spec.ts:572:5 › SSL Certificates - CRUD Operations › Delete Certificate › should show delete button for staging certificates (2.4s)
+  ✓  250 [chromium] › tests/core/certificates.spec.ts:587:5 › SSL Certificates - CRUD Operations › Delete Certificate › should show delete confirmation dialog (2.3s)
+  ✓  251 [chromium] › tests/core/certificates.spec.ts:605:5 › SSL Certificates - CRUD Operations › Delete Certificate › should warn if certificate is in use by proxy host (2.3s)
+  ✓  252 [chromium] › tests/core/certificates.spec.ts:627:5 › SSL Certificates - CRUD Operations › Delete Certificate › should cancel delete when confirmation dismissed (2.3s)
+  ✓  254 [chromium] › tests/core/certificates.spec.ts:669:5 › SSL Certificates - CRUD Operations › Delete Certificate › should show config reload overlay during deletion (2.1s)
+  ✓  253 [chromium] › tests/core/certificates.spec.ts:651:5 › SSL Certificates - CRUD Operations › Delete Certificate › should create backup before deletion (2.3s)
+  ✓  255 [chromium] › tests/core/certificates.spec.ts:690:5 › SSL Certificates - CRUD Operations › Certificate Renewal › should show renewal warning for expiring certificates (2.4s)
+  ✓  256 [chromium] › tests/core/certificates.spec.ts:703:5 › SSL Certificates - CRUD Operations › Certificate Renewal › should show Let's Encrypt auto-renewal info (2.4s)
+  ✓  258 [chromium] › tests/core/certificates.spec.ts:734:5 › SSL Certificates - CRUD Operations › Form Validation › should handle special characters in name (3.2s)
+  ✓  257 [chromium] › tests/core/certificates.spec.ts:718:5 › SSL Certificates - CRUD Operations › Form Validation › should reject empty friendly name (3.3s)
+  ✓  260 [chromium] › tests/core/certificates.spec.ts:770:5 › SSL Certificates - CRUD Operations › Form Accessibility › should have accessible form labels (3.1s)
+  ✓  259 [chromium] › tests/core/certificates.spec.ts:753:5 › SSL Certificates - CRUD Operations › Form Validation › should show placeholder text in name input (3.1s)
+  ✓  261 [chromium] › tests/core/certificates.spec.ts:788:5 › SSL Certificates - CRUD Operations › Form Accessibility › should be keyboard navigable (3.1s)
+  ✓  262 [chromium] › tests/core/certificates.spec.ts:807:5 › SSL Certificates - CRUD Operations › Form Accessibility › should close dialog on Escape key (3.3s)
+  ✓  263 [chromium] › tests/core/certificates.spec.ts:822:5 › SSL Certificates - CRUD Operations › Form Accessibility › should have proper dialog role (2.8s)
+  ✓  264 [chromium] › tests/core/certificates.spec.ts:834:5 › SSL Certificates - CRUD Operations › Form Accessibility › should have dialog title in heading (2.8s)
+  ✓  265 [chromium] › tests/core/certificates.spec.ts:849:5 › SSL Certificates - CRUD Operations › Integration with Proxy Hosts › should show certificate usage in proxy hosts (2.7s)
+  ✓  266 [chromium] › tests/core/certificates.spec.ts:871:5 › SSL Certificates - CRUD Operations › Integration with Proxy Hosts › should navigate between Certificates and Proxy Hosts (3.1s)
+  ✓  267 [chromium] › tests/core/certificates.spec.ts:892:5 › SSL Certificates - CRUD Operations › Table Interactions › should highlight row on hover (2.0s)
+  ✓  268 [chromium] › tests/core/certificates.spec.ts:907:5 › SSL Certificates - CRUD Operations › Table Interactions › should display full table on wide screens (2.0s)
+  ✓  269 [chromium] › tests/core/certificates.spec.ts:923:5 › SSL Certificates - CRUD Operations › Table Interactions › should handle responsive layout (2.4s)
+  ✓  270 [chromium] › tests/core/certificates.spec.ts:939:5 › SSL Certificates - CRUD Operations › Error Handling › should show error message on API failure (1.9s)
+  ✓  272 [chromium] › tests/core/certificates.spec.ts:966:5 › SSL Certificates - CRUD Operations › Page Layout › should have PageShell with title and description (2.2s)
+  ✓  271 [chromium] › tests/core/certificates.spec.ts:950:5 › SSL Certificates - CRUD Operations › Error Handling › should show upload error on invalid certificate (2.8s)
+  ✓  273 [chromium] › tests/core/certificates.spec.ts:978:5 › SSL Certificates - CRUD Operations › Page Layout › should have action button in header (2.2s)
+  ✓  274 [chromium] › tests/core/certificates.spec.ts:990:5 › SSL Certificates - CRUD Operations › Page Layout › should have card container for table (2.1s)
+  ✓  275 [chromium] › tests/core/dashboard.spec.ts:29:5 › Dashboard › Dashboard Loads Successfully › should display main dashboard content area (2.1s)
+  ✓  276 [chromium] › tests/core/dashboard.spec.ts:48:5 › Dashboard › Dashboard Loads Successfully › should have proper page title (1.8s)
+  ✓  278 [chromium] › tests/core/dashboard.spec.ts:92:5 › Dashboard › Summary Cards Display Data › should display proxy hosts summary card (1.9s)
+  ✓  277 [chromium] › tests/core/dashboard.spec.ts:61:5 › Dashboard › Dashboard Loads Successfully › should display dashboard header with navigation (2.6s)
+  ✓  279 [chromium] › tests/core/dashboard.spec.ts:111:5 › Dashboard › Summary Cards Display Data › should display certificates summary card (1.9s)
+  ✓  280 [chromium] › tests/core/dashboard.spec.ts:130:5 › Dashboard › Summary Cards Display Data › should display numeric counts in summary cards (1.7s)
+  ✓  281 [chromium] › tests/core/dashboard.spec.ts:154:5 › Dashboard › Quick Action Buttons › should navigate to add proxy host when clicking quick action (1.9s)
+  ✓  282 [chromium] › tests/core/dashboard.spec.ts:181:5 › Dashboard › Quick Action Buttons › should navigate to add certificate when clicking quick action (1.9s)
+  ✓  283 [chromium] › tests/core/dashboard.spec.ts:207:5 › Dashboard › Quick Action Buttons › should make quick action buttons keyboard accessible (2.5s)
+  ✓  284 [chromium] › tests/core/dashboard.spec.ts:241:5 › Dashboard › Recent Activity › should display recent activity section (2.9s)
+  ✓  285 [chromium] › tests/core/dashboard.spec.ts:261:5 › Dashboard › Recent Activity › should display activity items with details (3.0s)
+  ✓  286 [chromium] › tests/core/dashboard.spec.ts:285:5 › Dashboard › System Status Indicators › should display system health status indicator (2.4s)
+  ✓  287 [chromium] › tests/core/dashboard.spec.ts:305:5 › Dashboard › System Status Indicators › should display database status (2.0s)
+  ✓  288 [chromium] › tests/core/dashboard.spec.ts:325:5 › Dashboard › System Status Indicators › should use appropriate status colors (2.2s)
+  ✓  289 [chromium] › tests/core/dashboard.spec.ts:354:5 › Dashboard › Empty State Handling › should display helpful empty state message (1.9s)
+  ✓  290 [chromium] › tests/core/dashboard.spec.ts:377:5 › Dashboard › Empty State Handling › should provide action button in empty state (1.8s)
+  ✓  291 [chromium] › tests/core/dashboard.spec.ts:396:5 › Dashboard › Dashboard Accessibility › should have proper heading hierarchy (2.3s)
+  ✓  292 [chromium] › tests/core/dashboard.spec.ts:426:5 › Dashboard › Dashboard Accessibility › should use semantic landmarks (2.2s)
+  ✓  293 [chromium] › tests/core/dashboard.spec.ts:446:5 › Dashboard › Dashboard Accessibility › should make summary cards keyboard accessible (2.2s)
+  ✓  294 [chromium] › tests/core/dashboard.spec.ts:484:5 › Dashboard › Dashboard Accessibility › should provide accessible text for status indicators (2.1s)
+  ✓  295 [chromium] › tests/core/dashboard.spec.ts:509:5 › Dashboard › Dashboard Performance › should load dashboard within 5 seconds (1.8s)
+  ✓  296 [chromium] › tests/core/dashboard.spec.ts:526:5 › Dashboard › Dashboard Performance › should not have console errors on load (1.8s)
+  ✓  297 [chromium] › tests/core/navigation.spec.ts:28:5 › Navigation › Main Menu Items › should display all main navigation items (2.4s)
+  ✓  298 [chromium] › tests/core/navigation.spec.ts:62:5 › Navigation › Main Menu Items › should navigate to Proxy Hosts page (2.4s)
+  ✓  300 [chromium] › tests/core/navigation.spec.ts:110:5 › Navigation › Main Menu Items › should navigate to Access Lists page (1.8s)
+  ✓  299 [chromium] › tests/core/navigation.spec.ts:87:5 › Navigation › Main Menu Items › should navigate to Certificates page (1.9s)
+  ✓  301 [chromium] › tests/core/navigation.spec.ts:133:5 › Navigation › Main Menu Items › should navigate to Settings page (2.2s)
+  ✓  302 [chromium] › tests/core/navigation.spec.ts:158:5 › Navigation › Sidebar Navigation › should expand and collapse sidebar sections (2.1s)
+  ✓  303 [chromium] › tests/core/navigation.spec.ts:183:5 › Navigation › Sidebar Navigation › should highlight active navigation item (1.9s)
+  ✓  304 [chromium] › tests/core/navigation.spec.ts:215:5 › Navigation › Sidebar Navigation › should maintain sidebar state across page navigation (2.1s)
+  ✓  305 [chromium] › tests/core/navigation.spec.ts:242:5 › Navigation › Breadcrumbs › should display breadcrumbs with correct path (2.0s)
+  ✓  306 [chromium] › tests/core/navigation.spec.ts:268:5 › Navigation › Breadcrumbs › should navigate when clicking breadcrumb links (1.9s)
+  ✓  308 [chromium] › tests/core/navigation.spec.ts:312:5 › Navigation › Deep Links › should handle deep link to specific resource (1.6s)
+  ✓  307 [chromium] › tests/core/navigation.spec.ts:297:5 › Navigation › Deep Links › should resolve direct URL to proxy hosts page (2.0s)
+  ✓  309 [chromium] › tests/core/navigation.spec.ts:338:5 › Navigation › Deep Links › should handle invalid deep links gracefully (1.6s)
+  ✓  310 [chromium] › tests/core/navigation.spec.ts:370:5 › Navigation › Back Button Navigation › should navigate back with browser back button (2.4s)
+  ✓  311 [chromium] › tests/core/navigation.spec.ts:392:5 › Navigation › Back Button Navigation › should navigate forward after going back (2.8s)
+  ✓  312 [chromium] › tests/core/navigation.spec.ts:416:5 › Navigation › Back Button Navigation › should warn about unsaved changes when navigating back (1.9s)
+  ✓  313 [chromium] › tests/core/navigation.spec.ts:458:5 › Navigation › Keyboard Navigation › should tab through menu items (2.0s)
+  ✓  314 [chromium] › tests/core/navigation.spec.ts:489:5 › Navigation › Keyboard Navigation › should activate menu item with Enter key (2.0s)
+  ✓  315 [chromium] › tests/core/navigation.spec.ts:532:5 › Navigation › Keyboard Navigation › should close dropdown menus with Escape key (1.9s)
+  -  317 [chromium] › tests/core/navigation.spec.ts:597:10 › Navigation › Keyboard Navigation › should have skip to main content link
+  ✓  316 [chromium] › tests/core/navigation.spec.ts:560:5 › Navigation › Keyboard Navigation › should navigate menu with arrow keys (1.9s)
+  ✓  319 [chromium] › tests/core/navigation.spec.ts:633:5 › Navigation › Navigation Accessibility › should have accessible names for all navigation items (1.9s)
+  ✓  318 [chromium] › tests/core/navigation.spec.ts:620:5 › Navigation › Navigation Accessibility › should have navigation landmark role (2.2s)
+  ✓  321 [chromium] › tests/core/navigation.spec.ts:683:5 › Navigation › Navigation Accessibility › should show visible focus indicator (1.9s)
+  ✓  320 [chromium] › tests/core/navigation.spec.ts:655:5 › Navigation › Navigation Accessibility › should indicate current page with aria-current (2.0s)
+  ✓  322 [chromium] › tests/core/navigation.spec.ts:711:5 › Navigation › Responsive Navigation › should toggle mobile menu (2.1s)
+  ✓  323 [chromium] › tests/core/navigation.spec.ts:746:5 › Navigation › Responsive Navigation › should adapt navigation to screen size (2.4s)
+  ✓  324 [chromium] › tests/core/proxy-hosts.spec.ts:55:5 › Proxy Hosts - CRUD Operations › List View › should display proxy hosts page with title (2.2s)
+  ✓  325 [chromium] › tests/core/proxy-hosts.spec.ts:67:5 › Proxy Hosts - CRUD Operations › List View › should show correct table columns (2.0s)
+  ✓  326 [chromium] › tests/core/proxy-hosts.spec.ts:91:5 › Proxy Hosts - CRUD Operations › List View › should display empty state when no hosts exist (2.9s)
+  ✓  327 [chromium] › tests/core/proxy-hosts.spec.ts:114:5 › Proxy Hosts - CRUD Operations › List View › should show loading skeleton while fetching data (4.3s)
+  ✓  328 [chromium] › tests/core/proxy-hosts.spec.ts:132:5 › Proxy Hosts - CRUD Operations › List View › should support row selection for bulk operations (1.9s)
+  ✓  329 [chromium] › tests/core/proxy-hosts.spec.ts:157:5 › Proxy Hosts - CRUD Operations › Create Proxy Host › should open create modal when Add button clicked (2.5s)
+  ✓  330 [chromium] › tests/core/proxy-hosts.spec.ts:174:5 › Proxy Hosts - CRUD Operations › Create Proxy Host › should validate required fields (3.1s)
+  ✓  331 [chromium] › tests/core/proxy-hosts.spec.ts:200:5 › Proxy Hosts - CRUD Operations › Create Proxy Host › should validate domain format (3.0s)
+  ✓  332 [chromium] › tests/core/proxy-hosts.spec.ts:219:5 › Proxy Hosts - CRUD Operations › Create Proxy Host › should validate port number range (1-65535) (3.1s)
+  ✓  334 [chromium] › tests/core/proxy-hosts.spec.ts:351:5 › Proxy Hosts - CRUD Operations › Create Proxy Host › should create proxy host with SSL enabled (3.3s)
+  ✓  333 [chromium] › tests/core/proxy-hosts.spec.ts:253:5 › Proxy Hosts - CRUD Operations › Create Proxy Host › should create proxy host with minimal config (4.5s)
+  ✓  336 [chromium] › tests/core/proxy-hosts.spec.ts:437:5 › Proxy Hosts - CRUD Operations › Create Proxy Host › should show form with all security options (4.0s)
+  ✓  335 [chromium] › tests/core/proxy-hosts.spec.ts:399:5 › Proxy Hosts - CRUD Operations › Create Proxy Host › should create proxy host with WebSocket support (5.1s)
+  ✓  337 [chromium] › tests/core/proxy-hosts.spec.ts:464:5 › Proxy Hosts - CRUD Operations › Create Proxy Host › should show application preset selector (3.4s)
+  ✓  338 [chromium] › tests/core/proxy-hosts.spec.ts:488:5 › Proxy Hosts - CRUD Operations › Create Proxy Host › should show test connection button (3.3s)
+  ✓  339 [chromium] › tests/core/proxy-hosts.spec.ts:519:5 › Proxy Hosts - CRUD Operations › Read/View Proxy Host › should display host details in table row (2.0s)
+  ✓  340 [chromium] › tests/core/proxy-hosts.spec.ts:542:5 › Proxy Hosts - CRUD Operations › Read/View Proxy Host › should show SSL badge for HTTPS hosts (2.0s)
+  ✓  341 [chromium] › tests/core/proxy-hosts.spec.ts:553:5 › Proxy Hosts - CRUD Operations › Read/View Proxy Host › should show status toggle for enabling/disabling hosts (2.3s)
+  ✓  342 [chromium] › tests/core/proxy-hosts.spec.ts:567:5 › Proxy Hosts - CRUD Operations › Read/View Proxy Host › should show feature badges (WebSocket, ACL) (2.2s)
+  ✓  343 [chromium] › tests/core/proxy-hosts.spec.ts:581:5 › Proxy Hosts - CRUD Operations › Read/View Proxy Host › should have clickable domain links (2.1s)
+  ✓  344 [chromium] › tests/core/proxy-hosts.spec.ts:598:5 › Proxy Hosts - CRUD Operations › Update Proxy Host › should open edit modal with existing values (2.0s)
+  ✓  345 [chromium] › tests/core/proxy-hosts.spec.ts:622:5 › Proxy Hosts - CRUD Operations › Update Proxy Host › should update domain name (2.2s)
+  ✓  346 [chromium] › tests/core/proxy-hosts.spec.ts:648:5 › Proxy Hosts - CRUD Operations › Update Proxy Host › should toggle SSL settings (2.1s)
+  ✓  347 [chromium] › tests/core/proxy-hosts.spec.ts:676:5 › Proxy Hosts - CRUD Operations › Update Proxy Host › should update forward host and port (2.1s)
+  ✓  348 [chromium] › tests/core/proxy-hosts.spec.ts:705:5 › Proxy Hosts - CRUD Operations › Update Proxy Host › should toggle host enabled/disabled from list (1.9s)
+  ✓  349 [chromium] › tests/core/proxy-hosts.spec.ts:726:5 › Proxy Hosts - CRUD Operations › Delete Proxy Host › should show confirmation dialog before delete (1.9s)
+  ✓  350 [chromium] › tests/core/proxy-hosts.spec.ts:759:5 › Proxy Hosts - CRUD Operations › Delete Proxy Host › should cancel delete when confirmation dismissed (1.9s)
+  ✓  351 [chromium] › tests/core/proxy-hosts.spec.ts:785:5 › Proxy Hosts - CRUD Operations › Delete Proxy Host › should show delete confirmation with host name (2.3s)
+  ✓  352 [chromium] › tests/core/proxy-hosts.spec.ts:809:5 › Proxy Hosts - CRUD Operations › Bulk Operations › should show bulk action bar when hosts are selected (2.2s)
+  ✓  353 [chromium] › tests/core/proxy-hosts.spec.ts:838:5 › Proxy Hosts - CRUD Operations › Bulk Operations › should open bulk apply settings modal (2.3s)
+  ✓  354 [chromium] › tests/core/proxy-hosts.spec.ts:868:5 › Proxy Hosts - CRUD Operations › Bulk Operations › should open bulk ACL modal (2.3s)
+  ✓  355 [chromium] › tests/core/proxy-hosts.spec.ts:909:5 › Proxy Hosts - CRUD Operations › Form Accessibility › should have accessible form labels (3.2s)
+  ✓  356 [chromium] › tests/core/proxy-hosts.spec.ts:926:5 › Proxy Hosts - CRUD Operations › Form Accessibility › should be keyboard navigable (3.3s)
+  ✓  357 [chromium] › tests/core/proxy-hosts.spec.ts:954:5 › Proxy Hosts - CRUD Operations › Docker Integration › should show Docker container selector when source is selected (3.2s)
+  ✓  358 [chromium] › tests/core/proxy-hosts.spec.ts:973:5 › Proxy Hosts - CRUD Operations › Docker Integration › should show containers dropdown when Docker source selected (3.2s)
+Type select found: [33mtrue[39m
+API Response: [33m201[39m {"uuid":"a10dd38a-df28-44bf-b9a5-ca6561bebb0c","name":"Test Manual Provider","provider_type":"manual","enabled":true,"is_default":false,"use_multi_credentials":false,"key_version":1,"propagation_timeout":120,"polling_interval":5,"success_count":0,"failure_count":0,"created_at":"2026-01-29T08:36:31.277876631Z","updated_at":"2026-01-29T08:36:31.277876631Z","has_credentials":true}
+Number of options: [33m14[39m
+  Option 0: Azure DNS
+  Option 1: Cloudflare
+  Option 2: DigitalOcean
+  Option 3: DNSimple
+  Option 4: GoDaddy
+  Option 5: Google Cloud DNS
+  Option 6: Hetzner
+  Option 7: Manual (No Automation)
+  Option 8: Namecheap
+  Option 9: RFC 2136 (Dynamic DNS)
+  Option 10: AWS Route53
+  Option 11: Script (Shell)
+  Option 12: Vultr
+  Option 13: Webhook (HTTP)
+Selected Webhook option
+  ✓  359 [chromium] › tests/dns-provider-crud.spec.ts:17:5 › DNS Provider CRUD Operations › Create Provider › should create a Manual DNS provider (3.1s)
+Filled Create URL input
+Filled Delete URL input
+Create button enabled: [33mtrue[39m
+Clicked Create button
+Webhook create API Response: [33m201[39m {"uuid":"88731f3a-2493-4e62-bc06-4394645997b2","name":"Test Webhook Provider","provider_type":"webhook","enabled":true,"is_default":false,"use_multi_credentials":false,"key_version":1,"propagation_timeout":120,"polling_interval":5,"success_count":0,"failure_count":0,"created_at":"2026-01-29T08:36:33.560419374Z","updated_at":"2026-01-29T08:36:33.560419374Z","has_credentials":true}
+Dialog closed: [33mtrue[39m
+Success toast visible: [33mtrue[39m
+  ✓  360 [chromium] › tests/dns-provider-crud.spec.ts:81:5 › DNS Provider CRUD Operations › Create Provider › should create a Webhook DNS provider (4.2s)
+  ✓  361 [chromium] › tests/dns-provider-crud.spec.ts:223:5 › DNS Provider CRUD Operations › Create Provider › should show validation errors for missing required fields (1.5s)
+Add button count: [33m1[39m
+Page URL: http://localhost:8080/dns/providers
+  ✓  363 [chromium] › tests/dns-provider-crud.spec.ts:274:5 › DNS Provider CRUD Operations › Provider List › should display provider list or empty state (2.1s)
+  ✓  364 [chromium] › tests/dns-provider-crud.spec.ts:303:5 › DNS Provider CRUD Operations › Provider List › should show Add Provider button (1.1s)
+  ✓  365 [chromium] › tests/dns-provider-crud.spec.ts:312:5 › DNS Provider CRUD Operations › Provider List › should show provider details in list (755ms)
+  ✓  362 [chromium] › tests/dns-provider-crud.spec.ts:244:5 › DNS Provider CRUD Operations › Create Provider › should validate webhook URL format (4.9s)
+  -  366 [chromium] › tests/dns-provider-crud.spec.ts:339:5 › DNS Provider CRUD Operations › Edit Provider › should open edit dialog for existing provider
+  -  367 [chromium] › tests/dns-provider-crud.spec.ts:368:5 › DNS Provider CRUD Operations › Edit Provider › should update provider name
+  ✓  369 [chromium] › tests/dns-provider-crud.spec.ts:454:5 › DNS Provider CRUD Operations › API Operations › should list providers via API (16ms)
+  ✓  370 [chromium] › tests/dns-provider-crud.spec.ts:463:5 › DNS Provider CRUD Operations › API Operations › should create provider via API (7ms)
+  ✓  371 [chromium] › tests/dns-provider-crud.spec.ts:487:5 › DNS Provider CRUD Operations › API Operations › should reject invalid provider type via API (9ms)
+  ✓  372 [chromium] › tests/dns-provider-crud.spec.ts:499:5 › DNS Provider CRUD Operations › API Operations › should get single provider via API (7ms)
+  -  368 [chromium] › tests/dns-provider-crud.spec.ts:417:5 › DNS Provider CRUD Operations › Delete Provider › should show delete confirmation dialog
+  ✓  373 [chromium] › tests/dns-provider-crud.spec.ts:527:3 › DNS Provider Form Accessibility › should have accessible form labels (1.5s)
+  ✓  374 [chromium] › tests/dns-provider-crud.spec.ts:544:3 › DNS Provider Form Accessibility › should support keyboard navigation in form (1.5s)
+  ✓  376 [chromium] › tests/dns-provider-types.spec.ts:15:5 › DNS Provider Types › API: /api/v1/dns-providers/types › should return all provider types including built-in and custom (16ms)
+  ✓  377 [chromium] › tests/dns-provider-types.spec.ts:36:5 › DNS Provider Types › API: /api/v1/dns-providers/types › each provider type should have required fields (50ms)
+  ✓  378 [chromium] › tests/dns-provider-types.spec.ts:49:5 › DNS Provider Types › API: /api/v1/dns-providers/types › manual provider type should have correct configuration (12ms)
+  ✓  379 [chromium] › tests/dns-provider-types.spec.ts:62:5 › DNS Provider Types › API: /api/v1/dns-providers/types › webhook provider type should have url field (12ms)
+  ✓  380 [chromium] › tests/dns-provider-types.spec.ts:75:5 › DNS Provider Types › API: /api/v1/dns-providers/types › rfc2136 provider type should have server and key fields (9ms)
+  ✓  381 [chromium] › tests/dns-provider-types.spec.ts:88:5 › DNS Provider Types › API: /api/v1/dns-providers/types › script provider type should have command/path field (10ms)
+  ✓  375 [chromium] › tests/dns-provider-crud.spec.ts:573:3 › DNS Provider Form Accessibility › should announce errors to screen readers (1.8s)
+  ✓  382 [chromium] › tests/dns-provider-types.spec.ts:105:5 › DNS Provider Types › UI: Provider Selector › should show all provider types in dropdown (1.7s)
+  ✓  383 [chromium] › tests/dns-provider-types.spec.ts:132:5 › DNS Provider Types › UI: Provider Selector › should display provider description in selector (1.7s)
+  ✓  384 [chromium] › tests/dns-provider-types.spec.ts:149:5 › DNS Provider Types › UI: Provider Selector › should filter provider types based on search (1.8s)
+  ✓  385 [chromium] › tests/dns-provider-types.spec.ts:179:5 › DNS Provider Types › Provider Type Selection › should show correct fields when Manual type is selected (1.8s)
+  ✓  386 [chromium] › tests/dns-provider-types.spec.ts:202:5 › DNS Provider Types › Provider Type Selection › should show URL field when Webhook type is selected (2.3s)
+  ✓  387 [chromium] › tests/dns-provider-types.spec.ts:223:5 › DNS Provider Types › Provider Type Selection › should show server field when RFC2136 type is selected (2.2s)
+🧪 Testing emergency server health endpoint...
+  ✓ Health endpoint responded successfully
+  ✓ Server type: emergency
+✅ Test 1 passed: Emergency server health endpoint works
+  ✓  389 [chromium] › tests/emergency-server/emergency-server.spec.ts:67:3 › Emergency Server (Tier 2 Break Glass) › Test 1: Emergency server health endpoint (21ms)
+🧪 Testing emergency server Basic Auth requirement...
+  ✓ Request without auth properly rejected (401)
+  ✓ Request with valid auth succeeded
+✅ Test 2 passed: Basic Auth properly enforced
+  ✓  390 [chromium] › tests/emergency-server/emergency-server.spec.ts:100:3 › Emergency Server (Tier 2 Break Glass) › Test 2: Emergency server requires Basic Auth (22ms)
+🧪 Testing emergency server security bypass...
+  ✓  388 [chromium] › tests/dns-provider-types.spec.ts:250:5 › DNS Provider Types › Provider Type Selection › should show script path field when Script type is selected (1.8s)
+🔍 Checking tier-2 server health before tests...
+✅ Tier-2 server is healthy
+  ✓  392 [chromium] › tests/emergency-server/tier2-validation.spec.ts:68:3 › Break Glass - Tier 2 (Emergency Server) › should access emergency server health endpoint without ACL blocking (18ms)
+  ✓  393 [chromium] › tests/emergency-server/tier2-validation.spec.ts:90:3 › Break Glass - Tier 2 (Emergency Server) › should reset security via emergency server (bypasses Caddy layer) (14ms)
+  ✓  394 [chromium] › tests/emergency-server/tier2-validation.spec.ts:113:3 › Break Glass - Tier 2 (Emergency Server) › should validate defense in depth - both tiers work independently (2.0s)
+  ✓  395 [chromium] › tests/emergency-server/tier2-validation.spec.ts:146:3 › Break Glass - Tier 2 (Emergency Server) › should enforce Basic Auth on emergency server (8ms)
+  ✓  396 [chromium] › tests/emergency-server/tier2-validation.spec.ts:162:3 › Break Glass - Tier 2 (Emergency Server) › should reject invalid emergency token on Tier 2 (7ms)
+  ✓  397 [chromium] › tests/emergency-server/tier2-validation.spec.ts:178:3 › Break Glass - Tier 2 (Emergency Server) › should rate limit emergency server requests (lenient in test mode) (57ms)
+  ✓  398 [chromium] › tests/emergency-server/tier2-validation.spec.ts:199:3 › Break Glass - Tier 2 (Emergency Server) › should provide independent access even when main app is blocking (13ms)
+  ✘  391 [chromium] › tests/emergency-server/emergency-server.spec.ts:150:3 › Emergency Server (Tier 2 Break Glass) › Test 3: Emergency server bypasses main app security (3.1s)
+  -  400 [chromium] › tests/emergency-server/emergency-server.spec.ts:219:3 › Emergency Server (Tier 2 Break Glass) › Test 4: Emergency server security reset works
+  -  401 [chromium] › tests/emergency-server/emergency-server.spec.ts:284:3 › Emergency Server (Tier 2 Break Glass) › Test 5: Emergency server minimal middleware (validation)
+  ✓  399 [chromium] › tests/example.spec.js:4:1 › has title (959ms)
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+  ✓  402 [chromium] › tests/integration/backup-restore-e2e.spec.ts:80:5 › Backup & Restore E2E › Group A: Backup Creation › should display backup list page (2.2s)
+  ✓  403 [chromium] › tests/example.spec.js:11:1 › get started link (1.2s)
+  ✓  405 [chromium] › tests/integration/backup-restore-e2e.spec.ts:128:5 › Backup & Restore E2E › Group A: Backup Creation › should create backup with configuration only (2.4s)
+  ✓  404 [chromium] › tests/integration/backup-restore-e2e.spec.ts:97:5 › Backup & Restore E2E › Group A: Backup Creation › should create manual backup via API (3.6s)
+  ✓  406 [chromium] › tests/integration/backup-restore-e2e.spec.ts:144:5 › Backup & Restore E2E › Group A: Backup Creation › should create backup with all data included (2.4s)
+  ✓  407 [chromium] › tests/integration/backup-restore-e2e.spec.ts:177:5 › Backup & Restore E2E › Group A: Backup Creation › should show backup creation progress (2.5s)
+  ✓  408 [chromium] › tests/integration/backup-restore-e2e.spec.ts:198:5 › Backup & Restore E2E › Group B: Backup Scheduling › should display backup schedule settings (3.5s)
+  ✓  409 [chromium] › tests/integration/backup-restore-e2e.spec.ts:214:5 › Backup & Restore E2E › Group B: Backup Scheduling › should configure daily backup schedule (3.4s)
+  ✓  410 [chromium] › tests/integration/backup-restore-e2e.spec.ts:230:5 › Backup & Restore E2E › Group B: Backup Scheduling › should configure weekly backup schedule (2.4s)
+  ✓  411 [chromium] › tests/integration/backup-restore-e2e.spec.ts:246:5 › Backup & Restore E2E › Group B: Backup Scheduling › should set backup retention policy (2.3s)
+  ✓  412 [chromium] › tests/integration/backup-restore-e2e.spec.ts:267:5 › Backup & Restore E2E › Group C: Restore Operations › should display restore options for backup (2.3s)
+  ✓  413 [chromium] › tests/integration/backup-restore-e2e.spec.ts:283:5 › Backup & Restore E2E › Group C: Restore Operations › should restore proxy hosts from backup (2.9s)
+  ✓  414 [chromium] › tests/integration/backup-restore-e2e.spec.ts:310:5 › Backup & Restore E2E › Group C: Restore Operations › should restore access lists from backup (2.9s)
+  ✓  415 [chromium] › tests/integration/backup-restore-e2e.spec.ts:337:5 › Backup & Restore E2E › Group C: Restore Operations › should show restore confirmation warning (2.3s)
+  ✓  416 [chromium] › tests/integration/backup-restore-e2e.spec.ts:353:5 › Backup & Restore E2E › Group C: Restore Operations › should perform full system restore (2.8s)
+  ✓  417 [chromium] › tests/integration/backup-restore-e2e.spec.ts:393:5 › Backup & Restore E2E › Group D: Backup Verification › should display backup details (2.3s)
+  ✓  418 [chromium] › tests/integration/backup-restore-e2e.spec.ts:409:5 › Backup & Restore E2E › Group D: Backup Verification › should verify backup integrity (2.1s)
+  ✓  419 [chromium] › tests/integration/backup-restore-e2e.spec.ts:425:5 › Backup & Restore E2E › Group D: Backup Verification › should download backup file (2.1s)
+  ✓  420 [chromium] › tests/integration/backup-restore-e2e.spec.ts:441:5 › Backup & Restore E2E › Group D: Backup Verification › should show backup size and date (2.2s)
+  ✓  421 [chromium] › tests/integration/backup-restore-e2e.spec.ts:462:5 › Backup & Restore E2E › Group E: Error Handling › should handle backup creation failure gracefully (2.1s)
+  ✓  423 [chromium] › tests/integration/backup-restore-e2e.spec.ts:494:5 › Backup & Restore E2E › Group E: Error Handling › should handle corrupted backup file (2.2s)
+  ✓  422 [chromium] › tests/integration/backup-restore-e2e.spec.ts:478:5 › Backup & Restore E2E › Group E: Error Handling › should handle restore failure gracefully (2.3s)
+  ✓  424 [chromium] › tests/integration/backup-restore-e2e.spec.ts:510:5 › Backup & Restore E2E › Group E: Error Handling › should handle insufficient storage during backup (2.2s)
+  ✓  425 [chromium] › tests/integration/import-to-production.spec.ts:102:5 › Import to Production E2E › Group A: Caddyfile Import › should display Caddyfile import page (2.3s)
+  ✓  426 [chromium] › tests/integration/import-to-production.spec.ts:119:5 › Import to Production E2E › Group A: Caddyfile Import › should parse Caddyfile content (2.1s)
+  ✓  427 [chromium] › tests/integration/import-to-production.spec.ts:135:5 › Import to Production E2E › Group A: Caddyfile Import › should preview Caddyfile import results (2.2s)
+  ✓  428 [chromium] › tests/integration/import-to-production.spec.ts:151:5 › Import to Production E2E › Group A: Caddyfile Import › should import valid Caddyfile configuration (2.1s)
+  ✓  429 [chromium] › tests/integration/import-to-production.spec.ts:172:5 › Import to Production E2E › Group B: NPM Import › should display NPM import page (2.1s)
+  ✓  430 [chromium] › tests/integration/import-to-production.spec.ts:188:5 › Import to Production E2E › Group B: NPM Import › should parse NPM export JSON (2.2s)
+  ✓  431 [chromium] › tests/integration/import-to-production.spec.ts:204:5 › Import to Production E2E › Group B: NPM Import › should preview NPM import results (2.3s)
+  ✓  432 [chromium] › tests/integration/import-to-production.spec.ts:220:5 › Import to Production E2E › Group B: NPM Import › should import NPM proxy hosts and access lists (2.2s)
+  ✓  433 [chromium] › tests/integration/import-to-production.spec.ts:241:5 › Import to Production E2E › Group C: JSON/Config Import › should display JSON import page (2.2s)
+  ✓  434 [chromium] › tests/integration/import-to-production.spec.ts:257:5 › Import to Production E2E › Group C: JSON/Config Import › should validate JSON schema before import (2.1s)
+  ✓  435 [chromium] › tests/integration/import-to-production.spec.ts:273:5 › Import to Production E2E › Group C: JSON/Config Import › should handle import conflicts gracefully (2.2s)
+  ✓  436 [chromium] › tests/integration/import-to-production.spec.ts:298:5 › Import to Production E2E › Group C: JSON/Config Import › should import complete configuration bundle (2.1s)
+  ✓  437 [chromium] › tests/integration/multi-feature-workflows.spec.ts:67:5 › Multi-Feature Workflows E2E › Group A: Complete Host Setup Workflow › should complete full proxy host setup with all features (3.8s)
+  ✓  438 [chromium] › tests/integration/multi-feature-workflows.spec.ts:102:5 › Multi-Feature Workflows E2E › Group A: Complete Host Setup Workflow › should create proxy host with SSL certificate (3.0s)
+  ✓  439 [chromium] › tests/integration/multi-feature-workflows.spec.ts:129:5 › Multi-Feature Workflows E2E › Group A: Complete Host Setup Workflow › should create proxy host with access restrictions (3.1s)
+  ✓  440 [chromium] › tests/integration/multi-feature-workflows.spec.ts:157:5 › Multi-Feature Workflows E2E › Group A: Complete Host Setup Workflow › should update proxy host configuration end-to-end (2.3s)
+  ✓  441 [chromium] › tests/integration/multi-feature-workflows.spec.ts:182:5 › Multi-Feature Workflows E2E › Group A: Complete Host Setup Workflow › should delete proxy host and verify cleanup (2.5s)
+  ✓  442 [chromium] › tests/integration/multi-feature-workflows.spec.ts:207:5 › Multi-Feature Workflows E2E › Group B: Security Configuration Workflow › should configure complete security stack for host (3.2s)
+  ✓  443 [chromium] › tests/integration/multi-feature-workflows.spec.ts:234:5 › Multi-Feature Workflows E2E › Group B: Security Configuration Workflow › should enable WAF and verify protection (2.8s)
+  ✓  444 [chromium] › tests/integration/multi-feature-workflows.spec.ts:251:5 › Multi-Feature Workflows E2E › Group B: Security Configuration Workflow › should configure CrowdSec integration (2.5s)
+  ✓  446 [chromium] › tests/integration/multi-feature-workflows.spec.ts:301:5 › Multi-Feature Workflows E2E › Group C: Certificate + DNS Workflow › should setup DNS provider for certificate validation (1.9s)
+  ✓  445 [chromium] › tests/integration/multi-feature-workflows.spec.ts:268:5 › Multi-Feature Workflows E2E › Group B: Security Configuration Workflow › should setup access restrictions workflow (3.0s)
+  ✓  447 [chromium] › tests/integration/multi-feature-workflows.spec.ts:322:5 › Multi-Feature Workflows E2E › Group C: Certificate + DNS Workflow › should request certificate with DNS challenge (2.6s)
+  ✓  448 [chromium] › tests/integration/multi-feature-workflows.spec.ts:350:5 › Multi-Feature Workflows E2E › Group C: Certificate + DNS Workflow › should apply certificate to proxy host (3.1s)
+  ✓  449 [chromium] › tests/integration/multi-feature-workflows.spec.ts:377:5 › Multi-Feature Workflows E2E › Group C: Certificate + DNS Workflow › should verify certificate renewal workflow (2.1s)
+  ✓  451 [chromium] › tests/integration/multi-feature-workflows.spec.ts:416:5 › Multi-Feature Workflows E2E › Group D: Admin Management Workflow › should configure system settings (2.3s)
+  ✓  450 [chromium] › tests/integration/multi-feature-workflows.spec.ts:399:5 › Multi-Feature Workflows E2E › Group D: Admin Management Workflow › should complete user management workflow (4.3s)
+  ✓  452 [chromium] › tests/integration/multi-feature-workflows.spec.ts:433:5 › Multi-Feature Workflows E2E › Group D: Admin Management Workflow › should view audit logs for all operations (2.1s)
+  ✓  453 [chromium] › tests/integration/multi-feature-workflows.spec.ts:450:5 › Multi-Feature Workflows E2E › Group D: Admin Management Workflow › should perform system health check (2.3s)
+  ✓  454 [chromium] › tests/integration/multi-feature-workflows.spec.ts:469:5 › Multi-Feature Workflows E2E › Group D: Admin Management Workflow › should complete backup before major changes (2.6s)
+  ✓  455 [chromium] › tests/integration/proxy-acl-integration.spec.ts:80:5 › Proxy + ACL Integration › Group A: Basic ACL Assignment › should assign IP whitelist ACL to proxy host (4.0s)
+  ✓  456 [chromium] › tests/integration/proxy-acl-integration.spec.ts:168:5 › Proxy + ACL Integration › Group A: Basic ACL Assignment › should assign geo-based whitelist ACL to proxy host (3.2s)
+  ✓  457 [chromium] › tests/integration/proxy-acl-integration.spec.ts:207:5 › Proxy + ACL Integration › Group A: Basic ACL Assignment › should assign deny-all blacklist ACL to proxy host (3.6s)
+  ✓  458 [chromium] › tests/integration/proxy-acl-integration.spec.ts:243:5 › Proxy + ACL Integration › Group A: Basic ACL Assignment › should unassign ACL from proxy host (2.9s)
+  ✓  460 [chromium] › tests/integration/proxy-acl-integration.spec.ts:337:5 › Proxy + ACL Integration › Group B: ACL Rule Enforcement › should test IP against ACL rules using test endpoint (2.0s)
+  ✓  459 [chromium] › tests/integration/proxy-acl-integration.spec.ts:306:5 › Proxy + ACL Integration › Group A: Basic ACL Assignment › should display ACL assignment in proxy host details (2.8s)
+  ✓  461 [chromium] › tests/integration/proxy-acl-integration.spec.ts:373:5 › Proxy + ACL Integration › Group B: ACL Rule Enforcement › should enforce CIDR range rules correctly (1.4s)
+  ✓  462 [chromium] › tests/integration/proxy-acl-integration.spec.ts:407:5 › Proxy + ACL Integration › Group B: ACL Rule Enforcement › should enforce RFC1918 private network rules (1.5s)
+  ✓  463 [chromium] › tests/integration/proxy-acl-integration.spec.ts:460:5 › Proxy + ACL Integration › Group B: ACL Rule Enforcement › should block denied IP from deny-only list (1.5s)
+  ✓  464 [chromium] › tests/integration/proxy-acl-integration.spec.ts:487:5 › Proxy + ACL Integration › Group B: ACL Rule Enforcement › should allow whitelisted IP from allow-only list (1.4s)
+  ✓  465 [chromium] › tests/integration/proxy-acl-integration.spec.ts:527:5 › Proxy + ACL Integration › Group C: Dynamic ACL Updates › should apply ACL changes immediately (1.5s)
+  ✓  466 [chromium] › tests/integration/proxy-acl-integration.spec.ts:569:5 › Proxy + ACL Integration › Group C: Dynamic ACL Updates › should handle ACL enable/disable toggle (2.7s)
+  ✓  467 [chromium] › tests/integration/proxy-acl-integration.spec.ts:589:5 › Proxy + ACL Integration › Group C: Dynamic ACL Updates › should handle ACL deletion with proxy host fallback (2.5s)
+  ✓  469 [chromium] › tests/integration/proxy-acl-integration.spec.ts:665:5 › Proxy + ACL Integration › Group D: Edge Cases › should handle IPv6 addresses in ACL rules (1.5s)
+  ✓  468 [chromium] › tests/integration/proxy-acl-integration.spec.ts:625:5 › Proxy + ACL Integration › Group C: Dynamic ACL Updates › should handle bulk ACL update on multiple proxy hosts (2.3s)
+  ✓  471 [chromium] › tests/integration/proxy-acl-integration.spec.ts:734:5 › Proxy + ACL Integration › Group D: Edge Cases › should handle conflicting allow/deny rules with precedence (1.5s)
+  ✓  470 [chromium] › tests/integration/proxy-acl-integration.spec.ts:702:5 › Proxy + ACL Integration › Group D: Edge Cases › should preserve ACL assignment when updating other proxy host fields (2.3s)
+  ✓  472 [chromium] › tests/integration/proxy-acl-integration.spec.ts:777:5 › Proxy + ACL Integration › Group D: Edge Cases › should log ACL enforcement decisions in audit log (2.3s)
+  ✓  473 [chromium] › tests/integration/proxy-certificate.spec.ts:81:5 › Proxy + Certificate Integration › Group A: Certificate Assignment › should assign custom certificate to proxy host (2.9s)
+  ✓  474 [chromium] › tests/integration/proxy-certificate.spec.ts:118:5 › Proxy + Certificate Integration › Group A: Certificate Assignment › should assign Let's Encrypt certificate to proxy host (2.3s)
+  ✓  475 [chromium] › tests/integration/proxy-certificate.spec.ts:147:5 › Proxy + Certificate Integration › Group A: Certificate Assignment › should display SSL status indicator on proxy host (2.3s)
+  ✓  476 [chromium] › tests/integration/proxy-certificate.spec.ts:183:5 › Proxy + Certificate Integration › Group A: Certificate Assignment › should unassign certificate from proxy host (2.4s)
+  ✓  477 [chromium] › tests/integration/proxy-certificate.spec.ts:214:5 › Proxy + Certificate Integration › Group B: ACME Flow Integration › should trigger HTTP-01 challenge for new certificate request (2.2s)
+  ✓  478 [chromium] › tests/integration/proxy-certificate.spec.ts:243:5 › Proxy + Certificate Integration › Group B: ACME Flow Integration › should handle DNS-01 challenge for wildcard certificate (2.1s)
+  ✓  479 [chromium] › tests/integration/proxy-certificate.spec.ts:270:5 › Proxy + Certificate Integration › Group B: ACME Flow Integration › should show ACME challenge status during certificate issuance (2.1s)
+  ✓  480 [chromium] › tests/integration/proxy-certificate.spec.ts:289:5 › Proxy + Certificate Integration › Group B: ACME Flow Integration › should link DNS provider for automated DNS-01 challenges (2.0s)
+  ✓  481 [chromium] › tests/integration/proxy-certificate.spec.ts:323:5 › Proxy + Certificate Integration › Group C: Certificate Lifecycle › should display certificate expiry warning (2.3s)
+  ✓  482 [chromium] › tests/integration/proxy-certificate.spec.ts:340:5 › Proxy + Certificate Integration › Group C: Certificate Lifecycle › should show certificate renewal option (2.2s)
+  ✓  483 [chromium] › tests/integration/proxy-certificate.spec.ts:358:5 › Proxy + Certificate Integration › Group C: Certificate Lifecycle › should handle certificate deletion with proxy host fallback (2.2s)
+  ✓  484 [chromium] › tests/integration/proxy-certificate.spec.ts:383:5 › Proxy + Certificate Integration › Group C: Certificate Lifecycle › should auto-renew expiring certificates (2.3s)
+  ✓  485 [chromium] › tests/integration/proxy-certificate.spec.ts:406:5 › Proxy + Certificate Integration › Group D: Error Handling & Edge Cases › should handle invalid certificate upload gracefully (2.1s)
+  ✓  486 [chromium] › tests/integration/proxy-certificate.spec.ts:423:5 › Proxy + Certificate Integration › Group D: Error Handling & Edge Cases › should handle mismatched certificate and private key (2.1s)
+  ✓  487 [chromium] › tests/integration/proxy-certificate.spec.ts:440:5 › Proxy + Certificate Integration › Group D: Error Handling & Edge Cases › should prevent assigning expired certificate to proxy host (2.4s)
+  ✓  488 [chromium] › tests/integration/proxy-certificate.spec.ts:465:5 › Proxy + Certificate Integration › Group D: Error Handling & Edge Cases › should handle domain mismatch between certificate and proxy host (2.4s)
+  ✓  489 [chromium] › tests/integration/proxy-dns-integration.spec.ts:76:5 › Proxy + DNS Provider Integration › Group A: DNS Provider Assignment › should create manual DNS provider successfully (1.8s)
+  ✓  490 [chromium] › tests/integration/proxy-dns-integration.spec.ts:104:5 › Proxy + DNS Provider Integration › Group A: DNS Provider Assignment › should create Cloudflare DNS provider (2.0s)
+  ✓  491 [chromium] › tests/integration/proxy-dns-integration.spec.ts:133:5 › Proxy + DNS Provider Integration › Group A: DNS Provider Assignment › should assign DNS provider to wildcard certificate request (2.2s)
+  ✓  492 [chromium] › tests/integration/proxy-dns-integration.spec.ts:164:5 › Proxy + DNS Provider Integration › Group B: DNS Challenge Integration › should test DNS provider connectivity (1.8s)
+  ✓  493 [chromium] › tests/integration/proxy-dns-integration.spec.ts:190:5 › Proxy + DNS Provider Integration › Group B: DNS Challenge Integration › should display DNS challenge instructions for manual provider (1.9s)
+  ✓  494 [chromium] › tests/integration/proxy-dns-integration.spec.ts:217:5 › Proxy + DNS Provider Integration › Group B: DNS Challenge Integration › should handle DNS propagation delay gracefully (2.4s)
+  ✓  495 [chromium] › tests/integration/proxy-dns-integration.spec.ts:243:5 › Proxy + DNS Provider Integration › Group B: DNS Challenge Integration › should support webhook-based DNS provider (1.9s)
+  ✓  496 [chromium] › tests/integration/proxy-dns-integration.spec.ts:277:5 › Proxy + DNS Provider Integration › Group C: Provider Management › should update DNS provider credentials (1.9s)
+  ✓  497 [chromium] › tests/integration/proxy-dns-integration.spec.ts:316:5 › Proxy + DNS Provider Integration › Group C: Provider Management › should delete DNS provider with confirmation (1.8s)
+  ✓  498 [chromium] › tests/integration/proxy-dns-integration.spec.ts:345:5 › Proxy + DNS Provider Integration › Group C: Provider Management › should list all configured DNS providers (1.9s)
+  ✓  499 [chromium] › tests/integration/security-suite-integration.spec.ts:76:5 › Security Suite Integration › Group A: Cerberus Dashboard › should display Cerberus security dashboard (2.2s)
+  ✓  500 [chromium] › tests/integration/security-suite-integration.spec.ts:98:5 › Security Suite Integration › Group A: Cerberus Dashboard › should show WAF status indicator (2.2s)
+  ✓  501 [chromium] › tests/integration/security-suite-integration.spec.ts:115:5 › Security Suite Integration › Group A: Cerberus Dashboard › should show CrowdSec connection status (2.2s)
+  ✓  502 [chromium] › tests/integration/security-suite-integration.spec.ts:132:5 › Security Suite Integration › Group A: Cerberus Dashboard › should display overall security score (2.3s)
+  ✓  503 [chromium] › tests/integration/security-suite-integration.spec.ts:154:5 › Security Suite Integration › Group B: WAF + Proxy Integration › should enable WAF for proxy host (2.3s)
+  ✓  504 [chromium] › tests/integration/security-suite-integration.spec.ts:178:5 › Security Suite Integration › Group B: WAF + Proxy Integration › should configure WAF paranoia level (2.1s)
+  ✓  505 [chromium] › tests/integration/security-suite-integration.spec.ts:195:5 › Security Suite Integration › Group B: WAF + Proxy Integration › should display WAF rule violations in logs (2.2s)
+  ✓  506 [chromium] › tests/integration/security-suite-integration.spec.ts:212:5 › Security Suite Integration › Group B: WAF + Proxy Integration › should block SQL injection attempts (2.2s)
+  ✓  507 [chromium] › tests/integration/security-suite-integration.spec.ts:229:5 › Security Suite Integration › Group B: WAF + Proxy Integration › should block XSS attempts (2.2s)
+  ✓  508 [chromium] › tests/integration/security-suite-integration.spec.ts:251:5 › Security Suite Integration › Group C: CrowdSec + Proxy Integration › should display CrowdSec decisions (3.7s)
+  ✓  509 [chromium] › tests/integration/security-suite-integration.spec.ts:268:5 › Security Suite Integration › Group C: CrowdSec + Proxy Integration › should show CrowdSec configuration options (5.6s)
+  ✓  510 [chromium] › tests/integration/security-suite-integration.spec.ts:285:5 › Security Suite Integration › Group C: CrowdSec + Proxy Integration › should display banned IPs from CrowdSec (4.3s)
+  ✓  511 [chromium] › tests/integration/security-suite-integration.spec.ts:302:5 › Security Suite Integration › Group C: CrowdSec + Proxy Integration › should import CrowdSec configuration (2.9s)
+  ✓  512 [chromium] › tests/integration/security-suite-integration.spec.ts:320:5 › Security Suite Integration › Group C: CrowdSec + Proxy Integration › should show CrowdSec alerts timeline (2.4s)
+  ✓  513 [chromium] › tests/integration/security-suite-integration.spec.ts:337:5 › Security Suite Integration › Group C: CrowdSec + Proxy Integration › should integrate CrowdSec with proxy host blocking (2.6s)
+  ✓  514 [chromium] › tests/integration/security-suite-integration.spec.ts:366:5 › Security Suite Integration › Group D: Security Headers Integration › should configure HSTS header for proxy host (2.3s)
+  ✓  515 [chromium] › tests/integration/security-suite-integration.spec.ts:383:5 › Security Suite Integration › Group D: Security Headers Integration › should configure Content-Security-Policy (2.3s)
+  ✓  516 [chromium] › tests/integration/security-suite-integration.spec.ts:400:5 › Security Suite Integration › Group D: Security Headers Integration › should configure X-Frame-Options header (2.4s)
+  ✓  517 [chromium] › tests/integration/security-suite-integration.spec.ts:417:5 › Security Suite Integration › Group D: Security Headers Integration › should apply security headers to proxy host (2.5s)
+  ✓  518 [chromium] › tests/integration/security-suite-integration.spec.ts:447:5 › Security Suite Integration › Group E: Combined Security Features › should enable all security features simultaneously (2.4s)
+  ✓  519 [chromium] › tests/integration/security-suite-integration.spec.ts:476:5 › Security Suite Integration › Group E: Combined Security Features › should log all security events in audit log (2.3s)
+  ✓  520 [chromium] › tests/integration/security-suite-integration.spec.ts:493:5 › Security Suite Integration › Group E: Combined Security Features › should display security notifications (2.2s)
+  ✓  522 [chromium] › tests/manual-dns-provider.spec.ts:30:5 › Manual DNS Provider Feature › Provider Selection Flow › should navigate to DNS Providers page (863ms)
+  ✓  521 [chromium] › tests/integration/security-suite-integration.spec.ts:510:5 › Security Suite Integration › Group E: Combined Security Features › should enforce security policy across all proxy hosts (2.3s)
+  ✓  523 [chromium] › tests/manual-dns-provider.spec.ts:54:5 › Manual DNS Provider Feature › Provider Selection Flow › should show Add Provider button on DNS Providers page (1.6s)
+  ✓  524 [chromium] › tests/manual-dns-provider.spec.ts:67:5 › Manual DNS Provider Feature › Provider Selection Flow › should display Manual option in provider selection (2.0s)
+  ✓  525 [chromium] › tests/manual-dns-provider.spec.ts:91:5 › Manual DNS Provider Feature › Manual Challenge UI Display › should display challenge panel with required elements (1.0s)
+  ✓  526 [chromium] › tests/manual-dns-provider.spec.ts:123:5 › Manual DNS Provider Feature › Manual Challenge UI Display › should show record name and value fields (809ms)
+  ✓  527 [chromium] › tests/manual-dns-provider.spec.ts:149:5 › Manual DNS Provider Feature › Manual Challenge UI Display › should display progress bar with time remaining (773ms)
+  ✓  528 [chromium] › tests/manual-dns-provider.spec.ts:168:5 › Manual DNS Provider Feature › Manual Challenge UI Display › should display status indicator (808ms)
+  ✓  529 [chromium] › tests/manual-dns-provider.spec.ts:190:5 › Manual DNS Provider Feature › Copy to Clipboard › should have accessible copy buttons (694ms)
+  ✓  530 [chromium] › tests/manual-dns-provider.spec.ts:210:5 › Manual DNS Provider Feature › Copy to Clipboard › should show copied feedback on click (940ms)
+  ✓  531 [chromium] › tests/manual-dns-provider.spec.ts:236:5 › Manual DNS Provider Feature › Verify Button Interactions › should have Check DNS Now button (893ms)
+  ✓  533 [chromium] › tests/manual-dns-provider.spec.ts:274:5 › Manual DNS Provider Feature › Verify Button Interactions › should have Verify button with description (938ms)
+  ✓  532 [chromium] › tests/manual-dns-provider.spec.ts:248:5 › Manual DNS Provider Feature › Verify Button Interactions › should show loading state when checking DNS (1.0s)
+  ✓  535 [chromium] › tests/manual-dns-provider.spec.ts:326:5 › Manual DNS Provider Feature › Accessibility Checks › should have proper ARIA labels on copy buttons (815ms)
+  ✓  534 [chromium] › tests/manual-dns-provider.spec.ts:296:5 › Manual DNS Provider Feature › Accessibility Checks › should have keyboard accessible interactive elements (1.1s)
+  ✓  536 [chromium] › tests/manual-dns-provider.spec.ts:350:5 › Manual DNS Provider Feature › Accessibility Checks › should announce status changes to screen readers (700ms)
+  ✓  537 [chromium] › tests/manual-dns-provider.spec.ts:365:5 › Manual DNS Provider Feature › Accessibility Checks › should have accessible form labels (1.8s)
+  ✓  538 [chromium] › tests/manual-dns-provider.spec.ts:381:5 › Manual DNS Provider Feature › Accessibility Checks › should validate accessibility tree structure for provider form (1.7s)
+  ✓  539 [chromium] › tests/manual-dns-provider.spec.ts:419:3 › Manual DNS Challenge Component Tests › should render all required challenge information (752ms)
+  ✓  540 [chromium] › tests/manual-dns-provider.spec.ts:459:3 › Manual DNS Challenge Component Tests › should handle expired challenge state (1.1s)
+  ✓  541 [chromium] › tests/manual-dns-provider.spec.ts:498:3 › Manual DNS Challenge Component Tests › should handle verified challenge state (1.0s)
+  ✓  542 [chromium] › tests/manual-dns-provider.spec.ts:540:3 › Manual DNS Provider Error Handling › should display error message on verification failure (903ms)
+  ✓  543 [chromium] › tests/manual-dns-provider.spec.ts:570:3 › Manual DNS Provider Error Handling › should handle network errors gracefully (948ms)
+  -  544 [chromium] › tests/monitoring/real-time-logs.spec.ts:247:5 › Real-Time Logs Viewer › Page Layout › should display live logs viewer with correct heading
+  -  545 [chromium] › tests/monitoring/real-time-logs.spec.ts:503:5 › Real-Time Logs Viewer › Filtering › should filter logs by search text
+  -  546 [chromium] › tests/monitoring/real-time-logs.spec.ts:262:5 › Real-Time Logs Viewer › Page Layout › should show connection status indicator
+  -  547 [chromium] › tests/monitoring/real-time-logs.spec.ts:523:5 › Real-Time Logs Viewer › Filtering › should clear all filters
+  -  548 [chromium] › tests/monitoring/real-time-logs.spec.ts:275:5 › Real-Time Logs Viewer › Page Layout › should show mode toggle between App and Security logs
+  -  549 [chromium] › tests/monitoring/real-time-logs.spec.ts:549:5 › Real-Time Logs Viewer › Filtering › should filter by source in security mode
+  -  550 [chromium] › tests/monitoring/real-time-logs.spec.ts:297:5 › Real-Time Logs Viewer › WebSocket Connection › should establish WebSocket connection on load
+  -  551 [chromium] › tests/monitoring/real-time-logs.spec.ts:585:5 › Real-Time Logs Viewer › Mode Toggle › should toggle between App and Security log modes
+  -  552 [chromium] › tests/monitoring/real-time-logs.spec.ts:318:5 › Real-Time Logs Viewer › WebSocket Connection › should show connected status indicator when connected
+  -  553 [chromium] › tests/monitoring/real-time-logs.spec.ts:618:5 › Real-Time Logs Viewer › Mode Toggle › should switch WebSocket endpoint when mode changes
+  -  554 [chromium] › tests/monitoring/real-time-logs.spec.ts:345:5 › Real-Time Logs Viewer › WebSocket Connection › should handle connection failure gracefully
+  -  555 [chromium] › tests/monitoring/real-time-logs.spec.ts:651:5 › Real-Time Logs Viewer › Mode Toggle › should clear logs when switching modes
+  -  556 [chromium] › tests/monitoring/real-time-logs.spec.ts:364:5 › Real-Time Logs Viewer › WebSocket Connection › should show disconnect handling and recovery UI
+  -  557 [chromium] › tests/monitoring/real-time-logs.spec.ts:673:5 › Real-Time Logs Viewer › Playback Controls › should pause and resume log streaming
+  -  558 [chromium] › tests/monitoring/real-time-logs.spec.ts:393:5 › Real-Time Logs Viewer › Log Display › should display incoming log entries in real-time
+  -  559 [chromium] › tests/monitoring/real-time-logs.spec.ts:700:5 › Real-Time Logs Viewer › Playback Controls › should clear all logs
+  -  560 [chromium] › tests/monitoring/real-time-logs.spec.ts:417:5 › Real-Time Logs Viewer › Log Display › should format log entries with timestamp and source
+  -  561 [chromium] › tests/monitoring/real-time-logs.spec.ts:723:5 › Real-Time Logs Viewer › Performance › should handle high volume of incoming logs
+  -  562 [chromium] › tests/monitoring/real-time-logs.spec.ts:436:5 › Real-Time Logs Viewer › Log Display › should display log count in footer
+  -  563 [chromium] › tests/monitoring/real-time-logs.spec.ts:743:5 › Real-Time Logs Viewer › Performance › should respect maximum log buffer limit of 500 entries
+  -  564 [chromium] › tests/monitoring/real-time-logs.spec.ts:450:5 › Real-Time Logs Viewer › Log Display › should auto-scroll to latest logs
+  -  565 [chromium] › tests/monitoring/real-time-logs.spec.ts:775:5 › Real-Time Logs Viewer › Security Mode Features › should show blocked only filter in security mode
+  -  566 [chromium] › tests/monitoring/real-time-logs.spec.ts:473:5 › Real-Time Logs Viewer › Filtering › should filter logs by level
+  -  567 [chromium] › tests/monitoring/real-time-logs.spec.ts:813:5 › Real-Time Logs Viewer › Security Mode Features › should hide source filter in app mode
+  ✓  568 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:193:5 › Uptime Monitoring Page › Page Layout › should display uptime monitoring page with correct heading (2.2s)
+  ✓  569 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:207:5 › Uptime Monitoring Page › Page Layout › should show monitor list or empty state (3.1s)
+  ✓  570 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:225:5 › Uptime Monitoring Page › Page Layout › should display overall uptime summary with action buttons (2.4s)
+  ✓  571 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:249:5 › Uptime Monitoring Page › Monitor List Display › should display all monitors with status indicators (2.4s)
+  ✓  572 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:269:5 › Uptime Monitoring Page › Monitor List Display › should show uptime percentage or latency for each monitor (2.2s)
+  ✓  573 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:284:5 › Uptime Monitoring Page › Monitor List Display › should show last check timestamp (2.3s)
+  ✓  574 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:300:5 › Uptime Monitoring Page › Monitor List Display › should differentiate up/down/paused states visually (2.4s)
+  ✓  575 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:325:5 › Uptime Monitoring Page › Monitor List Display › should show heartbeat history bar for each monitor (2.4s)
+  ✓  576 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:349:5 › Uptime Monitoring Page › Monitor CRUD Operations › should create new HTTP monitor (2.9s)
+  ✓  577 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:408:5 › Uptime Monitoring Page › Monitor CRUD Operations › should create new TCP monitor (2.8s)
+  ✓  578 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:462:5 › Uptime Monitoring Page › Monitor CRUD Operations › should update existing monitor (3.0s)
+  ✓  579 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:515:5 › Uptime Monitoring Page › Monitor CRUD Operations › should delete monitor with confirmation (2.8s)
+  ✓  580 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:559:5 › Uptime Monitoring Page › Monitor CRUD Operations › should validate monitor URL format (2.7s)
+  ✓  581 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:582:5 › Uptime Monitoring Page › Monitor CRUD Operations › should validate check interval range (2.8s)
+  ✓  582 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:612:5 › Uptime Monitoring Page › Manual Health Check › should trigger manual health check (2.8s)
+  ✓  583 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:640:5 › Uptime Monitoring Page › Manual Health Check › should update status after manual check (2.3s)
+  ✓  585 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:706:5 › Uptime Monitoring Page › Monitor History › should display uptime history in heartbeat bar (2.7s)
+  ✓  584 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:672:5 › Uptime Monitoring Page › Manual Health Check › should show check in progress indicator (4.1s)
+  ✓  586 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:726:5 › Uptime Monitoring Page › Monitor History › should show incident indicators in heartbeat bar (4.6s)
+  ✓  587 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:760:5 › Uptime Monitoring Page › Monitor History › should show tooltip with heartbeat details on hover (4.3s)
+  ✓  588 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:792:5 › Uptime Monitoring Page › Sync with Proxy Hosts › should sync monitors from proxy hosts (3.1s)
+  ✓  589 [chromium] › tests/monitoring/uptime-monitoring.spec.ts:821:5 › Uptime Monitoring Page › Sync with Proxy Hosts › should preserve manually added monitors after sync (2.5s)
+  ✓  590 [chromium] › tests/security/audit-logs.spec.ts:26:5 › Audit Logs › Page Loading › should display audit logs page (2.3s)
+  ✓  591 [chromium] › tests/security/audit-logs.spec.ts:47:5 › Audit Logs › Page Loading › should display log data table (2.9s)
+  ✓  592 [chromium] › tests/security/audit-logs.spec.ts:88:5 › Audit Logs › Log Table Structure › should display timestamp column (2.0s)
+  ✓  593 [chromium] › tests/security/audit-logs.spec.ts:100:5 › Audit Logs › Log Table Structure › should display action/event column (1.9s)
+  ✓  594 [chromium] › tests/security/audit-logs.spec.ts:112:5 › Audit Logs › Log Table Structure › should display user column (2.0s)
+  ✓  595 [chromium] › tests/security/audit-logs.spec.ts:124:5 › Audit Logs › Log Table Structure › should display log entries (2.1s)
+  ✓  596 [chromium] › tests/security/audit-logs.spec.ts:142:5 › Audit Logs › Filtering › should have search input (2.0s)
+  ✓  597 [chromium] › tests/security/audit-logs.spec.ts:151:5 › Audit Logs › Filtering › should filter by action type (1.9s)
+  ✓  598 [chromium] › tests/security/audit-logs.spec.ts:163:5 › Audit Logs › Filtering › should filter by date range (2.0s)
+  ✓  599 [chromium] › tests/security/audit-logs.spec.ts:172:5 › Audit Logs › Filtering › should filter by user (2.1s)
+  ✓  600 [chromium] › tests/security/audit-logs.spec.ts:181:5 › Audit Logs › Filtering › should perform search when input changes (2.3s)
+  ✓  601 [chromium] › tests/security/audit-logs.spec.ts:199:5 › Audit Logs › Export Functionality › should have export button (2.2s)
+  ✓  602 [chromium] › tests/security/audit-logs.spec.ts:208:5 › Audit Logs › Export Functionality › should export logs to CSV (2.1s)
+  ✓  603 [chromium] › tests/security/audit-logs.spec.ts:228:5 › Audit Logs › Pagination › should have pagination controls (2.0s)
+  ✓  604 [chromium] › tests/security/audit-logs.spec.ts:237:5 › Audit Logs › Pagination › should display current page info (2.1s)
+  ✓  605 [chromium] › tests/security/audit-logs.spec.ts:244:5 › Audit Logs › Pagination › should navigate between pages (2.1s)
+  ✓  606 [chromium] › tests/security/audit-logs.spec.ts:267:5 › Audit Logs › Log Details › should show log details on row click (2.1s)
+  ✓  607 [chromium] › tests/security/audit-logs.spec.ts:290:5 › Audit Logs › Refresh › should have refresh button (1.8s)
+  ✓  608 [chromium] › tests/security/audit-logs.spec.ts:304:5 › Audit Logs › Navigation › should navigate back to security dashboard (2.0s)
+  ✓  609 [chromium] › tests/security/audit-logs.spec.ts:316:5 › Audit Logs › Accessibility › should have accessible table structure (1.9s)
+  ✓  611 [chromium] › tests/security/audit-logs.spec.ts:358:5 › Audit Logs › Empty State › should show empty state message when no logs (1.9s)
+  ✓  610 [chromium] › tests/security/audit-logs.spec.ts:328:5 › Audit Logs › Accessibility › should be keyboard navigable (2.6s)
+  ✓  612 [chromium] › tests/security/crowdsec-config.spec.ts:26:5 › CrowdSec Configuration › Page Loading › should display CrowdSec configuration page (2.2s)
+  ✓  613 [chromium] › tests/security/crowdsec-config.spec.ts:31:5 › CrowdSec Configuration › Page Loading › should show navigation back to security dashboard (1.8s)
+  ✓  614 [chromium] › tests/security/crowdsec-config.spec.ts:56:5 › CrowdSec Configuration › Page Loading › should display presets section (2.0s)
+  ✓  615 [chromium] › tests/security/crowdsec-config.spec.ts:75:5 › CrowdSec Configuration › Preset Management › should display list of available presets (2.3s)
+  ✓  616 [chromium] › tests/security/crowdsec-config.spec.ts:107:5 › CrowdSec Configuration › Preset Management › should allow searching presets (2.0s)
+  ✓  617 [chromium] › tests/security/crowdsec-config.spec.ts:120:5 › CrowdSec Configuration › Preset Management › should show preset preview when selected (1.8s)
+  ✓  618 [chromium] › tests/security/crowdsec-config.spec.ts:132:5 › CrowdSec Configuration › Preset Management › should apply preset with confirmation (1.9s)
+  ✓  619 [chromium] › tests/security/crowdsec-config.spec.ts:158:5 › CrowdSec Configuration › Configuration Files › should display configuration file list (2.0s)
+  ✓  620 [chromium] › tests/security/crowdsec-config.spec.ts:171:5 › CrowdSec Configuration › Configuration Files › should show file content when selected (2.0s)
+  ✓  621 [chromium] › tests/security/crowdsec-config.spec.ts:188:5 › CrowdSec Configuration › Import/Export › should have export functionality (1.9s)
+  ✓  622 [chromium] › tests/security/crowdsec-config.spec.ts:197:5 › CrowdSec Configuration › Import/Export › should have import functionality (2.0s)
+  ✓  623 [chromium] › tests/security/crowdsec-config.spec.ts:218:5 › CrowdSec Configuration › Console Enrollment › should display console enrollment section if feature enabled (1.9s)
+  ✓  624 [chromium] › tests/security/crowdsec-config.spec.ts:243:5 › CrowdSec Configuration › Console Enrollment › should show enrollment status when enrolled (1.9s)
+  ✓  625 [chromium] › tests/security/crowdsec-config.spec.ts:258:5 › CrowdSec Configuration › Status Indicators › should display CrowdSec running status (1.9s)
+  ✓  626 [chromium] › tests/security/crowdsec-config.spec.ts:271:5 › CrowdSec Configuration › Status Indicators › should display LAPI status (1.9s)
+  -  628 [chromium] › tests/security/crowdsec-decisions.spec.ts:28:5 › CrowdSec Decisions Management › Decisions List › should display decisions page
+  -  629 [chromium] › tests/security/crowdsec-decisions.spec.ts:42:5 › CrowdSec Decisions Management › Decisions List › should show active decisions if any exist
+  -  630 [chromium] › tests/security/crowdsec-decisions.spec.ts:64:5 › CrowdSec Decisions Management › Decisions List › should display decision columns (IP, type, duration, reason)
+  -  631 [chromium] › tests/security/crowdsec-decisions.spec.ts:87:5 › CrowdSec Decisions Management › Add Decision (Ban IP) › should have add ban button
+  -  632 [chromium] › tests/security/crowdsec-decisions.spec.ts:101:5 › CrowdSec Decisions Management › Add Decision (Ban IP) › should open ban modal on add button click
+  -  633 [chromium] › tests/security/crowdsec-decisions.spec.ts:127:5 › CrowdSec Decisions Management › Add Decision (Ban IP) › should validate IP address format
+  -  634 [chromium] › tests/security/crowdsec-decisions.spec.ts:163:5 › CrowdSec Decisions Management › Remove Decision (Unban) › should show unban action for each decision
+  -  635 [chromium] › tests/security/crowdsec-decisions.spec.ts:172:5 › CrowdSec Decisions Management › Remove Decision (Unban) › should confirm before unbanning
+  -  636 [chromium] › tests/security/crowdsec-decisions.spec.ts:193:5 › CrowdSec Decisions Management › Filtering and Search › should have search/filter input
+  -  637 [chromium] › tests/security/crowdsec-decisions.spec.ts:202:5 › CrowdSec Decisions Management › Filtering and Search › should filter decisions by type
+  -  638 [chromium] › tests/security/crowdsec-decisions.spec.ts:216:5 › CrowdSec Decisions Management › Refresh and Sync › should have refresh button
+  -  639 [chromium] › tests/security/crowdsec-decisions.spec.ts:231:5 › CrowdSec Decisions Management › Navigation › should navigate back to CrowdSec config
+  -  640 [chromium] › tests/security/crowdsec-decisions.spec.ts:244:5 › CrowdSec Decisions Management › Accessibility › should be keyboard navigable
+  ✓  627 [chromium] › tests/security/crowdsec-config.spec.ts:282:5 › CrowdSec Configuration › Accessibility › should have accessible form controls (1.9s)
+  ✓  642 [chromium] › tests/security/rate-limiting.spec.ts:37:5 › Rate Limiting Configuration › Page Loading › should display rate limiting status (1.8s)
+  ✓  641 [chromium] › tests/security/rate-limiting.spec.ts:25:5 › Rate Limiting Configuration › Page Loading › should display rate limiting configuration page (2.0s)
+  ✓  643 [chromium] › tests/security/rate-limiting.spec.ts:48:5 › Rate Limiting Configuration › Rate Limiting Toggle › should have enable/disable toggle (2.0s)
+  -  644 [chromium] › tests/security/rate-limiting.spec.ts:70:5 › Rate Limiting Configuration › Rate Limiting Toggle › should toggle rate limiting on/off
+  ✓  645 [chromium] › tests/security/rate-limiting.spec.ts:102:5 › Rate Limiting Configuration › RPS Settings › should display RPS input field (1.9s)
+  ✓  646 [chromium] › tests/security/rate-limiting.spec.ts:114:5 › Rate Limiting Configuration › RPS Settings › should validate RPS input (minimum value) (1.9s)
+  ✓  647 [chromium] › tests/security/rate-limiting.spec.ts:135:5 › Rate Limiting Configuration › RPS Settings › should accept valid RPS value (2.0s)
+  ✓  648 [chromium] › tests/security/rate-limiting.spec.ts:158:5 › Rate Limiting Configuration › Burst Settings › should display burst limit input (2.0s)
+  ✓  649 [chromium] › tests/security/rate-limiting.spec.ts:172:5 › Rate Limiting Configuration › Time Window Settings › should display time window setting (1.9s)
+  ✓  650 [chromium] › tests/security/rate-limiting.spec.ts:185:5 › Rate Limiting Configuration › Save Settings › should have save button (1.8s)
+  ✓  651 [chromium] › tests/security/rate-limiting.spec.ts:196:5 › Rate Limiting Configuration › Navigation › should navigate back to security dashboard (1.8s)
+  ✓  652 [chromium] › tests/security/rate-limiting.spec.ts:208:5 › Rate Limiting Configuration › Accessibility › should have labeled input fields (1.8s)
+  ✓  653 [chromium] › tests/security/security-dashboard.spec.ts:32:5 › Security Dashboard › Page Loading › should display security dashboard page title (2.7s)
+  ✓  654 [chromium] › tests/security/security-dashboard.spec.ts:36:5 › Security Dashboard › Page Loading › should display Cerberus dashboard header (3.0s)
+  ✓  655 [chromium] › tests/security/security-dashboard.spec.ts:40:5 › Security Dashboard › Page Loading › should show all 4 security module cards (2.4s)
+  ✓  656 [chromium] › tests/security/security-dashboard.spec.ts:58:5 › Security Dashboard › Page Loading › should display layer badges for each module (2.3s)
+  ✓  657 [chromium] › tests/security/security-dashboard.spec.ts:65:5 › Security Dashboard › Page Loading › should show audit logs button in header (2.2s)
+  ✓  658 [chromium] › tests/security/security-dashboard.spec.ts:70:5 › Security Dashboard › Page Loading › should show docs button in header (2.2s)
+  ✓  659 [chromium] › tests/security/security-dashboard.spec.ts:77:5 › Security Dashboard › Module Status Indicators › should show enabled/disabled badge for each module (2.2s)
+  ✓  660 [chromium] › tests/security/security-dashboard.spec.ts:93:5 › Security Dashboard › Module Status Indicators › should display CrowdSec toggle switch (2.2s)
+  ✓  661 [chromium] › tests/security/security-dashboard.spec.ts:98:5 › Security Dashboard › Module Status Indicators › should display ACL toggle switch (2.2s)
+  ✓  662 [chromium] › tests/security/security-dashboard.spec.ts:103:5 › Security Dashboard › Module Status Indicators › should display WAF toggle switch (2.2s)
+  ✓  663 [chromium] › tests/security/security-dashboard.spec.ts:108:5 › Security Dashboard › Module Status Indicators › should display Rate Limiting toggle switch (2.2s)
+  -  664 [chromium] › tests/security/security-dashboard.spec.ts:257:5 › Security Dashboard › Navigation › should navigate to CrowdSec page when configure clicked
+  -  666 [chromium] › tests/security/security-dashboard.spec.ts:316:5 › Security Dashboard › Navigation › should navigate to WAF page when configure clicked
+  ✓  665 [chromium] › tests/security/security-dashboard.spec.ts:284:5 › Security Dashboard › Navigation › should navigate to Access Lists page when clicked (3.0s)
+  -  667 [chromium] › tests/security/security-dashboard.spec.ts:342:5 › Security Dashboard › Navigation › should navigate to Rate Limiting page when configure clicked
+  ✓  668 [chromium] › tests/security/security-dashboard.spec.ts:368:5 › Security Dashboard › Navigation › should navigate to Audit Logs page (2.2s)
+  ✓  669 [chromium] › tests/security/security-dashboard.spec.ts:377:5 › Security Dashboard › Admin Whitelist › should display admin whitelist section when Cerberus enabled (2.2s)
+  ✓  670 [chromium] › tests/security/security-dashboard.spec.ts:399:5 › Security Dashboard › Accessibility › should have accessible toggle switches with labels (2.3s)
+  ✓  671 [chromium] › tests/security/security-dashboard.spec.ts:416:5 › Security Dashboard › Accessibility › should navigate with keyboard (1.9s)
+  -  672 [chromium] › tests/security/security-dashboard.spec.ts:147:5 › Security Dashboard › Module Toggle Actions › should toggle ACL enabled/disabled
+  -  673 [chromium] › tests/security/security-dashboard.spec.ts:195:5 › Security Dashboard › Module Toggle Actions › should toggle Rate Limiting enabled/disabled
+✓ Security state restored after toggle tests
+  -  674 [chromium] › tests/security/security-dashboard.spec.ts:171:5 › Security Dashboard › Module Toggle Actions › should toggle WAF enabled/disabled
+✓ Security state restored after toggle tests
+  -  675 [chromium] › tests/security/security-dashboard.spec.ts:219:5 › Security Dashboard › Module Toggle Actions › should persist toggle state after page reload
+  ✓  676 [chromium] › tests/security/security-headers.spec.ts:26:5 › Security Headers Configuration › Page Loading › should display security headers page (2.2s)
+  ✓  677 [chromium] › tests/security/security-headers.spec.ts:40:5 › Security Headers Configuration › Header Score Display › should display security score (1.8s)
+  ✓  678 [chromium] › tests/security/security-headers.spec.ts:49:5 › Security Headers Configuration › Header Score Display › should show score breakdown (1.8s)
+  ✓  679 [chromium] › tests/security/security-headers.spec.ts:60:5 › Security Headers Configuration › Preset Profiles › should display preset profiles (1.9s)
+  ✓  680 [chromium] › tests/security/security-headers.spec.ts:69:5 › Security Headers Configuration › Preset Profiles › should have preset options (Basic, Strict, Custom) (1.9s)
+  ✓  681 [chromium] › tests/security/security-headers.spec.ts:78:5 › Security Headers Configuration › Preset Profiles › should apply preset when selected (1.7s)
+  ✓  682 [chromium] › tests/security/security-headers.spec.ts:95:5 › Security Headers Configuration › Individual Header Configuration › should display CSP (Content-Security-Policy) settings (1.9s)
+  ✓  683 [chromium] › tests/security/security-headers.spec.ts:104:5 › Security Headers Configuration › Individual Header Configuration › should display HSTS settings (1.9s)
+  ✓  684 [chromium] › tests/security/security-headers.spec.ts:113:5 › Security Headers Configuration › Individual Header Configuration › should display X-Frame-Options settings (2.0s)
+  ✓  685 [chromium] › tests/security/security-headers.spec.ts:120:5 › Security Headers Configuration › Individual Header Configuration › should display X-Content-Type-Options settings (2.1s)
+  ✓  686 [chromium] › tests/security/security-headers.spec.ts:129:5 › Security Headers Configuration › Header Toggle Controls › should have toggles for individual headers (2.4s)
+  ✓  687 [chromium] › tests/security/security-headers.spec.ts:137:5 › Security Headers Configuration › Header Toggle Controls › should toggle header on/off (2.1s)
+  ✓  688 [chromium] › tests/security/security-headers.spec.ts:156:5 › Security Headers Configuration › Profile Management › should have create profile button (2.1s)
+  ✓  689 [chromium] › tests/security/security-headers.spec.ts:165:5 › Security Headers Configuration › Profile Management › should open profile creation modal (2.0s)
+  ✓  690 [chromium] › tests/security/security-headers.spec.ts:183:5 › Security Headers Configuration › Profile Management › should list existing profiles (1.9s)
+  ✓  691 [chromium] › tests/security/security-headers.spec.ts:194:5 › Security Headers Configuration › Save Configuration › should have save button (1.9s)
+  ✓  692 [chromium] › tests/security/security-headers.spec.ts:205:5 › Security Headers Configuration › Navigation › should navigate back to security dashboard (2.2s)
+  ✓  693 [chromium] › tests/security/security-headers.spec.ts:217:5 › Security Headers Configuration › Accessibility › should have accessible toggle controls (2.1s)
+  ✓  695 [chromium] › tests/security/waf-config.spec.ts:40:5 › WAF Configuration › Page Loading › should display WAF status indicator (1.9s)
+  ✓  694 [chromium] › tests/security/waf-config.spec.ts:26:5 › WAF Configuration › Page Loading › should display WAF configuration page (2.2s)
+  ✓  696 [chromium] › tests/security/waf-config.spec.ts:54:5 › WAF Configuration › WAF Mode Toggle › should display current WAF mode (1.8s)
+  ✓  697 [chromium] › tests/security/waf-config.spec.ts:63:5 › WAF Configuration › WAF Mode Toggle › should have mode toggle switch or selector (1.9s)
+  ✓  698 [chromium] › tests/security/waf-config.spec.ts:77:5 › WAF Configuration › WAF Mode Toggle › should toggle between blocking and detection mode (1.8s)
+  ✓  699 [chromium] › tests/security/waf-config.spec.ts:96:5 › WAF Configuration › Ruleset Management › should display available rulesets (2.1s)
+  ✓  700 [chromium] › tests/security/waf-config.spec.ts:101:5 › WAF Configuration › Ruleset Management › should show rule groups with toggle controls (1.9s)
+  ✓  701 [chromium] › tests/security/waf-config.spec.ts:112:5 › WAF Configuration › Ruleset Management › should allow enabling/disabling rule groups (1.9s)
+  ✓  702 [chromium] › tests/security/waf-config.spec.ts:135:5 › WAF Configuration › Anomaly Threshold › should display anomaly threshold setting (1.8s)
+  ✓  703 [chromium] › tests/security/waf-config.spec.ts:144:5 › WAF Configuration › Anomaly Threshold › should have threshold input control (1.9s)
+  ✓  704 [chromium] › tests/security/waf-config.spec.ts:157:5 › WAF Configuration › Whitelist/Exclusions › should display whitelist section (1.9s)
+  ✓  705 [chromium] › tests/security/waf-config.spec.ts:166:5 › WAF Configuration › Whitelist/Exclusions › should have ability to add whitelist entries (1.8s)
+  ✓  706 [chromium] › tests/security/waf-config.spec.ts:177:5 › WAF Configuration › Save and Apply › should have save button (1.9s)
+  ✓  707 [chromium] › tests/security/waf-config.spec.ts:186:5 › WAF Configuration › Save and Apply › should show confirmation on save (1.9s)
+  ✓  708 [chromium] › tests/security/waf-config.spec.ts:206:5 › WAF Configuration › Navigation › should navigate back to security dashboard (2.5s)
+✅ Admin whitelist configured for test IP ranges
+  ✓  709 [chromium] › tests/security/waf-config.spec.ts:219:5 › WAF Configuration › Accessibility › should have accessible controls (2.7s)
+✅ Admin whitelist configured for test IP ranges
+✓ Cerberus enabled
+✓ Cerberus enabled
+✓ ACL enabled
+  ✓  710 [chromium] › tests/security-enforcement/acl-enforcement.spec.ts:114:3 › ACL Enforcement › should verify ACL is enabled (14ms)
+  ✓  712 [chromium] › tests/security-enforcement/acl-enforcement.spec.ts:120:3 › ACL Enforcement › should return security status with ACL mode (12ms)
+✓ ACL enabled
+  ✓  711 [chromium] › tests/security-enforcement/acl-enforcement.spec.ts:138:3 › ACL Enforcement › should test IP against access list (17ms)
+✓ Security state restored
+  ✓  714 [chromium] › tests/security-enforcement/acl-enforcement.spec.ts:162:3 › ACL Enforcement › should show correct error response format for blocked requests (26ms)
+✅ Admin whitelist configured for test IP ranges
+✓ Security state restored
+  ✓  713 [chromium] › tests/security-enforcement/acl-enforcement.spec.ts:130:3 › ACL Enforcement › should list access lists when ACL enabled (14ms)
+✅ Admin whitelist configured for test IP ranges
+✓ Settings persisted across API calls
+  ✓  716 [chromium] › tests/security-enforcement/combined-enforcement.spec.ts:198:3 › Combined Security Enforcement › should persist settings across API calls (1.5s)
+✓ Multiple modules enabled - priority enforcement is at middleware level
+✓ Security state restored
+  ✓  717 [chromium] › tests/security-enforcement/combined-enforcement.spec.ts:223:3 › Combined Security Enforcement › should enforce correct priority when multiple modules enabled (2.0s)
+✅ Admin whitelist configured for test IP ranges
+✓ Cerberus enabled
+✓ CrowdSec enabled
+  ✓  718 [chromium] › tests/security-enforcement/crowdsec-enforcement.spec.ts:110:3 › CrowdSec Enforcement › should verify CrowdSec is enabled (7ms)
+✓ Security state restored
+  ✓  719 [chromium] › tests/security-enforcement/crowdsec-enforcement.spec.ts:116:3 › CrowdSec Enforcement › should list CrowdSec decisions (5ms)
+✅ Admin whitelist configured for test IP ranges
+✓ Cerberus enabled
+✓ CrowdSec enabled
+✓ Security state restored
+  ✓  720 [chromium] › tests/security-enforcement/crowdsec-enforcement.spec.ts:135:3 › CrowdSec Enforcement › should return CrowdSec status with mode and API URL (7ms)
+  ✓  721 [chromium] › tests/security-enforcement/emergency-reset.spec.ts:15:3 › Emergency Security Reset (Break-Glass) › should reset security when called with valid token (15ms)
+  ✓  722 [chromium] › tests/security-enforcement/emergency-reset.spec.ts:31:3 › Emergency Security Reset (Break-Glass) › should reject request with invalid token (7ms)
+  ✓  723 [chromium] › tests/security-enforcement/emergency-reset.spec.ts:42:3 › Emergency Security Reset (Break-Glass) › should reject request without token (7ms)
+  ✓  724 [chromium] › tests/security-enforcement/emergency-reset.spec.ts:47:3 › Emergency Security Reset (Break-Glass) › should allow recovery when ACL blocks everything (12ms)
+  -  725 [chromium] › tests/security-enforcement/emergency-reset.spec.ts:69:8 › Emergency Security Reset (Break-Glass) › should rate limit after 5 attempts
+🔧 Setting up test suite: Ensuring Cerberus and ACL are enabled...
+  ✓ Cerberus master switch enabled
+  ✓ ACL enabled
+  ✓ ACL verified as enabled
+  🗑️  Ensuring no access lists exist (required for ACL blocking)...
+  ✓ Deleted 6 access list(s)
+✅ Cerberus and ACL enabled for test suite
+🧪 Testing emergency token bypass with ACL enabled...
+  ✓ Confirmed ACL is enabled
+  ✓ Emergency token successfully accessed protected endpoint with ACL enabled
+✅ Test 1 passed: Emergency token bypasses ACL
+  ✓  726 [chromium] › tests/security-enforcement/emergency-token.spec.ts:160:3 › Emergency Token Break Glass Protocol › Test 1: Emergency token bypasses ACL (20ms)
+🧪 Verifying emergency endpoint has no rate limiting...
+  ℹ️  Emergency endpoints are "break-glass" - they must work immediately without artificial delays
+✅ Test 2 passed: No rate limiting on emergency endpoint (10 rapid requests all got 401, not 429)
+  ℹ️  Emergency endpoints protected by: token validation + IP restrictions + audit logging
+  ✓  727 [chromium] › tests/security-enforcement/emergency-token.spec.ts:231:3 › Emergency Token Break Glass Protocol › Test 2: Emergency endpoint has NO rate limiting (36ms)
+🧪 Testing emergency token validation...
+  ✓ Security settings were not modified by invalid token
+✅ Test 3 passed: Invalid token properly rejected
+  ✓  728 [chromium] › tests/security-enforcement/emergency-token.spec.ts:258:3 › Emergency Token Break Glass Protocol › Test 3: Emergency token requires valid token (9ms)
+🧪 Testing emergency token audit logging...
+  ✓ Audit log found for emergency event
+  ✓ Audit log action: emergency_reset_success
+  ✓ Audit log timestamp: undefined
+✅ Test 4 passed: Audit logging verified
+🧹 Cleaning up: Resetting security state...
+✅ Security state reset successfully
+  ✓  729 [chromium] › tests/security-enforcement/emergency-token.spec.ts:281:3 › Emergency Token Break Glass Protocol › Test 4: Emergency token audit logging (1.0s)
+🔧 Setting up test suite: Ensuring Cerberus and ACL are enabled...
+  ✓ Cerberus master switch enabled
+  ✓ ACL enabled
+  ✓ ACL verified as enabled
+  🗑️  Ensuring no access lists exist (required for ACL blocking)...
+  ✓ Deleted 6 access list(s)
+✅ Cerberus and ACL enabled for test suite
+🧪 Testing emergency token IP restrictions (documentation)...
+✅ Test 5 passed: IP restriction behavior documented
+  ℹ️  Manual test required: Verify production blocks IPs outside management CIDR
+  ✓  730 [chromium] › tests/security-enforcement/emergency-token.spec.ts:325:3 › Emergency Token Break Glass Protocol › Test 5: Emergency token from unauthorized IP (documentation test) (14ms)
+🧪 Testing emergency token minimum length validation...
+  ✓ E2E emergency token length: 64 chars (minimum: 32)
+✅ Test 6 passed: Minimum length requirement documented and verified
+  ℹ️  Backend unit test required: Verify startup rejects short tokens
+  ✓  731 [chromium] › tests/security-enforcement/emergency-token.spec.ts:354:3 › Emergency Token Break Glass Protocol › Test 6: Emergency token minimum length validation (15ms)
+🧪 Testing emergency token header security...
+  ✓ Token not found in audit log (properly stripped)
+✅ Test 7 passed: Emergency token properly stripped for security
+  ✓  732 [chromium] › tests/security-enforcement/emergency-token.spec.ts:375:3 › Emergency Token Break Glass Protocol › Test 7: Emergency token header stripped (1.0s)
+🧪 Testing emergency reset idempotency...
+  ✓ First reset successful
+  ✓ Second reset successful
+  ✓ No errors on repeated resets
+✅ Test 8 passed: Emergency reset is idempotent
+🧹 Cleaning up: Resetting security state...
+✅ Security state reset successfully
+  ✓  733 [chromium] › tests/security-enforcement/emergency-token.spec.ts:419:3 › Emergency Token Break Glass Protocol › Test 8: Emergency reset idempotency (1.0s)
+✅ Admin whitelist configured for test IP ranges
+✓ Cerberus enabled
+✓ Rate Limiting enabled
+  ✓  734 [chromium] › tests/security-enforcement/rate-limit-enforcement.spec.ts:115:3 › Rate Limit Enforcement › should verify rate limiting is enabled (6ms)
+✓ Security state restored
+  ✓  735 [chromium] › tests/security-enforcement/rate-limit-enforcement.spec.ts:151:3 › Rate Limit Enforcement › should return rate limit presets (4ms)
+✅ Admin whitelist configured for test IP ranges
+✓ Cerberus enabled
+✓ Rate Limiting enabled
+Rate limiting configured - threshold enforcement active at Caddy layer
+✓ Security state restored
+  ✓  736 [chromium] › tests/security-enforcement/rate-limit-enforcement.spec.ts:168:3 › Rate Limit Enforcement › should document threshold behavior when rate exceeded (6ms)
+  ✓  737 [chromium] › tests/security-enforcement/security-headers-enforcement.spec.ts:31:3 › Security Headers Enforcement › should return X-Content-Type-Options header (15ms)
+  ✓  738 [chromium] › tests/security-enforcement/security-headers-enforcement.spec.ts:47:3 › Security Headers Enforcement › should return X-Frame-Options header (4ms)
+HSTS not present on HTTP (expected behavior)
+  ✓  739 [chromium] › tests/security-enforcement/security-headers-enforcement.spec.ts:63:3 › Security Headers Enforcement › should document HSTS behavior on HTTPS (3ms)
+CSP not configured (optional - set per proxy host)
+  ✓  740 [chromium] › tests/security-enforcement/security-headers-enforcement.spec.ts:87:3 › Security Headers Enforcement › should verify Content-Security-Policy when configured (3ms)
+✅ Admin whitelist configured for test IP ranges
+✓ Cerberus enabled
+✓ WAF enabled
+  ✓  741 [chromium] › tests/security-enforcement/waf-enforcement.spec.ts:126:3 › WAF Enforcement › should verify WAF is enabled (6ms)
+✓ Security state restored
+  ✓  742 [chromium] › tests/security-enforcement/waf-enforcement.spec.ts:141:3 › WAF Enforcement › should return WAF configuration from security status (7ms)
+✅ Admin whitelist configured for test IP ranges
+✓ Cerberus enabled
+✓ Security state restored
+  ✘  715 [chromium] › tests/security-enforcement/combined-enforcement.spec.ts:99:3 › Combined Security Enforcement › should enable all security modules simultaneously (46.6s)
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+✅ Admin whitelist configured for test IP ranges
+Audit logs endpoint returned 404
+  ✓  744 [chromium] › tests/security-enforcement/combined-enforcement.spec.ts:147:3 › Combined Security Enforcement › should log security events to audit log (1.5s)
+✓ Rapid toggle completed without race conditions
+✓ Security state restored
+  ✓  745 [chromium] › tests/security-enforcement/combined-enforcement.spec.ts:170:3 › Combined Security Enforcement › should handle rapid module toggle without race conditions (544ms)
+  ✓  746 [chromium] › tests/security-enforcement/zzz-admin-whitelist-blocking.spec.ts:52:3 › Admin Whitelist IP Blocking (RUN LAST) › Test 1: should block non-whitelisted IP when Cerberus enabled (28ms)
+  ✓  747 [chromium] › tests/security-enforcement/zzz-admin-whitelist-blocking.spec.ts:88:3 › Admin Whitelist IP Blocking (RUN LAST) › Test 2: should allow whitelisted IP to enable Cerberus (24ms)
+🔧 Emergency reset - cleaning up admin whitelist test
+✅ Emergency reset completed - test IP unblocked
+  ✓  748 [chromium] › tests/security-enforcement/zzz-admin-whitelist-blocking.spec.ts:123:3 › Admin Whitelist IP Blocking (RUN LAST) › Test 3: should allow emergency token to bypass admin whitelist (25ms)
+  ✓  749 [chromium] › tests/settings/account-settings.spec.ts:37:5 › Account Settings › Profile Management › should display user profile (2.0s)
+✓ WAF enabled
+  ✓  750 [chromium] › tests/settings/account-settings.spec.ts:63:5 › Account Settings › Profile Management › should update profile name (3.3s)
+  ✓  751 [chromium] › tests/settings/account-settings.spec.ts:94:5 › Account Settings › Profile Management › should update profile email (3.1s)
+  ✓  752 [chromium] › tests/settings/account-settings.spec.ts:137:5 › Account Settings › Profile Management › should require password for email change (2.6s)
+✓ Security state restored
+  ✘  743 [chromium] › tests/security-enforcement/waf-enforcement.spec.ts:151:3 › WAF Enforcement › should detect SQL injection patterns in request validation (10.0s)
+  ✓  753 [chromium] › tests/settings/account-settings.spec.ts:167:5 › Account Settings › Profile Management › should show email change confirmation dialog (3.0s)
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+✅ Admin whitelist configured for test IP ranges
+✓ Cerberus enabled
+  ✓  754 [chromium] › tests/settings/account-settings.spec.ts:208:5 › Account Settings › Certificate Email › should toggle use account email (2.3s)
+  ✓  756 [chromium] › tests/settings/account-settings.spec.ts:263:5 › Account Settings › Certificate Email › should enter custom certificate email (2.4s)
+✓ WAF enabled
+WAF configured - XSS blocking active at Caddy/Coraza layer
+✓ Security state restored
+  ✓  755 [chromium] › tests/security-enforcement/waf-enforcement.spec.ts:179:3 › WAF Enforcement › should document XSS blocking behavior (18ms)
+  ✓  757 [chromium] › tests/settings/account-settings.spec.ts:292:5 › Account Settings › Certificate Email › should validate certificate email format (3.1s)
+  ✓  758 [chromium] › tests/settings/account-settings.spec.ts:349:5 › Account Settings › Certificate Email › should save certificate email (3.7s)
+  ✓  759 [chromium] › tests/settings/account-settings.spec.ts:403:5 › Account Settings › Password Change › should change password with valid inputs (2.6s)
+  ✓  760 [chromium] › tests/settings/account-settings.spec.ts:447:5 › Account Settings › Password Change › should validate current password (2.7s)
+  ✓  761 [chromium] › tests/settings/account-settings.spec.ts:477:5 › Account Settings › Password Change › should validate password strength (2.9s)
+  ✓  762 [chromium] › tests/settings/account-settings.spec.ts:505:5 › Account Settings › Password Change › should validate password confirmation match (2.9s)
+  -  763 [chromium] › tests/settings/account-settings.spec.ts:533:5 › Account Settings › Password Change › should show password strength meter
+  ✓  764 [chromium] › tests/settings/account-settings.spec.ts:580:5 › Account Settings › API Key Management › should display API key (2.2s)
+  ✓  765 [chromium] › tests/settings/account-settings.spec.ts:600:5 › Account Settings › API Key Management › should copy API key to clipboard (2.9s)
+  ✓  766 [chromium] › tests/settings/account-settings.spec.ts:629:5 › Account Settings › API Key Management › should regenerate API key (2.2s)
+  ✓  767 [chromium] › tests/settings/account-settings.spec.ts:680:5 › Account Settings › API Key Management › should confirm API key regeneration (2.9s)
+  ✓  769 [chromium] › tests/settings/account-settings.spec.ts:775:5 › Account Settings › Accessibility › should have proper form labels (2.1s)
+  ✓  770 [chromium] › tests/settings/encryption-management.spec.ts:34:5 › Encryption Management › Status Display › should display encryption status cards (2.1s)
+  ✓  768 [chromium] › tests/settings/account-settings.spec.ts:711:5 › Account Settings › Accessibility › should be keyboard navigable (7.3s)
+  ✓  771 [chromium] › tests/settings/encryption-management.spec.ts:64:5 › Encryption Management › Status Display › should show current key version (2.2s)
+  ✓  772 [chromium] › tests/settings/encryption-management.spec.ts:87:5 › Encryption Management › Status Display › should show provider update counts (2.2s)
+  ✓  773 [chromium] › tests/settings/encryption-management.spec.ts:117:5 › Encryption Management › Status Display › should indicate next key configuration status (2.1s)
+  -  774 [chromium] › tests/settings/encryption-management.spec.ts:147:5 › Encryption Management › Key Rotation › should open rotation confirmation dialog
+  ✓  775 [chromium] › tests/settings/encryption-management.spec.ts:427:5 › Encryption Management › Key Validation › should validate key configuration (2.3s)
+  -  776 [chromium] › tests/settings/encryption-management.spec.ts:197:5 › Encryption Management › Key Rotation › should cancel rotation from dialog
+  -  778 [chromium] › tests/settings/encryption-management.spec.ts:235:5 › Encryption Management › Key Rotation › should execute key rotation
+  ✓  777 [chromium] › tests/settings/encryption-management.spec.ts:452:5 › Encryption Management › Key Validation › should show validation success message (4.2s)
+  -  779 [chromium] › tests/settings/encryption-management.spec.ts:278:5 › Encryption Management › Key Rotation › should show rotation progress
+  -  781 [chromium] › tests/settings/encryption-management.spec.ts:324:5 › Encryption Management › Key Rotation › should display rotation success message
+  ✓  780 [chromium] › tests/settings/encryption-management.spec.ts:483:5 › Encryption Management › Key Validation › should show validation errors (5.3s)
+  ✓  782 [chromium] › tests/settings/encryption-management.spec.ts:379:5 › Encryption Management › Key Rotation › should handle rotation failure gracefully (2.1s)
+  -  783 [chromium] › tests/settings/encryption-management.spec.ts:521:5 › Encryption Management › History › should display rotation history
+  -  784 [chromium] › tests/settings/encryption-management.spec.ts:568:5 › Encryption Management › History › should show history details
+  ✓  786 [chromium] › tests/settings/encryption-management.spec.ts:707:5 › Encryption Management › Accessibility › should have proper ARIA labels (2.7s)
+  ✓  785 [chromium] › tests/settings/encryption-management.spec.ts:656:5 › Encryption Management › Accessibility › should be keyboard navigable (5.1s)
+  ✓  787 [chromium] › tests/settings/notifications.spec.ts:45:5 › Notification Providers › Provider List › should display notification providers list (2.2s)
+  ✓  788 [chromium] › tests/settings/notifications.spec.ts:75:5 › Notification Providers › Provider List › should show empty state when no providers (3.5s)
+  ✓  789 [chromium] › tests/settings/notifications.spec.ts:107:5 › Notification Providers › Provider List › should display provider type badges (4.3s)
+  ✓  790 [chromium] › tests/settings/notifications.spec.ts:151:5 › Notification Providers › Provider List › should filter providers by type (3.2s)
+  ✓  791 [chromium] › tests/settings/notifications.spec.ts:189:5 › Notification Providers › Provider CRUD › should create Discord notification provider (2.5s)
+  ✓  792 [chromium] › tests/settings/notifications.spec.ts:231:5 › Notification Providers › Provider CRUD › should create Slack notification provider (3.5s)
+  -  794 [chromium] › tests/settings/notifications.spec.ts:310:10 › Notification Providers › Provider CRUD › should edit existing provider
+  ✓  793 [chromium] › tests/settings/notifications.spec.ts:265:5 › Notification Providers › Provider CRUD › should create generic webhook provider (4.0s)
+  ✓  795 [chromium] › tests/settings/notifications.spec.ts:384:5 › Notification Providers › Provider CRUD › should delete provider with confirmation (4.0s)
+  -  797 [chromium] › tests/settings/notifications.spec.ts:513:10 › Notification Providers › Provider CRUD › should validate provider URL
+  ✓  796 [chromium] › tests/settings/notifications.spec.ts:460:5 › Notification Providers › Provider CRUD › should enable/disable provider (3.1s)
+  ✓  798 [chromium] › tests/settings/notifications.spec.ts:564:5 › Notification Providers › Provider CRUD › should validate provider name required (3.3s)
+  -  800 [chromium] › tests/settings/notifications.spec.ts:652:10 › Notification Providers › Template Management › should create custom template
+  -  801 [chromium] › tests/settings/notifications.spec.ts:686:10 › Notification Providers › Template Management › should preview template with sample data
+  -  802 [chromium] › tests/settings/notifications.spec.ts:732:10 › Notification Providers › Template Management › should edit external template
+  -  803 [chromium] › tests/settings/notifications.spec.ts:792:10 › Notification Providers › Template Management › should delete external template
+  ✓  799 [chromium] › tests/settings/notifications.spec.ts:600:5 › Notification Providers › Template Management › should select built-in template (3.1s)
+  ✓  804 [chromium] › tests/settings/notifications.spec.ts:868:5 › Notification Providers › Testing & Preview › should test notification provider (4.6s)
+  -  806 [chromium] › tests/settings/notifications.spec.ts:961:10 › Notification Providers › Testing & Preview › should preview notification content
+  ✓  805 [chromium] › tests/settings/notifications.spec.ts:918:5 › Notification Providers › Testing & Preview › should show test success feedback (4.6s)
+  -  808 [chromium] › tests/settings/notifications.spec.ts:1063:10 › Notification Providers › Event Selection › should persist event selections
+  ✓  807 [chromium] › tests/settings/notifications.spec.ts:1015:5 › Notification Providers › Event Selection › should configure notification events (3.4s)
+  ✓  809 [chromium] › tests/settings/notifications.spec.ts:1125:5 › Notification Providers › Accessibility › should be keyboard navigable (3.9s)
+  ✓  810 [chromium] › tests/settings/notifications.spec.ts:1170:5 › Notification Providers › Accessibility › should have proper form labels (2.8s)
+  -  812 [chromium] › tests/settings/notifications.spec.ts:1310:10 › Notification Providers › Error Handling › should show preview error for invalid template
+  ✓  813 [chromium] › tests/settings/smtp-settings.spec.ts:30:5 › SMTP Settings › Page Load & Display › should load SMTP settings page (1.9s)
+  ✓  811 [chromium] › tests/settings/notifications.spec.ts:1264:5 › Notification Providers › Error Handling › should show error when test fails (4.4s)
+  ✓  814 [chromium] › tests/settings/smtp-settings.spec.ts:56:5 › SMTP Settings › Page Load & Display › should display SMTP configuration form (2.3s)
+  ✓  815 [chromium] › tests/settings/smtp-settings.spec.ts:102:5 › SMTP Settings › Page Load & Display › should show loading skeleton while fetching (3.4s)
+  ✓  816 [chromium] › tests/settings/smtp-settings.spec.ts:134:5 › SMTP Settings › Form Validation › should validate required host field (2.9s)
+  ✓  817 [chromium] › tests/settings/smtp-settings.spec.ts:170:5 › SMTP Settings › Form Validation › should validate port is numeric (2.6s)
+  ✓  819 [chromium] › tests/settings/smtp-settings.spec.ts:248:5 › SMTP Settings › Form Validation › should validate encryption selection (2.7s)
+  ✓  818 [chromium] › tests/settings/smtp-settings.spec.ts:195:5 › SMTP Settings › Form Validation › should validate from address format (3.8s)
+  ✓  820 [chromium] › tests/settings/smtp-settings.spec.ts:301:5 › SMTP Settings › CRUD Operations › should save SMTP configuration (3.0s)
+  ✓  821 [chromium] › tests/settings/smtp-settings.spec.ts:336:5 › SMTP Settings › CRUD Operations › should update existing SMTP configuration (4.8s)
+  ✓  822 [chromium] › tests/settings/smtp-settings.spec.ts:383:5 › SMTP Settings › CRUD Operations › should clear password field on save (3.8s)
+  ✓  823 [chromium] › tests/settings/smtp-settings.spec.ts:420:5 › SMTP Settings › CRUD Operations › should preserve masked password on edit (4.5s)
+  ✓  824 [chromium] › tests/settings/smtp-settings.spec.ts:471:5 › SMTP Settings › Connection Testing › should test SMTP connection successfully (2.9s)
+  ✓  825 [chromium] › tests/settings/smtp-settings.spec.ts:511:5 › SMTP Settings › Connection Testing › should show error on connection failure (2.4s)
+  -  826 [chromium] › tests/settings/smtp-settings.spec.ts:555:5 › SMTP Settings › Connection Testing › should send test email
+  -  827 [chromium] › tests/settings/smtp-settings.spec.ts:633:5 › SMTP Settings › Connection Testing › should show error on test email failure
+  ✓  828 [chromium] › tests/settings/smtp-settings.spec.ts:710:5 › SMTP Settings › Accessibility › should be keyboard navigable (3.5s)
+  ✓  829 [chromium] › tests/settings/smtp-settings.spec.ts:768:5 › SMTP Settings › Accessibility › should have proper form labels (2.8s)
+  ✓  830 [chromium] › tests/settings/smtp-settings.spec.ts:862:5 › SMTP Settings › Accessibility › should announce errors to screen readers (3.2s)
+  ✓  831 [chromium] › tests/settings/smtp-settings.spec.ts:909:5 › SMTP Settings › Status Indicator › should show configured status when SMTP is set up (2.5s)
+  ✓  832 [chromium] › tests/settings/smtp-settings.spec.ts:950:5 › SMTP Settings › Status Indicator › should show not configured status when SMTP is not set up (3.0s)
+  ✓  833 [chromium] › tests/settings/system-settings.spec.ts:32:5 › System Settings › Navigation & Page Load › should load system settings page (2.2s)
+  ✓  834 [chromium] › tests/settings/system-settings.spec.ts:57:5 › System Settings › Navigation & Page Load › should display all setting sections (4.1s)
+  ✓  835 [chromium] › tests/settings/system-settings.spec.ts:99:5 › System Settings › Navigation & Page Load › should navigate between settings tabs (4.2s)
+  ✓  836 [chromium] › tests/settings/system-settings.spec.ts:131:5 › System Settings › Feature Toggles › should toggle Cerberus security feature (3.9s)
+  ✓  837 [chromium] › tests/settings/system-settings.spec.ts:164:5 › System Settings › Feature Toggles › should toggle CrowdSec console enrollment (4.0s)
+  ✓  838 [chromium] › tests/settings/system-settings.spec.ts:194:5 › System Settings › Feature Toggles › should toggle uptime monitoring (2.8s)
+  ✓  839 [chromium] › tests/settings/system-settings.spec.ts:224:5 › System Settings › Feature Toggles › should persist feature toggle changes (5.0s)
+  ✓  840 [chromium] › tests/settings/system-settings.spec.ts:262:5 › System Settings › Feature Toggles › should show overlay during feature update (3.2s)
+  ✓  841 [chromium] › tests/settings/system-settings.spec.ts:292:5 › System Settings › General Configuration › should update Caddy Admin API URL (2.4s)
+  ✓  842 [chromium] › tests/settings/system-settings.spec.ts:317:5 › System Settings › General Configuration › should change SSL provider (2.5s)
+  ✓  843 [chromium] › tests/settings/system-settings.spec.ts:348:5 › System Settings › General Configuration › should update domain link behavior (2.4s)
+  ✓  844 [chromium] › tests/settings/system-settings.spec.ts:373:5 › System Settings › General Configuration › should change language setting (2.2s)
+  ✓  845 [chromium] › tests/settings/system-settings.spec.ts:385:5 › System Settings › General Configuration › should validate invalid Caddy API URL (2.9s)
+  ✓  846 [chromium] › tests/settings/system-settings.spec.ts:413:5 › System Settings › General Configuration › should save general settings successfully (2.8s)
+  ✓  847 [chromium] › tests/settings/system-settings.spec.ts:442:5 › System Settings › Application URL › should validate public URL format (3.8s)
+  ✓  848 [chromium] › tests/settings/system-settings.spec.ts:484:5 › System Settings › Application URL › should test public URL reachability (3.4s)
+  ✓  849 [chromium] › tests/settings/system-settings.spec.ts:512:5 › System Settings › Application URL › should show error for unreachable URL (3.4s)
+  ✓  850 [chromium] › tests/settings/system-settings.spec.ts:535:5 › System Settings › Application URL › should show success for reachable URL (3.2s)
+  ✓  852 [chromium] › tests/settings/system-settings.spec.ts:607:5 › System Settings › System Status › should display system health status (2.3s)
+  ✓  853 [chromium] › tests/settings/system-settings.spec.ts:635:5 › System Settings › System Status › should show version information (2.2s)
+  ✓  851 [chromium] › tests/settings/system-settings.spec.ts:569:5 › System Settings › Application URL › should update public URL setting (4.6s)
+  -  855 [chromium] › tests/settings/system-settings.spec.ts:694:5 › System Settings › System Status › should display WebSocket status
+  ✓  854 [chromium] › tests/settings/system-settings.spec.ts:666:5 › System Settings › System Status › should check for updates (2.2s)
+  ✓  856 [chromium] › tests/settings/system-settings.spec.ts:722:5 › System Settings › Accessibility › should be keyboard navigable (3.0s)
+  ✓  857 [chromium] › tests/settings/system-settings.spec.ts:786:5 › System Settings › Accessibility › should have proper ARIA labels (2.9s)
+  ✓  858 [chromium] › tests/settings/user-management.spec.ts:39:5 › User Management › User List › should display user list (8.1s)
+  ✓  860 [chromium] › tests/settings/user-management.spec.ts:108:5 › User Management › User List › should display role badges (4.7s)
+  -  861 [chromium] › tests/settings/user-management.spec.ts:138:5 › User Management › User List › should show last login time
+  -  862 [chromium] › tests/settings/user-management.spec.ts:161:10 › User Management › User List › should show pending invite status
+  ✓  863 [chromium] › tests/settings/user-management.spec.ts:214:5 › User Management › Invite User › should open invite user modal (8.5s)
+  ✓  864 [chromium] › tests/settings/user-management.spec.ts:248:5 › User Management › Invite User › should send invite with valid email (7.8s)
+  ✓  865 [chromium] › tests/settings/user-management.spec.ts:281:5 › User Management › Invite User › should validate email format (6.3s)
+  ✓  866 [chromium] › tests/settings/user-management.spec.ts:315:5 › User Management › Invite User › should select user role (6.3s)
+  ✓  867 [chromium] › tests/settings/user-management.spec.ts:348:5 › User Management › Invite User › should configure permission mode (6.6s)
+  ✘  859 [chromium] › tests/settings/user-management.spec.ts:71:5 › User Management › User List › should show user status badges (58.4s)
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+  ✓  868 [chromium] › tests/settings/user-management.spec.ts:380:5 › User Management › Invite User › should select permitted hosts (7.1s)
+  ✓  869 [chromium] › tests/settings/user-management.spec.ts:418:5 › User Management › Invite User › should show invite URL preview (7.4s)
+  -  871 [chromium] › tests/settings/user-management.spec.ts:497:10 › User Management › Permission Management › should open permissions modal
+  -  872 [chromium] › tests/settings/user-management.spec.ts:541:10 › User Management › Permission Management › should update permission mode
+  -  873 [chromium] › tests/settings/user-management.spec.ts:615:10 › User Management › Permission Management › should add permitted hosts
+  -  874 [chromium] › tests/settings/user-management.spec.ts:672:10 › User Management › Permission Management › should remove permitted hosts
+  -  875 [chromium] › tests/settings/user-management.spec.ts:728:10 › User Management › Permission Management › should save permission changes
+  -  876 [chromium] › tests/settings/user-management.spec.ts:784:10 › User Management › User Actions › should enable/disable user
+  -  877 [chromium] › tests/settings/user-management.spec.ts:831:10 › User Management › User Actions › should change user role
+  -  878 [chromium] › tests/settings/user-management.spec.ts:851:10 › User Management › User Actions › should delete user with confirmation
+  ✓  870 [chromium] › tests/settings/user-management.spec.ts:443:5 › User Management › Invite User › should copy invite link (12.7s)
+  ✓  879 [chromium] › tests/settings/user-management.spec.ts:902:5 › User Management › User Actions › should prevent self-deletion (5.4s)
+  ✓  880 [chromium] › tests/settings/user-management.spec.ts:938:5 › User Management › User Actions › should prevent deleting last admin (5.2s)
+  -  882 [chromium] › tests/settings/user-management.spec.ts:1029:10 › User Management › Accessibility & Security › should be keyboard navigable
+  -  883 [chromium] › tests/settings/user-management.spec.ts:1106:10 › User Management › Accessibility & Security › should require admin role for access
+  -  884 [chromium] › tests/settings/user-management.spec.ts:1140:10 › User Management › Accessibility & Security › should show error for regular user access
+  ✓  885 [chromium] › tests/settings/user-management.spec.ts:1172:5 › User Management › Accessibility & Security › should have proper ARIA labels (9.2s)
+  ✓  886 [chromium] › tests/tasks/backups-create.spec.ts:50:5 › Backups Page - Creation and List › Page Layout › should display backups page with correct heading (2.2s)
+  ✓  887 [chromium] › tests/tasks/backups-create.spec.ts:58:5 › Backups Page - Creation and List › Page Layout › should show Create Backup button for admin users (2.1s)
+  ✓  881 [chromium] › tests/settings/user-management.spec.ts:958:5 › User Management › User Actions › should resend invite for pending user (19.0s)
+Failed to cleanup user:3580: Error: Failed to delete user: {"error":"Admin access required"}
+    at TestDataManager.deleteResource [90m(file:///projects/Charon/[39mtests/utils/TestDataManager.ts:462:13[90m)[39m
+    at TestDataManager.cleanup [90m(file:///projects/Charon/[39mtests/utils/TestDataManager.ts:425:9[90m)[39m
+    at Object.testData [as fn] [90m(file:///projects/Charon/[39mtests/fixtures/auth-fixtures.ts:131:7[90m)[39m
+    at [90m/projects/Charon/[39mnode_modules/[4mplaywright[24m/lib/worker/fixtureRunner.js:101:9
+    at Fixture._teardownInternal [90m(/projects/Charon/[39mnode_modules/[4mplaywright[24m/lib/worker/fixtureRunner.js:140:7[90m)[39m
+    at [90m/projects/Charon/[39mnode_modules/[4mplaywright[24m/lib/worker/testInfo.js:320:11
+    at TimeoutManager.withRunnable [90m(/projects/Charon/[39mnode_modules/[4mplaywright[24m/lib/worker/timeoutManager.js:67:14[90m)[39m
+    at TestInfoImpl._runWithTimeout [90m(/projects/Charon/[39mnode_modules/[4mplaywright[24m/lib/worker/testInfo.js:318:7[90m)[39m
+    at TestInfoImpl._runAsStep [90m(/projects/Charon/[39mnode_modules/[4mplaywright[24m/lib/worker/testInfo.js:309:7[90m)[39m
+    at Fixture.teardown [90m(/projects/Charon/[39mnode_modules/[4mplaywright[24m/lib/worker/fixtureRunner.js:120:11[90m)[39m
+    at FixtureRunner.teardownScope [90m(/projects/Charon/[39mnode_modules/[4mplaywright[24m/lib/worker/fixtureRunner.js:187:9[90m)[39m
+    at [90m/projects/Charon/[39mnode_modules/[4mplaywright[24m/lib/worker/workerMain.js:346:9
+    at TestInfoImpl._runAsStep [90m(/projects/Charon/[39mnode_modules/[4mplaywright[24m/lib/worker/testInfo.js:309:7[90m)[39m
+    at WorkerMain._runTest [90m(/projects/Charon/[39mnode_modules/[4mplaywright[24m/lib/worker/workerMain.js:331:5[90m)[39m
+    at WorkerMain.runTestGroup [90m(/projects/Charon/[39mnode_modules/[4mplaywright[24m/lib/worker/workerMain.js:196:11[90m)[39m
+    at process.<anonymous> [90m(/projects/Charon/[39mnode_modules/[4mplaywright[24m/lib/common/process.js:72:22[90m)[39m
+Cleanup completed with 1 errors
+  ✓  888 [chromium] › tests/tasks/backups-create.spec.ts:68:5 › Backups Page - Creation and List › Page Layout › should hide Create Backup button for guest users (1.9s)
+  ✓  889 [chromium] › tests/tasks/backups-create.spec.ts:83:5 › Backups Page - Creation and List › Backup List Display › should display empty state when no backups exist (2.4s)
+  ✓  890 [chromium] › tests/tasks/backups-create.spec.ts:102:5 › Backups Page - Creation and List › Backup List Display › should display list of existing backups (2.8s)
+  ✓  891 [chromium] › tests/tasks/backups-create.spec.ts:126:5 › Backups Page - Creation and List › Backup List Display › should sort backups by date newest first (2.4s)
+  ✓  893 [chromium] › tests/tasks/backups-create.spec.ts:186:5 › Backups Page - Creation and List › Create Backup Flow › should create a new backup successfully (2.2s)
+  ✓  892 [chromium] › tests/tasks/backups-create.spec.ts:157:5 › Backups Page - Creation and List › Backup List Display › should show loading skeleton while fetching (4.2s)
+  ✓  894 [chromium] › tests/tasks/backups-create.spec.ts:221:5 › Backups Page - Creation and List › Create Backup Flow › should show success toast after backup creation (2.1s)
+  ✓  895 [chromium] › tests/tasks/backups-create.spec.ts:250:5 › Backups Page - Creation and List › Create Backup Flow › should update backup list with new backup (2.3s)
+  ✓  896 [chromium] › tests/tasks/backups-create.spec.ts:290:5 › Backups Page - Creation and List › Create Backup Flow › should disable create button while in progress (3.2s)
+  ✓  897 [chromium] › tests/tasks/backups-create.spec.ts:326:5 › Backups Page - Creation and List › Create Backup Flow › should handle backup creation failure (2.2s)
+  ✓  898 [chromium] › tests/tasks/backups-create.spec.ts:357:5 › Backups Page - Creation and List › Delete Backup › should show confirmation dialog before deleting (2.8s)
+  ✓  899 [chromium] › tests/tasks/backups-create.spec.ts:383:5 › Backups Page - Creation and List › Delete Backup › should delete backup after confirmation (2.5s)
+  ✓  901 [chromium] › tests/tasks/backups-create.spec.ts:483:5 › Backups Page - Creation and List › Download Backup › should download backup file successfully (2.0s)
+  ✓  900 [chromium] › tests/tasks/backups-create.spec.ts:431:5 › Backups Page - Creation and List › Delete Backup › should cancel delete when clicking cancel button (2.7s)
+  ✓  902 [chromium] › tests/tasks/backups-create.spec.ts:529:5 › Backups Page - Creation and List › Download Backup › should show error toast when download fails (2.1s)
+  ✓  903 [chromium] › tests/tasks/backups-restore.spec.ts:56:5 › Backups Page - Restore › Restore Initiation › should show confirmation dialog when clicking restore button (2.8s)
+  ✓  904 [chromium] › tests/tasks/backups-restore.spec.ts:82:5 › Backups Page - Restore › Restore Initiation › should display warning message about data replacement in restore dialog (2.7s)
+  ✓  905 [chromium] › tests/tasks/backups-restore.spec.ts:112:5 › Backups Page - Restore › Restore Initiation › should cancel restore when clicking cancel button (2.7s)
+  ✓  906 [chromium] › tests/tasks/backups-restore.spec.ts:157:5 › Backups Page - Restore › Restore Execution › should restore backup successfully after confirmation (2.9s)
+  ✓  907 [chromium] › tests/tasks/backups-restore.spec.ts:208:5 › Backups Page - Restore › Restore Execution › should show success toast after successful restoration (3.1s)
+  ✓  908 [chromium] › tests/tasks/backups-restore.spec.ts:250:5 › Backups Page - Restore › Restore Execution › should handle restore failure gracefully with error toast (3.2s)
+  ✓  909 [chromium] › tests/tasks/backups-restore.spec.ts:297:5 › Backups Page - Restore › Edge Cases › should disable restore button while restore is in progress (3.9s)
+  ✓  910 [chromium] › tests/tasks/backups-restore.spec.ts:349:5 › Backups Page - Restore › Edge Cases › should handle restore of corrupted backup with appropriate error message (3.1s)
+  ✓  911 [chromium] › tests/tasks/import-caddyfile.spec.ts:230:5 › Import Caddyfile - Wizard › Page Layout › should display import page with correct heading (2.0s)
+  ✓  912 [chromium] › tests/tasks/import-caddyfile.spec.ts:238:5 › Import Caddyfile - Wizard › Page Layout › should show upload section with wizard steps (2.0s)
+  ✓  913 [chromium] › tests/tasks/import-caddyfile.spec.ts:261:5 › Import Caddyfile - Wizard › File Upload › should display file upload dropzone (2.2s)
+  ✓  914 [chromium] › tests/tasks/import-caddyfile.spec.ts:275:5 › Import Caddyfile - Wizard › File Upload › should accept valid Caddyfile via file upload (2.6s)
+  ✓  915 [chromium] › tests/tasks/import-caddyfile.spec.ts:309:5 › Import Caddyfile - Wizard › File Upload › should accept valid Caddyfile via paste (2.7s)
+  ✓  916 [chromium] › tests/tasks/import-caddyfile.spec.ts:333:5 › Import Caddyfile - Wizard › File Upload › should show error for empty content submission (2.1s)
+  ✓  917 [chromium] › tests/tasks/import-caddyfile.spec.ts:352:5 › Import Caddyfile - Wizard › Preview Step › should show parsed hosts from Caddyfile (2.3s)
+  ✓  918 [chromium] › tests/tasks/import-caddyfile.spec.ts:373:5 › Import Caddyfile - Wizard › Preview Step › should show validation errors for invalid Caddyfile syntax (2.3s)
+  ✓  919 [chromium] › tests/tasks/import-caddyfile.spec.ts:395:5 › Import Caddyfile - Wizard › Preview Step › should display source Caddyfile content in preview (3.0s)
+  ✓  920 [chromium] › tests/tasks/import-caddyfile.spec.ts:421:5 › Import Caddyfile - Wizard › Preview Step › should show warnings for parsing issues (2.8s)
+  ✓  921 [chromium] › tests/tasks/import-caddyfile.spec.ts:444:5 › Import Caddyfile - Wizard › Review Step › should display server list with configuration details (2.9s)
+  ✓  922 [chromium] › tests/tasks/import-caddyfile.spec.ts:469:5 › Import Caddyfile - Wizard › Review Step › should highlight conflicts with existing hosts (2.7s)
+  ✓  923 [chromium] › tests/tasks/import-caddyfile.spec.ts:487:5 › Import Caddyfile - Wizard › Review Step › should allow conflict resolution selection (2.7s)
+  ✓  924 [chromium] › tests/tasks/import-caddyfile.spec.ts:512:5 › Import Caddyfile - Wizard › Review Step › should require name for each host before commit (3.0s)
+  ✓  925 [chromium] › tests/tasks/import-caddyfile.spec.ts:547:5 › Import Caddyfile - Wizard › Import Execution › should commit import successfully (3.5s)
+  ✓  926 [chromium] › tests/tasks/import-caddyfile.spec.ts:584:5 › Import Caddyfile - Wizard › Import Execution › should show progress during import (4.1s)
+  ✓  927 [chromium] › tests/tasks/import-caddyfile.spec.ts:620:5 › Import Caddyfile - Wizard › Import Execution › should handle import errors gracefully (4.2s)
+  ✓  928 [chromium] › tests/tasks/import-caddyfile.spec.ts:643:5 › Import Caddyfile - Wizard › Import Execution › should handle partial import with some failures (3.5s)
+  ✓  929 [chromium] › tests/tasks/import-caddyfile.spec.ts:688:5 › Import Caddyfile - Wizard › Session Management › should show import banner when session exists (3.0s)
+  ✓  930 [chromium] › tests/tasks/import-caddyfile.spec.ts:717:5 › Import Caddyfile - Wizard › Session Management › should allow canceling import session (2.7s)
+  ✓  931 [chromium] › tests/tasks/import-crowdsec.spec.ts:61:5 › Import CrowdSec Configuration › Page Layout › should display import page with correct heading (2.5s)
+  ✓  932 [chromium] › tests/tasks/import-crowdsec.spec.ts:69:5 › Import CrowdSec Configuration › Page Layout › should show file upload form with accepted formats (2.8s)
+  ✓  933 [chromium] › tests/tasks/import-crowdsec.spec.ts:94:5 › Import CrowdSec Configuration › File Validation › should accept valid .tar.gz configuration files (2.6s)
+  ✓  934 [chromium] › tests/tasks/import-crowdsec.spec.ts:130:5 › Import CrowdSec Configuration › File Validation › should accept valid .zip configuration files (2.5s)
+  ✓  935 [chromium] › tests/tasks/import-crowdsec.spec.ts:166:5 › Import CrowdSec Configuration › File Validation › should disable import button when no file selected (2.4s)
+  ✓  936 [chromium] › tests/tasks/import-crowdsec.spec.ts:180:5 › Import CrowdSec Configuration › Import Execution › should create backup before import and complete successfully (2.7s)
+  ✓  937 [chromium] › tests/tasks/import-crowdsec.spec.ts:237:5 › Import CrowdSec Configuration › Import Execution › should handle import errors gracefully (2.4s)
+  ✓  938 [chromium] › tests/tasks/import-crowdsec.spec.ts:281:5 › Import CrowdSec Configuration › Import Execution › should show loading state during import (3.2s)
+  ✓  939 [chromium] › tests/tasks/logs-viewing.spec.ts:185:5 › Logs Page - Static Log File Viewing › Page Layout › should display logs page with file selector (2.2s)
+  ✓  940 [chromium] › tests/tasks/logs-viewing.spec.ts:199:5 › Logs Page - Static Log File Viewing › Page Layout › should show list of available log files (2.5s)
+  ✓  941 [chromium] › tests/tasks/logs-viewing.spec.ts:212:5 › Logs Page - Static Log File Viewing › Page Layout › should display log filters section (2.2s)
+  ✓  942 [chromium] › tests/tasks/logs-viewing.spec.ts:233:5 › Logs Page - Static Log File Viewing › Log File List › should list all available log files with metadata (2.4s)
+  ✓  943 [chromium] › tests/tasks/logs-viewing.spec.ts:249:5 › Logs Page - Static Log File Viewing › Log File List › should load log content when file selected (2.9s)
+  ✓  944 [chromium] › tests/tasks/logs-viewing.spec.ts:271:5 › Logs Page - Static Log File Viewing › Log File List › should show empty state for empty log files (2.2s)
+  ✓  945 [chromium] › tests/tasks/logs-viewing.spec.ts:290:5 › Logs Page - Static Log File Viewing › Log File List › should highlight selected log file (2.3s)
+  ✓  946 [chromium] › tests/tasks/logs-viewing.spec.ts:321:5 › Logs Page - Static Log File Viewing › Log Content Display › should display log entries in table format (2.4s)
+  ✓  947 [chromium] › tests/tasks/logs-viewing.spec.ts:341:5 › Logs Page - Static Log File Viewing › Log Content Display › should show timestamp, level, method, uri, status (2.4s)
+  ✓  948 [chromium] › tests/tasks/logs-viewing.spec.ts:358:5 › Logs Page - Static Log File Viewing › Log Content Display › should sort logs by timestamp (2.4s)
+  ✓  949 [chromium] › tests/tasks/logs-viewing.spec.ts:397:5 › Logs Page - Static Log File Viewing › Log Content Display › should highlight error entries with distinct styling (2.3s)
+  ✓  950 [chromium] › tests/tasks/logs-viewing.spec.ts:418:5 › Logs Page - Static Log File Viewing › Pagination › should paginate large log files (3.0s)
+  ✓  951 [chromium] › tests/tasks/logs-viewing.spec.ts:469:5 › Logs Page - Static Log File Viewing › Pagination › should display page info correctly (2.7s)
+  ✓  952 [chromium] › tests/tasks/logs-viewing.spec.ts:507:5 › Logs Page - Static Log File Viewing › Pagination › should disable prev button on first page and next on last (2.4s)
+  ✓  953 [chromium] › tests/tasks/logs-viewing.spec.ts:566:5 › Logs Page - Static Log File Viewing › Search and Filter › should filter logs by search text (2.2s)
+  ✓  954 [chromium] › tests/tasks/logs-viewing.spec.ts:621:5 › Logs Page - Static Log File Viewing › Search and Filter › should filter logs by log level (2.3s)
+  ✓  955 [chromium] › tests/tasks/logs-viewing.spec.ts:673:5 › Logs Page - Static Log File Viewing › Download › should download log file successfully (2.2s)
+  ✓  956 [chromium] › tests/tasks/logs-viewing.spec.ts:692:5 › Logs Page - Static Log File Viewing › Download › should handle download error gracefully (2.3s)
+  ✓  957 [chromium] › tests/tasks/logs-viewing.spec.ts:743:5 › Logs Page - Static Log File Viewing › Edge Cases › should handle empty log content gracefully (2.3s)
+  ✓  958 [chromium] › tests/tasks/logs-viewing.spec.ts:771:5 › Logs Page - Static Log File Viewing › Edge Cases › should reset to first page when changing log file (3.5s)
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+
+🔒 Security Teardown: Disabling all security modules...
+  ✓ Disabled via API: security.acl.enabled
+  ✓ Disabled via API: security.waf.enabled
+  ✓ Disabled via API: security.crowdsec.enabled
+  ✓ Disabled via API: security.rate_limit.enabled
+  ✓ Disabled via API: feature.cerberus.enabled
+  ⏳ Waiting for Caddy config reload...
+✅ Security teardown complete: All modules disabled
+
+  ✓  959 [security-teardown] › tests/security-teardown.setup.ts:20:1 › disable-all-security-modules (1.1s)
+
+
+  1) [chromium] › tests/emergency-server/emergency-server.spec.ts:150:3 › Emergency Server (Tier 2 Break Glass) › Test 3: Emergency server bypasses main app security
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32m403[39m
+    Received: [31m200[39m
+
+      176 |       // Step 2: Verify main app blocks requests (403)
+      177 |       const mainAppResponse = await request.get('/api/v1/proxy-hosts');
+    > 178 |       expect(mainAppResponse.status()).toBe(403);
+          |                                        ^
+      179 |       console.log('  ✓ Main app (port 8080) blocking requests with ACL');
+      180 |
+      181 |       // Step 3: Use emergency server (port 2019) to reset security
+        at /projects/Charon/tests/emergency-server/emergency-server.spec.ts:178:40
+
+  2) [chromium] › tests/security-enforcement/combined-enforcement.spec.ts:99:3 › Combined Security Enforcement › should enable all security modules simultaneously
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32mtrue[39m
+    Received: [31mfalse[39m
+
+    Call Log:
+    - Timeout 30000ms exceeded while waiting on the predicate
+
+      140 |       expect(status.rate_limit.enabled).toBe(true);
+      141 |       expect(status.crowdsec.enabled).toBe(true);
+    > 142 |     }).toPass({ timeout: 30000, intervals: [2000, 3000, 5000, 5000, 5000] });
+          |        ^
+      143 |
+      144 |     console.log('✓ All security modules enabled simultaneously');
+      145 |   });
+        at /projects/Charon/tests/security-enforcement/combined-enforcement.spec.ts:142:8
+
+  3) [chromium] › tests/security-enforcement/waf-enforcement.spec.ts:151:3 › WAF Enforcement › should detect SQL injection patterns in request validation
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32mtrue[39m
+    Received: [31mfalse[39m
+
+    Call Log:
+    - Timeout 15000ms exceeded while waiting on the predicate
+
+      167 |       const status = await getSecurityStatus(requestContext);
+      168 |       expect(status.waf.enabled).toBe(true);
+    > 169 |     }).toPass({ timeout: 15000, intervals: [2000, 3000, 5000] });
+          |        ^
+      170 |
+      171 |     // Document: When WAF is enabled and request goes through Caddy:
+      172 |     // - SQL injection patterns like ' OR 1=1-- should return 403/418
+        at /projects/Charon/tests/security-enforcement/waf-enforcement.spec.ts:169:8
+
+  4) [chromium] › tests/settings/user-management.spec.ts:71:5 › User Management › User List › should show user status badges
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    attachment #1: @bgotink/playwright-coverage (application/json) ─────────────────────────────────
+    test-results/settings-user-management-U-abb88-uld-show-user-status-badges-chromium/v8-coverage.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/settings-user-management-U-abb88-uld-show-user-status-badges-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4 failed
+    [chromium] › tests/emergency-server/emergency-server.spec.ts:150:3 › Emergency Server (Tier 2 Break Glass) › Test 3: Emergency server bypasses main app security
+    [chromium] › tests/security-enforcement/combined-enforcement.spec.ts:99:3 › Combined Security Enforcement › should enable all security modules simultaneously
+    [chromium] › tests/security-enforcement/waf-enforcement.spec.ts:151:3 › WAF Enforcement › should detect SQL injection patterns in request validation
+    [chromium] › tests/settings/user-management.spec.ts:71:5 › User Management › User List › should show user status badges
+  105 skipped
+  2 did not run
+  848 passed (20.6m)
+
+╔════════════════════════════════════════════════════════════╗
+║              E2E Test Execution Summary                      ║
+╠════════════════════════════════════════════════════════════╣
+║ Total Tests:        959                                       ║
+║ ✅ Passed:          848 (88%)                                 ║
+║ ❌ Failed:          3                                         ║
+║ ⏭️  Skipped:         107                                       ║
+╚════════════════════════════════════════════════════════════╝
+
+⏱️  Slow Tests (>5s):
+────────────────────────────────────────────────────────────
+1. should show user status badges           58.39s
+2. should enable all security modules simul 46.65s
+3. should enable all security modules simul 21.57s
+4. should resend invite for pending user    18.98s
+5. should copy invite link                  12.66s
+6. should detect SQL injection patterns in  10.04s
+7. should have proper ARIA labels           9.20s
+8. should open invite user modal            8.45s
+9. should display user list                 8.13s
+10. should send invite with valid email      7.84s
+
+🔍 Failure Analysis by Type:
+────────────────────────────────────────────────────────────
+other        │ ███████              1/3 (33%)
+timeout      │ █████████████        2/3 (67%)
+
+
+[36m  Serving HTML report at http://localhost:9323. Press Ctrl+C to quit.[39m

@@ -343,7 +343,9 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add docs/issues/
-          git diff --staged --quiet || git commit -m "chore: move processed issue files to created/ [skip ci]"
+          # Removed [skip ci] to allow CI checks to run on PRs
+          # Infinite loop protection: path filter excludes docs/issues/created/** AND github.actor guard prevents bot loops
+          git diff --staged --quiet || git commit -m "chore: move processed issue files to created/"
           git push
 
       - name: Summary

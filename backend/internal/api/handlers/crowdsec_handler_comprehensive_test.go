@@ -120,10 +120,10 @@ func TestIsConsoleEnrollmentEnabled(t *testing.T) {
 			envValue: "true",
 			want:     true,
 			setupFunc: func() {
-				os.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
+				_ = os.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 			},
 			cleanup: func() {
-				os.Unsetenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT")
+				_ = os.Unsetenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT")
 			},
 		},
 		{
@@ -131,10 +131,10 @@ func TestIsConsoleEnrollmentEnabled(t *testing.T) {
 			envValue: "false",
 			want:     false,
 			setupFunc: func() {
-				os.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "false")
+				_ = os.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "false")
 			},
 			cleanup: func() {
-				os.Unsetenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT")
+				_ = os.Unsetenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT")
 			},
 		},
 		{
@@ -142,7 +142,7 @@ func TestIsConsoleEnrollmentEnabled(t *testing.T) {
 			envValue: "",
 			want:     false,
 			setupFunc: func() {
-				os.Unsetenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT")
+				_ = os.Unsetenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT")
 			},
 			cleanup: func() {},
 		},

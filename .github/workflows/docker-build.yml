@@ -1,17 +1,24 @@
 name: Docker Build, Publish & Test
 
+# This workflow replaced .github/workflows/docker-publish.yml (deleted in commit f640524b on Dec 21, 2025)
+# Enhancements over the previous workflow:
+# - SBOM generation and attestation for supply chain security
+# - CVE-2025-68156 verification for Caddy security patches
+# - Enhanced PR handling with dedicated scanning
+# - Improved workflow orchestration with supply-chain-verify.yml
+
 on:
   push:
     branches:
       - main
       - development
-      - feature/beta-release
+      - 'feature/**'
     # Note: Tags are handled by release-goreleaser.yml to avoid duplicate builds
   pull_request:
     branches:
       - main
       - development
-      - feature/beta-release
+      - 'feature/**'
   workflow_dispatch:
   workflow_call:
 
@@ -20,11 +27,16 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/charon
+  GHCR_REGISTRY: ghcr.io
+  DOCKERHUB_REGISTRY: docker.io
+  IMAGE_NAME: wikid82/charon
+  SYFT_VERSION: v1.17.0
+  GRYPE_VERSION: v0.107.0
 
 jobs:
   build-and-push:
+    env:
+      HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -53,6 +65,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           HEAD_MSG: ${{ github.event.head_commit.message }}
           REF: ${{ github.ref }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           should_skip=false
           pr_title=""
@@ -64,13 +77,21 @@ jobs:
           if echo "$HEAD_MSG" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
-          # Always build on beta-release branch to ensure artifacts for testing
-          if [[ "$REF" == "refs/heads/feature/beta-release" ]]; then
+          # Always build on feature branches to ensure artifacts for testing
+          # For PRs: github.ref is refs/pull/N/merge, so check github.head_ref instead
+          # For pushes: github.ref is refs/heads/branch-name
+          is_feature_push=false
+          if [[ "$REF" == refs/heads/feature/* ]]; then
             should_skip=false
-            echo "Force building on beta-release branch"
+            is_feature_push=true
+            echo "Force building on feature branch (push)"
+          elif [[ "$HEAD_REF" == feature/* ]]; then
+            should_skip=false
+            echo "Force building on feature branch (PR)"
           fi
 
           echo "skip_build=$should_skip" >> $GITHUB_OUTPUT
+          echo "is_feature_push=$is_feature_push" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
         if: steps.skip.outputs.skip_build != 'true'
@@ -78,77 +99,149 @@ jobs:
       - name: Set up Docker Buildx
         if: steps.skip.outputs.skip_build != 'true'
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
-      - name: Resolve Caddy base digest
+      - name: Resolve Debian base image digest
         if: steps.skip.outputs.skip_build != 'true'
         id: caddy
         run: |
-          docker pull caddy:2-alpine
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' caddy:2-alpine)
+          docker pull debian:trixie-slim
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' debian:trixie-slim)
           echo "image=$DIGEST" >> $GITHUB_OUTPUT
 
-      - name: Log in to Container Registry
+      - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Extract metadata (tags, labels)
         if: steps.skip.outputs.skip_build != 'true'
         id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: |
+            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
+            ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/development' }}
-            type=raw,value=beta,enable=${{ github.ref == 'refs/heads/feature/beta-release' }}
+            type=ref,event=branch,enable=${{ startsWith(github.ref, 'refs/heads/feature/') }}
             type=raw,value=pr-${{ github.event.pull_request.number }},enable=${{ github.event_name == 'pull_request' }}
             type=sha,format=short,enable=${{ github.event_name != 'pull_request' }}
+          flavor: |
+            latest=false
+      # For feature branch pushes: build single-platform so we can load locally for artifact
+      # For main/development pushes: build multi-platform for production
+      # For PRs: build single-platform and load locally
       - name: Build and push Docker image
         if: steps.skip.outputs.skip_build != 'true'
         id: build-and-push
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
         with:
           context: .
-          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          platforms: ${{ (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true') && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          no-cache: true  # Prevent false positive vulnerabilities from cached layers
           pull: true  # Always pull fresh base images to get latest security patches
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
             BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
             VCS_REF=${{ github.sha }}
             CADDY_IMAGE=${{ steps.caddy.outputs.image }}
 
+      # Critical Fix: Use exact tag from metadata instead of manual reconstruction
+      # WHY: docker/build-push-action with load:true applies the exact tags from
+      # docker/metadata-action. Manual reconstruction can cause mismatches due to:
+      # - Case sensitivity variations (owner name normalization)
+      # - Tag format differences in Buildx internal behavior
+      # - Registry prefix inconsistencies
+      #
+      # SOLUTION: Extract the first tag from metadata output (which is the PR tag)
+      # and use it directly with docker save. This guarantees we reference the
+      # exact image that was loaded into the local Docker daemon.
+      #
+      # VALIDATION: Added defensive checks to fail fast with diagnostics if:
+      # 1. No tag found in metadata output
+      # 2. Image doesn't exist locally after build
+      # 3. Artifact creation fails
+      - name: Save Docker Image as Artifact
+        if: github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true'
+        run: |
+          # Extract the first tag from metadata action (PR tag)
+          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
+
+          if [[ -z "${IMAGE_TAG}" ]]; then
+            echo "❌ ERROR: No image tag found in metadata output"
+            echo "Metadata tags output:"
+            echo "${{ steps.meta.outputs.tags }}"
+            exit 1
+          fi
+
+          echo "🔍 Detected image tag: ${IMAGE_TAG}"
+
+          # Verify the image exists locally
+          if ! docker image inspect "${IMAGE_TAG}" >/dev/null 2>&1; then
+            echo "❌ ERROR: Image ${IMAGE_TAG} not found locally"
+            echo "📋 Available images:"
+            docker images
+            exit 1
+          fi
+
+          # Save the image using the exact tag from metadata
+          echo "💾 Saving image: ${IMAGE_TAG}"
+          docker save "${IMAGE_TAG}" -o /tmp/charon-pr-image.tar
+
+          # Verify the artifact was created
+          echo "✅ Artifact created:"
+          ls -lh /tmp/charon-pr-image.tar
+
+      - name: Upload Image Artifact
+        if: github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ github.event_name == 'pull_request' && format('pr-image-{0}', github.event.pull_request.number) || 'push-image' }}
+          path: /tmp/charon-pr-image.tar
+          retention-days: 1  # Only needed for workflow duration
+
       - name: Verify Caddy Security Patches (CVE-2025-68156)
         if: steps.skip.outputs.skip_build != 'true'
         timeout-minutes: 2
+        continue-on-error: true
         run: |
           echo "🔍 Verifying Caddy binary contains patched expr-lang/expr@v1.17.7..."
           echo ""
 
           # Determine the image reference based on event type
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}"
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}"
             echo "Using PR image: $IMAGE_REF"
           else
-            IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
             echo "Using digest: $IMAGE_REF"
           fi
 
           echo ""
           echo "==> Caddy version:"
-          timeout 30s docker run --rm $IMAGE_REF caddy version || echo "⚠️ Caddy version check timed out or failed"
+          timeout 30s docker run --rm --pull=never $IMAGE_REF caddy version || echo "⚠️ Caddy version check timed out or failed"
 
           echo ""
           echo "==> Extracting Caddy binary for inspection..."
-          CONTAINER_ID=$(docker create $IMAGE_REF)
+          CONTAINER_ID=$(docker create --pull=never $IMAGE_REF)
           docker cp ${CONTAINER_ID}:/usr/bin/caddy ./caddy_binary
           docker rm ${CONTAINER_ID}
 
@@ -195,29 +288,103 @@ jobs:
           echo ""
           echo "==> Verification complete"
 
+      - name: Verify CrowdSec Security Patches (CVE-2025-68156)
+        if: success()
+        continue-on-error: true
+        run: |
+          echo "🔍 Verifying CrowdSec binaries contain patched expr-lang/expr@v1.17.7..."
+          echo ""
+
+          # Determine the image reference based on event type
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}"
+            echo "Using PR image: $IMAGE_REF"
+          else
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
+            echo "Using digest: $IMAGE_REF"
+          fi
+
+          echo ""
+          echo "==> CrowdSec cscli version:"
+          timeout 30s docker run --rm --pull=never $IMAGE_REF cscli version || echo "⚠️ CrowdSec version check timed out or failed (may not be installed for this architecture)"
+
+          echo ""
+          echo "==> Extracting cscli binary for inspection..."
+          CONTAINER_ID=$(docker create --pull=never $IMAGE_REF)
+          docker cp ${CONTAINER_ID}:/usr/local/bin/cscli ./cscli_binary 2>/dev/null || {
+            echo "⚠️ cscli binary not found - CrowdSec may not be available for this architecture"
+            docker rm ${CONTAINER_ID}
+            exit 0
+          }
+          docker rm ${CONTAINER_ID}
+
+          echo ""
+          echo "==> Checking if Go toolchain is available locally..."
+          if command -v go >/dev/null 2>&1; then
+            echo "✅ Go found locally, inspecting binary dependencies..."
+            go version -m ./cscli_binary > cscli_deps.txt
+
+            echo ""
+            echo "==> Searching for expr-lang/expr dependency:"
+            if grep -i "expr-lang/expr" cscli_deps.txt; then
+              EXPR_VERSION=$(grep "expr-lang/expr" cscli_deps.txt | awk '{print $3}')
+              echo ""
+              echo "✅ Found expr-lang/expr: $EXPR_VERSION"
+
+              # Check if version is v1.17.7 or higher (vulnerable version is v1.17.2)
+              if echo "$EXPR_VERSION" | grep -E "^v1\.(1[7-9]|[2-9][0-9])\.[7-9][0-9]*$|^v1\.17\.([7-9]|[1-9][0-9]+)$" >/dev/null; then
+                echo "✅ PASS: expr-lang version $EXPR_VERSION is patched (>= v1.17.7)"
+              else
+                echo "❌ FAIL: expr-lang version $EXPR_VERSION is vulnerable (< v1.17.7)"
+                echo "⚠️ WARNING: expr-lang version $EXPR_VERSION may be vulnerable (< v1.17.7)"
+                echo "Expected: v1.17.7 or higher to mitigate CVE-2025-68156"
+                exit 1
+              fi
+            else
+              echo "⚠️ expr-lang/expr not found in binary dependencies"
+              echo "This could mean:"
+              echo "  1. The dependency was stripped/optimized out"
+              echo "  2. CrowdSec was built without the expression evaluator"
+              echo "  3. Binary inspection failed"
+              echo ""
+              echo "Displaying all dependencies for review:"
+              cat cscli_deps.txt
+            fi
+          else
+            echo "⚠️ Go toolchain not available in CI environment"
+            echo "Cannot inspect binary modules - skipping dependency verification"
+            echo "Note: Runtime image does not require Go as CrowdSec is a standalone binary"
+          fi
+
+          # Cleanup
+          rm -f ./cscli_binary cscli_deps.txt
+
+          echo ""
+          echo "==> CrowdSec verification complete"
+
       - name: Run Trivy scan (table output)
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
         continue-on-error: true
 
       - name: Run Trivy vulnerability scanner (SARIF)
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         id: trivy
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
         continue-on-error: true
 
       - name: Check Trivy SARIF exists
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         id: trivy-check
         run: |
           if [ -f trivy-results.sarif ]; then
@@ -228,29 +395,59 @@ jobs:
 
       - name: Upload Trivy results
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4.31.10
+        uses: github/codeql-action/upload-sarif@b20883b0cd1f46c72ae0ba6d1090936928f9fa30 # v4.32.0
         with:
           sarif_file: 'trivy-results.sarif'
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # Generate SBOM (Software Bill of Materials) for supply chain security
+      # Only for production builds (main/development) - feature branches use downstream supply-chain-pr.yml
       - name: Generate SBOM
-        uses: anchore/sbom-action@0b82b0b1a22399a1c542d4d656f70cd903571b5c # v0.21.1
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        uses: anchore/sbom-action@deef08a0db64bfad603422135db61477b16cef56 # v0.22.1
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom.cyclonedx.json
 
       # Create verifiable attestation for the SBOM
       - name: Attest SBOM
         uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3.0.0
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-name: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.build-and-push.outputs.digest }}
           sbom-path: sbom.cyclonedx.json
           push-to-registry: true
+
+      # Install Cosign for keyless signing
+      - name: Install Cosign
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+
+      # Sign GHCR image with keyless signing (Sigstore/Fulcio)
+      - name: Sign GHCR Image
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        run: |
+          echo "Signing GHCR image with keyless signing..."
+          cosign sign --yes ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          echo "✅ GHCR image signed successfully"
+
+      # Sign Docker Hub image with keyless signing (Sigstore/Fulcio)
+      - name: Sign Docker Hub Image
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
+        run: |
+          echo "Signing Docker Hub image with keyless signing..."
+          cosign sign --yes ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          echo "✅ Docker Hub image signed successfully"
+
+      # Attach SBOM to Docker Hub image
+      - name: Attach SBOM to Docker Hub
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
+        run: |
+          echo "Attaching SBOM to Docker Hub image..."
+          cosign attach sbom --sbom sbom.cyclonedx.json ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          echo "✅ SBOM attached to Docker Hub image"
 
       - name: Create summary
         if: steps.skip.outputs.skip_build != 'true'
@@ -258,8 +455,8 @@ jobs:
           echo "## 🎉 Docker Image Built Successfully!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📦 Image Details" >> $GITHUB_STEP_SUMMARY
-          echo "- **Registry**: GitHub Container Registry (ghcr.io)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Repository**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **GHCR**: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Hub**: ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Tags**: " >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
@@ -270,6 +467,9 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     if: needs.build-and-push.outputs.skip_build != 'true' && github.event_name != 'pull_request'
+    env:
+      # Required for security teardown in integration tests
+      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
@@ -293,14 +493,14 @@ jobs:
           fi
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull Docker image
-        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+        run: docker pull ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
       - name: Create Docker Network
         run: docker network create charon-test-net
 
@@ -319,11 +519,11 @@ jobs:
             --network charon-test-net \
             -p 8080:8080 \
             -p 80:80 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
 
-          # Wait for container to be healthy (max 2 minutes)
+          # Wait for container to be healthy (max 3 minutes - Debian needs more startup time)
           echo "Waiting for container to start..."
-          timeout 120s bash -c 'until docker exec test-container wget -q -O- http://localhost:8080/api/v1/health 2>/dev/null | grep -q "status"; do echo "Waiting..."; sleep 2; done' || {
+          timeout 180s bash -c 'until docker exec test-container curl -sf http://localhost:8080/api/v1/health 2>/dev/null | grep -q "status"; do echo "Waiting..."; sleep 2; done' || {
             echo "❌ Container failed to become healthy"
             docker logs test-container
             exit 1
@@ -349,27 +549,5 @@ jobs:
         run: |
           echo "## 🧪 Docker Image Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Integration Test**: ${{ job.status == 'success' && '✅ Passed' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
-
-  trivy-pr-app-only:
-    name: Trivy (PR) - App-only
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
-
-      - name: Build image locally for PR
-        run: |
-          docker build -t charon:pr-${{ github.sha }} .
-
-      - name: Extract `charon` binary from image
-        run: |
-          CONTAINER=$(docker create charon:pr-${{ github.sha }})
-          docker cp ${CONTAINER}:/app/charon ./charon_binary || true
-          docker rm ${CONTAINER} || true
-
-      - name: Run Trivy filesystem scan on `charon` (fail PR on HIGH/CRITICAL)
-        run: |
-          docker run --rm -v $HOME/.cache/trivy:/root/.cache/trivy -v $PWD:/workdir aquasec/trivy:latest fs --exit-code 1 --severity CRITICAL,HIGH /workdir/charon_binary

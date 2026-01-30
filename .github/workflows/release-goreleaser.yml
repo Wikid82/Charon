@@ -10,8 +10,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  GO_VERSION: '1.25.5'
+  GO_VERSION: '1.25.6'
   NODE_VERSION: '24.12.0'
+  GOTOOLCHAIN: auto
 
 permissions:
   contents: write
@@ -45,8 +46,8 @@ jobs:
         working-directory: frontend
         run: |
           # Inject version into frontend build from tag (if present)
-          VERSION=$${GITHUB_REF#refs/tags/}
-          echo "VITE_APP_VERSION=$$VERSION" >> $GITHUB_ENV
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "VITE_APP_VERSION=${VERSION}" >> $GITHUB_ENV
           npm ci
           npm run build
 
@@ -56,14 +57,14 @@ jobs:
         with:
           version: 0.13.0
 
-      # GITHUB_TOKEN is set from GITHUB_TOKEN or CPMP_TOKEN (fallback), defaulting to GITHUB_TOKEN
+      # GITHUB_TOKEN is set from GITHUB_TOKEN or CHARON_TOKEN (fallback), defaulting to GITHUB_TOKEN
 
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
         with:
           distribution: goreleaser
-          version: latest
+          version: '~> v2.5'
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

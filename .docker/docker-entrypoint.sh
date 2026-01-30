@@ -12,7 +12,7 @@ is_root() {
 
 run_as_charon() {
     if is_root; then
-        su-exec charon "$@"
+        gosu charon "$@"
     else
         "$@"
     fi
@@ -42,6 +42,41 @@ mkdir -p /app/data/caddy 2>/dev/null || true
 mkdir -p /app/data/crowdsec 2>/dev/null || true
 mkdir -p /app/data/geoip 2>/dev/null || true
 
+# Fix ownership for directories created as root
+if is_root; then
+    chown -R charon:charon /app/data/caddy 2>/dev/null || true
+    chown -R charon:charon /app/data/crowdsec 2>/dev/null || true
+    chown -R charon:charon /app/data/geoip 2>/dev/null || true
+fi
+
+# ============================================================================
+# Plugin Directory Permission Verification
+# ============================================================================
+# The PluginLoaderService requires the plugin directory to NOT be world-writable
+# (mode 0002 bit must not be set). This is a security requirement to prevent
+# malicious plugin injection.
+PLUGINS_DIR="${CHARON_PLUGINS_DIR:-/app/plugins}"
+if [ -d "$PLUGINS_DIR" ]; then
+    # Check if directory is world-writable (security risk)
+    # Using find -perm -0002 is more robust than stat regex - handles sticky/setgid bits correctly
+    if find "$PLUGINS_DIR" -maxdepth 0 -perm -0002 -print -quit 2>/dev/null | grep -q .; then
+        echo "⚠️  WARNING: Plugin directory $PLUGINS_DIR is world-writable!"
+        echo "   This is a security risk - plugins could be injected by any user."
+        echo "   Attempting to fix permissions (removing world-writable bit)..."
+        # Use chmod o-w to only remove world-writable, preserving sticky/setgid bits
+        if chmod o-w "$PLUGINS_DIR" 2>/dev/null; then
+            echo "   ✓ Fixed: Plugin directory world-writable permission removed"
+        else
+            echo "   ✗ ERROR: Cannot fix permissions. Please run: chmod o-w $PLUGINS_DIR"
+            echo "   Plugin loading may fail due to insecure permissions."
+        fi
+    else
+        echo "✓ Plugin directory permissions OK: $PLUGINS_DIR"
+    fi
+else
+    echo "Note: Plugin directory $PLUGINS_DIR does not exist (plugins disabled)"
+fi
+
 # ============================================================================
 # Docker Socket Permission Handling
 # ============================================================================
@@ -57,15 +92,15 @@ if [ -S "/var/run/docker.sock" ] && is_root; then
         if ! getent group "$DOCKER_SOCK_GID" >/dev/null 2>&1; then
             echo "Docker socket detected (gid=$DOCKER_SOCK_GID) - creating docker group and adding charon user..."
             # Create docker group with the socket's GID
-            addgroup -g "$DOCKER_SOCK_GID" docker 2>/dev/null || true
+            groupadd -g "$DOCKER_SOCK_GID" docker 2>/dev/null || true
             # Add charon user to the docker group
-            addgroup charon docker 2>/dev/null || true
+            usermod -aG docker charon 2>/dev/null || true
             echo "Docker integration enabled for charon user"
         else
             # Group exists, just add charon to it
             GROUP_NAME=$(getent group "$DOCKER_SOCK_GID" | cut -d: -f1)
             echo "Docker socket detected (gid=$DOCKER_SOCK_GID, group=$GROUP_NAME) - adding charon user..."
-            addgroup charon "$GROUP_NAME" 2>/dev/null || true
+            usermod -aG "$GROUP_NAME" charon 2>/dev/null || true
             echo "Docker integration enabled for charon user"
         fi
     fi
@@ -244,7 +279,7 @@ echo "Caddy started (PID: $CADDY_PID)"
 echo "Waiting for Caddy admin API..."
 i=1
 while [ "$i" -le 30 ]; do
-    if wget -q -O- http://127.0.0.1:2019/config/ > /dev/null 2>&1; then
+    if curl -sf http://127.0.0.1:2019/config/ > /dev/null 2>&1; then
         echo "Caddy is ready!"
         break
     fi
@@ -255,22 +290,37 @@ done
 # Start Charon management application
 # Drop privileges to charon user before starting the application
 # This maintains security while allowing Docker socket access via group membership
-# Note: When running as root, we use su-exec; otherwise we run directly.
+# Note: When running as root, we use gosu; otherwise we run directly.
 echo "Starting Charon management application..."
 DEBUG_FLAG=${CHARON_DEBUG:-$CPMP_DEBUG}
-DEBUG_PORT=${CHARON_DEBUG_PORT:-$CPMP_DEBUG_PORT}
+DEBUG_PORT=${CHARON_DEBUG_PORT:-${CPMP_DEBUG_PORT:-2345}}
+
+# Determine binary path
+bin_path=/app/charon
+if [ ! -f "$bin_path" ]; then
+    bin_path=/app/cpmp
+fi
+
 if [ "$DEBUG_FLAG" = "1" ]; then
-    echo "Running Charon under Delve (port $DEBUG_PORT)"
-    bin_path=/app/charon
-    if [ ! -f "$bin_path" ]; then
-        bin_path=/app/cpmp
+    # Check if binary has debug symbols (required for Delve)
+    # objdump -h lists section headers; .debug_info is present if DWARF symbols exist
+    if command -v objdump >/dev/null 2>&1; then
+        if ! objdump -h "$bin_path" 2>/dev/null | grep -q '\.debug_info'; then
+            echo "⚠️  WARNING: Binary lacks debug symbols (DWARF info stripped)."
+            echo "   Delve debugging will NOT work with this binary."
+            echo "   To fix, rebuild with: docker build --build-arg BUILD_DEBUG=1 ..."
+            echo "   Falling back to normal execution (without debugger)."
+            run_as_charon "$bin_path" &
+        else
+            echo "✓ Debug symbols detected. Running Charon under Delve (port $DEBUG_PORT)"
+            run_as_charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
+        fi
+    else
+        # objdump not available, try to run Delve anyway with a warning
+        echo "Note: Cannot verify debug symbols (objdump not found). Attempting Delve..."
+        run_as_charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
     fi
-    run_as_charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
 else
-    bin_path=/app/charon
-    if [ ! -f "$bin_path" ]; then
-        bin_path=/app/cpmp
-    fi
     run_as_charon "$bin_path" &
 fi
 APP_PID=$!

@@ -19,16 +19,20 @@
 ### Frontend Layer
 
 #### A. ProxyHostForm Component
+
 - **File**: [frontend/src/components/ProxyHostForm.tsx](../../frontend/src/components/ProxyHostForm.tsx)
 - **State**: `connectionSource` - defaults to `'custom'`, can be `'local'` or a remote server UUID
 - **Hook invocation** (line ~146):
+
   ```typescript
   const { containers: dockerContainers, isLoading: dockerLoading, error: dockerError } = useDocker(
     connectionSource === 'local' ? 'local' : undefined,
     connectionSource !== 'local' && connectionSource !== 'custom' ? connectionSource : undefined
   )
   ```
+
 - **Error display** (line ~361):
+
   ```typescript
   {dockerError && connectionSource !== 'custom' && (
     <p className="text-xs text-red-400 mt-1">
@@ -38,9 +42,11 @@
   ```
 
 #### B. useDocker Hook
+
 - **File**: [frontend/src/hooks/useDocker.ts](../../frontend/src/hooks/useDocker.ts)
 - **Function**: `useDocker(host?: string | null, serverId?: string | null)`
 - **Query configuration**:
+
   ```typescript
   useQuery({
     queryKey: ['docker-containers', host, serverId],
@@ -49,9 +55,11 @@
     retry: 1,
   })
   ```
+
 - When `connectionSource === 'local'`, calls `dockerApi.listContainers('local', undefined)`
 
 #### C. Docker API Client
+
 - **File**: [frontend/src/api/docker.ts](../../frontend/src/api/docker.ts)
 - **Function**: `dockerApi.listContainers(host?: string, serverId?: string)`
 - **Request**: `GET /api/v1/docker/containers?host=local`
@@ -62,8 +70,10 @@
 ### Backend Layer
 
 #### D. Routes Registration
+
 - **File**: [backend/internal/api/routes/routes.go](../../backend/internal/api/routes/routes.go)
 - **Registration** (lines 199-204):
+
   ```go
   dockerService, err := services.NewDockerService()
   if err == nil { // Only register if Docker is available
@@ -73,13 +83,16 @@
       logger.Log().WithError(err).Warn("Docker service unavailable")
   }
   ```
+
 - **CRITICAL**: Docker routes only register if `NewDockerService()` succeeds (client construction, not socket access)
 - Route: `GET /api/v1/docker/containers` (protected, requires auth)
 
 #### E. Docker Handler
+
 - **File**: [backend/internal/api/handlers/docker_handler.go](../../backend/internal/api/handlers/docker_handler.go)
 - **Function**: `ListContainers(c *gin.Context)`
 - **Input validation** (SSRF hardening):
+
   ```go
   host := strings.TrimSpace(c.Query("host"))
   serverID := strings.TrimSpace(c.Query("server_id"))
@@ -90,8 +103,10 @@
       return
   }
   ```
+
 - **Service call**: `h.dockerService.ListContainers(c.Request.Context(), host)`
 - **Error handling** (lines 60-69):
+
   ```go
   if err != nil {
       var unavailableErr *services.DockerUnavailableError
@@ -105,15 +120,19 @@
   ```
 
 #### F. Docker Service
+
 - **File**: [backend/internal/services/docker_service.go](../../backend/internal/services/docker_service.go)
 - **Constructor**: `NewDockerService()`
+
   ```go
   cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
   ```
+
   - Uses `client.FromEnv` which reads `DOCKER_HOST` env var (defaults to `unix:///var/run/docker.sock`)
   - **Does NOT verify socket access** - only constructs client object
 
 - **Function**: `ListContainers(ctx context.Context, host string)`
+
   ```go
   if host == "" || host == "local" {
       cli = s.client  // Use default local client
@@ -137,12 +156,14 @@
 ## 2. Request/Response Shapes
 
 ### Frontend → Backend Request
+
 ```
 GET /api/v1/docker/containers?host=local
 Authorization: Bearer <jwt_token>
 ```
 
 ### Backend → Frontend Response (Success - 200)
+
 ```json
 [
   {
@@ -159,6 +180,7 @@ Authorization: Bearer <jwt_token>
 ```
 
 ### Backend → Frontend Response (Error - 503)
+
 ```json
 {
   "error": "Docker daemon unavailable"
@@ -184,20 +206,27 @@ The 503 `Service Unavailable` is returned when `isDockerConnectivityError()` ret
 ## 4. Docker Configuration Analysis
 
 ### Dockerfile
+
 - **File**: [Dockerfile](../../Dockerfile)
 - **User creation** (lines 154-156):
+
   ```dockerfile
   RUN addgroup -g 1000 charon && \
       adduser -D -u 1000 -G charon -h /app -s /sbin/nologin charon
   ```
+
 - **Runtime user** (line 286):
+
   ```dockerfile
   USER charon
   ```
+
 - **Result**: Container runs as `uid=1000, gid=1000` (charon:charon)
 
 ### Docker Compose Files
+
 All compose files mount the socket identically:
+
 ```yaml
 volumes:
   - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -231,6 +260,7 @@ cat: can't open '/var/run/docker.sock': Permission denied
 ```
 
 ### Host System
+
 ```bash
 $ getent group 988
 docker:x:988:
@@ -254,6 +284,7 @@ root:docker
 | Docker group in container | **Does not exist** |
 
 **The `charon` user cannot access the socket because:**
+
 1. Not owner (not root)
 2. Not in the socket's group (gid=988 doesn't exist in container, and charon isn't in it)
 3. No "other" permissions on socket
@@ -261,6 +292,7 @@ root:docker
 ### Why This Happens
 
 The Docker socket's group ID (988 on this host) is a **host-specific value**. Different systems assign different GIDs to the `docker` group:
+
 - Debian/Ubuntu: often 999 or 998
 - Alpine: often 101 (from `docker` package)
 - RHEL/CentOS: varies
@@ -278,6 +310,7 @@ The error mapping change that returned 503 instead of 500 was **correct and inte
 - **503 Service Unavailable**: Indicates the requested service is temporarily unavailable due to external factors
 
 Docker being inaccessible due to socket permissions is an **environmental/configuration issue**, not an application bug. The 503 correctly signals:
+
 1. The API endpoint is working
 2. The underlying Docker service is unavailable
 3. The issue is likely external (deployment configuration)
@@ -287,16 +320,20 @@ Docker being inaccessible due to socket permissions is an **environmental/config
 ## 7. Solutions
 
 ### Option A: Run Container as Root (Not Recommended)
+
 Remove `USER charon` from Dockerfile. Breaks security best practices (CIS Docker Benchmark 4.1).
 
 ### Option B: Add Docker Group to Container at Build Time
+
 ```dockerfile
 # Problem: GID varies by host system
 RUN addgroup -g 988 docker && adduser charon docker
 ```
+
 **Issue**: Assumes host Docker GID is 988; breaks on other systems.
 
 ### Option C: Dynamic Group Assignment at Runtime (Recommended)
+
 Modify entrypoint to detect and add the socket's group:
 
 ```bash
@@ -315,15 +352,20 @@ fi
 **Issue**: Requires container to start as root, then drop privileges.
 
 ### Option D: Use DOCKER_HOST Environment Variable
+
 Allow users to specify an alternative Docker endpoint (TCP, SSH, or different socket path):
+
 ```yaml
 environment:
   - DOCKER_HOST=tcp://host.docker.internal:2375
 ```
+
 **Issue**: Requires exposing Docker API over network (security implications).
 
 ### Option E: Document User Requirement (Workaround)
+
 Add documentation requiring users to either:
+
 1. Run the container with `--user root` (not recommended)
 2. Change socket permissions on host: `chmod 666 /var/run/docker.sock` (security risk)
 3. Accept that Docker integration is unavailable when running as non-root
@@ -333,11 +375,14 @@ Add documentation requiring users to either:
 ## 8. Recommendations
 
 ### Immediate (No Code Change)
+
 1. **Update documentation** to explain the permission requirement
 2. **Add health check** for Docker availability in the UI (show "Docker integration unavailable" gracefully)
 
 ### Short Term
+
 1. **Add startup warning log** when Docker socket is inaccessible:
+
    ```go
    // In routes.go or docker_service.go
    if _, err := cli.Ping(ctx); err != nil {
@@ -346,10 +391,12 @@ Add documentation requiring users to either:
    ```
 
 ### Medium Term
+
 1. **Implement Option C** with proper privilege dropping
 2. **Add environment variable** `CHARON_DOCKER_ENABLED=false` to explicitly disable Docker integration
 
 ### Long Term
+
 1. Consider **podman socket** compatibility
 2. Consider **Docker SDK over TCP** as alternative
 

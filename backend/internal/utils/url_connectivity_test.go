@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -232,7 +233,7 @@ func TestIsPrivateIP_PrivateIPv4Ranges(t *testing.T) {
 			ip := net.ParseIP(tc.ip)
 			require.NotNil(t, ip, "IP should parse successfully")
 
-			result := isPrivateIP(ip)
+			result := network.IsPrivateIP(ip)
 			assert.Equal(t, tc.expected, result,
 				"IP %s should be private=%v", tc.ip, tc.expected)
 		})
@@ -267,7 +268,7 @@ func TestIsPrivateIP_PrivateIPv6Ranges(t *testing.T) {
 			ip := net.ParseIP(tc.ip)
 			require.NotNil(t, ip, "IP should parse successfully")
 
-			result := isPrivateIP(ip)
+			result := network.IsPrivateIP(ip)
 			assert.Equal(t, tc.expected, result,
 				"IP %s should be private=%v", tc.ip, tc.expected)
 		})
@@ -367,7 +368,7 @@ func BenchmarkIsPrivateIP(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = isPrivateIP(ip)
+		_ = network.IsPrivateIP(ip)
 	}
 }
 

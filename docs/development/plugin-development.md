@@ -37,7 +37,7 @@ Charon uses Go's plugin system to dynamically load DNS provider implementations.
 ### Build Requirements
 
 - **CGO:** Must be enabled (`CGO_ENABLED=1`)
-- **Go Version:** Must match Charon's Go version exactly
+- **Go Version:** Must match Charon's Go version exactly (currently 1.25.6+)
 - **Compiler:** GCC/Clang for Linux, Xcode tools for macOS
 - **Build Mode:** Must use `-buildmode=plugin`
 
@@ -405,7 +405,7 @@ my-provider-plugin/
 ```go
 module github.com/yourname/charon-plugin-myprovider
 
-go 1.23
+go 1.25
 
 require (
     github.com/Wikid82/charon v0.0.0-20240101000000-abcdef123456
@@ -429,17 +429,20 @@ CGO_ENABLED=1 go build -buildmode=plugin -o myprovider.so main.go
 ### Build Requirements
 
 1. **CGO must be enabled:**
+
    ```bash
    export CGO_ENABLED=1
    ```
 
 2. **Go version must match Charon:**
+
    ```bash
    go version
    # Must match Charon's build Go version
    ```
 
 3. **Architecture must match:**
+
    ```bash
    # For cross-compilation
    GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -buildmode=plugin
@@ -455,23 +458,23 @@ OUTPUT = $(PLUGIN_NAME).so
 INSTALL_DIR = /etc/charon/plugins
 
 build:
-	CGO_ENABLED=1 go build -buildmode=plugin -o $(OUTPUT) main.go
+ CGO_ENABLED=1 go build -buildmode=plugin -o $(OUTPUT) main.go
 
 clean:
-	rm -f $(OUTPUT)
+ rm -f $(OUTPUT)
 
 install: build
-	install -m 755 $(OUTPUT) $(INSTALL_DIR)/
+ install -m 755 $(OUTPUT) $(INSTALL_DIR)/
 
 test:
-	go test -v ./...
+ go test -v ./...
 
 lint:
-	golangci-lint run
+ golangci-lint run
 
 signature:
-	@echo "SHA-256 Signature:"
-	@sha256sum $(OUTPUT)
+ @echo "SHA-256 Signature:"
+ @sha256sum $(OUTPUT)
 ```
 
 ### Build Script
@@ -482,7 +485,7 @@ set -e
 
 PLUGIN_NAME="myprovider"
 GO_VERSION=$(go version | awk '{print $3}')
-CHARON_GO_VERSION="go1.23.4"
+CHARON_GO_VERSION="go1.25.6"
 
 # Verify Go version
 if [ "$GO_VERSION" != "$CHARON_GO_VERSION" ]; then
@@ -772,6 +775,7 @@ var Plugin dnsprovider.ProviderPlugin = &MyProvider{}
 ### Distribution
 
 1. **GitHub Releases:**
+
    ```bash
    # Tag release
    git tag -a v1.0.0 -m "Release v1.0.0"
@@ -784,6 +788,7 @@ var Plugin dnsprovider.ProviderPlugin = &MyProvider{}
    ```
 
 2. **Signature File:**
+
    ```bash
    sha256sum *.so > SHA256SUMS
    gpg --sign SHA256SUMS
@@ -811,9 +816,9 @@ var Plugin dnsprovider.ProviderPlugin = &MyProvider{}
 
 ### Community
 
-- **GitHub Discussions:** https://github.com/Wikid82/charon/discussions
-- **Plugin Registry:** https://github.com/Wikid82/charon-plugins
-- **Issue Tracker:** https://github.com/Wikid82/charon/issues
+- **GitHub Discussions:** <https://github.com/Wikid82/charon/discussions>
+- **Plugin Registry:** <https://github.com/Wikid82/charon-plugins>
+- **Issue Tracker:** <https://github.com/Wikid82/charon/issues>
 
 ## See Also
 

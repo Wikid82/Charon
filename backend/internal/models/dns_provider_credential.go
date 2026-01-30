@@ -8,7 +8,7 @@ import (
 // DNSProviderCredential represents a zone-specific credential set for a DNS provider.
 // This allows different credentials to be used for different domains/zones within the same provider.
 type DNSProviderCredential struct {
-	ID            uint         `json:"id" gorm:"primaryKey"`
+	ID            uint         `json:"-" gorm:"primaryKey"`
 	UUID          string       `json:"uuid" gorm:"uniqueIndex;size:36"`
 	DNSProviderID uint         `json:"dns_provider_id" gorm:"index;not null"`
 	DNSProvider   *DNSProvider `json:"dns_provider,omitempty" gorm:"foreignKey:DNSProviderID"`

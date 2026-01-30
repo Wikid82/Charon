@@ -100,6 +100,8 @@ export default function Layout({ children }: LayoutProps) {
           children: [
             { name: t('navigation.caddyfile'), path: '/tasks/import/caddyfile', icon: '📥' },
             { name: t('navigation.crowdsec'), path: '/tasks/import/crowdsec', icon: '🛡️' },
+            { name: t('navigation.importNPM'), path: '/tasks/import/npm', icon: '📦' },
+            { name: t('navigation.importJSON'), path: '/tasks/import/json', icon: '📄' },
           ]
         },
         { name: t('navigation.backups'), path: '/tasks/backups', icon: '💾' },

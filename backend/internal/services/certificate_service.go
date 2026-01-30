@@ -4,13 +4,14 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"github.com/Wikid82/charon/backend/internal/logger"
-	"github.com/Wikid82/charon/backend/internal/util"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/util"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -155,12 +156,13 @@ func (s *CertificateService) SyncFromDisk() error {
 					isNewStaging := strings.Contains(provider, "staging")
 					shouldUpdateCert := false
 
-					if isExistingStaging && !isNewStaging {
+					switch {
+					case isExistingStaging && !isNewStaging:
 						// Upgrade from staging to production - always update
 						shouldUpdateCert = true
-					} else if !isExistingStaging && isNewStaging {
+					case !isExistingStaging && isNewStaging:
 						// Don't downgrade from production to staging - skip
-					} else if existing.Certificate != string(certData) {
+					case existing.Certificate != string(certData):
 						// Same type but different content - update
 						shouldUpdateCert = true
 					}
@@ -407,7 +409,7 @@ func (s *CertificateService) DeleteCertificate(id uint) error {
 	}
 
 	var cert models.SSLCertificate
-	if err := s.db.First(&cert, id).Error; err != nil {
+	if err := s.db.Where("id = ?", id).First(&cert).Error; err != nil {
 		return err
 	}
 
@@ -425,12 +427,16 @@ func (s *CertificateService) DeleteCertificate(id uint) error {
 					// Try to delete key as well
 					keyPath := strings.TrimSuffix(path, ".crt") + ".key"
 					if _, err := os.Stat(keyPath); err == nil {
-						os.Remove(keyPath)
+						if err := os.Remove(keyPath); err != nil {
+							logger.Log().WithError(err).Warn("Failed to remove key file")
+						}
 					}
 					// Also try to delete the json meta file
 					jsonPath := strings.TrimSuffix(path, ".crt") + ".json"
 					if _, err := os.Stat(jsonPath); err == nil {
-						os.Remove(jsonPath)
+						if err := os.Remove(jsonPath); err != nil {
+							logger.Log().WithError(err).Warn("Failed to remove JSON file")
+						}
 					}
 				}
 			}

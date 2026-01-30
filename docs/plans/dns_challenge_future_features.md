@@ -22,6 +22,7 @@ This document outlines the implementation plan for 5 future enhancements to Char
 | **Custom DNS Provider Plugins** | Low | Low | Very High | P3 |
 
 **Recommended Implementation Order:**
+
 1. Audit Logging (Security/Compliance baseline)
 2. Key Rotation (Security hardening)
 3. Multi-Credential (Advanced use cases)
@@ -37,11 +38,13 @@ This document outlines the implementation plan for 5 future enhancements to Char
 **Problem:** Currently, there is no record of who accessed, modified, or used DNS provider credentials. This creates security blind spots and prevents forensic analysis of credential misuse or breach attempts.
 
 **Impact:**
+
 - **Compliance Risk:** SOC 2, GDPR, HIPAA all require audit trails for sensitive data access
 - **Security Risk:** No ability to detect credential theft or unauthorized changes
 - **Operational Risk:** Cannot diagnose certificate issuance failures retrospectively
 
 **User Stories:**
+
 - As a security auditor, I need to see all credential access events for compliance reporting
 - As an administrator, I want alerts when credentials are accessed outside business hours
 - As a developer, I need audit logs to debug failed certificate issuances
@@ -51,6 +54,7 @@ This document outlines the implementation plan for 5 future enhancements to Char
 #### Database Schema
 
 **Extend Existing `security_audits` Table:**
+
 ```sql
 -- File: backend/internal/models/security_audit.go (extend existing)
 
@@ -62,6 +66,7 @@ ALTER TABLE security_audits ADD COLUMN user_agent TEXT;     -- Browser/API clien
 ```
 
 **Model Extension:**
+
 ```go
 type SecurityAudit struct {
     ID             uint      `json:"id" gorm:"primaryKey"`
@@ -155,6 +160,7 @@ for _, provider := range dnsProviders {
   - Timeline visualization
 
 **Integration:**
+
 - Add "Audit Logs" link to Security page
 - Add "View Audit History" button to DNS Provider edit form
 
@@ -187,6 +193,7 @@ for _, provider := range dnsProviders {
 ### 1.6 Performance Considerations
 
 **Audit Log Growth:** Audit logs can grow rapidly. Implement:
+
 - **Automatic Cleanup:** Background job to delete logs older than retention period (default: 90 days, configurable)
 - **Indexed Queries:** Add database indexes on `created_at`, `event_category`, `resource_uuid`, `actor`
 - **Async Logging:** Audit logging must not block API requests (use buffered channel + goroutine)
@@ -202,11 +209,13 @@ for _, provider := range dnsProviders {
 **Problem:** Large organizations manage multiple DNS zones (e.g., example.com, example.org, customers.example.com) with different API tokens for security isolation. Currently, Charon only supports one credential set per provider.
 
 **Impact:**
+
 - **Security:** Overly broad API tokens violate least privilege principle
 - **Multi-Tenancy:** Cannot isolate customer zones with separate credentials
 - **Operational Risk:** Credential compromise affects all zones
 
 **User Stories:**
+
 - As a managed service provider, I need separate API tokens for each customer's DNS zone
 - As a security engineer, I want to rotate credentials for specific zones without affecting others
 - As an administrator, I need zone-level access control for different teams
@@ -216,6 +225,7 @@ for _, provider := range dnsProviders {
 #### Database Schema Changes
 
 **New Table: `dns_provider_credentials`**
+
 ```sql
 CREATE TABLE dns_provider_credentials (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -241,6 +251,7 @@ CREATE INDEX idx_dns_creds_zone ON dns_provider_credentials(zone_filter);
 ```
 
 **Updated `dns_providers` Table:**
+
 ```sql
 -- Add flag to indicate if provider uses multi-credentials
 ALTER TABLE dns_providers ADD COLUMN use_multi_credentials BOOLEAN DEFAULT 0;
@@ -251,6 +262,7 @@ ALTER TABLE dns_providers ADD COLUMN use_multi_credentials BOOLEAN DEFAULT 0;
 #### Model Changes
 
 **New Model: `DNSProviderCredential`**
+
 ```go
 // File: backend/internal/models/dns_provider_credential.go
 
@@ -283,6 +295,7 @@ func (DNSProviderCredential) TableName() string {
 ```
 
 **Updated `DNSProvider` Model:**
+
 ```go
 type DNSProvider struct {
     // ... existing fields ...
@@ -352,6 +365,7 @@ func (s *dnsProviderService) GetCredentialForDomain(ctx context.Context, provide
 ### 2.3 API Changes
 
 **New Endpoints:**
+
 ```
 POST   /api/v1/dns-providers/:id/credentials          # Create credential
 GET    /api/v1/dns-providers/:id/credentials          # List credentials
@@ -362,6 +376,7 @@ POST   /api/v1/dns-providers/:id/credentials/:cred_id/test # Test credential
 ```
 
 **Updated Endpoints:**
+
 ```
 PUT /api/v1/dns-providers/:id
   # Add field: "use_multi_credentials": true
@@ -370,6 +385,7 @@ PUT /api/v1/dns-providers/:id
 ### 2.4 Frontend UI
 
 **DNS Provider Form Changes:**
+
 - Add toggle: "Use Multiple Credentials (Advanced)"
 - When enabled:
   - Show "Manage Credentials" button → opens modal
@@ -378,6 +394,7 @@ PUT /api/v1/dns-providers/:id
   - Test button for each credential
 
 **Credential Management Modal:**
+
 ```
 ┌───────────────────────────────────────────────────────────┐
 │ Manage Credentials: Cloudflare Production                 │
@@ -396,11 +413,13 @@ PUT /api/v1/dns-providers/:id
 ### 2.5 Migration Strategy
 
 **Backward Compatibility:**
+
 - Existing providers continue using `credentials_encrypted` field (default credential)
 - New field `use_multi_credentials` defaults to `false`
 - When toggled on, existing credential is migrated to first `dns_provider_credentials` row with empty `zone_filter`
 
 **Migration Code:**
+
 ```go
 // backend/internal/services/dns_provider_service.go
 
@@ -461,11 +480,13 @@ func (s *dnsProviderService) EnableMultiCredentials(ctx context.Context, provide
 **Problem:** Changing `CHARON_ENCRYPTION_KEY` currently requires manual re-encryption of all DNS provider credentials and system downtime. This prevents regular key rotation, a critical security practice.
 
 **Impact:**
+
 - **Security Risk:** Key compromise affects all historical and current credentials
 - **Compliance Risk:** Many security frameworks require periodic key rotation (e.g., PCI-DSS: every 12 months)
 - **Operational Risk:** Key loss results in complete data loss (no recovery)
 
 **User Stories:**
+
 - As a security engineer, I need to rotate encryption keys annually without downtime
 - As an administrator, I want to schedule key rotation during maintenance windows
 - As a compliance officer, I need proof of key rotation for audit reports
@@ -477,6 +498,7 @@ func (s *dnsProviderService) EnableMultiCredentials(ctx context.Context, provide
 **Concept:** Support multiple encryption keys simultaneously with versioning
 
 **Database Changes:**
+
 ```sql
 -- Track active encryption key versions
 CREATE TABLE encryption_keys (
@@ -663,6 +685,7 @@ func (rs *RotationService) RotateAllCredentials(ctx context.Context) error {
 ### 3.3 Rotation Workflow
 
 **Step 1: Prepare New Key**
+
 ```bash
 # Generate new key
 openssl rand -base64 32
@@ -672,6 +695,7 @@ export CHARON_ENCRYPTION_KEY_NEXT="<new-base64-key>"
 ```
 
 **Step 2: Trigger Rotation**
+
 ```bash
 # Via API (admin only)
 curl -X POST https://charon.example.com/api/v1/admin/encryption/rotate \
@@ -682,6 +706,7 @@ charon-cli encryption rotate
 ```
 
 **Step 3: Verify Re-encryption**
+
 ```bash
 # Check rotation status
 curl https://charon.example.com/api/v1/admin/encryption/status
@@ -696,6 +721,7 @@ curl https://charon.example.com/api/v1/admin/encryption/status
 ```
 
 **Step 4: Promote New Key**
+
 ```bash
 # Move old key to legacy
 export CHARON_ENCRYPTION_KEY_V1="$CHARON_ENCRYPTION_KEY"
@@ -708,6 +734,7 @@ unset CHARON_ENCRYPTION_KEY_NEXT
 ```
 
 **Step 5: Retire Old Key (after grace period)**
+
 ```bash
 # After 30 days, remove legacy key
 unset CHARON_ENCRYPTION_KEY_V1
@@ -749,11 +776,13 @@ unset CHARON_ENCRYPTION_KEY_V1
 **Problem:** Users must manually select DNS provider when creating wildcard proxy hosts. Many users don't know which DNS provider manages their domain's nameservers.
 
 **Impact:**
+
 - **UX Friction:** Users waste time checking DNS registrar/provider
 - **Configuration Errors:** Selecting wrong provider causes certificate failures
 - **Support Burden:** Common support question: "Which provider do I use?"
 
 **User Stories:**
+
 - As a user, I want Charon to automatically suggest the correct DNS provider for my domain
 - As a support engineer, I want to reduce configuration errors from wrong provider selection
 - As a developer, I want auto-detection to work even with custom nameservers
@@ -880,6 +909,7 @@ type DetectionResult struct {
 ### 4.3 API Integration
 
 **New Endpoint:**
+
 ```
 POST /api/v1/dns-providers/detect
 {
@@ -964,11 +994,13 @@ useEffect(() => {
 **Problem:** Charon currently supports 10 major DNS providers. Organizations using niche or internal DNS providers (e.g., internal PowerDNS, custom DNS APIs) cannot use DNS-01 challenges without forking Charon.
 
 **Impact:**
+
 - **Vendor Lock-in:** Users with unsupported providers must switch DNS or manually manage certificates
 - **Enterprise Blocker:** Large enterprises with internal DNS cannot adopt Charon
 - **Community Growth:** Cannot leverage community contributions for new providers
 
 **User Stories:**
+
 - As a power user, I want to create a plugin for my custom DNS provider
 - As an enterprise architect, I need to integrate Charon with our internal DNS API
 - As a community contributor, I want to publish DNS provider plugins for others to use
@@ -1124,6 +1156,7 @@ var Provider PowerDNSProvider
 ```
 
 **Compile Plugin:**
+
 ```bash
 go build -buildmode=plugin -o powerdns.so plugins/powerdns/powerdns_plugin.go
 ```
@@ -1227,11 +1260,13 @@ func (pl *PluginLoader) ListProviders() []dnsprovider.ProviderMetadata {
 ### 5.3 Security Considerations
 
 **Plugin Sandboxing:** Go plugins run in the same process space as Charon, so:
+
 - **Code Review:** All plugins must be reviewed before loading
 - **Digital Signatures:** Use code signing to verify plugin authenticity
 - **Allowlist:** Admin must explicitly enable each plugin via config
 
 **Configuration:**
+
 ```yaml
 # config/plugins.yaml
 dns_providers:
@@ -1244,6 +1279,7 @@ dns_providers:
 ```
 
 **Signature Verification:**
+
 ```go
 func (pl *PluginLoader) VerifySignature(pluginPath string, expectedSig string) error {
     data, err := os.ReadFile(pluginPath)
@@ -1266,7 +1302,7 @@ func (pl *PluginLoader) VerifySignature(pluginPath string, expectedSig string) e
 
 **Concept:** Community-driven plugin registry
 
-- **Website:** https://plugins.charon.io
+- **Website:** <https://plugins.charon.io>
 - **Submission:** Developers submit plugins via GitHub PR
 - **Review:** Core team reviews code for security and quality
 - **Signing:** Approved plugins signed with Charon's GPG key
@@ -1275,11 +1311,13 @@ func (pl *PluginLoader) VerifySignature(pluginPath string, expectedSig string) e
 ### 5.5 Alternative: gRPC Plugin System
 
 **Pros:**
+
 - Language-agnostic (write plugins in Python, Rust, etc.)
 - Better sandboxing (separate process)
 - Easier testing and development
 
 **Cons:**
+
 - More complex (requires gRPC server/client)
 - Performance overhead (inter-process communication)
 - More moving parts (plugin lifecycle management)
@@ -1311,12 +1349,14 @@ func (pl *PluginLoader) VerifySignature(pluginPath string, expectedSig string) e
 ## Implementation Roadmap
 
 ### Phase 1: Security Baseline (P0)
+
 **Duration:** 8-12 hours
 **Features:** Audit Logging
 
 **Justification:** Establishes compliance foundation before adding advanced features. Required for SOC 2, GDPR, HIPAA compliance.
 
 **Deliverables:**
+
 - [ ] SecurityAudit model extended with DNS provider fields
 - [ ] Audit logging integrated into all DNS provider CRUD operations
 - [ ] Audit log UI with filtering and export
@@ -1325,12 +1365,14 @@ func (pl *PluginLoader) VerifySignature(pluginPath string, expectedSig string) e
 ---
 
 ### Phase 2: Security Hardening (P1)
+
 **Duration:** 16-20 hours
 **Features:** Key Rotation Automation
 
 **Justification:** Critical for security posture. Must be implemented before first production deployment with sensitive customer data.
 
 **Deliverables:**
+
 - [ ] Encryption key versioning system
 - [ ] RotationService with multi-key support
 - [ ] Zero-downtime rotation workflow
@@ -1340,12 +1382,14 @@ func (pl *PluginLoader) VerifySignature(pluginPath string, expectedSig string) e
 ---
 
 ### Phase 3: Advanced Use Cases (P1)
+
 **Duration:** 12-16 hours
 **Features:** Multi-Credential per Provider
 
 **Justification:** Unlocks multi-tenancy and zone-level security isolation. High demand from MSPs and large enterprises.
 
 **Deliverables:**
+
 - [ ] DNSProviderCredential model and table
 - [ ] Zone-specific credential matching logic
 - [ ] Credential management UI
@@ -1355,12 +1399,14 @@ func (pl *PluginLoader) VerifySignature(pluginPath string, expectedSig string) e
 ---
 
 ### Phase 4: UX Improvement (P2)
+
 **Duration:** 6-8 hours
 **Features:** DNS Provider Auto-Detection
 
 **Justification:** Reduces configuration errors and support burden. Nice-to-have for improving user experience.
 
 **Deliverables:**
+
 - [ ] DNSDetectionService with nameserver pattern matching
 - [ ] Auto-detection integrated into ProxyHostForm
 - [ ] Admin page for managing nameserver patterns
@@ -1369,12 +1415,14 @@ func (pl *PluginLoader) VerifySignature(pluginPath string, expectedSig string) e
 ---
 
 ### Phase 5: Extensibility (P3)
+
 **Duration:** 20-24 hours
 **Features:** Custom DNS Provider Plugins
 
 **Justification:** Enables community contributions and enterprise-specific integrations. Low priority unless significant community demand.
 
 **Deliverables:**
+
 - [ ] Plugin system architecture and interface
 - [ ] PluginLoader service with signature verification
 - [ ] Example plugin (PowerDNS or Infoblox)
@@ -1398,6 +1446,7 @@ Audit Logging (P0)
 ```
 
 **Explanation:**
+
 - Audit Logging should be implemented first as it establishes the foundation for tracking all future features
 - Key Rotation depends on audit logging to track rotation events
 - Multi-Credential can be implemented in parallel with Key Rotation but benefits from audit logging
@@ -1417,6 +1466,7 @@ Audit Logging (P0)
 | Custom Plugins | **High** (code exec) | **Very High** (sandboxing) | **High** (security reviews) |
 
 **Mitigation Strategies:**
+
 - **Key Rotation:** Extensive testing in staging, phased rollout, rollback plan documented
 - **Multi-Credential:** Thorough zone matching tests, fallback to catch-all credential
 - **Custom Plugins:** Mandatory code review, signature verification, allowlist-only loading, separate process space (gRPC alternative)
@@ -1426,6 +1476,7 @@ Audit Logging (P0)
 ## Resource Requirements
 
 ### Development Time (Total: 62-80 hours)
+
 - Audit Logging: 8-12 hours
 - Key Rotation: 16-20 hours
 - Multi-Credential: 12-16 hours
@@ -1433,11 +1484,13 @@ Audit Logging (P0)
 - Custom Plugins: 20-24 hours
 
 ### Testing Time (Estimate: 40% of dev time)
+
 - Unit tests: 25-32 hours
 - Integration tests: 10-12 hours
 - Security testing: 8-10 hours
 
 ### Documentation Time (Estimate: 20% of dev time)
+
 - User guides: 8-10 hours
 - API documentation: 4-6 hours
 - Operations guides: 6-8 hours
@@ -1449,26 +1502,31 @@ Audit Logging (P0)
 ## Success Metrics
 
 ### Audit Logging
+
 - 100% of DNS provider operations logged
 - Audit log retention policy enforced automatically
 - Zero performance impact (<1ms per log entry)
 
 ### Key Rotation
+
 - Zero downtime during rotation
 - 100% credential re-encryption success rate
 - Rotation time <5 minutes for 100 providers
 
 ### Multi-Credential
+
 - Zone matching accuracy >99%
 - Support for 10+ credentials per provider
 - No certificate issuance failures due to wrong credential
 
 ### DNS Auto-Detection
+
 - Detection accuracy >95% for supported providers
 - Auto-detection time <500ms per domain
 - User override available for edge cases
 
 ### Custom Plugins
+
 - Plugin loading time <100ms per plugin
 - Zero crashes from malicious plugins (sandbox effective)
 - >5 community-contributed plugins within 6 months
@@ -1480,6 +1538,7 @@ Audit Logging (P0)
 These 5 features represent the natural evolution of Charon's DNS Challenge Support from MVP to enterprise-ready. The recommended implementation order prioritizes security and compliance (Audit Logging, Key Rotation) before advanced features (Multi-Credential, Auto-Detection, Custom Plugins).
 
 **Next Steps:**
+
 1. Review and approve this planning document
 2. Create GitHub issues for each feature (link to this spec)
 3. Begin implementation starting with Audit Logging (P0)

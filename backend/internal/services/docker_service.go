@@ -55,18 +55,32 @@ type DockerContainer struct {
 }
 
 type DockerService struct {
-	client *client.Client
+	client  *client.Client
+	initErr error // Stores initialization error if Docker is unavailable
 }
 
-func NewDockerService() (*DockerService, error) {
+// NewDockerService creates a new Docker service instance.
+// If Docker client initialization fails, it returns a stub service that will return
+// DockerUnavailableError for all operations. This allows routes to be registered
+// and provide helpful error messages to users.
+func NewDockerService() *DockerService {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		return nil, fmt.Errorf("failed to create docker client: %w", err)
+		logger.Log().WithError(err).Warn("Failed to initialize Docker client - Docker features will be unavailable")
+		return &DockerService{
+			client:  nil,
+			initErr: err,
+		}
 	}
-	return &DockerService{client: cli}, nil
+	return &DockerService{client: cli, initErr: nil}
 }
 
 func (s *DockerService) ListContainers(ctx context.Context, host string) ([]DockerContainer, error) {
+	// Check if Docker was available during initialization
+	if s.initErr != nil {
+		return nil, &DockerUnavailableError{err: s.initErr}
+	}
+
 	var cli *client.Client
 	var err error
 

@@ -101,7 +101,7 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 			defaultCfg := models.SecurityConfig{
 				UUID:               "default",
 				Name:               "Default Security Config",
-				Enabled:            crowdSecEnabledInSettings,
+				Enabled:            true, // Cerberus enabled by default; users can disable via "break glass" toggle
 				CrowdSecMode:       crowdSecMode,
 				WAFMode:            "disabled",
 				WAFParanoiaLevel:   1,

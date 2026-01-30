@@ -3,14 +3,21 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -191,7 +198,7 @@ func TestSecurityHandler_AddWAFExclusion_ToExistingConfig(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	exclusions := resp["exclusions"].([]any)
 	assert.Len(t, exclusions, 2)
 }
@@ -360,7 +367,7 @@ func TestSecurityHandler_DeleteWAFExclusion_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.True(t, resp["deleted"].(bool))
 
 	// Verify only one exclusion remains
@@ -368,7 +375,7 @@ func TestSecurityHandler_DeleteWAFExclusion_Success(t *testing.T) {
 	req, _ = http.NewRequest("GET", "/security/waf/exclusions", http.NoBody)
 	router.ServeHTTP(w, req)
 
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	exclusions := resp["exclusions"].([]any)
 	assert.Len(t, exclusions, 1)
 	first := exclusions[0].(map[string]any)
@@ -403,7 +410,7 @@ func TestSecurityHandler_DeleteWAFExclusion_WithTarget(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	exclusions := resp["exclusions"].([]any)
 	assert.Len(t, exclusions, 1)
 	first := exclusions[0].(map[string]any)
@@ -499,7 +506,29 @@ func TestSecurityHandler_DeleteWAFExclusion_NegativeRuleID(t *testing.T) {
 // Integration test: Full WAF exclusion workflow
 func TestSecurityHandler_WAFExclusion_FullWorkflow(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB(t)
+
+	// Create a temporary file-based SQLite database for complete isolation
+	// This avoids all the shared memory locking issues with in-memory databases
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, fmt.Sprintf("waf_test_%d.db", time.Now().UnixNano()))
+	dsn := fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=10000", dbPath)
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err, "failed to open test database")
+
+	// Ensure cleanup
+	t.Cleanup(func() {
+		sqlDB, _ := db.DB()
+		if sqlDB != nil {
+			sqlDB.Close()
+		}
+		os.Remove(dbPath)
+		os.Remove(dbPath + "-wal")
+		os.Remove(dbPath + "-shm")
+	})
+
+	// Migrate the required models
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
@@ -512,10 +541,12 @@ func TestSecurityHandler_WAFExclusion_FullWorkflow(t *testing.T) {
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/security/waf/exclusions", http.NoBody)
 	router.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, http.StatusOK, w.Code, "Step 1: GET should return 200")
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.Len(t, resp["exclusions"].([]any), 0)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp), "Step 1: response should be valid JSON")
+	exclusions, ok := resp["exclusions"].([]any)
+	require.True(t, ok, "Step 1: exclusions should be an array")
+	require.Len(t, exclusions, 0, "Step 1: should start with 0 exclusions")
 
 	// Step 2: Add first exclusion (full rule removal)
 	payload := map[string]any{
@@ -527,7 +558,7 @@ func TestSecurityHandler_WAFExclusion_FullWorkflow(t *testing.T) {
 	req, _ = http.NewRequest("POST", "/security/waf/exclusions", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, http.StatusOK, w.Code, "Step 2: POST first exclusion should return 200, got: %s", w.Body.String())
 
 	// Step 3: Add second exclusion (targeted)
 	payload = map[string]any{
@@ -540,28 +571,33 @@ func TestSecurityHandler_WAFExclusion_FullWorkflow(t *testing.T) {
 	req, _ = http.NewRequest("POST", "/security/waf/exclusions", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, http.StatusOK, w.Code, "Step 3: POST second exclusion should return 200, got: %s", w.Body.String())
 
 	// Step 4: Verify both exclusions exist
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest("GET", "/security/waf/exclusions", http.NoBody)
 	router.ServeHTTP(w, req)
-	json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.Len(t, resp["exclusions"].([]any), 2)
+	require.Equal(t, http.StatusOK, w.Code, "Step 4: GET should return 200")
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp), "Step 4: response should be valid JSON")
+	exclusions, ok = resp["exclusions"].([]any)
+	require.True(t, ok, "Step 4: exclusions should be an array")
+	require.Len(t, exclusions, 2, "Step 4: should have 2 exclusions after adding 2")
 
 	// Step 5: Delete first exclusion
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest("DELETE", "/security/waf/exclusions/942100", http.NoBody)
 	router.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, http.StatusOK, w.Code, "Step 5: DELETE should return 200, got: %s", w.Body.String())
 
 	// Step 6: Verify only second exclusion remains
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest("GET", "/security/waf/exclusions", http.NoBody)
 	router.ServeHTTP(w, req)
-	json.Unmarshal(w.Body.Bytes(), &resp)
-	exclusions := resp["exclusions"].([]any)
-	assert.Len(t, exclusions, 1)
+	require.Equal(t, http.StatusOK, w.Code, "Step 6: GET should return 200")
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp), "Step 6: response should be valid JSON")
+	exclusions, ok = resp["exclusions"].([]any)
+	require.True(t, ok, "Step 6: exclusions should be an array")
+	require.Len(t, exclusions, 1, "Step 6: should have 1 exclusion after deleting 1")
 	first := exclusions[0].(map[string]any)
 	assert.Equal(t, float64(941100), first["rule_id"])
 	assert.Equal(t, "ARGS:content", first["target"])

@@ -28,7 +28,10 @@ Create a file called `docker-compose.yml`:
 ```yaml
 services:
   charon:
-    image: ghcr.io/wikid82/charon:latest
+    # Docker Hub (recommended)
+    image: wikid82/charon:latest
+    # Alternative: GitHub Container Registry
+    # image: ghcr.io/wikid82/charon:latest
     container_name: charon
     restart: unless-stopped
     ports:
@@ -49,6 +52,22 @@ docker-compose up -d
 ```
 
 ### Option B: Docker Run (One Command)
+
+**Docker Hub (recommended):**
+
+```bash
+docker run -d \
+  --name charon \
+  -p 80:80 \
+  -p 443:443 \
+  -p 8080:8080 \
+  -v ./charon-data:/app/data \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -e CHARON_ENV=production \
+  wikid82/charon:latest
+```
+
+**Alternative (GitHub Container Registry):**
 
 ```bash
 docker run -d \
@@ -130,10 +149,99 @@ docker restart charon
 CrowdSec will automatically start if it was previously enabled. The reconciliation function runs at startup and checks:
 
 1. **SecurityConfig table** for `crowdsec_mode = "local"`
+
+---
+
+## Step 1.8: Emergency Token Configuration (Development & E2E Tests)
+
+The emergency token is a security feature that allows bypassing all security modules in emergency situations (e.g., lockout scenarios). It is **required for E2E test execution** and recommended for development environments.
+
+### Purpose
+
+- **Emergency Access**: Bypass ACL, WAF, or other security modules when locked out
+- **E2E Testing**: Required for running Playwright E2E tests
+- **Audit Logged**: All uses are logged for security accountability
+
+### Generation
+
+Choose your platform:
+
+**Linux/macOS (recommended):**
+```bash
+openssl rand -hex 32
+```
+
+**Windows PowerShell:**
+```powershell
+[Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+```
+
+**Node.js (all platforms):**
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+### Local Development
+
+Add to `.env` file in project root:
+
+```bash
+CHARON_EMERGENCY_TOKEN=<paste_64_character_token_here>
+```
+
+**Example:**
+```bash
+CHARON_EMERGENCY_TOKEN=7b3b8a36a6fad839f1b3122131ed4b1f05453118a91b53346482415796e740e2
+```
+
+**Verify:**
+```bash
+# Token should be exactly 64 characters
+echo -n "$(grep CHARON_EMERGENCY_TOKEN .env | cut -d= -f2)" | wc -c
+```
+
+### CI/CD (GitHub Actions)
+
+For continuous integration, store the token in GitHub Secrets:
+
+1. Navigate to: **Repository Settings → Secrets and Variables → Actions**
+2. Click **"New repository secret"**
+3. **Name:** `CHARON_EMERGENCY_TOKEN`
+4. **Value:** Generate with one of the methods above
+5. Click **"Add secret"**
+
+📖 **Detailed Instructions:** See [GitHub Setup Guide](github-setup.md)
+
+### Rotation Schedule
+
+- **Recommended:** Rotate quarterly (every 3 months)
+- **Required:** After suspected compromise or team member departure
+- **Process:**
+  1. Generate new token
+  2. Update `.env` (local) and GitHub Secrets (CI/CD)
+  3. Restart services
+  4. Verify with E2E tests
+
+### Security Best Practices
+
+✅ **DO:**
+- Generate tokens using cryptographically secure methods
+- Store in `.env` (gitignored) or secrets management
+- Rotate quarterly or after security events
+- Use minimum 64 characters
+
+❌ **DON'T:**
+- Commit tokens to repository (even in examples)
+- Share tokens via email or chat
+- Use weak or predictable values
+- Reuse tokens across environments
+
+---
 2. **Settings table** for `security.crowdsec.enabled = "true"`
 3. **Starts CrowdSec** if either condition is true
 
 **How it works:**
+
 - Reconciliation happens **before** the HTTP server starts (during container boot)
 - Protected by mutex to prevent race conditions
 - Validates binary and config paths before starting
@@ -168,24 +276,30 @@ Expected output:
 If CrowdSec doesn't auto-start:
 
 1. **Check reconciliation logs:**
+
    ```bash
    docker logs charon 2>&1 | grep "CrowdSec reconciliation"
    ```
 
 2. **Verify SecurityConfig mode:**
+
    ```bash
    docker exec charon sqlite3 /app/data/charon.db \
      "SELECT crowdsec_mode FROM security_configs LIMIT 1;"
    ```
+
    Expected: `local`
 
 3. **Check directory permissions:**
+
    ```bash
    docker exec charon ls -la /var/lib/crowdsec/data/
    ```
+
    Expected: `charon:charon` ownership
 
 4. **Manual start:**
+
    ```bash
    curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
    ```

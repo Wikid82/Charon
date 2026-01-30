@@ -71,12 +71,13 @@ func Test_ttlRemainingSeconds(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := ttlRemainingSeconds(tt.now, tt.retrievedAt, tt.ttl)
-			if tt.wantNil {
+			switch {
+			case tt.wantNil:
 				assert.Nil(t, result)
-			} else if tt.wantZero {
+			case tt.wantZero:
 				require.NotNil(t, result)
 				assert.Equal(t, int64(0), *result)
-			} else if tt.wantPositive {
+			case tt.wantPositive:
 				require.NotNil(t, result)
 				assert.Greater(t, *result, int64(0))
 			}

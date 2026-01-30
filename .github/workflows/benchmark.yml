@@ -20,16 +20,22 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.25.5'
+  GO_VERSION: '1.25.6'
+  GOTOOLCHAIN: auto
 
+# Minimal permissions at workflow level; write permissions granted at job level for push only
 permissions:
-  contents: write
-  deployments: write
+  contents: read
 
 jobs:
   benchmark:
     name: Performance Regression Check
     runs-on: ubuntu-latest
+    # Grant write permissions for storing benchmark results (only used on push via step condition)
+    # Note: GitHub Actions doesn't support dynamic expressions in permissions block
+    permissions:
+      contents: write
+      deployments: write
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
 

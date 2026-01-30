@@ -32,6 +32,7 @@ The error occurs specifically in **production builds** when `lucide-react@0.562.
 ### 2. **Data Flow Trace**
 
 1. **Import Chain:**
+
    ```
    Component (e.g., UptimeWidget.tsx)
      → import { Activity } from 'lucide-react'
@@ -63,6 +64,7 @@ The error occurs specifically in **production builds** when `lucide-react@0.562.
 ### 4. **Technical Explanation**
 
 React 19 introduced changes to:
+
 - **Module interop:** How React handles CommonJS/ESM exports
 - **forwardRef behavior:** lucide-react uses `React.forwardRef` extensively
 - **Component registration:** React 19's internal component registry differs from React 18
@@ -79,8 +81,10 @@ When `lucide-react` tries to export the `Activity` icon using `createLucideIcon`
 **Risk Level:** LOW
 **Impact:** High - Fixes root cause
 
-#### Actions:
+#### Actions
+
 1. **Upgrade lucide-react to latest version:**
+
    ```bash
    cd frontend
    npm install lucide-react@latest
@@ -92,7 +96,8 @@ When `lucide-react` tries to export the `Activity` icon using `createLucideIcon`
 
 3. **Test imports:** Run dev build and verify no console errors
 
-#### Rationale:
+#### Rationale
+
 - lucide-react@0.562.0 was released BEFORE React 19.2.3 (December 2024)
 - Newer versions of lucide-react likely include React 19 compatibility fixes
 - This is the cleanest, most maintainable solution
@@ -105,8 +110,10 @@ When `lucide-react` tries to export the `Activity` icon using `createLucideIcon`
 **Risk Level:** MEDIUM
 **Impact:** Moderate - Loses React 19 features
 
-#### Actions:
+#### Actions
+
 1. **Revert to React 18:**
+
    ```bash
    cd frontend
    npm install react@18.3.1 react-dom@18.3.1
@@ -117,7 +124,8 @@ When `lucide-react` tries to export the `Activity` icon using `createLucideIcon`
 
 3. **Verify Radix UI compatibility** (all Radix components need React 18 compat check)
 
-#### Rationale:
+#### Rationale
+
 - React 18.3.1 is stable and widely adopted
 - All current dependencies (including Radix UI, TanStack Query) support React 18
 - Use only if Option 1 fails
@@ -130,12 +138,14 @@ When `lucide-react` tries to export the `Activity` icon using `createLucideIcon`
 **Risk Level:** HIGH
 **Impact:** Very High - Major refactor
 
-#### Actions:
+#### Actions
+
 1. **Replace lucide-react with React Icons or Heroicons**
 2. **Update ALL icon imports across 20+ files**
 3. **Update icon mappings in components**
 
-#### Rationale:
+#### Rationale
+
 - Only if lucide-react cannot support React 19
 - Requires significant development time
 - High risk of introducing visual regressions
@@ -145,6 +155,7 @@ When `lucide-react` tries to export the `Activity` icon using `createLucideIcon`
 ## Immediate Testing Strategy
 
 ### 1. **Pre-Fix Validation**
+
 ```bash
 # Reproduce error in production build
 cd frontend
@@ -154,6 +165,7 @@ npm run preview
 ```
 
 ### 2. **Post-Fix Validation**
+
 ```bash
 # After applying fix
 cd frontend
@@ -169,6 +181,7 @@ npm run preview
 ```
 
 ### 3. **Regression Test Checklist**
+
 - [ ] All icons render correctly in production build
 - [ ] No console errors in browser DevTools
 - [ ] WebSocket status indicators work
@@ -177,6 +190,7 @@ npm run preview
 - [ ] No performance degradation (check bundle size)
 
 ### 4. **Automated Tests**
+
 ```bash
 # Run frontend unit tests
 npm run test
@@ -192,13 +206,16 @@ npm run e2e:test
 ## Implementation Steps
 
 ### Phase 1: Investigation (✅ COMPLETE)
+
 - [x] Reproduce error in production build
 - [x] Identify all files importing 'Activity'
 - [x] Trace data flow from import to render
 - [x] Identify React version incompatibility
 
 ### Phase 2: Fix Application (🔄 READY)
+
 1. **Execute Option 1 (Update lucide-react):**
+
    ```bash
    cd /projects/Charon/frontend
    npm install lucide-react@latest
@@ -206,12 +223,14 @@ npm run e2e:test
    ```
 
 2. **Build and test:**
+
    ```bash
    npm run build
    npm run preview
    ```
 
 3. **If Option 1 fails, execute Option 2 (Downgrade React):**
+
    ```bash
    npm install react@18.3.1 react-dom@18.3.1
    npm install @types/react@18.3.12 @types/react-dom@18.3.1 --save-dev
@@ -220,12 +239,14 @@ npm run e2e:test
    ```
 
 ### Phase 3: Validation
+
 1. Run all automated tests
 2. Manually test all routes with Activity icon
 3. Check browser console for errors
 4. Verify bundle size hasn't increased significantly
 
 ### Phase 4: Documentation
+
 1. Update CHANGELOG.md with fix details
 2. Document React version compatibility requirements
 3. Add note to frontend/README.md about React 19 compatibility
@@ -234,14 +255,16 @@ npm run e2e:test
 
 ## File Modification Requirements
 
-### Files to Modify:
+### Files to Modify
+
 1. **[frontend/package.json](../../frontend/package.json)**
    - Update `lucide-react` version (Option 1) OR
    - Downgrade `react` and `react-dom` (Option 2)
 
 2. **No code changes required** if Option 1 succeeds
 
-### Configuration Files to Review:
+### Configuration Files to Review
+
 - **[frontend/vite.config.ts](../../frontend/vite.config.ts)** - Code splitting config may need adjustment
 - **[frontend/tsconfig.json](../../frontend/tsconfig.json)** - TypeScript target is correct (ES2022)
 - **[.gitignore](../../.gitignore)** - Ensure no production builds committed
@@ -265,6 +288,7 @@ npm run e2e:test
 If the fix introduces new issues:
 
 1. **Immediate rollback:**
+
    ```bash
    cd frontend
    git checkout HEAD -- package.json package-lock.json
@@ -281,6 +305,7 @@ If the fix introduces new issues:
 ## Success Criteria
 
 ✅ Fix is successful when:
+
 1. Production build completes without errors
 2. All pages render correctly in production preview
 3. No console errors related to lucide-react or Activity icon
@@ -292,20 +317,23 @@ If the fix introduces new issues:
 
 ## Additional Notes
 
-### Dependencies Analysis:
+### Dependencies Analysis
+
 - **React:** 19.2.3 (latest)
 - **lucide-react:** 0.562.0 (potentially outdated for React 19)
 - **react-i18next:** 16.5.1 (uses use-sync-external-store@1.6.0)
 - **All Radix UI components:** Compatible with React 19
 - **TanStack Query:** 5.90.16 (Compatible with React 19)
 
-### Build Configuration:
+### Build Configuration
+
 - **Vite:** 7.3.0
 - **TypeScript:** 5.9.3
 - **Target:** ES2022
 - **Code splitting enabled** for icons chunk (may trigger issue)
 
-### Browser Compatibility:
+### Browser Compatibility
+
 - Error observed in: Production build (all browsers)
 - Not observed in: Development build
 

@@ -18,7 +18,7 @@ func setupTestImportDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("failed to connect to test database: %v", err)
 	}
-	db.AutoMigrate(&models.ImportSession{}, &models.ProxyHost{})
+	_ = db.AutoMigrate(&models.ImportSession{}, &models.ProxyHost{})
 	return db
 }
 

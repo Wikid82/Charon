@@ -41,7 +41,7 @@ func TestResetPasswordCommand_Succeeds(t *testing.T) {
 		t.Fatalf("seed user: %v", err)
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=TestResetPasswordCommand_Succeeds")
+	cmd := exec.Command(os.Args[0], "-test.run=TestResetPasswordCommand_Succeeds") //nolint:gosec // G204: Test subprocess pattern using os.Args[0] is safe
 	cmd.Dir = tmp
 	cmd.Env = append(os.Environ(),
 		"CHARON_TEST_RUN_MAIN=1",
@@ -87,7 +87,7 @@ func TestMigrateCommand_Succeeds(t *testing.T) {
 		t.Fatal("SecurityConfig table should not exist yet")
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=TestMigrateCommand_Succeeds")
+	cmd := exec.Command(os.Args[0], "-test.run=TestMigrateCommand_Succeeds") //nolint:gosec // G204: Test subprocess pattern using os.Args[0] is safe
 	cmd.Dir = tmp
 	cmd.Env = append(os.Environ(),
 		"CHARON_TEST_RUN_MAIN=1",
@@ -147,7 +147,7 @@ func TestStartupVerification_MissingTables(t *testing.T) {
 
 	// Close and reopen to simulate startup scenario
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	db, err = database.Connect(dbPath)
 	if err != nil {

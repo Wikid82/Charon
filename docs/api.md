@@ -143,6 +143,7 @@ Webhook URLs configured in security settings are validated to prevent Server-Sid
 - Link-local addresses
 
 **Error Response**:
+
 ```json
 {
   "error": "Invalid webhook URL: URL resolves to a private IP address (blocked for security)"
@@ -150,6 +151,7 @@ Webhook URLs configured in security settings are validated to prevent Server-Sid
 ```
 
 **Example Valid URL**:
+
 ```json
 {
   "webhook_url": "https://webhook.example.com/receive"
@@ -488,6 +490,94 @@ def preview_invite(email, api_base='http://localhost:8080/api/v1'):
     return data
 
 preview_invite('admin@example.com')
+```
+
+---
+
+#### Resend User Invite
+
+Resend an invitation email to a pending user. Generates a new invite token and sends it to the user's email address.
+
+```http
+POST /users/:id/resend-invite
+Authorization: Bearer <admin-token>
+```
+
+**Parameters:**
+
+- `id` (path) - User ID (numeric)
+
+**Response 200:**
+
+```json
+{
+  "email_sent": true,
+  "invite_url": "https://charon.example.com/accept-invite?token=abc123...",
+  "expires_at": "2026-01-31T12:00:00Z"
+}
+```
+
+**Response 400:**
+
+```json
+{
+  "error": "User is not in pending status"
+}
+```
+
+**Response 403:**
+
+```json
+{
+  "error": "Admin access required"
+}
+```
+
+**Response 404:**
+
+```json
+{
+  "error": "User not found"
+}
+```
+
+**Use Cases:**
+
+- User didn't receive the original invitation email
+- Invite token has expired and needs renewal
+- User lost or deleted the invitation email
+
+**Example:**
+
+```bash
+curl -X POST http://localhost:8080/api/v1/users/42/resend-invite \
+  -H "Authorization: Bearer <admin-token>"
+```
+
+**JavaScript Example:**
+
+```javascript
+const resendInvite = async (userId) => {
+  const response = await fetch(`http://localhost:8080/api/v1/users/${userId}/resend-invite`, {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer <admin-token>'
+    }
+  });
+
+  const data = await response.json();
+
+  if (data.email_sent) {
+    console.log('Invitation resent successfully');
+  } else {
+    console.log('New invite created, but email could not be sent');
+    console.log('Invite URL:', data.invite_url);
+  }
+
+  return data;
+};
+
+resendInvite(42);
 ```
 
 ---
@@ -1312,6 +1402,7 @@ Webhook URLs are validated to prevent SSRF attacks. Blocked destinations:
 - Link-local addresses
 
 **Error Response**:
+
 ```json
 {
   "error": "Invalid webhook URL: URL resolves to a private IP address (blocked for security)"

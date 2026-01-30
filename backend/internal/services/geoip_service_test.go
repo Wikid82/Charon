@@ -136,7 +136,7 @@ func TestGeoIPService_Integration(t *testing.T) {
 
 	svc, err := NewGeoIPService(dbPath)
 	require.NoError(t, err)
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	t.Run("IsLoaded", func(t *testing.T) {
 		assert.True(t, svc.IsLoaded())

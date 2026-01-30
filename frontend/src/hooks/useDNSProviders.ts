@@ -11,6 +11,7 @@ import {
   type DNSProvider,
   type DNSProviderRequest,
   type DNSProviderTypeInfo,
+  type DNSProviderField,
   type DNSTestResult,
 } from '../api/dnsProviders'
 
@@ -111,5 +112,6 @@ export type {
   DNSProvider,
   DNSProviderRequest,
   DNSProviderTypeInfo,
+  DNSProviderField,
   DNSTestResult,
 }

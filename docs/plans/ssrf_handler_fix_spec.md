@@ -58,12 +58,14 @@ Step 9-10: utils.TestURLConnectivity() → http.NewRequestWithContext() [SINK]
 ### 1.2 Root Cause
 
 **Format Validation Only**: `utils.ValidateURL()` performs only superficial format checks:
+
 - Validates scheme (http/https)
 - Rejects paths beyond "/"
 - Returns warning for HTTP
 - **Does NOT validate for SSRF risks** (private IPs, localhost, cloud metadata)
 
 **Runtime Protection Not Recognized**: While `TestURLConnectivity()` has SSRF protection via `ssrfSafeDialer()`:
+
 - The dialer blocks private IPs at connection time
 - CodeQL's static analysis cannot detect this runtime protection
 - The taint chain remains unbroken from the analysis perspective
@@ -75,6 +77,7 @@ Step 9-10: utils.TestURLConnectivity() → http.NewRequestWithContext() [SINK]
 We have a comprehensive SSRF validator already implemented:
 
 **File:** `backend/internal/security/url_validator.go`
+
 - `ValidateExternalURL()`: Full SSRF protection with DNS resolution
 - Blocks private IPs, loopback, link-local, cloud metadata endpoints
 - **Rejects URLs with embedded credentials** (prevents parser differentials like `http://evil.com@127.0.0.1/`)
@@ -82,12 +85,14 @@ We have a comprehensive SSRF validator already implemented:
 - Well-tested and production-ready
 
 **File:** `backend/internal/utils/url_testing.go`
+
 - `TestURLConnectivity()`: Has runtime SSRF protection via `ssrfSafeDialer()`
 - **DNS Rebinding/TOCTOU Protection**: `ssrfSafeDialer()` performs second DNS resolution and IP validation at connection time
 - `isPrivateIP()`: Comprehensive IP blocking logic
 - Already protects against SSRF at connection time
 
 **Defense-in-Depth Architecture**:
+
 1. **Handler Validation** → `ValidateExternalURL()` - Pre-validates URL and resolves DNS
 2. **TestURLConnectivity Re-Validation** → `ssrfSafeDialer()` - Validates IP again at connection time
 3. This eliminates DNS rebinding/TOCTOU vulnerabilities (attacker can't change DNS between validations)
@@ -101,44 +106,46 @@ We have a comprehensive SSRF validator already implemented:
 **Description**: Insert explicit SSRF validation in `TestPublicURL` handler before calling `TestURLConnectivity()`.
 
 **Implementation**:
+
 ```go
 func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
-	// ... existing auth check ...
+ // ... existing auth check ...
 
-	var req TestURLRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+ var req TestURLRequest
+ if err := c.ShouldBindJSON(&req); err != nil {
+  c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+  return
+ }
 
-	// Step 1: Format validation
-	normalized, _, err := utils.ValidateURL(req.URL)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"reachable": false,
-			"error":     "Invalid URL format",
-		})
-		return
-	}
+ // Step 1: Format validation
+ normalized, _, err := utils.ValidateURL(req.URL)
+ if err != nil {
+  c.JSON(http.StatusBadRequest, gin.H{
+   "reachable": false,
+   "error":     "Invalid URL format",
+  })
+  return
+ }
 
-	// Step 2: SSRF validation (BREAKS TAINT CHAIN)
-	validatedURL, err := security.ValidateExternalURL(normalized,
-		security.WithAllowHTTP())
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"reachable": false,
-			"error":     err.Error(),
-		})
-		return
-	}
+ // Step 2: SSRF validation (BREAKS TAINT CHAIN)
+ validatedURL, err := security.ValidateExternalURL(normalized,
+  security.WithAllowHTTP())
+ if err != nil {
+  c.JSON(http.StatusOK, gin.H{
+   "reachable": false,
+   "error":     err.Error(),
+  })
+  return
+ }
 
-	// Step 3: Connectivity test (now using validated URL)
-	reachable, latency, err := utils.TestURLConnectivity(validatedURL)
-	// ... rest of handler ...
+ // Step 3: Connectivity test (now using validated URL)
+ reachable, latency, err := utils.TestURLConnectivity(validatedURL)
+ // ... rest of handler ...
 }
 ```
 
 **Pros**:
+
 - ✅ Minimal code changes (localized to one handler)
 - ✅ Explicitly breaks taint chain for CodeQL
 - ✅ Uses existing, well-tested `security.ValidateExternalURL()`
@@ -146,6 +153,7 @@ func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
 - ✅ Easy to audit and understand
 
 **Cons**:
+
 - ❌ Requires adding security package import to handler
 - ❌ Two-step validation might seem redundant (but is defense-in-depth)
 
@@ -156,48 +164,51 @@ func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
 **Description**: Modify `utils.ValidateURL()` to include SSRF validation.
 
 **Implementation**:
+
 ```go
 // In utils/url.go
 func ValidateURL(rawURL string, options ...security.ValidationOption) (normalized string, warning string, err error) {
-	// Parse URL
-	parsed, parseErr := url.Parse(rawURL)
-	if parseErr != nil {
-		return "", "", parseErr
-	}
+ // Parse URL
+ parsed, parseErr := url.Parse(rawURL)
+ if parseErr != nil {
+  return "", "", parseErr
+ }
 
-	// Validate scheme
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", "", &url.Error{Op: "parse", URL: rawURL, Err: nil}
-	}
+ // Validate scheme
+ if parsed.Scheme != "http" && parsed.Scheme != "https" {
+  return "", "", &url.Error{Op: "parse", URL: rawURL, Err: nil}
+ }
 
-	// Warn if HTTP
-	if parsed.Scheme == "http" {
-		warning = "Using HTTP is not recommended. Consider using HTTPS for security."
-	}
+ // Warn if HTTP
+ if parsed.Scheme == "http" {
+  warning = "Using HTTP is not recommended. Consider using HTTPS for security."
+ }
 
-	// Reject URLs with path components
-	if parsed.Path != "" && parsed.Path != "/" {
-		return "", "", &url.Error{Op: "validate", URL: rawURL, Err: nil}
-	}
+ // Reject URLs with path components
+ if parsed.Path != "" && parsed.Path != "/" {
+  return "", "", &url.Error{Op: "validate", URL: rawURL, Err: nil}
+ }
 
-	// SSRF validation (NEW)
-	normalized = strings.TrimSuffix(rawURL, "/")
-	validatedURL, err := security.ValidateExternalURL(normalized,
-		security.WithAllowHTTP())
-	if err != nil {
-		return "", "", fmt.Errorf("SSRF validation failed: %w", err)
-	}
+ // SSRF validation (NEW)
+ normalized = strings.TrimSuffix(rawURL, "/")
+ validatedURL, err := security.ValidateExternalURL(normalized,
+  security.WithAllowHTTP())
+ if err != nil {
+  return "", "", fmt.Errorf("SSRF validation failed: %w", err)
+ }
 
-	return validatedURL, warning, nil
+ return validatedURL, warning, nil
 }
 ```
 
 **Pros**:
+
 - ✅ Single validation point
 - ✅ All callers of `ValidateURL()` automatically get SSRF protection
 - ✅ No changes needed in handlers
 
 **Cons**:
+
 - ❌ Changes signature/behavior of widely-used function
 - ❌ Mixes concerns (format validation + security validation)
 - ❌ May break existing tests that expect `ValidateURL()` to accept localhost
@@ -211,60 +222,64 @@ func ValidateURL(rawURL string, options ...security.ValidationOption) (normalize
 **Description**: Create a new function specifically for the test endpoint that combines all validations.
 
 **Implementation**:
+
 ```go
 // In utils/url.go or security/url_validator.go
 func ValidateURLForTesting(rawURL string) (normalized string, warning string, err error) {
-	// Step 1: Format validation
-	normalized, warning, err = ValidateURL(rawURL)
-	if err != nil {
-		return "", "", err
-	}
+ // Step 1: Format validation
+ normalized, warning, err = ValidateURL(rawURL)
+ if err != nil {
+  return "", "", err
+ }
 
-	// Step 2: SSRF validation
-	validatedURL, err := security.ValidateExternalURL(normalized,
-		security.WithAllowHTTP())
-	if err != nil {
-		return "", warning, fmt.Errorf("security validation failed: %w", err)
-	}
+ // Step 2: SSRF validation
+ validatedURL, err := security.ValidateExternalURL(normalized,
+  security.WithAllowHTTP())
+ if err != nil {
+  return "", warning, fmt.Errorf("security validation failed: %w", err)
+ }
 
-	return validatedURL, warning, nil
+ return validatedURL, warning, nil
 }
 ```
 
 **Handler Usage**:
+
 ```go
 func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
-	// ... auth check ...
+ // ... auth check ...
 
-	var req TestURLRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+ var req TestURLRequest
+ if err := c.ShouldBindJSON(&req); err != nil {
+  c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+  return
+ }
 
-	// Combined validation
-	normalized, _, err := utils.ValidateURLForTesting(req.URL)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"reachable": false,
-			"error":     err.Error(),
-		})
-		return
-	}
+ // Combined validation
+ normalized, _, err := utils.ValidateURLForTesting(req.URL)
+ if err != nil {
+  c.JSON(http.StatusBadRequest, gin.H{
+   "reachable": false,
+   "error":     err.Error(),
+  })
+  return
+ }
 
-	// Connectivity test
-	reachable, latency, err := utils.TestURLConnectivity(normalized)
-	// ... rest of handler ...
+ // Connectivity test
+ reachable, latency, err := utils.TestURLConnectivity(normalized)
+ // ... rest of handler ...
 }
 ```
 
 **Pros**:
+
 - ✅ Clean API for the specific use case
 - ✅ Doesn't modify existing `ValidateURL()` behavior
 - ✅ Self-documenting function name
 - ✅ Encapsulates the two-step validation
 
 **Cons**:
+
 - ❌ Adds another function to maintain
 - ❌ Possible confusion about when to use `ValidateURL()` vs `ValidateURLForTesting()`
 
@@ -288,16 +303,19 @@ func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
 ### 4.0 HTTP Status Code Strategy
 
 **Existing Behavior** (from `settings_handler_test.go:605`):
+
 - SSRF blocks return `200 OK` with `reachable: false` and error message
 - This maintains consistent API contract: endpoint always returns structured JSON
 - Only format validation errors return `400 Bad Request`
 
 **Rationale**:
+
 - SSRF validation is a *connectivity constraint*, not a request format error
 - Returning 200 allows clients to distinguish between "URL malformed" vs "URL blocked by security policy"
 - Consistent with existing test: `TestSettingsHandler_TestPublicURL_PrivateIPBlocked` expects `StatusOK`
 
 **Implementation Rule**:
+
 - `400 Bad Request` → Format errors (invalid scheme, paths, malformed JSON)
 - `200 OK` → All SSRF/connectivity failures (return `reachable: false` with error details)
 
@@ -306,6 +324,7 @@ func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
 **File:** `backend/internal/api/handlers/settings_handler.go`
 
 1. Add import:
+
    ```go
    import (
        // ... existing imports ...
@@ -314,6 +333,7 @@ func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
    ```
 
 2. Modify `TestPublicURL` handler (lines 269-316):
+
    ```go
    func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
        // Admin-only access check
@@ -384,154 +404,154 @@ Add comprehensive test cases:
 
 ```go
 func TestTestPublicURL_SSRFProtection(t *testing.T) {
-	tests := []struct {
-		name           string
-		url            string
-		expectedStatus int
-		expectReachable bool
-		expectError    string
-	}{
-		{
-			name:           "Valid public URL",
-			url:            "https://example.com",
-			expectedStatus: http.StatusOK,
-			expectReachable: true,
-		},
-		{
-			name:           "Private IP blocked - 10.0.0.1",
-			url:            "http://10.0.0.1",
-			expectedStatus: http.StatusOK,
-			expectError:    "private ip",
-		},
-		{
-			name:           "Localhost blocked - 127.0.0.1",
-			url:            "http://127.0.0.1",
-			expectedStatus: http.StatusOK,
-			expectError:    "private ip",
-		},
-		{
-			name:           "Localhost blocked - localhost",
-			url:            "http://localhost:8080",
-			expectedStatus: http.StatusOK,
-			expectError:    "private ip",
-		},
-		{
-			name:           "Cloud metadata blocked - 169.254.169.254",
-			url:            "http://169.254.169.254",
-			expectedStatus: http.StatusOK,
-			expectError:    "cloud metadata",
-		},
-		{
-			name:           "Link-local blocked - 169.254.1.1",
-			url:            "http://169.254.1.1",
-			expectedStatus: http.StatusOK,
-			expectError:    "private ip",
-		},
-		{
-			name:           "Private IPv4 blocked - 192.168.1.1",
-			url:            "http://192.168.1.1",
-			expectedStatus: http.StatusOK,
-			expectError:    "private ip",
-		},
-		{
-			name:           "Private IPv4 blocked - 172.16.0.1",
-			url:            "http://172.16.0.1",
-			expectedStatus: http.StatusOK,
-			expectError:    "private ip",
-		},
-		{
-			name:           "Invalid scheme rejected",
-			url:            "ftp://example.com",
-			expectedStatus: http.StatusBadRequest,
-			expectError:    "Invalid URL format",
-		},
-		{
-			name:           "Path component rejected",
-			url:            "https://example.com/path",
-			expectedStatus: http.StatusBadRequest,
-			expectError:    "Invalid URL format",
-		},
-		{
-			name:           "Empty URL field",
-			url:            "",
-			expectedStatus: http.StatusBadRequest,
-			expectError:    "required",
-		},
-		{
-			name:           "URL with embedded credentials blocked",
-			url:            "http://user:pass@example.com",
-			expectedStatus: http.StatusOK,
-			expectError:    "credentials",
-		},
-		{
-			name:           "HTTP URL allowed with WithAllowHTTP option",
-			url:            "http://example.com",
-			expectedStatus: http.StatusOK,
-			expectReachable: true, // Should succeed if example.com is reachable
-		},
-	}
+ tests := []struct {
+  name           string
+  url            string
+  expectedStatus int
+  expectReachable bool
+  expectError    string
+ }{
+  {
+   name:           "Valid public URL",
+   url:            "https://example.com",
+   expectedStatus: http.StatusOK,
+   expectReachable: true,
+  },
+  {
+   name:           "Private IP blocked - 10.0.0.1",
+   url:            "http://10.0.0.1",
+   expectedStatus: http.StatusOK,
+   expectError:    "private ip",
+  },
+  {
+   name:           "Localhost blocked - 127.0.0.1",
+   url:            "http://127.0.0.1",
+   expectedStatus: http.StatusOK,
+   expectError:    "private ip",
+  },
+  {
+   name:           "Localhost blocked - localhost",
+   url:            "http://localhost:8080",
+   expectedStatus: http.StatusOK,
+   expectError:    "private ip",
+  },
+  {
+   name:           "Cloud metadata blocked - 169.254.169.254",
+   url:            "http://169.254.169.254",
+   expectedStatus: http.StatusOK,
+   expectError:    "cloud metadata",
+  },
+  {
+   name:           "Link-local blocked - 169.254.1.1",
+   url:            "http://169.254.1.1",
+   expectedStatus: http.StatusOK,
+   expectError:    "private ip",
+  },
+  {
+   name:           "Private IPv4 blocked - 192.168.1.1",
+   url:            "http://192.168.1.1",
+   expectedStatus: http.StatusOK,
+   expectError:    "private ip",
+  },
+  {
+   name:           "Private IPv4 blocked - 172.16.0.1",
+   url:            "http://172.16.0.1",
+   expectedStatus: http.StatusOK,
+   expectError:    "private ip",
+  },
+  {
+   name:           "Invalid scheme rejected",
+   url:            "ftp://example.com",
+   expectedStatus: http.StatusBadRequest,
+   expectError:    "Invalid URL format",
+  },
+  {
+   name:           "Path component rejected",
+   url:            "https://example.com/path",
+   expectedStatus: http.StatusBadRequest,
+   expectError:    "Invalid URL format",
+  },
+  {
+   name:           "Empty URL field",
+   url:            "",
+   expectedStatus: http.StatusBadRequest,
+   expectError:    "required",
+  },
+  {
+   name:           "URL with embedded credentials blocked",
+   url:            "http://user:pass@example.com",
+   expectedStatus: http.StatusOK,
+   expectError:    "credentials",
+  },
+  {
+   name:           "HTTP URL allowed with WithAllowHTTP option",
+   url:            "http://example.com",
+   expectedStatus: http.StatusOK,
+   expectReachable: true, // Should succeed if example.com is reachable
+  },
+ }
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Setup test environment
-			db := setupTestDB(t)
-			handler := NewSettingsHandler(db)
-			router := gin.New()
-			router.Use(func(c *gin.Context) {
-				c.Set("role", "admin")
-			})
-			router.POST("/api/settings/test-url", handler.TestPublicURL)
+ for _, tt := range tests {
+  t.Run(tt.name, func(t *testing.T) {
+   // Setup test environment
+   db := setupTestDB(t)
+   handler := NewSettingsHandler(db)
+   router := gin.New()
+   router.Use(func(c *gin.Context) {
+    c.Set("role", "admin")
+   })
+   router.POST("/api/settings/test-url", handler.TestPublicURL)
 
-			// Create request
-			body := fmt.Sprintf(`{"url": "%s"}`, tt.url)
-			req, _ := http.NewRequest("POST", "/api/settings/test-url",
-				strings.NewReader(body))
-			req.Header.Set("Content-Type", "application/json")
+   // Create request
+   body := fmt.Sprintf(`{"url": "%s"}`, tt.url)
+   req, _ := http.NewRequest("POST", "/api/settings/test-url",
+    strings.NewReader(body))
+   req.Header.Set("Content-Type", "application/json")
 
-			// Execute request
-			w := httptest.NewRecorder()
-			router.ServeHTTP(w, req)
+   // Execute request
+   w := httptest.NewRecorder()
+   router.ServeHTTP(w, req)
 
-			// Verify response
-			assert.Equal(t, tt.expectedStatus, w.Code)
+   // Verify response
+   assert.Equal(t, tt.expectedStatus, w.Code)
 
-			var resp map[string]interface{}
-			err := json.Unmarshal(w.Body.Bytes(), &resp)
-			assert.NoError(t, err)
+   var resp map[string]interface{}
+   err := json.Unmarshal(w.Body.Bytes(), &resp)
+   assert.NoError(t, err)
 
-			if tt.expectError != "" {
-				assert.Contains(t,
-					strings.ToLower(resp["error"].(string)),
-					strings.ToLower(tt.expectError))
-			}
+   if tt.expectError != "" {
+    assert.Contains(t,
+     strings.ToLower(resp["error"].(string)),
+     strings.ToLower(tt.expectError))
+   }
 
-			if tt.expectReachable {
-				assert.True(t, resp["reachable"].(bool))
-			}
-		})
-	}
+   if tt.expectReachable {
+    assert.True(t, resp["reachable"].(bool))
+   }
+  })
+ }
 }
 
 func TestTestPublicURL_RequiresAdmin(t *testing.T) {
-	db := setupTestDB(t)
-	handler := NewSettingsHandler(db)
-	router := gin.New()
+ db := setupTestDB(t)
+ handler := NewSettingsHandler(db)
+ router := gin.New()
 
-	// Non-admin user
-	router.Use(func(c *gin.Context) {
-		c.Set("role", "user")
-	})
-	router.POST("/api/settings/test-url", handler.TestPublicURL)
+ // Non-admin user
+ router.Use(func(c *gin.Context) {
+  c.Set("role", "user")
+ })
+ router.POST("/api/settings/test-url", handler.TestPublicURL)
 
-	body := `{"url": "https://example.com"}`
-	req, _ := http.NewRequest("POST", "/api/settings/test-url",
-		strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+ body := `{"url": "https://example.com"}`
+ req, _ := http.NewRequest("POST", "/api/settings/test-url",
+  strings.NewReader(body))
+ req.Header.Set("Content-Type", "application/json")
 
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
+ w := httptest.NewRecorder()
+ router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusForbidden, w.Code)
+ assert.Equal(t, http.StatusForbidden, w.Code)
 }
 ```
 
@@ -557,6 +577,7 @@ Add inline comment in the handler explaining the multi-layer protection:
 **Search Results**: No other handlers currently accept user-provided URLs for outbound requests.
 
 **Checked Files**:
+
 - `remote_server_handler.go`: Uses `net.DialTimeout()` for TCP, not HTTP requests
 - `proxy_host_handler.go`: Manages proxy configs but doesn't make outbound requests
 - Other handlers: No URL input parameters
@@ -596,6 +617,7 @@ By inserting `security.ValidateExternalURL()`:
 ### 6.3 Expected Result
 
 After implementation:
+
 - ✅ CodeQL should recognize the taint chain is broken
 - ✅ Alert should resolve or downgrade to "False Positive"
 - ✅ Future scans should not flag this pattern
@@ -633,34 +655,36 @@ A classic SSRF bypass technique is DNS rebinding, also known as Time-of-Check Ti
    - **Purpose**: Eliminates DNS rebinding/TOCTOU window
 
 **From `backend/internal/utils/url_testing.go`**:
+
 ```go
 // ssrfSafeDialer creates a custom dialer that validates IP addresses at connection time.
 // This prevents DNS rebinding attacks by validating the IP just before connecting.
 func ssrfSafeDialer() func(ctx context.Context, network, addr string) (net.Conn, error) {
-	return func(ctx context.Context, network, addr string) (net.Conn, error) {
-		// Resolve DNS with context timeout
-		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-		if err != nil {
-			return nil, fmt.Errorf("DNS resolution failed: %w", err)
-		}
+ return func(ctx context.Context, network, addr string) (net.Conn, error) {
+  // Resolve DNS with context timeout
+  ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+  if err != nil {
+   return nil, fmt.Errorf("DNS resolution failed: %w", err)
+  }
 
-		// Validate ALL resolved IPs - if any are private, reject immediately
-		for _, ip := range ips {
-			if isPrivateIP(ip.IP) {
-				return nil, fmt.Errorf("access to private IP addresses is blocked (resolved to %s)", ip.IP)
-			}
-		}
+  // Validate ALL resolved IPs - if any are private, reject immediately
+  for _, ip := range ips {
+   if isPrivateIP(ip.IP) {
+    return nil, fmt.Errorf("access to private IP addresses is blocked (resolved to %s)", ip.IP)
+   }
+  }
 
-		// Connect to the first valid IP (prevents DNS rebinding)
-		dialer := &net.Dialer{Timeout: 5 * time.Second}
-		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
-	}
+  // Connect to the first valid IP (prevents DNS rebinding)
+  dialer := &net.Dialer{Timeout: 5 * time.Second}
+  return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+ }
 }
 ```
 
 ### Why This Eliminates TOCTOU
 
 Even if an attacker changes DNS between Layer 2 and Layer 3:
+
 - Layer 2 validates at time T1: `attacker.com` → `1.2.3.4` ✅
 - Attacker changes DNS
 - Layer 3 resolves again at time T2: `attacker.com` → `127.0.0.1` ❌ **BLOCKED by ssrfSafeDialer**
@@ -680,10 +704,12 @@ http://evil.com@127.0.0.1/
 ```
 
 **Vulnerable Parser** interprets as:
+
 - User: `evil.com`
 - Host: `127.0.0.1` ← SSRF target
 
 **Strict Parser** interprets as:
+
 - User: `evil.com`
 - Host: `127.0.0.1`
 - But rejects due to embedded credentials
@@ -718,6 +744,7 @@ reachable, latency, err := utils.TestURLConnectivity(validatedURL)
 ```
 
 **Characteristics**:
+
 - Two-step validation (format → security)
 - Uses `ValidateExternalURL()` for simplicity
 - Relies on `ssrfSafeDialer()` for runtime protection
@@ -742,6 +769,7 @@ if config.WebhookURL != "" {
 ```
 
 **Characteristics**:
+
 - Single validation step
 - Uses `WithAllowLocalhost()` option (allows testing webhooks locally)
 - No connectivity test required (URL is stored, not immediately used)
@@ -778,6 +806,7 @@ Both handlers use the same `ValidateExternalURL()` function but with different o
 4. Confirm public URLs are still testable
 
 **Future Work**: Add DNS rebinding integration test:
+
 - Set up test DNS server that changes responses dynamically
 - Verify that `ssrfSafeDialer()` blocks the rebind attempt
 - Test sequence: Initial DNS → Public IP (allowed) → DNS change → Private IP (blocked)
@@ -795,22 +824,26 @@ Both handlers use the same `ValidateExternalURL()` function but with different o
 ## 8. Rollout Plan
 
 ### Phase 1: Implementation (Day 1)
+
 - [ ] Implement code changes in `settings_handler.go`
 - [ ] Add comprehensive unit tests
 - [ ] Verify existing tests still pass
 
 ### Phase 2: Validation (Day 1-2)
+
 - [ ] Run CodeQL scan locally
 - [ ] Manual security testing
 - [ ] Code review with security focus
 
 ### Phase 3: Deployment (Day 2-3)
+
 - [ ] Merge to main branch
 - [ ] Deploy to staging
 - [ ] Run automated security scan
 - [ ] Deploy to production
 
 ### Phase 4: Verification (Day 3+)
+
 - [ ] Monitor logs for validation errors
 - [ ] Verify CodeQL alert closure
 - [ ] Update security documentation
@@ -820,14 +853,17 @@ Both handlers use the same `ValidateExternalURL()` function but with different o
 ## 9. Risk Assessment
 
 ### Security Risks (PRE-FIX)
+
 - **Critical**: Admins could test internal endpoints (localhost, metadata services)
 - **High**: Potential information disclosure about internal network topology
 - **Medium**: DNS rebinding attack surface
 
 ### Security Risks (POST-FIX)
+
 - **None**: Comprehensive SSRF protection at multiple layers
 
 ### Functional Risks
+
 - **Low**: Error messages might be too restrictive if users try to test localhost
   - **Mitigation**: Clear error message explaining security rationale
 - **Low**: Public URL testing might fail due to DNS issues
@@ -838,16 +874,19 @@ Both handlers use the same `ValidateExternalURL()` function but with different o
 ## 10. Success Criteria
 
 ✅ **Security**:
+
 - CodeQL SSRF alert resolved
 - All SSRF test vectors blocked (localhost, private IPs, cloud metadata)
 - No regression in other security scans
 
 ✅ **Functionality**:
+
 - Public URLs can still be tested successfully
 - Appropriate error messages for invalid/blocked URLs
 - Latency measurements remain accurate
 
 ✅ **Code Quality**:
+
 - 100% test coverage for new code paths
 - No breaking changes to existing functionality
 - Clear documentation and inline comments
@@ -856,11 +895,11 @@ Both handlers use the same `ValidateExternalURL()` function but with different o
 
 ## 11. References
 
-- **OWASP SSRF**: https://owasp.org/www-community/attacks/Server_Side_Request_Forgery
-- **CWE-918 (SSRF)**: https://cwe.mitre.org/data/definitions/918.html
-- **DNS Rebinding Attacks**: https://en.wikipedia.org/wiki/DNS_rebinding
-- **TOCTOU Vulnerabilities**: https://cwe.mitre.org/data/definitions/367.html
-- **URL Parser Confusion**: https://claroty.com/team82/research/exploiting-url-parsing-confusion
+- **OWASP SSRF**: <https://owasp.org/www-community/attacks/Server_Side_Request_Forgery>
+- **CWE-918 (SSRF)**: <https://cwe.mitre.org/data/definitions/918.html>
+- **DNS Rebinding Attacks**: <https://en.wikipedia.org/wiki/DNS_rebinding>
+- **TOCTOU Vulnerabilities**: <https://cwe.mitre.org/data/definitions/367.html>
+- **URL Parser Confusion**: <https://claroty.com/team82/research/exploiting-url-parsing-confusion>
 - **Existing Implementation**: `backend/internal/security/url_validator.go`
 - **Runtime Protection**: `backend/internal/utils/url_testing.go::ssrfSafeDialer()`
 - **Comparison Pattern**: `backend/internal/api/handlers/security_notifications.go`
@@ -870,14 +909,17 @@ Both handlers use the same `ValidateExternalURL()` function but with different o
 ## Appendix: Alternative Mitigations Considered
 
 ### A. Whitelist-Only Approach
+
 **Description**: Only allow testing URLs from a pre-configured whitelist.
 **Rejected**: Too restrictive for legitimate admin use cases.
 
 ### B. Remove Test Endpoint
+
 **Description**: Remove the `TestPublicURL` endpoint entirely.
 **Rejected**: Legitimate functionality for validating public URL configuration.
 
 ### C. Client-Side Testing Only
+
 **Description**: Move connectivity testing to the frontend.
 **Rejected**: Cannot validate server-side reachability from client.
 
@@ -886,12 +928,14 @@ Both handlers use the same `ValidateExternalURL()` function but with different o
 **Plan Status**: ✅ Revised and Ready for Implementation
 **Revision Date**: 2025-12-23 (Post-Supervisor Review)
 **Next Steps**:
+
 1. Backend_Dev to implement Option A following this revised specification
 2. Ensure HTTP status codes match existing test behavior (200 OK for SSRF blocks)
 3. Use `err.Error()` directly without wrapping
 4. Verify triple-layer protection works end-to-end
 
 **Key Changes from Original Plan**:
+
 - Fixed CodeQL taint analysis explanation (value transformation, not name recognition)
 - Documented DNS rebinding/TOCTOU protection via ssrfSafeDialer
 - Changed HTTP status codes to 200 OK for SSRF blocks (matches existing tests)

@@ -36,7 +36,7 @@ type UptimeMonitor struct {
 }
 
 type UptimeHeartbeat struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
+	ID        uint      `gorm:"primaryKey" json:"-"`
 	MonitorID string    `json:"monitor_id" gorm:"index"`
 	Status    string    `json:"status"` // up, down
 	Latency   int64     `json:"latency"`

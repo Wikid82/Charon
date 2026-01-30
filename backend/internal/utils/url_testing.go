@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/metrics"
 	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/security"
@@ -124,12 +125,14 @@ type urlConnectivityOptions struct {
 
 type urlConnectivityOption func(*urlConnectivityOptions)
 
+//nolint:unused // Used in test files
 func withTransportForTesting(rt http.RoundTripper) urlConnectivityOption {
 	return func(o *urlConnectivityOptions) {
 		o.transport = rt
 	}
 }
 
+//nolint:unused // Used in test files
 func withAllowLocalhostForTesting() urlConnectivityOption {
 	return func(o *urlConnectivityOptions) {
 		o.allowLocalhost = true
@@ -305,7 +308,7 @@ func testURLConnectivity(rawURL string, opts ...urlConnectivityOption) (reachabl
 
 	// Normalize scheme to a constant value derived from an allowlisted set.
 	// This avoids propagating the original input string into request construction.
-	safeScheme := "https"
+	var safeScheme string
 	switch validatedParsed.Scheme {
 	case "http":
 		safeScheme = "http"
@@ -392,7 +395,11 @@ func testURLConnectivity(rawURL string, opts ...urlConnectivityOption) (reachabl
 	if err != nil {
 		return false, latency, fmt.Errorf("connection failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close response body")
+		}
+	}()
 
 	// Accept 2xx and 3xx status codes as "reachable"
 	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
@@ -416,7 +423,7 @@ func validateRedirectTargetStrict(req *http.Request, via []*http.Request, maxRed
 		prevScheme := via[len(via)-1].URL.Scheme
 		newScheme := req.URL.Scheme
 		if newScheme != prevScheme {
-			if !(allowHTTPSUpgrade && prevScheme == "http" && newScheme == "https") {
+			if !allowHTTPSUpgrade || prevScheme != "http" || newScheme != "https" {
 				return fmt.Errorf("redirect scheme change blocked: %s -> %s", prevScheme, newScheme)
 			}
 		}
@@ -433,11 +440,4 @@ func validateRedirectTargetStrict(req *http.Request, via []*http.Request, maxRed
 	}
 
 	return nil
-}
-
-// isPrivateIP checks if an IP address is private, loopback, link-local, or otherwise restricted.
-// This function wraps network.IsPrivateIP for backward compatibility within the utils package.
-// See network.IsPrivateIP for the full list of blocked IP ranges.
-func isPrivateIP(ip net.IP) bool {
-	return network.IsPrivateIP(ip)
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 	"github.com/google/uuid"
@@ -51,9 +52,46 @@ type UpdateDNSProviderRequest struct {
 }
 
 // DNSProviderResponse represents the API response for a DNS provider.
+// Uses explicit fields to avoid exposing internal database IDs.
 type DNSProviderResponse struct {
-	models.DNSProvider
-	HasCredentials bool `json:"has_credentials"`
+	UUID                string     `json:"uuid"`
+	Name                string     `json:"name"`
+	ProviderType        string     `json:"provider_type"`
+	Enabled             bool       `json:"enabled"`
+	IsDefault           bool       `json:"is_default"`
+	UseMultiCredentials bool       `json:"use_multi_credentials"`
+	KeyVersion          int        `json:"key_version"`
+	PropagationTimeout  int        `json:"propagation_timeout"`
+	PollingInterval     int        `json:"polling_interval"`
+	LastUsedAt          *time.Time `json:"last_used_at,omitempty"`
+	SuccessCount        int        `json:"success_count"`
+	FailureCount        int        `json:"failure_count"`
+	LastError           string     `json:"last_error,omitempty"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+	HasCredentials      bool       `json:"has_credentials"`
+}
+
+// NewDNSProviderResponse creates a DNSProviderResponse from a DNSProvider model.
+func NewDNSProviderResponse(provider *models.DNSProvider) DNSProviderResponse {
+	return DNSProviderResponse{
+		UUID:                provider.UUID,
+		Name:                provider.Name,
+		ProviderType:        provider.ProviderType,
+		Enabled:             provider.Enabled,
+		IsDefault:           provider.IsDefault,
+		UseMultiCredentials: provider.UseMultiCredentials,
+		KeyVersion:          provider.KeyVersion,
+		PropagationTimeout:  provider.PropagationTimeout,
+		PollingInterval:     provider.PollingInterval,
+		LastUsedAt:          provider.LastUsedAt,
+		SuccessCount:        provider.SuccessCount,
+		FailureCount:        provider.FailureCount,
+		LastError:           provider.LastError,
+		CreatedAt:           provider.CreatedAt,
+		UpdatedAt:           provider.UpdatedAt,
+		HasCredentials:      provider.CredentialsEncrypted != "",
+	}
 }
 
 // TestResult represents the result of testing DNS provider credentials.
@@ -69,6 +107,7 @@ type TestResult struct {
 type DNSProviderService interface {
 	List(ctx context.Context) ([]models.DNSProvider, error)
 	Get(ctx context.Context, id uint) (*models.DNSProvider, error)
+	GetByUUID(ctx context.Context, uuid string) (*models.DNSProvider, error)
 	Create(ctx context.Context, req CreateDNSProviderRequest) (*models.DNSProvider, error)
 	Update(ctx context.Context, id uint, req UpdateDNSProviderRequest) (*models.DNSProvider, error)
 	Delete(ctx context.Context, id uint) error
@@ -114,7 +153,20 @@ func (s *dnsProviderService) List(ctx context.Context) ([]models.DNSProvider, er
 // Get retrieves a DNS provider by ID.
 func (s *dnsProviderService) Get(ctx context.Context, id uint) (*models.DNSProvider, error) {
 	var provider models.DNSProvider
-	err := s.db.WithContext(ctx).First(&provider, id).Error
+	err := s.db.WithContext(ctx).Where("id = ?", id).First(&provider).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrDNSProviderNotFound
+		}
+		return nil, err
+	}
+	return &provider, nil
+}
+
+// GetByUUID retrieves a DNS provider by UUID.
+func (s *dnsProviderService) GetByUUID(ctx context.Context, uuid string) (*models.DNSProvider, error) {
+	var provider models.DNSProvider
+	err := s.db.WithContext(ctx).Where("uuid = ?", uuid).First(&provider).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrDNSProviderNotFound
@@ -201,7 +253,7 @@ func (s *dnsProviderService) Create(ctx context.Context, req CreateDNSProviderRe
 		"type":       req.ProviderType,
 		"is_default": req.IsDefault,
 	})
-	s.securityService.LogAudit(&models.SecurityAudit{
+	if err := s.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromContext(ctx),
 		Action:        "dns_provider_create",
 		EventCategory: "dns_provider",
@@ -210,7 +262,9 @@ func (s *dnsProviderService) Create(ctx context.Context, req CreateDNSProviderRe
 		Details:       string(detailsJSON),
 		IPAddress:     getIPFromContext(ctx),
 		UserAgent:     getUserAgentFromContext(ctx),
-	})
+	}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to log audit event")
+	}
 
 	return provider, nil
 }
@@ -319,7 +373,7 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 			"old_values":     oldValues,
 			"new_values":     newValues,
 		})
-		s.securityService.LogAudit(&models.SecurityAudit{
+		if err := s.securityService.LogAudit(&models.SecurityAudit{
 			Actor:         getActorFromContext(ctx),
 			Action:        "dns_provider_update",
 			EventCategory: "dns_provider",
@@ -328,7 +382,9 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 			Details:       string(detailsJSON),
 			IPAddress:     getIPFromContext(ctx),
 			UserAgent:     getUserAgentFromContext(ctx),
-		})
+		}); err != nil {
+			logger.Log().WithError(err).Warn("Failed to log audit event")
+		}
 	}
 
 	return provider, nil
@@ -358,7 +414,7 @@ func (s *dnsProviderService) Delete(ctx context.Context, id uint) error {
 		"type":            provider.ProviderType,
 		"had_credentials": hadCredentials,
 	})
-	s.securityService.LogAudit(&models.SecurityAudit{
+	if err := s.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromContext(ctx),
 		Action:        "dns_provider_delete",
 		EventCategory: "dns_provider",
@@ -367,7 +423,9 @@ func (s *dnsProviderService) Delete(ctx context.Context, id uint) error {
 		Details:       string(detailsJSON),
 		IPAddress:     getIPFromContext(ctx),
 		UserAgent:     getUserAgentFromContext(ctx),
-	})
+	}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to log audit event")
+	}
 
 	return nil
 }
@@ -382,6 +440,13 @@ func (s *dnsProviderService) Test(ctx context.Context, id uint) (*TestResult, er
 	// Decrypt credentials
 	credentials, err := s.GetDecryptedCredentials(ctx, id)
 	if err != nil {
+		// Update provider statistics even on decryption failure
+		now := time.Now()
+		provider.LastUsedAt = &now
+		provider.FailureCount++
+		provider.LastError = "Failed to decrypt credentials"
+		_ = s.db.WithContext(ctx).Save(provider)
+
 		return &TestResult{
 			Success: false,
 			Error:   "Failed to decrypt credentials",
@@ -413,7 +478,7 @@ func (s *dnsProviderService) Test(ctx context.Context, id uint) (*TestResult, er
 		"test_result":   result.Success,
 		"error":         result.Error,
 	})
-	s.securityService.LogAudit(&models.SecurityAudit{
+	if err := s.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromContext(ctx),
 		Action:        "credential_test",
 		EventCategory: "dns_provider",
@@ -422,7 +487,9 @@ func (s *dnsProviderService) Test(ctx context.Context, id uint) (*TestResult, er
 		Details:       string(detailsJSON),
 		IPAddress:     getIPFromContext(ctx),
 		UserAgent:     getUserAgentFromContext(ctx),
-	})
+	}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to log audit event")
+	}
 
 	return result, nil
 }
@@ -490,7 +557,7 @@ func (s *dnsProviderService) GetDecryptedCredentials(ctx context.Context, id uin
 		"success":     true,
 		"key_version": provider.KeyVersion,
 	})
-	s.securityService.LogAudit(&models.SecurityAudit{
+	if err := s.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromContext(ctx),
 		Action:        "credential_decrypt",
 		EventCategory: "dns_provider",
@@ -499,7 +566,9 @@ func (s *dnsProviderService) GetDecryptedCredentials(ctx context.Context, id uin
 		Details:       string(detailsJSON),
 		IPAddress:     getIPFromContext(ctx),
 		UserAgent:     getUserAgentFromContext(ctx),
-	})
+	}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to log audit event")
+	}
 
 	return credentials, nil
 }

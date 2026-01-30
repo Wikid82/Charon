@@ -2,15 +2,23 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/api/routes"
+	"github.com/Wikid82/charon/backend/internal/caddy"
+	"github.com/Wikid82/charon/backend/internal/cerberus"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/database"
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -22,6 +30,43 @@ import (
 	"github.com/gin-gonic/gin"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
+
+// parsePluginSignatures reads the CHARON_PLUGIN_SIGNATURES environment variable
+// and returns the parsed signature allowlist for plugin verification.
+//
+// Modes:
+//   - nil return (permissive): Env var unset/empty — all plugins allowed
+//   - empty map (strict): Env var set to "{}" — no external plugins allowed
+//   - populated map: Only plugins with matching signatures are allowed
+func parsePluginSignatures() map[string]string {
+	envVal := os.Getenv("CHARON_PLUGIN_SIGNATURES")
+	if envVal == "" {
+		logger.Log().Info("Plugin signature verification: PERMISSIVE mode (CHARON_PLUGIN_SIGNATURES not set)")
+		return nil
+	}
+
+	var signatures map[string]string
+	if err := json.Unmarshal([]byte(envVal), &signatures); err != nil {
+		logger.Log().WithError(err).Error("Failed to parse CHARON_PLUGIN_SIGNATURES JSON — falling back to permissive mode")
+		return nil
+	}
+
+	// Validate all signatures have sha256: prefix
+	for name, sig := range signatures {
+		if !strings.HasPrefix(sig, "sha256:") {
+			logger.Log().Errorf("Invalid signature for plugin %q: must have sha256: prefix — falling back to permissive mode", name)
+			return nil
+		}
+	}
+
+	if len(signatures) == 0 {
+		logger.Log().Info("Plugin signature verification: STRICT mode (empty allowlist — no external plugins permitted)")
+	} else {
+		logger.Log().Infof("Plugin signature verification: STRICT mode (%d plugin(s) in allowlist)", len(signatures))
+	}
+
+	return signatures
+}
 
 func main() {
 	// Setup logging with rotation
@@ -98,6 +143,7 @@ func main() {
 				&models.SecurityRuleSet{},
 				&models.CrowdsecPresetEvent{},
 				&models.CrowdsecConsoleEnrollment{},
+				&models.EmergencyToken{}, // Phase 2: Database-backed emergency tokens
 				// DNS Provider models (Issue #21)
 				&models.DNSProvider{},
 				&models.DNSProviderCredential{},
@@ -185,7 +231,7 @@ func main() {
 	if pluginDir == "" {
 		pluginDir = "/app/plugins"
 	}
-	pluginLoader := services.NewPluginLoaderService(db, pluginDir, nil) // No signature verification for now
+	pluginLoader := services.NewPluginLoaderService(db, pluginDir, parsePluginSignatures())
 	if err := pluginLoader.LoadAllPlugins(); err != nil {
 		logger.Log().WithError(err).Warn("Failed to load external DNS provider plugins")
 	}
@@ -201,8 +247,13 @@ func main() {
 	// Attach a recovery middleware that logs stack traces when debug is enabled
 	router.Use(middleware.Recovery(cfg.Debug))
 
+	// Shared Caddy manager and Cerberus instance for API + emergency server
+	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
+	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
+	cerb := cerberus.New(cfg.Security, db)
+
 	// Pass config to routes for auth service and certificate service
-	if err := routes.Register(router, db, cfg); err != nil {
+	if err := routes.RegisterWithDeps(router, db, cfg, caddyManager, cerb); err != nil {
 		log.Fatalf("register routes: %v", err)
 	}
 
@@ -214,10 +265,38 @@ func main() {
 		logger.Log().WithError(err).Warn("WARNING: failed to process mounted Caddyfile")
 	}
 
-	addr := fmt.Sprintf(":%s", cfg.HTTPPort)
-	logger.Log().Infof("starting %s backend on %s", version.Name, addr)
-
-	if err := router.Run(addr); err != nil {
-		log.Fatalf("server error: %v", err)
+	// Initialize emergency server (Tier 2 break glass)
+	emergencyServer := server.NewEmergencyServerWithDeps(db, cfg.Emergency, caddyManager, cerb)
+	if err := emergencyServer.Start(); err != nil {
+		logger.Log().WithError(err).Fatal("Failed to start emergency server")
 	}
+
+	// Setup graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	// Start main HTTP server in goroutine
+	go func() {
+		addr := fmt.Sprintf(":%s", cfg.HTTPPort)
+		logger.Log().Infof("starting %s backend on %s", version.Name, addr)
+
+		if err := router.Run(addr); err != nil {
+			logger.Log().WithError(err).Fatal("server error")
+		}
+	}()
+
+	// Wait for interrupt signal
+	sig := <-quit
+	logger.Log().Infof("Received signal %v, initiating graceful shutdown...", sig)
+
+	// Graceful shutdown with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Stop emergency server
+	if err := emergencyServer.Stop(ctx); err != nil {
+		logger.Log().WithError(err).Error("Emergency server shutdown error")
+	}
+
+	logger.Log().Info("Server shutdown complete")
 }

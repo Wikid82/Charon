@@ -339,7 +339,8 @@ func TestTestURLConnectivity_DNSRebinding(t *testing.T) {
 
 ## Summary of Changes
 
-### Security Fixes:
+### Security Fixes
+
 1. ✅ DNS rebinding protection: HTTP request uses validated IP
 2. ✅ Redirect validation: Check redirect targets for private IPs
 3. ✅ Rate limiting: 5 requests per minute per user
@@ -348,14 +349,16 @@ func TestTestURLConnectivity_DNSRebinding(t *testing.T) {
 6. ✅ HTTPS enforcement: Require secure connections
 7. ✅ Port restrictions: Only 443, 8443 allowed
 
-### Implementation Notes:
+### Implementation Notes
+
 - Uses `req.Host` header for SNI/vhost routing while making request to IP
 - Validates redirect targets before following
 - Comprehensive IPv4 and IPv6 private range blocking
 - Per-user rate limiting with token bucket algorithm
 - Integration test verifies DNS rebinding protection
 
-### Testing Checklist:
+### Testing Checklist
+
 - [ ] Test public HTTPS URL → Success
 - [ ] Test HTTP URL → Rejected (HTTPS required)
 - [ ] Test private IP → Blocked

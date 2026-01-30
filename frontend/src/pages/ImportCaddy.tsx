@@ -73,11 +73,13 @@ export default function ImportCaddy() {
       <h1 className="text-3xl font-bold text-white mb-6">{t('importCaddy.title')}</h1>
 
       {session && (
-        <ImportBanner
-          session={session}
-          onReview={() => setShowReview(true)}
-          onCancel={handleCancel}
-        />
+        <div data-testid="import-banner">
+          <ImportBanner
+            session={session}
+            onReview={() => setShowReview(true)}
+            onCancel={handleCancel}
+          />
+        </div>
       )}
 
       {error && (
@@ -116,6 +118,7 @@ export default function ImportCaddy() {
                 accept=".caddyfile,.txt,text/plain"
                 onChange={handleFileUpload}
                 className="w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-active file:text-white hover:file:bg-blue-hover file:cursor-pointer cursor-pointer"
+                data-testid="import-dropzone"
               />
             </div>
 
@@ -163,15 +166,17 @@ api.example.com {
       )}
 
       {showReview && preview && preview.preview && (
-        <ImportReviewTable
-          hosts={preview.preview.hosts}
-          conflicts={preview.preview.conflicts}
-          conflictDetails={preview.conflict_details}
-          errors={preview.preview.errors}
-          caddyfileContent={preview.caddyfile_content}
-          onCommit={handleCommit}
-          onCancel={() => setShowReview(false)}
-        />
+        <div data-testid="import-review-table">
+          <ImportReviewTable
+            hosts={preview.preview.hosts}
+            conflicts={preview.preview.conflicts}
+            conflictDetails={preview.conflict_details}
+            errors={preview.preview.errors}
+            caddyfileContent={preview.caddyfile_content}
+            onCommit={handleCommit}
+            onCancel={() => setShowReview(false)}
+          />
+        </div>
       )}
 
       <ImportSitesModal

@@ -12,8 +12,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.25.5'
+  GO_VERSION: '1.25.6'
   NODE_VERSION: '24.12.0'
+  GOTOOLCHAIN: auto
 
 permissions:
   contents: read
@@ -22,6 +23,7 @@ jobs:
   backend-codecov:
     name: Backend Codecov Upload
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
@@ -53,6 +55,7 @@ jobs:
   frontend-codecov:
     name: Frontend Codecov Upload
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6

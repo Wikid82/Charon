@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,7 +15,9 @@ import (
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/metrics"
 	"github.com/Wikid82/charon/backend/internal/models"
+	securitypkg "github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 // Cerberus provides a lightweight facade for security checks (WAF, CrowdSec, ACL).
@@ -23,6 +26,12 @@ type Cerberus struct {
 	db                *gorm.DB
 	accessSvc         *services.AccessListService
 	securityNotifySvc *services.SecurityNotificationService
+
+	// Settings cache for performance - avoids DB queries on every request
+	settingsCache     map[string]string
+	settingsCacheMu   sync.RWMutex
+	settingsCacheTime time.Time
+	settingsCacheTTL  time.Duration
 }
 
 // New creates a new Cerberus instance
@@ -32,11 +41,87 @@ func New(cfg config.SecurityConfig, db *gorm.DB) *Cerberus {
 		db:                db,
 		accessSvc:         services.NewAccessListService(db),
 		securityNotifySvc: services.NewSecurityNotificationService(db),
+		settingsCache:     make(map[string]string),
+		settingsCacheTTL:  60 * time.Second,
 	}
+}
+
+// getSetting retrieves a setting with in-memory caching.
+// Returns the value and a boolean indicating if the key was found.
+func (c *Cerberus) getSetting(key string) (string, bool) {
+	if c.db == nil {
+		return "", false
+	}
+
+	// Fast path: check cache with read lock
+	c.settingsCacheMu.RLock()
+	if time.Since(c.settingsCacheTime) < c.settingsCacheTTL {
+		val, ok := c.settingsCache[key]
+		c.settingsCacheMu.RUnlock()
+		return val, ok
+	}
+	c.settingsCacheMu.RUnlock()
+
+	// Slow path: refresh cache with write lock
+	c.settingsCacheMu.Lock()
+	defer c.settingsCacheMu.Unlock()
+
+	// Double-check: another goroutine might have refreshed cache
+	if time.Since(c.settingsCacheTime) < c.settingsCacheTTL {
+		val, ok := c.settingsCache[key]
+		return val, ok
+	}
+
+	// Refresh entire cache from DB (batch query is faster than individual queries)
+	var settings []models.Setting
+	if err := c.db.Where("key LIKE ?", "security.%").Find(&settings).Error; err != nil {
+		logger.Log().WithError(err).Debug("Failed to refresh settings cache")
+		return "", false
+	}
+
+	// Update cache
+	c.settingsCache = make(map[string]string)
+	for _, s := range settings {
+		c.settingsCache[s.Key] = s.Value
+	}
+	c.settingsCacheTime = time.Now()
+
+	val, ok := c.settingsCache[key]
+	return val, ok
+}
+
+// InvalidateCache forces cache refresh on next access.
+// Call this after updating security settings.
+func (c *Cerberus) InvalidateCache() {
+	c.settingsCacheMu.Lock()
+	c.settingsCacheTime = time.Time{} // Zero time forces refresh
+	c.settingsCacheMu.Unlock()
 }
 
 // IsEnabled returns whether Cerberus features are enabled via config or settings.
 func (c *Cerberus) IsEnabled() bool {
+	// DB-backed break-glass disable must take effect even when static config defaults to enabled.
+	// This keeps the API reachable and prevents accidental lockouts when Cerberus/ACL is disabled via /security/disable.
+	if c.db != nil {
+		var sc models.SecurityConfig
+		if err := c.db.Where("name = ?", "default").First(&sc).Error; err == nil {
+			if !sc.Enabled {
+				return false
+			}
+		}
+
+		var s models.Setting
+		// Runtime feature flag (highest priority after break-glass disable)
+		if err := c.db.Where("key = ?", "feature.cerberus.enabled").First(&s).Error; err == nil {
+			return strings.EqualFold(s.Value, "true")
+		}
+		// Fallback to legacy setting for backward compatibility
+		s = models.Setting{} // Reset to prevent ID leakage from previous query
+		if err := c.db.Where("key = ?", "security.cerberus.enabled").First(&s).Error; err == nil {
+			return strings.EqualFold(s.Value, "true")
+		}
+	}
+
 	if c.cfg.CerberusEnabled {
 		return true
 	}
@@ -50,26 +135,27 @@ func (c *Cerberus) IsEnabled() bool {
 		return true
 	}
 
-	// Check database setting (runtime toggle) only if db is provided
-	if c.db != nil {
-		var s models.Setting
-		// Check feature flag
-		if err := c.db.Where("key = ?", "feature.cerberus.enabled").First(&s).Error; err == nil {
-			return strings.EqualFold(s.Value, "true")
-		}
-		// Fallback to legacy setting for backward compatibility
-		if err := c.db.Where("key = ?", "security.cerberus.enabled").First(&s).Error; err == nil {
-			return strings.EqualFold(s.Value, "true")
-		}
+	// Back-compat: check if all config fields are their zero values (implies defaults = enabled)
+	// Note: cannot use == for struct comparison when it contains slices
+	if c.cfg.CrowdSecMode == "" && c.cfg.CrowdSecAPIURL == "" && c.cfg.CrowdSecAPIKey == "" &&
+		c.cfg.CrowdSecConfigDir == "" && c.cfg.WAFMode == "" && c.cfg.RateLimitMode == "" &&
+		c.cfg.ACLMode == "" && !c.cfg.CerberusEnabled && len(c.cfg.ManagementCIDRs) == 0 {
+		return true
 	}
 
-	// Default to true (Optional Features spec)
-	return true
+	return false
 }
 
 // Middleware returns a Gin middleware that enforces Cerberus checks when enabled.
 func (c *Cerberus) Middleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
+		// Check for emergency bypass flag (set by EmergencyBypass middleware)
+		if bypass, exists := ctx.Get("emergency_bypass"); exists && bypass.(bool) {
+			logger.Log().WithField("path", ctx.Request.URL.Path).Debug("Cerberus: Skipping security checks (emergency bypass)")
+			ctx.Next()
+			return
+		}
+
 		if !c.IsEnabled() {
 			ctx.Next()
 			return
@@ -77,23 +163,45 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 
 		// WAF: The actual WAF protection is handled by the Coraza plugin at the Caddy layer.
 		// This middleware just tracks metrics for requests when WAF is enabled.
-		// The naive <script> check has been removed as it's trivially bypassed and
-		// proper WAF protection is now provided by Coraza at the reverse proxy level.
-		if c.cfg.WAFMode != "" && c.cfg.WAFMode != "disabled" {
+		// Check runtime setting first (from cache), then fall back to static config.
+		wafEnabled := c.cfg.WAFMode != "" && c.cfg.WAFMode != "disabled"
+		if val, ok := c.getSetting("security.waf.enabled"); ok {
+			wafEnabled = strings.EqualFold(val, "true")
+		}
+		if wafEnabled {
 			metrics.IncWAFRequest()
 			// Note: Actual blocking is done by Coraza in Caddy. This middleware
 			// provides defense-in-depth tracking and ACL enforcement only.
 		}
 
 		// ACL: simple per-request evaluation against all access lists if enabled
-		if c.cfg.ACLMode == "enabled" {
+		// Check runtime setting first (from cache), then fall back to static config.
+		aclEnabled := c.cfg.ACLMode == "enabled"
+		if val, ok := c.getSetting("security.acl.enabled"); ok {
+			aclEnabled = strings.EqualFold(val, "true")
+		}
+
+		if aclEnabled {
+			clientIP := util.CanonicalizeIPForSecurity(ctx.ClientIP())
+			isAdmin := c.isAuthenticatedAdmin(ctx)
+			adminWhitelistConfigured := false
+			if isAdmin {
+				whitelisted, hasWhitelist := c.adminWhitelistStatus(clientIP)
+				adminWhitelistConfigured = hasWhitelist
+				if whitelisted {
+					ctx.Next()
+					return
+				}
+			}
+
 			acls, err := c.accessSvc.List()
 			if err == nil {
-				clientIP := ctx.ClientIP()
+				activeCount := 0
 				for _, acl := range acls {
 					if !acl.Enabled {
 						continue
 					}
+					activeCount++
 					allowed, _, err := c.accessSvc.TestIP(acl.ID, clientIP)
 					if err == nil && !allowed {
 						// Send security notification
@@ -114,6 +222,14 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 						return
 					}
 				}
+				if activeCount == 0 {
+					if isAdmin && !adminWhitelistConfigured {
+						ctx.Next()
+						return
+					}
+					ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Blocked by access control list"})
+					return
+				}
 			}
 		}
 
@@ -128,8 +244,47 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 			logger.Log().WithField("client_ip", ctx.ClientIP()).WithField("path", ctx.Request.URL.Path).Debug("Request evaluated by CrowdSec bouncer at Caddy layer")
 		}
 
-		// Rate limiting placeholder (no-op for the moment)
-
 		ctx.Next()
 	}
+}
+
+func (c *Cerberus) isAuthenticatedAdmin(ctx *gin.Context) bool {
+	role, exists := ctx.Get("role")
+	if !exists {
+		return false
+	}
+	roleStr, ok := role.(string)
+	if !ok || roleStr != "admin" {
+		return false
+	}
+	userID, exists := ctx.Get("userID")
+	if !exists {
+		return false
+	}
+	switch id := userID.(type) {
+	case uint:
+		return id > 0
+	case int:
+		return id > 0
+	case int64:
+		return id > 0
+	default:
+		return false
+	}
+}
+
+func (c *Cerberus) adminWhitelistStatus(clientIP string) (bool, bool) {
+	if c.db == nil {
+		return false, false
+	}
+
+	var sc models.SecurityConfig
+	if err := c.db.Where("name = ?", "default").First(&sc).Error; err != nil {
+		return false, false
+	}
+	if strings.TrimSpace(sc.AdminWhitelist) == "" {
+		return false, false
+	}
+
+	return securitypkg.IsIPInCIDRList(clientIP, sc.AdminWhitelist), true
 }
