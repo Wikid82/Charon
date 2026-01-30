@@ -21,7 +21,7 @@ concurrency:
 
 env:
   SYFT_VERSION: v1.17.0
-  GRYPE_VERSION: v0.85.0
+  GRYPE_VERSION: v0.107.0
 
 permissions:
   contents: read

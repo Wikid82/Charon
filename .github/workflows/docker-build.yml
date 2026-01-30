@@ -31,7 +31,7 @@ env:
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: wikid82/charon
   SYFT_VERSION: v1.17.0
-  GRYPE_VERSION: v0.85.0
+  GRYPE_VERSION: v0.107.0
 
 jobs:
   build-and-push:
