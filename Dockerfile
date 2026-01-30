@@ -26,14 +26,16 @@ ARG CADDY_VERSION=2.11.0-beta.2
 ARG CADDY_IMAGE=debian:trixie-slim@sha256:77ba0164de17b88dd0bf6cdc8f65569e6e5fa6cd256562998b62553134a00ef0
 
 # ---- Cross-Compilation Helpers ----
-FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0 AS xx
+# renovate: datasource=docker depName=tonistiigi/xx
+FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f96ccc3d4cd72521c4bd18d5442905b95e2226b0e707 AS xx
 
 # ---- Gosu Builder ----
 # Build gosu from source to avoid CVEs from Debian's pre-compiled version (Go 1.19.8)
 # This fixes 22 HIGH/CRITICAL CVEs in stdlib embedded in Debian's gosu package
 # CVEs fixed: CVE-2023-24531, CVE-2023-24540, CVE-2023-29402, CVE-2023-29404,
 #             CVE-2023-29405, CVE-2024-24790, CVE-2025-22871, and 15 more
-FROM --platform=$BUILDPLATFORM golang:1.25-trixie AS gosu-builder
+# renovate: datasource=docker depName=golang
+FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:fb4b74a39c7318d53539ebda43ccd3ecba6e447a78591889c0efc0a7235ea8b3 AS gosu-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/gosu
@@ -62,7 +64,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
-FROM --platform=$BUILDPLATFORM node:24.13.0-slim AS frontend-builder
+# renovate: datasource=docker depName=node
+FROM --platform=$BUILDPLATFORM node:24.13.0-slim@sha256:bf22df20270b654c4e9da59d8d4a3516cce6ba2852e159b27288d645b7a7eedc AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -85,7 +88,8 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
     npm run build
 
 # ---- Backend Builder ----
-FROM --platform=$BUILDPLATFORM golang:1.25-trixie AS backend-builder
+# renovate: datasource=docker depName=golang
+FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:fb4b74a39c7318d53539ebda43ccd3ecba6e447a78591889c0efc0a7235ea8b3 AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
@@ -155,7 +159,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Caddy Builder ----
 # Build Caddy from source to ensure we use the latest Go version and dependencies
 # This fixes vulnerabilities found in the pre-built Caddy images (e.g. CVE-2025-59530, stdlib issues)
-FROM --platform=$BUILDPLATFORM golang:1.25-trixie AS caddy-builder
+# renovate: datasource=docker depName=golang
+FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:fb4b74a39c7318d53539ebda43ccd3ecba6e447a78591889c0efc0a7235ea8b3 AS caddy-builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -218,7 +223,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Build CrowdSec from source to ensure we use Go 1.25.5+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
 # renovate: datasource=docker depName=golang versioning=docker
-FROM --platform=$BUILDPLATFORM golang:1.25.6-trixie AS crowdsec-builder
+FROM --platform=$BUILDPLATFORM golang:1.25.6-trixie@sha256:fb4b74a39c7318d53539ebda43ccd3ecba6e447a78591889c0efc0a7235ea8b3 AS crowdsec-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
@@ -275,7 +280,7 @@ RUN mkdir -p /crowdsec-out/config && \
 
 # ---- CrowdSec Fallback (for architectures where build fails) ----
 # renovate: datasource=docker depName=debian
-FROM debian:trixie-slim AS crowdsec-fallback
+FROM debian:trixie-slim@sha256:77ba0164de17b88dd0bf6cdc8f65569e6e5fa6cd256562998b62553134a00ef0 AS crowdsec-fallback
 
 WORKDIR /tmp/crowdsec
 
