@@ -1,574 +1,324 @@
-# Propagate-Changes Workflow Failure - Investigation Report
+# Expose Build Version to Users - Implementation Plan
 
 **Date:** January 30, 2026  
-**Investigator:** Planning Agent  
-**Status:** 🔴 ROOT CAUSE IDENTIFIED - Configuration file blocking workflow changes
+**Status:** 📋 READY FOR IMPLEMENTATION  
+**Goal:** Enable nightly build users to easily report their exact version for bug triage
 
 ---
 
 ## Executive Summary
 
-Investigation of workflow run [#21532969700](https://github.com/Wikid82/Charon/actions/runs/21532969700/job/62053071596) reveals that the **propagate-changes workflow completed successfully but did NOT create a PR** because `.github/workflows/` is still listed in the `sensitive_paths` configuration file, causing all workflow file changes to be blocked from propagation.
+This plan details how to expose build version information (including SHA, build date) to users via:
+1. A backend `/health` endpoint (already exists, already exposes version)
+2. A frontend UI footer display (already implemented in Layout.tsx)
 
-**Root Cause:** Mismatch between workflow code comment (claiming `.github/workflows/` was removed from sensitive paths) and the actual configuration file (`.github/propagate-config.yml`) which still blocks workflow paths.
-
----
-
-## 1. Root Cause Analysis
-
-### 🔴 CRITICAL: Configuration File Still Blocks Workflow Changes
-
-**Evidence from `.github/propagate-config.yml`:**
-```yaml
-sensitive_paths:
-  - scripts/history-rewrite/
-  - data/backups
-  - docs/plans/history_rewrite.md
-  - .github/workflows/           # <-- THIS BLOCKS ALL WORKFLOW CHANGES
-  - scripts/history-rewrite/preview_removals.sh
-  - scripts/history-rewrite/clean_history.sh
-```
-
-**Contradicting Comment in Workflow (line 84-85):**
-```javascript
-// NOTE: .github/workflows/ was removed from defaults - workflow updates SHOULD propagate
-// to ensure downstream branches have correct CI/CD configurations
-```
-
-### Logic Flow That Caused the Skip
-
-1. Push made to `main` branch (triggering workflow)
-2. Workflow compared `main` to `development` 
-3. Found files changed included `.github/workflows/*` paths
-4. Loaded `.github/propagate-config.yml` which contains `.github/workflows/`
-5. **Matched sensitive path** → `core.info()` logged skip message
-6. PR creation skipped, workflow exits with green status ✅
+**Finding:** The version exposure is **already fully implemented**. This document confirms the existing implementation and identifies minor enhancements.
 
 ---
 
-## 2. Other Potential Causes Eliminated
+## 1. Backend Analysis
 
-| Potential Cause | Verdict | Evidence |
-|----------------|---------|----------|
-| Push by github-actions[bot] | ❌ Unlikely | User-triggered push would have different actor |
-| `github.event.pusher == null` | ❌ Unlikely | Push events always have pusher context |
-| Main already synced with dev | ❌ No | Workflow CI changes would create diff |
-| Existing open PR | ❌ Unknown | Would need `gh pr list` to verify |
-| **Sensitive path blocking** | ✅ **ROOT CAUSE** | `.github/workflows/` in config file |
+### 1.1 Version Package
+**File:** [backend/internal/version/version.go](../../backend/internal/version/version.go)
 
----
+```go
+package version
 
-## 3. Recommended Fix
+const Name = "Charon"
 
-### Option A: Remove `.github/workflows/` from Sensitive Paths (Recommended)
+var (
+    Version   = "0.3.0"      // Overwritten via ldflags at build time
+    BuildTime = "unknown"    // Overwritten via ldflags at build time
+    GitCommit = "unknown"    // Overwritten via ldflags at build time
+)
 
-Edit `.github/propagate-config.yml`:
-
-```yaml
-sensitive_paths:
-  - scripts/history-rewrite/
-  - data/backups
-  - docs/plans/history_rewrite.md
-  # REMOVED: .github/workflows/ - workflow updates should propagate
-  - scripts/history-rewrite/preview_removals.sh
-  - scripts/history-rewrite/clean_history.sh
-```
-
-**Rationale:** 
-- CI/CD changes SHOULD propagate to keep all branches in sync
-- The original intent (documented in workflow comment) was to allow this
-- Downstream branches with outdated workflows cause CI failures
-
-### Option B: Add Specific Exclusions Instead
-
-If certain workflows should NOT propagate, use specific paths:
-
-```yaml
-sensitive_paths:
-  - scripts/history-rewrite/
-  - data/backups
-  - docs/plans/history_rewrite.md
-  - .github/workflows/propagate-changes.yml  # Only block self-propagation
-  - scripts/history-rewrite/preview_removals.sh
-  - scripts/history-rewrite/clean_history.sh
-```
-
----
-
-## 4. Additional Findings
-
-### Workflow Logic Analysis
-
-The workflow has robust logic for:
-- ✅ Checking existing PRs before creating duplicates
-- ✅ Comparing commits (ahead_by check)
-- ✅ Loading external config file for sensitive paths
-- ✅ Proper error handling with `core.warning()`
-
-### Potential Edge Case: Skip Condition
-
-```yaml
-if: github.actor != 'github-actions[bot]' && github.event.pusher != null
-```
-
-This condition is **generally safe**, but:
-- If a merge is performed by GitHub's merge queue or rebase, `pusher` context may vary
-- Consider adding logging to track when this condition fails
-
----
-
-## 5. Verification Steps After Fix
-
-1. **Apply fix** to `.github/propagate-config.yml`
-2. **Push a test change** to `main` that includes workflow modifications
-3. **Verify PR creation** in GitHub Actions logs
-4. **Check `core.info()` messages** for:
-   - `"Checking propagation from main to development..."`
-   - `"Created PR #XXX to merge main into development"`
-
----
-
-## 6. Previous Investigation (Archived)
-
-The following sections document a previous investigation into Renovate and Playwright configuration issues.
-
----
-
-# Renovate and Playwright Configuration Issues - Investigation Report (Archived)
-
-**Date:** January 30, 2026  
-**Investigator:** Planning Agent  
-**Status:** ⚠️ CRITICAL - Multiple configuration issues found
-
----
-
-## Executive Summary (Archived)
-
-Investigation reveals that **both Renovate and Playwright workflows have incorrect configurations** that deviate from the user's required behavior. The Renovate configuration is missing feature branch support and has incorrect automerge settings. The Playwright workflow is missing push event triggers.
-
----
-
-## 1. Renovate Configuration Issues
-
-### File Locations
-- **Primary Config:** `.github/renovate.json` (154 lines)
-- **Workflow:** `.github/workflows/renovate.yml` (31 lines)
-
-### 🔴 CRITICAL ISSUE #1: Missing Feature Branch Support
-
-**Current State (BROKEN):**
-```json
-"baseBranches": [
-  "development"
-]
-```
-- **Line:** `.github/renovate.json:9`
-- **Problem:** Only targets `development` branch
-- **Impact:** Feature branches (`feature/*`) receive NO Renovate updates
-
-**Required State:**
-```json
-"baseBranches": [
-  "development",
-  "feature/*"
-]
-```
-
----
-
-### 🔴 CRITICAL ISSUE #2: Automerge Enabled Globally
-
-**Current State (BROKEN):**
-```json
-"automerge": true,
-"automergeType": "pr",
-"platformAutomerge": true,
-```
-- **Lines:** `.github/renovate.json:28-30`
-- **Problem:** All non-major updates auto-merge immediately
-- **Impact:** Updates merge before compatibility is proven
-
-**Required State:**
-- **Feature Branches:** Manual approval required (automerge: false)
-- **Development Branch:** Let PRs sit until proven compatible
-- **Major Updates:** Already correctly set to manual review (line 148)
-
----
-
-### 🟡 ISSUE #3: Grouped Updates Configuration
-
-**Current State (PARTIALLY CORRECT):**
-```json
-{
-  "description": "THE MEGAZORD: Group ALL non-major updates (NPM, Docker, Go, Actions) into one weekly PR",
-  "matchPackagePatterns": ["*"],
-  "matchUpdateTypes": [
-    "minor",
-    "patch",
-    "pin",
-    "digest"
-  ],
-  "groupName": "weekly-non-major-updates",
-  "automerge": true
+func Full() string {
+    if BuildTime != "unknown" && GitCommit != "unknown" {
+        return Version + " (commit: " + GitCommit + ", built: " + BuildTime + ")"
+    }
+    return Version
 }
 ```
-- **Lines:** `.github/renovate.json:116-127`
-- **Status:** ✅ Grouping behavior is CORRECT
-- **Problem:** ❌ Automerge should be conditional on branch
+
+**Status:** ✅ Already has `Version`, `BuildTime`, and `GitCommit` variables that are injected at build time.
+
+### 1.2 Health Handler
+**File:** [backend/internal/api/handlers/health_handler.go](../../backend/internal/api/handlers/health_handler.go#L27-L36)
+
+```go
+func HealthHandler(c *gin.Context) {
+    c.JSON(http.StatusOK, gin.H{
+        "status":      "ok",
+        "service":     version.Name,
+        "version":     version.Version,
+        "git_commit":  version.GitCommit,
+        "build_time":  version.BuildTime,
+        "internal_ip": getLocalIP(),
+    })
+}
+```
+
+**Status:** ✅ Already exposes version, git_commit, and build_time in `/health` endpoint.
+
+### 1.3 Build Time Injection (Dockerfile)
+**File:** [Dockerfile](../../Dockerfile#L142-L156)
+
+```dockerfile
+ARG VERSION=dev
+ARG VCS_REF=unknown
+ARG BUILD_DATE=unknown
+
+# ldflags injection:
+-X github.com/Wikid82/charon/backend/internal/version.Version=${VERSION}
+-X github.com/Wikid82/charon/backend/internal/version.GitCommit=${VCS_REF}
+-X github.com/Wikid82/charon/backend/internal/version.BuildTime=${BUILD_DATE}
+```
+
+**Status:** ✅ Dockerfile accepts `VERSION`, `VCS_REF`, and `BUILD_DATE` build args and injects them via ldflags.
 
 ---
 
-### 🟢 CORRECT Configuration
+## 2. Build Pipeline Analysis
 
-**These are working as intended:**
-- ✅ Major updates are separate and require manual review (line 145-148)
-- ✅ Weekly schedule (Monday 8am, line 23-25)
-- ✅ Grouped minor/patch updates (line 116-127)
-- ✅ Custom managers for Dockerfile, scripts (lines 32-113)
+### 2.1 Nightly Build Workflow
+**File:** [.github/workflows/nightly-build.yml](../../.github/workflows/nightly-build.yml#L137-L139)
 
----
-
-## 2. Playwright Workflow Issues
-
-### File Locations
-- **Primary Workflow:** `.github/workflows/playwright.yml` (319 lines)
-- **Alternative E2E:** `.github/workflows/e2e-tests.yml` (533 lines)
-
-### 🔴 CRITICAL ISSUE #4: Missing Push Event Triggers
-
-**Current State (BROKEN):**
 ```yaml
-on:
-  workflow_run:
-    workflows: ["Docker Build, Publish & Test"]
-    types:
-      - completed
-
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: 'PR number to test (optional)'
-        required: false
-        type: string
-```
-- **Lines:** `.github/workflows/playwright.yml:4-15`
-- **Problem:** Only runs after `docker-build.yml` completes, NOT on direct pushes
-- **Impact:** User pushed code and Playwright tests did NOT run
-
-**Root Cause Analysis:**
-The workflow uses `workflow_run` trigger which:
-1. Waits for "Docker Build, Publish & Test" to finish
-2. Only triggers if that workflow was triggered by `pull_request` or `push`
-3. BUT the condition on line 28-30 filters execution:
-   ```yaml
-   if: >-
-     github.event_name == 'workflow_dispatch' ||
-     ((github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'push') &&
-      github.event.workflow_run.conclusion == 'success')
-   ```
-
-**Required State:**
-```yaml
-on:
-  push:
-    branches:
-      - main
-      - development
-      - 'feature/**'
-    paths:
-      - 'frontend/**'
-      - 'backend/**'
-      - 'tests/**'
-      - 'playwright.config.js'
-      - '.github/workflows/playwright.yml'
-
-  pull_request:
-    branches:
-      - main
-      - development
-      - 'feature/**'
-
-  workflow_run:
-    workflows: ["Docker Build, Publish & Test"]
-    types:
-      - completed
-
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: 'PR number to test (optional)'
-        required: false
-        type: string
+build-args: |
+  VERSION=nightly-${{ github.sha }}
 ```
 
----
+**Current State:**
+- ✅ `VERSION` is passed as `nightly-${{ github.sha }}` (full 40-char SHA)
+- ❌ `VCS_REF` is NOT passed (will default to "unknown")
+- ❌ `BUILD_DATE` is NOT passed (will default to "unknown")
 
-### 🟡 ISSUE #5: Alternative E2E Workflow Exists
-
-**Discovery:**
-- File: `.github/workflows/e2e-tests.yml`
-- **Lines 31-50:** Has CORRECT push/PR triggers:
-  ```yaml
-  on:
-    pull_request:
-      branches:
-        - main
-        - development
-        - 'feature/**'
-      paths:
-        - 'frontend/**'
-        - 'backend/**'
-        - 'tests/**'
-        - 'playwright.config.js'
-        - '.github/workflows/e2e-tests.yml'
-
-    push:
-      branches:
-        - main
-        - development
-        - 'feature/**'
-  ```
-
-**Question:** Are there TWO Playwright workflows?
-- `playwright.yml` - Runs after Docker build (BROKEN triggers)
-- `e2e-tests.yml` - Runs on push/PR (CORRECT triggers)
-
-**Impact:** Confusion about which workflow should be the primary E2E test runner
-
----
-
-## 3. Required Changes Summary
-
-### Renovate Configuration Changes
-
-**File:** `.github/renovate.json`
-
-#### Change #1: Add Feature Branch Support
-```diff
-  "baseBranches": [
--   "development"
-+   "development",
-+   "feature/*"
-  ],
-```
-- **Line:** 9
-- **Priority:** 🔴 CRITICAL
-
-#### Change #2: Conditional Automerge by Branch
-```diff
-- "automerge": true,
-- "automergeType": "pr",
-- "platformAutomerge": true,
-```
-
-Replace with:
+**Expected Response from `/health` for nightly builds:**
 ```json
-"packageRules": [
-  {
-    "description": "Feature branches: Require manual approval",
-    "matchBaseBranches": ["feature/*"],
-    "automerge": false
-  },
-  {
-    "description": "Development branch: Automerge after compatibility proven",
-    "matchBaseBranches": ["development"],
-    "automerge": true,
-    "automergeType": "pr",
-    "platformAutomerge": true,
-    "minimumReleaseAge": "3 days"
-  }
-]
+{
+  "status": "ok",
+  "service": "Charon",
+  "version": "nightly-abc123def456...",  // Full SHA (not ideal)
+  "git_commit": "unknown",                // Missing!
+  "build_time": "unknown"                 // Missing!
+}
 ```
-- **Lines:** 28-30 (delete) + add to packageRules section
-- **Priority:** 🔴 CRITICAL
 
-#### Change #3: Update Grouped Updates Rule
-```diff
-  {
-    "description": "THE MEGAZORD: Group ALL non-major updates (NPM, Docker, Go, Actions) into one weekly PR",
-    "matchPackagePatterns": ["*"],
-    "matchUpdateTypes": [
-      "minor",
-      "patch",
-      "pin",
-      "digest"
-    ],
-    "groupName": "weekly-non-major-updates",
--   "automerge": true
-  }
+### 2.2 Recommended Fix for Nightly Workflow
+
+Update [.github/workflows/nightly-build.yml](../../.github/workflows/nightly-build.yml#L137-L139) to pass all build args:
+
+```yaml
+build-args: |
+  VERSION=nightly-${{ github.sha }}
+  VCS_REF=${{ github.sha }}
+  BUILD_DATE=${{ github.event.head_commit.timestamp || github.event.repository.pushed_at }}
 ```
-- **Lines:** 116-127
-- **Priority:** 🟡 HIGH (automerge now controlled by branch-specific rules)
 
----
+Or more reliably with a timestamp step:
 
-### Playwright Workflow Changes
+```yaml
+- name: Set build date
+  id: build_date
+  run: echo "date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
 
-**File:** `.github/workflows/playwright.yml`
-
-#### Option A: Add Direct Push Triggers (Recommended)
-
-```diff
-  on:
-+   push:
-+     branches:
-+       - main
-+       - development
-+       - 'feature/**'
-+     paths:
-+       - 'frontend/**'
-+       - 'backend/**'
-+       - 'tests/**'
-+       - 'playwright.config.js'
-+       - '.github/workflows/playwright.yml'
-+ 
-+   pull_request:
-+     branches:
-+       - main
-+       - development
-+       - 'feature/**'
-+ 
-    workflow_run:
-      workflows: ["Docker Build, Publish & Test"]
-      types:
-        - completed
+# Then in build-push-action:
+build-args: |
+  VERSION=nightly-${{ github.sha }}
+  VCS_REF=${{ github.sha }}
+  BUILD_DATE=${{ steps.build_date.outputs.date }}
 ```
-- **Lines:** 4 (insert after)
-- **Priority:** 🔴 CRITICAL
-
-#### Option B: Consolidate Workflows
-
-**Alternative Solution:**
-1. Delete `playwright.yml` (post-docker workflow)
-2. Keep `e2e-tests.yml` as the primary E2E test runner
-3. Update documentation to reference `e2e-tests.yml`
-
-**Pros:**
-- `e2e-tests.yml` already has correct triggers
-- Includes sharding and coverage collection
-- More comprehensive test execution
-
-**Cons:**
-- Requires updating CI documentation
-- May have different artifact/image handling
 
 ---
 
-## 4. Verification Steps
+## 3. Frontend Analysis
 
-### After Applying Renovate Changes
+### 3.1 Health API Client
+**File:** [frontend/src/api/health.ts](../../frontend/src/api/health.ts)
 
-1. **Create test feature branch:**
-   ```bash
-   git checkout -b feature/test-renovate-config
-   ```
+```typescript
+export interface HealthResponse {
+  status: string;
+  service: string;
+  version: string;
+  git_commit: string;
+  build_time: string;
+}
 
-2. **Manually trigger Renovate:**
-   ```bash
-   # Via GitHub Actions UI
-   # Or via API
-   gh workflow run renovate.yml
-   ```
+export const checkHealth = async (): Promise<HealthResponse> => {
+  const { data } = await client.get<HealthResponse>('/health');
+  return data;
+};
+```
 
-3. **Verify Renovate creates PRs against feature branch**
+**Status:** ✅ Already fetches version, git_commit, and build_time from backend.
 
-4. **Verify automerge behavior:**
-   - Feature branch: PR should NOT automerge
-   - Development branch: PR should automerge after 3 days
+### 3.2 Layout Component (Footer Display)
+**File:** [frontend/src/components/Layout.tsx](../../frontend/src/components/Layout.tsx#L293-L302)
 
-### After Applying Playwright Changes
+```tsx
+const { data: health } = useQuery({
+  queryKey: ['health'],
+  queryFn: checkHealth,
+  staleTime: 1000 * 60 * 60, // 1 hour
+});
 
-1. **Create test commit on feature branch:**
-   ```bash
-   git checkout -b feature/test-playwright-trigger
-   # Make trivial change to frontend
-   git commit -am "test: trigger playwright"
-   git push origin feature/test-playwright-trigger
-   ```
+// In sidebar footer (lines 293-302):
+<div className="text-xs text-gray-500 dark:text-gray-500 text-center mb-2 flex flex-col gap-0.5">
+  <span>Version {health?.version || 'dev'}</span>
+  {health?.git_commit && health.git_commit !== 'unknown' && (
+    <span className="text-[10px] opacity-75 font-mono">
+      ({health.git_commit.substring(0, 7)})
+    </span>
+  )}
+</div>
+```
 
-2. **Verify Playwright workflow runs immediately on push**
+**Status:** ✅ Already displays version and short commit hash in sidebar footer.
 
-3. **Check GitHub Actions UI:**
-   - Workflow should appear in "Actions" tab
-   - Status should show "running" or "completed"
-   - Should NOT wait for docker-build workflow
-
----
-
-## 5. Root Cause Analysis
-
-### Why These Changes Occurred
-
-**Hypothesis:**
-Another AI model likely:
-1. **Simplified baseBranches** to reduce complexity
-2. **Enabled automerge globally** to reduce manual PR overhead
-3. **Removed direct push triggers** to avoid duplicate test runs
-
-**Problems with this approach:**
-- Violates user's explicit requirements for manual feature branch approval
-- Creates risk by auto-merging untested updates
-- Breaks CI/CD by preventing push-triggered tests
+**Display behavior:**
+- Shows: `Version nightly-abc123def456...` (full SHA from VERSION)
+- Shows: `(abc1234)` only if `git_commit` is set (currently "unknown" for nightly)
 
 ---
 
-## 6. Implementation Priority
+## 4. Gap Analysis
 
-### Immediate (Block Development)
-1. 🔴 **Renovate:** Add feature branch support (`.github/renovate.json:9`)
-2. 🔴 **Playwright:** Add push triggers (`.github/workflows/playwright.yml:4`)
-
-### High Priority (Block Production)
-3. 🟡 **Renovate:** Fix automerge behavior (branch-specific rules)
-
-### Medium Priority (Technical Debt)
-4. 🟢 **Consolidate:** Decide on single E2E workflow (playwright.yml vs e2e-tests.yml)
-
----
-
-## 7. Configuration Comparison Table
-
-| Setting | Current (Broken) | Required | Priority |
-|---------|-----------------|----------|----------|
-| **Renovate baseBranches** | `["development"]` | `["development", "feature/*"]` | 🔴 CRITICAL |
-| **Renovate automerge** | Global `true` | Conditional by branch | 🔴 CRITICAL |
-| **Renovate grouping** | ✅ Weekly grouped | ✅ Weekly grouped | 🟢 OK |
-| **Renovate major updates** | ✅ Manual review | ✅ Manual review | 🟢 OK |
-| **Playwright triggers** | `workflow_run` only | `push` + `pull_request` + `workflow_run` | 🔴 CRITICAL |
-| **E2E workflow count** | 2 workflows | 1 workflow (consolidate) | 🟡 HIGH |
+| Component | Status | Issue |
+|-----------|--------|-------|
+| Backend version package | ✅ Complete | None |
+| Backend health handler | ✅ Complete | None |
+| Dockerfile ldflags | ✅ Complete | None |
+| Nightly workflow | ⚠️ Incomplete | Missing `VCS_REF` and `BUILD_DATE` |
+| Frontend API client | ✅ Complete | None |
+| Frontend UI display | ✅ Complete | None |
 
 ---
 
-## 8. Next Steps
+## 5. Implementation Tasks
 
-1. **Review this specification** with the user
-2. **Apply critical changes** to Renovate and Playwright configs
-3. **Test changes** on feature branch before merging
-4. **Document decision** on e2e-tests.yml vs playwright.yml consolidation
-5. **Update CI/CD documentation** to reflect correct workflow triggers
+### Task 1: Update Nightly Build Workflow (REQUIRED)
+**File:** `.github/workflows/nightly-build.yml`  
+**Lines:** ~137-139 (build-args section)
+
+**Change:**
+```yaml
+# FROM:
+build-args: |
+  VERSION=nightly-${{ github.sha }}
+
+# TO:
+build-args: |
+  VERSION=nightly-${{ github.sha }}
+  VCS_REF=${{ github.sha }}
+  BUILD_DATE=${{ github.event.head_commit.timestamp }}
+```
+
+**Alternative with reliable timestamp:**
+```yaml
+# Add step before build-push-action:
+- name: Set build metadata
+  id: build_meta
+  run: |
+    echo "date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+    echo "short_sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+# Update build-args:
+build-args: |
+  VERSION=nightly-${{ steps.build_meta.outputs.short_sha }}
+  VCS_REF=${{ github.sha }}
+  BUILD_DATE=${{ steps.build_meta.outputs.date }}
+```
+
+### Task 2: (OPTIONAL) Improve Version Display Format
+
+If a shorter nightly version is preferred (e.g., `nightly-abc1234` instead of full SHA):
+
+**Option A:** Use short SHA in workflow (recommended):
+```yaml
+VERSION=nightly-${GITHUB_SHA::7}
+```
+
+**Option B:** Truncate in frontend (already partially done for git_commit display)
 
 ---
 
-## Appendix: File References
+## 6. Expected Result After Implementation
 
-### Renovate Configuration
-- **Primary Config:** `.github/renovate.json`
-  - Line 9: `baseBranches` (NEEDS FIX)
-  - Lines 28-30: Global `automerge` (NEEDS FIX)
-  - Lines 116-127: Grouped updates (NEEDS UPDATE)
-  - Lines 145-148: Major updates (CORRECT)
+### `/health` Response:
+```json
+{
+  "status": "ok",
+  "service": "Charon",
+  "version": "nightly-abc1234",
+  "git_commit": "abc1234def5678901234567890abcdef12345678",
+  "build_time": "2026-01-30T09:00:00Z",
+  "internal_ip": "172.17.0.2"
+}
+```
 
-### Playwright Workflows
-- **Primary:** `.github/workflows/playwright.yml`
-  - Lines 4-15: `on:` triggers (NEEDS FIX)
-  - Lines 28-30: Execution condition (REVIEW)
-  
-- **Alternative:** `.github/workflows/e2e-tests.yml`
-  - Lines 31-50: `on:` triggers (CORRECT - consider as model)
+### UI Footer Display:
+```
+Version nightly-abc1234
+(abc1234)
+```
 
 ---
 
-**End of Investigation Report**
+## 7. Files to Modify
+
+| File | Line(s) | Change |
+|------|---------|--------|
+| `.github/workflows/nightly-build.yml` | 137-139 | Add `VCS_REF` and `BUILD_DATE` build-args |
+
+### No Changes Required:
+- `backend/internal/version/version.go` - Already complete
+- `backend/internal/api/handlers/health_handler.go` - Already complete
+- `frontend/src/api/health.ts` - Already complete
+- `frontend/src/components/Layout.tsx` - Already complete
+- `Dockerfile` - Already complete
+
+---
+
+## 8. Testing Verification
+
+After implementation, verify with:
+
+```bash
+# 1. Build with test args
+docker build --build-arg VERSION=nightly-test123 \
+             --build-arg VCS_REF=abc123def456 \
+             --build-arg BUILD_DATE=2026-01-30T09:00:00Z \
+             -t charon:test .
+
+# 2. Run container
+docker run -d -p 8080:8080 charon:test
+
+# 3. Check health endpoint
+curl http://localhost:8080/health | jq
+
+# Expected output:
+# {
+#   "status": "ok",
+#   "service": "Charon",
+#   "version": "nightly-test123",
+#   "git_commit": "abc123def456",
+#   "build_time": "2026-01-30T09:00:00Z",
+#   ...
+# }
+```
+
+---
+
+## 9. Summary
+
+The version exposure feature is **90% complete**. The only missing piece is passing `VCS_REF` and `BUILD_DATE` in the nightly build workflow. A single file change (`.github/workflows/nightly-build.yml`) will complete the implementation.
+
+| Component | Lines of Code | Effort |
+|-----------|--------------|--------|
+| Workflow fix | ~3 lines | 5 min |
+| Testing | N/A | 10 min |
+| **Total** | **~3 lines** | **15 min** |
 2. Docker Run (One Command)
 3. Alternative: GitHub Container Registry
 
