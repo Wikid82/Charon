@@ -43,7 +43,8 @@ echo "Installed go: $(go version)"
 
 # Optionally install gopls
 echo "Installing gopls..."
-go install golang.org/x/tools/gopls@latest
+# renovate: datasource=go depName=golang.org/x/tools
+go install golang.org/x/tools/gopls@v0.41.0
 
 GOPLS_PATH="$GOPATH/bin/gopls"
 if [ -f "$GOPLS_PATH" ]; then

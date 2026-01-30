@@ -19,7 +19,8 @@ echo "🔒 Running local security scan..."
 # Check if govulncheck is installed
 if ! command -v govulncheck &> /dev/null; then
     echo -e "${YELLOW}Installing govulncheck...${NC}"
-    go install golang.org/x/vuln/cmd/govulncheck@latest
+    # renovate: datasource=go depName=golang.org/x/vuln
+    go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 fi
 
 # Run govulncheck on backend Go code
