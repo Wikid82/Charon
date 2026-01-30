@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
@@ -16,6 +16,7 @@ import {
   deleteUser,
   updateUser,
   updateUserPermissions,
+  resendInvite,
 } from '../api/users'
 import type { User, InviteUserRequest, PermissionMode, UpdateUserPermissionsRequest } from '../api/users'
 import { getProxyHosts } from '../api/proxyHosts'
@@ -47,6 +48,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [email, setEmail] = useState('')
+  const [emailError, setEmailError] = useState<string | null>(null)
   const [role, setRole] = useState<'user' | 'admin'>('user')
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('allow_all')
   const [selectedHosts, setSelectedHosts] = useState<number[]>([])
@@ -62,6 +64,34 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
     warning: boolean
     warning_message: string
   } | null>(null)
+
+  const validateEmail = (emailValue: string): boolean => {
+    if (!emailValue) {
+      setEmailError(null)
+      return false
+    }
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+    if (!emailRegex.test(emailValue)) {
+      setEmailError(t('users.invalidEmail'))
+      return false
+    }
+    setEmailError(null)
+    return true
+  }
+
+  // Keyboard navigation - close on Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown)
+      return () => document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isOpen, onClose])
 
   // Fetch preview when email changes
   useEffect(() => {
@@ -120,6 +150,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
 
   const handleClose = () => {
     setEmail('')
+    setEmailError(null)
     setRole('user')
     setPermissionMode('allow_all')
     setSelectedHosts([])
@@ -137,14 +168,14 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-labelledby="invite-modal-title">
       <div className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
-          <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+          <h3 id="invite-modal-title" className="text-lg font-semibold text-white flex items-center gap-2">
             <UserPlus className="h-5 w-5" />
             {t('users.inviteUser')}
           </h3>
-          <button onClick={handleClose} className="text-gray-400 hover:text-white">
+          <button onClick={handleClose} className="text-gray-400 hover:text-white" aria-label={t('common.close')}>
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -196,13 +227,23 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
             </div>
           ) : (
             <>
-              <Input
-                label={t('users.emailAddress')}
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="user@example.com"
-              />
+              <div>
+                <Input
+                  label={t('users.emailAddress')}
+                  type="email"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value)
+                    validateEmail(e.target.value)
+                  }}
+                  placeholder="user@example.com"
+                />
+                {emailError && (
+                  <p className="mt-1 text-xs text-red-400" role="alert">
+                    {emailError}
+                  </p>
+                )}
+              </div>
 
               <div className="w-full">
                 <label className="block text-sm font-medium text-gray-300 mb-1.5">
@@ -307,7 +348,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
                 <Button
                   onClick={() => inviteMutation.mutate()}
                   isLoading={inviteMutation.isPending}
-                  disabled={!email}
+                  disabled={!email || !!emailError}
                   className="flex-1"
                 >
                   <Mail className="h-4 w-4 mr-2" />
@@ -336,12 +377,30 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
   const [selectedHosts, setSelectedHosts] = useState<number[]>([])
 
   // Update state when user changes
-  useState(() => {
+  useEffect(() => {
     if (user) {
       setPermissionMode(user.permission_mode || 'allow_all')
       setSelectedHosts(user.permitted_hosts || [])
     }
-  })
+  }, [user])
+
+  // Keyboard navigation - close on Escape
+  const handleClose = useCallback(() => {
+    onClose()
+  }, [onClose])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleClose()
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown)
+      return () => document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isOpen, handleClose])
 
   const updatePermissionsMutation = useMutation({
     mutationFn: async () => {
@@ -372,14 +431,14 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
   if (!isOpen || !user) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-labelledby="permissions-modal-title">
       <div className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
-          <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+          <h3 id="permissions-modal-title" className="text-lg font-semibold text-white flex items-center gap-2">
             <Shield className="h-5 w-5" />
             {t('users.editPermissions')} - {user.name || user.email}
           </h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
+          <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label={t('common.close')}>
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -498,6 +557,22 @@ export default function UsersPage() {
     },
   })
 
+  const resendInviteMutation = useMutation({
+    mutationFn: resendInvite,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      if (data.email_sent) {
+        toast.success(t('users.inviteResent'))
+      } else {
+        toast.success(t('users.inviteCreatedNoEmail'))
+      }
+    },
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { error?: string } } }
+      toast.error(err.response?.data?.error || t('users.resendFailed'))
+    },
+  })
+
   const openPermissions = (user: User) => {
     setSelectedUser(user)
     setPermissionsModalOpen(true)
@@ -529,12 +604,12 @@ export default function UsersPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-800">
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('users.columnUser')}</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('users.columnRole')}</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('common.status')}</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('users.columnPermissions')}</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('common.enabled')}</th>
-                <th className="text-right py-3 px-4 text-sm font-medium text-gray-400">{t('common.actions')}</th>
+                <th scope="col" className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('users.columnUser')}</th>
+                <th scope="col" className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('users.columnRole')}</th>
+                <th scope="col" className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('common.status')}</th>
+                <th scope="col" className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('users.columnPermissions')}</th>
+                <th scope="col" className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('common.enabled')}</th>
+                <th scope="col" className="text-right py-3 px-4 text-sm font-medium text-gray-400">{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -594,11 +669,23 @@ export default function UsersPage() {
                   </td>
                   <td className="py-3 px-4">
                     <div className="flex items-center justify-end gap-2">
+                      {user.invite_status === 'pending' && (
+                        <button
+                          onClick={() => resendInviteMutation.mutate(user.id)}
+                          className="p-1.5 text-gray-400 hover:text-blue-400 hover:bg-gray-800 rounded"
+                          title={t('users.resendInvite')}
+                          aria-label={t('users.resendInvite')}
+                          disabled={resendInviteMutation.isPending}
+                        >
+                          <Mail className="h-4 w-4" />
+                        </button>
+                      )}
                       {user.role !== 'admin' && (
                         <button
                           onClick={() => openPermissions(user)}
                           className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded"
                           title={t('users.editPermissions')}
+                          aria-label={t('users.editPermissions')}
                         >
                           <Settings className="h-4 w-4" />
                         </button>
@@ -611,6 +698,7 @@ export default function UsersPage() {
                         }}
                         className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-gray-800 rounded"
                         title={t('users.deleteUser')}
+                        aria-label={t('users.deleteUser')}
                         disabled={user.role === 'admin'}
                       >
                         <Trash2 className="h-4 w-4" />

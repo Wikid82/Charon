@@ -541,7 +541,11 @@
     "deleteUser": "删除用户",
     "inviteUrlPreview": "邀请链接预览",
     "inviteUrlWarning": "未配置应用程序 URL。此链接可能无法为外部用户工作。",
-    "configureApplicationUrl": "配置应用程序 URL"
+    "configureApplicationUrl": "配置应用程序 URL",
+    "resendInvite": "重新发送邀请",
+    "inviteResent": "邀请重新发送成功",
+    "inviteCreatedNoEmail": "新邀请已创建。无法发送电子邮件。",
+    "resendFailed": "重新发送邀请失败"
   },
   "dashboard": {
     "title": "仪表板",

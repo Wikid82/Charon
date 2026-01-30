@@ -121,7 +121,7 @@ func TestProxyHostService_CRUD(t *testing.T) {
 		ForwardHost: "127.0.0.1",
 		ForwardPort: 8080,
 	}
-	service.Create(host2)
+	_ = service.Create(host2)
 
 	host.DomainNames = "other.example.com" // Conflict with host2
 	err = service.Update(host)
@@ -161,7 +161,7 @@ func TestProxyHostService_TestConnection(t *testing.T) {
 	// Start a local listener
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	addr := l.Addr().(*net.TCPAddr)
 
 	err = service.TestConnection(addr.IP.String(), addr.Port)

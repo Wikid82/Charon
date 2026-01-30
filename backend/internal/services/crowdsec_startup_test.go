@@ -102,7 +102,7 @@ func setupCrowdsecTestFixtures(t *testing.T) (binPath, dataDir string, cleanup f
 	require.NoError(t, err)
 
 	cleanup = func() {
-		os.RemoveAll(tempDir)
+		_ = os.RemoveAll(tempDir)
 	}
 
 	return binPath, dataDir, cleanup
@@ -140,7 +140,8 @@ func TestReconcileCrowdSecOnStartup_NoSecurityConfig_NoSettings(t *testing.T) {
 	err := db.First(&cfg).Error
 	require.NoError(t, err)
 	assert.Equal(t, "disabled", cfg.CrowdSecMode)
-	assert.False(t, cfg.Enabled)
+	// Note: cfg.Enabled is the global Cerberus flag (always true by default), not CrowdSec-specific
+	assert.True(t, cfg.Enabled, "Cerberus global flag should be enabled by default")
 
 	// Should not attempt to start since mode is disabled
 	assert.False(t, exec.startCalled)
@@ -210,7 +211,8 @@ func TestReconcileCrowdSecOnStartup_NoSecurityConfig_SettingsDisabled(t *testing
 	err = db.First(&cfg).Error
 	require.NoError(t, err)
 	assert.Equal(t, "disabled", cfg.CrowdSecMode)
-	assert.False(t, cfg.Enabled)
+	// Note: cfg.Enabled is the global Cerberus flag (always true by default), not CrowdSec-specific
+	assert.True(t, cfg.Enabled, "Cerberus global flag should be enabled by default")
 
 	// Should not attempt to start
 	assert.False(t, exec.startCalled)
@@ -480,7 +482,7 @@ func TestReconcileCrowdSecOnStartup_DBError(t *testing.T) {
 	// Close DB to simulate DB error (this will cause queries to fail)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Should handle DB errors gracefully (no panic)
 	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
@@ -501,7 +503,7 @@ func TestReconcileCrowdSecOnStartup_CreateConfigDBError(t *testing.T) {
 	// Close DB immediately to cause Create() to fail
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Should handle DB error during Create gracefully (no panic)
 	// This tests line 78-80: DB error after creating SecurityConfig

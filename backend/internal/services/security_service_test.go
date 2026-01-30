@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -315,6 +316,26 @@ func TestSecurityService_Upsert_PreserveBreakGlassHash(t *testing.T) {
 	assert.True(t, ok)
 }
 
+func TestSecurityService_Get_PrefersDefaultConfig(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+	defer svc.Close()
+
+	// Create a non-default config first to simulate environments with multiple rows.
+	// Must provide unique UUIDs since the model has uniqueIndex on UUID field.
+	other := &models.SecurityConfig{UUID: "test-other-uuid", Name: "other", Enabled: true}
+	assert.NoError(t, db.Create(other).Error)
+
+	def := &models.SecurityConfig{UUID: "test-default-uuid", Name: "default", Enabled: false}
+	assert.NoError(t, db.Create(def).Error)
+
+	cfg, err := svc.Get()
+	assert.NoError(t, err)
+	assert.NotNil(t, cfg)
+	assert.Equal(t, "default", cfg.Name)
+	assert.False(t, cfg.Enabled)
+}
+
 func TestSecurityService_Upsert_RateLimitFieldsPersist(t *testing.T) {
 	db := setupSecurityTestDB(t)
 	svc := NewSecurityService(db)
@@ -571,6 +592,7 @@ func TestSecurityService_ListAuditLogs(t *testing.T) {
 	audits, total, err = svc.ListAuditLogs(AuditLogFilter{EventCategory: "dns_provider"}, 1, 10)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(3), total)
+	assert.Len(t, audits, 3)
 
 	// Test pagination
 	audits, total, err = svc.ListAuditLogs(AuditLogFilter{}, 1, 2)
@@ -700,4 +722,236 @@ func TestSecurityService_AsyncAuditLogging(t *testing.T) {
 	err = db.Where("uuid = ?", audit.UUID).First(&stored).Error
 	assert.NoError(t, err)
 	assert.Equal(t, "test_action", stored.Action)
+}
+
+// TestSecurityService_ListAuditLogs_EdgeCases tests edge cases for audit log listing.
+func TestSecurityService_ListAuditLogs_EdgeCases(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	t.Run("list audits with no data returns empty", func(t *testing.T) {
+		audits, total, err := svc.ListAuditLogs(AuditLogFilter{}, 1, 10)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), total)
+		assert.Empty(t, audits)
+	})
+
+	t.Run("list audits with time range filter", func(t *testing.T) {
+		// Create audits with specific timestamps
+		now := time.Now()
+		oldAudit := models.SecurityAudit{
+			UUID:      "old-audit",
+			Actor:     "user-1",
+			Action:    "old_action",
+			CreatedAt: now.Add(-48 * time.Hour),
+		}
+		newAudit := models.SecurityAudit{
+			UUID:      "new-audit",
+			Actor:     "user-1",
+			Action:    "new_action",
+			CreatedAt: now.Add(-1 * time.Hour),
+		}
+		assert.NoError(t, db.Create(&oldAudit).Error)
+		assert.NoError(t, db.Create(&newAudit).Error)
+
+		// Filter by time range - last 24 hours
+		startDate := now.Add(-24 * time.Hour)
+		endDate := now
+		filter := AuditLogFilter{
+			StartDate: &startDate,
+			EndDate:   &endDate,
+		}
+
+		audits, total, err := svc.ListAuditLogs(filter, 1, 10)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(1), total)
+		assert.Len(t, audits, 1)
+		assert.Equal(t, "new-audit", audits[0].UUID)
+	})
+
+	t.Run("list audits with combined filters", func(t *testing.T) {
+		// Create diverse audits
+		audits := []models.SecurityAudit{
+			{UUID: "audit-a", Actor: "user-1", Action: "create", EventCategory: "provider"},
+			{UUID: "audit-b", Actor: "user-2", Action: "update", EventCategory: "provider"},
+			{UUID: "audit-c", Actor: "user-1", Action: "delete", EventCategory: "host"},
+		}
+		for _, a := range audits {
+			assert.NoError(t, db.Create(&a).Error)
+		}
+
+		// Filter by actor AND event category
+		filter := AuditLogFilter{
+			Actor:         "user-1",
+			EventCategory: "provider",
+		}
+
+		results, total, err := svc.ListAuditLogs(filter, 1, 10)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(1), total)
+		assert.Len(t, results, 1)
+		assert.Equal(t, "audit-a", results[0].UUID)
+	})
+
+	t.Run("list audits handles zero page", func(t *testing.T) {
+		audit := models.SecurityAudit{UUID: "test", Actor: "user", Action: "test"}
+		assert.NoError(t, db.Create(&audit).Error)
+
+		// Page 0 should default to page 1
+		audits, total, err := svc.ListAuditLogs(AuditLogFilter{}, 0, 10)
+		assert.NoError(t, err)
+		assert.Greater(t, total, int64(0))
+		assert.NotEmpty(t, audits)
+	})
+
+	t.Run("list audits with very large limit", func(t *testing.T) {
+		// Should handle large limits gracefully
+		audits, total, err := svc.ListAuditLogs(AuditLogFilter{}, 1, 10000)
+		assert.NoError(t, err)
+		assert.GreaterOrEqual(t, total, int64(0))
+		_ = audits
+	})
+}
+
+// TestSecurityService_ListAuditLogsByProvider_EdgeCases tests edge cases for provider audit logs.
+func TestSecurityService_ListAuditLogsByProvider_EdgeCases(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+	defer svc.Close()
+
+	t.Run("list audits for non-existent provider returns empty", func(t *testing.T) {
+		audits, total, err := svc.ListAuditLogsByProvider(99999, 1, 10)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), total)
+		assert.Empty(t, audits)
+	})
+}
+
+// TestSecurityService_GenerateBreakGlassToken_EdgeCases tests token generation edge cases.
+func TestSecurityService_GenerateBreakGlassToken_EdgeCases(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+	defer svc.Close()
+
+	t.Run("generated tokens are different on regeneration", func(t *testing.T) {
+		token1, err := svc.GenerateBreakGlassToken("test-config")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, token1)
+
+		// Sleep a moment to ensure different token generated
+		time.Sleep(10 * time.Millisecond)
+
+		token2, err := svc.GenerateBreakGlassToken("test-config")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, token2)
+
+		// The tokens themselves should be different (even though they update the same config)
+		assert.NotEqual(t, token1, token2, "Regenerated tokens should be different")
+	})
+}
+
+// TestSecurityService_Flush_EdgeCases tests flush functionality.
+func TestSecurityService_Flush_EdgeCases(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	t.Run("flush with empty channel completes quickly", func(t *testing.T) {
+		start := time.Now()
+		svc.Flush()
+		duration := time.Since(start)
+
+		// Should complete in less than 100ms when channel is empty
+		assert.Less(t, duration, 100*time.Millisecond)
+	})
+
+	t.Run("flush waits for pending audits", func(t *testing.T) {
+		// Log multiple audits
+		for i := 0; i < 5; i++ {
+			audit := &models.SecurityAudit{
+				Actor:  "user-1",
+				Action: "test_action",
+			}
+			_ = svc.LogAudit(audit)
+		}
+
+		// Flush should wait for them
+		svc.Flush()
+
+		// Verify all were processed
+		var count int64
+		db.Model(&models.SecurityAudit{}).Count(&count)
+		assert.Equal(t, int64(5), count)
+	})
+}
+
+// TestSecurityService_Get_Singleton tests Get behavior with multiple configs.
+func TestSecurityService_Get_Singleton(t *testing.T) {
+	t.Run("get returns error when no config exists", func(t *testing.T) {
+		db := setupSecurityTestDB(t)
+		svc := NewSecurityService(db)
+		defer svc.Close()
+
+		_, err := svc.Get()
+		assert.Error(t, err)
+		assert.Equal(t, ErrSecurityConfigNotFound, err)
+	})
+
+	t.Run("get returns first config when no default", func(t *testing.T) {
+		db := setupSecurityTestDB(t)
+		svc := NewSecurityService(db)
+		defer svc.Close()
+
+		// Create only non-default config
+		cfg := &models.SecurityConfig{Name: "custom", Enabled: false}
+		assert.NoError(t, svc.Upsert(cfg))
+
+		// Should fall back to first config
+		got, err := svc.Get()
+		assert.NoError(t, err)
+		assert.Equal(t, "custom", got.Name)
+	})
+
+	t.Run("get returns default config when exists", func(t *testing.T) {
+		db := setupSecurityTestDB(t)
+		svc := NewSecurityService(db)
+		defer svc.Close()
+
+		// Create default config
+		defaultCfg := &models.SecurityConfig{Name: "default", Enabled: true}
+		assert.NoError(t, svc.Upsert(defaultCfg))
+
+		// Get should return "default" config
+		got, err := svc.Get()
+		assert.NoError(t, err)
+		assert.Equal(t, "default", got.Name)
+		assert.True(t, got.Enabled)
+	})
+}
+
+// TestSecurityService_ListRuleSets_EdgeCases tests rule set listing edge cases.
+func TestSecurityService_ListRuleSets_EdgeCases(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	t.Run("list rulesets with no data returns empty", func(t *testing.T) {
+		rulesets, err := svc.ListRuleSets()
+		assert.NoError(t, err)
+		assert.Empty(t, rulesets)
+	})
+
+	t.Run("list rulesets handles pagination", func(t *testing.T) {
+		// Create multiple rulesets
+		for i := 0; i < 5; i++ {
+			rs := &models.SecurityRuleSet{
+				Name:    fmt.Sprintf("ruleset-%d", i),
+				Content: "rule",
+			}
+			assert.NoError(t, svc.UpsertRuleSet(rs))
+		}
+
+		// List should return all
+		rulesets, err := svc.ListRuleSets()
+		assert.NoError(t, err)
+		assert.Len(t, rulesets, 5)
+	})
 }

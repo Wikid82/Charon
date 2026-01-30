@@ -6,6 +6,8 @@ import (
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/Wikid82/charon/backend/internal/logger"
 )
 
 // Validate performs pre-flight validation on a Caddy config before applying it.
@@ -18,8 +20,9 @@ func Validate(cfg *Config) error {
 		return nil // Empty config is valid
 	}
 
-	// Track seen hosts to detect duplicates
-	seenHosts := make(map[string]bool)
+	// Track seen hosts with their path configuration
+	// Value: "with_paths" or "without_paths"
+	seenHosts := make(map[string]string)
 
 	for serverName, server := range cfg.Apps.HTTP.Servers {
 		if len(server.Listen) == 0 {
@@ -81,18 +84,48 @@ func validateListenAddr(addr string) error {
 	return nil
 }
 
-func validateRoute(route *Route, seenHosts map[string]bool) error {
+func validateRoute(route *Route, seenHosts map[string]string) error {
 	if len(route.Handle) == 0 {
 		return fmt.Errorf("route has no handlers")
 	}
 
-	// Check for duplicate host matchers
+	// Check for duplicate host matchers with incompatible path configurations
+	// Allow emergency+main pattern: one route with paths, one without
 	for _, match := range route.Match {
+		hasPaths := len(match.Path) > 0
+		pathConfig := "without_paths"
+		if hasPaths {
+			pathConfig = "with_paths"
+		}
+
 		for _, host := range match.Host {
-			if seenHosts[host] {
-				return fmt.Errorf("duplicate host matcher: %s", host)
+			logger.Log().WithFields(map[string]any{
+				"host":        host,
+				"has_paths":   hasPaths,
+				"paths":       match.Path,
+				"path_config": pathConfig,
+			}).Debug("[VALIDATOR] Checking host matcher")
+
+			if existingConfig, seen := seenHosts[host]; seen {
+				// Host already seen - check if path configs are compatible
+				if existingConfig == pathConfig {
+					// Same path configuration = true duplicate
+					if pathConfig == "with_paths" {
+						logger.Log().WithField("host", host).Error("[VALIDATOR] Duplicate host with paths")
+						return fmt.Errorf("duplicate host with paths: %s", host)
+					}
+					logger.Log().WithField("host", host).Error("[VALIDATOR] Duplicate host without paths")
+					return fmt.Errorf("duplicate host without paths: %s", host)
+				}
+				// Different path configuration = emergency+main pattern (ALLOWED)
+				logger.Log().WithFields(map[string]any{
+					"host":            host,
+					"existing_config": existingConfig,
+					"new_config":      pathConfig,
+				}).Debug("[VALIDATOR] Allowing emergency+main pattern")
+				continue
 			}
-			seenHosts[host] = true
+			seenHosts[host] = pathConfig
 		}
 	}
 

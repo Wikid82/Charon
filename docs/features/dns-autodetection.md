@@ -11,12 +11,14 @@
 DNS Provider Auto-Detection is an intelligent system that automatically identifies which DNS provider manages your domain's nameservers. When configuring wildcard SSL certificates in Charon, you no longer need to manually select your DNS provider—Charon detects it for you in less than a second.
 
 **Who Benefits:**
+
 - **Managed Service Providers (MSPs):** Managing multiple customer domains across different DNS providers
 - **System Administrators:** Setting up wildcard certificates for multiple domains
 - **DevOps Teams:** Automating certificate provisioning workflows
 - **Small Businesses:** Simplifying SSL certificate setup without technical expertise
 
 **Key Benefits:**
+
 - ⚡ **Instant Detection:** Identifies your DNS provider in 100-200ms
 - 🎯 **High Accuracy:** Supports 10+ major DNS providers with confidence scoring
 - ⏱️ **Time Savings:** Reduces setup time from 5-10 minutes to under 30 seconds
@@ -37,6 +39,7 @@ DNS auto-detection uses a simple but powerful process:
 6. **Manual Override:** You can always override the auto-detected provider
 
 **Technical Details:**
+
 - Uses standard DNS NS (nameserver) record lookups
 - Matches nameserver hostnames against built-in pattern database
 - Case-insensitive pattern matching for reliability
@@ -108,6 +111,7 @@ Charon has built-in detection for these major DNS providers:
 4. **Review Detection Result**
 
    **High Confidence Example:**
+
    ```
    ✓ Cloudflare detected (High confidence)
 
@@ -119,6 +123,7 @@ Charon has built-in detection for these major DNS providers:
    ```
 
    **Medium/Low Confidence Example:**
+
    ```
    ⚠ DigitalOcean detected (Medium confidence)
 
@@ -132,6 +137,7 @@ Charon has built-in detection for these major DNS providers:
    ```
 
    **No Detection Example:**
+
    ```
    ✗ DNS provider not detected
 
@@ -154,6 +160,7 @@ Charon has built-in detection for these major DNS providers:
    - Click **Save**
 
 **Tips:**
+
 - Detection works best with production domains already using their final nameservers
 - If detection fails, check that your domain's DNS is properly configured
 - Manual selection is always available as a fallback
@@ -223,9 +230,11 @@ curl -X POST https://your-charon-instance/api/v1/dns-providers/detect \
 ```
 
 **Request Parameters:**
+
 - `domain` (string, required): Domain to detect (with or without wildcard `*`)
 
 **Response Fields:**
+
 - `domain` (string): The base domain that was checked
 - `detected` (boolean): Whether a provider was successfully identified
 - `provider_type` (string): Type identifier for the detected provider
@@ -267,6 +276,7 @@ curl https://your-charon-instance/api/v1/dns-providers/detection-patterns \
 ```
 
 **Response Format:**
+
 - `patterns` (object): Map of nameserver patterns to provider type identifiers
 - Pattern keys are substring matches (case-insensitive)
 - Provider type values match Charon's DNS provider types
@@ -280,6 +290,7 @@ curl https://your-charon-instance/api/v1/dns-providers/detection-patterns \
 **Scenario:** MSP managing 50+ customer domains across multiple DNS providers
 
 **Before Auto-Detection:**
+
 - Manually research DNS provider for each customer domain
 - Look up nameservers using external tools (`dig`, `nslookup`)
 - Risk of selecting wrong provider → certificate issuance fails
@@ -287,6 +298,7 @@ curl https://your-charon-instance/api/v1/dns-providers/detection-patterns \
 - Total time for 50 domains: 4-8 hours
 
 **With Auto-Detection:**
+
 - Enter customer's wildcard domain
 - Provider detected automatically in <200ms
 - One-click to use detected provider
@@ -302,6 +314,7 @@ curl https://your-charon-instance/api/v1/dns-providers/detection-patterns \
 **Scenario:** Service provider managing customers using different DNS providers
 
 **Customer Portfolio:**
+
 - `*.customer1.com` → Cloudflare (High confidence)
 - `*.customer2.com` → Route53 (High confidence)
 - `*.customer3.com` → DigitalOcean (High confidence)
@@ -309,6 +322,7 @@ curl https://your-charon-instance/api/v1/dns-providers/detection-patterns \
 - `*.customer5.com` → Namecheap (Medium confidence - verify)
 
 **Benefits:**
+
 - No need to remember which customer uses which provider
 - Automatic correct provider suggestion
 - Confidence levels flag domains needing verification
@@ -321,6 +335,7 @@ curl https://your-charon-instance/api/v1/dns-providers/detection-patterns \
 **Scenario:** Company with domains split across multiple DNS providers
 
 **Infrastructure:**
+
 - Production domains (`*.prod.company.com`) → Cloudflare
 - Development domains (`*.dev.company.com`) → DigitalOcean
 - Legacy domains (`*.legacy.company.com`) → Namecheap
@@ -329,6 +344,7 @@ curl https://your-charon-instance/api/v1/dns-providers/detection-patterns \
 **Challenge:** Developers frequently set up new wildcard proxies and forget which DNS provider manages each environment.
 
 **Solution:** Auto-detection eliminates guesswork:
+
 - Developers enter domain
 - Correct provider automatically detected
 - Zero configuration errors
@@ -369,6 +385,7 @@ fi
 ```
 
 **Benefits:**
+
 - Fully automated provisioning
 - Self-documenting configuration
 - Confidence checks prevent misconfiguration
@@ -407,6 +424,7 @@ fi
 **Solutions:**
 
 **Check Domain's Nameservers:**
+
 ```bash
 # Linux/Mac
 dig NS example.com +short
@@ -416,12 +434,14 @@ nslookup -type=NS example.com
 ```
 
 Expected output:
+
 ```
 ns1.cloudflare.com.
 ns2.cloudflare.com.
 ```
 
 **Verify Nameserver Propagation:**
+
 ```bash
 # Check multiple DNS servers
 dig @8.8.8.8 NS example.com +short
@@ -429,16 +449,19 @@ dig @1.1.1.1 NS example.com +short
 ```
 
 **Wait for DNS Propagation:**
+
 - Initial DNS setup: Up to 48 hours
 - DNS changes: Up to 24 hours
 - Check again after propagation completes
 
 **Use Manual Provider Selection:**
+
 - Click **Select Manually** button
 - Choose provider from dropdown
 - Detection is optional—manual selection always works
 
 **Check Network Connectivity:**
+
 ```bash
 # Test DNS connectivity
 dig cloudflare.com +short
@@ -470,6 +493,7 @@ dig cloudflare.com +short
 **Solutions:**
 
 **Verify Current Nameservers:**
+
 ```bash
 dig NS example.com +short
 ```
@@ -477,16 +501,19 @@ dig NS example.com +short
 Compare with detected nameservers in Charon's result.
 
 **Clear Charon's Detection Cache:**
+
 - Cache expires automatically after 1 hour
 - Wait 60 minutes and try detection again
 - Or restart Charon to clear in-memory cache
 
 **Check DNS Provider Account:**
+
 - Log into your DNS provider's control panel
 - Verify the nameservers listed there
 - Compare with Charon's detection result
 
 **Use Manual Override:**
+
 - If detection is consistently wrong
 - Click **Select Manually**
 - Choose correct provider
@@ -499,6 +526,7 @@ Compare with detected nameservers in Charon's result.
 **Symptom:** "DigitalOcean detected (Medium confidence)" or "Low confidence"
 
 **What This Means:**
+
 - Nameserver pattern match is partial or ambiguous
 - Provider type identified, but match isn't strong
 - Manual verification recommended before proceeding
@@ -555,16 +583,19 @@ the typical pattern. Please verify this is correct.
 **Symptom:** Detection hangs or takes more than 5 seconds
 
 **Possible Causes:**
+
 - DNS server not responding
 - Network latency or packet loss
 - Domain's authoritative DNS servers offline
 
 **Built-in Protections:**
+
 - Detection timeout: 10 seconds maximum
 - After timeout, detection fails gracefully
 - Error message: "DNS lookup timeout"
 
 **Solutions:**
+
 - Wait for timeout (max 10 seconds)
 - Check network connectivity
 - Verify domain's DNS is operational
@@ -577,6 +608,7 @@ the typical pattern. Please verify this is correct.
 **Symptom:** Detection shows old provider after DNS migration
 
 **Explanation:**
+
 - Successful detections cached for 1 hour
 - Improves performance for repeated requests
 - May show outdated results during cache window
@@ -584,15 +616,18 @@ the typical pattern. Please verify this is correct.
 **Solutions:**
 
 **Wait for Cache Expiration:**
+
 - Cache automatically expires after 1 hour
 - Try detection again after 60 minutes
 
 **Restart Charon:**
+
 - Cache is in-memory (not persistent)
 - Restarting clears all cached detections
 - Only necessary if you need immediate refresh
 
 **Use Manual Selection:**
+
 - Override cached detection
 - Select correct provider manually
 - Detection cache doesn't affect manual selection
@@ -629,6 +664,7 @@ Content-Type: application/json
 | `domain` | string | Yes | Domain to detect (with or without `*.` wildcard) |
 
 **Valid Domain Formats:**
+
 - `example.com` → base domain
 - `*.example.com` → wildcard (auto-stripped to base domain)
 - `subdomain.example.com` → uses `example.com` for detection
@@ -669,6 +705,7 @@ Content-Type: application/json
 | `error` | string | Error message (only present if detection failed) |
 
 **Confidence Scoring:**
+
 - **High (≥80%):** Most nameservers match pattern, strong confidence
 - **Medium (50-79%):** Some nameservers match, partial confidence
 - **Low (1-49%):** Few nameservers match, weak confidence
@@ -677,6 +714,7 @@ Content-Type: application/json
 **Error Responses:**
 
 **400 Bad Request** - Invalid domain
+
 ```json
 {
   "error": "domain is required"
@@ -684,6 +722,7 @@ Content-Type: application/json
 ```
 
 **401 Unauthorized** - Missing or invalid token
+
 ```json
 {
   "error": "Unauthorized"
@@ -691,6 +730,7 @@ Content-Type: application/json
 ```
 
 **500 Internal Server Error** - Detection failure
+
 ```json
 {
   "domain": "example.com",
@@ -702,12 +742,14 @@ Content-Type: application/json
 ```
 
 **Status Codes:**
+
 - `200 OK` - Detection completed (success or failure)
 - `400 Bad Request` - Invalid request parameters
 - `401 Unauthorized` - Authentication required or failed
 - `500 Internal Server Error` - Unexpected server error
 
 **Rate Limiting:**
+
 - Detection results cached for 1 hour
 - Repeated requests for same domain return cached result
 - No explicit rate limit (DNS timeout provides natural throttling)
@@ -827,11 +869,13 @@ Authorization: Bearer YOUR_TOKEN
 ```
 
 **Response Format:**
+
 - `patterns` (object): Map of nameserver patterns to provider types
 - **Keys:** Substring pattern to match in nameserver hostname (case-insensitive)
 - **Values:** Provider type identifier used in Charon
 
 **Pattern Matching:**
+
 - Case-insensitive substring matching
 - If any nameserver contains pattern, it's a match
 - Multiple patterns can match the same provider (e.g., Google Cloud DNS)
@@ -840,6 +884,7 @@ Authorization: Bearer YOUR_TOKEN
 **Error Responses:**
 
 **401 Unauthorized** - Missing or invalid token
+
 ```json
 {
   "error": "Unauthorized"
@@ -847,6 +892,7 @@ Authorization: Bearer YOUR_TOKEN
 ```
 
 **Status Codes:**
+
 - `200 OK` - Patterns returned successfully
 - `401 Unauthorized` - Authentication required or failed
 
@@ -859,6 +905,7 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 ```
 
 **Use Cases:**
+
 - Building custom detection tools
 - Debugging detection issues
 - Understanding which providers are supported
@@ -871,6 +918,7 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 ### Detection Speed
 
 **Typical Performance:**
+
 - **First Detection:** 100-200ms (includes DNS lookup)
 - **Cached Detection:** <1ms (from in-memory cache)
 - **DNS Timeout:** 10 seconds maximum (prevents hanging)
@@ -886,6 +934,7 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 | Network latency | Varies | Between Charon and DNS servers |
 
 **Performance Optimization:**
+
 - Results cached for 1 hour
 - Reduces repeated DNS lookups
 - Cache hit rate typically 60-80%+ for active domains
@@ -907,22 +956,26 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 **Cache Key:** Base domain (e.g., `example.com`)
 
 **Cache Invalidation:**
+
 - Automatic expiration after TTL
 - No manual invalidation API
 - Restart Charon to clear all cached entries
 
 **Cache Hit Scenarios:**
+
 - Same domain detected multiple times
 - Multiple wildcard proxies for same domain
 - Repeated API calls within 1-hour window
 
 **Cache Miss Scenarios:**
+
 - First detection for a domain
 - Cache entry expired (>1 hour old)
 - Domain's DNS recently changed
 - Charon restarted
 
 **Performance Impact:**
+
 - Cache hit: <1ms response time
 - Cache miss: 100-200ms response time (DNS lookup required)
 - Cache reduces DNS query load by ~80%
@@ -941,6 +994,7 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 | DNS timeout | 10 seconds | Per-request maximum |
 
 **Recommendations for High-Volume Usage:**
+
 - Deploy Charon with adequate memory (cache can grow)
 - Consider DNS server location/latency
 - Monitor cache hit rate for optimization
@@ -953,12 +1007,14 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 ### Authentication & Authorization
 
 **Endpoint Security:**
+
 - All detection endpoints require authentication
 - Bearer token must be provided in `Authorization` header
 - Same permission model as DNS provider management
 - Unauthorized requests return `401 Unauthorized`
 
 **Permission Requirements:**
+
 - User must have access to DNS provider features
 - No special permissions required for detection
 - Detection doesn't expose sensitive credentials
@@ -969,11 +1025,13 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 ### Data Privacy
 
 **What Charon Collects:**
+
 - ✅ Domain name (from user input)
 - ✅ Nameserver hostnames (from DNS lookup)
 - ✅ Detection result (cached for 1 hour)
 
 **What Charon Does NOT Collect:**
+
 - ❌ DNS credentials or API keys
 - ❌ Certificate private keys
 - ❌ User browsing history
@@ -981,12 +1039,14 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 - ❌ Personal identifiable information (beyond domain ownership)
 
 **Data Storage:**
+
 - Detection results cached in-memory only
 - No persistent storage of detection data
 - Cache cleared on restart
 - No logging of detected domains (unless debug logging enabled)
 
 **Third-Party Access:**
+
 - No data sent to third-party services
 - DNS lookups go directly to configured DNS resolvers
 - No analytics or telemetry for detection feature
@@ -996,6 +1056,7 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 ### DNS Query Security
 
 **Query Characteristics:**
+
 - Standard DNS NS (nameserver) record lookups
 - Uses system DNS resolver by default
 - Respects DNS timeout (10 seconds)
@@ -1003,12 +1064,14 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 - Read-only DNS operations
 
 **Security Measures:**
+
 - DNS timeout prevents hanging on unresponsive servers
 - No user-controlled DNS servers (uses system config)
 - Input validation on domain names
 - Error handling for malformed responses
 
 **Network Security:**
+
 - DNS queries over UDP/TCP port 53
 - No TLS/HTTPS for DNS (standard DNS protocol)
 - Consider using DNS-over-HTTPS (DoH) in system resolver for privacy
@@ -1029,6 +1092,7 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 | Credential exposure | Detection doesn't access credentials | None |
 
 **Security Best Practices:**
+
 - Use trusted, secure DNS resolvers (e.g., 1.1.1.1, 8.8.8.8)
 - Enable DNSSEC validation if possible
 - Monitor detection error rates for anomalies
@@ -1043,11 +1107,13 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 **Limitation:** Currently supports 10 major DNS providers
 
 **Impact:**
+
 - Custom DNS providers won't be auto-detected
 - Niche/regional providers not in pattern database
 - Self-hosted DNS servers not recognized
 
 **Workaround:**
+
 - Use manual provider selection
 - Request provider pattern addition via GitHub issue
 - Contribute pattern via pull request
@@ -1061,15 +1127,18 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 **Limitation:** Some hosting providers use shared nameserver pools
 
 **Impact:**
+
 - Nameserver patterns may be ambiguous
 - Detection may suggest incorrect provider
 - Confidence scoring may be lower
 
 **Example:**
+
 - Some resellers use white-labeled nameservers
 - Shared hosting platforms with generic nameserver names
 
 **Workaround:**
+
 - Verify detection result against your account
 - Use manual selection if detection is incorrect
 - Report ambiguous patterns for improvement
@@ -1081,11 +1150,13 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 **Limitation:** DNS changes take up to 48 hours to propagate globally
 
 **Impact:**
+
 - Detection may show old/outdated provider
 - Recent migrations not immediately reflected
 - Newly registered domains may fail detection
 
 **Workaround:**
+
 - Wait for DNS propagation to complete
 - Check nameservers with `dig` or `nslookup`
 - Use manual selection during migration period
@@ -1098,11 +1169,13 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 **Limitation:** Requires DNS connectivity to function
 
 **Impact:**
+
 - Offline/airgapped environments cannot use auto-detection
 - Network issues cause detection failures
 - DNS server outages prevent detection
 
 **Workaround:**
+
 - Use manual provider selection in offline environments
 - Ensure DNS connectivity for auto-detection
 - Detection failure doesn't block manual configuration
@@ -1114,11 +1187,13 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 **Limitation:** Results cached for 1 hour
 
 **Impact:**
+
 - Recent DNS changes not immediately reflected
 - Cache may show outdated information
 - No manual cache invalidation
 
 **Workaround:**
+
 - Wait 60 minutes for cache expiration
 - Restart Charon to clear cache immediately
 - Use manual selection to override cached result
@@ -1132,11 +1207,13 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 **Limitation:** Only one domain detected at a time
 
 **Impact:**
+
 - Cannot detect multiple domains in one request
 - API requires separate call per domain
 - Bulk operations require iteration
 
 **Workaround:**
+
 - Implement client-side batching
 - Leverage cache for repeated domains
 - Use async/parallel API calls
@@ -1150,17 +1227,20 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 ### 1. Verify Detection Results
 
 **Always Review Before Proceeding:**
+
 - ✅ Check detected provider name matches your expectation
 - ✅ Review nameserver list for accuracy
 - ✅ Verify confidence level is acceptable
 - ✅ Compare with your DNS account if uncertain
 
 **Why:**
+
 - Detection is not 100% accurate
 - DNS configuration can be complex
 - Wrong provider = certificate issuance failure
 
 **Example Review Checklist:**
+
 ```
 ✓ Provider name: "Cloudflare" ← Correct?
 ✓ Nameservers: ns1.cloudflare.com ← Recognized?
@@ -1183,6 +1263,7 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 | Development | Low/Any | Manual verify |
 
 **Why:**
+
 - Production certificate failures are costly
 - High confidence = strong, unambiguous match
 - Medium/Low = requires human verification
@@ -1192,12 +1273,14 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 ### 3. Keep Manual Override Available
 
 **Always Provide Manual Selection:**
+
 - Don't remove "Select Manually" button
 - Auto-detection is a convenience, not requirement
 - Users may know better than detection algorithm
 - Edge cases always exist
 
 **UI Pattern:**
+
 ```
 ✓ Cloudflare detected (High confidence)
 [✓ Use Cloudflare]  [Select Manually]  ← Keep both options!
@@ -1224,6 +1307,7 @@ curl -X POST https://charon-dev.internal/api/v1/dns-providers/detect \
 ```
 
 **Benefits:**
+
 - Identify detection issues early
 - Verify your DNS setup is detectable
 - Test integration before production use
@@ -1233,18 +1317,21 @@ curl -X POST https://charon-dev.internal/api/v1/dns-providers/detect \
 ### 5. Monitor Detection Success Rates
 
 **Track Metrics:**
+
 - Detection success rate (detected vs. not detected)
 - Confidence distribution (high/medium/low/none)
 - Manual override rate (users choosing manual selection)
 - Detection errors (timeouts, failures)
 
 **Use Metrics to:**
+
 - Identify common providers not in database
 - Detect DNS configuration issues
 - Improve pattern database
 - Optimize cache hit rate
 
 **Example Monitoring:**
+
 ```
 Detection Stats (Last 7 Days):
 - Total detections: 1,234
@@ -1261,6 +1348,7 @@ Detection Stats (Last 7 Days):
 **Help Improve Detection:**
 
 When detection fails or is incorrect:
+
 1. ✅ Note the domain (if not sensitive)
 2. ✅ Check actual nameservers: `dig NS domain.com +short`
 3. ✅ Note expected provider
@@ -1268,6 +1356,7 @@ When detection fails or is incorrect:
 5. ✅ Report via GitHub issue
 
 **Example GitHub Issue:**
+
 ```markdown
 **Title:** Detection fails for Linode DNS
 
@@ -1283,6 +1372,7 @@ Add pattern: "linode.com" → "linode"
 ```
 
 **Benefits:**
+
 - Helps other users with same provider
 - Improves detection accuracy
 - Expands supported provider list
@@ -1298,16 +1388,19 @@ Add pattern: "linode.com" → "linode"
 - ✅ After 1 hour: Fresh DNS lookup
 
 **Considerations:**
+
 - Don't rely on immediate updates after DNS changes
 - Wait 60 minutes or restart Charon after migration
 - Cache improves performance—embrace it!
 
 **When Cache Matters:**
+
 - DNS provider migration in progress
 - Testing detection repeatedly
 - Debugging detection issues
 
 **Cache Doesn't Affect:**
+
 - Manual provider selection
 - Certificate issuance
 - Existing proxy host configurations
@@ -1319,42 +1412,49 @@ Add pattern: "linode.com" → "linode"
 ### Planned Features
 
 **1. Custom Nameserver Pattern Definitions**
+
 - Allow users to add custom provider patterns
 - Define patterns via Web UI or configuration file
 - Support for internal/private DNS providers
 - Pattern validation and testing tools
 
 **2. Detection History and Statistics**
+
 - View past detection results
 - Success/failure rates per provider
 - Confidence distribution charts
 - Most common providers in your environment
 
 **3. Support for Additional DNS Providers**
+
 - Add more regional providers
 - Support for niche/specialized DNS services
 - Community-contributed pattern library
 - Automatic pattern updates
 
 **4. Detection Caching Configuration**
+
 - Configurable cache TTL (currently fixed at 1 hour)
 - Per-provider cache settings
 - Manual cache invalidation API
 - Cache statistics dashboard
 
 **5. Batch Domain Detection**
+
 - Detect multiple domains in one API call
 - Bulk import with auto-detection
 - CSV upload with detection report
 - Parallel detection processing
 
 **6. Enhanced Confidence Scoring**
+
 - Machine learning-based scoring
 - Historical accuracy feedback
 - Provider-specific confidence thresholds
 - Confidence explanation details
 
 **7. Detection Webhooks**
+
 - Notify external systems of detection results
 - Integrate with automation workflows
 - Detection event logging
@@ -1365,6 +1465,7 @@ Add pattern: "linode.com" → "linode"
 ### Community Contributions
 
 **We Welcome:**
+
 - 🌟 New provider pattern additions
 - 🐛 Bug reports for incorrect detections
 - 💡 Feature requests and ideas
@@ -1374,6 +1475,7 @@ Add pattern: "linode.com" → "linode"
 **How to Contribute:**
 
 **Add a Provider Pattern:**
+
 ```bash
 # 1. Fork repository
 # 2. Edit: backend/internal/services/dns_detection_service.go
@@ -1391,11 +1493,13 @@ var BuiltInNameservers = map[string]string{
 ```
 
 **Report Detection Issues:**
-- GitHub Issues: https://github.com/Wikid82/Charon/issues
+
+- GitHub Issues: <https://github.com/Wikid82/Charon/issues>
 - Label: `enhancement`, `dns-detection`
 - Provide: Domain example, nameservers, expected provider
 
 **Share Use Cases:**
+
 - How are you using auto-detection?
 - What workflows does it enable?
 - What features would be helpful?
@@ -1405,16 +1509,18 @@ var BuiltInNameservers = map[string]string{
 ### Feedback Welcome
 
 **Help Us Improve:**
+
 - Share your experience with auto-detection
 - Report detection accuracy issues
 - Suggest new provider patterns
 - Request feature enhancements
 
 **Contact:**
-- GitHub Issues: https://github.com/Wikid82/Charon/issues
-- GitHub Discussions: https://github.com/Wikid82/Charon/discussions
-- Documentation: https://docs.charon.example.com
-- Community: https://community.charon.example.com
+
+- GitHub Issues: <https://github.com/Wikid82/Charon/issues>
+- GitHub Discussions: <https://github.com/Wikid82/Charon/discussions>
+- Documentation: <https://docs.charon.example.com>
+- Community: <https://community.charon.example.com>
 
 ---
 
@@ -1433,6 +1539,7 @@ var BuiltInNameservers = map[string]string{
 ### Version 1.0.0 (January 2026)
 
 **Initial Release**
+
 - ✨ DNS provider auto-detection for 10+ major providers
 - 🚀 Web UI integration with ProxyHost form
 - 🔌 RESTful API endpoints (`/detect`, `/detection-patterns`)
@@ -1445,6 +1552,7 @@ var BuiltInNameservers = map[string]string{
 - ♿ Accessibility: ARIA labels, keyboard navigation
 
 **Supported Providers:**
+
 - Cloudflare
 - Amazon Route 53
 - DigitalOcean
@@ -1457,6 +1565,7 @@ var BuiltInNameservers = map[string]string{
 - DNSimple
 
 **Technical Details:**
+
 - Pattern-based nameserver matching
 - Automatic wildcard domain normalization
 - Thread-safe cache implementation
@@ -1503,17 +1612,20 @@ A: Typically 100-200ms for first detection, <1ms for cached results.
 ## Support
 
 **Questions or Issues?**
-- 📖 Documentation: https://docs.charon.example.com
-- 🐛 GitHub Issues: https://github.com/Wikid82/Charon/issues
-- 💬 GitHub Discussions: https://github.com/Wikid82/Charon/discussions
-- 👥 Community Forum: https://community.charon.example.com
+
+- 📖 Documentation: <https://docs.charon.example.com>
+- 🐛 GitHub Issues: <https://github.com/Wikid82/Charon/issues>
+- 💬 GitHub Discussions: <https://github.com/Wikid82/Charon/discussions>
+- 👥 Community Forum: <https://community.charon.example.com>
 
 **Feature Requests:**
+
 - Submit via GitHub Issues with label `enhancement`
 - Describe your use case and desired functionality
 - Include examples and expected behavior
 
 **Bug Reports:**
+
 - Submit via GitHub Issues with label `bug`
 - Include: Domain (if not sensitive), nameservers, expected vs. actual result
 - Attach detection API response if available

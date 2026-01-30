@@ -16,7 +16,7 @@ import (
 
 func TestAccessListHandler_SetGeoIPService(t *testing.T) {
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	db.AutoMigrate(&models.AccessList{})
+	_ = db.AutoMigrate(&models.AccessList{})
 
 	handler := NewAccessListHandler(db)
 
@@ -30,7 +30,7 @@ func TestAccessListHandler_SetGeoIPService(t *testing.T) {
 
 func TestAccessListHandler_SetGeoIPService_Nil(t *testing.T) {
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	db.AutoMigrate(&models.AccessList{})
+	_ = db.AutoMigrate(&models.AccessList{})
 
 	handler := NewAccessListHandler(db)
 
@@ -41,23 +41,25 @@ func TestAccessListHandler_SetGeoIPService_Nil(t *testing.T) {
 func TestAccessListHandler_Get_InvalidID(t *testing.T) {
 	router, _ := setupAccessListTestRouter(t)
 
+	// "invalid" is treated as a potential UUID, which doesn't exist, so 404 is returned
 	req := httptest.NewRequest(http.MethodGet, "/access-lists/invalid", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestAccessListHandler_Update_InvalidID(t *testing.T) {
 	router, _ := setupAccessListTestRouter(t)
 
+	// "invalid" is treated as a potential UUID, which doesn't exist, so 404 is returned
 	body := []byte(`{"name":"Test","type":"whitelist"}`)
 	req := httptest.NewRequest(http.MethodPut, "/access-lists/invalid", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestAccessListHandler_Update_InvalidJSON(t *testing.T) {
@@ -78,23 +80,25 @@ func TestAccessListHandler_Update_InvalidJSON(t *testing.T) {
 func TestAccessListHandler_Delete_InvalidID(t *testing.T) {
 	router, _ := setupAccessListTestRouter(t)
 
+	// "invalid" is treated as a potential UUID, which doesn't exist, so 404 is returned
 	req := httptest.NewRequest(http.MethodDelete, "/access-lists/invalid", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestAccessListHandler_TestIP_InvalidID(t *testing.T) {
 	router, _ := setupAccessListTestRouter(t)
 
+	// "invalid" is treated as a potential UUID, which doesn't exist, so 404 is returned
 	body := []byte(`{"ip_address":"192.168.1.1"}`)
 	req := httptest.NewRequest(http.MethodPost, "/access-lists/invalid/test", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestAccessListHandler_TestIP_MissingIPAddress(t *testing.T) {
@@ -151,7 +155,7 @@ func TestAccessListHandler_Get_DBError(t *testing.T) {
 func TestAccessListHandler_Delete_InternalError(t *testing.T) {
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	// Migrate AccessList but not ProxyHost to cause internal error on delete
-	db.AutoMigrate(&models.AccessList{})
+	_ = db.AutoMigrate(&models.AccessList{})
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

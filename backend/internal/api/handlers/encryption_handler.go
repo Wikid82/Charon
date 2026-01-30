@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
@@ -54,14 +55,16 @@ func (h *EncryptionHandler) Rotate(c *gin.Context) {
 	}
 
 	// Log rotation start
-	h.securityService.LogAudit(&models.SecurityAudit{
+	if err := h.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromGinContext(c),
 		Action:        "encryption_key_rotation_started",
 		EventCategory: "encryption",
 		Details:       "{}",
 		IPAddress:     c.ClientIP(),
 		UserAgent:     c.Request.UserAgent(),
-	})
+	}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to log audit event")
+	}
 
 	// Perform rotation
 	result, err := h.rotationService.RotateAllCredentials(c.Request.Context())
@@ -70,7 +73,7 @@ func (h *EncryptionHandler) Rotate(c *gin.Context) {
 		detailsJSON, _ := json.Marshal(map[string]interface{}{
 			"error": err.Error(),
 		})
-		h.securityService.LogAudit(&models.SecurityAudit{
+		_ = h.securityService.LogAudit(&models.SecurityAudit{
 			Actor:         getActorFromGinContext(c),
 			Action:        "encryption_key_rotation_failed",
 			EventCategory: "encryption",
@@ -92,7 +95,7 @@ func (h *EncryptionHandler) Rotate(c *gin.Context) {
 		"duration":         result.Duration,
 		"new_key_version":  result.NewKeyVersion,
 	})
-	h.securityService.LogAudit(&models.SecurityAudit{
+	_ = h.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromGinContext(c),
 		Action:        "encryption_key_rotation_completed",
 		EventCategory: "encryption",
@@ -160,7 +163,7 @@ func (h *EncryptionHandler) Validate(c *gin.Context) {
 		detailsJSON, _ := json.Marshal(map[string]interface{}{
 			"error": err.Error(),
 		})
-		h.securityService.LogAudit(&models.SecurityAudit{
+		_ = h.securityService.LogAudit(&models.SecurityAudit{
 			Actor:         getActorFromGinContext(c),
 			Action:        "encryption_key_validation_failed",
 			EventCategory: "encryption",
@@ -177,7 +180,7 @@ func (h *EncryptionHandler) Validate(c *gin.Context) {
 	}
 
 	// Log validation success
-	h.securityService.LogAudit(&models.SecurityAudit{
+	_ = h.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromGinContext(c),
 		Action:        "encryption_key_validation_success",
 		EventCategory: "encryption",
@@ -196,7 +199,8 @@ func (h *EncryptionHandler) Validate(c *gin.Context) {
 // This should ideally use the existing auth middleware context.
 func isAdmin(c *gin.Context) bool {
 	// Check if user is authenticated and is admin
-	userRole, exists := c.Get("user_role")
+	// Auth middleware sets "role" context key (not "user_role")
+	userRole, exists := c.Get("role")
 	if !exists {
 		return false
 	}
@@ -211,7 +215,8 @@ func isAdmin(c *gin.Context) bool {
 
 // getActorFromGinContext extracts the user ID from Gin context for audit logging.
 func getActorFromGinContext(c *gin.Context) string {
-	if userID, exists := c.Get("user_id"); exists {
+	// Auth middleware sets "userID" (not "user_id")
+	if userID, exists := c.Get("userID"); exists {
 		if id, ok := userID.(uint); ok {
 			return strconv.FormatUint(uint64(id), 10)
 		}

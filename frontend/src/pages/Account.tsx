@@ -37,6 +37,7 @@ export default function Account() {
   const [certEmail, setCertEmail] = useState('')
   const [certEmailValid, setCertEmailValid] = useState<boolean | null>(null)
   const [useUserEmail, setUseUserEmail] = useState(true)
+  const [certEmailInitialized, setCertEmailInitialized] = useState(false)
 
   const queryClient = useQueryClient()
   const { changePassword } = useAuth()
@@ -68,9 +69,9 @@ export default function Account() {
     }
   }, [email])
 
-  // Initialize cert email state
+  // Initialize cert email state only once, when both settings and profile are loaded
   useEffect(() => {
-    if (settings && profile) {
+    if (!certEmailInitialized && settings && profile) {
       const savedEmail = settings['caddy.email']
       if (savedEmail && savedEmail !== profile.email) {
         setCertEmail(savedEmail)
@@ -79,8 +80,9 @@ export default function Account() {
         setCertEmail(profile.email)
         setUseUserEmail(true)
       }
+      setCertEmailInitialized(true)
     }
-  }, [settings, profile])
+  }, [settings, profile, certEmailInitialized])
 
   // Validate cert email
   useEffect(() => {
@@ -214,6 +216,9 @@ export default function Account() {
       category: 'caddy'
     })
   }
+
+  // Compute disabled state for certificate email button
+  // Button should be disabled when using custom email and it's invalid/empty  const isCertEmailButtonDisabled = useUserEmail ? false : (certEmailValid !== true)
 
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -349,12 +354,21 @@ export default function Account() {
                   onChange={(e) => setCertEmail(e.target.value)}
                   required={!useUserEmail}
                   error={certEmailValid === false ? t('errors.invalidEmail') : undefined}
+                  errorTestId="cert-email-error"
+                  aria-invalid={certEmailValid === false}
                 />
               </div>
             )}
           </CardContent>
           <CardFooter className="justify-end">
-            <Button type="submit" isLoading={updateSettingMutation.isPending} disabled={!useUserEmail && certEmailValid === false}>
+            <Button
+              type="submit"
+              isLoading={updateSettingMutation.isPending}
+              disabled={useUserEmail ? false : certEmailValid !== true}
+              data-use-user-email={useUserEmail}
+              data-cert-email-valid={String(certEmailValid)}
+              data-compute-disabled={String(useUserEmail ? false : certEmailValid !== true)}
+            >
               {t('account.saveCertificateEmail')}
             </Button>
           </CardFooter>

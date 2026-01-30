@@ -48,34 +48,47 @@ TMP_COOKIE=$(mktemp)
 curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123","name":"Integration Tester"}' http://localhost:8080/api/v1/auth/register >/dev/null || true
 curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123"}' -c ${TMP_COOKIE} http://localhost:8080/api/v1/auth/login >/dev/null
 
-echo "Pulled presets list..."
-LIST=$(curl -s -H "Content-Type: application/json" -b ${TMP_COOKIE} http://localhost:8080/api/v1/admin/crowdsec/presets)
-echo "$LIST" | jq -r .presets | head -20
+# Check hub availability first
+echo "Checking CrowdSec Hub availability..."
+HUB_AVAILABLE=false
+if curl -sf --max-time 10 "https://hub-data.crowdsec.net/api/index.json" > /dev/null 2>&1; then
+    HUB_AVAILABLE=true
+    echo "✓ CrowdSec Hub is available"
+else
+    echo "⚠ CrowdSec Hub is unavailable - skipping hub preset tests"
+fi
 
-SLUG="bot-mitigation-essentials"
-echo "Pulling preset $SLUG"
-PULL_RESP=$(curl -s -X POST -H "Content-Type: application/json" -d '{"slug":"'${SLUG}'"}' -b ${TMP_COOKIE} http://localhost:8080/api/v1/admin/crowdsec/presets/pull)
-echo "Pull response: $PULL_RESP"
-if ! echo "$PULL_RESP" | jq -e .status >/dev/null 2>&1; then
-  echo "Pull failed: $PULL_RESP"
-  exit 1
-fi
-if [ "$(echo "$PULL_RESP" | jq -r .status)" != "pulled" ]; then
-  echo "Unexpected pull status: $(echo $PULL_RESP | jq -r .status)"
-  exit 1
-fi
-CACHE_KEY=$(echo "$PULL_RESP" | jq -r .cache_key)
+# Only test hub presets if hub is available
+if [ "$HUB_AVAILABLE" = true ]; then
+    echo "Pulled presets list..."
+    LIST=$(curl -s -H "Content-Type: application/json" -b ${TMP_COOKIE} http://localhost:8080/api/v1/admin/crowdsec/presets)
+    echo "$LIST" | jq -r .presets | head -20
 
-echo "Applying preset $SLUG"
-APPLY_RESP=$(curl -s -X POST -H "Content-Type: application/json" -d '{"slug":"'${SLUG}'"}' -b ${TMP_COOKIE} http://localhost:8080/api/v1/admin/crowdsec/presets/apply)
-echo "Apply response: $APPLY_RESP"
-if ! echo "$APPLY_RESP" | jq -e .status >/dev/null 2>&1; then
-  echo "Apply failed: $APPLY_RESP"
-  exit 1
-fi
-if [ "$(echo "$APPLY_RESP" | jq -r .status)" != "applied" ]; then
-  echo "Unexpected apply status: $(echo $APPLY_RESP | jq -r .status)"
-  exit 1
+    SLUG="bot-mitigation-essentials"
+    echo "Pulling preset $SLUG"
+    PULL_RESP=$(curl -s -X POST -H "Content-Type: application/json" -d '{"slug":"'${SLUG}'"}' -b ${TMP_COOKIE} http://localhost:8080/api/v1/admin/crowdsec/presets/pull)
+    echo "Pull response: $PULL_RESP"
+    if ! echo "$PULL_RESP" | jq -e .status >/dev/null 2>&1; then
+      echo "Pull failed: $PULL_RESP"
+      exit 1
+    fi
+    if [ "$(echo "$PULL_RESP" | jq -r .status)" != "pulled" ]; then
+      echo "Unexpected pull status: $(echo $PULL_RESP | jq -r .status)"
+      exit 1
+    fi
+    CACHE_KEY=$(echo "$PULL_RESP" | jq -r .cache_key)
+
+    echo "Applying preset $SLUG"
+    APPLY_RESP=$(curl -s -X POST -H "Content-Type: application/json" -d '{"slug":"'${SLUG}'"}' -b ${TMP_COOKIE} http://localhost:8080/api/v1/admin/crowdsec/presets/apply)
+    echo "Apply response: $APPLY_RESP"
+    if ! echo "$APPLY_RESP" | jq -e .status >/dev/null 2>&1; then
+      echo "Apply failed: $APPLY_RESP"
+      exit 1
+    fi
+    if [ "$(echo "$APPLY_RESP" | jq -r .status)" != "applied" ]; then
+      echo "Unexpected apply status: $(echo $APPLY_RESP | jq -r .status)"
+      exit 1
+    fi
 fi
 
 echo "Cleanup and exit"

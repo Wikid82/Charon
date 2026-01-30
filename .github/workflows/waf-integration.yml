@@ -39,6 +39,7 @@ jobs:
       - name: Build Docker image
         run: |
           docker build \
+            --no-cache \
             --build-arg VCS_REF=${{ github.sha }} \
             -t charon:local .
 

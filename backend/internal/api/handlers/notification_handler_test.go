@@ -25,7 +25,7 @@ func setupNotificationTestDB() *gorm.DB {
 	if err != nil {
 		panic("failed to connect to test database")
 	}
-	db.AutoMigrate(&models.Notification{}, &models.NotificationProvider{})
+	_ = db.AutoMigrate(&models.Notification{}, &models.NotificationProvider{})
 	return db
 }
 
@@ -124,7 +124,7 @@ func TestNotificationHandler_MarkAllAsRead_Error(t *testing.T) {
 
 	// Close DB to force error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	req, _ := http.NewRequest("POST", "/notifications/read-all", http.NoBody)
 	w := httptest.NewRecorder()
@@ -143,7 +143,7 @@ func TestNotificationHandler_DBError(t *testing.T) {
 
 	// Close DB to force error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	req, _ := http.NewRequest("POST", "/notifications/1/read", http.NoBody)
 	w := httptest.NewRecorder()

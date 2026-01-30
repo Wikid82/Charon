@@ -50,6 +50,7 @@ for _, monitor := range monitors {
 ```
 
 **Problem**:
+
 - `monitor.URL` is the **public URL**: `https://wizarr.hatfieldhosted.com`
 - `extractPort()` returns `443` (HTTPS default)
 - But Wizarr backend actually runs on `172.20.0.11:5690`
@@ -126,6 +127,7 @@ GET / → 302 → /login
 ### 6. Additional Context
 
 The uptime monitoring feature was recently enhanced with host-level grouping to:
+
 - Reduce check overhead for multiple services on same host
 - Provide consolidated DOWN notifications
 - Avoid individual checks when host is unreachable
@@ -152,6 +154,7 @@ This is a good architectural decision, but the port extraction logic has a bug.
 **Changes Required**:
 
 1. Add `Ports` field to `UptimeHost` model:
+
    ```go
    type UptimeHost struct {
        // ... existing fields
@@ -160,6 +163,7 @@ This is a good architectural decision, but the port extraction logic has a bug.
    ```
 
 2. Modify `checkHost()` to try all ports associated with monitors on that host:
+
    ```go
    // Collect unique ports from all monitors for this host
    portSet := make(map[int]bool)
@@ -182,11 +186,13 @@ This is a good architectural decision, but the port extraction logic has a bug.
    ```
 
 **Pros**:
+
 - Checks actual backend ports
 - More accurate for non-standard ports
 - Minimal schema changes
 
 **Cons**:
+
 - Requires database queries in check loop
 - More complex logic
 
@@ -195,6 +201,7 @@ This is a good architectural decision, but the port extraction logic has a bug.
 **Changes Required**:
 
 1. Add `ForwardPort` field to `UptimeMonitor`:
+
    ```go
    type UptimeMonitor struct {
        // ... existing fields
@@ -203,6 +210,7 @@ This is a good architectural decision, but the port extraction logic has a bug.
    ```
 
 2. Update `SyncMonitors()` to populate it:
+
    ```go
    monitor = models.UptimeMonitor{
        // ... existing fields
@@ -211,6 +219,7 @@ This is a good architectural decision, but the port extraction logic has a bug.
    ```
 
 3. Update `checkHost()` to use stored forward port:
+
    ```go
    for _, monitor := range monitors {
        port := monitor.ForwardPort
@@ -223,10 +232,12 @@ This is a good architectural decision, but the port extraction logic has a bug.
    ```
 
 **Pros**:
+
 - Simple, no extra DB queries
 - Forward port readily available
 
 **Cons**:
+
 - Schema migration required
 - Duplication of data (port stored in both ProxyHost and UptimeMonitor)
 
@@ -271,11 +282,13 @@ for _, monitor := range monitors {
 ```
 
 **Pros**:
+
 - No schema changes
 - Works immediately
 - Handles both proxy hosts and standalone monitors
 
 **Cons**:
+
 - Database query in check loop (but monitors are already cached)
 - Slight performance overhead
 

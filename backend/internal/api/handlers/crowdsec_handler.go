@@ -1138,7 +1138,11 @@ func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 		h.ListDecisions(c)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close response body")
+		}
+	}()
 
 	// Handle non-200 responses
 	if resp.StatusCode == http.StatusUnauthorized {
@@ -1263,7 +1267,11 @@ func (h *CrowdsecHandler) CheckLAPIHealth(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"healthy": false, "error": "LAPI unreachable", "lapi_url": baseURL.String()})
 			return
 		}
-		defer resp2.Body.Close()
+		defer func() {
+			if err := resp2.Body.Close(); err != nil {
+				logger.Log().WithError(err).Warn("Failed to close response body")
+			}
+		}()
 		// 401 is expected without auth but indicates LAPI is running
 		if resp2.StatusCode == http.StatusOK || resp2.StatusCode == http.StatusUnauthorized {
 			c.JSON(http.StatusOK, gin.H{"healthy": true, "lapi_url": baseURL.String(), "note": "health endpoint unavailable, verified via decisions endpoint"})
@@ -1272,7 +1280,11 @@ func (h *CrowdsecHandler) CheckLAPIHealth(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"healthy": false, "error": "unexpected status", "status": resp2.StatusCode, "lapi_url": baseURL.String()})
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close response body")
+		}
+	}()
 
 	c.JSON(http.StatusOK, gin.H{"healthy": resp.StatusCode == http.StatusOK, "lapi_url": baseURL.String(), "status": resp.StatusCode})
 }

@@ -11,7 +11,7 @@ export interface Column<T> {
   width?: string
 }
 
-export interface DataTableProps<T> {
+export interface DataTableProps<T> extends Omit<React.HTMLAttributes<HTMLDivElement>, 'children'> {
   data: T[]
   columns: Column<T>[]
   rowKey: (row: T) => string
@@ -22,7 +22,6 @@ export interface DataTableProps<T> {
   emptyState?: React.ReactNode
   isLoading?: boolean
   stickyHeader?: boolean
-  className?: string
 }
 
 /**
@@ -50,6 +49,7 @@ export function DataTable<T>({
   isLoading = false,
   stickyHeader = false,
   className,
+  ...props
 }: DataTableProps<T>) {
   const [sortConfig, setSortConfig] = React.useState<{
     key: string
@@ -104,6 +104,7 @@ export function DataTable<T>({
         'rounded-xl border border-border overflow-hidden',
         className
       )}
+      {...props}
     >
       <div className="overflow-x-auto">
         <table className="w-full">

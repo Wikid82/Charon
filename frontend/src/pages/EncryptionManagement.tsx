@@ -211,7 +211,7 @@ export default function EncryptionManagement() {
         {/* Status Overview Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* Current Key Version */}
-          <Card>
+          <Card data-testid="encryption-current-version">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">{t('encryption.currentVersion')}</CardTitle>
@@ -229,7 +229,7 @@ export default function EncryptionManagement() {
           </Card>
 
           {/* Providers on Current Version */}
-          <Card>
+          <Card data-testid="encryption-providers-updated">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">{t('encryption.providersUpdated')}</CardTitle>
@@ -247,7 +247,7 @@ export default function EncryptionManagement() {
           </Card>
 
           {/* Providers on Older Versions */}
-          <Card>
+          <Card data-testid="encryption-providers-outdated">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">{t('encryption.providersOutdated')}</CardTitle>
@@ -265,7 +265,7 @@ export default function EncryptionManagement() {
           </Card>
 
           {/* Next Key Configured */}
-          <Card>
+          <Card data-testid="encryption-next-key">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">{t('encryption.nextKey')}</CardTitle>
@@ -293,7 +293,7 @@ export default function EncryptionManagement() {
         )}
 
         {/* Actions Section */}
-        <Card>
+        <Card data-testid="encryption-actions-card">
           <CardHeader>
             <CardTitle>{t('encryption.actions')}</CardTitle>
             <CardDescription>{t('encryption.actionsDescription')}</CardDescription>
@@ -304,6 +304,7 @@ export default function EncryptionManagement() {
                 variant="primary"
                 onClick={handleRotateClick}
                 disabled={rotationDisabled}
+                data-testid="rotate-key-btn"
               >
                 <RefreshCw className={`w-4 h-4 mr-2 ${isRotating ? 'animate-spin' : ''}`} />
                 {isRotating ? t('encryption.rotating') : t('encryption.rotateKey')}
@@ -312,6 +313,7 @@ export default function EncryptionManagement() {
                 variant="secondary"
                 onClick={handleValidateClick}
                 disabled={validateMutation.isPending}
+                data-testid="validate-config-btn"
               >
                 <CheckCircle className="w-4 h-4 mr-2" />
                 {validateMutation.isPending ? t('encryption.validating') : t('encryption.validateConfig')}

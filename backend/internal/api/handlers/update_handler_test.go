@@ -20,7 +20,7 @@ func TestUpdateHandler_Check(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"tag_name":"v1.0.0","html_url":"https://github.com/example/repo/releases/tag/v1.0.0"}`))
+		_, _ = w.Write([]byte(`{"tag_name":"v1.0.0","html_url":"https://github.com/example/repo/releases/tag/v1.0.0"}`))
 	}))
 	defer server.Close()
 

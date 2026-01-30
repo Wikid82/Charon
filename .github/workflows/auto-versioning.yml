@@ -1,16 +1,22 @@
 name: Auto Versioning and Release
 
+# SEMANTIC VERSIONING RULES:
+# - PATCH (0.14.1 → 0.14.2): fix:, perf:, refactor:, docs:, style:, test:, build:, ci:
+# - MINOR (0.14.1 → 0.15.0): feat:, feat(...):
+# - MAJOR (0.14.1 → 1.0.0): MANUAL ONLY - Create git tag manually when ready for 1.0.0
+#
+# ⚠️  Major version bumps are intentionally disabled in automation to prevent accidents.
+
 on:
   push:
     branches: [ main ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: false  # Don't cancel in-progress releases
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: write  # Required for creating releases via API (removed unused pull-requests: write)
 
 jobs:
   version:
@@ -23,16 +29,17 @@ jobs:
 
       - name: Calculate Semantic Version
         id: semver
-        uses: paulhatch/semantic-version@a8f8f59fd7f0625188492e945240f12d7ad2dca3 # v5.4.0
+        uses: paulhatch/semantic-version@f29500c9d60a99ed5168e39ee367e0976884c46e # v6.0.1
         with:
           # The prefix to use to create tags
           tag_prefix: "v"
-          # Regex pattern for major version bump (breaking changes)
-          # Matches: "feat!:", "fix!:", "BREAKING CHANGE:" in commit messages
-          major_pattern: "/!:|BREAKING CHANGE:/"
+          # Regex pattern for major version bump - DISABLED (manual only)
+          # Use a pattern that will never match to prevent automated major bumps
+          major_pattern: "/__MANUAL_MAJOR_BUMP_ONLY__/"
           # Regex pattern for minor version bump (new features)
           # Matches: "feat:" prefix in commit messages (Conventional Commits)
-          minor_pattern: "/feat:/"
+          minor_pattern: "/^feat(\\(.+\\))?:/"
+          # Patch bumps: All other commits (fix:, chore:, etc.) are treated as patches by default
           # Pattern to determine formatting
           version_format: "${major}.${minor}.${patch}"
           # If no tags are found, this version is used
@@ -45,46 +52,15 @@ jobs:
       - name: Show version
         run: |
           echo "Next version: ${{ steps.semver.outputs.version }}"
+          echo "Version changed: ${{ steps.semver.outputs.changed }}"
 
-      - id: create_tag
-        name: Create annotated tag and push
-        if: ${{ steps.semver.outputs.changed }}
+      - name: Determine tag name
+        id: determine_tag
         run: |
-          # Ensure a committer identity is configured in the runner so git tag works
-          git config --global user.email "actions@github.com"
-          git config --global user.name "GitHub Actions"
-
           # Normalize the version: remove any leading 'v' so we don't end up with 'vvX.Y.Z'
           RAW="${{ steps.semver.outputs.version }}"
           VERSION_NO_V="${RAW#v}"
-
           TAG="v${VERSION_NO_V}"
-          echo "TAG=${TAG}"
-
-          # If tag already exists, skip creation to avoid failure
-          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
-            echo "Tag ${TAG} already exists; skipping tag creation"
-          else
-            git tag -a "${TAG}" -m "Release ${TAG}"
-            git push origin "${TAG}"
-          fi
-
-          # Export the tag for downstream steps
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Determine tag
-        id: determine_tag
-        run: |
-          # Prefer created tag output; if empty fallback to semver version
-          TAG="${{ steps.create_tag.outputs.tag }}"
-          if [ -z "$TAG" ]; then
-            # semver.version contains a tag value like 'vX.Y.Z' or fallback 'v0.0.0'
-            VERSION_RAW="${{ steps.semver.outputs.version }}"
-            VERSION_NO_V="${VERSION_RAW#v}"
-            TAG="v${VERSION_NO_V}"
-          fi
           echo "Determined tag: $TAG"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
@@ -93,22 +69,35 @@ jobs:
         run: |
           TAG=${{ steps.determine_tag.outputs.tag }}
           echo "Checking for release for tag: ${TAG}"
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}") || true
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}") || true
           if [ "${STATUS}" = "200" ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
+            echo "ℹ️  Release already exists for tag: ${TAG}"
           else
             echo "exists=false" >> $GITHUB_OUTPUT
+            echo "✅ No existing release found for tag: ${TAG}"
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create GitHub Release (tag-only, no workspace changes)
+      - name: Create GitHub Release (creates tag via API)
         if: ${{ steps.semver.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false' }}
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
           tag_name: ${{ steps.determine_tag.outputs.tag }}
           name: Release ${{ steps.determine_tag.outputs.tag }}
           generate_release_notes: true
-          make_latest: false
+          make_latest: true
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Output release information
+        if: ${{ steps.semver.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false' }}
+        run: |
+          echo "✅ Successfully created release: ${{ steps.determine_tag.outputs.tag }}"
+          echo "📦 Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ steps.determine_tag.outputs.tag }}"

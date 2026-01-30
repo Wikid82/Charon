@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -224,4 +227,135 @@ func TestSecurityHandler_GetStatus_RateLimitModeFromSettings(t *testing.T) {
 
 	rateLimit := response["rate_limit"].(map[string]any)
 	assert.True(t, rateLimit["enabled"].(bool))
+}
+
+func TestSecurityHandler_PatchACL_RequiresAdminWhitelist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := OpenTestDBWithMigrations(t)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", AdminWhitelist: "192.0.2.1/32"}).Error)
+
+	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.PATCH("/security/acl", handler.PatchACL)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/security/acl", strings.NewReader(`{"enabled":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "203.0.113.5:1234"
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestSecurityHandler_PatchACL_AllowsWhitelistedIP(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := OpenTestDBWithMigrations(t)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", AdminWhitelist: "203.0.113.0/24"}).Error)
+
+	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.PATCH("/security/acl", handler.PatchACL)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/security/acl", strings.NewReader(`{"enabled":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "203.0.113.5:1234"
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var setting models.Setting
+	err := db.Where("key = ?", "feature.cerberus.enabled").First(&setting).Error
+	require.NoError(t, err)
+	assert.Equal(t, "true", setting.Value)
+
+	var cfg models.SecurityConfig
+	err = handler.db.Where("name = ?", "default").First(&cfg).Error
+	require.NoError(t, err)
+	assert.True(t, cfg.Enabled)
+}
+
+func TestSecurityHandler_PatchACL_SetsACLAndCerberusSettings(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	dsn := "file:TestSecurityHandler_PatchACL_SetsACLAndCerberusSettings?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
+
+	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Set("role", "admin")
+	ctx.Set("userID", uint(1))
+	ctx.Request, _ = http.NewRequest("PATCH", "/security/acl", strings.NewReader(`{"enabled":true}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	ctx.Request.RemoteAddr = "203.0.113.5:1234"
+
+	handler.toggleSecurityModule(ctx, "security.acl.enabled", true)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var setting models.Setting
+	err = db.Where("key = ?", "security.acl.enabled").First(&setting).Error
+	require.NoError(t, err)
+	assert.Equal(t, "true", setting.Value)
+
+	var cerbSetting models.Setting
+	err = db.Where("key = ?", "feature.cerberus.enabled").First(&cerbSetting).Error
+	require.NoError(t, err)
+	assert.Equal(t, "true", cerbSetting.Value)
+
+	var legacySetting models.Setting
+	err = db.Where("key = ?", "security.cerberus.enabled").First(&legacySetting).Error
+	require.NoError(t, err)
+	assert.Equal(t, "true", legacySetting.Value)
+}
+
+func TestSecurityHandler_EnsureSecurityConfigEnabled_CreatesWhenMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
+
+	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+
+	err := handler.ensureSecurityConfigEnabled()
+	require.NoError(t, err)
+
+	var cfg models.SecurityConfig
+	err = handler.db.Where("name = ?", "default").First(&cfg).Error
+	require.NoError(t, err)
+	assert.True(t, cfg.Enabled)
+}
+
+func TestSecurityHandler_PatchACL_AllowsEmergencyBypass(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", AdminWhitelist: "192.0.2.1/32"}).Error)
+
+	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("emergency_bypass", true)
+		c.Next()
+	})
+	router.PATCH("/security/acl", handler.PatchACL)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/security/acl", strings.NewReader(`{"enabled":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "203.0.113.5:1234"
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
 }

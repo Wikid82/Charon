@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"errors"
 	"net/url"
 	"strings"
 
@@ -9,6 +10,25 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 )
+
+// GetConfiguredPublicURL returns the configured, normalized public URL.
+//
+// Security note:
+// This function intentionally never derives URLs from request data (Host/X-Forwarded-*),
+// so it is safe to use for embedding external links (e.g., invite emails).
+func GetConfiguredPublicURL(db *gorm.DB) (string, bool) {
+	var setting models.Setting
+	if err := db.Where("key = ?", "app.public_url").First(&setting).Error; err != nil {
+		return "", false
+	}
+
+	normalized, err := normalizeConfiguredPublicURL(setting.Value)
+	if err != nil {
+		return "", false
+	}
+
+	return normalized, true
+}
 
 // GetPublicURL retrieves the configured public URL or falls back to request host.
 // This should be used for all user-facing URLs (emails, invite links).
@@ -21,6 +41,43 @@ func GetPublicURL(db *gorm.DB, c *gin.Context) string {
 	}
 	// Fallback to request-derived URL
 	return getBaseURL(c)
+}
+
+func normalizeConfiguredPublicURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", errors.New("public URL is empty")
+	}
+	if strings.ContainsAny(raw, "\r\n") {
+		return "", errors.New("public URL contains invalid characters")
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", errors.New("public URL must use http or https")
+	}
+	if parsed.Host == "" {
+		return "", errors.New("public URL must include a host")
+	}
+	if parsed.User != nil {
+		return "", errors.New("public URL must not include userinfo")
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", errors.New("public URL must not include query or fragment")
+	}
+	if parsed.Path != "" && parsed.Path != "/" {
+		return "", errors.New("public URL must not include a path")
+	}
+	if parsed.Opaque != "" {
+		return "", errors.New("public URL must not be opaque")
+	}
+
+	normalized := (&url.URL{Scheme: parsed.Scheme, Host: parsed.Host}).String()
+	return normalized, nil
 }
 
 // getBaseURL extracts the base URL from the request.

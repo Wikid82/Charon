@@ -444,7 +444,9 @@ func TestDecrypt_AppendedData(t *testing.T) {
 
 	// Decode and append extra data
 	ciphertextBytes, _ := base64.StdEncoding.DecodeString(ciphertext)
-	appendedBytes := append(ciphertextBytes, []byte("extra garbage")...)
+	appendedBytes := make([]byte, len(ciphertextBytes)+len("extra garbage"))
+	copy(appendedBytes, ciphertextBytes)
+	copy(appendedBytes[len(ciphertextBytes):], "extra garbage")
 	appendedCiphertext := base64.StdEncoding.EncodeToString(appendedBytes)
 
 	// Attempt to decrypt with appended data

@@ -50,6 +50,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
             ref={ref}
             type={isPassword ? (showPassword ? 'text' : 'password') : type}
             disabled={disabled}
+            aria-describedby={error && errorTestId ? errorTestId : undefined}
             className={cn(
               'flex h-10 w-full rounded-lg px-4 py-2',
               'bg-surface-base border text-content-primary',
@@ -93,6 +94,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
         </div>
         {error && (
           <p
+            id={errorTestId}
             className="mt-1.5 text-sm text-error"
             data-testid={errorTestId}
             role="alert"

@@ -1,8 +1,8 @@
 import { useMemo, useState, type FC, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getMonitors, getMonitorHistory, updateMonitor, deleteMonitor, checkMonitor, UptimeMonitor } from '../api/uptime';
-import { Activity, ArrowUp, ArrowDown, Settings, X, Pause, RefreshCw } from 'lucide-react';
+import { getMonitors, getMonitorHistory, updateMonitor, deleteMonitor, checkMonitor, createMonitor, syncMonitors, UptimeMonitor } from '../api/uptime';
+import { Activity, ArrowUp, ArrowDown, Settings, X, Pause, RefreshCw, Plus } from 'lucide-react';
 import { toast } from 'react-hot-toast'
 import { formatDistanceToNow } from 'date-fns';
 
@@ -68,7 +68,7 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
   const isPaused = monitor.enabled === false;
 
   return (
-    <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 border-l-4 ${isPaused ? 'border-l-yellow-400' : isUp ? 'border-l-green-500' : 'border-l-red-500'}`}>
+    <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 border-l-4 ${isPaused ? 'border-l-yellow-400' : isUp ? 'border-l-green-500' : 'border-l-red-500'}`} data-testid="monitor-card">
       {/* Top Row: Name (left), Badge (center-right), Settings (right) */}
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold text-lg text-gray-900 dark:text-white flex-1 min-w-0 truncate">{monitor.name}</h3>
@@ -79,7 +79,7 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
               : isUp
                 ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                 : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-          }`}>
+          }`} data-testid="status-badge" data-status={isPaused ? 'paused' : monitor.status}>
             {isPaused ? <Pause className="w-4 h-4 mr-1" /> : isUp ? <ArrowUp className="w-4 h-4 mr-1" /> : <ArrowDown className="w-4 h-4 mr-1" />}
             {isPaused ? t('uptime.paused') : monitor.status.toUpperCase()}
           </div>
@@ -169,7 +169,7 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
             {monitor.latency}ms
           </div>
         </div>
-        <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
+        <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg" data-testid="last-check">
           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('uptime.lastCheck')}</div>
           <div className="text-sm font-medium text-gray-900 dark:text-white">
             {monitor.last_check ? formatDistanceToNow(new Date(monitor.last_check), { addSuffix: true }) : t('uptime.never')}
@@ -178,7 +178,7 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
       </div>
 
       {/* Heartbeat Bar (Last 60 checks / 1 Hour) */}
-      <div className="flex gap-[2px] h-8 items-end relative" title={t('uptime.last60Checks')}>
+      <div className="flex gap-[2px] h-8 items-end relative" title={t('uptime.last60Checks')} data-testid="heartbeat-bar">
         {/* Fill with empty bars if not enough history to keep alignment right-aligned */}
         {Array.from({ length: Math.max(0, 60 - (history?.length || 0)) }).map((_, i) => (
            <div key={`empty-${i}`} className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-sm h-full opacity-50" />
@@ -308,8 +308,153 @@ const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void; t: (ke
     );
 };
 
+const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }> = ({ onClose, t }) => {
+    const queryClient = useQueryClient();
+    const [name, setName] = useState('');
+    const [url, setUrl] = useState('');
+    const [type, setType] = useState<'http' | 'tcp'>('http');
+    const [interval, setInterval] = useState(60);
+    const [maxRetries, setMaxRetries] = useState(3);
+
+    const mutation = useMutation({
+        mutationFn: (data: { name: string; url: string; type: string; interval?: number; max_retries?: number }) =>
+            createMonitor(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['monitors'] });
+            toast.success(t('uptime.monitorCreated'));
+            onClose();
+        },
+        onError: (err: unknown) => {
+            toast.error(err instanceof Error ? err.message : t('errors.genericError'));
+        },
+    });
+
+    const handleSubmit = (e: FormEvent) => {
+        e.preventDefault();
+        if (!name.trim() || !url.trim()) return;
+        mutation.mutate({ name: name.trim(), url: url.trim(), type, interval, max_retries: maxRetries });
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="bg-gray-800 rounded-lg border border-gray-700 max-w-md w-full p-6 shadow-xl">
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-xl font-bold text-white">{t('uptime.createMonitor')}</h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label={t('common.close')}>
+                        <X size={24} />
+                    </button>
+                </div>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label htmlFor="create-monitor-name" className="block text-sm font-medium text-gray-300 mb-1">
+                            {t('common.name')} *
+                        </label>
+                        <input
+                            id="create-monitor-name"
+                            type="text"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            required
+                            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="My Service"
+                        />
+                    </div>
+
+                    <div>
+                        <label htmlFor="create-monitor-url" className="block text-sm font-medium text-gray-300 mb-1">
+                            {t('uptime.monitorUrl')} *
+                        </label>
+                        <input
+                            id="create-monitor-url"
+                            type="text"
+                            value={url}
+                            onChange={(e) => setUrl(e.target.value)}
+                            required
+                            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder={t('uptime.urlPlaceholder')}
+                        />
+                    </div>
+
+                    <div>
+                        <label htmlFor="create-monitor-type" className="block text-sm font-medium text-gray-300 mb-1">
+                            {t('uptime.monitorType')} *
+                        </label>
+                        <select
+                            id="create-monitor-type"
+                            value={type}
+                            onChange={(e) => setType(e.target.value as 'http' | 'tcp')}
+                            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                            <option value="http">{t('uptime.monitorTypeHttp')}</option>
+                            <option value="tcp">{t('uptime.monitorTypeTcp')}</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label htmlFor="create-monitor-interval" className="block text-sm font-medium text-gray-300 mb-1">
+                            {t('uptime.checkInterval')}
+                        </label>
+                        <input
+                            id="create-monitor-interval"
+                            type="number"
+                            min="10"
+                            max="3600"
+                            value={interval}
+                            onChange={(e) => {
+                                const v = parseInt(e.target.value);
+                                setInterval(Number.isNaN(v) ? 60 : v);
+                            }}
+                            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
+
+                    <div>
+                        <label htmlFor="create-monitor-retries" className="block text-sm font-medium text-gray-300 mb-1">
+                            {t('uptime.maxRetries')}
+                        </label>
+                        <input
+                            id="create-monitor-retries"
+                            type="number"
+                            min="1"
+                            max="10"
+                            value={maxRetries}
+                            onChange={(e) => {
+                                const v = parseInt(e.target.value);
+                                setMaxRetries(Number.isNaN(v) ? 3 : v);
+                            }}
+                            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                            {t('uptime.maxRetriesHelper')}
+                        </p>
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-4">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm transition-colors"
+                        >
+                            {t('common.cancel')}
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={mutation.isPending || !name.trim() || !url.trim()}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                        >
+                            {mutation.isPending ? t('common.saving') : t('common.create')}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
 const Uptime: FC = () => {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const { data: monitors, isLoading } = useQuery({
     queryKey: ['monitors'],
     queryFn: getMonitors,
@@ -317,6 +462,18 @@ const Uptime: FC = () => {
   });
 
   const [editingMonitor, setEditingMonitor] = useState<UptimeMonitor | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
+  const syncMutation = useMutation({
+    mutationFn: () => syncMonitors(),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['monitors'] });
+      toast.success(data.message || t('uptime.syncComplete'));
+    },
+    onError: (err: unknown) => {
+      toast.error(err instanceof Error ? err.message : t('errors.genericError'));
+    },
+  });
 
   // Sort monitors alphabetically by name
   const sortedMonitors = useMemo(() => {
@@ -336,13 +493,30 @@ const Uptime: FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center" data-testid="uptime-summary">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
           <Activity className="w-6 h-6" />
           {t('uptime.title')}
         </h1>
-        <div className="text-sm text-gray-500">
-          {t('uptime.autoRefreshing')}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+            data-testid="sync-button"
+            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+          >
+            <RefreshCw size={16} className={syncMutation.isPending ? 'animate-spin' : ''} />
+            {syncMutation.isPending ? t('uptime.syncing') : t('uptime.syncWithHosts')}
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            data-testid="add-monitor-button"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+          >
+            <Plus size={16} />
+            {t('uptime.addMonitor')}
+          </button>
+          <span className="text-sm text-gray-500">{t('uptime.autoRefreshing')}</span>
         </div>
       </div>
 
@@ -389,6 +563,10 @@ const Uptime: FC = () => {
 
       {editingMonitor && (
         <EditMonitorModal monitor={editingMonitor} onClose={() => setEditingMonitor(null)} t={t} />
+      )}
+
+      {showCreateModal && (
+        <CreateMonitorModal onClose={() => setShowCreateModal(false)} t={t} />
       )}
     </div>
   );

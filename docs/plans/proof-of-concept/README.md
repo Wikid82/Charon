@@ -5,11 +5,13 @@ This directory contains the proof-of-concept deliverables for the Agent Skills m
 ## Important: Directory Location
 
 **Skills Location**: `.github/skills/` (not `.agentskills/`)
+
 - This is the **official VS Code Copilot location** for Agent Skills
 - Source: [VS Code Copilot Documentation](https://code.visualstudio.com/docs/copilot/customization/agent-skills)
 - The SKILL.md **format** follows the [agentskills.io specification](https://agentskills.io/specification)
 
 **Key Distinction**:
+
 - `.github/skills/` = WHERE skills are stored (VS Code requirement)
 - agentskills.io = HOW skills are formatted (specification standard)
 
@@ -33,6 +35,7 @@ python3 validate-skills.py --single test-backend-coverage.SKILL.md
 ```
 
 Expected output:
+
 ```
 ✓ test-backend-coverage.SKILL.md is valid
 ```
@@ -47,7 +50,9 @@ Expected output:
 ## What's Demonstrated
 
 ### 1. Complete Frontmatter
+
 The POC includes all required and optional frontmatter fields:
+
 - ✅ Required fields (name, version, description, author, license, tags)
 - ✅ Compatibility (OS, shells)
 - ✅ Requirements (Go, Python)
@@ -57,7 +62,9 @@ The POC includes all required and optional frontmatter fields:
 - ✅ Custom metadata (category, execution_time, risk_level, flags)
 
 ### 2. Progressive Disclosure
+
 The POC demonstrates how to keep SKILL.md under 500 lines:
+
 - Clear section hierarchy
 - Links to related skills
 - Concise examples
@@ -65,7 +72,9 @@ The POC demonstrates how to keep SKILL.md under 500 lines:
 - Notes section for caveats
 
 ### 3. AI Discoverability
+
 The POC includes metadata for AI discovery:
+
 - Descriptive name (kebab-case)
 - Rich tags (testing, coverage, go, backend, validation)
 - Clear description (120 chars)
@@ -73,7 +82,9 @@ The POC includes metadata for AI discovery:
 - Execution time and risk level
 
 ### 4. Real-World Example
+
 The POC is based on the actual `go-test-coverage.sh` script:
+
 - Maintains all functionality
 - Preserves environment variables
 - Documents performance thresholds
@@ -106,6 +117,7 @@ Validation Checks Passed:
 ## Implementation Readiness
 
 This proof-of-concept demonstrates that:
+
 1. ✅ The SKILL.md template is complete and functional
 2. ✅ The frontmatter validator works correctly
 3. ✅ The format is maintainable (under 500 lines)

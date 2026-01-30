@@ -7,7 +7,7 @@ import (
 // SSLCertificate represents TLS certificates managed by Charon.
 // Can be Let's Encrypt auto-generated or custom uploaded certs.
 type SSLCertificate struct {
-	ID          uint       `json:"id" gorm:"primaryKey"`
+	ID          uint       `json:"-" gorm:"primaryKey"`
 	UUID        string     `json:"uuid" gorm:"uniqueIndex"`
 	Name        string     `json:"name" gorm:"index"`
 	Provider    string     `json:"provider" gorm:"index"`        // "letsencrypt", "custom", "self-signed"

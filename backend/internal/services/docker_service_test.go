@@ -13,30 +13,33 @@ import (
 )
 
 func TestDockerService_New(t *testing.T) {
-	// This test might fail if docker socket is not available in the build environment
-	// So we just check if it returns error or not, but don't fail the test if it's just "socket not found"
-	// In a real CI environment with Docker-in-Docker, this would work.
-	svc, err := NewDockerService()
-	if err != nil {
-		t.Logf("Skipping DockerService test: %v", err)
-		return
+	// NewDockerService now always returns a service (never nil)
+	// If Docker is unavailable, the service will have initErr set
+	svc := NewDockerService()
+	assert.NotNil(t, svc, "NewDockerService should always return a non-nil service")
+
+	// If Docker is unavailable, the service should have an initErr
+	if svc.initErr != nil {
+		t.Logf("Docker service initialized but Docker is unavailable: %v", svc.initErr)
 	}
-	assert.NotNil(t, svc)
 }
 
 func TestDockerService_ListContainers(t *testing.T) {
-	svc, err := NewDockerService()
-	if err != nil {
-		t.Logf("Skipping DockerService test: %v", err)
-		return
-	}
+	svc := NewDockerService()
+	assert.NotNil(t, svc)
 
 	// Test local listing
 	containers, err := svc.ListContainers(context.Background(), "")
-	// If we can't connect to docker daemon, this will fail.
-	// We should probably mock the client, but the docker client is an interface?
-	// The official client struct is concrete.
-	// For now, we just assert that if err is nil, containers is a slice.
+
+	// If service has initErr, it should return DockerUnavailableError
+	if svc.initErr != nil {
+		var unavailableErr *DockerUnavailableError
+		assert.ErrorAs(t, err, &unavailableErr, "Should return DockerUnavailableError when Docker is not available")
+		t.Logf("Docker unavailable (expected in some environments): %v", err)
+		return
+	}
+
+	// If we can connect to docker daemon, this should succeed
 	if err == nil {
 		assert.IsType(t, []DockerContainer{}, containers)
 	}

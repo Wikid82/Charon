@@ -201,3 +201,13 @@ export const previewInviteURL = async (email: string): Promise<PreviewInviteURLR
   const response = await client.post<PreviewInviteURLResponse>('/users/preview-invite-url', { email })
   return response.data
 }
+
+/**
+ * Resends an invitation email to a pending user.
+ * @param id - The user ID to resend invite to
+ * @returns Promise resolving to InviteUserResponse with new token
+ */
+export const resendInvite = async (id: number): Promise<InviteUserResponse> => {
+  const response = await client.post<InviteUserResponse>(`/users/${id}/resend-invite`)
+  return response.data
+}

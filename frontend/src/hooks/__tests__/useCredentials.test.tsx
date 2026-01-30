@@ -37,8 +37,8 @@ describe('useCredentials', () => {
       const mockCredentials = [
         { id: 1, label: 'Test', zone_filter: 'example.com' },
         { id: 2, label: 'Test2', zone_filter: '*.test.com' },
-      ]
-      vi.mocked(credentialsApi.getCredentials).mockResolvedValue(mockCredentials as any)
+      ] as Awaited<ReturnType<typeof credentialsApi.getCredentials>>
+      vi.mocked(credentialsApi.getCredentials).mockResolvedValue(mockCredentials)
 
       const { result } = renderHook(() => useCredentials(1), { wrapper: createWrapper() })
 
@@ -64,8 +64,8 @@ describe('useCredentials', () => {
 
   describe('useCredential', () => {
     it('fetches a single credential', async () => {
-      const mockCredential = { id: 1, label: 'Test', zone_filter: 'example.com' }
-      vi.mocked(credentialsApi.getCredential).mockResolvedValue(mockCredential as any)
+      const mockCredential = { id: 1, label: 'Test', zone_filter: 'example.com' } as Awaited<ReturnType<typeof credentialsApi.getCredential>>
+      vi.mocked(credentialsApi.getCredential).mockResolvedValue(mockCredential)
 
       const { result } = renderHook(() => useCredential(1, 1), { wrapper: createWrapper() })
 
@@ -85,8 +85,8 @@ describe('useCredentials', () => {
 
   describe('useCreateCredential', () => {
     it('creates a credential and invalidates queries', async () => {
-      const mockCredential = { id: 3, label: 'New', zone_filter: 'new.com' }
-      vi.mocked(credentialsApi.createCredential).mockResolvedValue(mockCredential as any)
+      const mockCredential = { id: 3, label: 'New', zone_filter: 'new.com' } as Awaited<ReturnType<typeof credentialsApi.createCredential>>
+      vi.mocked(credentialsApi.createCredential).mockResolvedValue(mockCredential)
 
       const { result } = renderHook(() => useCreateCredential(), { wrapper: createWrapper() })
 
@@ -122,8 +122,8 @@ describe('useCredentials', () => {
 
   describe('useUpdateCredential', () => {
     it('updates a credential and invalidates queries', async () => {
-      const mockCredential = { id: 1, label: 'Updated', zone_filter: 'updated.com' }
-      vi.mocked(credentialsApi.updateCredential).mockResolvedValue(mockCredential as any)
+      const mockCredential = { id: 1, label: 'Updated', zone_filter: 'updated.com' } as Awaited<ReturnType<typeof credentialsApi.updateCredential>>
+      vi.mocked(credentialsApi.updateCredential).mockResolvedValue(mockCredential)
 
       const { result } = renderHook(() => useUpdateCredential(), { wrapper: createWrapper() })
 

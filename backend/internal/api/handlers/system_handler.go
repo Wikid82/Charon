@@ -25,11 +25,12 @@ func (h *SystemHandler) GetMyIP(c *gin.Context) {
 	ip := getClientIP(c.Request)
 
 	source := "direct"
-	if c.GetHeader("X-Forwarded-For") != "" {
+	switch {
+	case c.GetHeader("X-Forwarded-For") != "":
 		source = "X-Forwarded-For"
-	} else if c.GetHeader("X-Real-IP") != "" {
+	case c.GetHeader("X-Real-IP") != "":
 		source = "X-Real-IP"
-	} else if c.GetHeader("CF-Connecting-IP") != "" {
+	case c.GetHeader("CF-Connecting-IP") != "":
 		source = "Cloudflare"
 	}
 

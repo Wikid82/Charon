@@ -123,6 +123,35 @@ describe('useDocker', () => {
     expect(result.current.containers).toEqual([]);
   });
 
+  it('extracts details from 503 service unavailable error', async () => {
+    const mockError = {
+      response: {
+        status: 503,
+        data: {
+          error: 'Docker daemon unavailable',
+          details: 'Cannot connect to Docker. Please ensure Docker is running and the socket is accessible (e.g., /var/run/docker.sock is mounted).'
+        }
+      }
+    };
+    vi.mocked(dockerApi.listContainers).mockRejectedValue(mockError);
+
+    const { result } = renderHook(() => useDocker('local'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(
+      () => {
+        expect(result.current.isLoading).toBe(false);
+      },
+      { timeout: 3000 }
+    );
+
+    // Verify error message includes the details
+    expect(result.current.error).toBeTruthy();
+    const errorMessage = (result.current.error as Error)?.message;
+    expect(errorMessage).toContain('Docker is running');
+  });
+
   it('provides refetch function', async () => {
     vi.mocked(dockerApi.listContainers).mockResolvedValue(mockContainers);
 

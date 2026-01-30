@@ -45,7 +45,7 @@ func TestPluginHandler_EnablePlugin_DatabaseUpdateError(t *testing.T) {
 
 	// Close DB to trigger error during update
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	router := gin.New()
 	router.POST("/plugins/:id/enable", handler.EnablePlugin)
@@ -77,7 +77,7 @@ func TestPluginHandler_DisablePlugin_DatabaseUpdateError(t *testing.T) {
 
 	// Close DB to trigger error during update
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	router := gin.New()
 	router.POST("/plugins/:id/disable", handler.DisablePlugin)
@@ -108,7 +108,7 @@ func TestPluginHandler_GetPlugin_DatabaseError(t *testing.T) {
 
 	// Close DB to trigger database error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	router := gin.New()
 	router.GET("/plugins/:id", handler.GetPlugin)
@@ -130,7 +130,7 @@ func TestPluginHandler_EnablePlugin_DatabaseFirstError(t *testing.T) {
 
 	// Close DB to trigger error when fetching plugin
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	router := gin.New()
 	router.POST("/plugins/:id/enable", handler.EnablePlugin)
@@ -152,7 +152,7 @@ func TestPluginHandler_DisablePlugin_DatabaseFirstError(t *testing.T) {
 
 	// Close DB to trigger error when fetching plugin
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	router := gin.New()
 	router.POST("/plugins/:id/disable", handler.DisablePlugin)
@@ -221,7 +221,7 @@ func TestEncryptionHandler_GetHistory_PaginationBoundary(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var response map[string]any
-	json.Unmarshal(w.Body.Bytes(), &response)
+	_ = json.Unmarshal(w.Body.Bytes(), &response)
 	// limit should not exceed 100
 	assert.LessOrEqual(t, response["limit"].(float64), float64(100))
 }
@@ -330,7 +330,7 @@ func TestSettingsHandler_TestPublicURL_PrivateIPBlocked_Coverage(t *testing.T) {
 	// Should return 200 but with reachable=false due to SSRF protection
 	assert.Equal(t, http.StatusOK, w.Code)
 	var response map[string]any
-	json.Unmarshal(w.Body.Bytes(), &response)
+	_ = json.Unmarshal(w.Body.Bytes(), &response)
 	assert.False(t, response["reachable"].(bool))
 }
 
@@ -358,7 +358,7 @@ func TestSettingsHandler_ValidatePublicURL_WithTrailingSlash(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var response map[string]any
-	json.Unmarshal(w.Body.Bytes(), &response)
+	_ = json.Unmarshal(w.Body.Bytes(), &response)
 	assert.True(t, response["valid"].(bool))
 }
 
@@ -386,7 +386,7 @@ func TestSettingsHandler_ValidatePublicURL_MissingScheme(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	var response map[string]any
-	json.Unmarshal(w.Body.Bytes(), &response)
+	_ = json.Unmarshal(w.Body.Bytes(), &response)
 	assert.False(t, response["valid"].(bool))
 }
 
@@ -398,10 +398,10 @@ func TestAuditLogHandler_List_PaginationEdgeCases(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	dbPath := fmt.Sprintf("/tmp/test_audit_pagination_%d.db", time.Now().UnixNano())
-	t.Cleanup(func() { os.Remove(dbPath) })
+	t.Cleanup(func() { _ = os.Remove(dbPath) })
 
 	db, _ := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
-	db.AutoMigrate(&models.SecurityAudit{}, &models.DNSProvider{})
+	_ = db.AutoMigrate(&models.SecurityAudit{}, &models.DNSProvider{})
 
 	// Create test audits
 	for i := 0; i < 10; i++ {
@@ -432,10 +432,10 @@ func TestAuditLogHandler_List_CategoryFilter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	dbPath := fmt.Sprintf("/tmp/test_audit_category_%d.db", time.Now().UnixNano())
-	t.Cleanup(func() { os.Remove(dbPath) })
+	t.Cleanup(func() { _ = os.Remove(dbPath) })
 
 	db, _ := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
-	db.AutoMigrate(&models.SecurityAudit{}, &models.DNSProvider{})
+	_ = db.AutoMigrate(&models.SecurityAudit{}, &models.DNSProvider{})
 
 	// Create test audits with different categories
 	db.Create(&models.SecurityAudit{
@@ -470,10 +470,10 @@ func TestAuditLogHandler_ListByProvider_DatabaseError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	dbPath := fmt.Sprintf("/tmp/test_audit_db_error_%d.db", time.Now().UnixNano())
-	t.Cleanup(func() { os.Remove(dbPath) })
+	t.Cleanup(func() { _ = os.Remove(dbPath) })
 
 	db, _ := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
-	db.AutoMigrate(&models.SecurityAudit{}, &models.DNSProvider{})
+	_ = db.AutoMigrate(&models.SecurityAudit{}, &models.DNSProvider{})
 
 	secService := services.NewSecurityService(db)
 	defer secService.Close()
@@ -481,7 +481,7 @@ func TestAuditLogHandler_ListByProvider_DatabaseError(t *testing.T) {
 
 	// Close DB to trigger error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	router := gin.New()
 	router.GET("/audit/provider/:id", handler.ListByProvider)
@@ -497,10 +497,10 @@ func TestAuditLogHandler_ListByProvider_InvalidProviderID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	dbPath := fmt.Sprintf("/tmp/test_audit_invalid_id_%d.db", time.Now().UnixNano())
-	t.Cleanup(func() { os.Remove(dbPath) })
+	t.Cleanup(func() { _ = os.Remove(dbPath) })
 
 	db, _ := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
-	db.AutoMigrate(&models.SecurityAudit{}, &models.DNSProvider{})
+	_ = db.AutoMigrate(&models.SecurityAudit{}, &models.DNSProvider{})
 
 	secService := services.NewSecurityService(db)
 	defer secService.Close()
@@ -586,7 +586,7 @@ func setupCredentialHandlerTestWithCtx(t *testing.T) (*gin.Engine, *gorm.DB, *mo
 
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
-		sqlDB.Close()
+		_ = sqlDB.Close()
 	})
 
 	err = db.AutoMigrate(
@@ -684,7 +684,7 @@ func TestCredentialHandler_List_DatabaseClosed(t *testing.T) {
 
 	dbName := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, _ := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
-	db.AutoMigrate(&models.DNSProvider{}, &models.DNSProviderCredential{})
+	_ = db.AutoMigrate(&models.DNSProvider{}, &models.DNSProviderCredential{})
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
@@ -696,7 +696,7 @@ func TestCredentialHandler_List_DatabaseClosed(t *testing.T) {
 
 	// Close DB to trigger error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	req, _ := http.NewRequest("GET", "/api/v1/dns-providers/1/credentials", nil)
 	w := httptest.NewRecorder()

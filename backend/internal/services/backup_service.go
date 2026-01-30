@@ -348,7 +348,9 @@ func (s *BackupService) unzip(src, dest string) error {
 		if closeErr := outFile.Close(); closeErr != nil && err == nil {
 			err = closeErr
 		}
-		rc.Close()
+		if err := rc.Close(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close reader")
+		}
 
 		if err != nil {
 			return err

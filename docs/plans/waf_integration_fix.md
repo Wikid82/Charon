@@ -77,11 +77,13 @@ curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@ex
 ### Step 3: Add Cookie to Proxy Host Creation (Line 188)
 
 Change:
+
 ```bash
 CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" -d "${PROXY_HOST_PAYLOAD}" http://localhost:8080/api/v1/proxy-hosts)
 ```
 
 To:
+
 ```bash
 CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" -d "${PROXY_HOST_PAYLOAD}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/proxy-hosts)
 ```
@@ -89,11 +91,13 @@ CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/
 ### Step 4: Add Cookie to Proxy Host List (Line 191)
 
 Change:
+
 ```bash
 EXISTING_UUID=$(curl -s http://localhost:8080/api/v1/proxy-hosts | grep -o '{[^}]*"domain_names":"integration.local"[^}]*}' | head -n1 | grep -o '"uuid":"[^"]*"' | sed 's/"uuid":"\([^"]*\)"/\1/')
 ```
 
 To:
+
 ```bash
 EXISTING_UUID=$(curl -s -b ${TMP_COOKIE} http://localhost:8080/api/v1/proxy-hosts | grep -o '{[^}]*"domain_names":"integration.local"[^}]*}' | head -n1 | grep -o '"uuid":"[^"]*"' | sed 's/"uuid":"\([^"]*\)"/\1/')
 ```
@@ -101,11 +105,13 @@ EXISTING_UUID=$(curl -s -b ${TMP_COOKIE} http://localhost:8080/api/v1/proxy-host
 ### Step 5: Add Cookie to Proxy Host Update (Line 195)
 
 Change:
+
 ```bash
 curl -s -X PUT -H "Content-Type: application/json" -d "${PROXY_HOST_PAYLOAD}" http://localhost:8080/api/v1/proxy-hosts/$EXISTING_UUID
 ```
 
 To:
+
 ```bash
 curl -s -X PUT -H "Content-Type: application/json" -d "${PROXY_HOST_PAYLOAD}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/proxy-hosts/$EXISTING_UUID
 ```

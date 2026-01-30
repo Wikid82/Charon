@@ -529,7 +529,7 @@ func TestPluginHandler_ListPlugins_ExternalLoadedPlugin(t *testing.T) {
 			Description: "External DNS provider",
 		},
 	}
-	dnsprovider.Global().Register(testProvider)
+	_ = dnsprovider.Global().Register(testProvider)
 	defer dnsprovider.Global().Unregister("external-type")
 
 	handler := NewPluginHandler(db, pluginLoader)
@@ -593,7 +593,7 @@ func TestPluginHandler_GetPlugin_WithProvider(t *testing.T) {
 			DocumentationURL: "https://example.com/docs",
 		},
 	}
-	dnsprovider.Global().Register(testProvider)
+	_ = dnsprovider.Global().Register(testProvider)
 	defer dnsprovider.Global().Unregister("provider-type")
 
 	handler := NewPluginHandler(db, pluginLoader)
@@ -882,7 +882,7 @@ func TestPluginHandler_EnablePlugin_DBUpdateError(t *testing.T) {
 
 	// Close the underlying connection to simulate DB error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	router := gin.New()
 	router.POST("/plugins/:id/enable", handler.EnablePlugin)
@@ -915,7 +915,7 @@ func TestPluginHandler_DisablePlugin_DBUpdateError(t *testing.T) {
 
 	// Close the underlying connection to simulate DB error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	router := gin.New()
 	router.POST("/plugins/:id/disable", handler.DisablePlugin)
@@ -948,7 +948,7 @@ func TestPluginHandler_GetPlugin_DBInternalError(t *testing.T) {
 
 	// Close the underlying connection to simulate DB error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	router := gin.New()
 	router.GET("/plugins/:id", handler.GetPlugin)
@@ -982,7 +982,7 @@ func TestPluginHandler_EnablePlugin_FirstDBLookupError(t *testing.T) {
 
 	// Close the underlying connection to simulate DB error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	router := gin.New()
 	router.POST("/plugins/:id/enable", handler.EnablePlugin)
@@ -1016,7 +1016,7 @@ func TestPluginHandler_DisablePlugin_FirstDBLookupError(t *testing.T) {
 
 	// Close the underlying connection to simulate DB error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	router := gin.New()
 	router.POST("/plugins/:id/disable", handler.DisablePlugin)

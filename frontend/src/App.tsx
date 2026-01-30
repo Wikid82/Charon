@@ -1,6 +1,7 @@
 import { Suspense, lazy } from 'react'
 import { Navigate } from 'react-router-dom'
 import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom'
+import { Toaster } from 'react-hot-toast'
 import Layout from './components/Layout'
 import { ToastContainer } from './components/Toast'
 import { SetupGuard } from './components/SetupGuard'
@@ -15,6 +16,8 @@ const RemoteServers = lazy(() => import('./pages/RemoteServers'))
 const DNS = lazy(() => import('./pages/DNS'))
 const ImportCaddy = lazy(() => import('./pages/ImportCaddy'))
 const ImportCrowdSec = lazy(() => import('./pages/ImportCrowdSec'))
+const ImportNPM = lazy(() => import('./pages/ImportNPM'))
+const ImportJSON = lazy(() => import('./pages/ImportJSON'))
 const Certificates = lazy(() => import('./pages/Certificates'))
 const DNSProviders = lazy(() => import('./pages/DNSProviders'))
 const SystemSettings = lazy(() => import('./pages/SystemSettings'))
@@ -108,6 +111,8 @@ export default function App() {
                 <Route path="import">
                   <Route path="caddyfile" element={<ImportCaddy />} />
                   <Route path="crowdsec" element={<ImportCrowdSec />} />
+                  <Route path="npm" element={<ImportNPM />} />
+                  <Route path="json" element={<ImportJSON />} />
                 </Route>
               </Route>
 
@@ -115,6 +120,20 @@ export default function App() {
           </Routes>
         </Suspense>
         <ToastContainer />
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            duration: 5000,
+            success: {
+              style: { background: '#16a34a', color: 'white' },
+              ariaProps: { role: 'status', 'aria-live': 'polite' },
+            },
+            error: {
+              style: { background: '#dc2626', color: 'white' },
+              ariaProps: { role: 'alert', 'aria-live': 'assertive' },
+            },
+          }}
+        />
       </Router>
     </AuthProvider>
   )

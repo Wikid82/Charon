@@ -65,7 +65,7 @@ func (s *RemoteServerService) Delete(id uint) error {
 // GetByID retrieves a remote server by ID.
 func (s *RemoteServerService) GetByID(id uint) (*models.RemoteServer, error) {
 	var server models.RemoteServer
-	if err := s.db.First(&server, id).Error; err != nil {
+	if err := s.db.Where("id = ?", id).First(&server).Error; err != nil {
 		return nil, err
 	}
 	return &server, nil

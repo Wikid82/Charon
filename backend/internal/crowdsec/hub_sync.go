@@ -448,13 +448,17 @@ func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (
 	if err != nil {
 		return HubIndex{}, fmt.Errorf("fetch hub index: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close response body")
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 			loc := resp.Header.Get("Location")
 			return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, inner: fmt.Errorf("hub index redirect to %s; install cscli or set HUB_BASE_URL to a JSON hub endpoint", firstNonEmpty(loc, target)), fallback: true}
 		}
-		return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, fallback: resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500}
+		return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, fallback: resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500}
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxArchiveSize))
 	if err != nil {
@@ -743,9 +747,13 @@ func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string) ([]b
 	if err != nil {
 		return nil, fmt.Errorf("request %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close response body")
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
-		return nil, hubHTTPError{url: url, statusCode: resp.StatusCode, fallback: resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500}
+		return nil, hubHTTPError{url: url, statusCode: resp.StatusCode, fallback: resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500}
 	}
 	lr := io.LimitReader(resp.Body, maxArchiveSize+1024)
 	data, err := io.ReadAll(lr)
@@ -929,7 +937,11 @@ func emptyDir(dir string) error {
 		}
 		return err
 	}
-	defer d.Close()
+	defer func() {
+		if err := d.Close(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close directory")
+		}
+	}()
 	names, err := d.Readdirnames(-1)
 	if err != nil {
 		return err
@@ -1053,7 +1065,11 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("open src: %w", err)
 	}
-	defer srcFile.Close()
+	defer func() {
+		if err := srcFile.Close(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close source file")
+		}
+	}()
 
 	srcInfo, err := srcFile.Stat()
 	if err != nil {
@@ -1064,7 +1080,11 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("create dst: %w", err)
 	}
-	defer dstFile.Close()
+	defer func() {
+		if err := dstFile.Close(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close destination file")
+		}
+	}()
 
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
 		return fmt.Errorf("copy: %w", err)

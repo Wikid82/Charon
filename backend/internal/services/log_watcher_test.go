@@ -323,7 +323,7 @@ func TestLogWatcherIntegration(t *testing.T) {
 	// Create the log file
 	file, err := os.Create(logPath)
 	require.NoError(t, err)
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Create and start watcher
 	watcher := NewLogWatcher(logPath)
@@ -355,7 +355,7 @@ func TestLogWatcherIntegration(t *testing.T) {
 
 	_, err = file.WriteString(string(logJSON) + "\n")
 	require.NoError(t, err)
-	file.Sync()
+	_ = file.Sync()
 
 	// Wait for the entry to be broadcast
 	select {
@@ -452,7 +452,7 @@ func TestLogWatcher_ReadLoop_EOFRetry(t *testing.T) {
 	// Create empty log file
 	file, err := os.Create(logPath)
 	require.NoError(t, err)
-	file.Close()
+	_ = file.Close()
 
 	watcher := NewLogWatcher(logPath)
 	err = watcher.Start(context.Background())
@@ -470,8 +470,8 @@ func TestLogWatcher_ReadLoop_EOFRetry(t *testing.T) {
 	logEntry := `{"level":"info","ts":1702406400.123,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"192.168.1.1","method":"GET","uri":"/test","host":"example.com","headers":{}},"status":200,"duration":0.001,"size":100}`
 	_, err = file.WriteString(logEntry + "\n")
 	require.NoError(t, err)
-	file.Sync()
-	file.Close()
+	_ = file.Sync()
+	_ = file.Close()
 
 	// Wait for watcher to read the new entry
 	select {

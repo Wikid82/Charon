@@ -13,7 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.25.5'
+  GO_VERSION: '1.25.6'
+  GOTOOLCHAIN: auto
 
 permissions:
   contents: read
@@ -25,7 +26,7 @@ jobs:
   analyze:
     name: CodeQL analysis (${{ matrix.language }})
     runs-on: ubuntu-latest
-    # Skip forked PRs where CPMP_TOKEN lacks security-events permissions
+    # Skip forked PRs where CHARON_TOKEN lacks security-events permissions
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
     permissions:
       contents: read
@@ -41,7 +42,7 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4
+        uses: github/codeql-action/init@b20883b0cd1f46c72ae0ba6d1090936928f9fa30 # v4
         with:
           languages: ${{ matrix.language }}
           # Use CodeQL config to exclude documented false positives
@@ -57,10 +58,10 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4
+        uses: github/codeql-action/autobuild@b20883b0cd1f46c72ae0ba6d1090936928f9fa30 # v4
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4
+        uses: github/codeql-action/analyze@b20883b0cd1f46c72ae0ba6d1090936928f9fa30 # v4
         with:
           category: "/language:${{ matrix.language }}"
 

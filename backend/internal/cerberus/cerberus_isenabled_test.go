@@ -17,7 +17,7 @@ func setupDBForTest(t *testing.T) *gorm.DB {
 	dsn := fmt.Sprintf("file:cerberus_isenabled_test_%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.Setting{}))
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
 	return db
 }
 
@@ -104,4 +104,23 @@ func TestIsEnabled_DefaultTrue(t *testing.T) {
 	c := cerberus.New(cfg, nil)
 	// Default to true per Optional Features spec
 	require.True(t, c.IsEnabled())
+}
+
+func TestIsEnabled_SecurityConfigDisabledOverridesConfig(t *testing.T) {
+	db := setupDBForTest(t)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", UUID: "test", Enabled: false}).Error)
+
+	cfg := config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled"}
+	c := cerberus.New(cfg, db)
+	require.False(t, c.IsEnabled())
+}
+
+func TestIsEnabled_SecurityConfigDisabledOverridesFeatureFlag(t *testing.T) {
+	db := setupDBForTest(t)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", UUID: "test", Enabled: false}).Error)
+	require.NoError(t, db.Create(&models.Setting{Key: "feature.cerberus.enabled", Value: "true"}).Error)
+
+	cfg := config.SecurityConfig{CerberusEnabled: true}
+	c := cerberus.New(cfg, db)
+	require.False(t, c.IsEnabled())
 }

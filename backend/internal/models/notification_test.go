@@ -11,7 +11,7 @@ import (
 func TestNotification_BeforeCreate(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	assert.NoError(t, err)
-	db.AutoMigrate(&Notification{})
+	_ = db.AutoMigrate(&Notification{})
 
 	// Case 1: ID is empty, should be generated
 	n1 := &Notification{Title: "Test", Message: "Test Message"}
@@ -30,7 +30,7 @@ func TestNotification_BeforeCreate(t *testing.T) {
 func TestNotificationConfig_BeforeCreate(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	assert.NoError(t, err)
-	db.AutoMigrate(&NotificationConfig{})
+	_ = db.AutoMigrate(&NotificationConfig{})
 
 	// Case 1: ID is empty, should be generated
 	nc1 := &NotificationConfig{Enabled: true, MinLogLevel: "error"}

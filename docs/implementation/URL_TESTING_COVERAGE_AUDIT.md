@@ -14,6 +14,7 @@
 The url_testing.go file contains SSRF protection logic that is security-critical. Analysis reveals that **the missing 11.2% coverage consists primarily of error handling paths that are extremely difficult to trigger in unit tests** without extensive mocking infrastructure.
 
 **Key Findings**:
+
 - ✅ All primary security paths ARE covered (SSRF validation, private IP detection)
 - ⚠️ Missing coverage is in low-probability error paths
 - ✅ Most missing lines are defensive error handling (good practice, hard to test)
@@ -27,20 +28,23 @@ The url_testing.go file contains SSRF protection logic that is security-critical
 
 **Purpose**: Creates a custom dialer that validates IP addresses at connection time to prevent DNS rebinding attacks.
 
-#### Covered Lines (13 executions):
+#### Covered Lines (13 executions)
+
 - ✅ Lines 15-16: Function definition and closure
 - ✅ Lines 17-18: SplitHostPort call
 - ✅ Lines 24-25: DNS LookupIPAddr
 - ✅ Lines 34-37: IP validation loop (11 executions)
 
-#### Missing Lines (0 executions):
+#### Missing Lines (0 executions)
 
 **Lines 19-21: Invalid address format error path**
+
 ```go
 if err != nil {
     return nil, fmt.Errorf("invalid address format: %w", err)
 }
 ```
+
 **Why Missing**: `net.SplitHostPort()` never fails in current tests because all URLs pass through `url.Parse()` first, which validates host:port format.
 
 **Severity**: 🟡 LOW - Defensive error handling
@@ -51,11 +55,13 @@ if err != nil {
 ---
 
 **Lines 29-31: No IP addresses found error path**
+
 ```go
 if len(ips) == 0 {
     return nil, fmt.Errorf("no IP addresses found for host")
 }
 ```
+
 **Why Missing**: DNS resolution in tests always returns at least one IP. Would require mocking `net.DefaultResolver.LookupIPAddr` to return empty slice.
 
 **Severity**: 🟡 LOW - Rare DNS edge case
@@ -66,9 +72,11 @@ if len(ips) == 0 {
 ---
 
 **Lines 41-44: Final DialContext call in production path**
+
 ```go
 return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
 ```
+
 **Why Missing**: Tests use `mockTransport` which bypasses the actual dialer completely. This line is only executed in production when no transport is provided.
 
 **Severity**: 🟢 ACCEPTABLE - Integration test territory
@@ -82,15 +90,17 @@ return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), por
 
 **Purpose**: Performs server-side connectivity test with SSRF protection.
 
-#### Covered Lines (28+ executions):
+#### Covered Lines (28+ executions)
+
 - ✅ URL parsing and validation (32 tests)
 - ✅ HTTP client creation with mock transport (15 tests)
 - ✅ Request creation and execution (28 tests)
 - ✅ Response handling (13 tests)
 
-#### Missing Lines (0 executions):
+#### Missing Lines (0 executions)
 
 **Lines 93-97: Production HTTP Transport initialization (CheckRedirect error path)**
+
 ```go
 CheckRedirect: func(req *http.Request, via []*http.Request) error {
     if len(via) >= 2 {
@@ -99,6 +109,7 @@ CheckRedirect: func(req *http.Request, via []*http.Request) error {
     return nil
 },
 ```
+
 **Why Missing**: The production transport (lines 81-103) is never instantiated in unit tests because all tests provide a `mockTransport`. The redirect handler within this production path is therefore never called.
 
 **Severity**: 🟡 MODERATE - Redirect limit is security feature
@@ -109,11 +120,13 @@ CheckRedirect: func(req *http.Request, via []*http.Request) error {
 ---
 
 **Lines 106-108: Request creation error path**
+
 ```go
 if err != nil {
     return false, 0, fmt.Errorf("failed to create request: %w", err)
 }
 ```
+
 **Why Missing**: `http.NewRequestWithContext()` rarely fails with valid URLs. Would need malformed URL that passes `url.Parse()` but breaks request creation.
 
 **Severity**: 🟢 LOW - Defensive error handling
@@ -127,20 +140,23 @@ if err != nil {
 
 **Purpose**: Checks if an IP address is private, loopback, or restricted (SSRF protection).
 
-#### Covered Lines (39 executions):
+#### Covered Lines (39 executions)
+
 - ✅ Built-in Go checks (IsLoopback, IsLinkLocalUnicast, etc.) - 17 tests
 - ✅ Private block definitions (22 tests)
 - ✅ CIDR subnet checking (131 tests)
 - ✅ Match logic (16 tests)
 
-#### Missing Lines (0 executions):
+#### Missing Lines (0 executions)
 
 **Lines 173-174: ParseCIDR error handling**
+
 ```go
 if err != nil {
     continue
 }
 ```
+
 **Why Missing**: All CIDR blocks in `privateBlocks` are hardcoded and valid. This error path only triggers if there's a typo in the CIDR definitions.
 
 **Severity**: 🟢 LOW - Defensive error handling
@@ -163,6 +179,7 @@ if err != nil {
 ## Categorized Missing Coverage
 
 ### Category 1: Critical Security Paths (MUST TEST) 🔴
+
 **None identified** - All primary SSRF protection logic is covered.
 
 ---
@@ -185,22 +202,22 @@ if err != nil {
 
 ### Category 3: Edge Cases (NICE TO HAVE) 🟢
 
-3. **ssrfSafeDialer - Empty DNS result**
+1. **ssrfSafeDialer - Empty DNS result**
    - Lines 29-31
    - **Reason**: Extremely rare DNS edge case
    - **Recommendation**: DEFER - Low ROI, requires resolver mocking
 
-4. **ssrfSafeDialer - Production DialContext**
+2. **ssrfSafeDialer - Production DialContext**
    - Lines 41-44
    - **Reason**: Integration test territory, covered by real-world usage
    - **Recommendation**: DEFER - Use integration/e2e tests instead
 
-5. **TestURLConnectivity - Request creation failure**
+3. **TestURLConnectivity - Request creation failure**
    - Lines 106-108
    - **Reason**: Defensive code, hard to trigger with valid inputs
    - **Recommendation**: DEFER - Upstream validation prevents this
 
-6. **isPrivateIP - ParseCIDR error**
+4. **isPrivateIP - ParseCIDR error**
    - Lines 173-174
    - **Reason**: Would require bug in hardcoded CIDR list
    - **Recommendation**: DEFER - Static data, no runtime risk
@@ -212,6 +229,7 @@ if err != nil {
 ### Phase 1: Quick Wins (30 minutes, +2.3% coverage → 84%)
 
 **Test 1: Production path without transport**
+
 ```go
 func TestTestURLConnectivity_ProductionPath_RedirectLimit(t *testing.T) {
     // Create a server that redirects infinitely
@@ -230,6 +248,7 @@ func TestTestURLConnectivity_ProductionPath_RedirectLimit(t *testing.T) {
 ```
 
 **Test 2: Invalid address format in dialer**
+
 ```go
 func TestSSRFSafeDialer_InvalidAddressFormat(t *testing.T) {
     dialer := ssrfSafeDialer()
@@ -245,6 +264,7 @@ func TestSSRFSafeDialer_InvalidAddressFormat(t *testing.T) {
 ---
 
 ### Phase 2: Diminishing Returns (DEFER)
+
 - Lines 29-31: Empty DNS results (requires resolver mocking)
 - Lines 41-44: Production DialContext (integration test)
 - Lines 106-108: Request creation failure (defensive code)
@@ -277,19 +297,23 @@ Remaining gaps are defensive error handling that protect against scenarios preve
 
 **Verdict**: ✅ **ACCEPT with Condition**
 
-### Rationale:
+### Rationale
+
 1. **Core security logic is well-tested** (SSRF validation, IP detection)
 2. **Missing coverage is primarily defensive error handling** (good practice)
 3. **Two quick-win tests can bring coverage to ~84%**, nearly meeting 85% threshold
 4. **Remaining gaps are low-value edge cases** (< 2% coverage impact)
 
-### Condition:
+### Condition
+
 - **Add Phase 1 tests** (30 minutes effort) to cover production redirect limit
 - **Document accepted gaps** in test comments
 - **Monitor in integration tests** for real-world behavior
 
-### Risk Acceptance:
+### Risk Acceptance
+
 The 1% gap below threshold is acceptable because:
+
 - Security-critical paths are covered
 - Missing lines are defensive error handling
 - Integration tests cover production behavior
@@ -299,17 +323,20 @@ The 1% gap below threshold is acceptable because:
 
 ## Coverage Metrics
 
-### Before Phase 1:
+### Before Phase 1
+
 - **Codecov**: 81.70%
 - **Local**: 88.0%
 - **Delta**: -3.3% from target
 
-### After Phase 1 (Projected):
+### After Phase 1 (Projected)
+
 - **Estimated**: 84.0%
 - **Delta**: -1% from target
 - **Status**: ACCEPTABLE for security-critical code
 
-### Theoretical Maximum (with all gaps filled):
+### Theoretical Maximum (with all gaps filled)
+
 - **Maximum**: ~89%
 - **Requires**: Extensive resolver/dialer mocking
 - **ROI**: Very Low
@@ -319,6 +346,7 @@ The 1% gap below threshold is acceptable because:
 ## Appendix: Coverage Data
 
 ### Raw Coverage Output
+
 ```
 Function               Coverage
 ssrfSafeDialer         71.4%
@@ -328,6 +356,7 @@ Overall                88.0%
 ```
 
 ### Missing Blocks by Line Number
+
 - Lines 19-21: Invalid address format (ssrfSafeDialer)
 - Lines 29-31: Empty DNS result (ssrfSafeDialer)
 - Lines 41-44: Production DialContext (ssrfSafeDialer)

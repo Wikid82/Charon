@@ -17,6 +17,7 @@ import {
   SelectValue,
   Checkbox,
   Alert,
+  Textarea,
 } from './ui'
 import { useDNSProviderTypes, useDNSProviderMutations, type DNSProvider } from '../hooks/useDNSProviders'
 import type { DNSProviderRequest, DNSProviderTypeInfo } from '../api/dnsProviders'
@@ -64,7 +65,7 @@ export default function DNSProviderForm({
       setPropagationTimeout(provider.propagation_timeout)
       setPollingInterval(provider.polling_interval)
       setIsDefault(provider.is_default)
-      setUseMultiCredentials((provider as any).use_multi_credentials || false)
+      setUseMultiCredentials((provider as { use_multi_credentials?: boolean }).use_multi_credentials || false)
       setCredentials({}) // Don't pre-fill credentials (they're encrypted)
     } else {
       resetForm()
@@ -90,7 +91,7 @@ export default function DNSProviderForm({
     // Prefer dynamic fields from API if available
     if (dynamicFields) {
       return {
-        type: dynamicFields.type as any,
+        type: dynamicFields.type as DNSProviderTypeInfo['type'],
         name: dynamicFields.name,
         fields: [
           ...dynamicFields.required_fields.map(f => ({ ...f, required: true })),
@@ -117,7 +118,7 @@ export default function DNSProviderForm({
 
     const data: DNSProviderRequest = {
       name: name || 'Test',
-      provider_type: providerType as any,
+      provider_type: providerType as DNSProviderRequest['provider_type'],
       credentials,
       propagation_timeout: propagationTimeout,
       polling_interval: pollingInterval,
@@ -129,10 +130,11 @@ export default function DNSProviderForm({
         success: result.success,
         message: result.message || result.error || t('dnsProviders.testSuccess'),
       })
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: string } }; message?: string }
       setTestResult({
         success: false,
-        message: error.response?.data?.error || error.message || t('dnsProviders.testFailed'),
+        message: err.response?.data?.error || err.message || t('dnsProviders.testFailed'),
       })
     }
   }
@@ -143,7 +145,7 @@ export default function DNSProviderForm({
 
     const data: DNSProviderRequest = {
       name,
-      provider_type: providerType as any,
+      provider_type: providerType as DNSProviderRequest['provider_type'],
       credentials,
       propagation_timeout: propagationTimeout,
       polling_interval: pollingInterval,
@@ -186,7 +188,7 @@ export default function DNSProviderForm({
               onValueChange={setProviderType}
               disabled={!!provider} // Can't change type when editing
             >
-              <SelectTrigger id="provider-type">
+              <SelectTrigger id="provider-type" aria-label={t('dnsProviders.providerType')}>
                 <SelectValue placeholder={t('dnsProviders.selectProviderType')} />
               </SelectTrigger>
               <SelectContent>
@@ -207,11 +209,13 @@ export default function DNSProviderForm({
 
           {/* Provider Name */}
           <Input
+            id="provider-name"
             label={t('dnsProviders.providerName')}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder={t('dnsProviders.providerNamePlaceholder')}
             required
+            aria-label={t('dnsProviders.providerName')}
           />
 
           {/* Dynamic Credential Fields */}
@@ -233,18 +237,68 @@ export default function DNSProviderForm({
                   )}
                 </div>
 
-                {selectedProviderInfo.fields?.map((field) => (
-                  <Input
-                    key={field.name}
-                    label={field.label}
-                    type={field.type}
-                    value={credentials[field.name] || ''}
-                    onChange={(e) => handleCredentialChange(field.name, e.target.value)}
-                    placeholder={field.default}
-                    helperText={field.hint}
-                    required={field.required && !provider} // Don't require when editing (preserve existing)
-                  />
-                ))}
+                {selectedProviderInfo.fields?.map((field) => {
+                  // Handle select field type
+                  if (field.type === 'select' && field.options) {
+                    return (
+                      <div key={field.name} className="space-y-1.5">
+                        <Label htmlFor={`field-${field.name}`}>{field.label}</Label>
+                        <Select
+                          value={credentials[field.name] || field.default || ''}
+                          onValueChange={(value) => handleCredentialChange(field.name, value)}
+                        >
+                          <SelectTrigger id={`field-${field.name}`}>
+                            <SelectValue placeholder={field.placeholder || `Select ${field.label}`} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {field.options.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {field.hint && (
+                          <p className="text-sm text-content-muted">{field.hint}</p>
+                        )}
+                      </div>
+                    )
+                  }
+
+                  // Handle textarea field type
+                  if (field.type === 'textarea') {
+                    return (
+                      <div key={field.name} className="space-y-1.5">
+                        <Label htmlFor={`field-${field.name}`}>{field.label}</Label>
+                        <Textarea
+                          id={`field-${field.name}`}
+                          value={credentials[field.name] || ''}
+                          onChange={(e) => handleCredentialChange(field.name, e.target.value)}
+                          placeholder={field.placeholder || field.default}
+                          required={field.required && !provider}
+                          rows={4}
+                        />
+                        {field.hint && (
+                          <p className="text-sm text-content-muted">{field.hint}</p>
+                        )}
+                      </div>
+                    )
+                  }
+
+                  // Default: text or password input fields
+                  return (
+                    <Input
+                      key={field.name}
+                      label={field.label}
+                      type={field.type}
+                      value={credentials[field.name] || ''}
+                      onChange={(e) => handleCredentialChange(field.name, e.target.value)}
+                      placeholder={field.placeholder || field.default}
+                      helperText={field.hint}
+                      required={field.required && !provider}
+                    />
+                  )
+                })}
               </div>
 
               {/* Test Connection */}
@@ -295,7 +349,7 @@ export default function DNSProviderForm({
                             try {
                               await enableMultiCredsMutation.mutateAsync(provider.id)
                               setUseMultiCredentials(true)
-                            } catch (error: any) {
+                            } catch (error: unknown) {
                               console.error('Failed to enable multi-credentials:', error)
                             }
                           } else if (!checked && useMultiCredentials && existingCredentials?.length) {

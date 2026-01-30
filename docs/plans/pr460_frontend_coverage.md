@@ -1,15 +1,18 @@
 # PR #460: Frontend DNS Provider Coverage Plan
 
 ## Overview
+
 Add comprehensive test coverage for DNS provider feature to achieve 85%+ coverage threshold.
 
 ## Files Requiring Tests
 
 ### 1. `frontend/src/api/dnsProviders.ts`
+
 **Status:** No existing tests
 **Target Coverage:** 85%+
 
 **Test Cases:**
+
 - `getDNSProviders()` - Fetch all providers list
   - Successful response with providers array
   - Empty providers list
@@ -52,10 +55,12 @@ Add comprehensive test coverage for DNS provider feature to achieve 85%+ coverag
 ---
 
 ### 2. `frontend/src/hooks/useDNSProviders.ts`
+
 **Status:** No existing tests
 **Target Coverage:** 85%+
 
 **Test Cases:**
+
 - `useDNSProviders()` hook
   - Returns providers list on mount
   - Loading state during fetch
@@ -92,10 +97,12 @@ Add comprehensive test coverage for DNS provider feature to achieve 85%+ coverag
 ---
 
 ### 3. `frontend/src/components/DNSProviderSelector.tsx`
+
 **Status:** No existing tests
 **Target Coverage:** 85%+
 
 **Test Cases:**
+
 - Component rendering
   - Renders with label when provided
   - Renders without label
@@ -136,10 +143,12 @@ Add comprehensive test coverage for DNS provider feature to achieve 85%+ coverag
 ---
 
 ### 4. `frontend/src/components/ProxyHostForm.tsx`
+
 **Status:** Partial tests exist, DNS provider integration NOT covered
 **Target Coverage:** Add DNS-specific tests to existing suite
 
 **Test Cases to Add:**
+
 - Wildcard domain detection
   - Detects `*.example.com` as wildcard
   - Does not detect `sub.example.com` as wildcard
@@ -182,6 +191,7 @@ Add comprehensive test coverage for DNS provider feature to achieve 85%+ coverag
 ## Coverage Target
 
 **Overall Goal:** 85%+ coverage for all four files
+
 - Statements: ≥85%
 - Branches: ≥85%
 - Functions: ≥85%
@@ -197,6 +207,7 @@ Add comprehensive test coverage for DNS provider feature to achieve 85%+ coverag
 ## Validation
 
 Run coverage after implementation:
+
 ```bash
 npm test -- --coverage --collectCoverageFrom='src/api/dnsProviders.ts' --collectCoverageFrom='src/hooks/useDNSProviders.ts' --collectCoverageFrom='src/components/DNSProviderSelector.tsx' --collectCoverageFrom='src/components/ProxyHostForm.tsx'
 ```
@@ -204,6 +215,7 @@ npm test -- --coverage --collectCoverageFrom='src/api/dnsProviders.ts' --collect
 ---
 
 **Completion Criteria:**
+
 - [ ] All four test files created
 - [ ] All test cases implemented
 - [ ] Coverage report shows ≥85% for all metrics

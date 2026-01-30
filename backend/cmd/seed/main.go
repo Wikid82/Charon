@@ -9,12 +9,24 @@ import (
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 )
+
+func logSeedResult(entry *logrus.Entry, result *gorm.DB, errorMessage string, logCreated func(), existsMessage string) {
+	switch {
+	case result.Error != nil:
+		entry.WithError(result.Error).Error(errorMessage)
+	case result.RowsAffected > 0:
+		logCreated()
+	default:
+		entry.Info(existsMessage)
+	}
+}
 
 func main() {
 	// Connect to database
@@ -107,13 +119,16 @@ func main() {
 
 	for _, server := range remoteServers {
 		result := db.Where("host = ? AND port = ?", server.Host, server.Port).FirstOrCreate(&server)
-		if result.Error != nil {
-			logger.Log().WithField("server", server.Name).WithError(result.Error).Error("Failed to seed remote server")
-		} else if result.RowsAffected > 0 {
-			logger.Log().WithField("server", server.Name).Infof("✓ Created remote server: %s (%s:%d)", server.Name, server.Host, server.Port)
-		} else {
-			logger.Log().WithField("server", server.Name).Info("Remote server already exists")
-		}
+		logEntry := logger.Log().WithField("server", server.Name)
+		logSeedResult(
+			logEntry,
+			result,
+			"Failed to seed remote server",
+			func() {
+				logEntry.Infof("✓ Created remote server: %s (%s:%d)", server.Name, server.Host, server.Port)
+			},
+			"Remote server already exists",
+		)
 	}
 
 	// Seed Proxy Hosts
@@ -161,13 +176,16 @@ func main() {
 
 	for _, host := range proxyHosts {
 		result := db.Where("domain_names = ?", host.DomainNames).FirstOrCreate(&host)
-		if result.Error != nil {
-			logger.Log().WithField("host", util.SanitizeForLog(host.DomainNames)).WithError(result.Error).Error("Failed to seed proxy host")
-		} else if result.RowsAffected > 0 {
-			logger.Log().WithField("host", util.SanitizeForLog(host.DomainNames)).Infof("✓ Created proxy host: %s -> %s://%s:%d", host.DomainNames, host.ForwardScheme, host.ForwardHost, host.ForwardPort)
-		} else {
-			logger.Log().WithField("host", util.SanitizeForLog(host.DomainNames)).Info("Proxy host already exists")
-		}
+		logEntry := logger.Log().WithField("host", util.SanitizeForLog(host.DomainNames))
+		logSeedResult(
+			logEntry,
+			result,
+			"Failed to seed proxy host",
+			func() {
+				logEntry.Infof("✓ Created proxy host: %s -> %s://%s:%d", host.DomainNames, host.ForwardScheme, host.ForwardHost, host.ForwardPort)
+			},
+			"Proxy host already exists",
+		)
 	}
 
 	// Seed Settings
@@ -194,13 +212,16 @@ func main() {
 
 	for _, setting := range settings {
 		result := db.Where("key = ?", setting.Key).FirstOrCreate(&setting)
-		if result.Error != nil {
-			logger.Log().WithField("setting", setting.Key).WithError(result.Error).Error("Failed to seed setting")
-		} else if result.RowsAffected > 0 {
-			logger.Log().WithField("setting", setting.Key).Infof("✓ Created setting: %s = %s", setting.Key, setting.Value)
-		} else {
-			logger.Log().WithField("setting", setting.Key).Info("Setting already exists")
-		}
+		logEntry := logger.Log().WithField("setting", setting.Key)
+		logSeedResult(
+			logEntry,
+			result,
+			"Failed to seed setting",
+			func() {
+				logEntry.Infof("✓ Created setting: %s = %s", setting.Key, setting.Value)
+			},
+			"Setting already exists",
+		)
 	}
 
 	// Seed default admin user (for future authentication)

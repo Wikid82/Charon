@@ -631,11 +631,32 @@ func (m *Manager) computeEffectiveFlags(_ context.Context) (cerbEnabled, aclEnab
 		}
 
 		// runtime override for ACL enabled
+		s = models.Setting{} // Reset to prevent ID leakage from previous query
 		if err := m.db.Where("key = ?", "security.acl.enabled").First(&s).Error; err == nil {
 			if strings.EqualFold(s.Value, "true") {
 				aclEnabled = true
 			} else if strings.EqualFold(s.Value, "false") {
 				aclEnabled = false
+			}
+		}
+
+		// runtime override for WAF enabled
+		s = models.Setting{} // Reset
+		if err := m.db.Where("key = ?", "security.waf.enabled").First(&s).Error; err == nil {
+			if strings.EqualFold(s.Value, "true") {
+				wafEnabled = true
+			} else if strings.EqualFold(s.Value, "false") {
+				wafEnabled = false
+			}
+		}
+
+		// runtime override for Rate Limit enabled
+		s = models.Setting{} // Reset
+		if err := m.db.Where("key = ?", "security.rate_limit.enabled").First(&s).Error; err == nil {
+			if strings.EqualFold(s.Value, "true") {
+				rateLimitEnabled = true
+			} else if strings.EqualFold(s.Value, "false") {
+				rateLimitEnabled = false
 			}
 		}
 

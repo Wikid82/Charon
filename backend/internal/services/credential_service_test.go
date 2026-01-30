@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -19,14 +20,15 @@ import (
 
 func setupCredentialTestDB(t *testing.T) (*gorm.DB, *crypto.EncryptionService) {
 	// Use test name for unique database to avoid test interference
-	dbName := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	// Enable WAL mode and busytimeout to prevent locking issues during concurrent tests
+	dbName := fmt.Sprintf("file:%s?mode=memory&cache=shared&_journal_mode=WAL&_busy_timeout=5000", t.Name())
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
 
 	// Close database connection when test completes
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
-		sqlDB.Close()
+		_ = sqlDB.Close()
 	})
 
 	err = db.AutoMigrate(
@@ -138,7 +140,7 @@ func TestCredentialService_List(t *testing.T) {
 
 	provider := createTestProvider(t, db, encryptor, true)
 
-	// Create multiple credentials
+	// Create multiple credentials with slight delay to avoid SQLite locking
 	for i := 0; i < 3; i++ {
 		req := services.CreateCredentialRequest{
 			Label:       "Credential " + string(rune('A'+i)),
@@ -147,6 +149,9 @@ func TestCredentialService_List(t *testing.T) {
 		}
 		_, err := service.Create(ctx, provider.ID, req)
 		require.NoError(t, err)
+		if i < 2 {
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 
 	creds, err := service.List(ctx, provider.ID)
@@ -418,7 +423,7 @@ func TestCredentialService_EnableMultiCredentials(t *testing.T) {
 
 	// Verify provider is now in multi-credential mode
 	var updatedProvider models.DNSProvider
-	err = db.First(&updatedProvider, provider.ID).Error
+	err = db.Where("id = ?", provider.ID).First(&updatedProvider).Error
 	require.NoError(t, err)
 	assert.True(t, updatedProvider.UseMultiCredentials)
 

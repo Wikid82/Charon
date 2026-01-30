@@ -60,14 +60,14 @@ func TestUptimeService_CheckAll(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}),
 	}
-	go server.Serve(listener)
-	defer server.Close()
+	go func() { _ = server.Serve(listener) }()
+	defer func() { _ = server.Close() }()
 
 	// Wait for HTTP server to be ready by making a test request
 	for i := 0; i < 10; i++ {
 		conn, err := net.DialTimeout("tcp", addr.String(), 100*time.Millisecond)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -79,7 +79,7 @@ func TestUptimeService_CheckAll(t *testing.T) {
 		t.Fatalf("Failed to start down listener: %v", err)
 	}
 	downAddr := downListener.Addr().(*net.TCPAddr)
-	downListener.Close()
+	_ = downListener.Close()
 
 	// Seed ProxyHosts
 	// We use the listener address as the "DomainName" so the monitor checks this HTTP server
@@ -142,8 +142,8 @@ func TestUptimeService_CheckAll(t *testing.T) {
 
 	// Now let's flip the status to trigger notification
 	// Make upHost go DOWN by closing the listener
-	server.Close()
-	listener.Close()
+	_ = server.Close()
+	_ = listener.Close()
 	time.Sleep(10 * time.Millisecond)
 
 	// Run CheckAll multiple times to exceed MaxRetries
@@ -258,7 +258,7 @@ func TestUptimeService_SyncMonitors_Errors(t *testing.T) {
 
 		// Close the database to force errors
 		sqlDB, _ := db.DB()
-		sqlDB.Close()
+		_ = sqlDB.Close()
 
 		err := us.SyncMonitors()
 		assert.Error(t, err)
@@ -833,8 +833,8 @@ func TestUptimeService_CheckMonitor_EdgeCases(t *testing.T) {
 				w.WriteHeader(http.StatusNotFound)
 			}),
 		}
-		go server.Serve(listener)
-		defer server.Close()
+		go func() { _ = server.Serve(listener) }()
+		defer func() { _ = server.Close() }()
 
 		host := models.ProxyHost{
 			UUID:        "404-host",

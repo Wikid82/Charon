@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/google/uuid"
 	"golang.org/x/net/idna"
@@ -83,7 +84,7 @@ func NewCredentialService(db *gorm.DB, encryptor *crypto.EncryptionService) Cred
 func (s *credentialService) List(ctx context.Context, providerID uint) ([]models.DNSProviderCredential, error) {
 	// Verify provider exists and has multi-credential enabled
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).First(&provider, providerID).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrDNSProviderNotFound
 		}
@@ -124,7 +125,7 @@ func (s *credentialService) Get(ctx context.Context, providerID, credentialID ui
 func (s *credentialService) Create(ctx context.Context, providerID uint, req CreateCredentialRequest) (*models.DNSProviderCredential, error) {
 	// Verify provider exists and has multi-credential enabled
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).First(&provider, providerID).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrDNSProviderNotFound
 		}
@@ -203,7 +204,7 @@ func (s *credentialService) Create(ctx context.Context, providerID uint, req Cre
 		"zone_filter": req.ZoneFilter,
 		"provider_id": providerID,
 	})
-	s.securityService.LogAudit(&models.SecurityAudit{
+	if err := s.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromContext(ctx),
 		Action:        "credential_create",
 		EventCategory: "dns_provider",
@@ -212,7 +213,9 @@ func (s *credentialService) Create(ctx context.Context, providerID uint, req Cre
 		Details:       string(detailsJSON),
 		IPAddress:     getIPFromContext(ctx),
 		UserAgent:     getUserAgentFromContext(ctx),
-	})
+	}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to log audit event")
+	}
 
 	return credential, nil
 }
@@ -227,7 +230,7 @@ func (s *credentialService) Update(ctx context.Context, providerID, credentialID
 
 	// Fetch provider for validation and audit logging
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).First(&provider, providerID).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
 		return nil, err
 	}
 
@@ -318,7 +321,7 @@ func (s *credentialService) Update(ctx context.Context, providerID, credentialID
 			"old_values":     oldValues,
 			"new_values":     newValues,
 		})
-		s.securityService.LogAudit(&models.SecurityAudit{
+		if err := s.securityService.LogAudit(&models.SecurityAudit{
 			Actor:         getActorFromContext(ctx),
 			Action:        "credential_update",
 			EventCategory: "dns_provider",
@@ -327,7 +330,9 @@ func (s *credentialService) Update(ctx context.Context, providerID, credentialID
 			Details:       string(detailsJSON),
 			IPAddress:     getIPFromContext(ctx),
 			UserAgent:     getUserAgentFromContext(ctx),
-		})
+		}); err != nil {
+			logger.Log().WithError(err).Warn("Failed to log audit event")
+		}
 	}
 
 	return credential, nil
@@ -342,7 +347,7 @@ func (s *credentialService) Delete(ctx context.Context, providerID, credentialID
 	}
 
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).First(&provider, providerID).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
 		return err
 	}
 
@@ -360,7 +365,7 @@ func (s *credentialService) Delete(ctx context.Context, providerID, credentialID
 		"label":         credential.Label,
 		"zone_filter":   credential.ZoneFilter,
 	})
-	s.securityService.LogAudit(&models.SecurityAudit{
+	if err := s.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromContext(ctx),
 		Action:        "credential_delete",
 		EventCategory: "dns_provider",
@@ -369,7 +374,9 @@ func (s *credentialService) Delete(ctx context.Context, providerID, credentialID
 		Details:       string(detailsJSON),
 		IPAddress:     getIPFromContext(ctx),
 		UserAgent:     getUserAgentFromContext(ctx),
-	})
+	}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to log audit event")
+	}
 
 	return nil
 }
@@ -382,7 +389,7 @@ func (s *credentialService) Test(ctx context.Context, providerID, credentialID u
 	}
 
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).First(&provider, providerID).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
 		return nil, err
 	}
 
@@ -437,7 +444,7 @@ func (s *credentialService) Test(ctx context.Context, providerID, credentialID u
 		"test_result":   result.Success,
 		"error":         result.Error,
 	})
-	s.securityService.LogAudit(&models.SecurityAudit{
+	if err := s.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromContext(ctx),
 		Action:        "credential_test",
 		EventCategory: "dns_provider",
@@ -446,7 +453,9 @@ func (s *credentialService) Test(ctx context.Context, providerID, credentialID u
 		Details:       string(detailsJSON),
 		IPAddress:     getIPFromContext(ctx),
 		UserAgent:     getUserAgentFromContext(ctx),
-	})
+	}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to log audit event")
+	}
 
 	return result, nil
 }
@@ -456,7 +465,7 @@ func (s *credentialService) Test(ctx context.Context, providerID, credentialID u
 func (s *credentialService) GetCredentialForDomain(ctx context.Context, providerID uint, domain string) (*models.DNSProviderCredential, error) {
 	// Verify provider exists
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).First(&provider, providerID).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrDNSProviderNotFound
 		}
@@ -552,7 +561,7 @@ func matchesDomain(zoneFilter, domain string, exactOnly bool) bool {
 func (s *credentialService) EnableMultiCredentials(ctx context.Context, providerID uint) error {
 	// Fetch provider
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).First(&provider, providerID).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrDNSProviderNotFound
 		}
@@ -613,7 +622,7 @@ func (s *credentialService) EnableMultiCredentials(ctx context.Context, provider
 		"provider_name":             provider.Name,
 		"migrated_credential_label": credential.Label,
 	})
-	s.securityService.LogAudit(&models.SecurityAudit{
+	if err := s.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromContext(ctx),
 		Action:        "multi_credential_enabled",
 		EventCategory: "dns_provider",
@@ -622,7 +631,9 @@ func (s *credentialService) EnableMultiCredentials(ctx context.Context, provider
 		Details:       string(detailsJSON),
 		IPAddress:     getIPFromContext(ctx),
 		UserAgent:     getUserAgentFromContext(ctx),
-	})
+	}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to log audit event")
+	}
 
 	return nil
 }

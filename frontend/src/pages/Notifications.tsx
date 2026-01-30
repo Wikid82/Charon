@@ -101,6 +101,7 @@ const ProviderForm: FC<{
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.providerName')}</label>
         <input
           {...register('name', { required: t('errors.required') as string })}
+          data-testid="provider-name"
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
         />
         {errors.name && <span className="text-red-500 text-xs">{errors.name.message as string}</span>}
@@ -110,6 +111,7 @@ const ProviderForm: FC<{
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('common.type')}</label>
         <select
           {...register('type')}
+          data-testid="provider-type"
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
         >
           <option value="discord">Discord</option>
@@ -125,6 +127,7 @@ const ProviderForm: FC<{
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.urlWebhook')}</label>
         <input
           {...register('url', { required: t('notificationProviders.urlRequired') as string })}
+          data-testid="provider-url"
           placeholder="https://discord.com/api/webhooks/..."
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
         />
@@ -164,6 +167,7 @@ const ProviderForm: FC<{
           </div>
           <textarea
             {...register('config')}
+            data-testid="provider-config"
             rows={8}
             className="mt-1 block w-full font-mono text-xs rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             placeholder='{"text": "{{.Message}}"}'
@@ -178,23 +182,23 @@ const ProviderForm: FC<{
         <h4 className="text-sm font-medium text-gray-900 dark:text-white">{t('notificationProviders.notificationEvents')}</h4>
         <div className="grid grid-cols-2 gap-2">
           <div className="flex items-center">
-            <input type="checkbox" {...register('notify_proxy_hosts')} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+            <input type="checkbox" {...register('notify_proxy_hosts')} data-testid="notify-proxy-hosts" className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
             <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.proxyHosts')}</label>
           </div>
           <div className="flex items-center">
-            <input type="checkbox" {...register('notify_remote_servers')} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+            <input type="checkbox" {...register('notify_remote_servers')} data-testid="notify-remote-servers" className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
             <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.remoteServers')}</label>
           </div>
           <div className="flex items-center">
-            <input type="checkbox" {...register('notify_domains')} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+            <input type="checkbox" {...register('notify_domains')} data-testid="notify-domains" className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
             <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.domainsNotify')}</label>
           </div>
           <div className="flex items-center">
-            <input type="checkbox" {...register('notify_certs')} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+            <input type="checkbox" {...register('notify_certs')} data-testid="notify-certs" className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
             <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.certificates')}</label>
           </div>
           <div className="flex items-center">
-            <input type="checkbox" {...register('notify_uptime')} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+            <input type="checkbox" {...register('notify_uptime')} data-testid="notify-uptime" className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
             <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.uptime')}</label>
           </div>
         </div>
@@ -204,6 +208,7 @@ const ProviderForm: FC<{
         <input
           type="checkbox"
           {...register('enabled')}
+          data-testid="provider-enabled"
           className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
         />
         <label className="ml-2 block text-sm text-gray-900 dark:text-gray-300">{t('common.enabled')}</label>
@@ -216,6 +221,7 @@ const ProviderForm: FC<{
           variant="secondary"
           onClick={handlePreview}
           disabled={testMutation.isPending}
+          data-testid="provider-preview-btn"
           className="min-w-[80px]"
         >
           {t('notificationProviders.preview')}
@@ -225,6 +231,7 @@ const ProviderForm: FC<{
           variant="secondary"
           onClick={handleTest}
           disabled={testMutation.isPending}
+          data-testid="provider-test-btn"
           className="min-w-[80px]"
         >
           {testMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> :
@@ -232,7 +239,7 @@ const ProviderForm: FC<{
            testStatus === 'error' ? <X className="w-4 h-4 text-red-500 mx-auto" /> :
            t('common.test')}
         </Button>
-        <Button type="submit">{t('common.save')}</Button>
+        <Button type="submit" data-testid="provider-save-btn">{t('common.save')}</Button>
       </div>
       {previewError && <div className="mt-2 text-sm text-red-600">{t('notificationProviders.previewError')}: {previewError}</div>}
       {previewContent && (
@@ -377,7 +384,7 @@ const Notifications: FC = () => {
           <Bell className="w-6 h-6" />
           {t('notificationProviders.title')}
         </h1>
-        <Button onClick={() => setIsAdding(true)}>
+        <Button onClick={() => setIsAdding(true)} data-testid="add-provider-btn">
           <Plus className="w-4 h-4 mr-2" />
           {t('notificationProviders.addProvider')}
         </Button>

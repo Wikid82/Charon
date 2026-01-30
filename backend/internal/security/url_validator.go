@@ -302,13 +302,6 @@ func ValidateExternalURL(rawURL string, options ...ValidationOption) (string, er
 	return normalized, nil
 }
 
-// isPrivateIP checks if an IP address is private, loopback, link-local, or otherwise restricted.
-// This function wraps network.IsPrivateIP for backward compatibility within the security package.
-// See network.IsPrivateIP for the full list of blocked IP ranges.
-func isPrivateIP(ip net.IP) bool {
-	return network.IsPrivateIP(ip)
-}
-
 // isIPv4MappedIPv6 detects IPv4-mapped IPv6 addresses (::ffff:192.168.1.1).
 // This prevents SSRF bypass via IPv6 notation of private IPv4 addresses.
 func isIPv4MappedIPv6(ip net.IP) bool {

@@ -12,6 +12,7 @@
 **PR Status:** ✅ ALL CHECKS PASSING - No remediation needed
 
 PR #434: `feat: add API-Friendly security header preset for mobile apps`
+
 - **Branch:** `feature/beta-release`
 - **Latest Commit:** `99f01608d986f93286ab0ff9f06491c4b599421c`
 - **Overall Status:** ✅ 23 successful checks, 3 skipped, 0 failing, 0 cancelled
@@ -44,6 +45,7 @@ The 3 "CANCELLED" statuses reported were caused by GitHub Actions' concurrency m
 ### 1. The "Failing" Tests Identified
 
 From PR status check rollup:
+
 ```json
 {
   "name": "build-and-push",
@@ -70,6 +72,7 @@ concurrency:
 ```
 
 **What This Does:**
+
 - Groups workflow runs by workflow name + branch
 - Automatically cancels older runs when a newer one starts
 - Prevents wasted resources on stale builds
@@ -87,6 +90,7 @@ concurrency:
 ### 3. Why GitHub Shows "CANCELLED" in Status Rollup
 
 GitHub's status check UI displays **all** workflow runs associated with a commit, including:
+
 - Superseded/cancelled runs (from concurrency groups)
 - Duplicate runs triggered by rapid push events
 - Manually cancelled runs
@@ -109,12 +113,14 @@ This confirms that despite cancelled runs appearing in the timeline, all **requi
 ```
 
 **Why NEUTRAL:**
+
 - This job **only runs on push events**, not pull_request events
 - `exit-code: '0'` means it never fails the build
 - `continue-on-error: true` makes failures non-blocking
 - Status appears as NEUTRAL when skipped
 
 **Evidence from Successful Run (20406485263):**
+
 ```
 ✓  Docker Build, Publish & Test/Trivy (PR) - App-only  5m6s  SUCCESS
 -  Docker Build, Publish & Test/Trivy                   -     SKIPPED (by design)
@@ -170,9 +176,11 @@ The **PR-specific Trivy scan** (`trivy-pr-app-only` job) passed successfully, sc
 The `Docker Build, Publish & Test` workflow has 3 main jobs:
 
 #### 1. `build-and-push` (Primary Job)
+
 **Purpose:** Build Docker image and optionally push to GHCR
 
 **Behavior by Event Type:**
+
 - **PR Events:**
   - Build single-arch image (`linux/amd64` only)
   - Load image locally (no push to registry)
@@ -184,23 +192,27 @@ The `Docker Build, Publish & Test` workflow has 3 main jobs:
   - Run comprehensive security scans
 
 **Key Steps:**
+
 1. Build multi-stage Dockerfile
 2. Verify Caddy security patches (CVE-2025-68156)
 3. Run Trivy scan (on push events only)
 4. Upload SARIF results (on push events only)
 
 #### 2. `test-image` (Integration Tests)
+
 **Purpose:** Validate the built image runs correctly
 
 **Conditions:** Only runs on push events (not PRs)
 
 **Tests:**
+
 - Container starts successfully
 - Health endpoint responds (`/api/v1/health`)
 - Integration test script passes
 - Logs captured for debugging
 
 #### 3. `trivy-pr-app-only` (PR Security Scan)
+
 **Purpose:** Fast security scan for PR validation
 
 **Conditions:** Only runs on pull_request events
@@ -222,6 +234,7 @@ The `Docker Build, Publish & Test` workflow has 3 main jobs:
 | **Feedback Time** | < 5 minutes | < 15 minutes |
 
 **Benefits:**
+
 - Fast PR feedback loop
 - Comprehensive validation on merge
 - Resource efficiency
@@ -265,19 +278,23 @@ Add to [`.github/workflows/docker-build.yml`](.github/workflows/docker-build.yml
 ```
 
 **Files to modify:**
+
 - `.github/workflows/docker-build.yml` - Add after line 264 (after existing summary step)
 
 **Testing:**
+
 1. Add the step to the workflow
 2. Make two rapid commits to trigger cancellation
 3. Check the cancelled run's summary tab
 
 **Pros:**
+
 - Provides immediate context in the Actions UI
 - No additional noise in PR timeline
 - Low maintenance overhead
 
 **Cons:**
+
 - Only visible if users navigate to the cancelled run
 - Adds 1-2 seconds to cancellation handling
 
@@ -290,6 +307,7 @@ Add to [`.github/workflows/docker-build.yml`](.github/workflows/docker-build.yml
 **Solution:** Remove or adjust `cancel-in-progress` setting
 
 **Why NOT Recommended:**
+
 - Wastes CI/CD resources by running outdated builds
 - Increases queue times for all workflows
 - No actual benefit (cancelled runs don't block merging)
@@ -306,7 +324,8 @@ Add to [`.github/workflows/docker-build.yml`](.github/workflows/docker-build.yml
 
 The workflow logs show a **complete and successful** Docker build:
 
-#### Build Stage Highlights:
+#### Build Stage Highlights
+
 ```
 #37 [caddy-builder 4/4] RUN ...
 #37 DONE 259.8s
@@ -321,7 +340,8 @@ The workflow logs show a **complete and successful** Docker build:
 #64 DONE 1.0s
 ```
 
-#### Security Verification:
+#### Security Verification
+
 ```
 ==> Verifying Caddy binary contains patched expr-lang/expr@v1.17.7...
 ✅ Found expr-lang/expr: v1.17.7
@@ -329,7 +349,8 @@ The workflow logs show a **complete and successful** Docker build:
 ==> Verification complete
 ```
 
-#### Trivy Scan Results:
+#### Trivy Scan Results
+
 ```
 2025-12-21T07:30:49Z   INFO [vuln] Vulnerability scanning is enabled
 2025-12-21T07:30:49Z   INFO [secret] Secret scanning is enabled
@@ -383,6 +404,7 @@ docker pull ghcr.io/wikid82/charon:pr-434 2>/dev/null && echo "✅ Image exists"
 **Key Takeaway:** `cancel-in-progress: true` is a **feature, not a bug**
 
 **Best Practices:**
+
 - Document concurrency behavior in workflow comments
 - Use descriptive concurrency group names
 - Consider adding workflow summaries for cancelled runs
@@ -391,11 +413,13 @@ docker pull ghcr.io/wikid82/charon:pr-434 2>/dev/null && echo "✅ Image exists"
 ### 2. Status Check Interpretation
 
 **Avoid These Pitfalls:**
+
 - Assuming all "CANCELLED" runs are failures
 - Ignoring the overall PR check status
 - Not checking for successful runs on the same commit
 
 **Correct Approach:**
+
 1. Check the PR checks page first (`gh pr checks <number>`)
 2. Look for successful runs on the same commit SHA
 3. Understand workflow conditional logic (when jobs run/skip)
@@ -403,6 +427,7 @@ docker pull ghcr.io/wikid82/charon:pr-434 2>/dev/null && echo "✅ Image exists"
 ### 3. Workflow Design for PRs vs Pushes
 
 **Recommended Pattern:**
+
 - **PR Events:** Fast feedback, single-arch builds, lightweight scans
 - **Push Events:** Comprehensive testing, multi-arch builds, full scans
 - Use `continue-on-error: true` for non-blocking checks
@@ -411,11 +436,13 @@ docker pull ghcr.io/wikid82/charon:pr-434 2>/dev/null && echo "✅ Image exists"
 ### 4. Security Scanning Strategy
 
 **Layered Approach:**
+
 - **PR Stage:** Fast binary-only scan (blocking)
 - **Push Stage:** Full image scan with SARIF upload (non-blocking)
 - **Weekly:** Comprehensive rebuild and scan (scheduled)
 
 **Benefits:**
+
 - Fast PR feedback (<5min)
 - Complete security coverage
 - No false negatives
@@ -427,7 +454,7 @@ docker pull ghcr.io/wikid82/charon:pr-434 2>/dev/null && echo "✅ Image exists"
 
 **Final Status:** ✅ NO REMEDIATION REQUIRED
 
-### Summary:
+### Summary
 
 1. ✅ All 23 required checks are passing
 2. ✅ Docker build completed successfully (run 20406485263)
@@ -436,13 +463,13 @@ docker pull ghcr.io/wikid82/charon:pr-434 2>/dev/null && echo "✅ Image exists"
 5. ℹ️ CANCELLED statuses are from superseded runs (expected behavior)
 6. ℹ️ NEUTRAL Trivy status is from a skipped job (expected for PRs)
 
-### Recommended Next Steps:
+### Recommended Next Steps
 
 1. **Immediate:** None required - PR is ready for review and merge
 2. **Optional:** Implement Option 1 (workflow summary for cancellations) for better UX
 3. **Future:** Consider adding developer documentation about workflow concurrency
 
-### Key Metrics:
+### Key Metrics
 
 | Metric | Value | Target | Status |
 |--------|-------|--------|--------|
@@ -457,18 +484,23 @@ docker pull ghcr.io/wikid82/charon:pr-434 2>/dev/null && echo "✅ Image exists"
 ## Appendix: Common Misconceptions
 
 ### Misconception 1: "CANCELLED means failed"
+
 **Reality:** CANCELLED means the run was terminated before completion, usually by concurrency management. Check for successful runs on the same commit.
 
 ### Misconception 2: "All runs must show SUCCESS"
+
 **Reality:** GitHub shows ALL runs including superseded ones. Only the latest run matters for merge decisions.
 
 ### Misconception 3: "NEUTRAL is a failure"
+
 **Reality:** NEUTRAL indicates a non-blocking check (e.g., continue-on-error: true) or a skipped job. It does not prevent merging.
 
 ### Misconception 4: "Integration tests should run on every PR"
+
 **Reality:** Expensive integration tests can be deferred to push events to optimize CI resources and provide faster PR feedback.
 
 ### Misconception 5: "Cancelled runs waste resources"
+
 **Reality:** Cancelling superseded runs **saves** resources by not running outdated builds. It's a GitHub Actions best practice for busy repositories.
 
 ---
@@ -654,6 +686,7 @@ command example with options
 **Last Updated**: YYYY-MM-DD
 **Maintained by**: Charon Project
 **Source**: `scripts/original-script.sh`
+
 ```
 
 ### Frontmatter Validation Rules
@@ -716,7 +749,7 @@ To keep SKILL.md files under 500 lines:
 | 1 | `debug_db.py` | Python debugging tool, not task-oriented | Keep in scripts/ |
 | 2 | `debug_rate_limit.sh` | Debugging tool, not production | Keep in scripts/ |
 | 3 | `gopls_collect.sh` | IDE tooling, not CI/CD | Keep in scripts/ |
-| 4 | `install-go-1.25.5.sh` | One-time setup script | Keep in scripts/ |
+| 4 | `install-go-1.25.6.sh` | One-time setup script | Keep in scripts/ |
 | 5 | `create_bulk_acl_issues.sh` | Ad-hoc script, not repeatable | Keep in scripts/ |
 
 ---
@@ -793,6 +826,7 @@ fi
 ### Tasks NOT Modified (Build/Lint/Docker)
 
 These tasks use inline commands or direct Go/npm commands and do NOT need skill migration:
+
 - Build: Backend (`cd backend && go build ./...`)
 - Build: Frontend (`cd frontend && npm run build`)
 - Build: All (composite task)
@@ -821,12 +855,14 @@ These tasks use inline commands or direct Go/npm commands and do NOT need skill 
 ### Workflow Update Pattern
 
 Before:
+
 ```yaml
 - name: Run Backend Tests with Coverage
   run: scripts/go-test-coverage.sh
 ```
 
 After:
+
 ```yaml
 - name: Run Backend Tests with Coverage
   run: .github/skills/scripts/skill-runner.sh test-backend-coverage
@@ -835,6 +871,7 @@ After:
 ### Workflows NOT Modified
 
 These workflows do not reference scripts and are not affected:
+
 - `docker-publish.yml`, `auto-changelog.yml`, `auto-add-to-project.yml`, `create-labels.yml`
 - `docker-lint.yml`, `renovate.yml`, `auto-label-issues.yml`, `pr-checklist.yml`
 - `history-rewrite-tests.yml`, `docs-to-issues.yml`, `dry-run-history-rewrite.yml`
@@ -848,7 +885,7 @@ These workflows do not reference scripts and are not affected:
 
 **Skills MUST be committed to the repository** to work in CI/CD pipelines. GitHub Actions runners clone the repository and need access to all skill definitions and scripts.
 
-### What Should Be COMMITTED (DO NOT IGNORE):
+### What Should Be COMMITTED (DO NOT IGNORE)
 
 All skill infrastructure must be in version control:
 
@@ -863,7 +900,7 @@ All skill infrastructure must be in version control:
 ✅ .github/skills/references/                  # Reference docs (RECOMMENDED)
 ```
 
-### What Should Be IGNORED (Runtime Data Only):
+### What Should Be IGNORED (Runtime Data Only)
 
 Add the following section to `.gitignore` to exclude only runtime-generated artifacts:
 
@@ -939,6 +976,7 @@ GitHub Actions workflows depend on skill files being in the repository:
    ```
 
 2. **Skills Reference Tool Integration**:
+
    ```bash
    # Install skills-ref CLI tool
    npm install -g @agentskills/cli
@@ -951,6 +989,7 @@ GitHub Actions workflows depend on skill files being in the repository:
    ```
 
 3. **Skill Runner Tests**: Ensure each skill can be executed
+
    ```bash
    for skill in .github/skills/*.SKILL.md; do
        skill_name=$(basename "$skill" .SKILL.md)
@@ -967,12 +1006,14 @@ GitHub Actions workflows depend on skill files being in the repository:
    - Verify Copilot suggests the skill
 
 2. **Workspace Search Test**:
+
    ```bash
    # Search for skills by keyword
    grep -r "coverage" .github/skills/*.SKILL.md
    ```
 
 3. **Skills Index Generation**:
+
    ```bash
    # Generate skills index for AI tools
    python3 .github/skills/scripts/generate-index.py > .github/skills/INDEX.json
@@ -981,6 +1022,7 @@ GitHub Actions workflows depend on skill files being in the repository:
 ### Coverage Validation
 
 For all test-related skills (test-backend-coverage, test-frontend-coverage):
+
 - Run the skill
 - Capture coverage output
 - Verify coverage meets 85% threshold
@@ -1000,6 +1042,7 @@ fi
 ### Integration Test Validation
 
 For all integration-test-* skills:
+
 - Execute in isolated Docker environment
 - Verify exit codes match legacy scripts
 - Validate output format matches expected patterns
@@ -1013,13 +1056,16 @@ For all integration-test-* skills:
 
 1. **Keep Legacy Scripts**: All `scripts/*.sh` files remain functional
 2. **Add Deprecation Warnings**: Add to each legacy script:
+
    ```bash
    echo "⚠️  WARNING: This script is deprecated and will be removed in v1.1.0" >&2
    echo "    Please use: .github/skills/scripts/skill-runner.sh ${SKILL_NAME}" >&2
    echo "    For more info: docs/skills/migration-guide.md" >&2
    sleep 2
    ```
+
 3. **Create Symlinks**: (Optional, for quick migration)
+
    ```bash
    ln -s ../.github/skills/scripts/skill-runner.sh scripts/test-backend-coverage.sh
    ```
@@ -1035,6 +1081,7 @@ For all integration-test-* skills:
 If critical issues are discovered post-migration:
 
 1. **Immediate Rollback** (< 24 hours):
+
    ```bash
    git revert <migration-commit>
    git push origin main
@@ -1056,9 +1103,11 @@ If critical issues are discovered post-migration:
 ## Implementation Phases (6 Phases)
 
 ### Phase 0: Validation & Tooling (Days 1-2)
+
 **Goal**: Set up validation infrastructure and test harness
 
 **Tasks**:
+
 1. Create `.github/skills/` directory structure
 2. Implement `validate-skills.py` (frontmatter validator)
 3. Implement `skill-runner.sh` (skill executor)
@@ -1068,6 +1117,7 @@ If critical issues are discovered post-migration:
 7. Document validation procedures
 
 **Deliverables**:
+
 - [ ] `.github/skills/scripts/validate-skills.py` (functional)
 - [ ] `.github/skills/scripts/skill-runner.sh` (functional)
 - [ ] `.github/skills/scripts/generate-index.py` (functional)
@@ -1076,6 +1126,7 @@ If critical issues are discovered post-migration:
 - [ ] `docs/skills/validation-guide.md` (documentation)
 
 **Success Criteria**:
+
 - All validators pass with zero errors
 - Skill runner can execute proof-of-concept skill
 - CI/CD pipeline validates skills on PR
@@ -1083,15 +1134,18 @@ If critical issues are discovered post-migration:
 ---
 
 ### Phase 1: Core Testing Skills (Days 3-4)
+
 **Goal**: Migrate critical test skills with coverage validation
 
 **Skills (Priority P0)**:
+
 1. `test-backend-coverage.SKILL.md` (from `go-test-coverage.sh`)
 2. `test-backend-unit.SKILL.md` (from inline task)
 3. `test-frontend-coverage.SKILL.md` (from `frontend-test-coverage.sh`)
 4. `test-frontend-unit.SKILL.md` (from inline task)
 
 **Tasks**:
+
 1. Create SKILL.md files with complete frontmatter
 2. Validate frontmatter with validator
 3. Test each skill execution
@@ -1101,6 +1155,7 @@ If critical issues are discovered post-migration:
 7. Add deprecation warnings to legacy scripts
 
 **Deliverables**:
+
 - [ ] 4 test-related SKILL.md files (complete)
 - [ ] tasks.json updated (4 tasks)
 - [ ] .github/workflows/quality-checks.yml updated
@@ -1108,6 +1163,7 @@ If critical issues are discovered post-migration:
 - [ ] Deprecation warnings added to legacy scripts
 
 **Success Criteria**:
+
 - All 4 skills execute successfully
 - Coverage meets 85% threshold
 - CI/CD pipeline passes
@@ -1116,9 +1172,11 @@ If critical issues are discovered post-migration:
 ---
 
 ### Phase 2: Integration Testing Skills (Days 5-7)
+
 **Goal**: Migrate all integration test skills
 
 **Skills (Priority P1)**:
+
 1. `integration-test-all.SKILL.md`
 2. `integration-test-coraza.SKILL.md`
 3. `integration-test-crowdsec.SKILL.md`
@@ -1129,6 +1187,7 @@ If critical issues are discovered post-migration:
 8. `integration-test-waf.SKILL.md`
 
 **Tasks**:
+
 1. Create SKILL.md files for all 8 integration tests
 2. Extract shared Docker helpers to `.github/skills/scripts/_docker_helpers.sh`
 3. Validate each skill independently
@@ -1137,6 +1196,7 @@ If critical issues are discovered post-migration:
 6. Run full integration test suite
 
 **Deliverables**:
+
 - [ ] 8 integration-test SKILL.md files (complete)
 - [ ] `.github/skills/scripts/_docker_helpers.sh` (utilities)
 - [ ] tasks.json updated (8 tasks)
@@ -1144,6 +1204,7 @@ If critical issues are discovered post-migration:
 - [ ] Integration test suite passes
 
 **Success Criteria**:
+
 - All 8 integration skills pass in CI/CD
 - Docker cleanup verified (no orphaned containers)
 - Test execution time within 10% of legacy
@@ -1152,9 +1213,11 @@ If critical issues are discovered post-migration:
 ---
 
 ### Phase 3: Security & QA Skills (Days 8-9)
+
 **Goal**: Migrate security scanning and QA testing skills
 
 **Skills (Priority P1-P2)**:
+
 1. `security-scan-trivy.SKILL.md`
 2. `security-scan-general.SKILL.md`
 3. `security-check-govulncheck.SKILL.md`
@@ -1162,6 +1225,7 @@ If critical issues are discovered post-migration:
 5. `build-check-go.SKILL.md`
 
 **Tasks**:
+
 1. Create SKILL.md files for security/QA skills
 2. Test security scans with known vulnerabilities
 3. Update tasks.json for security tasks
@@ -1169,12 +1233,14 @@ If critical issues are discovered post-migration:
 5. Validate QA test outputs
 
 **Deliverables**:
+
 - [ ] 5 security/QA SKILL.md files (complete)
 - [ ] tasks.json updated (5 tasks)
 - [ ] .github/workflows/security-weekly-rebuild.yml updated
 - [ ] Security scan validation tests pass
 
 **Success Criteria**:
+
 - All security scans detect known issues
 - QA tests pass with expected outputs
 - CI/CD security checks functional
@@ -1182,9 +1248,11 @@ If critical issues are discovered post-migration:
 ---
 
 ### Phase 4: Utility & Docker Skills (Days 10-11)
+
 **Goal**: Migrate remaining utility and Docker skills
 
 **Skills (Priority P2-P3)**:
+
 1. `utility-version-check.SKILL.md`
 2. `utility-cache-clear-go.SKILL.md`
 3. `utility-bump-beta.SKILL.md`
@@ -1193,6 +1261,7 @@ If critical issues are discovered post-migration:
 6. `docker-verify-crowdsec-config.SKILL.md`
 
 **Tasks**:
+
 1. Create SKILL.md files for utility/Docker skills
 2. Test version checking logic
 3. Test database recovery procedures
@@ -1200,12 +1269,14 @@ If critical issues are discovered post-migration:
 5. Update auto-versioning.yml and repo-health.yml workflows
 
 **Deliverables**:
+
 - [ ] 6 utility/Docker SKILL.md files (complete)
 - [ ] tasks.json updated (6 tasks)
 - [ ] .github/workflows/auto-versioning.yml updated
 - [ ] .github/workflows/repo-health.yml updated
 
 **Success Criteria**:
+
 - All utility skills functional
 - Version checking accurate
 - Database recovery tested successfully
@@ -1213,9 +1284,11 @@ If critical issues are discovered post-migration:
 ---
 
 ### Phase 5: Documentation & Cleanup (Days 12-13)
+
 **Goal**: Complete documentation and prepare for full migration
 
 **Tasks**:
+
 1. Create `.github/skills/README.md` (skill index and overview)
 2. Create `docs/skills/migration-guide.md` (user guide)
 3. Create `docs/skills/skill-development-guide.md` (contributor guide)
@@ -1226,6 +1299,7 @@ If critical issues are discovered post-migration:
 8. Tag release v1.0-beta.1
 
 **Deliverables**:
+
 - [ ] `.github/skills/README.md` (complete)
 - [ ] `docs/skills/migration-guide.md` (complete)
 - [ ] `docs/skills/skill-development-guide.md` (complete)
@@ -1235,6 +1309,7 @@ If critical issues are discovered post-migration:
 - [ ] Git tag: v1.0-beta.1
 
 **Success Criteria**:
+
 - All documentation complete and accurate
 - Skills index generated successfully
 - AI tools can discover skills
@@ -1243,9 +1318,11 @@ If critical issues are discovered post-migration:
 ---
 
 ### Phase 6: Full Migration & Legacy Cleanup (Days 14+)
+
 **Goal**: Remove legacy scripts and complete migration (v1.1.0)
 
 **Tasks**:
+
 1. Monitor v1.0-beta.1 for 1 release cycle (2 weeks minimum)
 2. Address any issues discovered during beta
 3. Remove deprecation warnings from skill runner
@@ -1256,6 +1333,7 @@ If critical issues are discovered post-migration:
 8. Tag release v1.1.0
 
 **Deliverables**:
+
 - [ ] All legacy scripts removed (except excluded)
 - [ ] All deprecation warnings removed
 - [ ] Documentation updated (no legacy references)
@@ -1263,6 +1341,7 @@ If critical issues are discovered post-migration:
 - [ ] Git tag: v1.1.0
 
 **Success Criteria**:
+
 - Zero references to legacy scripts in codebase
 - All CI/CD workflows functional
 - Coverage maintained at 85%+
@@ -1290,6 +1369,7 @@ If critical issues are discovered post-migration:
 See separate file: [proof-of-concept/test-backend-coverage.SKILL.md](./proof-of-concept/test-backend-coverage.SKILL.md)
 
 This POC demonstrates:
+
 - Complete, validated frontmatter
 - Progressive disclosure (< 500 lines)
 - Embedded script with error handling
@@ -1344,45 +1424,57 @@ The `.github/skills/INDEX.json` file follows this schema for AI discovery:
 ## Appendix C: Supervisor Concerns Addressed
 
 ### 1. Directory Structure (Flat vs Categorized)
+
 **Decision**: Flat structure in `.github/skills/`
 **Rationale**:
+
 - Simpler AI discovery (no directory traversal)
 - Easier skill references in tasks.json and workflows
 - Naming convention provides implicit categorization
 - Aligns with agentskills.io examples
 
 ### 2. SKILL.md Templates
+
 **Resolution**: Complete template provided with validated frontmatter
 **Details**:
+
 - All required fields documented
 - Custom metadata fields defined
 - Validation rules specified
 - Example provided in POC
 
 ### 3. Progressive Disclosure
+
 **Strategy**:
+
 - Keep SKILL.md under 500 lines
 - Extract detailed docs to `docs/skills/{name}.md`
 - Extract large scripts to `.github/skills/scripts/`
 - Use links for extended documentation
 
 ### 4. Metadata Usage
+
 **Custom Fields**: Defined in Appendix A
 **Purpose**:
+
 - AI discovery and filtering
 - Resource planning and scheduling
 - Risk assessment
 - CI/CD automation
 
 ### 5. CI/CD Workflow Updates
+
 **Complete Plan**:
+
 - 8 workflows identified for updates
 - Exact file paths provided
 - Update pattern documented
 - Priority assigned
 
 ### 6. Validation Strategy
+
 **Comprehensive Plan**:
+
 - Phase 0 dedicated to validation tooling
 - Frontmatter validator (Python)
 - Skill runner with dry-run mode
@@ -1391,14 +1483,18 @@ The `.github/skills/INDEX.json` file follows this schema for AI discovery:
 - Coverage parity validation
 
 ### 7. Testing Strategy
+
 **AI Discoverability**:
+
 - GitHub Copilot integration test
 - Workspace search validation
 - Skills index generation
 - skills-ref tool validation
 
 ### 8. Backward Compatibility
+
 **Complete Strategy**:
+
 - Dual support for 1 release cycle
 - Deprecation warnings in legacy scripts
 - Optional symlinks for quick migration
@@ -1406,13 +1502,17 @@ The `.github/skills/INDEX.json` file follows this schema for AI discovery:
 - Rollback triggers defined
 
 ### 9. Phase 0 and Phase 5
+
 **Added**:
+
 - Phase 0: Validation & Tooling (Days 1-2)
 - Phase 5: Documentation & Cleanup (Days 12-13)
 - Phase 6: Full Migration & Legacy Cleanup (Days 14+)
 
 ### 10. Rollback Procedure
+
 **Detailed Plan**:
+
 - Immediate rollback (< 24 hours): git revert
 - Partial rollback: restore specific scripts
 - Rollback triggers: coverage drop, CI/CD failures, production blocks

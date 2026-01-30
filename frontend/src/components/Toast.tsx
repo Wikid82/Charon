@@ -22,10 +22,13 @@ export function ToastContainer() {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none" data-testid="toast-container">
       {toasts.map(toast => (
         <div
           key={toast.id}
+          role={toast.type === 'error' || toast.type === 'warning' ? 'alert' : 'status'}
+          aria-live={toast.type === 'error' || toast.type === 'warning' ? 'assertive' : 'polite'}
+          data-testid={`toast-${toast.type}`}
           className={`pointer-events-auto px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 min-w-[300px] max-w-[500px] animate-slide-in ${
             toast.type === 'success'
               ? 'bg-green-600 text-white'

@@ -34,6 +34,7 @@ FAIL: github.com/Wikid82/charon/backend/internal/api/handlers (timeout 441s)
 ### Affected Tests
 
 All handler tests, including:
+
 - Access list handlers
 - Auth handlers
 - Backup handlers
@@ -48,11 +49,13 @@ All handler tests, including:
 ### Recommended Fix
 
 **Option 1: Increase Timeout**
+
 ```bash
 go test -timeout 15m ./internal/api/handlers/...
 ```
 
 **Option 2: Split Test Suite**
+
 ```bash
 # Fast unit tests
 go test -short ./internal/api/handlers/...
@@ -62,6 +65,7 @@ go test -run Integration ./internal/api/handlers/...
 ```
 
 **Option 3: Optimize Tests**
+
 - Use mocks for external HTTP calls
 - Parallelize independent tests with `t.Parallel()`
 - Use table-driven tests to reduce setup/teardown overhead
@@ -111,12 +115,14 @@ Failed Tests:
 ### Root Cause
 
 **Error Pattern:**
+
 ```
 Error: "access to private IP addresses is blocked (resolved to 127.0.0.1)"
        does not contain "status 404"
 ```
 
 **Analysis:**
+
 1. Tests use `httptest.NewServer()` which binds to `127.0.0.1` (localhost)
 2. URL validation code has private IP blocking for security
 3. Private IP check runs BEFORE HTTP request is made
@@ -124,6 +130,7 @@ Error: "access to private IP addresses is blocked (resolved to 127.0.0.1)"
 5. This creates a mismatch between expected and actual error messages
 
 **Code Location:**
+
 ```go
 // File: backend/internal/utils/url_connectivity_test.go
 // Lines: 103, 127-128, 156
@@ -138,6 +145,7 @@ assert.Contains(t, err.Error(), "status 404")
 ### Recommended Fix
 
 **Option 1: Use Public Test Endpoints**
+
 ```go
 func TestTestURLConnectivity_StatusCodes(t *testing.T) {
     tests := []struct {
@@ -153,6 +161,7 @@ func TestTestURLConnectivity_StatusCodes(t *testing.T) {
 ```
 
 **Option 2: Add Test-Only Bypass**
+
 ```go
 // In url_connectivity.go
 func TestURLConnectivity(url string) error {
@@ -174,6 +183,7 @@ func TestMain(m *testing.M) {
 ```
 
 **Option 3: Mock DNS Resolution**
+
 ```go
 // Use custom dialer that returns public IPs for test domains
 type testDialer struct {

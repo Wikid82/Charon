@@ -12,6 +12,11 @@ export type DNSProviderType =
   | 'hetzner'
   | 'vultr'
   | 'dnsimple'
+  // Custom plugin types
+  | 'manual'
+  | 'webhook'
+  | 'rfc2136'
+  | 'script'
 
 /** Represents a configured DNS provider */
 export interface DNSProvider {
@@ -51,24 +56,29 @@ export interface DNSTestResult {
   propagation_time_ms?: number
 }
 
+/** Field definition for DNS provider credentials */
+export interface DNSProviderField {
+  name: string
+  label: string
+  type: 'text' | 'password' | 'textarea' | 'select'
+  required: boolean
+  default?: string
+  hint?: string
+  placeholder?: string
+  options?: Array<{
+    value: string
+    label: string
+  }>
+}
+
 /** DNS provider type information with field definitions */
 export interface DNSProviderTypeInfo {
   type: DNSProviderType
   name: string
-  fields: Array<{
-    name: string
-    label: string
-    type: 'text' | 'password' | 'textarea' | 'select'
-    required: boolean
-    default?: string
-    hint?: string
-    placeholder?: string
-    options?: Array<{
-      value: string
-      label: string
-    }>
-  }>
-  documentation_url: string
+  description?: string
+  documentation_url?: string
+  is_built_in?: boolean
+  fields: DNSProviderField[]
 }
 
 /** Response for list endpoint */

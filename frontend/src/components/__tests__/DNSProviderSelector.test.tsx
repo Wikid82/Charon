@@ -137,7 +137,7 @@ describe('DNSProviderSelector', () => {
       isLoading: false,
       isError: false,
       error: null,
-    } as any)
+    } as unknown as ReturnType<typeof useDNSProviders>)
   })
 
   describe('Rendering', () => {
@@ -232,7 +232,7 @@ describe('DNSProviderSelector', () => {
         isLoading: false,
         isError: false,
         error: null,
-      } as any)
+      } as unknown as ReturnType<typeof useDNSProviders>)
 
       renderWithClient(<DNSProviderSelector value={undefined} onChange={mockOnChange} />)
 
@@ -254,7 +254,7 @@ describe('DNSProviderSelector', () => {
         isLoading: false,
         isError: false,
         error: null,
-      } as any)
+      } as unknown as ReturnType<typeof useDNSProviders>)
 
       renderWithClient(<DNSProviderSelector value={undefined} onChange={mockOnChange} />)
 
@@ -272,7 +272,7 @@ describe('DNSProviderSelector', () => {
         isLoading: true,
         isError: false,
         error: null,
-      } as any)
+      } as unknown as ReturnType<typeof useDNSProviders>)
 
       renderWithClient(<DNSProviderSelector value={undefined} onChange={mockOnChange} />)
 
@@ -286,7 +286,7 @@ describe('DNSProviderSelector', () => {
         isLoading: true,
         isError: false,
         error: null,
-      } as any)
+      } as unknown as ReturnType<typeof useDNSProviders>)
 
       renderWithClient(<DNSProviderSelector value={undefined} onChange={mockOnChange} />)
 
@@ -301,7 +301,7 @@ describe('DNSProviderSelector', () => {
         isLoading: false,
         isError: false,
         error: null,
-      } as any)
+      } as unknown as ReturnType<typeof useDNSProviders>)
 
       renderWithClient(<DNSProviderSelector value={undefined} onChange={mockOnChange} />)
 
@@ -316,7 +316,7 @@ describe('DNSProviderSelector', () => {
         isLoading: false,
         isError: false,
         error: null,
-      } as any)
+      } as unknown as ReturnType<typeof useDNSProviders>)
 
       renderWithClient(<DNSProviderSelector value={undefined} onChange={mockOnChange} />)
 
@@ -421,7 +421,7 @@ describe('DNSProviderSelector', () => {
         isLoading: true,
         isError: false,
         error: null,
-      } as any)
+      } as unknown as ReturnType<typeof useDNSProviders>)
 
       renderWithClient(<DNSProviderSelector value={undefined} onChange={mockOnChange} />)
 

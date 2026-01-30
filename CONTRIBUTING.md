@@ -26,10 +26,46 @@ This project follows a Code of Conduct that all contributors are expected to adh
 
 -### Prerequisites
 
-- **Go 1.24+** for backend development
+- **Go 1.25.6+** for backend development
 - **Node.js 20+** and npm for frontend development
 - Git for version control
 - A GitHub account
+
+### Development Tools
+
+Install golangci-lint for pre-commit hooks (required for Go development):
+
+```bash
+# Option 1: Homebrew (macOS/Linux)
+brew install golangci-lint
+
+# Option 2: Go install (any platform)
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+# Option 3: Binary installation (see https://golangci-lint.run/usage/install/)
+curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
+```
+
+Ensure `$GOPATH/bin` is in your `PATH`:
+
+```bash
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+Verify installation:
+
+```bash
+golangci-lint --version
+# Should output: golangci-lint has version 1.xx.x ...
+```
+
+**Note:** Pre-commit hooks will **BLOCK commits** if golangci-lint finds issues. This is intentional - fix the issues before committing.
+
+### CI/CD Go Version Management
+
+GitHub Actions workflows automatically use Go 1.25.6 via `GOTOOLCHAIN: auto`, which allows the `setup-go` action to download and use the correct Go version even if the CI environment has an older version installed. This ensures consistent builds across all workflows.
+
+For local development, install Go 1.25.6+ from [go.dev/dl](https://go.dev/dl/).
 
 ### Fork and Clone
 
@@ -70,11 +106,34 @@ npm run dev  # Start frontend dev server
 
 ### Branching Strategy
 
-- **main** - Production-ready code
-- **development** - Main development branch (default)
+- **main** - Production-ready code (stable releases)
+- **nightly** - Pre-release testing branch (automated daily builds at 02:00 UTC)
+- **development** - Main development branch (default for contributions)
 - **feature/** - Feature branches (e.g., `feature/add-ssl-support`)
 - **bugfix/** - Bug fix branches (e.g., `bugfix/fix-import-crash`)
 - **hotfix/** - Urgent production fixes
+
+### Branch Flow
+
+The project uses a three-tier branching model:
+
+```
+development → nightly → main
+   (unstable)    (testing)  (stable)
+```
+
+**Flow details:**
+
+1. **development → nightly**: Automated daily merge at 02:00 UTC
+2. **nightly → main**: Manual PR after validation and testing
+3. **Contributors always branch from `development`**
+
+**Why nightly?**
+
+- Provides a testing ground for features before production
+- Automated daily builds catch integration issues
+- Users can test pre-release features via `nightly` Docker tag
+- Maintainers validate stability before merging to `main`
 
 ### Creating a Feature Branch
 
@@ -85,6 +144,8 @@ git checkout development
 git pull upstream development
 git checkout -b feature/your-feature-name
 ```
+
+**Note:** Never branch from `nightly` or `main`. The `nightly` branch is managed by automation and receives daily merges from `development`.
 
 ### Commit Message Guidelines
 
@@ -194,6 +255,49 @@ export function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) 
 
 ## Testing Guidelines
 
+### Testing Against Nightly Builds
+
+Before submitting a PR, test your changes against the latest nightly build:
+
+**Pull latest nightly:**
+
+```bash
+docker pull ghcr.io/wikid82/charon:nightly
+```
+
+**Run your local changes against nightly:**
+
+```bash
+# Start nightly container
+docker run -d --name charon-nightly \
+  -p 8080:8080 \
+  ghcr.io/wikid82/charon:nightly
+
+# Test your feature/fix
+curl http://localhost:8080/api/v1/health
+
+# Clean up
+docker stop charon-nightly && docker rm charon-nightly
+```
+
+**Integration testing:**
+
+If your changes affect existing features, verify compatibility:
+
+1. Deploy nightly build in test environment
+2. Run your modified frontend/backend against it
+3. Verify no regressions in existing functionality
+4. Document any breaking changes in your PR
+
+**Reporting nightly issues:**
+
+If you find bugs in nightly builds:
+
+1. Check if the issue exists in `development` branch
+2. Open an issue tagged with `nightly` label
+3. Include nightly build date or commit SHA
+4. Provide reproduction steps
+
 ### Backend Tests
 
 Write tests for all new functionality:
@@ -263,6 +367,372 @@ See [QA Coverage Report](docs/reports/qa_crowdsec_frontend_coverage_report.md) f
 - Bug fixes should include regression tests
 - CrowdSec modules maintain 100% frontend coverage
 
+---
+
+## Testing Emergency Break Glass Protocol
+
+When contributing changes to security modules (ACL, WAF, Cerberus, Rate Limiting, CrowdSec), you **MUST** test that the emergency break glass protocol still functions correctly. A broken emergency recovery system can lock administrators out of their own systems during production incidents.
+
+### Why This Matters
+
+The emergency break glass protocol is a critical safety mechanism. If your changes break emergency access:
+
+- ❌ Administrators locked out by security modules cannot recover
+- ❌ Production incidents become catastrophic (no way to regain access)
+- ❌ System may require physical access or complete rebuild
+
+**Always test emergency recovery before merging security-related PRs.**
+
+### Quick Test Procedure
+
+#### Prerequisites
+
+```bash
+# Ensure container is running
+docker-compose up -d
+
+# Set emergency token
+export CHARON_EMERGENCY_TOKEN=test-emergency-token-for-e2e-32chars
+```
+
+#### Test 1: Verify Lockout Scenario
+
+Enable security modules with restrictive settings to simulate a lockout:
+
+```bash
+# Enable ACL with restrictive whitelist (via API or database)
+curl -X POST http://localhost:8080/api/v1/settings \
+  -H "Content-Type: application/json" \
+  -d '{"key": "security.acl.enabled", "value": "true"}'
+
+# Enable WAF in block mode
+curl -X POST http://localhost:8080/api/v1/settings \
+  -H "Content-Type: application/json" \
+  -d '{"key": "security.waf.enabled", "value": "true"}'
+
+# Enable Cerberus
+curl -X POST http://localhost:8080/api/v1/settings \
+  -H "Content-Type: application/json" \
+  -d '{"key": "feature.cerberus.enabled", "value": "true"}'
+```
+
+#### Test 2: Verify You're Locked Out
+
+Attempt to access a protected endpoint (should fail):
+
+```bash
+# Attempt normal access
+curl http://localhost:8080/api/v1/proxy-hosts
+
+# Expected response: 403 Forbidden
+# {
+#   "error": "Blocked by access control list"
+# }
+```
+
+If you're **NOT** blocked, investigate why security isn't working before proceeding.
+
+#### Test 3: Test Emergency Token Works (Tier 1)
+
+Use the emergency token to regain access:
+
+```bash
+# Send emergency reset request
+curl -X POST http://localhost:8080/api/v1/emergency/security-reset \
+  -H "X-Emergency-Token: test-emergency-token-for-e2e-32chars" \
+  -H "Content-Type: application/json"
+
+# Expected response: 200 OK
+# {
+#   "success": true,
+#   "message": "All security modules have been disabled",
+#   "disabled_modules": [
+#     "feature.cerberus.enabled",
+#     "security.acl.enabled",
+#     "security.waf.enabled",
+#     "security.rate_limit.enabled",
+#     "security.crowdsec.enabled"
+#   ]
+# }
+```
+
+**If this fails:** Your changes broke Tier 1 emergency access. Fix before merging.
+
+#### Test 4: Verify Lockout is Cleared
+
+Confirm you can now access protected endpoints:
+
+```bash
+# Wait for settings to propagate
+sleep 5
+
+# Test normal access (should work now)
+curl http://localhost:8080/api/v1/proxy-hosts
+
+# Expected response: 200 OK
+# [... list of proxy hosts ...]
+```
+
+#### Test 5: Test Emergency Server (Tier 2 - Optional)
+
+If the emergency server is enabled (`CHARON_EMERGENCY_SERVER_ENABLED=true`):
+
+```bash
+# Test emergency server health
+curl http://localhost:2019/health
+
+# Expected: {"status":"ok","server":"emergency"}
+
+# Test emergency reset via emergency server
+curl -X POST http://localhost:2019/emergency/security-reset \
+  -H "X-Emergency-Token: test-emergency-token-for-e2e-32chars" \
+  -u admin:changeme
+
+# Expected: {"success":true, ...}
+```
+
+### Complete Test Script
+
+Save this as `scripts/test-emergency-access.sh`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo -e "${YELLOW}Testing Emergency Break Glass Protocol${NC}"
+echo "========================================"
+echo ""
+
+# Configuration
+BASE_URL="http://localhost:8080"
+EMERGENCY_TOKEN="${CHARON_EMERGENCY_TOKEN:-test-emergency-token-for-e2e-32chars}"
+
+# Test 1: Enable security (create lockout scenario)
+echo -e "${YELLOW}Test 1: Creating lockout scenario...${NC}"
+curl -s -X POST "$BASE_URL/api/v1/settings" \
+  -H "Content-Type: application/json" \
+  -d '{"key": "security.acl.enabled", "value": "true"}' > /dev/null
+
+curl -s -X POST "$BASE_URL/api/v1/settings" \
+  -H "Content-Type: application/json" \
+  -d '{"key": "feature.cerberus.enabled", "value": "true"}' > /dev/null
+
+sleep 2
+echo -e "${GREEN}✓ Security enabled${NC}"
+echo ""
+
+# Test 2: Verify lockout
+echo -e "${YELLOW}Test 2: Verifying lockout...${NC}"
+RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/api/v1/proxy-hosts")
+
+if [ "$RESPONSE" = "403" ]; then
+  echo -e "${GREEN}✓ Lockout confirmed (403 Forbidden)${NC}"
+else
+  echo -e "${RED}✗ Expected 403, got $RESPONSE${NC}"
+  echo -e "${YELLOW}Warning: Security may not be blocking correctly${NC}"
+fi
+echo ""
+
+# Test 3: Emergency token recovery
+echo -e "${YELLOW}Test 3: Testing emergency token...${NC}"
+RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/emergency/security-reset" \
+  -H "X-Emergency-Token: $EMERGENCY_TOKEN" \
+  -H "Content-Type: application/json")
+
+if echo "$RESPONSE" | grep -q '"success":true'; then
+  echo -e "${GREEN}✓ Emergency token works${NC}"
+else
+  echo -e "${RED}✗ Emergency token failed${NC}"
+  echo "Response: $RESPONSE"
+  exit 1
+fi
+echo ""
+
+# Test 4: Verify access restored
+echo -e "${YELLOW}Test 4: Verifying access restored...${NC}"
+sleep 5
+
+RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/api/v1/proxy-hosts")
+
+if [ "$RESPONSE" = "200" ]; then
+  echo -e "${GREEN}✓ Access restored (200 OK)${NC}"
+else
+  echo -e "${RED}✗ Access not restored, got $RESPONSE${NC}"
+  exit 1
+fi
+echo ""
+
+# Test 5: Emergency server (if enabled)
+if curl -s http://localhost:2019/health > /dev/null 2>&1; then
+  echo -e "${YELLOW}Test 5: Testing emergency server...${NC}"
+
+  RESPONSE=$(curl -s http://localhost:2019/health)
+  if echo "$RESPONSE" | grep -q '"server":"emergency"'; then
+    echo -e "${GREEN}✓ Emergency server responding${NC}"
+  else
+    echo -e "${RED}✗ Emergency server not responding correctly${NC}"
+  fi
+else
+  echo -e "${YELLOW}Test 5: Skipped (emergency server not enabled)${NC}"
+fi
+echo ""
+
+echo "========================================"
+echo -e "${GREEN}All tests passed! Emergency access is functional.${NC}"
+```
+
+Make executable and run:
+
+```bash
+chmod +x scripts/test-emergency-access.sh
+./scripts/test-emergency-access.sh
+```
+
+### Integration Test (Go)
+
+Add to your backend test suite:
+
+```go
+func TestEmergencyAccessIntegration(t *testing.T) {
+    // Setup test database and router
+    db := setupTestDB(t)
+    router := setupTestRouter(db)
+
+    // Enable security (create lockout scenario)
+    enableSecurity(t, db)
+
+    // Test 1: Regular endpoint should be blocked
+    req := httptest.NewRequest(http.MethodGET, "/api/v1/proxy-hosts", nil)
+    req.RemoteAddr = "127.0.0.1:12345"
+    w := httptest.NewRecorder()
+    router.ServeHTTP(w, req)
+
+    assert.Equal(t, http.StatusForbidden, w.Code, "Regular access should be blocked")
+
+    // Test 2: Emergency endpoint should work with valid token
+    req = httptest.NewRequest(http.MethodPOST, "/api/v1/emergency/security-reset", nil)
+    req.Header.Set("X-Emergency-Token", "test-emergency-token-for-e2e-32chars")
+    req.RemoteAddr = "127.0.0.1:12345"
+    w = httptest.NewRecorder()
+    router.ServeHTTP(w, req)
+
+    assert.Equal(t, http.StatusOK, w.Code, "Emergency endpoint should work")
+
+    var response map[string]interface{}
+    err := json.Unmarshal(w.Body.Bytes(), &response)
+    require.NoError(t, err)
+    assert.True(t, response["success"].(bool))
+
+    // Test 3: Regular endpoint should work after emergency reset
+    time.Sleep(2 * time.Second)
+    req = httptest.NewRequest(http.MethodGET, "/api/v1/proxy-hosts", nil)
+    req.RemoteAddr = "127.0.0.1:12345"
+    w = httptest.NewRecorder()
+    router.ServeHTTP(w, req)
+
+    assert.Equal(t, http.StatusOK, w.Code, "Access should be restored after emergency reset")
+}
+```
+
+### E2E Test (Playwright)
+
+Add to your Playwright test suite:
+
+```typescript
+import { test, expect } from '@playwright/test'
+
+test.describe('Emergency Break Glass Protocol', () => {
+  test('should recover from complete security lockout', async ({ request }) => {
+    const baseURL = 'http://localhost:8080'
+    const emergencyToken = 'test-emergency-token-for-e2e-32chars'
+
+    // Step 1: Enable all security modules
+    await request.post(`${baseURL}/api/v1/settings`, {
+      data: { key: 'feature.cerberus.enabled', value: 'true' }
+    })
+    await request.post(`${baseURL}/api/v1/settings`, {
+      data: { key: 'security.acl.enabled', value: 'true' }
+    })
+
+    // Wait for settings to propagate
+    await new Promise(resolve => setTimeout(resolve, 2000))
+
+    // Step 2: Verify lockout (expect 403)
+    const lockedResponse = await request.get(`${baseURL}/api/v1/proxy-hosts`)
+    expect(lockedResponse.status()).toBe(403)
+
+    // Step 3: Use emergency token to recover
+    const emergencyResponse = await request.post(
+      `${baseURL}/api/v1/emergency/security-reset`,
+      {
+        headers: { 'X-Emergency-Token': emergencyToken }
+      }
+    )
+
+    expect(emergencyResponse.status()).toBe(200)
+    const body = await emergencyResponse.json()
+    expect(body.success).toBe(true)
+    expect(body.disabled_modules).toContain('security.acl.enabled')
+
+    // Wait for settings to propagate
+    await new Promise(resolve => setTimeout(resolve, 2000))
+
+    // Step 4: Verify access restored
+    const restoredResponse = await request.get(`${baseURL}/api/v1/proxy-hosts`)
+    expect(restoredResponse.ok()).toBeTruthy()
+  })
+})
+```
+
+### When to Run These Tests
+
+Run emergency access tests:
+
+- ✅ **Before every PR** that touches security-related code
+- ✅ **After modifying** ACL, WAF, Cerberus, or Rate Limiting modules
+- ✅ **After changing** middleware order or request pipeline
+- ✅ **After updating** authentication or authorization logic
+- ✅ **Before releases** to ensure emergency access works in production
+
+### Troubleshooting Test Failures
+
+**Emergency token returns 401 Unauthorized:**
+
+- Verify `CHARON_EMERGENCY_TOKEN` is set correctly
+- Check token is at least 32 characters
+- Ensure token matches exactly (no whitespace or line breaks)
+
+**Emergency token returns 403 Forbidden:**
+
+- Tier 1 bypass may be blocked at Caddy/CrowdSec layer
+- Test Tier 2 (emergency server) instead
+- Check `CHARON_MANAGEMENT_CIDRS` includes your test IP
+
+**Access not restored after emergency reset:**
+
+- Check response includes `"success":true`
+- Verify settings were actually disabled in database
+- Increase wait time between reset and verification (may need > 5 seconds)
+- Check logs: `docker logs charon | grep emergency`
+
+**Emergency server not responding:**
+
+- Verify `CHARON_EMERGENCY_SERVER_ENABLED=true` in environment
+- Check port 2019 is exposed in docker-compose.yml
+- Test with Basic Auth if configured: `curl -u admin:password`
+
+### Related Documentation
+
+- [Emergency Lockout Recovery Runbook](docs/runbooks/emergency-lockout-recovery.md)
+- [Emergency Token Rotation Guide](docs/runbooks/emergency-token-rotation.md)
+- [Configuration Examples](docs/configuration/emergency-setup.md)
+- [Break Glass Protocol Design](docs/plans/break_glass_protocol_redesign.md)
+
 ## Adding New Skills
 
 Charon uses [Agent Skills](https://agentskills.io) for AI-discoverable development tasks. Skills are standardized, self-documenting task definitions that can be executed by humans and AI assistants.
@@ -270,6 +740,7 @@ Charon uses [Agent Skills](https://agentskills.io) for AI-discoverable developme
 ### What is a Skill?
 
 A skill is a combination of:
+
 - **YAML Frontmatter**: Metadata following the [agentskills.io specification](https://agentskills.io/specification)
 - **Markdown Documentation**: Usage instructions, examples, and troubleshooting
 - **Execution Script**: Shell script that performs the actual task
@@ -277,6 +748,7 @@ A skill is a combination of:
 ### When to Create a Skill
 
 Create a new skill when you have a:
+
 - **Repeatable task** that developers run frequently
 - **Complex workflow** that benefits from documentation
 - **CI/CD operation** that should be AI-discoverable
@@ -289,6 +761,7 @@ Create a new skill when you have a:
 #### 1. Plan Your Skill
 
 Before creating, define:
+
 - **Name**: Use `{category}-{feature}-{variant}` format (e.g., `test-backend-coverage`)
 - **Category**: test, integration-test, security, qa, build, utility, docker
 - **Purpose**: One clear sentence describing what it does
@@ -379,6 +852,7 @@ command example
 **Last Updated**: YYYY-MM-DD
 **Maintained by**: Charon Project
 **Source**: Original implementation or script path
+
 ```
 
 #### 4. Create the Execution Script
@@ -483,24 +957,28 @@ All skills must pass validation:
 ### Best Practices
 
 **Documentation:**
+
 - Keep SKILL.md under 500 lines
 - Include real-world examples
 - Document all prerequisites clearly
 - Add troubleshooting section for common issues
 
 **Scripts:**
+
 - Always use helper functions for logging and error handling
 - Validate environment before execution
 - Make scripts idempotent when possible
 - Clean up resources on exit (use trap)
 
 **Testing:**
+
 - Test skill in clean environment
 - Verify all exit codes
 - Check output format consistency
 - Test error scenarios
 
 **Metadata:**
+
 - Set accurate `execution_time` (short < 1min, medium 1-5min, long > 5min)
 - Use `ci_cd_safe: false` for interactive or risky operations
 - Mark `idempotent: true` only if truly safe to run repeatedly
@@ -511,17 +989,20 @@ All skills must pass validation:
 Charon provides helper scripts for common operations:
 
 **Logging** (`_logging_helpers.sh`):
+
 - `log_info`, `log_success`, `log_warning`, `log_error`, `log_debug`
 - `log_step` for section headers
 - `log_command` to log before executing
 
 **Error Handling** (`_error_handling_helpers.sh`):
+
 - `error_exit` to print error and exit
 - `check_command_exists`, `check_file_exists`, `check_dir_exists`
 - `run_with_retry` for network operations
 - `trap_error` for automatic error trapping
 
 **Environment** (`_environment_helpers.sh`):
+
 - `validate_go_environment`, `validate_python_environment`, `validate_node_environment`
 - `validate_docker_environment`
 - `set_default_env` for environment variables

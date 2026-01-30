@@ -9,6 +9,7 @@
 ### 1. Primary Data Directories (Evidence from code analysis)
 
 #### `/app/data/` - Main persistent data directory
+
 - **Database**: `/app/data/charon.db` (default, configurable via `CHARON_DB_PATH`)
   - Source: `backend/internal/config/config.go:44`
   - SQLite database file with WAL mode
@@ -45,6 +46,7 @@
   - No write access needed at runtime
 
 #### `/var/log/` - Log files (Requires tmpfs for read-only root)
+
 - **Caddy Logs**: `/var/log/caddy/access.log`
   - Source: `backend/internal/caddy/config.go:18` and `configs/crowdsec/acquis.yaml`
   - JSON-formatted access logs for HTTP/HTTPS traffic
@@ -57,6 +59,7 @@
   - Requires write access when CrowdSec is enabled
 
 #### `/config/` - Caddy runtime configuration (Requires tmpfs for read-only root)
+
 - **Caddy JSON Config**: `/config/caddy.json`
   - Source: `.docker/docker-entrypoint.sh:203`
   - Runtime Caddy configuration loaded via Admin API
@@ -64,11 +67,13 @@
   - Requires write access for configuration updates
 
 #### `/tmp/` - Temporary files (Requires tmpfs for read-only root)
+
 - Used by CrowdSec hub operations
   - Source: Various test files show `/tmp/buildenv_*` patterns for hub sync
   - Requires write access for temporary file operations
 
 #### `/etc/crowdsec` - Symlink to persistent storage
+
 - **Symlink**: `/etc/crowdsec -> /app/data/crowdsec/config`
   - Source: `Dockerfile:405` and `.docker/docker-entrypoint.sh:110`
   - Created at build time (as root) to allow persistent CrowdSec config
@@ -76,6 +81,7 @@
   - Target directory requires write access
 
 #### `/var/lib/crowdsec` - CrowdSec data directory (May require tmpfs)
+
 - **CrowdSec Runtime Data**: `/var/lib/crowdsec/data/`
   - Source: `Dockerfile:251` and `.docker/docker-entrypoint.sh:110`
   - CrowdSec agent runtime data
@@ -83,6 +89,7 @@
   - Investigate if this can be redirected to `/app/data/crowdsec/data`
 
 ### 2. Docker Socket Access
+
 - **Docker Socket**: `/var/run/docker.sock` (read-only mount)
   - Source: `.docker/compose/docker-compose.yml:32`
   - Used for container discovery feature
@@ -91,6 +98,7 @@
 ## Current Docker Configuration Analysis
 
 ### Volume Mounts in Production (`docker-compose.yml`)
+
 ```yaml
 volumes:
   - cpm_data:/app/data           # Persistent database, caddy certs, backups
@@ -101,6 +109,7 @@ volumes:
 ```
 
 ### Issues with Current Setup
+
 1. **`caddy_data:/data`** - This volume may be unnecessary as Caddy uses `/app/data/caddy/` for certificates
 2. **`/config` mount** - Required but may conflict with `read_only: true` root filesystem
 3. **`/var/log/`** - Not mounted as tmpfs, will fail with `read_only: true`
@@ -110,6 +119,7 @@ volumes:
 ## Correct Container Hardening Configuration
 
 ### Strategy
+
 1. **Root filesystem**: `read_only: true` for security
 2. **Persistent data**: Named volume at `/app/data` for all persistent data
 3. **Ephemeral data**: tmpfs mounts for logs, temp files, and runtime config
@@ -207,7 +217,7 @@ services:
       # - ./my-existing-Caddyfile:/import/Caddyfile:ro
 
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/health"]
+      test: ["CMD", "curl", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -262,6 +272,7 @@ Before deploying this configuration, validate:
 ## Testing Steps
 
 1. **Deploy with hardening**:
+
    ```bash
    docker compose -f .docker/compose/docker-compose.yml down
    # Update docker-compose.yml with new configuration
@@ -269,6 +280,7 @@ Before deploying this configuration, validate:
    ```
 
 2. **Check startup logs**:
+
    ```bash
    docker logs charon
    ```
@@ -296,6 +308,7 @@ Before deploying this configuration, validate:
    - Check logs are being processed
 
 7. **Inspect filesystem permissions**:
+
    ```bash
    docker exec charon ls -la /app/data
    docker exec charon ls -la /var/log/caddy

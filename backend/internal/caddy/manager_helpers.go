@@ -26,9 +26,7 @@ func extractBaseDomain(domainNames string) string {
 
 	domain := strings.TrimSpace(domains[0])
 	// Strip wildcard prefix if present
-	if strings.HasPrefix(domain, "*.") {
-		domain = domain[2:]
-	}
+	domain = strings.TrimPrefix(domain, "*.")
 
 	return strings.ToLower(domain)
 }

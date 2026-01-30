@@ -35,7 +35,7 @@ func TestCertificateHandler_List_DBError(t *testing.T) {
 
 func TestCertificateHandler_Delete_InvalidID(t *testing.T) {
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
+	_ = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -54,7 +54,7 @@ func TestCertificateHandler_Delete_InvalidID(t *testing.T) {
 func TestCertificateHandler_Delete_NotFound(t *testing.T) {
 	// Use unique in-memory DB per test to avoid SQLite locking issues in parallel test runs
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
+	_ = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -73,7 +73,7 @@ func TestCertificateHandler_Delete_NotFound(t *testing.T) {
 func TestCertificateHandler_Delete_NoBackupService(t *testing.T) {
 	// Use unique in-memory DB per test to avoid SQLite locking issues in parallel test runs
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
+	_ = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
 
 	// Create certificate
 	cert := models.SSLCertificate{UUID: "test-cert-no-backup", Name: "no-backup-cert", Provider: "custom", Domains: "nobackup.example.com"}
@@ -111,7 +111,7 @@ func TestCertificateHandler_Delete_CheckUsageDBError(t *testing.T) {
 	// Use unique in-memory DB per test to avoid SQLite locking issues in parallel test runs
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	// Only migrate SSLCertificate, not ProxyHost to cause error when checking usage
-	db.AutoMigrate(&models.SSLCertificate{})
+	_ = db.AutoMigrate(&models.SSLCertificate{})
 
 	// Create certificate
 	cert := models.SSLCertificate{UUID: "test-cert-db-err", Name: "db-error-cert", Provider: "custom", Domains: "dberr.example.com"}
@@ -134,7 +134,7 @@ func TestCertificateHandler_Delete_CheckUsageDBError(t *testing.T) {
 func TestCertificateHandler_List_WithCertificates(t *testing.T) {
 	// Use unique in-memory DB per test to avoid SQLite locking issues in parallel test runs
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
+	_ = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
 
 	// Create certificates
 	db.Create(&models.SSLCertificate{UUID: "cert-1", Name: "Cert 1", Provider: "custom", Domains: "one.example.com"})
@@ -160,7 +160,7 @@ func TestCertificateHandler_Delete_ZeroID(t *testing.T) {
 	// Tests the ID=0 validation check (line 149-152 in certificate_handler.go)
 	// DELETE /api/certificates/0 should return 400 Bad Request
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
+	_ = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

@@ -5,7 +5,7 @@ import "time"
 // Plugin represents an installed DNS provider plugin.
 // This tracks both external .so plugins and their load status.
 type Plugin struct {
-	ID        uint   `json:"id" gorm:"primaryKey"`
+	ID        uint   `json:"-" gorm:"primaryKey"`
 	UUID      string `json:"uuid" gorm:"uniqueIndex;size:36"`
 	Name      string `json:"name" gorm:"not null;size:255"`
 	Type      string `json:"type" gorm:"uniqueIndex;not null;size:100"`

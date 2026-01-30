@@ -1,10 +1,15 @@
 package handlers_test
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -16,13 +21,108 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
+func startTestSMTPServer(t *testing.T) (host string, port int) {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen for smtp test server: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	acceptDone := make(chan struct{})
+	go func() {
+		defer close(acceptDone)
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			wg.Add(1)
+			go func(c net.Conn) {
+				defer wg.Done()
+				defer func() { _ = c.Close() }()
+				handleSMTPConnection(c)
+			}(conn)
+		}
+	}()
+
+	t.Cleanup(func() {
+		_ = ln.Close()
+		<-acceptDone
+		wg.Wait()
+	})
+
+	host, portStr, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatalf("failed to split smtp listener addr: %v", err)
+	}
+	if _, err := fmt.Sscanf(portStr, "%d", &port); err != nil {
+		t.Fatalf("failed to parse smtp listener port: %v", err)
+	}
+
+	return host, port
+}
+
+func handleSMTPConnection(conn net.Conn) {
+	r := bufio.NewReader(conn)
+	w := bufio.NewWriter(conn)
+
+	writeLine := func(line string) {
+		_, _ = w.WriteString(line + "\r\n")
+		_ = w.Flush()
+	}
+
+	writeLine("220 localhost ESMTP test")
+
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return
+		}
+		cmd := strings.TrimSpace(line)
+		upper := strings.ToUpper(cmd)
+
+		switch {
+		case strings.HasPrefix(upper, "EHLO") || strings.HasPrefix(upper, "HELO"):
+			writeLine("250-localhost")
+			writeLine("250 OK")
+		case strings.HasPrefix(upper, "MAIL FROM:"):
+			writeLine("250 OK")
+		case strings.HasPrefix(upper, "RCPT TO:"):
+			writeLine("250 OK")
+		case strings.HasPrefix(upper, "DATA"):
+			writeLine("354 End data with <CR><LF>.<CR><LF>")
+			for {
+				dataLine, err := r.ReadString('\n')
+				if err != nil {
+					return
+				}
+				if strings.TrimRight(dataLine, "\r\n") == "." {
+					break
+				}
+			}
+			writeLine("250 OK")
+		case strings.HasPrefix(upper, "RSET"):
+			writeLine("250 OK")
+		case strings.HasPrefix(upper, "NOOP"):
+			writeLine("250 OK")
+		case strings.HasPrefix(upper, "QUIT"):
+			writeLine("221 Bye")
+			return
+		default:
+			writeLine("250 OK")
+		}
+	}
+}
+
 func setupSettingsTestDB(t *testing.T) *gorm.DB {
 	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		panic("failed to connect to test database")
 	}
-	db.AutoMigrate(&models.Setting{})
+	_ = db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{})
 	return db
 }
 
@@ -115,6 +215,146 @@ func TestSettingsHandler_UpdateSettings(t *testing.T) {
 	assert.Equal(t, "updated_value", setting.Value)
 }
 
+func TestSettingsHandler_UpdateSetting_SyncsAdminWhitelist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := gin.New()
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{
+		"key":   "security.admin_whitelist",
+		"value": "192.0.2.1/32",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var cfg models.SecurityConfig
+	err := db.Where("name = ?", "default").First(&cfg).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "192.0.2.1/32", cfg.AdminWhitelist)
+}
+
+func TestSettingsHandler_UpdateSetting_EnablesCerberusWhenACLEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := gin.New()
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{
+		"key":   "security.acl.enabled",
+		"value": "true",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var setting models.Setting
+	err := db.Where("key = ?", "feature.cerberus.enabled").First(&setting).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "true", setting.Value)
+
+	var legacySetting models.Setting
+	err = db.Where("key = ?", "security.cerberus.enabled").First(&legacySetting).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "true", legacySetting.Value)
+
+	var aclSetting models.Setting
+	err = db.Where("key = ?", "security.acl.enabled").First(&aclSetting).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "true", aclSetting.Value)
+
+	var cfg models.SecurityConfig
+	err = db.Where("name = ?", "default").First(&cfg).Error
+	assert.NoError(t, err)
+	assert.True(t, cfg.Enabled)
+}
+
+func TestSettingsHandler_PatchConfig_SyncsAdminWhitelist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.PATCH("/config", handler.PatchConfig)
+
+	payload := map[string]any{
+		"security": map[string]any{
+			"admin_whitelist": "203.0.113.0/24",
+		},
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/config", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var cfg models.SecurityConfig
+	err := db.Where("name = ?", "default").First(&cfg).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "203.0.113.0/24", cfg.AdminWhitelist)
+}
+
+func TestSettingsHandler_PatchConfig_EnablesCerberusWhenACLEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.PATCH("/config", handler.PatchConfig)
+
+	payload := map[string]any{
+		"security": map[string]any{
+			"acl": map[string]any{
+				"enabled": true,
+			},
+		},
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/config", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var setting models.Setting
+	err := db.Where("key = ?", "feature.cerberus.enabled").First(&setting).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "true", setting.Value)
+
+	var cfg models.SecurityConfig
+	err = db.Where("name = ?", "default").First(&cfg).Error
+	assert.NoError(t, err)
+	assert.True(t, cfg.Enabled)
+}
+
 func TestSettingsHandler_UpdateSetting_DatabaseError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
@@ -181,7 +421,7 @@ func setupSettingsHandlerWithMail(t *testing.T) (*handlers.SettingsHandler, *gor
 	if err != nil {
 		panic("failed to connect to test database")
 	}
-	db.AutoMigrate(&models.Setting{})
+	_ = db.AutoMigrate(&models.Setting{})
 	return handlers.NewSettingsHandler(db), db
 }
 
@@ -207,7 +447,7 @@ func TestSettingsHandler_GetSMTPConfig(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, "smtp.example.com", resp["host"])
 	assert.Equal(t, float64(587), resp["port"])
 	assert.Equal(t, "********", resp["password"]) // Password should be masked
@@ -228,7 +468,7 @@ func TestSettingsHandler_GetSMTPConfig_Empty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["configured"])
 }
 
@@ -396,8 +636,37 @@ func TestSettingsHandler_TestSMTPConfig_NotConfigured(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["success"])
+}
+
+func TestSettingsHandler_TestSMTPConfig_Success(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, db := setupSettingsHandlerWithMail(t)
+
+	host, port := startTestSMTPServer(t)
+
+	// Seed SMTP config for local test server.
+	db.Create(&models.Setting{Key: "smtp_host", Value: host, Category: "smtp", Type: "string"})
+	db.Create(&models.Setting{Key: "smtp_port", Value: fmt.Sprintf("%d", port), Category: "smtp", Type: "number"})
+	db.Create(&models.Setting{Key: "smtp_encryption", Value: "none", Category: "smtp", Type: "string"})
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/settings/smtp/test", handler.TestSMTPConfig)
+
+	req, _ := http.NewRequest("POST", "/settings/smtp/test", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, true, resp["success"])
 }
 
 func TestSettingsHandler_SendTestEmail_NonAdmin(t *testing.T) {
@@ -460,8 +729,40 @@ func TestSettingsHandler_SendTestEmail_NotConfigured(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["success"])
+}
+
+func TestSettingsHandler_SendTestEmail_Success(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, db := setupSettingsHandlerWithMail(t)
+
+	host, port := startTestSMTPServer(t)
+
+	// Seed SMTP config for local test server.
+	db.Create(&models.Setting{Key: "smtp_host", Value: host, Category: "smtp", Type: "string"})
+	db.Create(&models.Setting{Key: "smtp_port", Value: fmt.Sprintf("%d", port), Category: "smtp", Type: "number"})
+	db.Create(&models.Setting{Key: "smtp_from_address", Value: "noreply@example.com", Category: "smtp", Type: "string"})
+	db.Create(&models.Setting{Key: "smtp_encryption", Value: "none", Category: "smtp", Type: "string"})
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/settings/smtp/send-test", handler.SendTestEmail)
+
+	body := map[string]string{"to": "test@example.com"}
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/settings/smtp/send-test", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, true, resp["success"])
 }
 
 func TestMaskPassword(t *testing.T) {
@@ -526,7 +827,7 @@ func TestSettingsHandler_ValidatePublicURL_InvalidFormat(t *testing.T) {
 
 			assert.Equal(t, http.StatusBadRequest, w.Code)
 			var resp map[string]any
-			json.Unmarshal(w.Body.Bytes(), &resp)
+			_ = json.Unmarshal(w.Body.Bytes(), &resp)
 			assert.Equal(t, false, resp["valid"])
 		})
 	}
@@ -565,7 +866,7 @@ func TestSettingsHandler_ValidatePublicURL_Success(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, w.Code)
 			var resp map[string]any
-			json.Unmarshal(w.Body.Bytes(), &resp)
+			_ = json.Unmarshal(w.Body.Bytes(), &resp)
 			assert.Equal(t, true, resp["valid"])
 			assert.Equal(t, tc.expected, resp["normalized"])
 		})
@@ -650,7 +951,7 @@ func TestSettingsHandler_TestPublicURL_InvalidURL(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	// BadRequest responses only have 'error' field, not 'reachable'
 	assert.Contains(t, resp["error"].(string), "parse")
 }
@@ -689,7 +990,7 @@ func TestSettingsHandler_TestPublicURL_PrivateIPBlocked(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, w.Code) // Returns 200 but with reachable=false
 			var resp map[string]any
-			json.Unmarshal(w.Body.Bytes(), &resp)
+			_ = json.Unmarshal(w.Body.Bytes(), &resp)
 			assert.Equal(t, false, resp["reachable"])
 			// Verify error message contains relevant security text
 			errorMsg := resp["error"].(string)
@@ -731,7 +1032,7 @@ func TestSettingsHandler_TestPublicURL_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 
 	// The test verifies the handler works with a real public URL
 	assert.Equal(t, true, resp["reachable"], "example.com should be reachable")
@@ -759,13 +1060,42 @@ func TestSettingsHandler_TestPublicURL_DNSFailure(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code) // Returns 200 but with reachable=false
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["reachable"])
 	// DNS errors contain "dns" or "resolution" keywords (case-insensitive)
 	errorMsg := resp["error"].(string)
 	assert.True(t,
 		contains(errorMsg, "dns") || contains(errorMsg, "resolution"),
 		"Expected DNS error message, got: %s", errorMsg)
+}
+
+func TestSettingsHandler_TestPublicURL_ConnectivityError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, _ := setupSettingsHandlerWithMail(t)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/settings/test-url", handler.TestPublicURL)
+
+	// 192.0.2.0/24 is reserved for documentation/testing and is not considered private by
+	// network.IsPrivateIP(). Using a closed port should trigger a deterministic connect error
+	// after passing SSRF validation.
+	body := map[string]string{"url": "http://192.0.2.1:1"}
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/settings/test-url", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, false, resp["reachable"])
+	_, ok := resp["error"].(string)
+	assert.True(t, ok)
 }
 
 // ============= SSRF Protection Tests =============
@@ -888,7 +1218,7 @@ func TestSettingsHandler_TestPublicURL_EmbeddedCredentials(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.False(t, resp["reachable"].(bool))
 	assert.Contains(t, resp["error"].(string), "credentials")
 }

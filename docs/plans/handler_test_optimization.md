@@ -48,6 +48,7 @@ func OpenTestDB(t *testing.T) *gorm.DB {
 **Location**: Every test file with database access
 
 **Evidence**:
+
 ```go
 // handlers_test.go - migrates 6 models
 db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.RemoteServer{},
@@ -85,6 +86,7 @@ db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Notification{},
 **Total sleep time per test run**: ~15-20 seconds minimum
 
 **Example of problematic pattern**:
+
 ```go
 // uptime_service_test.go:766
 time.Sleep(2 * time.Second) // Give enough time for timeout (default is 1s)
@@ -97,6 +99,7 @@ time.Sleep(2 * time.Second) // Give enough time for timeout (default is 1s)
 **Location**: Most handler tests lack `t.Parallel()`
 
 **Evidence**: Only integration tests and some service tests use parallelization:
+
 ```go
 // GOOD: integration/waf_integration_test.go
 func TestWAFIntegration(t *testing.T) {
@@ -121,6 +124,7 @@ func TestAuthHandler_Login(t *testing.T) {
 **Location**: Multiple test files recreate services from scratch
 
 **Pattern**:
+
 ```go
 // Repeated in many tests
 ns := services.NewNotificationService(db)
@@ -226,12 +230,14 @@ func GetTestDB(t *testing.T) *gorm.DB {
 **Solution**: Use channels, waitgroups, or polling with short intervals.
 
 **Before**:
+
 ```go
 // cerberus_logs_ws_test.go:108
 time.Sleep(300 * time.Millisecond)
 ```
 
 **After**:
+
 ```go
 // Use a helper that polls with short intervals
 func waitForCondition(t *testing.T, timeout time.Duration, check func() bool) {
@@ -269,6 +275,7 @@ waitForCondition(t, 500*time.Millisecond, func() bool {
 **Solution**: Add `t.Parallel()` to all tests that don't share global state.
 
 **Pattern to apply**:
+
 ```go
 func TestRemoteServerHandler_List(t *testing.T) {
     t.Parallel() // ADD THIS
@@ -279,6 +286,7 @@ func TestRemoteServerHandler_List(t *testing.T) {
 ```
 
 **Files to update** (partial list):
+
 - [handlers_test.go](backend/internal/api/handlers/handlers_test.go)
 - [auth_handler_test.go](backend/internal/api/handlers/auth_handler_test.go)
 - [proxy_host_handler_test.go](backend/internal/api/handlers/proxy_host_handler_test.go)
@@ -336,6 +344,7 @@ func NewTestFixtures(t *testing.T) *TestFixtures {
 **Solution**: Consolidate into table-driven tests with subtests.
 
 **Before** (3 separate test functions):
+
 ```go
 func TestAuthHandler_Login_Success(t *testing.T) { ... }
 func TestAuthHandler_Login_InvalidPassword(t *testing.T) { ... }
@@ -343,6 +352,7 @@ func TestAuthHandler_Login_UserNotFound(t *testing.T) { ... }
 ```
 
 **After** (1 table-driven test):
+
 ```go
 func TestAuthHandler_Login(t *testing.T) {
     tests := []struct {
@@ -384,6 +394,7 @@ func TestAuthHandler_Login(t *testing.T) {
 ## Implementation Checklist
 
 ### Phase 1: Quick Wins (1-2 days) ✅ COMPLETED
+
 - [x] Add `t.Parallel()` to all handler tests
   - Added to `handlers_test.go` (11 tests)
   - Added to `auth_handler_test.go` (31 tests)
@@ -395,6 +406,7 @@ func TestAuthHandler_Login(t *testing.T) {
 - [ ] Replace top 10 longest `time.Sleep()` calls (DEFERRED - existing sleeps are appropriate for async WebSocket/notification scenarios)
 
 ### Phase 2: Infrastructure (3-5 days) ✅ COMPLETED
+
 - [x] Implement template database pattern in `testdb.go`
   - Added `templateDBOnce sync.Once` for single initialization
   - Added `initTemplateDB()` that migrates all 24 models once
@@ -404,6 +416,7 @@ func TestAuthHandler_Login(t *testing.T) {
 - [x] Existing tests work with new infrastructure
 
 ### Phase 3: Consolidation (2-3 days)
+
 - [ ] Convert repetitive tests to table-driven format
 - [x] Remove redundant AutoMigrate calls (template pattern handles this)
 - [ ] Profile and optimize remaining slow tests
@@ -413,18 +426,23 @@ func TestAuthHandler_Login(t *testing.T) {
 ## Monitoring and Validation
 
 ### Before Optimization
+
 Run baseline measurement:
+
 ```bash
 cd backend && go test -v ./internal/api/handlers/... 2>&1 | tee test_baseline.log
 ```
 
 ### After Each Phase
+
 Compare execution time:
+
 ```bash
 go test -v ./internal/api/handlers/... -json | go-test-report
 ```
 
 ### Success Criteria
+
 - Total handler test time < 30 seconds
 - No individual test > 2 seconds (except integration tests)
 - All tests remain green with `t.Parallel()`
@@ -434,17 +452,20 @@ go test -v ./internal/api/handlers/... -json | go-test-report
 ## Appendix: Files Requiring Updates
 
 ### High Priority (Most Impact)
+
 1. [testdb.go](backend/internal/api/handlers/testdb.go) - Replace with template DB
 2. [cerberus_logs_ws_test.go](backend/internal/api/handlers/cerberus_logs_ws_test.go) - Remove sleeps
 3. [handlers_test.go](backend/internal/api/handlers/handlers_test.go) - Add parallelization
 4. [uptime_service_test.go](backend/internal/services/uptime_service_test.go) - Remove sleeps
 
 ### Medium Priority
-5. [proxy_host_handler_test.go](backend/internal/api/handlers/proxy_host_handler_test.go)
-6. [crowdsec_handler_test.go](backend/internal/api/handlers/crowdsec_handler_test.go)
-7. [auth_handler_test.go](backend/internal/api/handlers/auth_handler_test.go)
-8. [notification_service_test.go](backend/internal/services/notification_service_test.go)
+
+1. [proxy_host_handler_test.go](backend/internal/api/handlers/proxy_host_handler_test.go)
+2. [crowdsec_handler_test.go](backend/internal/api/handlers/crowdsec_handler_test.go)
+3. [auth_handler_test.go](backend/internal/api/handlers/auth_handler_test.go)
+4. [notification_service_test.go](backend/internal/services/notification_service_test.go)
 
 ### Low Priority (Minor Impact)
-9. [benchmark_test.go](backend/internal/api/handlers/benchmark_test.go)
-10. [security_handler_rules_decisions_test.go](backend/internal/api/handlers/security_handler_rules_decisions_test.go)
+
+1. [benchmark_test.go](backend/internal/api/handlers/benchmark_test.go)
+2. [security_handler_rules_decisions_test.go](backend/internal/api/handlers/security_handler_rules_decisions_test.go)
