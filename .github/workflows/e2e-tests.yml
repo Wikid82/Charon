@@ -4,8 +4,8 @@
 #
 # Test Execution Architecture:
 #   - Parallel Sharding: Tests split across 4 shards for speed
-#   - Blob Reporter: Each shard outputs blob-report/ for merging
-#   - Report Merging: All shards merged into single HTML report
+#   - Per-Shard HTML Reports: Each shard generates its own HTML report
+#   - No Merging Needed: Smaller reports are easier to debug
 #   - Trace Collection: Failure traces captured for debugging
 #
 # Coverage Architecture:
@@ -22,8 +22,8 @@
 #
 # Jobs:
 #   1. build: Build Docker image and upload as artifact
-#   2. e2e-tests: Run tests in parallel shards with blob reporter
-#   3. merge-reports: Combine blob reports into single HTML report
+#   2. e2e-tests: Run tests in parallel shards, upload per-shard HTML reports
+#   3. test-summary: Generate summary with links to shard reports
 #   4. comment-results: Post test results as PR comment
 #   5. upload-coverage: Merge and upload E2E coverage to Codecov (if enabled)
 #   6. e2e-results: Status check to block merge on failure
@@ -262,8 +262,8 @@ jobs:
           echo "Browser: ${{ matrix.browser }}"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo ""
-          echo "Reporter: Blob (for merging across shards)"
-          echo "Output: blob-report/ directory"
+          echo "Reporter: HTML (per-shard reports)"
+          echo "Output: playwright-report/ directory"
           echo "════════════════════════════════════════════════════════════"
 
           SHARD_START=$(date +%s)
@@ -285,13 +285,13 @@ jobs:
           CI: true
           TEST_WORKER_INDEX: ${{ matrix.shard }}
 
-      - name: Upload blob report
+      - name: Upload HTML report (per-shard)
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: blob-report-${{ matrix.shard }}
-          path: blob-report/
-          retention-days: 7
+          name: playwright-report-shard-${{ matrix.shard }}
+          path: playwright-report/
+          retention-days: 14
 
       - name: Upload test traces on failure
         if: failure()
@@ -320,120 +320,52 @@ jobs:
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
-  # Merge reports from all shards
-  merge-reports:
-    name: Merge Test Reports
+  # Summarize test results from all shards (no merging needed)
+  test-summary:
+    name: E2E Test Summary
     runs-on: ubuntu-latest
     needs: e2e-tests
     if: always()
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
-
-      - name: Set up Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Download all blob reports
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          pattern: blob-report-*
-          path: all-blob-reports
-          merge-multiple: false
-
-      - name: Merge Playwright HTML reports
-        run: |
-          echo "════════════════════════════════════════════════════════════"
-          echo "Merging Blob Reports from All Shards"
-          echo "════════════════════════════════════════════════════════════"
-
-          # Debug: Show what artifacts were downloaded
-          echo "=== Downloaded blob reports ==="
-          ls -lR all-blob-reports/ || echo "No blob reports directory found"
-
-          # Merge all blob reports into a single HTML report
-          if [[ -d "all-blob-reports" ]] && [[ -n "$(ls -A all-blob-reports 2>/dev/null)" ]]; then
-            echo "✅ Found blob reports from shards, merging..."
-
-            # Playwright merge-reports reads from all directories passed to it
-            # Pass the all-blob-reports directory which contains blob-report-1, blob-report-2, etc.
-            npx playwright merge-reports --reporter html ./all-blob-reports
-
-            echo "✅ Merge complete - HTML report generated in playwright-report/"
-          else
-            echo "❌ No blob report artifacts found"
-            echo "Test shards may have failed. Check shard logs."
-            echo "Creating empty report directory to prevent workflow failure"
-            mkdir -p playwright-report
-          fi
-
-          echo "════════════════════════════════════════════════════════════"
-          echo "Merge Complete"
-          echo "════════════════════════════════════════════════════════════"
-
-      - name: Upload merged report
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: merged-playwright-report
-          path: playwright-report/
-          retention-days: 30
-
-      - name: Generate job summary with detailed statistics
+      - name: Generate job summary with per-shard links
         run: |
           echo "## 📊 E2E Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Shard Status" >> $GITHUB_STEP_SUMMARY
+          echo "### Per-Shard HTML Reports" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Shard | Status | Results |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|---------|" >> $GITHUB_STEP_SUMMARY
-
-          for i in 1 2 3 4; do
-            SHARD_DIR="all-blob-reports/blob-report-${i}"
-            if [[ -d "${SHARD_DIR}" ]]; then
-              STATUS="✅ Complete"
-            else
-              STATUS="❌ Failed"
-            fi
-            echo "| Shard ${i} | ${STATUS} | [Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
-          done
-
+          echo "Each shard generates its own HTML report for easier debugging:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Test Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "| Shard | HTML Report | Traces (on failure) |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------------|---------------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 1 | \`playwright-report-shard-1\` | \`traces-chromium-shard-1\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 2 | \`playwright-report-shard-2\` | \`traces-chromium-shard-2\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 3 | \`playwright-report-shard-3\` | \`traces-chromium-shard-3\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 4 | \`playwright-report-shard-4\` | \`traces-chromium-shard-4\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- 📋 **HTML Report**: [View Merged Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
-          echo "- 🎥 **Videos**: Available in trace artifacts (retained on failure)" >> $GITHUB_STEP_SUMMARY
-          echo "- 📍 **Traces**: Available in trace artifacts (retained on failure)" >> $GITHUB_STEP_SUMMARY
+          echo "### How to View Reports" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download the shard HTML report artifact (zip file)" >> $GITHUB_STEP_SUMMARY
+          echo "2. Extract and open \`index.html\` in your browser" >> $GITHUB_STEP_SUMMARY
+          echo "3. Or run: \`npx playwright show-report path/to/extracted-folder\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Debugging Tips" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. Download **Trace** artifacts for visual debugging" >> $GITHUB_STEP_SUMMARY
-          echo "2. Open traces with Playwright Inspector: \`npx playwright show-trace <trace.zip>\`" >> $GITHUB_STEP_SUMMARY
-          echo "3. Review **Docker Logs** artifacts for backend errors" >> $GITHUB_STEP_SUMMARY
-          echo "4. Run failed tests locally: \`npm run e2e -- --grep=\"test name\"\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Failed tests?** Download the shard report that failed. Each shard has a focused subset of tests." >> $GITHUB_STEP_SUMMARY
+          echo "- **Traces**: Available in trace artifacts (only on failure)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Logs**: Backend errors available in docker-logs-shard-N artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- **Local repro**: \`npx playwright test --grep=\"test name\"\`" >> $GITHUB_STEP_SUMMARY
 
   # Comment on PR with results
   comment-results:
     name: Comment Test Results
     runs-on: ubuntu-latest
-    needs: [e2e-tests, merge-reports]
+    needs: [e2e-tests, test-summary]
     if: github.event_name == 'pull_request' && always()
     permissions:
       pull-requests: write
 
     steps:
-      - name: Download merged report
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: merged-playwright-report
-          path: playwright-report
-        continue-on-error: true
-
       - name: Determine test status
         id: status
         run: |
@@ -444,7 +376,7 @@ jobs:
           elif [[ "${{ needs.e2e-tests.result }}" == "failure" ]]; then
             echo "emoji=❌" >> $GITHUB_OUTPUT
             echo "status=FAILED" >> $GITHUB_OUTPUT
-            echo "message=Some E2E tests failed. Please review the failures." >> $GITHUB_OUTPUT
+            echo "message=Some E2E tests failed. Check artifacts for per-shard reports." >> $GITHUB_OUTPUT
           else
             echo "emoji=⚠️" >> $GITHUB_OUTPUT
             echo "status=UNKNOWN" >> $GITHUB_OUTPUT
@@ -470,7 +402,10 @@ jobs:
             | Shards | 4 |
             | Status | ${status} |
 
-            [📊 View full Playwright report](${runUrl})
+            **Per-Shard HTML Reports** (easier to debug):
+            - \`playwright-report-shard-1\` through \`playwright-report-shard-4\`
+
+            [📊 View workflow run & download reports](${runUrl})
 
             ---
             <sub>🤖 This comment was automatically generated by the E2E Tests workflow.</sub>`;
