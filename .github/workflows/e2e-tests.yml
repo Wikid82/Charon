@@ -2,11 +2,18 @@
 # Runs Playwright E2E tests with sharding for faster execution
 # and collects frontend code coverage via @bgotink/playwright-coverage
 #
+# Test Execution Architecture:
+#   - Parallel Sharding: Tests split across 4 shards for speed
+#   - Blob Reporter: Each shard outputs blob-report/ for merging
+#   - Report Merging: All shards merged into single HTML report
+#   - Trace Collection: Failure traces captured for debugging
+#
 # Coverage Architecture:
 #   - Backend: Docker container at localhost:8080 (API)
 #   - Frontend: Vite dev server at localhost:3000 (serves source files)
 #   - Tests hit Vite, which proxies API calls to Docker
 #   - V8 coverage maps directly to source files for accurate reporting
+#   - Coverage disabled by default (requires PLAYWRIGHT_COVERAGE=1)
 #
 # Triggers:
 #   - Pull requests to main/develop (with path filters)
@@ -15,10 +22,10 @@
 #
 # Jobs:
 #   1. build: Build Docker image and upload as artifact
-#   2. e2e-tests: Run tests in parallel shards with coverage
-#   3. merge-reports: Combine HTML reports from all shards
+#   2. e2e-tests: Run tests in parallel shards with blob reporter
+#   3. merge-reports: Combine blob reports into single HTML report
 #   4. comment-results: Post test results as PR comment
-#   5. upload-coverage: Merge and upload E2E coverage to Codecov
+#   5. upload-coverage: Merge and upload E2E coverage to Codecov (if enabled)
 #   6. e2e-results: Status check to block merge on failure
 
 name: E2E Tests
@@ -254,6 +261,9 @@ jobs:
           echo "E2E Test Shard ${{ matrix.shard }}/${{ matrix.total-shards }}"
           echo "Browser: ${{ matrix.browser }}"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo ""
+          echo "Reporter: Blob (for merging across shards)"
+          echo "Output: blob-report/ directory"
           echo "════════════════════════════════════════════════════════════"
 
           SHARD_START=$(date +%s)
@@ -275,14 +285,12 @@ jobs:
           CI: true
           TEST_WORKER_INDEX: ${{ matrix.shard }}
 
-      - name: Upload test results
+      - name: Upload blob report
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: test-results-${{ matrix.browser }}-shard-${{ matrix.shard }}
-          path: |
-            playwright-report/
-            test-results/
+          name: blob-report-${{ matrix.shard }}
+          path: blob-report/
           retention-days: 7
 
       - name: Upload test traces on failure
@@ -332,46 +340,42 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Download all test results
+      - name: Download all blob reports
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          pattern: test-results-*
-          path: all-results
+          pattern: blob-report-*
+          path: all-blob-reports
           merge-multiple: false
 
       - name: Merge Playwright HTML reports
         run: |
-          # Create directory for merged results
-          mkdir -p merged-results
+          echo "════════════════════════════════════════════════════════════"
+          echo "Merging Blob Reports from All Shards"
+          echo "════════════════════════════════════════════════════════════"
 
           # Debug: Show what artifacts were downloaded
-          echo "=== Checking downloaded artifacts ==="
-          ls -lR all-results/ || echo "No all-results directory found"
+          echo "=== Downloaded blob reports ==="
+          ls -lR all-blob-reports/ || echo "No blob reports directory found"
 
-          # Find and copy all blob reports
-          echo "=== Looking for zip files ==="
-          find all-results -name "*.zip" -type f -print
-          find all-results -name "*.zip" -exec cp {} merged-results/ \; 2>/dev/null || true
+          # Merge all blob reports into a single HTML report
+          if [[ -d "all-blob-reports" ]] && [[ -n "$(ls -A all-blob-reports 2>/dev/null)" ]]; then
+            echo "✅ Found blob reports from shards, merging..."
 
-          # Check for zip files before merging
-          echo "=== Checking merged-results directory ==="
-          ls -la merged-results/ || echo "merged-results is empty"
+            # Playwright merge-reports reads from all directories passed to it
+            # Pass the all-blob-reports directory which contains blob-report-1, blob-report-2, etc.
+            npx playwright merge-reports --reporter html ./all-blob-reports
 
-          if compgen -G "merged-results/*.zip" > /dev/null; then
-            echo "✅ Found Playwright report zip blobs, proceeding with merge..."
-            npx playwright merge-reports --reporter html merged-results
+            echo "✅ Merge complete - HTML report generated in playwright-report/"
           else
-            echo "⚠️  No Playwright report zip blobs found. Checking for fallback reports..."
-            # Fallback: Look for individual playwright-report directories
-            if find all-results -name "playwright-report" -type d | head -1 | grep -q .; then
-              echo "✅ Found individual reports, copying first one as fallback..."
-              cp -r $(find all-results -name "playwright-report" -type d | head -1) playwright-report
-            else
-              echo "❌ No Playwright report zip blobs or individual reports found"
-              echo "Artifact download may have failed. Check that test shards completed successfully."
-              mkdir -p playwright-report
-            fi
+            echo "❌ No blob report artifacts found"
+            echo "Test shards may have failed. Check shard logs."
+            echo "Creating empty report directory to prevent workflow failure"
+            mkdir -p playwright-report
           fi
+
+          echo "════════════════════════════════════════════════════════════"
+          echo "Merge Complete"
+          echo "════════════════════════════════════════════════════════════"
 
       - name: Upload merged report
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -389,41 +393,29 @@ jobs:
           echo "| Shard | Status | Results |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|--------|---------|" >> $GITHUB_STEP_SUMMARY
 
-          TOTAL_TESTS=0
-          TOTAL_PASSED=0
-          TOTAL_FAILED=0
-
           for i in 1 2 3 4; do
-            SHARD_DIR="all-results/test-results-chromium-shard-${i}"
+            SHARD_DIR="all-blob-reports/blob-report-${i}"
             if [[ -d "${SHARD_DIR}" ]]; then
-              # Try to extract stats from .last-run.json
-              if [[ -f "${SHARD_DIR}/.last-run.json" ]]; then
-                # Parse JSON for test counts
-                STATS=$(cat "${SHARD_DIR}/.last-run.json" 2>/dev/null)
-                STATUS="✅"
-              else
-                STATUS="✅"
-              fi
-              echo "| Shard ${i} | ${STATUS} Complete | [Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+              STATUS="✅ Complete"
             else
-              echo "| Shard ${i} | ❌ Failed | — |" >> $GITHUB_STEP_SUMMARY
+              STATUS="❌ Failed"
             fi
+            echo "| Shard ${i} | ${STATUS} | [Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
           done
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Test Artifacts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- 📋 **HTML Report**: [View Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
-          echo "- 🎥 **Videos**: Check artifacts (retained on failure)" >> $GITHUB_STEP_SUMMARY
-          echo "- 📍 **Traces**: Available in test-results directory" >> $GITHUB_STEP_SUMMARY
-          echo "- 📝 **Logs**: Docker and test logs included" >> $GITHUB_STEP_SUMMARY
+          echo "- 📋 **HTML Report**: [View Merged Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "- 🎥 **Videos**: Available in trace artifacts (retained on failure)" >> $GITHUB_STEP_SUMMARY
+          echo "- 📍 **Traces**: Available in trace artifacts (retained on failure)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Debugging Tips" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. Check **Videos** in artifacts for visual debugging of failures" >> $GITHUB_STEP_SUMMARY
-          echo "2. Open **Traces** with Playwright Inspector: \`npx playwright show-trace <trace.zip>\`" >> $GITHUB_STEP_SUMMARY
-          echo "3. Review **Docker Logs** for backend errors" >> $GITHUB_STEP_SUMMARY
-          echo "4. Run failed tests locally with: \`npm run e2e -- --grep=\"test name\"\`" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download **Trace** artifacts for visual debugging" >> $GITHUB_STEP_SUMMARY
+          echo "2. Open traces with Playwright Inspector: \`npx playwright show-trace <trace.zip>\`" >> $GITHUB_STEP_SUMMARY
+          echo "3. Review **Docker Logs** artifacts for backend errors" >> $GITHUB_STEP_SUMMARY
+          echo "4. Run failed tests locally: \`npm run e2e -- --grep=\"test name\"\`" >> $GITHUB_STEP_SUMMARY
 
   # Comment on PR with results
   comment-results:
