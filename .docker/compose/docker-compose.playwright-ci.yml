@@ -27,11 +27,9 @@ services:
   # Charon Application - Core E2E Testing Service
   # =============================================================================
   charon-app:
-    # CI default (digest-pinned via workflow output):
-    # CHARON_E2E_IMAGE_DIGEST=ghcr.io/wikid82/charon:nightly@sha256:<digest>
-    # Local override (tag-based):
-    # CHARON_E2E_IMAGE=charon:e2e-test
-    image: ${CHARON_E2E_IMAGE_DIGEST:-${CHARON_E2E_IMAGE:-charon:e2e-test}}
+    # CI provides CHARON_E2E_IMAGE_TAG=charon:e2e-test (locally built image)
+    # Local development uses the default fallback value
+    image: ${CHARON_E2E_IMAGE_TAG:-charon:e2e-test}
     container_name: charon-playwright
     restart: "no"
     # CI generates CHARON_ENCRYPTION_KEY dynamically in GitHub Actions workflow
