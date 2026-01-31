@@ -1091,3 +1091,95 @@ func TestImportHandler_Commit_CreateFailure(t *testing.T) {
 	// Verify the error mentions the duplicate
 	assert.Contains(t, errors[0].(string), "duplicate.com")
 }
+
+// TestUpload_NormalizationSuccess tests the success path where NormalizeCaddyfile succeeds (line 271)
+func TestUpload_NormalizationSuccess(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+
+	// Use fake caddy script that handles both fmt and adapt
+	cwd, _ := os.Getwd()
+	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_fmt_success.sh")
+	_ = os.Chmod(fakeCaddy, 0o755) //nolint:gosec // G302: test script needs exec permissions
+
+	tmpDir := t.TempDir()
+	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
+	router := gin.New()
+	router.POST("/import/upload", handler.Upload)
+
+	// Use single-line Caddyfile format (triggers normalization)
+	singleLineCaddyfile := `test.local { reverse_proxy localhost:3000 }`
+
+	payload := map[string]string{
+		"content":  singleLineCaddyfile,
+		"filename": "Caddyfile",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/upload", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	// Should succeed with 200 (normalization worked)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Verify response contains hosts (parsing succeeded)
+	var response map[string]any
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+
+	// Verify preview contains hosts
+	preview, ok := response["preview"].(map[string]any)
+	assert.True(t, ok, "response should contain preview")
+	hosts, ok := preview["hosts"].([]any)
+	assert.True(t, ok, "preview should contain hosts")
+	assert.Greater(t, len(hosts), 0, "should have at least one parsed host")
+}
+
+// TestUpload_NormalizationFallback tests the fallback path where NormalizeCaddyfile fails (line 269)
+func TestUpload_NormalizationFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+
+	// Use fake caddy script that fails fmt but succeeds on adapt
+	cwd, _ := os.Getwd()
+	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_fmt_fail.sh")
+	_ = os.Chmod(fakeCaddy, 0o755) //nolint:gosec // G302: test script needs exec permissions
+
+	tmpDir := t.TempDir()
+	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
+	router := gin.New()
+	router.POST("/import/upload", handler.Upload)
+
+	// Valid Caddyfile that would parse successfully (even if normalization fails)
+	caddyfile := `test.local {
+    reverse_proxy localhost:3000
+}`
+
+	payload := map[string]string{
+		"content":  caddyfile,
+		"filename": "Caddyfile",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/upload", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	// Should still succeed (falls back to original content)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Verify hosts were parsed from original content
+	var response map[string]any
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+
+	// Verify preview contains hosts
+	preview, ok := response["preview"].(map[string]any)
+	assert.True(t, ok, "response should contain preview")
+	hosts, ok := preview["hosts"].([]any)
+	assert.True(t, ok, "preview should contain hosts")
+	assert.Greater(t, len(hosts), 0, "should have at least one parsed host from original content")
+}

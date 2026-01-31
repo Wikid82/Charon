@@ -26,11 +26,15 @@ func TestImporter_ParseCaddyfile_NotFound(t *testing.T) {
 }
 
 type MockExecutor struct {
-	Output []byte
-	Err    error
+	Output      []byte
+	Err         error
+	ExecuteFunc func(name string, args ...string) ([]byte, error) // Custom execution logic
 }
 
 func (m *MockExecutor) Execute(name string, args ...string) ([]byte, error) {
+	if m.ExecuteFunc != nil {
+		return m.ExecuteFunc(name, args...)
+	}
 	return m.Output, m.Err
 }
 
@@ -436,4 +440,44 @@ func TestImporter_NormalizeCaddyfile_Integration(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDefaultExecutor_Execute_Timeout verifies the 5-second timeout triggers correctly
+func TestDefaultExecutor_Execute_Timeout(t *testing.T) {
+	executor := &DefaultExecutor{}
+
+	// Use "sleep 10" to trigger the 5-second timeout
+	output, err := executor.Execute("sleep", "10")
+
+	// Error must be returned
+	assert.Error(t, err)
+	// Error message must contain the timeout message
+	assert.Contains(t, err.Error(), "command timed out after 5 seconds")
+	assert.Contains(t, err.Error(), "sleep")
+	// Output may be empty or partial
+	_ = output
+}
+
+// TestImporter_NormalizeCaddyfile_ReadError tests the error path when reading the formatted file fails
+func TestImporter_NormalizeCaddyfile_ReadError(t *testing.T) {
+	importer := NewImporter("caddy")
+
+	// Mock executor that succeeds but deletes the temp file before returning
+	// This simulates the file being removed after caddy fmt writes it
+	mockExecutor := &MockExecutor{
+		ExecuteFunc: func(name string, args ...string) ([]byte, error) {
+			// The temp file path is the last argument (caddy fmt --overwrite <tempfile>)
+			if len(args) >= 3 && args[0] == "fmt" && args[1] == "--overwrite" {
+				// Delete the temp file to trigger ReadFile error
+				_ = os.Remove(args[2])
+			}
+			return []byte{}, nil
+		},
+	}
+	importer.executor = mockExecutor
+
+	_, err := importer.NormalizeCaddyfile("test.local { reverse_proxy localhost:8080 }")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to read formatted file")
 }
