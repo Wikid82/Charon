@@ -367,7 +367,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 			// Return 400 but include preview + warning so callers (and E2E) can render
 			// the same preview UX while still signaling an error status.
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "File server directives are not supported for import or no sites/hosts found in your Caddyfile",
+				"error":   "File server directives are not supported for import or no sites/hosts found in your Caddyfile",
 				"warning": "File server directives are not supported for import or no sites/hosts found in your Caddyfile",
 				"session": gin.H{"id": sid, "state": "transient", "source_file": tempPath},
 				"preview": result,
@@ -563,7 +563,7 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 			// preview shape while the HTTP status indicates an error.
 			middleware.GetRequestLogger(c).WithField("mainCaddyfile", util.SanitizeForLog(filepath.Base(mainCaddyfile))).Warn("Import UploadMulti: parsed routes were file_server-only and not importable")
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "File server directives are not supported for import or no sites/hosts found in your Caddyfile",
+				"error":   "File server directives are not supported for import or no sites/hosts found in your Caddyfile",
 				"warning": "File server directives are not supported for import or no sites/hosts found in your Caddyfile",
 				"session": gin.H{"id": sid, "state": "transient", "source_file": mainCaddyfile},
 				"preview": result,
