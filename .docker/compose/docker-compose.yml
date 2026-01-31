@@ -2,7 +2,7 @@ services:
   charon:
     # Override for local testing:
     # CHARON_IMAGE=ghcr.io/wikid82/charon:latest
-    image: ${CHARON_IMAGE:-ghcr.io/wikid82/charon:latest@sha256:371a3fdabc7f52da65a4ac888531a413b6a56294f65041a42fdc0c407e8454c4}
+    image: ${CHARON_IMAGE:-ghcr.io/wikid82/charon:latest@sha256:863d4b3df7c84563749e4dd6b29e2471beb6d5c2997cb5378cecb98c15f50653}
     container_name: charon
     restart: unless-stopped
     ports:
