@@ -393,3 +393,22 @@ func TestBackupCaddyfile_InvalidOriginalPath(t *testing.T) {
 	_, err = BackupCaddyfile(filepath.Join("..", "Caddyfile"), tmp)
 	require.Error(t, err)
 }
+
+// failingExec is a test executor that simulates a failing caddy binary.
+type failingExec struct{}
+
+func (f *failingExec) Execute(name string, args ...string) ([]byte, error) {
+	return []byte("caddy: not found"), fmt.Errorf("caddy not available: %s", name)
+}
+
+func TestNormalizeCaddyfile_ExecutorError(t *testing.T) {
+	importer := NewImporter("")
+	// Inject an executor that simulates caddy fmt failure
+	importer.executor = &failingExec{}
+
+	_, err := importer.NormalizeCaddyfile("test")
+	require.Error(t, err)
+	// Error should mention caddy fmt failed and include executor output
+	require.ErrorContains(t, err, "caddy fmt failed")
+	require.ErrorContains(t, err, "caddy: not found")
+}

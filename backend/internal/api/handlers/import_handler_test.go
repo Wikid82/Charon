@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -1618,4 +1619,65 @@ func TestGetStatus_AlreadyCommittedMount(t *testing.T) {
 	var resp map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["has_pending"], "should not show pending for already committed mount")
+}
+
+// TestImportHandler_Commit_SessionSaveWarning ensures Commit continues when
+// the final DB.Save() issues a warning (session save fails non-fatally).
+func TestImportHandler_Commit_SessionSaveWarning(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+
+	// Create an import session with one host to create
+	session := models.ImportSession{
+		UUID:       uuid.NewString(),
+		Status:     "reviewing",
+		ParsedData: `{"hosts":[{"domain_names":"savewarn.example.com","forward_host":"127.0.0.1","forward_port":8080,"forward_scheme":"http"}]}`,
+	}
+	if err := db.Create(&session).Error; err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+
+	// Use a mock proxyHostService that succeeds on Create
+	mockSvc := &mockProxyHostService{
+		listFunc:   func() ([]models.ProxyHost, error) { return []models.ProxyHost{}, nil },
+		createFunc: func(h *models.ProxyHost) error { h.ID = 1; return nil },
+	}
+
+	h := handlers.NewImportHandlerWithService(db, mockSvc, "echo", "/tmp", "")
+	router := gin.New()
+	router.POST("/import/commit", h.Commit)
+
+	// Inject a GORM callback to force an error when updating ImportSession (simulates non-fatal save warning)
+	db.Callback().Update().Before("gorm:before_update").Register("test:inject_importsession_save_error", func(tx *gorm.DB) {
+		if tx.Statement != nil && tx.Statement.Schema != nil && tx.Statement.Schema.Name == "ImportSession" {
+			tx.AddError(errors.New("simulated session save failure"))
+		}
+	})
+
+	// Capture global logs so we can assert a warning was emitted
+	var buf bytes.Buffer
+	logger.Init(false, &buf)
+
+	payload := map[string]any{
+		"session_uuid": session.UUID,
+		"resolutions": map[string]string{
+			"savewarn.example.com": "import",
+		},
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/commit", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	// Commit should still succeed (session save warning is non-fatal)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	// Should report created host despite DB save warning
+	assert.Equal(t, float64(1), resp["created"])
+
+	// Warning must have been logged
+	assert.Contains(t, buf.String(), "failed to save import session")
 }
