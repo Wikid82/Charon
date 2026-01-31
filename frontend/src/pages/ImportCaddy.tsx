@@ -88,6 +88,14 @@ export default function ImportCaddy() {
         </div>
       )}
 
+      {/* Backend-provided warning (e.g. file_server-only) */}
+      {preview?.warning && (
+        <div className="bg-yellow-900/20 border border-yellow-500 text-yellow-400 px-4 py-3 rounded mb-6">
+          <p className="font-bold">{t('importCaddy.warningTitle')}</p>
+          <p className="text-sm mt-1">{preview.warning}</p>
+        </div>
+      )}
+
       {/* Show warning if preview is empty but session exists (e.g. mounted file was empty or invalid) */}
       {session && preview && preview.preview && preview.preview.hosts.length === 0 && (
         <div className="bg-yellow-900/20 border border-yellow-500 text-yellow-400 px-4 py-3 rounded mb-6">

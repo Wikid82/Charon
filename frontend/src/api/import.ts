@@ -17,6 +17,8 @@ export interface ImportPreview {
     conflicts: string[];
     errors: string[];
   };
+  /** Optional top-level warning message returned by the backend (file_server, no-sites, etc.) */
+  warning?: string;
   caddyfile_content?: string;
   conflict_details?: Record<string, {
     existing: {
