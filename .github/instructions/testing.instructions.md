@@ -8,6 +8,25 @@ description: 'Strict protocols for test execution, debugging, and coverage valid
 
 **MANDATORY**: Before running unit tests, verify the application UI/UX functions correctly end-to-end.
 
+### PREREQUISITE: Start E2E Environment
+
+**CRITICAL**: Always rebuild the E2E container before running Playwright tests:
+
+```bash
+.github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+```
+
+This step:
+- Builds the latest Docker image with your code changes
+- Starts the `charon-e2e` container with proper environment variables from `.env`
+- Exposes required ports: 8080 (app), 2020 (emergency), 2019 (Caddy admin)
+- Waits for health check to pass
+
+**Without this step**, tests will fail with:
+- `connect ECONNREFUSED ::1:2020` - Emergency server not running
+- `connect ECONNREFUSED ::1:8080` - Application not running
+- `501 Not Implemented` - Container missing required env vars
+
 ### Testing Scope Clarification
 
 **Playwright E2E Tests (UI/UX):**

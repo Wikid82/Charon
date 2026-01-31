@@ -22,6 +22,7 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
     - `QA_Security`: The Auditor. (Delegate verification and testing here).
     - `Docs_Writer`: The Scribe. (Delegate docs here).
     - `DevOps`: The Packager. (Delegate CI/CD and infrastructure here).
+    - `Playwright_Dev`: The E2E Specialist. (Delegate Playwright test creation and maintenance here).
 4. **Parallel Execution**:
     - You may delegate to `runSubagent` multiple times in parallel if tasks are independent. The only exception is `QA_Security`, which must run last as this validates the entire codebase after all changes.
 5. **Implementation Choices**:
@@ -91,6 +92,11 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
 The task is not complete until ALL of the following pass with zero issues:
 
 1. **Playwright E2E Tests (MANDATORY - Run First)**:
+    - **PREREQUISITE**: Rebuild E2E container before each test run:
+      ```bash
+      .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+      ```
+      This ensures the container has latest code and proper environment variables (emergency token, encryption key from `.env`).
     - **Run**: `npx playwright test --project=chromium` from project root
     - **No Truncation**: Never pipe output through `head`, `tail`, or other truncating commands. Playwright requires user input to quit when piped, causing hangs.
     - **Why First**: If the app is broken at E2E level, unit tests may need updates. Catch integration issues early.
