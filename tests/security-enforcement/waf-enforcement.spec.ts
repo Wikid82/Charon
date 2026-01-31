@@ -155,12 +155,13 @@ test.describe('WAF Enforcement', () => {
     expect(typeof status.waf.enabled).toBe('boolean');
   });
 
-  test('should detect SQL injection patterns in request validation', async () => {
-    // WAF (Coraza) runs as a Caddy plugin.
-    // WAF settings are saved and blocking behavior is enforced through Caddy middleware.
+  test.skip('should detect SQL injection patterns in request validation', async () => {
+    // SKIP: WAF blocking enforced via Coraza middleware (port 80).
+    // See: backend/integration/coraza_integration_test.go
   });
 
-  test('should document XSS blocking behavior', async () => {
-    // XSS blocking behavior is enforced through Caddy middleware.
+  test.skip('should document XSS blocking behavior', async () => {
+    // SKIP: XSS blocking enforced via Coraza middleware (port 80).
+    // See: backend/integration/coraza_integration_test.go
   });
 });
