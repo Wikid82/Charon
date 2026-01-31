@@ -19,6 +19,8 @@ export function useImport() {
   const [commitSucceeded, setCommitSucceeded] = useState(false);
   // Store the commit result for display in success modal
   const [commitResult, setCommitResult] = useState<ImportCommitResult | null>(null);
+  // Store preview data from upload response to avoid race condition
+  const [uploadPreview, setUploadPreview] = useState<ImportPreview | null>(null);
 
   // Poll for status if we think there's an active session
   const statusQuery = useQuery({
@@ -45,7 +47,9 @@ export function useImport() {
 
   const uploadMutation = useMutation({
     mutationFn: (content: string) => uploadCaddyfile(content),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // Store preview data immediately from upload response to avoid race condition
+      setUploadPreview(data);
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ['import-preview'] });
     },
@@ -53,7 +57,8 @@ export function useImport() {
 
   const commitMutation = useMutation({
     mutationFn: ({ resolutions, names }: { resolutions: Record<string, string>; names: Record<string, string> }) => {
-      const sessionId = statusQuery.data?.session?.id;
+      // Use session ID from uploadPreview (immediate) or statusQuery (background)
+      const sessionId = uploadPreview?.session?.id || statusQuery.data?.session?.id;
       if (!sessionId) throw new Error("No active session");
       return commitImport(sessionId, resolutions, names);
     },
@@ -62,8 +67,8 @@ export function useImport() {
       setCommitResult(result);
       // Mark commit as succeeded to prevent preview refetch (which would 404)
       setCommitSucceeded(true);
-      // Remove preview cache entirely to prevent 404 refetch after commit
-      // (the session no longer exists, so preview endpoint returns 404)
+      // Clear upload preview and remove query cache
+      setUploadPreview(null);
       queryClient.removeQueries({ queryKey: ['import-preview'] });
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
       // Also invalidate proxy hosts as they might have changed
@@ -74,7 +79,8 @@ export function useImport() {
   const cancelMutation = useMutation({
     mutationFn: () => cancelImport(),
     onSuccess: () => {
-      // Remove preview cache entirely to prevent 404 refetch after cancel
+      // Clear upload preview and remove query cache
+      setUploadPreview(null);
       queryClient.removeQueries({ queryKey: ['import-preview'] });
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     },
@@ -83,11 +89,13 @@ export function useImport() {
   const clearCommitResult = () => {
     setCommitResult(null);
     setCommitSucceeded(false);
+    setUploadPreview(null);
   };
 
   return {
-    session: statusQuery.data?.session || null,
-    preview: previewQuery.data || null,
+    session: statusQuery.data?.session || uploadPreview?.session || null,
+    // Use uploadPreview (immediately available) or previewQuery.data (background refetch)
+    preview: uploadPreview || previewQuery.data || null,
     loading: statusQuery.isLoading || uploadMutation.isPending || commitMutation.isPending || cancelMutation.isPending,
     // Only include previewQuery.error if there's an active session and commit hasn't succeeded
     // (404 expected when no session or after commit)
