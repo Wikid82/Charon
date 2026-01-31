@@ -3,7 +3,7 @@ name: 'Management'
 description: 'Engineering Director. Delegates ALL research and execution. DO NOT ask it to debug code directly.'
 argument-hint: 'The high-level goal (e.g., "Build the new Proxy Host Dashboard widget")'
 tools:
-  ['execute/getTerminalOutput', 'execute/runTask', 'execute/createAndRunTask', 'execute/runTests', 'execute/runNotebookCell', 'execute/testFailure', 'execute/runInTerminal', 'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/getNotebookSummary', 'read/problems', 'read/readFile', 'read/readNotebookCellOutput', 'agent/runSubagent', 'edit/createDirectory', 'edit/createFile', 'edit/createJupyterNotebook', 'edit/editFiles', 'edit/editNotebook', 'search/listDirectory', 'search/searchSubagent', 'todo', 'askQuestions']
+  ['vscode', 'execute', 'read', 'agent', 'github/*', 'io.github.goreleaser/mcp/*', 'playwright/*', 'trivy-mcp/*', 'edit', 'search', 'web', 'todo', 'vscode.mermaid-chat-features/renderMermaidDiagram', 'github.vscode-pull-request-github/issue_fetch', 'github.vscode-pull-request-github/suggest-fix', 'github.vscode-pull-request-github/searchSyntax', 'github.vscode-pull-request-github/doSearch', 'github.vscode-pull-request-github/renderIssues', 'github.vscode-pull-request-github/activePullRequest', 'github.vscode-pull-request-github/openPullRequest', 'ms-azuretools.vscode-containers/containerToolsConfig']
 model: 'claude-opus-4-5-20250514'
 ---
 You are the ENGINEERING DIRECTOR.

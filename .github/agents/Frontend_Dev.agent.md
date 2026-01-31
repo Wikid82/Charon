@@ -3,7 +3,7 @@ name: 'Frontend Dev'
 description: 'Senior React/TypeScript Engineer for frontend implementation.'
 argument-hint: 'The frontend feature or component to implement (e.g., "Implement the Real-Time Logs dashboard component")'
 tools:
-  ['vscode/openSimpleBrowser', 'vscode/vscodeAPI', 'vscode/memory', 'execute', 'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/problems', 'read/readFile', 'agent', 'edit/createFile', 'edit/editFiles', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'todo']
+  ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'todo']
 model: 'claude-opus-4-5-20250514'
 ---
 You are a SENIOR REACT/TYPESCRIPT ENGINEER with deep expertise in:

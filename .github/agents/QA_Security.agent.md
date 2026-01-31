@@ -3,7 +3,7 @@ name: 'QA Security'
 description: 'Quality Assurance and Security Engineer for testing and vulnerability assessment.'
 argument-hint: 'The component or feature to test (e.g., "Run security scan on authentication endpoints")'
 tools:
-  ['vscode/memory', 'execute', 'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/problems', 'read/readFile', 'agent', 'playwright/*', 'trivy-mcp/*', 'edit/createFile', 'edit/editFiles', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'todo']
+  ['vscode/memory', 'execute', 'read', 'agent', 'playwright/*', 'trivy-mcp/*', 'edit', 'search', 'todo']
 model: 'claude-opus-4-5-20250514'
 mcp-servers:
   - trivy-mcp

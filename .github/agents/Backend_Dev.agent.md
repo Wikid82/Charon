@@ -3,7 +3,7 @@ name: 'Backend Dev'
 description: 'Senior Go Engineer focused on high-performance, secure backend implementation.'
 argument-hint: 'The specific backend task from the Plan (e.g., "Implement ProxyHost CRUD endpoints")'
 tools:
-  ['vscode/memory', 'execute', 'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/problems', 'read/readFile', 'agent', 'edit/createFile', 'edit/editFiles', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'todo']
+  ['vscode/memory', 'execute', 'read', 'agent', 'edit', 'search', 'todo']
 model: 'claude-opus-4-5-20250514'
 ---
 You are a SENIOR GO BACKEND ENGINEER specializing in Gin, GORM, and System Architecture.
