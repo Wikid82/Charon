@@ -207,13 +207,16 @@ test.describe('Manual DNS Provider Feature', () => {
       }
     });
 
-    test('should show copied feedback on click', async ({ page }) => {
+    test('should show copied feedback on click', async ({ page }, testInfo) => {
       const challengePanel = page.locator('[data-testid="manual-dns-challenge"]');
 
       if (await challengePanel.isVisible({ timeout: 5000 }).catch(() => false)) {
         await test.step('Click copy button and verify feedback', async () => {
-          // Grant clipboard permissions for testing
-          await page.context().grantPermissions(['clipboard-write']);
+          // Grant clipboard permissions for testing only on Chromium
+          const browserName = testInfo.project?.name || '';
+          if (browserName === 'chromium') {
+            await page.context().grantPermissions(['clipboard-write']);
+          }
 
           const copyButton = page.getByRole('button', { name: /copy.*record.*name/i })
             .or(page.getByLabel(/copy.*record.*name/i))
