@@ -1,0 +1,84 @@
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import ImportSitesModal from './ImportSitesModal'
+import { vi } from 'vitest'
+
+// Mock the upload API used by the component
+const mockUpload = vi.fn()
+vi.mock('../api/import', () => ({
+  uploadCaddyfilesMulti: (...args: unknown[]) => mockUpload(...(args as any[])),
+}))
+
+describe('ImportSitesModal', () => {
+  beforeEach(() => {
+    mockUpload.mockReset()
+  })
+
+  test('renders modal, add and remove sites, and edits textarea', () => {
+    const onClose = vi.fn()
+    render(<ImportSitesModal visible={true} onClose={onClose} />)
+
+    // modal container is present
+    expect(screen.getByTestId('multi-site-modal')).toBeInTheDocument()
+
+    // initially one textarea
+    const areas = screen.getAllByRole('textbox')
+    expect(areas.length).toBeGreaterThanOrEqual(1)
+
+    // add a site -> two textareas
+    fireEvent.click(screen.getByText('+ Add site'))
+    expect(screen.getAllByRole('textbox').length).toBe(areas.length + 1)
+
+    // remove the second site
+    const removeBtn = screen.getByText('Remove')
+    fireEvent.click(removeBtn)
+    expect(screen.getAllByRole('textbox').length).toBe(areas.length)
+
+    // type into textarea
+    const ta = screen.getAllByRole('textbox')[0]
+    fireEvent.change(ta, { target: { value: 'example.com { reverse_proxy 127.0.0.1:8080 }' } })
+    expect((ta as HTMLTextAreaElement).value).toContain('example.com')
+  })
+
+  test('reads multiple files via hidden input and submits successfully', async () => {
+    const onClose = vi.fn()
+    const onUploaded = vi.fn()
+    mockUpload.mockResolvedValueOnce(undefined)
+
+    const { container } = render(<ImportSitesModal visible={true} onClose={onClose} onUploaded={onUploaded} />)
+
+    // find the hidden file input
+    const input: HTMLInputElement | null = container.querySelector('input[type="file"]')
+    expect(input).toBeTruthy()
+
+    // create two files
+    const f1 = new File(['site1'], 'site1.caddy', { type: 'text/plain' })
+    const f2 = new File(['site2'], 'site2.caddy', { type: 'text/plain' })
+
+    // fire change event with files
+    fireEvent.change(input!, { target: { files: [f1, f2] } })
+
+    // after input, two textareas should appear
+    await waitFor(() => expect(screen.getAllByRole('textbox').length).toBe(2))
+
+    // submit
+    fireEvent.click(screen.getByText('Parse and Review'))
+
+    await waitFor(() => expect(mockUpload).toHaveBeenCalled())
+    expect(mockUpload).toHaveBeenCalledWith(['site1', 'site2'])
+    expect(onUploaded).toHaveBeenCalled()
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  test('displays error when upload fails', async () => {
+    const onClose = vi.fn()
+    mockUpload.mockRejectedValueOnce(new Error('upload-failed'))
+
+    render(<ImportSitesModal visible={true} onClose={onClose} />)
+
+    // click submit with default empty site
+    fireEvent.click(screen.getByText('Parse and Review'))
+
+    // error message appears
+    await waitFor(() => expect(screen.getByText(/upload-failed|Upload failed/i)).toBeInTheDocument())
+  })
+})

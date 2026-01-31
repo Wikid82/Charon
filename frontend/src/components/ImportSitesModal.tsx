@@ -29,10 +29,10 @@ export default function ImportSitesModal({ visible, onClose, onUploaded }: Props
       try {
         const text = await files[i].text()
         newSites.push(text)
-      } catch (err) {
-        // ignore read errors for individual files
-        newSites.push('')
-      }
+      } catch (_err) {
+          // ignore read errors for individual files
+          newSites.push('')
+        }
     }
     if (newSites.length > 0) setSites(newSites)
   }
