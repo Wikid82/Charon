@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Codecov Configuration**: Added 77 comprehensive ignore patterns to align CI coverage with local calculations
+  - Excludes test files (`*.test.ts`, `*.test.tsx`, `*_test.go`)
+  - Excludes test utilities (`frontend/src/test/**`, `testUtils/**`)
+  - Excludes config files (`*.config.js`, `playwright.*.config.js`)
+  - Excludes entry points (`backend/cmd/api/**`, `frontend/src/main.tsx`)
+  - Excludes infrastructure code (`logger/**`, `metrics/**`, `trace/**`)
+  - Excludes type definitions (`*.d.ts`)
+  - Expected impact: Codecov total increases from 67% to 82-85%
 - **Build Strategy**: Simplified to Docker-only deployment model
   - GoReleaser now used exclusively for changelog generation (not binary distribution)
   - All deployment via Docker images (Docker Hub and GHCR)
@@ -47,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Frontend Tests**: Added `ImportCaddy-handlers.test.tsx` with 23 test cases (PR #583)
   - Covers loading/disabled button states, upload handlers, review table, success modal navigation
   - `ImportCaddy.tsx` coverage improved from 32.6% to 78.26%
+
+- **Frontend Tests**: Added `Uptime.test.tsx` with 9 test cases
+  - Covers loading/empty states, monitor grouping logic, modal interactions, status badge rendering
 
 - **Security test helpers for Playwright E2E tests to prevent ACL deadlock** (PR #XXX)
   - New `tests/utils/security-helpers.ts` module with utilities for capturing/restoring security state
