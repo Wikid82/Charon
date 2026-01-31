@@ -4,9 +4,14 @@
 **Version:** v0.15.3 (current) / v0.16.0 (latest tag)
 **Author:** QA Automation
 
----
+**Configuration:**
+```yaml
+concurrency:
+  group: playwright-${{ github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: true
+```
 
-## Executive Summary
+**Scenario Analysis:**
 
 | **Check**                 | **Status** | **Details**                             |
 |---------------------------|------------|----------------------------------------|
@@ -51,7 +56,11 @@ Tests 4.1 and 4.2 (Session Resume via Banner) are intentionally skipped with doc
 - Session resume only works for Docker-mounted Caddyfiles
 - This is a feature limitation, not a test failure
 
----
+**Verification:**
+- ✅ Intentional design: Playwright only runs after Docker build succeeds
+- ✅ Direct `push`/`pull_request` triggers are **placeholders** (never execute jobs)
+- ✅ Actual execution path: `push`/`pull_request` → docker-build → `workflow_run` → playwright
+- ✅ Manual `workflow_dispatch` bypasses docker-build for debugging
 
 ## 2. Full E2E Test Suite (Regression)
 
@@ -75,7 +84,13 @@ The 3 failures need investigation. Common causes in this codebase:
 
 **Recommendation:** Review failed test artifacts in `test-results/` for detailed traces.
 
----
+#### Renovate Branch Targeting
+```json
+"baseBranches": [
+  "development",
+  "feature/*"
+]
+```
 
 ## 3. Pre-commit Checks
 
@@ -113,7 +128,12 @@ if err := tmpFile.Close(); err != nil {
 - Latest git tag: v0.16.0
 - **Action:** Update `.version` to v0.16.0 before release or tag current as v0.15.3
 
----
+**Historical Zero-Day Response Times:**
+| Library | CVE | Disclosure to Patch | Would 3 days help? |
+|---------|-----|---------------------|-------------------|
+| Log4j | CVE-2021-44228 | ~1 hour | ✅ Yes (patch within hours) |
+| OpenSSL | CVE-2024-47888 | ~6 hours | ✅ Yes |
+| Node.js | CVE-2024-27980 | ~12 hours | ✅ Yes |
 
 ## 4. Security Scans
 

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Build Strategy**: Simplified to Docker-only deployment model
+  - GoReleaser now used exclusively for changelog generation (not binary distribution)
+  - All deployment via Docker images (Docker Hub and GHCR)
+  - Removed standalone binary builds for macOS, Windows, and Linux
+  - DEB/RPM packages removed from release workflow
+  - Users should use `docker pull wikid82/charon:latest` or `ghcr.io/wikid82/charon:latest`
+  - See [Getting Started Guide](https://wikid82.github.io/charon/getting-started) for Docker installation instructions
+
 ### Fixed
 
 - **CI/CD Workflows**: Fixed multiple GitHub Actions workflow failures
