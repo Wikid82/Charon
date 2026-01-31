@@ -248,7 +248,7 @@ verify_environment() {
 
     # Show container status
     log_info "Container status:"
-    docker ps --filter "name=charon-playwright" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    docker ps --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 }
 
 # Show summary
