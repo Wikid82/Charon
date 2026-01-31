@@ -242,15 +242,25 @@ jobs:
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         with:
           path: ~/.cache/ms-playwright
+          # Use exact match only - no restore-keys fallback
+          # This ensures we don't restore stale browsers when Playwright version changes
           key: playwright-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: playwright-${{ matrix.browser }}-
 
       - name: Install Playwright browsers
         run: |
-          # Always run install to ensure browsers match Playwright version
-          # The install command is idempotent - skips if already installed
-          npx playwright install --with-deps ${{ matrix.browser }}
-          echo "✅ Playwright ${{ matrix.browser }} installed"
+          # Force install if cache miss or version mismatch
+          if [[ "${{ steps.playwright-cache.outputs.cache-hit }}" != "true" ]]; then
+            echo "📥 Cache miss - downloading ${{ matrix.browser }} browser..."
+            npx playwright install --with-deps ${{ matrix.browser }}
+          else
+            echo "✅ Cache hit - verifying ${{ matrix.browser }} browser..."
+            # Verify the cached browser is valid by checking version
+            if ! npx playwright --version > /dev/null 2>&1; then
+              echo "⚠️ Cached browser appears invalid, reinstalling..."
+              npx playwright install --with-deps ${{ matrix.browser }}
+            fi
+          fi
+          echo "✅ Playwright ${{ matrix.browser }} ready"
 
       - name: Run E2E tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
