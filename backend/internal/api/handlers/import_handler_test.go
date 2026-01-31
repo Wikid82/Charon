@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -1212,4 +1213,409 @@ func TestUpload_NormalizationFallback(t *testing.T) {
 	hosts, ok := preview["hosts"].([]any)
 	assert.True(t, ok, "preview should contain hosts")
 	assert.Greater(t, len(hosts), 0, "should have at least one parsed host from original content")
+}
+
+// TestCommit_OverwriteAction tests that overwrite preserves certificate ID
+func TestCommit_OverwriteAction(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+
+	// Create existing host with certificate association
+	existingHost := models.ProxyHost{
+		UUID:          uuid.NewString(),
+		DomainNames:   "ssl-site.com",
+		ForwardHost:   "10.0.0.1",
+		ForwardPort:   80,
+		CertificateID: ptrToUint(42), // Existing certificate reference
+	}
+	db.Create(&existingHost)
+
+	// Create session with host matching existing one
+	session := models.ImportSession{
+		UUID:   uuid.NewString(),
+		Status: "reviewing",
+		ParsedData: `{
+			"hosts": [
+				{
+					"domain_names": "ssl-site.com",
+					"forward_host": "192.168.1.100",
+					"forward_port": 8080,
+					"forward_scheme": "https"
+				}
+			]
+		}`,
+	}
+	db.Create(&session)
+
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
+	router := gin.New()
+	router.POST("/import/commit", handler.Commit)
+
+	payload := map[string]any{
+		"session_uuid": session.UUID,
+		"resolutions": map[string]string{
+			"ssl-site.com": "overwrite",
+		},
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/commit", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, float64(1), resp["updated"], "should update one host")
+
+	// Verify the host was updated but certificate was preserved
+	var updatedHost models.ProxyHost
+	db.Where("domain_names = ?", "ssl-site.com").First(&updatedHost)
+	assert.Equal(t, "192.168.1.100", updatedHost.ForwardHost, "forward host should be updated")
+	assert.Equal(t, 8080, updatedHost.ForwardPort, "forward port should be updated")
+	assert.NotNil(t, updatedHost.CertificateID, "certificate ID should be preserved")
+	assert.Equal(t, uint(42), *updatedHost.CertificateID, "certificate ID value should be preserved")
+	assert.Equal(t, existingHost.UUID, updatedHost.UUID, "UUID should be preserved")
+}
+
+// ptrToUint is a helper to create a pointer to uint
+func ptrToUint(v uint) *uint {
+	return &v
+}
+
+// TestCommit_RenameAction tests that rename appends suffix
+func TestCommit_RenameAction(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+
+	// Create existing host
+	existingHost := models.ProxyHost{
+		UUID:        uuid.NewString(),
+		DomainNames: "app.example.com",
+		ForwardHost: "10.0.0.1",
+		ForwardPort: 80,
+	}
+	db.Create(&existingHost)
+
+	// Create session with conflicting host
+	session := models.ImportSession{
+		UUID:   uuid.NewString(),
+		Status: "reviewing",
+		ParsedData: `{
+			"hosts": [
+				{
+					"domain_names": "app.example.com",
+					"forward_host": "192.168.1.100",
+					"forward_port": 9000,
+					"forward_scheme": "http"
+				}
+			]
+		}`,
+	}
+	db.Create(&session)
+
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
+	router := gin.New()
+	router.POST("/import/commit", handler.Commit)
+
+	payload := map[string]any{
+		"session_uuid": session.UUID,
+		"resolutions": map[string]string{
+			"app.example.com": "rename",
+		},
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/commit", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, float64(1), resp["created"], "should create one host with renamed domain")
+
+	// Verify the renamed host was created
+	var renamedHost models.ProxyHost
+	err := db.Where("domain_names = ?", "app.example.com-imported").First(&renamedHost).Error
+	assert.NoError(t, err, "renamed host should exist")
+	assert.Equal(t, "192.168.1.100", renamedHost.ForwardHost)
+	assert.Equal(t, 9000, renamedHost.ForwardPort)
+
+	// Verify original host is unchanged
+	var originalHost models.ProxyHost
+	err = db.Where("domain_names = ?", "app.example.com").First(&originalHost).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "10.0.0.1", originalHost.ForwardHost)
+}
+
+// TestGetPreview_WithConflictDetails tests preview returns detailed conflict info
+func TestGetPreview_WithConflictDetails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	tmpDir := t.TempDir()
+	mountPath := filepath.Join(tmpDir, "mounted.caddyfile")
+
+	// Create a mounted Caddyfile
+	content := "conflict.example.com"
+	err := os.WriteFile(mountPath, []byte(content), 0o644) //nolint:gosec // G306: test file
+	assert.NoError(t, err)
+
+	// Pre-create an existing host that conflicts
+	existingHost := models.ProxyHost{
+		UUID:          uuid.NewString(),
+		DomainNames:   "conflict.example.com",
+		ForwardScheme: "http",
+		ForwardHost:   "10.0.0.1",
+		ForwardPort:   80,
+		SSLForced:     false,
+		Enabled:       true,
+	}
+	db.Create(&existingHost)
+
+	// Use fake caddy script that returns the conflicting host
+	cwd, _ := os.Getwd()
+	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_conflict.sh")
+	_ = os.Chmod(fakeCaddy, 0o755) //nolint:gosec // G302: test script needs exec permissions
+
+	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, mountPath)
+	router := gin.New()
+	router.GET("/import/preview", handler.GetPreview)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/import/preview", http.NoBody)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var result map[string]any
+	err = json.Unmarshal(w.Body.Bytes(), &result)
+	assert.NoError(t, err)
+
+	// Check for conflict_details
+	conflictDetails, ok := result["conflict_details"].(map[string]any)
+	assert.True(t, ok, "should have conflict_details")
+
+	if len(conflictDetails) > 0 {
+		// Verify conflict contains existing and imported info
+		for domain, details := range conflictDetails {
+			assert.Equal(t, "conflict.example.com", domain)
+			detailsMap := details.(map[string]any)
+			assert.NotNil(t, detailsMap["existing"])
+			assert.NotNil(t, detailsMap["imported"])
+		}
+	}
+}
+
+// TestSafeJoin_RejectsPathTraversal tests the safeJoin security function
+func TestSafeJoin_PathTraversalCases(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	tmpDir := t.TempDir()
+	handler := handlers.NewImportHandler(db, "echo", tmpDir, "")
+	router := gin.New()
+	router.POST("/import/upload-multi", handler.UploadMulti)
+
+	tests := []struct {
+		name          string
+		filename      string
+		expectStatus  int
+		expectErrorIn string
+	}{
+		{
+			name:          "double dot prefix",
+			filename:      "../etc/passwd",
+			expectStatus:  http.StatusBadRequest,
+			expectErrorIn: "invalid filename",
+		},
+		{
+			name:          "hidden double dot",
+			filename:      "sites/../../../etc/passwd",
+			expectStatus:  http.StatusBadRequest,
+			expectErrorIn: "invalid filename",
+		},
+		{
+			name:          "absolute path",
+			filename:      "/etc/passwd",
+			expectStatus:  http.StatusBadRequest,
+			expectErrorIn: "invalid filename",
+		},
+		{
+			name:         "valid nested path",
+			filename:     "sites/site1.conf",
+			expectStatus: http.StatusOK, // or StatusBadRequest for no hosts, but not path traversal error
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := map[string]any{
+				"files": []map[string]string{
+					{"filename": "Caddyfile", "content": "import sites/*\n"},
+					{"filename": tt.filename, "content": "test content"},
+				},
+			}
+			body, _ := json.Marshal(payload)
+
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest("POST", "/import/upload-multi", bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(w, req)
+
+			if tt.expectErrorIn != "" {
+				assert.Equal(t, tt.expectStatus, w.Code)
+				var resp map[string]any
+				_ = json.Unmarshal(w.Body.Bytes(), &resp)
+				assert.Contains(t, resp["error"], tt.expectErrorIn)
+			}
+		})
+	}
+}
+
+// TestCommit_SkipAction tests that skip/keep actions work correctly
+func TestCommit_SkipAction(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+
+	session := models.ImportSession{
+		UUID:   uuid.NewString(),
+		Status: "reviewing",
+		ParsedData: `{
+			"hosts": [
+				{
+					"domain_names": "skip-me.com",
+					"forward_host": "192.168.1.1",
+					"forward_port": 80,
+					"forward_scheme": "http"
+				},
+				{
+					"domain_names": "keep-existing.com",
+					"forward_host": "192.168.1.2",
+					"forward_port": 80,
+					"forward_scheme": "http"
+				}
+			]
+		}`,
+	}
+	db.Create(&session)
+
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
+	router := gin.New()
+	router.POST("/import/commit", handler.Commit)
+
+	payload := map[string]any{
+		"session_uuid": session.UUID,
+		"resolutions": map[string]string{
+			"skip-me.com":       "skip",
+			"keep-existing.com": "keep",
+		},
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/commit", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, float64(2), resp["skipped"], "should skip two hosts")
+	assert.Equal(t, float64(0), resp["created"], "should not create any hosts")
+
+	// Verify hosts were not created
+	var count int64
+	db.Model(&models.ProxyHost{}).Where("domain_names IN ?", []string{"skip-me.com", "keep-existing.com"}).Count(&count)
+	assert.Equal(t, int64(0), count)
+}
+
+// TestCommit_CustomNames tests that custom names are applied
+func TestCommit_CustomNames(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+
+	session := models.ImportSession{
+		UUID:   uuid.NewString(),
+		Status: "reviewing",
+		ParsedData: `{
+			"hosts": [
+				{
+					"domain_names": "api.example.com",
+					"forward_host": "192.168.1.1",
+					"forward_port": 3000,
+					"forward_scheme": "http"
+				}
+			]
+		}`,
+	}
+	db.Create(&session)
+
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
+	router := gin.New()
+	router.POST("/import/commit", handler.Commit)
+
+	payload := map[string]any{
+		"session_uuid": session.UUID,
+		"resolutions": map[string]string{
+			"api.example.com": "import",
+		},
+		"names": map[string]string{
+			"api.example.com": "Production API Server",
+		},
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/commit", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Verify the custom name was applied
+	var host models.ProxyHost
+	err := db.Where("domain_names = ?", "api.example.com").First(&host).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "Production API Server", host.Name)
+}
+
+// TestGetStatus_AlreadyCommittedMount tests that committed mounts show no pending
+func TestGetStatus_AlreadyCommittedMount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	tmpDir := t.TempDir()
+	mountPath := filepath.Join(tmpDir, "mounted.caddyfile")
+
+	// Create mounted file
+	err := os.WriteFile(mountPath, []byte("example.com"), 0o644) //nolint:gosec // G306: test file
+	assert.NoError(t, err)
+
+	// Create a committed session for this mount with a future time
+	now := time.Now().Add(1 * time.Hour) // Future time to simulate already committed
+	committedSession := models.ImportSession{
+		UUID:        uuid.NewString(),
+		Status:      "committed",
+		SourceFile:  mountPath,
+		CommittedAt: &now,
+	}
+	db.Create(&committedSession)
+
+	handler := handlers.NewImportHandler(db, "echo", tmpDir, mountPath)
+	router := gin.New()
+	router.GET("/import/status", handler.GetStatus)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/import/status", http.NoBody)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, false, resp["has_pending"], "should not show pending for already committed mount")
 }

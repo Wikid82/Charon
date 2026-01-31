@@ -480,3 +480,334 @@ func TestImporter_NormalizeCaddyfile_ReadError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to read formatted file")
 }
+
+// TestParseCaddyfile_PathTraversal tests path traversal rejection
+func TestParseCaddyfile_PathTraversal(t *testing.T) {
+	importer := NewImporter("caddy")
+
+	tests := []struct {
+		name        string
+		path        string
+		expectError string
+	}{
+		{
+			name:        "double dot prefix",
+			path:        "../etc/passwd",
+			expectError: "invalid caddyfile path",
+		},
+		{
+			name:        "just double dot",
+			path:        "..",
+			expectError: "invalid caddyfile path",
+		},
+		{
+			name:        "empty path",
+			path:        "",
+			expectError: "invalid caddyfile path",
+		},
+		{
+			name:        "dot only",
+			path:        ".",
+			expectError: "invalid caddyfile path",
+		},
+		{
+			name:        "relative double dot",
+			path:        "foo/../../../etc/passwd",
+			expectError: "invalid caddyfile path",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := importer.ParseCaddyfile(tt.path)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.expectError)
+		})
+	}
+}
+
+// TestExtractHosts_WebsocketHandler tests websocket header extraction
+func TestExtractHosts_WebsocketHandler(t *testing.T) {
+	importer := NewImporter("caddy")
+
+	// JSON config with websocket header
+	websocketJSON := []byte(`{
+		"apps": {
+			"http": {
+				"servers": {
+					"srv0": {
+						"routes": [
+							{
+								"match": [{"host": ["ws.example.com"]}],
+								"handle": [
+									{
+										"handler": "reverse_proxy",
+										"upstreams": [{"dial": "127.0.0.1:8080"}],
+										"headers": {
+											"Upgrade": ["websocket"]
+										}
+									}
+								]
+							}
+						]
+					}
+				}
+			}
+		}
+	}`)
+
+	result, err := importer.ExtractHosts(websocketJSON)
+	assert.NoError(t, err)
+	assert.Len(t, result.Hosts, 1)
+	assert.Equal(t, "ws.example.com", result.Hosts[0].DomainNames)
+	assert.True(t, result.Hosts[0].WebsocketSupport, "WebsocketSupport should be true when Upgrade header contains websocket")
+}
+
+// TestExtractHosts_SubrouteHandler tests extraction of handlers from subroutes
+func TestExtractHosts_SubrouteHandler(t *testing.T) {
+	importer := NewImporter("caddy")
+
+	// JSON config with subroute containing reverse_proxy
+	subrouteJSON := []byte(`{
+		"apps": {
+			"http": {
+				"servers": {
+					"srv0": {
+						"routes": [
+							{
+								"match": [{"host": ["nested.example.com"]}],
+								"handle": [
+									{
+										"handler": "subroute",
+										"routes": [
+											{
+												"handle": [
+													{
+														"handler": "reverse_proxy",
+														"upstreams": [{"dial": "backend:9000"}]
+													}
+												]
+											}
+										]
+									}
+								]
+							}
+						]
+					}
+				}
+			}
+		}
+	}`)
+
+	result, err := importer.ExtractHosts(subrouteJSON)
+	assert.NoError(t, err)
+	assert.Len(t, result.Hosts, 1)
+	assert.Equal(t, "nested.example.com", result.Hosts[0].DomainNames)
+	assert.Equal(t, "backend", result.Hosts[0].ForwardHost)
+	assert.Equal(t, 9000, result.Hosts[0].ForwardPort)
+}
+
+// TestBackupCaddyfile_PathTraversal tests backup path validation
+func TestBackupCaddyfile_PathTraversal(t *testing.T) {
+	tmpDir := t.TempDir()
+	backupDir := filepath.Join(tmpDir, "backups")
+
+	tests := []struct {
+		name         string
+		originalPath string
+		expectError  string
+	}{
+		{
+			name:         "double dot prefix",
+			originalPath: "../etc/passwd",
+			expectError:  "invalid original path",
+		},
+		{
+			name:         "empty path",
+			originalPath: "",
+			expectError:  "invalid original path",
+		},
+		{
+			name:         "dot only",
+			originalPath: ".",
+			expectError:  "invalid original path",
+		},
+		{
+			name:         "relative traversal",
+			originalPath: "foo/../../../etc/passwd",
+			expectError:  "invalid original path",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := BackupCaddyfile(tt.originalPath, backupDir)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.expectError)
+		})
+	}
+}
+
+// TestBackupCaddyfile_SourceNotReadable tests error when source can't be read
+func TestBackupCaddyfile_SourceNotReadable(t *testing.T) {
+	tmpDir := t.TempDir()
+	backupDir := filepath.Join(tmpDir, "backups")
+
+	// Non-existent file
+	_, err := BackupCaddyfile(filepath.Join(tmpDir, "nonexistent.txt"), backupDir)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "reading original file")
+}
+
+// TestExtractHosts_SplitHostPortFallback tests the fallback parsing when net.SplitHostPort fails
+func TestExtractHosts_SplitHostPortFallback(t *testing.T) {
+	// Enable the fallback branch
+	oldVal := forceSplitFallback
+	forceSplitFallback = true
+	defer func() { forceSplitFallback = oldVal }()
+
+	importer := NewImporter("caddy")
+
+	// Test with valid host:port format (fallback should still parse it)
+	validJSON := []byte(`{
+		"apps": {
+			"http": {
+				"servers": {
+					"srv0": {
+						"routes": [
+							{
+								"match": [{"host": ["fallback.example.com"]}],
+								"handle": [
+									{
+										"handler": "reverse_proxy",
+										"upstreams": [{"dial": "backend:3000"}]
+									}
+								]
+							}
+						]
+					}
+				}
+			}
+		}
+	}`)
+
+	result, err := importer.ExtractHosts(validJSON)
+	assert.NoError(t, err)
+	assert.Len(t, result.Hosts, 1)
+	assert.Equal(t, "backend", result.Hosts[0].ForwardHost)
+	assert.Equal(t, 3000, result.Hosts[0].ForwardPort)
+}
+
+// TestExtractHosts_HostOnly tests fallback when dial is just a hostname without port
+func TestExtractHosts_HostOnly(t *testing.T) {
+	// Enable the fallback branch
+	oldVal := forceSplitFallback
+	forceSplitFallback = true
+	defer func() { forceSplitFallback = oldVal }()
+
+	importer := NewImporter("caddy")
+
+	// Test with host only (no port)
+	hostOnlyJSON := []byte(`{
+		"apps": {
+			"http": {
+				"servers": {
+					"srv0": {
+						"routes": [
+							{
+								"match": [{"host": ["hostonly.example.com"]}],
+								"handle": [
+									{
+										"handler": "reverse_proxy",
+										"upstreams": [{"dial": "backend-service"}]
+									}
+								]
+							}
+						]
+					}
+				}
+			}
+		}
+	}`)
+
+	result, err := importer.ExtractHosts(hostOnlyJSON)
+	assert.NoError(t, err)
+	assert.Len(t, result.Hosts, 1)
+	assert.Equal(t, "backend-service", result.Hosts[0].ForwardHost)
+	assert.Equal(t, 80, result.Hosts[0].ForwardPort, "Should default to port 80")
+}
+
+// TestExtractHosts_InvalidPortFallback tests fallback when port is invalid
+func TestExtractHosts_InvalidPortFallback(t *testing.T) {
+	// Enable the fallback branch
+	oldVal := forceSplitFallback
+	forceSplitFallback = true
+	defer func() { forceSplitFallback = oldVal }()
+
+	importer := NewImporter("caddy")
+
+	// Test with invalid port
+	invalidPortJSON := []byte(`{
+		"apps": {
+			"http": {
+				"servers": {
+					"srv0": {
+						"routes": [
+							{
+								"match": [{"host": ["invalidport.example.com"]}],
+								"handle": [
+									{
+										"handler": "reverse_proxy",
+										"upstreams": [{"dial": "backend:invalidport"}]
+									}
+								]
+							}
+						]
+					}
+				}
+			}
+		}
+	}`)
+
+	result, err := importer.ExtractHosts(invalidPortJSON)
+	assert.NoError(t, err)
+	assert.Len(t, result.Hosts, 1)
+	assert.Equal(t, "backend", result.Hosts[0].ForwardHost)
+	assert.Equal(t, 80, result.Hosts[0].ForwardPort, "Should default to port 80 on invalid port")
+}
+
+// TestExtractHosts_TLSConnectionPolicies tests SSL detection via TLS connection policies
+func TestExtractHosts_TLSConnectionPolicies(t *testing.T) {
+	importer := NewImporter("caddy")
+
+	// JSON config with TLS connection policies set
+	tlsJSON := []byte(`{
+		"apps": {
+			"http": {
+				"servers": {
+					"srv0": {
+						"tls_connection_policies": [{"alpn": ["h2", "http/1.1"]}],
+						"routes": [
+							{
+								"match": [{"host": ["secure.example.com"]}],
+								"handle": [
+									{
+										"handler": "reverse_proxy",
+										"upstreams": [{"dial": "127.0.0.1:8443"}]
+									}
+								]
+							}
+						]
+					}
+				}
+			}
+		}
+	}`)
+
+	result, err := importer.ExtractHosts(tlsJSON)
+	assert.NoError(t, err)
+	assert.Len(t, result.Hosts, 1)
+	assert.Equal(t, "secure.example.com", result.Hosts[0].DomainNames)
+	assert.True(t, result.Hosts[0].SSLForced, "SSLForced should be true when tls_connection_policies is set")
+	assert.Equal(t, "https", result.Hosts[0].ForwardScheme, "ForwardScheme should be https for SSL")
+}

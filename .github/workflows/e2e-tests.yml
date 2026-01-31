@@ -43,18 +43,6 @@ on:
       - 'playwright.config.js'
       - '.github/workflows/e2e-tests.yml'
 
-  push:
-    branches:
-      - main
-      - development
-      - 'feature/**'
-    paths:
-      - 'frontend/**'
-      - 'backend/**'
-      - 'tests/**'
-      - 'playwright.config.js'
-      - '.github/workflows/e2e-tests.yml'
-
   workflow_dispatch:
     inputs:
       browser:
@@ -161,7 +149,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
         total-shards: [4]
-        browser: [chromium]
+        browser: [chromium, firefox, webkit]
 
     steps:
       - name: Checkout repository
@@ -340,12 +328,11 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Each shard generates its own HTML report for easier debugging:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Shard | HTML Report | Traces (on failure) |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|-------------|---------------------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 1 | \`playwright-report-shard-1\` | \`traces-chromium-shard-1\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| 2 | \`playwright-report-shard-2\` | \`traces-chromium-shard-2\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| 3 | \`playwright-report-shard-3\` | \`traces-chromium-shard-3\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| 4 | \`playwright-report-shard-4\` | \`traces-chromium-shard-4\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Browser | Shards | HTML Reports | Traces (on failure) |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|--------------|---------------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Chromium | 1-4 | \`playwright-report-shard-{1..4}\` | \`traces-chromium-shard-{1..4}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Firefox | 1-4 | \`playwright-report-shard-{1..4}\` | \`traces-firefox-shard-{1..4}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| WebKit | 1-4 | \`playwright-report-shard-{1..4}\` | \`traces-webkit-shard-{1..4}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### How to View Reports" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -402,12 +389,14 @@ jobs:
 
             | Metric | Result |
             |--------|--------|
-            | Browser | Chromium |
-            | Shards | 4 |
+            | Browsers | Chromium, Firefox, WebKit |
+            | Shards per Browser | 4 |
+            | Total Jobs | 12 |
             | Status | ${status} |
 
             **Per-Shard HTML Reports** (easier to debug):
-            - \`playwright-report-shard-1\` through \`playwright-report-shard-4\`
+            - \`playwright-report-shard-{1..4}\` for each browser
+            - Trace artifacts: \`traces-{browser}-shard-{N}\`
 
             [📊 View workflow run & download reports](${runUrl})
 
