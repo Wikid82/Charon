@@ -46,6 +46,9 @@ PR #583 has multiple CI issues. Current status:
 
 ## Latest Codecov Report (2026-02-01)
 
+### Patch: fix import-handler tests (branch: test/cover-import-handler-useImport-importer)
+A malformed unit test in `backend/internal/api/handlers/import_handler_test.go` was replaced with a deterministic, self-contained `TestImportHandler_Commit_SessionSaveWarning` that exercises the non-fatal DB-save warning path (via a GORM callback) while mocking `ProxyHostService`. The Caddy executor-error test `TestNormalizeCaddyfile_ExecutorError` in `backend/internal/caddy/importer_extra_test.go` was repaired to inject a failing Executor and assert the returned error. Local focused runs show the new tests pass and raise coverage for the affected import paths (see CI patch for updated numbers).
+
 From PR #583 Codecov comment:
 
 | File | Patch Coverage | Missing | Partials |
