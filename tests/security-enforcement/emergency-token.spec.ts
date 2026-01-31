@@ -53,7 +53,38 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     // Wait for Cerberus to activate (extended wait for Caddy reload)
     await new Promise(resolve => setTimeout(resolve, BASE_CERBERUS_WAIT * CI_TIMEOUT_MULTIPLIER));
 
-    // STEP 2: Enable ACL (now that Cerberus is active, this will actually be enforced)
+    // STEP 1b: Verify Cerberus is actually active before enabling ACL
+    // This prevents race conditions where ACL enable succeeds but Cerberus isn't ready
+    let cerberusActive = false;
+    let cerberusRetries = BASE_RETRY_COUNT * CI_TIMEOUT_MULTIPLIER;
+
+    while (cerberusRetries > 0 && !cerberusActive) {
+      const statusResponse = await request.get('/api/v1/security/status', {
+        headers: { 'X-Emergency-Token': emergencyToken },
+      });
+
+      if (statusResponse.ok()) {
+        const status = await statusResponse.json();
+        if (status.cerberus?.enabled) {
+          cerberusActive = true;
+          console.log('  ✓ Cerberus verified as active');
+        } else {
+          console.log(`  ⏳ Cerberus not yet active, retrying... (${cerberusRetries} left)`);
+          await new Promise(resolve => setTimeout(resolve, BASE_RETRY_INTERVAL * CI_TIMEOUT_MULTIPLIER));
+          cerberusRetries--;
+        }
+      } else {
+        console.log(`  ⚠️ Status check failed: ${statusResponse.status()}, retrying...`);
+        await new Promise(resolve => setTimeout(resolve, BASE_RETRY_INTERVAL * CI_TIMEOUT_MULTIPLIER));
+        cerberusRetries--;
+      }
+    }
+
+    if (!cerberusActive) {
+      throw new Error('Cerberus verification failed - not active after retries');
+    }
+
+    // STEP 2: Enable ACL (now that Cerberus is verified active, this will actually be enforced)
     const aclResponse = await request.patch('/api/v1/settings', {
       data: { key: 'security.acl.enabled', value: 'true' },
       headers: {
