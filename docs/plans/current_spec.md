@@ -1,10 +1,33 @@
 # PR #583 CI Failure Remediation Plan
 
 **Created**: 2026-01-31
-**Updated**: 2026-01-31 (Phase 5: Codecov Config Investigation Added)
+**Updated**: 2026-02-01 (Phase 6: Latest Codecov Comment Analysis)
 **Status**: Active
 **PR**: #583 - Feature/beta-release
 **Target**: Unblock merge by fixing all CI failures + align Codecov with local coverage
+
+---
+
+## 🚨 Immediate Next Steps
+
+**Priority Order**:
+
+1. **Re-run CI Workflow** - Local coverage is healthy (86.2% on Commit), Codecov shows 0%. Likely a stale/failed upload.
+   ```bash
+   # In GitHub: Close and reopen PR, or push an empty commit
+   git commit --allow-empty -m "chore: trigger CI re-run for Codecov refresh"
+   git push
+   ```
+
+2. **Investigate E2E Failures** - Visit [workflow run 21541010717](https://github.com/Wikid82/Charon/actions/runs/21541010717) and identify failing test names.
+
+3. **Fix E2E Tests** (Playwright_Dev):
+   - Reproduce locally with `docker-rebuild-e2e` then `npx playwright test`
+   - Update assertions/selectors as needed
+
+4. **Monitor Codecov Dashboard** - After CI re-run, verify coverage matches local:
+   - Expected: Commit at 86.2% (not 0%)
+   - Expected: Overall patch > 85%
 
 ---
 
@@ -18,6 +41,47 @@ PR #583 has multiple CI issues. Current status:
 | **E2E Test Assertion** | Test expects actionable error, gets JSON parse error | Simple | ✅ Fixed |
 | **Frontend Coverage** | 84.53% vs 85% target (0.47% gap) | Medium | ✅ Fixed |
 | **Codecov Total 67%** | Non-production code inflating denominator | Medium | 🔴 Needs codecov.yml update |
+| **Codecov Patch 55.81%** | 19 lines missing coverage in 3 files | Medium | 🔴 **NEW - Needs addressed** |
+| **E2E Workflow Failures** | Tests failing in workflow run 21541010717 | Medium | 🔴 **NEW - Investigation needed** |
+
+## Latest Codecov Report (2026-02-01)
+
+From PR #583 Codecov comment:
+
+| File | Patch Coverage | Missing | Partials |
+|------|----------------|---------|----------|
+| `backend/internal/api/handlers/import_handler.go` | **0.00%** | 12 lines | 0 |
+| `backend/internal/caddy/importer.go` | **73.91%** | 3 lines | 3 lines |
+| `frontend/src/hooks/useImport.ts` | **87.50%** | 0 lines | 1 line |
+| **TOTAL PATCH** | **55.81%** | **19 lines** | — |
+
+### Target Paths for Remediation
+
+**Highest Impact**: `import_handler.go` with 12 missing lines (63% of gap)
+
+**LOCAL COVERAGE VERIFICATION (2026-02-01)**:
+
+| File/Function | Local Coverage | Codecov Patch | Analysis |
+|---------------|----------------|---------------|----------|
+| `import_handler.go:Commit` | **86.2%** ✅ | 0.00% ❌ | **Likely CI upload failure** |
+| `import_handler.go:GetPreview` | 82.6% | — | Healthy |
+| `import_handler.go:CheckMountedImport` | 0.0% | — | Needs tests |
+| `importer.go:NormalizeCaddyfile` | 81.2% | 73.91% | Acceptable |
+| `importer.go:ConvertToProxyHosts` | 0.0% | — | Needs tests |
+
+**Key Finding**: Local tests show **86.2% coverage on Commit()** but Codecov reports **0%**. This suggests:
+1. Coverage upload failed in CI
+2. Codecov cached stale data
+3. CI ran with different test filter
+
+**Immediate Action**: Re-run CI workflow and monitor Codecov upload logs.
+
+**Lines to cover in `import_handler.go` (if truly uncovered)**:
+- Lines ~676-691: Error logging paths for `proxyHostSvc.Update()` and `proxyHostSvc.Create()`
+- Lines ~740: Session save warning path
+
+**Lines impractical to cover in `importer.go`**:
+- Lines 137-141: OS-level temp file error handlers (WriteString/Close failures)
 
 ### New Investigation: Codecov Configuration Gaps
 
@@ -720,6 +784,113 @@ find tests -name "*.spec.ts" | wc -l  # Should be 59
 
 ---
 
+## Phase 6: Current Blockers (2026-02-01)
+
+**Priority**: 🔴 BLOCKING MERGE
+**Status**: 🔴 Active
+
+### 6.1 Codecov Patch Coverage (55.81% → 85% Target)
+
+**Total Gap**: 19 lines missing coverage across 3 files
+
+#### 6.1.1 `import_handler.go` (12 Missing Lines - Highest Priority)
+
+**File**: [backend/internal/api/handlers/import_handler.go](backend/internal/api/handlers/import_handler.go)
+
+**ANALYSIS (2026-02-01)**: Local coverage verification shows tests ARE working:
+
+| Function | Local Coverage |
+|----------|----------------|
+| `Commit` | **86.2%** ✅ |
+| `GetPreview` | 82.6% |
+| `Upload` | 72.6% |
+| `CheckMountedImport` | 0.0% ⚠️ |
+
+**Why Codecov Shows 0%**:
+The discrepancy is likely due to one of:
+1. **Coverage upload failure** in CI (network/auth issue)
+2. **Stale Codecov data** from a previous failed run
+3. **Codecov baseline mismatch** (comparing against wrong branch)
+
+**Verification Commands**:
+```bash
+# Verify local coverage
+cd backend && go test -coverprofile=cover.out ./internal/api/handlers -run "ImportHandler"
+go tool cover -func=cover.out | grep import_handler
+# Expected: Commit = 86.2%
+
+# Check CI workflow logs for:
+# - "Uploading coverage report" success/failure
+# - Codecov token errors
+# - Coverage file generation
+```
+
+**Recommended Actions**:
+1. Re-run the CI workflow to trigger fresh Codecov upload
+2. Check Codecov dashboard for upload history
+3. If still failing, verify `codecov.yml` flags configuration
+
+#### 6.1.2 `importer.go` (3 Missing, 3 Partial Lines)
+
+**File**: [backend/internal/caddy/importer.go](backend/internal/caddy/importer.go#L137-L141)
+
+Lines 137-141 are OS-level error handlers documented as impractical to test. Coverage is at 73.91% which is acceptable.
+
+**Actions**:
+- Accept these 6 lines as exceptions
+- Add explicit ignore comment if Codecov supports inline exclusion
+- OR relax patch target temporarily while fixing import_handler.go
+
+#### 6.1.3 `useImport.ts` (1 Partial Line)
+
+**File**: [frontend/src/hooks/useImport.ts](frontend/src/hooks/useImport.ts)
+
+Only 1 partial line at 87.50% coverage - this is acceptable and shouldn't block.
+
+### 6.2 E2E Test Failures (Workflow Run 21541010717)
+
+**Workflow URL**: https://github.com/Wikid82/Charon/actions/runs/21541010717
+
+**Investigation Steps**:
+
+1. **Check Workflow Summary**:
+   - Visit the workflow URL above
+   - Identify which shards/browsers failed (12 total: 4 shards × 3 browsers)
+   - Look for common failure patterns
+
+2. **Analyze Failed Jobs**:
+   - Click on failed job → "View all annotations"
+   - Note test file names and error messages
+   - Check if failures are in same test file (isolated bug) vs scattered (environment issue)
+
+3. **Common E2E Failure Patterns**:
+
+   | Pattern | Error Example | Likely Cause |
+   |---------|---------------|--------------|
+   | Timeout | `locator.waitFor: Timeout 30000ms exceeded` | Backend not ready, slow CI |
+   | Connection Refused | `connect ECONNREFUSED ::1:8080` | Container didn't start |
+   | Assertion Failed | `Expected: ... Received: ...` | UI/API behavior changed |
+   | Selector Not Found | `page.locator(...).click: Error: locator resolved to 0 elements` | Component refactored |
+
+4. **Remediation by Pattern**:
+
+   - **Timeout/Connection**: Check if `docker-rebuild-e2e` step ran, verify health checks
+   - **Assertion Mismatch**: Update test expectations to match new behavior
+   - **Selector Issues**: Update selectors to match new component structure
+
+5. **Local Reproduction**:
+   ```bash
+   # Rebuild E2E environment
+   .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+
+   # Run specific failing test (replace with actual test name from CI)
+   npx playwright test tests/<failing-test>.spec.ts --project=chromium
+   ```
+
+**Delegation**: Playwright_Dev to investigate and fix failing tests
+
+---
+
 ## Implementation Checklist
 
 ### Phase 1: Frontend (Estimated: 5 minutes) ✅ RESOLVED
@@ -727,48 +898,49 @@ find tests -name "*.spec.ts" | wc -l  # Should be 59
 - [x] Run frontend tests locally to verify 8 tests pass
 - [x] Commit with message: `fix(frontend): add missing data-testid for multi-file import button`
 
-### Phase 2: Backend Coverage (Estimated: 30-60 minutes) ✅ COMPLETED
+### Phase 2: Backend Coverage (Estimated: 30-60 minutes) ⚠️ NEEDS VERIFICATION
 - [x] **Part A: import_handler.go error paths**
   - Added `ProxyHostServiceInterface` interface for testable dependency injection
   - Added `NewImportHandlerWithService()` constructor for mock injection
   - Created `mockProxyHostService` in test file with configurable failure functions
   - Fixed `TestImportHandler_Commit_UpdateFailure` to use mock (was previously skipped)
-  - **Commit function coverage: 43.7% → 86.2%**
-  - Lines 676 (Update error) and 691 (Create error) now covered
+  - **Claimed coverage: 43.7% → 86.2%** ⚠️ **CODECOV SHOWS 0% - NEEDS INVESTIGATION**
 - [x] **Part B: importer.go untestable paths**
-  - Added documentation comments to lines 140-144 explaining why WriteString/Close error paths are impractical to test
-  - Did NOT exclude entire file from codecov (would harm valuable coverage)
-  - `NormalizeCaddyfile` coverage: 81.2% (remaining uncovered lines are OS-level fault handlers)
-- [x] Run backend tests with coverage to verify improvement
+  - Added documentation comments to lines 140-144
+  - `NormalizeCaddyfile` coverage: 73.91% (acceptable)
+- [ ] **Part C: Verify tests actually run in CI**
+  - Check if tests are excluded by build tags
+  - Verify mock injection is working
 
 ### Phase 3: Codecov Configuration (Estimated: 5 minutes) ✅ COMPLETED
 - [x] Relaxed patch coverage target from 100% to 85% in `codecov.yml`
 
 ### Phase 4: Final Remediation (Estimated: 60-75 minutes) ✅ COMPLETED
 - [x] **Task 4.1: E2E Test Fix** (Playwright_Dev, 15 min)
-  - File: `tests/tasks/caddy-import-debug.spec.ts` lines 243-245
-  - Action: Updated assertion to validate import errors are surfaced
-  - Commit: `fix(e2e): update import directive test to match actual caddy error`
 - [x] **Task 4.2: ImportCaddy.tsx Unit Tests** (Frontend_Dev, 45-60 min)
-  - File: `frontend/src/pages/__tests__/ImportCaddy-handlers.test.tsx` (23 test cases)
-  - Result: Coverage raised from 32.6% to 78.26% (exceeds 60% target)
-  - Commit: `test(frontend): add ImportCaddy unit tests for coverage target`
 
 ### Phase 5: Codecov Configuration Fix (Estimated: 15 minutes) ✅ COMPLETED
 - [x] **Task 5.1: Update codecov.yml ignore patterns**
-  - File: `codecov.yml`
-  - Action: Added 77 comprehensive ignore patterns (test files, utilities, configs, entry points, infrastructure)
-  - Commit: `chore(codecov): add comprehensive ignore patterns for test utilities and configs`
 - [x] **Task 5.2: Added Uptime.test.tsx** (9 test cases)
-  - Covers loading/empty states, monitor grouping, modal interactions, status badges
 - [ ] **Task 5.3: Verify on CI** (pending next push)
-  - Push changes and wait for Codecov upload
-  - Check Codecov dashboard shows 82%+ total (not 67%)
-  - Verify backend and frontend flags both show 84%+
 
-### Phase 6: Final Verification (Estimated: 10 minutes)
-- [x] Push changes and monitor CI
-- [ ] Verify all checks pass (including Codecov total)
+### Phase 6: Current Blockers (Estimated: 60-90 minutes) 🔴 IN PROGRESS
+- [ ] **Task 6.1: Investigate import_handler.go 0% coverage**
+  - Run local coverage to verify tests execute error paths
+  - Check CI logs for test execution
+  - Fix mock injection if needed
+- [ ] **Task 6.2: Investigate E2E failures**
+  - Fetch workflow run 21541010717 logs
+  - Identify failing test names
+  - Determine root cause (flaky vs real failure)
+- [ ] **Task 6.3: Apply fixes and push**
+  - Backend test fixes if needed
+  - E2E test fixes if needed
+  - Verify patch coverage reaches 85%
+
+### Phase 7: Final Verification (Estimated: 10 minutes)
+- [ ] Push changes and monitor CI
+- [ ] Verify all checks pass (including Codecov patch ≥ 85%)
 - [ ] Request re-review if applicable
 
 ---
