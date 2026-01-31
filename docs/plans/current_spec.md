@@ -346,6 +346,13 @@ const hostId = await testData.createProxyHost({
 | Banner Text | Text containing "Pending Import Session" |
 | Review Changes Button | `button:has-text("Review Changes")` |
 
+#### 8.3 Linter Configuration
+
+**Verify gopls/staticcheck:**
+- Build tags are standard Go feature
+- No linter configuration changes needed
+- GoReleaser will compile each platform separately
+
 ---
 
 ### Test Case 4.2: Review Changes button restores review table
@@ -370,7 +377,7 @@ const hostId = await testData.createProxyHost({
 | Review Table | `page.getByTestId('import-review-table')` |
 | Domain in Table | `page.getByTestId('import-review-table').getByText(domain)` |
 
----
+### GoReleaser Integration
 
 ## Gap 5: Name Editing in Review
 

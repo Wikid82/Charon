@@ -7,7 +7,8 @@
     "helpers:pinGitHubActionDigests"
   ],
   "baseBranches": [
-    "development"
+    "development",
+    "feature/*"
   ],
   "timezone": "America/New_York",
   "dependencyDashboard": true,
@@ -28,7 +29,7 @@
   ],
 
   "rangeStrategy": "bump",
-  "automerge": true,
+  "automerge": false,
   "automergeType": "pr",
   "platformAutomerge": true,
 
@@ -123,8 +124,19 @@
         "pin",
         "digest"
       ],
-      "groupName": "weekly-non-major-updates",
-      "automerge": true
+      "groupName": "weekly-non-major-updates"
+    },
+    {
+      "description": "Feature branches: Always require manual approval",
+      "matchBaseBranches": ["feature/*"],
+      "automerge": false
+    },
+    {
+      "description": "Development branch: Auto-merge non-major updates after proven stable",
+      "matchBaseBranches": ["development"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "automerge": true,
+      "minimumReleaseAge": "3 days"
     },
     {
       "description": "Preserve your custom Caddy patch labels but allow them to group into the weekly PR",
