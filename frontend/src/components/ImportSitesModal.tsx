@@ -40,10 +40,16 @@ export default function ImportSitesModal({ visible, onClose, onUploaded }: Props
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="multi-site-modal-title"
+      data-testid="multi-site-modal"
+    >
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="relative bg-dark-card rounded-lg p-6 w-[900px] max-w-full">
-        <h3 className="text-xl font-semibold text-white mb-4">Multi-site Import</h3>
+        <h3 id="multi-site-modal-title" className="text-xl font-semibold text-white mb-4">Multi-site Import</h3>
         <p className="text-gray-400 text-sm mb-4">Add each site's Caddyfile content separately, then parse them together.</p>
 
         <div className="space-y-4 max-h-[60vh] overflow-auto mb-4">

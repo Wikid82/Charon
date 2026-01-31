@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -961,33 +962,54 @@ func TestImportHandler_Commit_InvalidSessionUUID(t *testing.T) {
 	assert.Equal(t, "invalid session_uuid", resp["error"])
 }
 
-// TestImportHandler_Commit_UpdateFailure tests the error logging path when Update fails (line 667)
+// mockProxyHostService is a mock implementation of ProxyHostServiceInterface for testing.
+type mockProxyHostService struct {
+	createFunc func(host *models.ProxyHost) error
+	updateFunc func(host *models.ProxyHost) error
+	listFunc   func() ([]models.ProxyHost, error)
+}
+
+func (m *mockProxyHostService) Create(host *models.ProxyHost) error {
+	if m.createFunc != nil {
+		return m.createFunc(host)
+	}
+	return nil
+}
+
+func (m *mockProxyHostService) Update(host *models.ProxyHost) error {
+	if m.updateFunc != nil {
+		return m.updateFunc(host)
+	}
+	return nil
+}
+
+func (m *mockProxyHostService) List() ([]models.ProxyHost, error) {
+	if m.listFunc != nil {
+		return m.listFunc()
+	}
+	return []models.ProxyHost{}, nil
+}
+
+// TestImportHandler_Commit_UpdateFailure tests the error logging path when Update fails (line 676)
 func TestImportHandler_Commit_UpdateFailure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
-	// Create an existing host
+	// Create an existing host that we'll try to overwrite
 	existingHost := models.ProxyHost{
 		UUID:        uuid.NewString(),
 		DomainNames: "existing.com",
 	}
 	db.Create(&existingHost)
 
-	// Create another host that will cause a duplicate domain error
-	conflictHost := models.ProxyHost{
-		UUID:        uuid.NewString(),
-		DomainNames: "duplicate.com",
-	}
-	db.Create(&conflictHost)
-
-	// Create an import session that tries to update existing.com to duplicate.com
+	// Create an import session with a host matching the existing one
 	session := models.ImportSession{
 		UUID:   uuid.NewString(),
 		Status: "reviewing",
 		ParsedData: `{
 			"hosts": [
 				{
-					"domain_names": "duplicate.com",
+					"domain_names": "existing.com",
 					"forward_host": "192.168.1.1",
 					"forward_port": 80,
 					"forward_scheme": "http"
@@ -997,40 +1019,48 @@ func TestImportHandler_Commit_UpdateFailure(t *testing.T) {
 	}
 	db.Create(&session)
 
-	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
+	// Create a mock service that returns existing hosts and fails on Update
+	mockSvc := &mockProxyHostService{
+		listFunc: func() ([]models.ProxyHost, error) {
+			return []models.ProxyHost{existingHost}, nil
+		},
+		updateFunc: func(host *models.ProxyHost) error {
+			return errors.New("mock update failure: database connection lost")
+		},
+	}
+
+	handler := handlers.NewImportHandlerWithService(db, mockSvc, "echo", "/tmp", "")
 	router := gin.New()
 	router.POST("/import/commit", handler.Commit)
 
-	// The tricky part: we want to overwrite existing.com, but the parsed data says "duplicate.com"
-	// So the code will look for "duplicate.com" in existingMap and find it
-	// Then it will try to update that record with the same domain name (no conflict)
+	// Request to overwrite existing.com
+	payload := map[string]any{
+		"session_uuid": session.UUID,
+		"resolutions": map[string]string{
+			"existing.com": "overwrite",
+		},
+	}
+	body, _ := json.Marshal(payload)
 
-	// Actually, looking at the code more carefully:
-	// - existingMap is keyed by domain_names
-	// - When action is "overwrite", it looks up the domain from the import data in existingMap
-	// - If found, it updates that existing record
-	// - The update tries to keep the same domain name, so ValidateUniqueDomain excludes the current ID
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/commit", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
 
-	// To make Update fail, I need a different approach.
-	// Let's try: Create a host, then manually set its ID to something invalid in the map
-	// Actually, that won't work either because we're using the real database
+	// The commit should complete but with errors (line 676 executed)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 
-	// Simplest approach: Just have a host that doesn't exist to trigger database error
-	// But wait - if it doesn't exist, it falls through to Create, not Update
+	// Should have errors due to update failure
+	respErrors, ok := resp["errors"].([]interface{})
+	assert.True(t, ok, "expected errors array in response")
+	assert.Greater(t, len(respErrors), 0, "expected at least one error")
+	assert.Contains(t, respErrors[0].(string), "existing.com")
+	assert.Contains(t, respErrors[0].(string), "mock update failure")
 
-	// Let me try a different strategy: corrupt the database state somehow
-	// Or: use advanced_config with invalid JSON structure
-
-	// Actually, the easiest way is to just skip this test and document it
-	// Line 667 is hard to cover because Update would need to fail in a way that:
-	// 1. The session parsing succeeds
-	// 2. The host is found in existingMap
-	// 3. The Update call fails
-
-	// The most realistic failure is a database constraint violation or connection error
-	// But we can't easily simulate that without closing the DB (which breaks the session lookup)
-
-	t.Skip("Line 667 is an error logging path for ProxyHostService.Update failures during import commit. It's difficult to trigger without database mocking because: (1) session must parse successfully, (2) host must exist in the database, (3) Update must fail (typically due to DB constraints or connection issues). This path is covered by design but challenging to test in integration without extensive mocking.")
+	// updated count should be 0
+	assert.Equal(t, float64(0), resp["updated"])
 }
 
 // TestImportHandler_Commit_CreateFailure tests the error logging path when Create fails (line 682)

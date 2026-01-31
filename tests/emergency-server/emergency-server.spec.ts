@@ -17,6 +17,10 @@ import { test, expect, request as playwrightRequest } from '@playwright/test';
 import { EMERGENCY_TOKEN, EMERGENCY_SERVER, enableSecurity } from '../fixtures/security';
 import { TestDataManager } from '../utils/TestDataManager';
 
+// CI-specific timeout multiplier: CI environments have higher I/O latency
+const CI_TIMEOUT_MULTIPLIER = process.env.CI ? 3 : 1;
+const BASE_PROPAGATION_WAIT = 3000;
+
 /**
  * Check if emergency server is healthy before running tests
  */
@@ -175,7 +179,7 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
       });
 
       // Wait for settings to propagate
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise(resolve => setTimeout(resolve, BASE_PROPAGATION_WAIT * CI_TIMEOUT_MULTIPLIER));
 
       // Step 2: Verify main app blocks requests (403)
       const mainAppResponse = await request.get('/api/v1/proxy-hosts');
@@ -207,7 +211,7 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
       console.log('  ✓ Emergency server (port 2019) succeeded despite ACL');
 
       // Wait for settings to propagate
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise(resolve => setTimeout(resolve, BASE_PROPAGATION_WAIT * CI_TIMEOUT_MULTIPLIER));
 
       // Step 4: Verify main app now accessible
       const allowedResponse = await request.get('/api/v1/proxy-hosts');
