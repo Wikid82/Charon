@@ -22,10 +22,18 @@ import (
 	"github.com/Wikid82/charon/backend/internal/util"
 )
 
+// ProxyHostServiceInterface defines the subset of ProxyHostService needed by ImportHandler.
+// This allows for easier testing by enabling mock implementations.
+type ProxyHostServiceInterface interface {
+	Create(host *models.ProxyHost) error
+	Update(host *models.ProxyHost) error
+	List() ([]models.ProxyHost, error)
+}
+
 // ImportHandler handles Caddyfile import operations.
 type ImportHandler struct {
 	db              *gorm.DB
-	proxyHostSvc    *services.ProxyHostService
+	proxyHostSvc    ProxyHostServiceInterface
 	importerservice *caddy.Importer
 	importDir       string
 	mountPath       string
@@ -36,6 +44,18 @@ func NewImportHandler(db *gorm.DB, caddyBinary, importDir, mountPath string) *Im
 	return &ImportHandler{
 		db:              db,
 		proxyHostSvc:    services.NewProxyHostService(db),
+		importerservice: caddy.NewImporter(caddyBinary),
+		importDir:       importDir,
+		mountPath:       mountPath,
+	}
+}
+
+// NewImportHandlerWithService creates an import handler with a custom ProxyHostService.
+// This is primarily used for testing with mock services.
+func NewImportHandlerWithService(db *gorm.DB, proxyHostSvc ProxyHostServiceInterface, caddyBinary, importDir, mountPath string) *ImportHandler {
+	return &ImportHandler{
+		db:              db,
+		proxyHostSvc:    proxyHostSvc,
 		importerservice: caddy.NewImporter(caddyBinary),
 		importDir:       importDir,
 		mountPath:       mountPath,

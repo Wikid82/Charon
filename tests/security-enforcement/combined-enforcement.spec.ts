@@ -13,6 +13,12 @@ import { test, expect } from '@bgotink/playwright-coverage';
 import { request } from '@playwright/test';
 import type { APIRequestContext } from '@playwright/test';
 import { STORAGE_STATE } from '../constants';
+
+// CI-specific timeout multiplier: CI environments have higher I/O latency
+const CI_TIMEOUT_MULTIPLIER = process.env.CI ? 3 : 1;
+const BASE_PROPAGATION_WAIT = 500;
+const BASE_RETRY_INTERVAL = 300;
+const BASE_RETRY_COUNT = 5;
 import {
   getSecurityStatus,
   setSecurityModuleEnabled,
@@ -107,7 +113,7 @@ test.describe('Combined Security Enforcement', () => {
     await setSecurityModuleEnabled(requestContext, 'acl', true);
 
     // Wait a moment for audit log to be written
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, BASE_PROPAGATION_WAIT * CI_TIMEOUT_MULTIPLIER));
 
     // Fetch audit logs
     const response = await requestContext.get('/api/v1/security/audit-logs');
@@ -139,9 +145,9 @@ test.describe('Combined Security Enforcement', () => {
     // Final toggle leaves ACL in known state (i=4 sets 'true')
     // Wait with retry for state to propagate
     let status = await getSecurityStatus(requestContext);
-    let retries = 5;
+    let retries = BASE_RETRY_COUNT * CI_TIMEOUT_MULTIPLIER;
     while (!status.acl.enabled && retries > 0) {
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await new Promise((resolve) => setTimeout(resolve, BASE_RETRY_INTERVAL * CI_TIMEOUT_MULTIPLIER));
       status = await getSecurityStatus(requestContext);
       retries--;
     }

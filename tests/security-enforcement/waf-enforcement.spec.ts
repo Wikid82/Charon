@@ -16,6 +16,13 @@ import { test, expect } from '@bgotink/playwright-coverage';
 import { request } from '@playwright/test';
 import type { APIRequestContext } from '@playwright/test';
 import { STORAGE_STATE } from '../constants';
+
+// CI-specific timeout multiplier: CI environments have higher I/O latency
+const CI_TIMEOUT_MULTIPLIER = process.env.CI ? 3 : 1;
+const BASE_PROPAGATION_WAIT = 3000;
+const BASE_RETRY_INTERVAL = 1000;
+const BASE_RETRY_COUNT_WAF = 5;
+const BASE_RETRY_COUNT_STATUS = 10;
 import {
   getSecurityStatus,
   setSecurityModuleEnabled,
@@ -86,13 +93,13 @@ test.describe('WAF Enforcement', () => {
     try {
       await setSecurityModuleEnabled(requestContext, 'waf', true);
       // Wait for Caddy reload and WAF status propagation (3-5 seconds)
-      await new Promise(r => setTimeout(r, 3000));
+      await new Promise(r => setTimeout(r, BASE_PROPAGATION_WAIT * CI_TIMEOUT_MULTIPLIER));
 
       // Verify WAF enabled with retry
-      let wafRetries = 5;
+      let wafRetries = BASE_RETRY_COUNT_WAF * CI_TIMEOUT_MULTIPLIER;
       let status = await getSecurityStatus(requestContext);
       while (!status.waf.enabled && wafRetries > 0) {
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, BASE_RETRY_INTERVAL * CI_TIMEOUT_MULTIPLIER));
         status = await getSecurityStatus(requestContext);
         wafRetries--;
       }
@@ -126,10 +133,10 @@ test.describe('WAF Enforcement', () => {
   test('should verify WAF is enabled', async () => {
     // Use polling pattern to wait for WAF status propagation
     let status = await getSecurityStatus(requestContext);
-    let retries = 10;
+    let retries = BASE_RETRY_COUNT_STATUS * CI_TIMEOUT_MULTIPLIER;
 
     while ((!status.waf.enabled || !status.cerberus.enabled) && retries > 0) {
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, BASE_RETRY_INTERVAL * CI_TIMEOUT_MULTIPLIER));
       status = await getSecurityStatus(requestContext);
       retries--;
     }

@@ -158,6 +158,7 @@ api.example.com {
             <button
               onClick={() => setShowMultiModal(true)}
               className="ml-4 px-4 py-2 bg-gray-800 text-white rounded-lg"
+              data-testid="multi-file-import-button"
             >
               {t('importCaddy.multiSiteImport')}
             </button>

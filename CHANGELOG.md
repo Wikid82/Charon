@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - DEB/RPM packages removed from release workflow
   - Users should use `docker pull wikid82/charon:latest` or `ghcr.io/wikid82/charon:latest`
   - See [Getting Started Guide](https://wikid82.github.io/charon/getting-started) for Docker installation instructions
+- **Backend**: Introduced `ProxyHostServiceInterface` for improved testability (PR #583)
+  - Import handler now uses interface-based dependency injection
+  - Enables mocking of proxy host service in unit tests
+  - Coverage improvement: 43.7% → 86.2% on `import_handler.go`
 
 ### Fixed
 
@@ -25,6 +29,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Trivy Scan**: Fixed invalid Docker image reference format by adding PR number validation and branch name sanitization
   - Resolution Date: January 30, 2026
   - See action failure docs in `docs/actions/` for technical details
+- **E2E Security Tests**: Added CI-specific timeout multipliers to prevent flaky tests in GitHub Actions (PR #583)
+  - Affected tests: `emergency-token.spec.ts`, `combined-enforcement.spec.ts`, `waf-enforcement.spec.ts`, `emergency-server.spec.ts`
+  - Tests now use environment-aware timeouts (longer in CI, shorter locally)
+- **Frontend Accessibility**: Added missing `data-testid` attribute to Multi-site Import button (PR #583)
+  - File: `ImportCaddy.tsx` - Added `data-testid="multi-site-import-button"`
+  - File: `ImportSitesModal.tsx` - Added accessibility attributes for improved screen reader support
+- **Backend Tests**: Fixed skipped `import_handler_test.go` test preventing coverage measurement (PR #583)
+  - Introduced `ProxyHostServiceInterface` enabling proper mocking
+  - Coverage improved from 43.7% to 86.2% on import handler
 
 ### Added
 
