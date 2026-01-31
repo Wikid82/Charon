@@ -4,7 +4,7 @@ services:
   app:
     # Override for local testing:
     # CHARON_DEV_IMAGE=ghcr.io/wikid82/charon:dev
-    image: ${CHARON_DEV_IMAGE:-ghcr.io/wikid82/charon:dev@sha256:8ed38f884c217ee09da02d5b7ba990fa22ccdd4fb0d2e01a4da1b5963301104f}
+    image: ${CHARON_DEV_IMAGE:-ghcr.io/wikid82/charon:dev@sha256:b1d45642bbaf604116a91576f949625071d709eebb2028fc6126464006c8c8f7}
     # Development: expose Caddy admin API externally for debugging
     ports:
       - "80:80"

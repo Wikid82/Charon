@@ -4,7 +4,7 @@ services:
   # Run this service on your REMOTE servers (not the one running Charon)
   # to allow Charon to discover containers running there (legacy: CPMP).
   docker-socket-proxy:
-    image: alpine/socat:latest@sha256:bd8d6a251eb7d1b8c08f7117e3e583e14ec86f43f25d2bf31a6e16ff5dc15f58
+    image: alpine/socat:latest@sha256:33656aac7ecafdec70b7954e182849d775dd2862d3880851dc55f6714af3fc10
     container_name: docker-socket-proxy
     restart: unless-stopped
     ports:
