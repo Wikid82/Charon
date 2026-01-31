@@ -599,9 +599,15 @@ test.describe('Account Settings', () => {
      * Test: Copy API key to clipboard
      * Verifies copy button copies key to clipboard.
      */
-    test('should copy API key to clipboard', async ({ page, context }) => {
-      // Grant clipboard permissions
-      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    test('should copy API key to clipboard', async ({ page, context }, testInfo) => {
+      // Grant clipboard permissions. Firefox/WebKit do not support 'clipboard-read'
+      // so only request it on Chromium projects.
+      const browserName = testInfo.project?.name || '';
+      if (browserName === 'chromium') {
+        await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+      } else {
+        await context.grantPermissions(['clipboard-write']);
+      }
 
       await test.step('Click copy button', async () => {
         const copyButton = page

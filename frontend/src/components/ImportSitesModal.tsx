@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { uploadCaddyfilesMulti } from '../api/import'
 
 type Props = {
@@ -18,6 +18,23 @@ export default function ImportSitesModal({ visible, onClose, onUploaded }: Props
     const s = [...sites]
     s[index] = value
     setSites(s)
+  }
+
+  const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    const newSites: string[] = []
+    for (let i = 0; i < files.length; i++) {
+      try {
+        const text = await files[i].text()
+        newSites.push(text)
+      } catch (err) {
+        // ignore read errors for individual files
+        newSites.push('')
+      }
+    }
+    if (newSites.length > 0) setSites(newSites)
   }
 
   const addSite = () => setSites(prev => [...prev, ''])
@@ -51,6 +68,15 @@ export default function ImportSitesModal({ visible, onClose, onUploaded }: Props
       <div className="relative bg-dark-card rounded-lg p-6 w-[900px] max-w-full">
         <h3 id="multi-site-modal-title" className="text-xl font-semibold text-white mb-4">Multi-site Import</h3>
         <p className="text-gray-400 text-sm mb-4">Add each site's Caddyfile content separately, then parse them together.</p>
+
+        {/* Hidden file input so E2E tests can programmatically upload multiple files */}
+        <input
+          type="file"
+          accept=".caddy,.caddyfile,.txt,text/plain"
+          multiple
+          onChange={handleFileInput}
+          style={{ display: 'none' }}
+        />
 
         <div className="space-y-4 max-h-[60vh] overflow-auto mb-4">
           {sites.map((s, idx) => (

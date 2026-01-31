@@ -329,22 +329,45 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	// If no hosts were parsed, provide a clearer error when import directives exist
-	if len(result.Hosts) == 0 {
+	// Determine whether any parsed hosts are actually importable (have forward host/port)
+	importableCount := 0
+	fileServerDetected := false
+	for _, ph := range result.Hosts {
+		if ph.ForwardHost != "" && ph.ForwardPort != 0 {
+			importableCount++
+		}
+		for _, w := range ph.Warnings {
+			if strings.Contains(strings.ToLower(w), "file server") || strings.Contains(strings.ToLower(w), "file_server") {
+				fileServerDetected = true
+			}
+		}
+	}
+
+	// If there are no importable hosts, surface clearer feedback. This covers cases
+	// where routes were parsed (e.g. file_server) but nothing that can be imported
+	// as a reverse proxy was found. Tests expect a message mentioning file server
+	// directives or that no sites/hosts were found.
+	if importableCount == 0 {
 		imports := detectImportDirectives(req.Content)
 		if len(imports) > 0 {
 			sanitizedImports := make([]string, 0, len(imports))
 			for _, imp := range imports {
 				sanitizedImports = append(sanitizedImports, util.SanitizeForLog(filepath.Base(imp)))
 			}
-			middleware.GetRequestLogger(c).WithField("imports", sanitizedImports).Warn("Import Upload: no hosts parsed but imports detected")
-		} else {
-			middleware.GetRequestLogger(c).WithField("content_len", len(req.Content)).Warn("Import Upload: no hosts parsed and no imports detected")
-		}
-		if len(imports) > 0 {
+			middleware.GetRequestLogger(c).WithField("imports", sanitizedImports).Warn("Import Upload: no importable hosts parsed but imports detected")
 			c.JSON(http.StatusBadRequest, gin.H{"error": "no sites found in uploaded Caddyfile; imports detected; please upload the referenced site files using the multi-file import flow", "imports": imports})
 			return
 		}
+
+		// If file_server directives were present, return a clearer message that they
+		// are not supported for import and that no importable hosts exist.
+		if fileServerDetected {
+			middleware.GetRequestLogger(c).WithField("content_len", len(req.Content)).Warn("Import Upload: parsed routes were file_server-only and not importable")
+			c.JSON(http.StatusBadRequest, gin.H{"error": "File server directives are not supported for import or no sites/hosts found in your Caddyfile"})
+			return
+		}
+
+		middleware.GetRequestLogger(c).WithField("content_len", len(req.Content)).Warn("Import Upload: no hosts parsed and no imports detected")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no sites found in uploaded Caddyfile"})
 		return
 	}
@@ -502,15 +525,36 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 		return
 	}
 
-	// If parsing succeeded but no hosts were found, and imports were present in the main file,
-	// inform the caller to upload the site files.
-	if len(result.Hosts) == 0 {
+	// If parsing succeeded but no importable hosts were found, surface clearer
+	// feedback. This covers cases where routes exist (e.g., file_server) but none
+	// are reverse_proxy entries that we can import.
+	// Determine importable hosts and detect file_server presence.
+	importableCount := 0
+	fileServerDetected := false
+	for _, ph := range result.Hosts {
+		if ph.ForwardHost != "" && ph.ForwardPort != 0 {
+			importableCount++
+		}
+		for _, w := range ph.Warnings {
+			if strings.Contains(strings.ToLower(w), "file server") || strings.Contains(strings.ToLower(w), "file_server") {
+				fileServerDetected = true
+			}
+		}
+	}
+
+	if importableCount == 0 {
 		mainContentBytes, _ := os.ReadFile(mainCaddyfile)
 		imports := detectImportDirectives(string(mainContentBytes))
 		if len(imports) > 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "no sites parsed from main Caddyfile; import directives detected; please include site files in upload", "imports": imports})
 			return
 		}
+
+		if fileServerDetected {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "File server directives are not supported for import or no sites/hosts found in your Caddyfile"})
+			return
+		}
+
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no sites parsed from main Caddyfile"})
 		return
 	}
