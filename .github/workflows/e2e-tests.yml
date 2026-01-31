@@ -238,6 +238,7 @@ jobs:
         run: npm ci
 
       - name: Cache Playwright browsers
+        id: playwright-cache
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         with:
           path: ~/.cache/ms-playwright
@@ -245,7 +246,11 @@ jobs:
           restore-keys: playwright-${{ matrix.browser }}-
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+        run: |
+          # Always run install to ensure browsers match Playwright version
+          # The install command is idempotent - skips if already installed
+          npx playwright install --with-deps ${{ matrix.browser }}
+          echo "✅ Playwright ${{ matrix.browser }} installed"
 
       - name: Run E2E tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -281,7 +286,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: playwright-report-shard-${{ matrix.shard }}
+          name: playwright-report-${{ matrix.browser }}-shard-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 14
 
@@ -297,14 +302,14 @@ jobs:
         if: failure()
         run: |
           echo "📋 Container logs:"
-          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-shard-${{ matrix.shard }}.txt 2>&1
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-${{ matrix.browser }}-shard-${{ matrix.shard }}.txt 2>&1
 
       - name: Upload Docker logs on failure
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: docker-logs-shard-${{ matrix.shard }}
-          path: docker-logs-shard-${{ matrix.shard }}.txt
+          name: docker-logs-${{ matrix.browser }}-shard-${{ matrix.shard }}
+          path: docker-logs-${{ matrix.browser }}-shard-${{ matrix.shard }}.txt
           retention-days: 7
 
       - name: Cleanup
@@ -330,9 +335,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Browser | Shards | HTML Reports | Traces (on failure) |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|--------|--------------|---------------------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Chromium | 1-4 | \`playwright-report-shard-{1..4}\` | \`traces-chromium-shard-{1..4}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Firefox | 1-4 | \`playwright-report-shard-{1..4}\` | \`traces-firefox-shard-{1..4}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| WebKit | 1-4 | \`playwright-report-shard-{1..4}\` | \`traces-webkit-shard-{1..4}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Chromium | 1-4 | \`playwright-report-chromium-shard-{1..4}\` | \`traces-chromium-shard-{1..4}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Firefox | 1-4 | \`playwright-report-firefox-shard-{1..4}\` | \`traces-firefox-shard-{1..4}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| WebKit | 1-4 | \`playwright-report-webkit-shard-{1..4}\` | \`traces-webkit-shard-{1..4}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### How to View Reports" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -395,7 +400,7 @@ jobs:
             | Status | ${status} |
 
             **Per-Shard HTML Reports** (easier to debug):
-            - \`playwright-report-shard-{1..4}\` for each browser
+            - \`playwright-report-{browser}-shard-{1..4}\` (12 total artifacts)
             - Trace artifacts: \`traces-{browser}-shard-{N}\`
 
             [📊 View workflow run & download reports](${runUrl})
