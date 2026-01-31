@@ -9,7 +9,7 @@
   "baseBranches": [
     "feature/beta-release",
     "development"
-        
+
   ],
   "timezone": "America/New_York",
   "dependencyDashboard": true,
@@ -17,6 +17,10 @@
   "prHourlyLimit": 0,
   "labels": [
     "dependencies"
+  ],
+
+  "ignorePaths": [
+    ".docker/**"
   ],
 
   "rebaseWhen": "auto",
