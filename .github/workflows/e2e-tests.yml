@@ -302,9 +302,29 @@ jobs:
           echo "Post-install: show cache contents (top 5 lines)"
           find ~/.cache/ms-playwright -maxdepth 3 -printf '%p\n' | head -40 || true
 
-          # Final sanity check: try a headless launch via a tiny Node script (will exit non-zero if launch fails)
+          # Final sanity check: try a headless launch via a tiny Node script (browser-specific args, retry without args)
           echo "🔁 Verifying browser can be launched (headless)"
-          node -e "(async()=>{ try{ const pw=require('playwright'); const b = await pw['${{ matrix.browser }}'].launch({ headless: true, args: ['--no-sandbox'] }); await b.close(); console.log('launch-ok'); }catch(e){ console.error('launch-failed', e && e.message); process.exit(2); } })()" || (echo '❌ Browser launch verification failed' && exit 1)
+          node -e "(async()=>{ try{ const pw=require('playwright'); const name='${{ matrix.browser }}'; const browser = pw[name]; const argsMap = { chromium: ['--no-sandbox'], firefox: ['--no-sandbox'], webkit: [] }; const args = argsMap[name] || [];
+            // First attempt: launch with recommended args for this browser
+            try {
+              console.log('attempt-launch', name, 'args', JSON.stringify(args));
+              const b = await browser.launch({ headless: true, args });
+              await b.close();
+              console.log('launch-ok', 'argsUsed', JSON.stringify(args));
+              process.exit(0);
+            } catch (err) {
+              console.warn('launch-with-args-failed', err && err.message);
+              if (args.length) {
+                // Retry without args (some browsers reject unknown flags)
+                console.log('retrying-without-args');
+                const b2 = await browser.launch({ headless: true });
+                await b2.close();
+                console.log('launch-ok-no-args');
+                process.exit(0);
+              }
+              throw err;
+            }
+          } catch (e) { console.error('launch-failed', e && e.message); process.exit(2); } })()" || (echo '❌ Browser launch verification failed' && exit 1)
 
           echo "✅ Playwright ${{ matrix.browser }} ready and verified"
 
