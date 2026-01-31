@@ -327,10 +327,10 @@ func TestDefaultExecutor_Execute_StderrCapture(t *testing.T) {
 // TestImporter_NormalizeCaddyfile tests the Caddyfile normalization function
 func TestImporter_NormalizeCaddyfile(t *testing.T) {
 	tests := []struct {
-		name          string
-		input         string
-		expectError   bool
-		allowEmpty    bool
+		name        string
+		input       string
+		expectError bool
+		allowEmpty  bool
 	}{
 		{
 			name:  "single-line format processes without error",
@@ -399,7 +399,6 @@ func TestImporter_NormalizeCaddyfile_Error(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "caddy fmt failed")
 }
-
 
 // TestImporter_NormalizeCaddyfile_Integration tests with real caddy binary (if available)
 func TestImporter_NormalizeCaddyfile_Integration(t *testing.T) {
