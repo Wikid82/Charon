@@ -261,6 +261,15 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 
 	middleware.GetRequestLogger(c).WithField("filename", util.SanitizeForLog(filepath.Base(req.Filename))).WithField("content_len", len(req.Content)).Info("Import Upload: received upload")
 
+	// Normalize Caddyfile format before saving (handles single-line format)
+	normalizedContent := req.Content
+	if normalized, err := h.importerservice.NormalizeCaddyfile(req.Content); err != nil {
+		// If normalization fails, log warning but continue with original content
+		middleware.GetRequestLogger(c).WithError(err).Warn("Import Upload: Caddyfile normalization failed, using original content")
+	} else {
+		normalizedContent = normalized
+	}
+
 	// Save upload to import/uploads/<uuid>.caddyfile and return transient preview (do not persist yet)
 	sid := uuid.NewString()
 	uploadsDir, err := safeJoin(h.importDir, "uploads")
@@ -277,7 +286,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid temp path"})
 		return
 	}
-	if err := os.WriteFile(tempPath, []byte(req.Content), 0o644); err != nil {
+	if err := os.WriteFile(tempPath, []byte(normalizedContent), 0o644); err != nil {
 		middleware.GetRequestLogger(c).WithField("tempPath", util.SanitizeForLog(filepath.Base(tempPath))).WithError(err).Error("Import Upload: failed to write temp file")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write upload"})
 		return

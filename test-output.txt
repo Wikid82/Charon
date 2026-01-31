@@ -1,0 +1,74 @@
+[dotenv@17.2.3] injecting env (2) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+
+🧹 Running global test setup...
+
+🔐 Validating emergency token configuration...
+  🔑 Token present: f51dedd6...346b
+  ✓ Token length: 64 chars (valid)
+  ✓ Token format: Valid hexadecimal
+  ✓ Token appears to be unique (not a placeholder)
+✅ Emergency token validation passed
+
+📍 Base URL: http://localhost:8080
+⏳ Waiting for container to be ready at http://localhost:8080...
+  ✅ Container ready after 1 attempt(s) [2000ms]
+   └─ Hostname: localhost
+   ├─ Port: 8080
+   ├─ Protocol: http:
+   ├─ IPv6: No
+   └─ Localhost: Yes
+
+📊 Port Connectivity Checks:
+🔍 Checking Caddy admin API health at http://localhost:2019...
+  ✅ Caddy admin API (port 2019) is healthy [10ms]
+🔍 Checking emergency tier-2 server health at http://localhost:2020...
+  ✅ Emergency tier-2 server (port 2020) is healthy [7ms]
+
+✅ Connectivity Summary: Caddy=✓ Emergency=✓
+
+🔓 Performing emergency security reset...
+  🔑 Token configured: f51dedd6...346b (64 chars)
+  📍 Emergency URL: http://localhost:2020/emergency/security-reset
+  📊 Emergency reset status: 200 [16ms]
+  ✅ Emergency reset successful [16ms]
+  ✓ Disabled modules: security.rate_limit.enabled, security.crowdsec.enabled, security.crowdsec.mode, feature.cerberus.enabled, security.cerberus.enabled, security.acl.enabled, security.waf.enabled
+  ⏳ Waiting for security reset to propagate...
+  ✅ Security reset complete [520ms]
+🔍 Checking application health...
+✅ Application is accessible
+🗑️  Cleaning up orphaned test data...
+Force cleanup completed: {"proxyHosts":0,"accessLists":0,"dnsProviders":0,"certificates":0}
+   No orphaned test data found
+✅ Global setup complete
+
+🔓 Performing emergency security reset...
+  🔑 Token configured: f51dedd6...346b (64 chars)
+  📍 Emergency URL: http://localhost:2020/emergency/security-reset
+  📊 Emergency reset status: 200 [12ms]
+  ✅ Emergency reset successful [12ms]
+  ✓ Disabled modules: security.crowdsec.mode, feature.cerberus.enabled, security.cerberus.enabled, security.acl.enabled, security.waf.enabled, security.rate_limit.enabled, security.crowdsec.enabled
+  ⏳ Waiting for security reset to propagate...
+  ✅ Security reset complete [515ms]
+✓ Authenticated security reset complete
+🔒 Verifying security modules are disabled...
+  ✅ Security modules confirmed disabled
+
+Running 173 tests using 2 workers
+
+[1A[2K[dotenv@17.2.3] injecting env (0) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+
+[1A[2K[1/173] [setup] › tests/auth.setup.ts:26:1 › authenticate
+[1A[2K[setup] › tests/auth.setup.ts:26:1 › authenticate
+Logging in as test user...
+
+[1A[2KLogin successful
+
+[1A[2KAuth state saved to /projects/Charon/playwright/.auth/user.json
+
+[1A[2K✅ Cookie domain "localhost" matches baseURL host "localhost"
+
+[1A[2K[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+
+[1A[2K[2/173] [security-tests] › tests/security/audit-logs.spec.ts:26:5 › Audit Logs › Page Loading › should display audit logs page
+[1A[2K[3/173] [security-tests] › tests/security/audit-logs.spec.ts:47:5 › Audit Logs › Page Loading › should display log data table
+[1A[2K[4/173] [security-tests] › tests/security/audit-logs.spec.ts:88:5 › Audit Logs › Log Table Structure › should display timestamp column
