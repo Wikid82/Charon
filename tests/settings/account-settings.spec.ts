@@ -605,9 +605,10 @@ test.describe('Account Settings', () => {
       const browserName = testInfo.project?.name || '';
       if (browserName === 'chromium') {
         await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-      } else {
-        await context.grantPermissions(['clipboard-write']);
       }
+      // Do not request clipboard permissions for Firefox/WebKit — Playwright only
+      // supports clipboard permissions on Chromium. For other browsers we rely
+      // on the application's copy-to-clipboard behavior without granting perms.
 
       await test.step('Click copy button', async () => {
         const copyButton = page

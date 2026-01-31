@@ -428,9 +428,12 @@ test.describe('User Management', () => {
      * Test: Copy invite link
      * Priority: P1
      */
-    test('should copy invite link', async ({ page, context }) => {
-      // Grant clipboard permissions
-      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    test('should copy invite link', async ({ page, context }, testInfo) => {
+      // Grant clipboard permissions only on Chromium — Firefox/WebKit don't support clipboard-read/write.
+      const browserName = testInfo.project?.name || '';
+      if (browserName === 'chromium') {
+        await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+      }
 
       const testEmail = `copy-test-${Date.now()}@test.local`;
 
