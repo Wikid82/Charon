@@ -240,8 +240,6 @@ jobs:
       - name: Clean Playwright browser cache
         run: rm -rf ~/.cache/ms-playwright
 
-      - name: Force Playwright browser install
-        run: npx playwright install --with-deps --force
 
       - name: Cache Playwright browsers
         id: playwright-cache
@@ -254,6 +252,8 @@ jobs:
 
       - name: Install & verify Playwright browsers
         run: |
+          npx playwright install --with-deps --force
+
           set -euo pipefail
 
           echo "🎯 Playwright CLI version"
