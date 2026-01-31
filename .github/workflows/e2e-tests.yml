@@ -249,21 +249,64 @@ jobs:
           # This ensures we don't restore stale browsers when Playwright version changes
           key: playwright-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
 
-      - name: Install Playwright browsers
+      - name: Install & verify Playwright browsers
         run: |
-          # Force install if cache miss or version mismatch
+          set -euo pipefail
+
+          echo "🎯 Playwright CLI version"
+          npx playwright --version || true
+
+          echo "🔍 Showing Playwright cache root (if present)"
+          ls -la ~/.cache/ms-playwright || true
+
+          echo "📥 Install or verify browser: ${{ matrix.browser }}"
+
+          # Install when cache miss, otherwise verify the expected executables exist
           if [[ "${{ steps.playwright-cache.outputs.cache-hit }}" != "true" ]]; then
             echo "📥 Cache miss - downloading ${{ matrix.browser }} browser..."
             npx playwright install --with-deps ${{ matrix.browser }}
           else
-            echo "✅ Cache hit - verifying ${{ matrix.browser }} browser..."
-            # Verify the cached browser is valid by checking version
-            if ! npx playwright --version > /dev/null 2>&1; then
-              echo "⚠️ Cached browser appears invalid, reinstalling..."
-              npx playwright install --with-deps ${{ matrix.browser }}
-            fi
+            echo "✅ Cache hit - verifying ${{ matrix.browser }} browser files..."
           fi
-          echo "✅ Playwright ${{ matrix.browser }} ready"
+
+          # Look for the browser-specific headless shell executable(s)
+          case "${{ matrix.browser }}" in
+            chromium)
+              EXPECTED_PATTERN="chrome-headless-shell*"
+              ;;
+            firefox)
+              EXPECTED_PATTERN="firefox*"
+              ;;
+            webkit)
+              EXPECTED_PATTERN="webkit*"
+              ;;
+            *)
+              EXPECTED_PATTERN="*"
+              ;;
+          esac
+
+          echo "Searching for expected files (pattern=$EXPECTED_PATTERN)..."
+          find ~/.cache/ms-playwright -maxdepth 4 -type f -name "$EXPECTED_PATTERN" -print || true
+
+          # Attempt to derive the exact executable path Playwright will use
+          echo "Attempting to resolve Playwright's executable path via Node API (best-effort)"
+          node -e "try{ const pw = require('playwright'); const b = pw['${{ matrix.browser }}']; console.log('exePath:', b.executablePath ? b.executablePath() : 'n/a'); }catch(e){ console.error('node-check-failed', e.message); process.exit(0); }" || true
+
+          # If the expected binary is missing, force reinstall
+          MISSING_COUNT=$(find ~/.cache/ms-playwright -maxdepth 4 -type f -name "$EXPECTED_PATTERN" | wc -l || true)
+          if [[ "$MISSING_COUNT" -lt 1 ]]; then
+            echo "⚠️ Expected Playwright browser executable not found (count=$MISSING_COUNT). Forcing reinstall..."
+            npx playwright install --with-deps ${{ matrix.browser }} --force
+          fi
+
+          echo "Post-install: show cache contents (top 5 lines)"
+          find ~/.cache/ms-playwright -maxdepth 3 -printf '%p\n' | head -40 || true
+
+          # Final sanity check: try a headless launch via a tiny Node script (will exit non-zero if launch fails)
+          echo "🔁 Verifying browser can be launched (headless)"
+          node -e "(async()=>{ try{ const pw=require('playwright'); const b = await pw['${{ matrix.browser }}'].launch({ headless: true, args: ['--no-sandbox'] }); await b.close(); console.log('launch-ok'); }catch(e){ console.error('launch-failed', e && e.message); process.exit(2); } })()" || (echo '❌ Browser launch verification failed' && exit 1)
+
+          echo "✅ Playwright ${{ matrix.browser }} ready and verified"
 
       - name: Run E2E tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
