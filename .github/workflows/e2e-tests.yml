@@ -237,6 +237,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Force Playwright browser install
+        run: npx playwright install --with-deps --force
+
       - name: Clean Playwright browser cache
         run: rm -rf ~/.cache/ms-playwright
 
