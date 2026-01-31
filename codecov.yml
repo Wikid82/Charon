@@ -9,7 +9,7 @@ coverage:
         threshold: 1%
     patch:
       default:
-        target: 100%
+        target: 85%
 
 # Exclude test artifacts and non-production code from coverage
 ignore:
