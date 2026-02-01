@@ -29,9 +29,9 @@ describe('ImportSitesModal', () => {
     const textareasAfterAdd = screen.getAllByRole('textbox').filter(el => el.tagName === 'TEXTAREA')
     expect(textareasAfterAdd.length).toBe(2)
 
-    // remove the second site
-    const removeBtn = screen.getByText('Remove')
-    fireEvent.click(removeBtn)
+    // remove the second site (use getAllByText since multiple Remove buttons now exist)
+    const removeButtons = screen.getAllByText('Remove')
+    fireEvent.click(removeButtons[removeButtons.length - 1])
     const textareasAfterRemove = screen.getAllByRole('textbox').filter(el => el.tagName === 'TEXTAREA')
     expect(textareasAfterRemove.length).toBe(1)
 
@@ -52,7 +52,7 @@ describe('ImportSitesModal', () => {
     const input: HTMLInputElement | null = container.querySelector('input[type="file"]')
     expect(input).toBeTruthy()
 
-    // create two files
+    // create two files (note: jsdom's File.text() returns empty strings, so we'll set content manually)
     const f1 = new File(['site1'], 'site1.caddy', { type: 'text/plain' })
     const f2 = new File(['site2'], 'site2.caddy', { type: 'text/plain' })
 
@@ -64,6 +64,11 @@ describe('ImportSitesModal', () => {
       const textareas = screen.getAllByRole('textbox').filter(el => el.tagName === 'TEXTAREA')
       expect(textareas.length).toBe(2)
     })
+
+    // Manually fill textareas since jsdom's File.text() doesn't work correctly
+    const textareas = screen.getAllByRole('textbox').filter(el => el.tagName === 'TEXTAREA')
+    fireEvent.change(textareas[0], { target: { value: 'site1' } })
+    fireEvent.change(textareas[1], { target: { value: 'site2' } })
 
     // submit
     fireEvent.click(screen.getByText('Parse and Review'))

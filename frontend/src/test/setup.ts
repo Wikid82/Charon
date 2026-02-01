@@ -77,6 +77,25 @@ Object.defineProperty(window, 'matchMedia', {
   }),
 })
 
+// Add ResizeObserver mock (required by Radix UI)
+global.ResizeObserver = class ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+// Add pointer capture polyfills (required by Radix UI)
+if (!HTMLElement.prototype.hasPointerCapture) {
+  HTMLElement.prototype.hasPointerCapture = function() { return false }
+  HTMLElement.prototype.setPointerCapture = function() {}
+  HTMLElement.prototype.releasePointerCapture = function() {}
+}
+
+// Add scrollIntoView mock (required by Radix Select)
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = function() {}
+}
+
 // Filter noisy React act environment warnings that can appear in some environments
 const _origConsoleError = console.error
 console.error = (...args: unknown[]) => {
