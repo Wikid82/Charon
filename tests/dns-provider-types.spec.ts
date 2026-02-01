@@ -262,6 +262,10 @@ test.describe('DNS Provider Types', () => {
         const scriptField = page.getByRole('textbox', { name: /script path/i })
           .or(page.getByPlaceholder(/dns-challenge\.sh/i));
         await expect(scriptField).toBeVisible();
+        // Extra assertions to prevent regressions: placeholder and focusability
+        await expect(scriptField).toHaveAttribute('placeholder', /dns-challenge\.sh/i);
+        await scriptField.focus();
+        await expect(scriptField).toBeFocused();
       });
     });
   });

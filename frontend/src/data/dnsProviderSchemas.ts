@@ -217,10 +217,10 @@ export const defaultProviderSchemas: Record<DNSProviderType, Partial<DNSProvider
     fields: [
       {
         name: 'create_script',
-        label: 'Create Record Script',
+        label: 'Script Path',
         type: 'text',
         required: true,
-        placeholder: '/path/to/create-dns.sh',
+        placeholder: '/scripts/dns-challenge.sh',
         hint: 'Path to script that creates DNS TXT records. Receives DOMAIN, TOKEN, and FQDN as environment variables.',
       },
       {

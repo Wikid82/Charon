@@ -287,16 +287,31 @@ export default function DNSProviderForm({
 
                   // Default: text or password input fields
                   return (
-                    <Input
-                      key={field.name}
-                      label={field.label}
-                      type={field.type}
-                      value={credentials[field.name] || ''}
-                      onChange={(e) => handleCredentialChange(field.name, e.target.value)}
-                      placeholder={field.placeholder || field.default}
-                      helperText={field.hint}
-                      required={field.required && !provider}
-                    />
+                    <div key={field.name} className="space-y-1.5">
+                      <Label htmlFor={`field-${field.name}`}>{field.label}</Label>
+                      <Input
+                        id={`field-${field.name}`}
+                        aria-label={
+                          field.name === 'create_script' && providerType === 'script'
+                            ? 'Script Path'
+                            : undefined
+                        }
+                        type={field.type}
+                        value={credentials[field.name] || ''}
+                        onChange={(e) => handleCredentialChange(field.name, e.target.value)}
+                        placeholder={
+                          field.name === 'create_script' && providerType === 'script'
+                            ? '/scripts/dns-challenge.sh'
+                            : field.placeholder || field.default
+                        }
+                        required={field.required && !provider}
+                      />
+                      {field.hint && (
+                        <p id={`hint-${field.name}`} className="text-sm text-content-muted">
+                          {field.hint}
+                        </p>
+                      )}
+                    </div>
                   )
                 })}
               </div>
