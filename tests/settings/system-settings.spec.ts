@@ -13,7 +13,7 @@
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForToast, waitForAPIResponse } from '../utils/wait-helpers';
+import { waitForLoadingComplete, waitForToast, waitForAPIResponse, clickAndWaitForResponse } from '../utils/wait-helpers';
 import { getToastLocator } from '../utils/ui-helpers';
 
 test.describe('System Settings', () => {
@@ -146,12 +146,23 @@ test.describe('System Settings', () => {
         const toggle = cerberusToggle.first();
 
         const initialState = await toggle.isChecked().catch(() => false);
-        // Use force to bypass sticky header interception
-        await Promise.all([
-          page.waitForResponse(r => r.url().includes('/feature-flags') && r.request().method() === 'PUT'),
-          page.waitForResponse(r => r.url().includes('/feature-flags') && r.request().method() === 'GET'),
-          toggle.click({ force: true })
-        ]);
+
+        // Step 1: Click toggle and wait for PUT request (atomic operation)
+        const putResponse = await clickAndWaitForResponse(
+          page,
+          toggle,
+          /\/feature-flags/,
+          { status: 200, timeout: 15000 }  // 15s for CI safety
+        );
+        expect(putResponse.ok()).toBeTruthy();
+
+        // Step 2: Wait for subsequent GET request to refresh state
+        const getResponse = await waitForAPIResponse(
+          page,
+          /\/feature-flags/,
+          { status: 200, timeout: 10000 }  // 10s for CI safety
+        );
+        expect(getResponse.ok()).toBeTruthy();
 
         const newState = await toggle.isChecked().catch(() => !initialState);
         expect(newState).not.toBe(initialState);
@@ -179,12 +190,23 @@ test.describe('System Settings', () => {
         const toggle = crowdsecToggle.first();
 
         const initialState = await toggle.isChecked().catch(() => false);
-        // Use force to bypass sticky header interception
-        await Promise.all([
-          page.waitForResponse(r => r.url().includes('/feature-flags') && r.request().method() === 'PUT'),
-          page.waitForResponse(r => r.url().includes('/feature-flags') && r.request().method() === 'GET'),
-          toggle.click({ force: true })
-        ]);
+
+        // Step 1: Click toggle and wait for PUT request (atomic operation)
+        const putResponse = await clickAndWaitForResponse(
+          page,
+          toggle,
+          /\/feature-flags/,
+          { status: 200, timeout: 15000 }  // 15s for CI safety
+        );
+        expect(putResponse.ok()).toBeTruthy();
+
+        // Step 2: Wait for subsequent GET request to refresh state
+        const getResponse = await waitForAPIResponse(
+          page,
+          /\/feature-flags/,
+          { status: 200, timeout: 10000 }  // 10s for CI safety
+        );
+        expect(getResponse.ok()).toBeTruthy();
 
         const newState = await toggle.isChecked().catch(() => !initialState);
         expect(newState).not.toBe(initialState);
@@ -212,12 +234,23 @@ test.describe('System Settings', () => {
         const toggle = uptimeToggle.first();
 
         const initialState = await toggle.isChecked().catch(() => false);
-        // Use force to bypass sticky header interception
-        await Promise.all([
-          page.waitForResponse(r => r.url().includes('/feature-flags') && r.request().method() === 'PUT'),
-          page.waitForResponse(r => r.url().includes('/feature-flags') && r.request().method() === 'GET'),
-          toggle.click({ force: true })
-        ]);
+
+        // Step 1: Click toggle and wait for PUT request (atomic operation)
+        const putResponse = await clickAndWaitForResponse(
+          page,
+          toggle,
+          /\/feature-flags/,
+          { status: 200, timeout: 15000 }  // 15s for CI safety
+        );
+        expect(putResponse.ok()).toBeTruthy();
+
+        // Step 2: Wait for subsequent GET request to refresh state
+        const getResponse = await waitForAPIResponse(
+          page,
+          /\/feature-flags/,
+          { status: 200, timeout: 10000 }  // 10s for CI safety
+        );
+        expect(getResponse.ok()).toBeTruthy();
 
         const newState = await toggle.isChecked().catch(() => !initialState);
         expect(newState).not.toBe(initialState);
@@ -242,12 +275,22 @@ test.describe('System Settings', () => {
       });
 
       await test.step('Toggle the feature', async () => {
-        // Use force to bypass sticky header interception
-        await Promise.all([
-          page.waitForResponse(r => r.url().includes('/feature-flags') && r.request().method() === 'PUT'),
-          page.waitForResponse(r => r.url().includes('/feature-flags') && r.request().method() === 'GET'),
-          toggle.click({ force: true })
-        ]);
+        // Step 1: Click toggle and wait for PUT request (atomic operation)
+        const putResponse = await clickAndWaitForResponse(
+          page,
+          toggle,
+          /\/feature-flags/,
+          { status: 200, timeout: 15000 }  // 15s for CI safety
+        );
+        expect(putResponse.ok()).toBeTruthy();
+
+        // Step 2: Wait for subsequent GET request to refresh state
+        const getResponse = await waitForAPIResponse(
+          page,
+          /\/feature-flags/,
+          { status: 200, timeout: 10000 }  // 10s for CI safety
+        );
+        expect(getResponse.ok()).toBeTruthy();
       });
 
       await test.step('Reload page and verify persistence', async () => {
@@ -259,12 +302,22 @@ test.describe('System Settings', () => {
       });
 
       await test.step('Restore original state', async () => {
-        // Use force to bypass sticky header interception
-        await Promise.all([
-          page.waitForResponse(r => r.url().includes('/feature-flags') && r.request().method() === 'PUT'),
-          page.waitForResponse(r => r.url().includes('/feature-flags') && r.request().method() === 'GET'),
-          toggle.click({ force: true })
-        ]);
+        // Step 1: Click toggle and wait for PUT request (atomic operation)
+        const putResponse = await clickAndWaitForResponse(
+          page,
+          toggle,
+          /\/feature-flags/,
+          { status: 200, timeout: 15000 }  // 15s for CI safety
+        );
+        expect(putResponse.ok()).toBeTruthy();
+
+        // Step 2: Wait for subsequent GET request to refresh state
+        const getResponse = await waitForAPIResponse(
+          page,
+          /\/feature-flags/,
+          { status: 200, timeout: 10000 }  // 10s for CI safety
+        );
+        expect(getResponse.ok()).toBeTruthy();
       });
     });
 
