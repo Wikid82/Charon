@@ -13,8 +13,10 @@ vi.mock('../../hooks/useDNSProviders', () => ({
 vi.mock('../../hooks/usePlugins', () => ({
   useProviderFields: vi.fn(() => ({ data: undefined })),
 }))
-vi.mock('../../hooks/useCredentials', () => ({ useCredentials: vi.fn(() => ({ data: [] })) }))
-vi.mock('../../hooks/useEnableMultiCredentials', () => ({ useEnableMultiCredentials: vi.fn(() => ({}) ) }))
+vi.mock('../../hooks/useCredentials', () => ({
+  useCredentials: vi.fn(() => ({ data: [] })),
+  useEnableMultiCredentials: vi.fn(() => ({ mutate: vi.fn(), isPending: false }))
+}))
 
 const renderWithClient = (ui: React.ReactElement) => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })

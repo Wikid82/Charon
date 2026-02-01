@@ -51,13 +51,21 @@ export const uploadCaddyfile = async (content: string): Promise<ImportPreview> =
 };
 
 /**
- * Uploads multiple Caddyfile contents for batch import.
- * @param contents - Array of Caddyfile content strings
+ * Represents a Caddyfile with its filename and content.
+ */
+export interface CaddyFile {
+  filename: string;
+  content: string;
+}
+
+/**
+ * Uploads multiple Caddyfiles for batch import.
+ * @param files - Array of CaddyFile objects with filename and content
  * @returns Promise resolving to combined ImportPreview
  * @throws {AxiosError} If parsing fails
  */
-export const uploadCaddyfilesMulti = async (contents: string[]): Promise<ImportPreview> => {
-  const { data } = await client.post<ImportPreview>('/import/upload-multi', { contents });
+export const uploadCaddyfilesMulti = async (files: CaddyFile[]): Promise<ImportPreview> => {
+  const { data } = await client.post<ImportPreview>('/import/upload-multi', { files });
   return data;
 };
 

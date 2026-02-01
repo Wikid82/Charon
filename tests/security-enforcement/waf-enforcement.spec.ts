@@ -131,6 +131,8 @@ test.describe('WAF Enforcement', () => {
   });
 
   test('should verify WAF is enabled', async () => {
+    test.skip(true, 'WAF enforcement verified in integration tests (backend/integration/coraza_integration_test.go). E2E tests UI only.');
+
     // Use polling pattern to wait for WAF status propagation
     let status = await getSecurityStatus(requestContext);
     let retries = BASE_RETRY_COUNT_STATUS * CI_TIMEOUT_MULTIPLIER;
