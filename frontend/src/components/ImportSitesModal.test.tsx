@@ -20,21 +20,23 @@ describe('ImportSitesModal', () => {
     // modal container is present
     expect(screen.getByTestId('multi-site-modal')).toBeInTheDocument()
 
-    // initially one textarea
-    const areas = screen.getAllByRole('textbox')
-    expect(areas.length).toBeGreaterThanOrEqual(1)
+    // initially one site with filename input and content textarea
+    const textareas = screen.getAllByRole('textbox').filter(el => el.tagName === 'TEXTAREA')
+    expect(textareas.length).toBe(1)
 
-    // add a site -> two textareas
+    // add a site -> two sites
     fireEvent.click(screen.getByText('+ Add site'))
-    expect(screen.getAllByRole('textbox').length).toBe(areas.length + 1)
+    const textareasAfterAdd = screen.getAllByRole('textbox').filter(el => el.tagName === 'TEXTAREA')
+    expect(textareasAfterAdd.length).toBe(2)
 
     // remove the second site
     const removeBtn = screen.getByText('Remove')
     fireEvent.click(removeBtn)
-    expect(screen.getAllByRole('textbox').length).toBe(areas.length)
+    const textareasAfterRemove = screen.getAllByRole('textbox').filter(el => el.tagName === 'TEXTAREA')
+    expect(textareasAfterRemove.length).toBe(1)
 
     // type into textarea
-    const ta = screen.getAllByRole('textbox')[0]
+    const ta = screen.getAllByRole('textbox').filter(el => el.tagName === 'TEXTAREA')[0]
     fireEvent.change(ta, { target: { value: 'example.com { reverse_proxy 127.0.0.1:8080 }' } })
     expect((ta as HTMLTextAreaElement).value).toContain('example.com')
   })
@@ -57,14 +59,21 @@ describe('ImportSitesModal', () => {
     // fire change event with files
     fireEvent.change(input!, { target: { files: [f1, f2] } })
 
-    // after input, two textareas should appear
-    await waitFor(() => expect(screen.getAllByRole('textbox').length).toBe(2))
+    // after input, two textareas should appear (one per file)
+    await waitFor(() => {
+      const textareas = screen.getAllByRole('textbox').filter(el => el.tagName === 'TEXTAREA')
+      expect(textareas.length).toBe(2)
+    })
 
     // submit
     fireEvent.click(screen.getByText('Parse and Review'))
 
     await waitFor(() => expect(mockUpload).toHaveBeenCalled())
-    expect(mockUpload).toHaveBeenCalledWith(['site1', 'site2'])
+    // New API contract: files are passed as {filename, content} objects
+    expect(mockUpload).toHaveBeenCalledWith([
+      { filename: 'site1.caddy', content: 'site1' },
+      { filename: 'site2.caddy', content: 'site2' },
+    ])
     expect(onUploaded).toHaveBeenCalled()
     expect(onClose).toHaveBeenCalled()
   })

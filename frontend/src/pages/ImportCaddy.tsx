@@ -1,12 +1,19 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { AxiosError } from 'axios'
 import { createBackup } from '../api/backups'
 import { useImport } from '../hooks/useImport'
 import ImportBanner from '../components/ImportBanner'
 import ImportReviewTable from '../components/ImportReviewTable'
 import ImportSitesModal from '../components/ImportSitesModal'
 import ImportSuccessModal from '../components/dialogs/ImportSuccessModal'
+
+/** Response data structure for import API errors containing warnings */
+interface ImportErrorResponse {
+  error?: string;
+  warning?: string;
+}
 
 export default function ImportCaddy() {
   const { t } = useTranslation()
@@ -16,6 +23,8 @@ export default function ImportCaddy() {
   const [showReview, setShowReview] = useState(false)
   const [showMultiModal, setShowMultiModal] = useState(false)
   const [showSuccessModal, setShowSuccessModal] = useState(false)
+  // Warning extracted from 400 error responses (e.g., file_server detection)
+  const [warningFromError, setWarningFromError] = useState<string | null>(null)
 
   const handleUpload = async () => {
     if (!content.trim()) {
@@ -23,11 +32,19 @@ export default function ImportCaddy() {
       return
     }
 
+    // Clear any previous warning from error responses
+    setWarningFromError(null)
+
     try {
       await upload(content)
       setShowReview(true)
-    } catch {
-      // Error is already set by hook
+    } catch (err) {
+      // Check if error response contains a warning (e.g., file_server detected)
+      const axiosErr = err as AxiosError<ImportErrorResponse>
+      if (axiosErr.response?.data?.warning) {
+        setWarningFromError(axiosErr.response.data.warning)
+      }
+      // Other error handling is done by hook
     }
   }
 
@@ -93,6 +110,14 @@ export default function ImportCaddy() {
         <div className="bg-yellow-900/20 border border-yellow-500 text-yellow-400 px-4 py-3 rounded mb-6">
           <p className="font-bold">{t('importCaddy.warningTitle')}</p>
           <p className="text-sm mt-1">{preview.warning}</p>
+        </div>
+      )}
+
+      {/* Warning extracted from 400 error response (e.g., file_server detection) */}
+      {warningFromError && (
+        <div className="bg-yellow-900/20 border border-yellow-500 text-yellow-400 px-4 py-3 rounded mb-6" data-testid="import-warning-banner">
+          <p className="font-bold">{t('importCaddy.warningTitle')}</p>
+          <p className="text-sm mt-1">{warningFromError}</p>
         </div>
       )}
 

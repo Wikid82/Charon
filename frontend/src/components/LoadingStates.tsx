@@ -273,7 +273,7 @@ export function ConfigReloadOverlay({
     'border-blue-900/50'
 
   return (
-    <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center z-50" data-testid="config-reload-overlay">
       <div className={`${bgColor} ${borderColor} border-2 rounded-lg p-8 flex flex-col items-center gap-4 shadow-2xl max-w-md mx-4`}>
         <Loader size="lg" />
         <div className="text-center">

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **E2E Test Remediation**: Fixed multi-file Caddyfile import API contract mismatch (PR #XXX)
+  - Frontend `uploadCaddyfilesMulti` now sends `{filename, content}[]` to match backend contract
+  - `ImportSitesModal.tsx` updated to pass filename with file content
+  - Added `CaddyFile` interface to `frontend/src/api/import.ts`
+- **Caddy Import**: Fixed file server warning not displaying on import attempts
+  - `ImportCaddy.tsx` now extracts warning messages from 400 response body
+  - Warning banner displays when attempting to import Caddyfiles with unsupported directives (e.g., `file_server`)
+- **E2E Tests**: Fixed settings PUT/POST method mismatch in E2E tests
+  - Updated `system-settings.spec.ts` restore fixture to use POST instead of PUT
+- **E2E Tests**: Added `data-testid="config-reload-overlay"` to `ConfigReloadOverlay` component
+  - Enables reliable selector for testing feature toggle overlay visibility
+- **E2E Tests**: Skipped WAF enforcement test (middleware behavior tested in integration)
+  - `waf-enforcement.spec.ts` now skipped with reason referencing `backend/integration/coraza_integration_test.go`
+
 ### Changed
 
 - **Codecov Configuration**: Added 77 comprehensive ignore patterns to align CI coverage with local calculations

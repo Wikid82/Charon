@@ -592,23 +592,43 @@ test.describe('Navigation', () => {
 
     /**
      * Test: Skip link for keyboard users
-     * TODO: Implement skip-to-content link in the application for better accessibility
+     * Verifies WCAG 2.4.1 compliance - skip-to-content link implemented
      */
-    test.skip('should have skip to main content link', async ({ page }) => {
+    test('should have skip to main content link', async ({ page }) => {
       await page.goto('/');
+      await waitForLoadingComplete(page);
 
-      await test.step('Tab to first element and check for skip link', async () => {
-        await page.keyboard.press('Tab');
+      await test.step('Tab to skip link and verify', async () => {
+        const skipLink = page.getByRole('link', { name: /skip to.*content/i });
 
-        const focused = page.locator(':focus');
-        const text = await focused.textContent().catch(() => '');
-        const href = await focused.getAttribute('href').catch(() => '');
+        // Ensure skip link exists in the accessibility tree
+        await expect(skipLink).toHaveAttribute('href', '#main-content');
 
-        // First focusable element should be skip link
-        const isSkipLink =
-          text?.match(/skip.*main|skip.*content/i) || href?.includes('#main');
+        // Tab up to 5 times to find the skip link (should be first, but browsers may differ)
+        let focused = false;
+        for (let i = 0; i < 5; i++) {
+          await page.keyboard.press('Tab');
 
-        expect(isSkipLink).toBeTruthy();
+          // Check if skip link is now focused
+          const isFocused = await skipLink.evaluate(el => el === document.activeElement).catch(() => false);
+          if (isFocused) {
+            focused = true;
+            break;
+          }
+        }
+
+        // Verify skip link was focused
+        expect(focused).toBeTruthy();
+        await expect(skipLink).toBeVisible();
+        await expect(skipLink).toBeFocused();
+      });
+
+      await test.step('Verify clicking skip link moves focus to main', async () => {
+        const skipLink = page.getByRole('link', { name: /skip to.*content/i });
+        await skipLink.click();
+
+        const main = page.locator('main#main-content');
+        await expect(main).toBeFocused();
       });
     });
   });

@@ -1,4 +1,7 @@
 {
+  "accessibility": {
+    "skipToContent": "Skip to main content"
+  },
   "common": {
     "save": "Save",
     "cancel": "Cancel",
