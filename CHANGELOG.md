@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **E2E Tests**: Fixed feature toggle timeout failures and clipboard access errors
+  - **Feature Toggles**: Replaced race-prone `Promise.all()` with sequential wait pattern (PUT 15s, GET 10s timeouts)
+  - **Clipboard**: Added browser-specific verification (Chromium reads clipboard, Firefox/WebKit verify toast)
+  - **Affected Tests**: Settings → System Settings (Cerberus, CrowdSec, Uptime, Persist toggles), User Management (invite link copy)
+  - **CI Impact**: All browsers now pass without timeouts or NotAllowedError
 - **E2E Tests**: Fixed timing issues in DNS provider type selection tests (Manual, Webhook, RFC2136, Script)
   - Root cause: Field wait strategy incompatible with React re-render timing and conditional rendering
   - Solution: Simplified field wait strategy to use direct visibility check with 5-second timeout
