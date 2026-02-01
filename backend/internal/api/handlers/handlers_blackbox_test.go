@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
@@ -30,6 +31,13 @@ func setupImportTestDB(t *testing.T) *gorm.DB {
 		panic("failed to connect to test database")
 	}
 	_ = db.AutoMigrate(&models.ImportSession{}, &models.ProxyHost{}, &models.Location{})
+	// Register cleanup to close database connection
+	t.Cleanup(func() {
+		sqlDB, err := db.DB()
+		if err == nil {
+			sqlDB.Close()
+		}
+	})
 	return db
 }
 
@@ -1522,4 +1530,90 @@ func TestImportHandler_Commit_SessionSaveWarning(t *testing.T) {
 
 	// Warning must have been logged
 	assert.Contains(t, buf.String(), "failed to save import session")
+}
+
+// newTestImportHandler creates an ImportHandler with proper cleanup for tests
+func newTestImportHandler(t *testing.T, db *gorm.DB, importDir string, mountPath string) *handlers.ImportHandler {
+	handler := handlers.NewImportHandler(db, "caddy", importDir, mountPath)
+	t.Cleanup(func() {
+		// Cleanup resources if needed
+	})
+	return handler
+}
+
+// TestGetStatus_DatabaseError tests GetStatus when database query fails
+func TestGetStatus_DatabaseError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	handler := newTestImportHandler(t, db, t.TempDir(), "")
+
+	// Close DB to trigger error
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.Close()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/v1/import/status", nil)
+
+	handler.GetStatus(c)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// TestGetPreview_MountAlreadyCommitted tests GetPreview when mount is already committed with FUTURE timestamp
+func TestGetPreview_MountAlreadyCommitted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+
+	// Create mount file
+	mountDir := t.TempDir()
+	mountPath := filepath.Join(mountDir, "Caddyfile")
+	err := os.WriteFile(mountPath, []byte("test.local { reverse_proxy localhost:8080 }"), 0o644) //nolint:gosec // G306: test file
+	require.NoError(t, err)
+
+	// Create committed session with FUTURE timestamp (after file mod time)
+	now := time.Now().Add(1 * time.Hour)
+	session := models.ImportSession{
+		UUID:        "test-session",
+		SourceFile:  mountPath,
+		Status:      "committed",
+		CommittedAt: &now,
+	}
+	db.Create(&session)
+
+	handler := newTestImportHandler(t, db, t.TempDir(), mountPath)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/v1/import/preview", nil)
+
+	handler.GetPreview(c)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "no pending import")
+}
+
+// TestUpload_MkdirAllFailure tests Upload when MkdirAll fails
+func TestUpload_MkdirAllFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+
+	// Create a FILE where uploads directory should be (blocks MkdirAll)
+	importDir := t.TempDir()
+	uploadsPath := filepath.Join(importDir, "uploads")
+	err := os.WriteFile(uploadsPath, []byte("blocker"), 0o644) //nolint:gosec // G306: test file
+	require.NoError(t, err)
+
+	handler := newTestImportHandler(t, db, importDir, "")
+
+	reqBody := `{"content": "test.local { reverse_proxy localhost:8080 }", "filename": "test.caddy"}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/api/v1/import/upload", strings.NewReader(reqBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Upload(c)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

@@ -52,6 +52,18 @@ func setupCrowdDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+// newTestCrowdsecHandler creates a CrowdsecHandler and registers cleanup to prevent goroutine leaks
+func newTestCrowdsecHandler(t *testing.T, db *gorm.DB, executor CrowdsecExecutor, binPath string, dataDir string) *CrowdsecHandler {
+	h := NewCrowdsecHandler(db, executor, binPath, dataDir)
+	// Register cleanup to stop SecurityService goroutine
+	if h.Security != nil {
+		t.Cleanup(func() {
+			h.Security.Close()
+		})
+	}
+	return h
+}
+
 func TestCrowdsecEndpoints(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
@@ -59,7 +71,7 @@ func TestCrowdsecEndpoints(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	fe := &fakeExec{}
-	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -96,7 +108,7 @@ func TestImportConfig(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 	fe := &fakeExec{}
-	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -133,7 +145,7 @@ func TestImportCreatesBackup(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(tmpDir, "existing.conf"), []byte("v1"), 0o644)
 
 	fe := &fakeExec{}
-	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -191,7 +203,7 @@ func TestExportConfig(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(tmpDir, "b.conf"), []byte("rule2"), 0o644)
 
 	fe := &fakeExec{}
-	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -222,7 +234,7 @@ func TestListAndReadFile(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(tmpDir, "b.conf"), []byte("rule2"), 0o644)
 
 	fe := &fakeExec{}
-	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -250,7 +262,7 @@ func TestExportConfigStreamsArchive(t *testing.T) {
 	dataDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.yaml"), []byte("hello"), 0o644))
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", dataDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -294,7 +306,7 @@ func TestWriteFileCreatesBackup(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(tmpDir, "existing.conf"), []byte("v1"), 0o644)
 
 	fe := &fakeExec{}
-	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -328,7 +340,7 @@ func TestListPresetsCerberusDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "false")
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -345,7 +357,7 @@ func TestListPresetsCerberusDisabled(t *testing.T) {
 func TestReadFileInvalidPath(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -362,7 +374,7 @@ func TestReadFileInvalidPath(t *testing.T) {
 func TestWriteFileInvalidPath(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -381,7 +393,7 @@ func TestWriteFileInvalidPath(t *testing.T) {
 func TestWriteFileMissingPath(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -398,7 +410,7 @@ func TestWriteFileMissingPath(t *testing.T) {
 func TestWriteFileInvalidPayload(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -414,7 +426,7 @@ func TestWriteFileInvalidPayload(t *testing.T) {
 func TestImportConfigRequiresFile(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -431,7 +443,7 @@ func TestImportConfigRequiresFile(t *testing.T) {
 func TestImportConfigRejectsEmptyUpload(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -455,7 +467,7 @@ func TestListFilesMissingDir(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	missingDir := filepath.Join(t.TempDir(), "does-not-exist")
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", missingDir)
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", missingDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -479,7 +491,7 @@ func TestListFilesReturnsEntries(t *testing.T) {
 	require.NoError(t, os.MkdirAll(nestedDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(nestedDir, "child.txt"), []byte("child"), 0o644))
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", dataDir)
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", dataDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -507,7 +519,7 @@ func TestIsCerberusEnabledFromDB(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
 	require.NoError(t, db.Create(&models.Setting{Key: "feature.cerberus.enabled", Value: "0"}).Error)
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -524,7 +536,7 @@ func TestIsCerberusEnabledFromDB(t *testing.T) {
 func TestIsCerberusEnabledInvalidEnv(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "not-a-bool")
-	h := NewCrowdsecHandler(nil, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, nil, &fakeExec{}, "/bin/false", t.TempDir())
 
 	if h.isCerberusEnabled() {
 		t.Fatalf("expected cerberus to be disabled for invalid env flag")
@@ -533,7 +545,7 @@ func TestIsCerberusEnabledInvalidEnv(t *testing.T) {
 
 func TestIsCerberusEnabledLegacyEnv(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	h := NewCrowdsecHandler(nil, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, nil, &fakeExec{}, "/bin/false", t.TempDir())
 
 	t.Setenv("CERBERUS_ENABLED", "0")
 
@@ -583,7 +595,7 @@ func setupTestConsoleEnrollment(t *testing.T) (*CrowdsecHandler, *mockEnvExecuto
 	exec := &mockEnvExecutor{}
 	dataDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", dataDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
 	// Replace the Console service with one that uses our mock executor
 	h.Console = crowdsec.NewConsoleEnrollmentService(db, exec, dataDir, "test-secret")
 
@@ -594,7 +606,7 @@ func TestConsoleEnrollDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "false")
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -613,7 +625,7 @@ func TestConsoleEnrollServiceUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	// Set Console to nil to simulate unavailable
 	h.Console = nil
 	r := gin.New()
@@ -694,7 +706,7 @@ func TestConsoleStatusDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "false")
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -711,7 +723,7 @@ func TestConsoleStatusServiceUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	// Set Console to nil to simulate unavailable
 	h.Console = nil
 	r := gin.New()
@@ -789,7 +801,7 @@ func TestIsConsoleEnrollmentEnabledFromDB(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
 	require.NoError(t, db.Create(&models.Setting{Key: "feature.crowdsec.console_enrollment", Value: "true"}).Error)
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	require.True(t, h.isConsoleEnrollmentEnabled())
 }
 
@@ -800,7 +812,7 @@ func TestIsConsoleEnrollmentDisabledFromDB(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
 	require.NoError(t, db.Create(&models.Setting{Key: "feature.crowdsec.console_enrollment", Value: "false"}).Error)
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	require.False(t, h.isConsoleEnrollmentEnabled())
 }
 
@@ -808,7 +820,7 @@ func TestIsConsoleEnrollmentEnabledFromEnv(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
-	h := NewCrowdsecHandler(nil, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, nil, &fakeExec{}, "/bin/false", t.TempDir())
 	require.True(t, h.isConsoleEnrollmentEnabled())
 }
 
@@ -816,7 +828,7 @@ func TestIsConsoleEnrollmentDisabledFromEnv(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "0")
 
-	h := NewCrowdsecHandler(nil, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, nil, &fakeExec{}, "/bin/false", t.TempDir())
 	require.False(t, h.isConsoleEnrollmentEnabled())
 }
 
@@ -824,14 +836,14 @@ func TestIsConsoleEnrollmentInvalidEnv(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "invalid")
 
-	h := NewCrowdsecHandler(nil, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, nil, &fakeExec{}, "/bin/false", t.TempDir())
 	require.False(t, h.isConsoleEnrollmentEnabled())
 }
 
 func TestIsConsoleEnrollmentDefaultDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	h := NewCrowdsecHandler(nil, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, nil, &fakeExec{}, "/bin/false", t.TempDir())
 	require.False(t, h.isConsoleEnrollmentEnabled())
 }
 
@@ -859,7 +871,7 @@ func TestIsConsoleEnrollmentDBTrueVariants(t *testing.T) {
 			require.NoError(t, db.AutoMigrate(&models.Setting{}))
 			require.NoError(t, db.Create(&models.Setting{Key: "feature.crowdsec.console_enrollment", Value: tc.value}).Error)
 
-			h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+			h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 			require.Equal(t, tc.expected, h.isConsoleEnrollmentEnabled(), "value %q", tc.value)
 		})
 	}
@@ -889,7 +901,7 @@ func (m *mockCmdExecutor) Execute(ctx context.Context, name string, args ...stri
 func TestRegisterBouncerScriptNotFound(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -921,7 +933,7 @@ func TestRegisterBouncerSuccess(t *testing.T) {
 		err:    nil,
 	}
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	// We need the script to exist for the test to work
@@ -952,7 +964,7 @@ func TestRegisterBouncerExecutionError(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -974,7 +986,7 @@ func TestRegisterBouncerExecutionError(t *testing.T) {
 func TestGetAcquisitionConfigNotFound(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -1018,7 +1030,7 @@ labels:
 	acquisPath := filepath.Join(acquisDir, "acquis.yaml")
 	require.NoError(t, os.WriteFile(acquisPath, []byte(acquisContent), 0o644))
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", tmpDir)
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -1042,7 +1054,7 @@ func TestDeleteConsoleEnrollmentDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	// Feature flag not set, should return 404
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -1213,7 +1225,7 @@ func TestCrowdsecStart_LAPINotReadyTimeout(t *testing.T) {
 	}
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -1267,7 +1279,7 @@ func TestCrowdsecHandler_Status_Error(t *testing.T) {
 
 	fe := &fakeExecWithError{statusError: errors.New("status check failed")}
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, fe, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", t.TempDir())
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1287,7 +1299,7 @@ func TestCrowdsecHandler_Start_ExecutorError(t *testing.T) {
 
 	fe := &fakeExecWithError{startError: errors.New("failed to start process")}
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, fe, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", t.TempDir())
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1310,7 +1322,7 @@ func TestCrowdsecHandler_ExportConfig_DirNotFound(t *testing.T) {
 	nonExistentDir := "/tmp/crowdsec-nonexistent-test-" + t.Name()
 	_ = os.RemoveAll(nonExistentDir)
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", nonExistentDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", nonExistentDir)
 	// Remove any cache dir created during handler init so Export sees missing dir
 	_ = os.RemoveAll(nonExistentDir)
 
@@ -1332,7 +1344,7 @@ func TestCrowdsecHandler_ReadFile_NotFound(t *testing.T) {
 
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1351,7 +1363,7 @@ func TestCrowdsecHandler_ReadFile_MissingPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1377,7 +1389,7 @@ func TestCrowdsecHandler_ListDecisions_Success(t *testing.T) {
 
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -1405,7 +1417,7 @@ func TestCrowdsecHandler_ListDecisions_Empty(t *testing.T) {
 	}
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -1433,7 +1445,7 @@ func TestCrowdsecHandler_ListDecisions_CscliError(t *testing.T) {
 	}
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -1459,7 +1471,7 @@ func TestCrowdsecHandler_ListDecisions_InvalidJSON(t *testing.T) {
 	}
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -1484,7 +1496,7 @@ func TestCrowdsecHandler_BanIP_Success(t *testing.T) {
 	}
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -1509,7 +1521,7 @@ func TestCrowdsecHandler_BanIP_MissingIP(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1530,7 +1542,7 @@ func TestCrowdsecHandler_BanIP_EmptyIP(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1556,7 +1568,7 @@ func TestCrowdsecHandler_BanIP_DefaultDuration(t *testing.T) {
 	}
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -1586,7 +1598,7 @@ func TestCrowdsecHandler_UnbanIP_Success(t *testing.T) {
 	}
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -1613,7 +1625,7 @@ func TestCrowdsecHandler_UnbanIP_Error(t *testing.T) {
 	}
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -1642,7 +1654,7 @@ func TestCrowdsecHandler_BanIP_ExecutionError(t *testing.T) {
 	}
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -1674,7 +1686,7 @@ func TestCrowdsecHandler_CheckLAPIHealth_InvalidURL(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	// Initialize security service
 	h.Security = services.NewSecurityService(db)
 
@@ -1712,7 +1724,7 @@ func TestCrowdsecHandler_GetLAPIDecisions_Fallback(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	h.CmdExec = mockExec
 	h.Security = services.NewSecurityService(db)
 
@@ -1732,7 +1744,7 @@ func TestCrowdsecHandler_PullPreset_CerberusDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "false")
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -1751,7 +1763,7 @@ func TestCrowdsecHandler_PullPreset_InvalidPayload(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -1769,7 +1781,7 @@ func TestCrowdsecHandler_PullPreset_EmptySlug(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -1788,7 +1800,7 @@ func TestCrowdsecHandler_PullPreset_HubUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	h.Hub = nil // Simulate hub unavailable
 
 	r := gin.New()
@@ -1809,7 +1821,7 @@ func TestCrowdsecHandler_ApplyPreset_CerberusDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "false")
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -1828,7 +1840,7 @@ func TestCrowdsecHandler_ApplyPreset_InvalidPayload(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -1846,7 +1858,7 @@ func TestCrowdsecHandler_ApplyPreset_EmptySlug(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -1865,7 +1877,7 @@ func TestCrowdsecHandler_ApplyPreset_HubUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	h.Hub = nil // Simulate hub unavailable
 
 	r := gin.New()
@@ -1886,7 +1898,7 @@ func TestCrowdsecHandler_UpdateAcquisitionConfig_MissingContent(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -1905,7 +1917,7 @@ func TestCrowdsecHandler_UpdateAcquisitionConfig_InvalidJSON(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -1932,7 +1944,7 @@ func TestCrowdsecHandler_ListDecisions_WithConfigYaml(t *testing.T) {
 	}
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -1973,7 +1985,7 @@ func TestCrowdsecHandler_BanIP_WithConfigYaml(t *testing.T) {
 	}
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -2003,7 +2015,7 @@ func TestCrowdsecHandler_UnbanIP_WithConfigYaml(t *testing.T) {
 	}
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -2035,7 +2047,7 @@ func TestCrowdsecHandler_Status_LAPIReady(t *testing.T) {
 	fe := &fakeExec{started: true}
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -2069,7 +2081,7 @@ func TestCrowdsecHandler_Status_LAPINotReady(t *testing.T) {
 	fe := &fakeExec{started: true}
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -2098,7 +2110,7 @@ func TestCrowdsecHandler_ListDecisions_WithCreatedAt(t *testing.T) {
 	}
 
 	db := setupCrowdDB(t)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -2132,7 +2144,7 @@ func TestCrowdsecHandler_HubEndpoints(t *testing.T) {
 
 	// Test with Hub having base URLs
 	db := setupCrowdDB(t)
-	h2 := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h2 := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	endpoints2 := h2.hubEndpoints()
 	// Hub is initialized with default URLs
 	require.NotNil(t, endpoints2)
@@ -2170,7 +2182,7 @@ func TestCrowdsecHandler_GetCachedPreset_CerberusDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "false")
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -2187,7 +2199,7 @@ func TestCrowdsecHandler_GetCachedPreset_HubUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	// Set Hub to nil to simulate unavailable
 	h.Hub = nil
 
@@ -2209,7 +2221,7 @@ func TestCrowdsecHandler_GetCachedPreset_EmptySlug(t *testing.T) {
 
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -2230,7 +2242,7 @@ func TestCrowdsecHandler_Start_StatusCode(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 	fe := &fakeExec{}
-	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -2254,7 +2266,7 @@ func TestCrowdsecHandler_Stop_UpdatesSecurityConfig(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 	fe := &fakeExec{started: true}
-	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
 
 	// Create initial SecurityConfig
 	cfg := models.SecurityConfig{
@@ -2321,7 +2333,7 @@ func TestCrowdsecHandler_IsCerberusEnabled_EnvVar(t *testing.T) {
 			t.Setenv(tc.envKey, tc.envValue)
 			db := setupCrowdDB(t)
 			tmpDir := t.TempDir()
-			h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+			h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 			result := h.isCerberusEnabled()
 			require.Equal(t, tc.expected, result)

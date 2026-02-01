@@ -56,7 +56,7 @@ func TestPullThenApplyIntegration(t *testing.T) {
 	}
 
 	db := OpenTestDB(t)
-	handler := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", dataDir)
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
 	handler.Hub = hub
 
 	r := gin.New()
@@ -127,7 +127,7 @@ func TestApplyWithoutPullReturnsProperError(t *testing.T) {
 	})}
 
 	db := OpenTestDB(t)
-	handler := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", dataDir)
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
 	handler.Hub = hub
 
 	r := gin.New()
@@ -175,7 +175,7 @@ func TestApplyRollbackWhenCacheMissingAndRepullFails(t *testing.T) {
 	})}
 
 	db := OpenTestDB(t)
-	handler := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", dataDir)
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
 	handler.Hub = hub
 
 	r := gin.New()

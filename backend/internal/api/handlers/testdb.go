@@ -70,7 +70,7 @@ func GetTemplateDB() (*gorm.DB, error) {
 	return templateDB, templateErr
 }
 
-// OpenTestDB creates a SQLite in-memory DB unique per test and applies
+// Opens a SQLite in-memory DB unique per test and applies
 // a busy timeout and WAL journal mode to reduce SQLITE locking during parallel tests.
 func OpenTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -86,6 +86,13 @@ func OpenTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("failed to open test db: %v", err)
 	}
+	// Register cleanup to close database connection
+	t.Cleanup(func() {
+		sqlDB, err := db.DB()
+		if err == nil {
+			_ = sqlDB.Close()
+		}
+	})
 	return db
 }
 
