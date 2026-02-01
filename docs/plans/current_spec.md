@@ -338,6 +338,292 @@ PR #583 has multiple CI issues. Current status:
 | **Codecov Patch 55.81%** | 19 lines missing coverage in 3 files | Medium | 🔴 **NEW - Needs addressed** |
 | **E2E Workflow Failures** | Tests failing in workflow run 21541010717 | Medium | 🔴 **NEW - Investigation needed** |
 
+---
+
+## Playwright: make `should copy API key to clipboard` CI-compatible across browsers ✅
+
+Executive summary (one sentence): restrict clipboard-content assertions to Chromium (where Playwright supports `clipboard-read` reliably in CI) and verify only the success toast on WebKit/Firefox — this removes the `NotAllowedError` flakes while keeping the test meaningful across the browser matrix.
+
+Why: CI runs a browser matrix (Chromium, WebKit, Firefox). `navigator.clipboard.readText()` is not reliably permitted on WebKit/Firefox in many CI environments and causes `NotAllowedError`. Playwright documents that permission support differs by browser (Chromium has the most reliable support). This change is test-only and surgical.
+
+---
+
+📋 Deliverables (will be added to this PR)
+
+1. EARS-style requirement(s) + acceptance criteria (testable)
+2. Minimal code patch for `tests/settings/account-settings.spec.ts` (Chromium-only clipboard assertion + robust toast check)
+3. Repo-wide clipboard usage audit + remediation plan for each occurrence
+4. CI confirmation (no workflow changes required) + recommended guardrail
+5. Local & CI verification steps and exact commands
+6. PR description, branch, commit message, estimate, confidence, follow-ups
+
+---
+
+## 1) EARS requirements & acceptance criteria (testable) 🎯
+
+Requirement (EARS — EVENT DRIVEN):
+- WHEN a user clicks the `Copy API key` control, THE SYSTEM SHALL copy the API key to the clipboard and display a success toast. (Testable: UI toast visible + clipboard contains the API key.)
+
+Constraint (STATE-DRIVEN):
+- WHILE running Playwright E2E in CI on WebKit or Firefox, THE SYSTEM SHALL NOT rely on `navigator.clipboard.readText()`; instead THE TEST SHALL verify the success toast. (Testable: no clipboard.readText() calls executed for non-Chromium; toast asserted.)
+
+Acceptance criteria (must be automated):
+- AC1 (chromium): The Playwright test `tests/settings/account-settings.spec.ts::should copy API key to clipboard` reads the clipboard and asserts a plausible API key (regex), and the test passes on Chromium in CI.
+- AC2 (webkit/firefox): The same test does not call `navigator.clipboard.readText()`; it asserts the visible success toast and presence of the API key in the readonly input; test passes on WebKit and Firefox in CI.
+- AC3 (repo hygiene): No other Playwright test attempts to read the OS clipboard on WebKit/Firefox in CI (identified occurrences are remediated or documented).
+- AC4 (CI): `.github/workflows/e2e-tests.yml` continues to run the browser matrix (chromium, webkit, firefox) unchanged and the workflow succeeds for the modified test.
+
+---
+
+## 2) Implementation plan (phased, risk-aware)
+
+Design → Implement → Test → CI → Docs → Rollout
+
+1) Design (30–60m)
+   - Confirm failing test and root cause (NotAllowedError on clipboard.readText() in non-Chromium CI). ✅ (investigation done)
+   - Decide: keep single test, make clipboard read conditional (Chromium-only). ✅
+
+2) Implement (30–60m)
+   - Apply minimal change in `tests/settings/account-settings.spec.ts` (see exact patch below).
+   - Add an inline comment referencing Playwright docs and CI limitation.
+   - Do NOT change product code (test-only change).
+
+3) Unit / E2E local testing (30–60m)
+   - Run the modified test locally in all three Playwright projects (Chromium, WebKit, Firefox).
+   - Run full Playwright shard locally via the repo skill where appropriate.
+
+4) CI verification (30–60m)
+   - Ensure `.github/workflows/e2e-tests.yml` runs the matrix (no change required).
+   - Submit PR and verify job passes across all browsers.
+
+5) Docs & follow-ups (15–30m)
+   - Add short note to `docs/testing/playwright-guidelines.md` or `CONTRIBUTING.md` about clipboard limitations and the canonical pattern for cross-browser clipboard assertions.
+
+6) Rollout (monitoring)
+   - Merge when all CI jobs pass.
+   - Monitor flakiness for 48 hours; if flakiness persists, follow escalation (capture traces & failing shards).
+
+---
+
+## 3) Exact files to change + precise patch (surgical)
+
+Primary (changed in this PR):
+- `tests/settings/account-settings.spec.ts` — modify the clipboard assertion so that:
+  - Request/verify clipboard contents only on Chromium
+  - For WebKit/Firefox: assert the success toast and verify the API key field remains populated (no clipboard.readText())
+
+Minimal unified diff (copy-paste ready):
+
+```diff
+*** tests/settings/account-settings.spec.ts (before)
+@@
+-      await test.step('Verify clipboard contains API key', async () => {
+-        const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+-        expect(clipboardText.length).toBeGreaterThan(0);
+-      });
++      await test.step('Verify clipboard contains API key (Chromium-only); verify toast for other browsers', async () => {
++        // Playwright: clipboard-read / clipboard.readText() is only reliably
++        // supported in Chromium in many CI environments. Do not call
++        // clipboard.readText() on WebKit/Firefox in CI — it throws NotAllowedError.
++        // See: https://playwright.dev/docs/api/class-browsercontext#browsercontextgrantpermissions
++        if (browserName !== 'chromium') {
++          // Non-Chromium: toast already asserted above; additionally ensure
++          // the API key input still contains a value (defensive check).
++          const apiKeyInput = page.locator('input[readonly].font-mono');
++          await expect(apiKeyInput).toHaveValue(/\S+/);
++          return;
++        }
++
++        const clipboardText = await page.evaluate(async () => {
++          try { return await navigator.clipboard.readText(); }
++          catch (err) { throw new Error(`clipboard.readText() failed: ${err?.message || err}`); }
++        });
++
++        expect(clipboardText).toMatch(/[A-Za-z0-9\-_]{16,}/);
++      });
+***
+```
+
+Notes:
+- The change is localized to the single Playwright test; all other code is unchanged.
+- Added a small defensive assertion on non-Chromium to keep the test meaningful.
+
+---
+
+## 4) Repo-wide clipboard usage audit & remediation plan 🔎
+
+Command used (run locally to replicate):
+
+- rg -n --hidden "navigator\.clipboard|clipboard-read|copy to clipboard|copyToClipboard" || true
+
+Findings (test & code locations) and remediation per file:
+
+- tests/settings/account-settings.spec.ts (modified) — apply Chromium-only clipboard read; verify toast on other browsers. ✅ (patched)
+- tests/settings/user-management.spec.ts — contains `navigator.clipboard.readText()`; ACTION: change to Chromium-only read + toast-only assertion for others (same pattern). Suggested edit: replace direct readText with guarded block identical to above.
+- tests/manual-dns-provider.spec.ts — already grants `clipboard-write` only for Chromium in one place; verify there are no unguarded `clipboard.readText()` calls. ACTION: ensure any `clipboard.readText()` is behind a Chromium guard.
+- tests/* (other Playwright specs) — grep found usages in `tests/*` (see list below). ACTION: update each occurrence to the Chromium-only pattern or mock clipboard where appropriate.
+- frontend unit tests (Jest/Vitest): `frontend/src/pages/__tests__/UsersPage.test.tsx`, `frontend/src/components/__tests__/ManualDNSChallenge.test.tsx`, `frontend/src/components/ProxyHostForm.test.tsx` — these already mock `navigator.clipboard` (no CI change needed). ✅
+
+Files to update (recommended edits included):
+- `tests/settings/user-management.spec.ts` — replace `navigator.clipboard.readText()` with guarded Chromium-only read and add toast-only path for other browsers.
+- `tests/manual-dns-provider.spec.ts` — verify and guard any clipboard reads; keep `clipboard-write` grants for Chromium only.
+
+Example grep commands (to re-run in CI or locally):
+
+- Search for all clipboard reads/writes in the repo:
+  - rg "navigator\.clipboard\.(readText|writeText)" -n
+- Search for tests that mention "copy" UI affordance:
+  - rg "copy to clipboard|copy.*clipboard|copied to clipboard" -n
+
+Remediation priority (order):
+1. Tests that call `navigator.clipboard.readText()` unguarded (convert to Chromium-only) — HIGH
+2. Tests that grant permissions only on Chromium but still read the clipboard on other browsers (fix) — HIGH
+3. Unit tests that already mock clipboard — no-op (verify) — LOW
+
+---
+
+## 5) CI / Playwright config changes (recommendation)
+
+Findings:
+- `.github/workflows/e2e-tests.yml` already runs the browser matrix: `chromium`, `firefox`, `webkit` (no change required).
+
+Recommendation:
+- **Do not change** the CI matrix. Keep tests running in all browsers.
+- **Add a short comment in `CONTRIBUTING.md` / Playwright guide** describing the canonical test pattern for clipboard assertions (Chromium-only read + toast-only verification for other browsers).
+
+Optional guardrail (low-effort):
+- Add a lightweight lint rule or grep-based CI check that fails if `navigator.clipboard.readText()` appears in a Playwright test without an adjacent `browserName` guard — **nice-to-have** (follow-up).
+
+---
+
+## 6) Local & CI verification steps (exact commands) ✅
+
+Prerequisite (mandatory): rebuild the E2E Docker environment (required by this repo):
+
+- .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+
+Run the modified test locally (Docker/CI-like) — Chromium (full verification):
+
+- PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test tests/settings/account-settings.spec.ts -g "should copy API key to clipboard" --project=chromium -o timeout=60000
+
+Run the modified test locally — WebKit (verify toast-only path):
+
+- PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test tests/settings/account-settings.spec.ts -g "should copy API key to clipboard" --project=webkit
+
+Run the modified test locally — Firefox (verify toast-only path):
+
+- PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test tests/settings/account-settings.spec.ts -g "should copy API key to clipboard" --project=firefox
+
+Run the modified test with coverage (Vite dev mode — local only):
+
+- .github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
+
+Run full E2E matrix (CI-like):
+
+- .github/skills/scripts/skill-runner.sh test-e2e-playwright
+
+Quick focused checks (type/lint/tests) before opening PR:
+
+- npm run -w frontend -s type-check
+- npm run -w frontend -s lint -- --max-warnings=0
+- npx playwright test tests/settings/account-settings.spec.ts -g "should copy API key to clipboard"
+- pre-commit run --hook-stage manual --all-files
+
+CI expectations:
+- The `e2e-tests` workflow should pass for all three browsers; clipboard-read assertion only runs on Chromium and the toast-only path passes on WebKit/Firefox.
+
+---
+
+## 7) Automated checks required before merge (exact commands)
+
+- Playwright (per-browser matrix)
+  - .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+  - PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test --project=chromium
+  - PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test --project=webkit
+  - PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test --project=firefox
+
+- Coverage (frontend E2E coverage, local)
+  - .github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
+
+- Type-check & lint
+  - npm run -w frontend type-check
+  - npm run -w frontend lint
+
+- Pre-commit hooks
+  - pre-commit run --hook-stage manual --all-files
+
+- Patch coverage gate (Codecov)
+  - Ensure modified lines are covered; run locally and confirm `coverage/e2e/lcov.info` contains the modified file lines
+
+---
+
+## 8) Concrete test improvements added in this PR (summary) 🔧
+
+- Added an inline comment in `tests/settings/account-settings.spec.ts` referencing Playwright docs and CI limitation.
+- Restricted `navigator.clipboard.readText()` to Chromium only.
+- Improved toast assertion (role-based locator already in test) and added a defensive non-clipboard check for non-Chromium (API key input populated).
+- Kept test structure and roles (uses `getByRole`) to remain accessible and robust.
+
+---
+
+## 9) PR metadata (ready-to-use)
+
+- Branch: `fix/e2e-clipboard-cross-browser` (recommended)
+- PR title: fix(e2e): make "copy API key" clipboard assertion Chromium-only, assert toast on WebKit/Firefox
+- Commit message (conventional):
+  - test(playwright): restrict clipboard read to Chromium in `account-settings.spec.ts`
+
+PR body (suggested):
+
+```
+## Summary
+Make the Playwright E2E `should copy API key to clipboard` test CI-compatible across browsers by:
+- Verifying clipboard contents only on Chromium (Playwright/CI supports clipboard-read reliably)
+- For WebKit/Firefox, asserting the success toast and that the API key input remains populated
+
+## Why
+`navigator.clipboard.readText()` causes `NotAllowedError` on WebKit/Firefox in CI — this test was flaky and failing the E2E matrix.
+
+## Changes
+- tests/settings/account-settings.spec.ts: Chromium-only clipboard assertion + toast-only verification for other browsers
+- No product code changes; test-only, minimal and accessible assertions
+
+## How to verify locally
+1. .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+2. PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test tests/settings/account-settings.spec.ts -g "should copy API key to clipboard" --project=chromium
+3. Repeat for `--project=webkit` and `--project=firefox`
+
+## Follow-ups
+- Update `CONTRIBUTING.md` / Playwright guide with the canonical clipboard-testing pattern
+- Optionally add a grep-based CI lint to detect unguarded clipboard.readText() in Playwright tests
+```
+
+---
+
+## 10) Estimate, confidence & follow-ups
+
+- Effort: 1.0–2.5 hours (investigation done; implementation + tests + PR) ✅
+- Confidence: **92%** (high — small test-only change; possible follow-up: update similar tests found by repo grep)
+
+Follow-ups (recommended):
+- Add a short section to `CONTRIBUTING.md` showing the Chromium-only clipboard pattern and why (link to Playwright docs).
+- Add a grep-based CI check to flag `navigator.clipboard.readText()` in Playwright tests without a browser guard.
+- Triage other clipboard-related flaky tests and apply the same pattern (low-effort).
+
+---
+
+## Quick remediation list (files to update after this PR / suggested patches)
+
+- `tests/settings/user-management.spec.ts` — guard clipboard.readText() (HIGH)
+- `tests/manual-dns-provider.spec.ts` — verify all clipboard reads are guarded (MED)
+- `tests/*` (other matches from grep above) — review and patch or document (LOW)
+
+---
+
+If you want I can open the draft PR with the patch, add the PR description above, and prepare follow-up PRs to fix the remaining clipboard occurrences. Would you like me to open the PR now?
+
+
+
 ## Latest Codecov Report (2026-02-01)
 
 ### Patch: fix import-handler tests (branch: test/cover-import-handler-useImport-importer)
