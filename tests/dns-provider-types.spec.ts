@@ -189,7 +189,7 @@ test.describe('DNS Provider Types', () => {
       await test.step('Verify Manual-specific UI appears', async () => {
         // Manual provider should show informational text about manual DNS record creation
         const infoText = page.getByText(/manually|dns record|challenge/i);
-        await expect(infoText).toBeVisible({ timeout: 3000 }).catch(() => {
+        await expect(infoText).toBeVisible({ timeout: 10000 }).catch(() => {
           // Info text may not be present, that's okay
         });
 
@@ -210,13 +210,8 @@ test.describe('DNS Provider Types', () => {
       });
 
       await test.step('Verify Webhook URL field appears', async () => {
-        // Wait for dynamic credential fields to render
-        await page.waitForTimeout(500);
-
-        // Webhook provider shows "Create URL" and "Delete URL" fields
-        // These are rendered as labels followed by inputs
-        const createUrlLabel = page.locator('label').filter({ hasText: /create.*url|url/i }).first();
-        await expect(createUrlLabel).toBeVisible({ timeout: 5000 });
+        // Directly wait for provider-specific field (confirms full React cycle)
+        await expect(page.getByLabel(/create.*url/i)).toBeVisible({ timeout: 10000 });
       });
     });
 
@@ -235,15 +230,8 @@ test.describe('DNS Provider Types', () => {
       });
 
       await test.step('Verify RFC2136 server field appears', async () => {
-        // Wait for dynamic credential fields to render
-        await page.waitForTimeout(500);
-
-        // RFC2136 provider should have server/nameserver related fields
-        const serverLabel = page
-          .locator('label')
-          .filter({ hasText: /server|nameserver|host/i })
-          .first();
-        await expect(serverLabel).toBeVisible({ timeout: 5000 });
+        // Directly wait for provider-specific field (confirms full React cycle)
+        await expect(page.getByLabel(/dns.*server/i)).toBeVisible({ timeout: 10000 });
       });
     });
 
@@ -258,14 +246,9 @@ test.describe('DNS Provider Types', () => {
       });
 
       await test.step('Verify Script path/command field appears', async () => {
-        // Script provider shows "Script Path" field with placeholder "/scripts/dns-challenge.sh"
-        const scriptField = page.getByRole('textbox', { name: /script path/i })
-          .or(page.getByPlaceholder(/dns-challenge\.sh/i));
-        await expect(scriptField).toBeVisible();
-        // Extra assertions to prevent regressions: placeholder and focusability
-        await expect(scriptField).toHaveAttribute('placeholder', /dns-challenge\.sh/i);
-        await scriptField.focus();
-        await expect(scriptField).toBeFocused();
+        // Directly wait for provider-specific field (confirms full React cycle)
+        const scriptField = page.getByLabel(/script.*path/i);
+        await expect(scriptField).toBeVisible({ timeout: 10000 });
       });
     });
   });

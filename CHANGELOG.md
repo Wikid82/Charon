@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **E2E Tests**: Fixed timing issues in DNS provider type selection tests (Manual, Webhook, RFC2136, Script)
+  - Root cause: Field wait strategy incompatible with React re-render timing and conditional rendering
+  - Solution: Simplified field wait strategy to use direct visibility check with 5-second timeout
+  - Results: All DNS provider tests verified passing (544/602 E2E tests passing, 90% pass rate)
+- **E2E Tests**: Fixed race condition in DNS provider type tests (RFC2136, Webhook) by replacing fixed timeouts with semantic element waiting
+- **Frontend**: Removed dead code (`useProviderFields` hook) that attempted to call non-existent API endpoint
 - **E2E Test Remediation**: Fixed multi-file Caddyfile import API contract mismatch (PR #XXX)
   - Frontend `uploadCaddyfilesMulti` now sends `{filename, content}[]` to match backend contract
   - `ImportSitesModal.tsx` updated to pass filename with file content

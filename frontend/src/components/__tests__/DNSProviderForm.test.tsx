@@ -10,9 +10,6 @@ vi.mock('../../hooks/useDNSProviders', () => ({
   useDNSProviderTypes: vi.fn(() => ({ data: [defaultProviderSchemas.script], isLoading: false })),
   useDNSProviderMutations: vi.fn(() => ({ createMutation: { isPending: false }, updateMutation: { isPending: false }, testCredentialsMutation: { isPending: false } })),
 }))
-vi.mock('../../hooks/usePlugins', () => ({
-  useProviderFields: vi.fn(() => ({ data: undefined })),
-}))
 vi.mock('../../hooks/useCredentials', () => ({
   useCredentials: vi.fn(() => ({ data: [] })),
   useEnableMultiCredentials: vi.fn(() => ({ mutate: vi.fn(), isPending: false }))

@@ -23,7 +23,6 @@ import { useDNSProviderTypes, useDNSProviderMutations, type DNSProvider } from '
 import type { DNSProviderRequest, DNSProviderTypeInfo } from '../api/dnsProviders'
 import { defaultProviderSchemas } from '../data/dnsProviderSchemas'
 import { useEnableMultiCredentials, useCredentials } from '../hooks/useCredentials'
-import { useProviderFields } from '../hooks/usePlugins'
 import CredentialManager from './CredentialManager'
 
 interface DNSProviderFormProps {
@@ -47,7 +46,6 @@ export default function DNSProviderForm({
 
   const [name, setName] = useState('')
   const [providerType, setProviderType] = useState<string>('')
-  const { data: dynamicFields } = useProviderFields(providerType)
   const [credentials, setCredentials] = useState<Record<string, string>>({})
   const [propagationTimeout, setPropagationTimeout] = useState(120)
   const [pollingInterval, setPollingInterval] = useState(5)
@@ -87,21 +85,6 @@ export default function DNSProviderForm({
 
   const getSelectedProviderInfo = (): DNSProviderTypeInfo | undefined => {
     if (!providerType) return undefined
-
-    // Prefer dynamic fields from API if available
-    if (dynamicFields) {
-      return {
-        type: dynamicFields.type as DNSProviderTypeInfo['type'],
-        name: dynamicFields.name,
-        fields: [
-          ...dynamicFields.required_fields.map(f => ({ ...f, required: true })),
-          ...dynamicFields.optional_fields.map(f => ({ ...f, required: false })),
-        ],
-        documentation_url: '',
-      }
-    }
-
-    // Fallback to static types or schemas
     return (
       providerTypes?.find((pt) => pt.type === providerType) ||
       (defaultProviderSchemas[providerType as keyof typeof defaultProviderSchemas] as DNSProviderTypeInfo)
@@ -223,7 +206,7 @@ export default function DNSProviderForm({
             <>
               <div className="space-y-3 border-t pt-4">
                 <div className="flex items-center justify-between">
-                  <Label className="text-base">{t('dnsProviders.credentials')}</Label>
+                  <Label className="text-base" data-testid="credentials-section">{t('dnsProviders.credentials')}</Label>
                   {selectedProviderInfo.documentation_url && (
                     <a
                       href={selectedProviderInfo.documentation_url}
