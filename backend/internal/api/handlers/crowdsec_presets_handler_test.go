@@ -62,7 +62,7 @@ func TestListPresetsIncludesCacheAndIndex(t *testing.T) {
 	})}
 
 	db := OpenTestDB(t)
-	handler := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	handler.Hub = hub
 
 	r := gin.New()
@@ -113,7 +113,7 @@ func TestPullPresetHandlerSuccess(t *testing.T) {
 		}
 	})}
 
-	handler := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", dataDir)
+	handler := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", dataDir)
 	handler.Hub = hub
 
 	r := gin.New()
@@ -145,7 +145,7 @@ func TestApplyPresetHandlerAudits(t *testing.T) {
 
 	hub := crowdsec.NewHubService(nil, cache, dataDir)
 
-	handler := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", dataDir)
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
 	handler.Hub = hub
 
 	r := gin.New()
@@ -196,7 +196,7 @@ func TestPullPresetHandlerHubError(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
 	})}
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	h.Hub = hub
 
 	r := gin.New()
@@ -223,7 +223,7 @@ func TestPullPresetHandlerTimeout(t *testing.T) {
 		return nil, context.DeadlineExceeded
 	})}
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	h.Hub = hub
 
 	r := gin.New()
@@ -245,7 +245,7 @@ func TestGetCachedPresetNotFound(t *testing.T) {
 	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	h.Hub = crowdsec.NewHubService(nil, cache, t.TempDir())
 
 	r := gin.New()
@@ -262,7 +262,7 @@ func TestGetCachedPresetNotFound(t *testing.T) {
 func TestGetCachedPresetServiceUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	h.Hub = &crowdsec.HubService{}
 
 	r := gin.New()
@@ -287,7 +287,7 @@ func TestApplyPresetHandlerBackupFailure(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "keep.txt"), []byte("before"), 0o644))
 
 	hub := crowdsec.NewHubService(nil, nil, dataDir)
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", dataDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
 	h.Hub = hub
 
 	r := gin.New()
@@ -336,7 +336,7 @@ func TestListPresetsMergesCuratedAndHub(t *testing.T) {
 		return nil, errors.New("unexpected request")
 	})}
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	h.Hub = hub
 
 	r := gin.New()
@@ -383,7 +383,7 @@ func TestGetCachedPresetSuccess(t *testing.T) {
 	_, err = cache.Store(context.Background(), slug, "etag123", "hub", "preview-body", []byte("tgz"))
 	require.NoError(t, err)
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	h.Hub = crowdsec.NewHubService(nil, cache, t.TempDir())
 	require.True(t, h.isCerberusEnabled())
 	preview, err := h.Hub.Cache.LoadPreview(context.Background(), slug)
@@ -408,7 +408,7 @@ func TestGetCachedPresetSlugRequired(t *testing.T) {
 	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	h.Hub = crowdsec.NewHubService(nil, cache, t.TempDir())
 
 	r := gin.New()
@@ -435,7 +435,7 @@ func TestGetCachedPresetPreviewError(t *testing.T) {
 	// Remove preview to force LoadPreview read error.
 	require.NoError(t, os.Remove(meta.PreviewPath))
 
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	h.Hub = crowdsec.NewHubService(nil, cache, t.TempDir())
 
 	r := gin.New()
@@ -461,7 +461,7 @@ require.NoError(t, err)
 // We don't set HTTPClient, so any network call would panic or fail if not handled
 hub := crowdsec.NewHubService(nil, cache, t.TempDir())
 
-h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 h.Hub = hub
 
 r := gin.New()
@@ -502,7 +502,7 @@ require.NoError(t, err)
 
 hub := crowdsec.NewHubService(nil, cache, t.TempDir())
 
-h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 h.Hub = hub
 
 r := gin.New()

@@ -309,7 +309,7 @@ func TestCrowdsec_ImportConfig_EmptyUpload(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")

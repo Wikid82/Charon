@@ -65,17 +65,16 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
     - **Docs**: Call `Docs_Writer`.
     - **Manual Testing**: create a new test plan in `docs/issues/*.md` for tracking manual testing focused on finding potential bugs of the implemented features.
     - **Final Report**: Summarize the successful subagent runs.
-    - **Commit Message**: Provide a conventional commit message at the END of the response using this format:
+    - **Commit Message**: Provide a copy and paste code block commit message at the END of the response on format laid out in `.github/instructions/commit-message.instructions.md`
         ```
         ---
 
-        COMMIT_MESSAGE_START
-        type: descriptive commit title
+            type: descriptive commit title
 
-        Detailed commit message body explaining what changed and why
-        - Bullet points for key changes
-        - References to issues/PRs
-        COMMIT_MESSAGE_END
+            Detailed commit message body explaining what changed and why
+            - Bullet points for key changes
+            - References to issues/PRs
+
         ```
         - Use `feat:` for new user-facing features
         - Use `fix:` for bug fixes in application code

@@ -22,7 +22,13 @@ func TestStartSyncsSettingsTable(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	fe := &fakeExec{}
-	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
+
+	// Replace CmdExec to prevent LAPI wait loop - simulate LAPI ready
+	h.CmdExec = &mockCommandExecutor{
+		output: []byte("lapi is running"),
+		err:    nil,
+	}
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -65,7 +71,13 @@ func TestStopSyncsSettingsTable(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	fe := &fakeExec{}
-	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
+
+	// Replace CmdExec to prevent LAPI wait loop - simulate LAPI ready
+	h.CmdExec = &mockCommandExecutor{
+		output: []byte("lapi is running"),
+		err:    nil,
+	}
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -112,7 +124,7 @@ func TestStartAndStopStateConsistency(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	fe := &fakeExec{}
-	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -172,7 +184,7 @@ func TestExistingSettingIsUpdated(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	fe := &fakeExec{}
-	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -216,7 +228,7 @@ func TestStartFailureRevertsSettings(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	fe := &fakeFailingExec{}
-	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -253,7 +265,7 @@ func TestStatusResponseFormat(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	fe := &fakeExec{}
-	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")

@@ -218,7 +218,7 @@ func TestHubEndpoints(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dataDir, 0o755))
 	hub := crowdsec.NewHubService(nil, cache, dataDir)
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.Hub = hub
 
 	// Call hubEndpoints
@@ -247,7 +247,7 @@ func TestGetCachedPreset(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dataDir, 0o755))
 	hub := crowdsec.NewHubService(nil, cache, dataDir)
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.Hub = hub
 
 	r := gin.New()
@@ -277,7 +277,7 @@ func TestGetCachedPreset_NotFound(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dataDir, 0o755))
 	hub := crowdsec.NewHubService(nil, cache, dataDir)
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.Hub = hub
 
 	r := gin.New()
@@ -297,7 +297,7 @@ func TestGetLAPIDecisions(t *testing.T) {
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -317,7 +317,7 @@ func TestCheckLAPIHealth(t *testing.T) {
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -336,7 +336,7 @@ func TestListDecisions(t *testing.T) {
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -355,7 +355,7 @@ func TestBanIP(t *testing.T) {
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -377,7 +377,7 @@ func TestUnbanIP(t *testing.T) {
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -399,7 +399,7 @@ func TestGetAcquisitionConfig(t *testing.T) {
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -419,7 +419,7 @@ func TestUpdateAcquisitionConfig(t *testing.T) {
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
