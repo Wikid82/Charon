@@ -97,7 +97,7 @@ The task is not complete until ALL of the following pass with zero issues:
       .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
       ```
       This ensures the container has latest code and proper environment variables (emergency token, encryption key from `.env`).
-    - **Run**: `npx playwright test --project=chromium` from project root
+    - **Run**: `npx playwright test --project=chromium --project=firefox --project=webkit` from project root
     - **No Truncation**: Never pipe output through `head`, `tail`, or other truncating commands. Playwright requires user input to quit when piped, causing hangs.
     - **Why First**: If the app is broken at E2E level, unit tests may need updates. Catch integration issues early.
     - **Scope**: Run tests relevant to modified features (e.g., `tests/manual-dns-provider.spec.ts`)

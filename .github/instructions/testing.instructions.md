@@ -61,10 +61,10 @@ For general integration testing without coverage:
 
 ```bash
 # Against Docker container (default)
-npx playwright test --project=chromium
+npx playwright test --project=chromium --project=firefox --project=webkit
 
 # With explicit base URL
-PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test --project=chromium
+PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test --project=chromium --project=firefox --project=webkit
 ```
 
 ### Running E2E Tests with Coverage

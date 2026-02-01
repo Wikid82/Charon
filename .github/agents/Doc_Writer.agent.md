@@ -3,7 +3,7 @@ name: 'Docs Writer'
 description: 'User Advocate and Writer focused on creating simple, layman-friendly documentation.'
 argument-hint: 'The feature to document (e.g., "Write the guide for the new Real-Time Logs")'
 tools:
-  ['vscode/memory', 'read', 'edit', 'search', 'github/*', 'todo']
+  ['read', 'github/*', 'github/*', 'edit/createDirectory', 'edit/createFile', 'edit/editFiles', 'edit/editNotebook', 'search', 'github/*', 'todo']
 model: 'claude-opus-4-5-20250514'
 mcp-servers:
   - github
