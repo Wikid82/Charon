@@ -66,7 +66,8 @@ jobs:
               echo "Fast-forward not possible, resetting nightly to development"
               git reset --hard origin/development
             }
-            git push origin nightly
+            # Force push to handle cases where nightly diverged from development
+            git push --force origin nightly
             echo "has_changes=true" >> $GITHUB_OUTPUT
           fi
 
