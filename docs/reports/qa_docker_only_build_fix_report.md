@@ -1,7 +1,7 @@
 # QA Security Validation Report: Docker-Only Build Fix
 
-**Date:** 2026-01-30  
-**Agent:** QA_Security  
+**Date:** 2026-01-30
+**Agent:** QA_Security
 **Target Files:**
 - `.goreleaser.yaml`
 - `.github/workflows/nightly-build.yml`
@@ -30,7 +30,7 @@ The Docker-only build fix configuration has been validated. All critical checks 
 
 #### `.goreleaser.yaml`
 
-**Method:** Python YAML parser validation  
+**Method:** Python YAML parser validation
 **Status:** ✅ **PASS**
 
 ```bash
@@ -50,7 +50,7 @@ python3 -c "import yaml; yaml.safe_load(open('.goreleaser.yaml'))"
 
 #### `.github/workflows/nightly-build.yml`
 
-**Method:** Python YAML parser validation  
+**Method:** Python YAML parser validation
 **Status:** ✅ **PASS**
 
 **Result:** Valid YAML structure with no syntax errors.
@@ -335,7 +335,7 @@ verify-nightly-supply-chain
     docker run --name charon-nightly -d \
       -p 8080:8080 \
       ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}
-    
+
     sleep 10
     docker ps | grep charon-nightly
     curl -f http://localhost:8080/health || exit 1
@@ -460,7 +460,7 @@ grep -r "password\|secret\|token\|key" .goreleaser.yaml .github/workflows/nightl
 
 ---
 
-**Report Generated:** 2026-01-30  
-**QA Agent:** QA_Security  
-**Validation Scope:** Docker-Only Build Fix  
+**Report Generated:** 2026-01-30
+**QA Agent:** QA_Security
+**Validation Scope:** Docker-Only Build Fix
 **Status:** ✅ APPROVED

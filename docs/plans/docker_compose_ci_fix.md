@@ -1,7 +1,7 @@
 # Docker Compose CI Failure Remediation Plan
 
-**Status**: Active  
-**Created**: 2026-01-30  
+**Status**: Active
+**Created**: 2026-01-30
 **Priority**: CRITICAL (Blocking CI)
 
 ---
@@ -23,7 +23,7 @@ charon-app Error pull access denied for sha256, repository does not exist or may
 
 ### Current Implementation (Broken)
 
-**File**: `.docker/compose/docker-compose.playwright-ci.yml`  
+**File**: `.docker/compose/docker-compose.playwright-ci.yml`
 **Lines**: 29-37
 
 ```yaml
@@ -37,7 +37,7 @@ charon-app:
 
 ### Workflow Environment Variable
 
-**File**: `.github/workflows/e2e-tests.yml`  
+**File**: `.github/workflows/e2e-tests.yml`
 **Line**: 158
 
 ```yaml
@@ -117,7 +117,7 @@ Docker requires one of these formats:
     # Explicitly constructs image reference from variables
     IMAGE_NAME=$(echo "${{ github.repository_owner }}/charon" | tr '[:upper:]' '[:lower:]')
     IMAGE_REF="ghcr.io/${IMAGE_NAME}:pr-${{ steps.pr-info.outputs.pr_number }}"
-    
+
     docker run -d \
       --name charon-test \
       -e CHARON_ENV="${CHARON_ENV}" \
@@ -160,7 +160,7 @@ Docker requires one of these formats:
 
 #### Change 1: Remove Digest from Workflow Environment
 
-**File**: `.github/workflows/e2e-tests.yml`  
+**File**: `.github/workflows/e2e-tests.yml`
 **Lines**: 155-158
 
 **Current**:
@@ -186,14 +186,14 @@ env:
   CHARON_E2E_IMAGE: charon:e2e-test
 ```
 
-**Rationale**: 
+**Rationale**:
 - The `docker load` command restores the image with its original tag `charon:e2e-test`
 - We should use this tag, not the digest
 - The digest is only useful for verifying image integrity, not for referencing locally loaded images
 
 #### Change 2: Update Compose File Comment Documentation
 
-**File**: `.docker/compose/docker-compose.playwright-ci.yml`  
+**File**: `.docker/compose/docker-compose.playwright-ci.yml`
 **Lines**: 31-37
 
 **Current**:
@@ -232,7 +232,7 @@ If there's a requirement to use digest-based references for security/reproducibi
 
 #### Change 1: Re-tag After Load
 
-**File**: `.github/workflows/e2e-tests.yml`  
+**File**: `.github/workflows/e2e-tests.yml`
 **After Line**: 177 (in "Load Docker image" step)
 
 **Add**:
@@ -242,19 +242,19 @@ If there's a requirement to use digest-based references for security/reproducibi
           # Load the pre-built image
           docker load -i charon-e2e-image.tar
           docker images | grep charon
-          
+
           # Re-tag for digest-based reference if needed
           IMAGE_DIGEST="${{ needs.build.outputs.image_digest }}"
           if [[ -n "$IMAGE_DIGEST" ]]; then
             # Extract just the digest hash (sha256:...)
             DIGEST_HASH=$(echo "$IMAGE_DIGEST" | grep -oP 'sha256:[a-f0-9]{64}')
-            
+
             # Construct full reference
             FULL_REF="ghcr.io/wikid82/charon@${DIGEST_HASH}"
-            
+
             echo "Re-tagging charon:e2e-test as $FULL_REF"
             docker tag charon:e2e-test "$FULL_REF"
-            
+
             # Export for compose file
             echo "CHARON_E2E_IMAGE_DIGEST=$FULL_REF" >> $GITHUB_ENV
           else
@@ -265,7 +265,7 @@ If there's a requirement to use digest-based references for security/reproducibi
 
 #### Change 2: Update Compose File
 
-**File**: `.docker/compose/docker-compose.playwright-ci.yml`  
+**File**: `.docker/compose/docker-compose.playwright-ci.yml`
 **Lines**: 31-37
 
 Keep the current implementation but fix the comment:
@@ -381,7 +381,7 @@ Keep the current implementation but fix the comment:
 ## Risk Assessment
 
 ### Low Risk Changes
-✅ Workflow environment variable change (isolated to CI)  
+✅ Workflow environment variable change (isolated to CI)
 ✅ Compose file comment updates (documentation only)
 
 ### Medium Risk Changes
@@ -390,7 +390,7 @@ Keep the current implementation but fix the comment:
 - **Rollback**: Revert single line in compose file
 
 ### No Risk
-✅ Read-only investigation and analysis  
+✅ Read-only investigation and analysis
 ✅ Documentation improvements
 
 ---
