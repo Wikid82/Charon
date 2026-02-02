@@ -251,7 +251,7 @@ jobs:
       - name: Upload scan artifacts
         if: always() && steps.check-artifact.outputs.artifact_exists == 'true'
         # actions/upload-artifact v4.4.3
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        uses: actions/upload-artifact@47309c993abb98030a35d55ef7ff34b7fa1074b5
         with:
           name: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event.workflow_run.head_branch) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
           path: |
