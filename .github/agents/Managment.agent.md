@@ -67,6 +67,7 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
     - **Final Report**: Summarize the successful subagent runs.
     - **Commit Message**: Provide a copy and paste code block commit message at the END of the response on format laid out in `.github/instructions/commit-message.instructions.md`
 
+    COMMIT MESSAGE FORMAT:
         ```
         ---
 
@@ -77,6 +78,9 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
             - References to issues/PRs
 
         ```
+    END COMMIT MESSAGE FORMAT
+
+    - **Type**: Use conventional commit types:
         - Use `feat:` for new user-facing features
         - Use `fix:` for bug fixes in application code
         - Use `chore:` for infrastructure, CI/CD, dependencies, tooling

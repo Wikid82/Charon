@@ -63,6 +63,8 @@ import {
   clickSwitchAndWaitForResponse,
   waitForFeatureFlagPropagation,
   retryAction,
+  getAPIMetrics,
+  resetAPIMetrics,
 } from '../utils/wait-helpers';
 import { getToastLocator, clickSwitch } from '../utils/ui-helpers';
 
@@ -94,6 +96,28 @@ test.describe('System Settings', () => {
       await page.request.put('/api/v1/feature-flags', {
         data: defaultFlags,
       });
+    });
+  });
+
+  test.afterAll(async () => {
+    await test.step('Report API call metrics', async () => {
+      // ✅ FIX 3.2: Report API call metrics for performance monitoring
+      // See: E2E Test Timeout Remediation Plan (Phase 3, Fix 3.2)
+      const metrics = getAPIMetrics();
+      console.log('\n📊 API Call Metrics:');
+      console.log(`   Feature Flag Calls: ${metrics.featureFlagCalls}`);
+      console.log(`   Cache Hits: ${metrics.cacheHits}`);
+      console.log(`   Cache Misses: ${metrics.cacheMisses}`);
+      console.log(`   Cache Hit Rate: ${metrics.featureFlagCalls > 0 ? ((metrics.cacheHits / metrics.featureFlagCalls) * 100).toFixed(1) : 0}%`);
+
+      // ✅ FIX 3.2: Warn when API call count exceeds threshold
+      if (metrics.featureFlagCalls > 50) {
+        console.warn(`⚠️  High API call count detected: ${metrics.featureFlagCalls} calls`);
+        console.warn('   Consider optimizing feature flag usage or increasing cache efficiency');
+      }
+
+      // Reset metrics for next test suite
+      resetAPIMetrics();
     });
   });
 
