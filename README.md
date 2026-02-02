@@ -578,7 +578,8 @@ Default: RFC1918 private networks + localhost
 **[📖 Full Documentation](https://wikid82.github.io/charon/)** — Everything explained simply
 **[🚀 5-Minute Guide](https://wikid82.github.io/charon/getting-started)** — Your first website up and running
 **[🔐 Supply Chain Security](docs/guides/supply-chain-security-user-guide.md)** — Verify signatures and build provenance
-**[🛠️ Troubleshooting](docs/troubleshooting/)** — Common issues and solutions
+**[� Maintenance](docs/maintenance/)** — Keeping Charon running smoothly
+**[�🛠️ Troubleshooting](docs/troubleshooting/)** — Common issues and solutions
 **[💬 Ask Questions](https://github.com/Wikid82/charon/discussions)** — Friendly community help
 **[🐛 Report Problems](https://github.com/Wikid82/charon/issues)** — Something broken? Let us know
 

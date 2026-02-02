@@ -94,8 +94,9 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     success "Pushed to remote!"
     echo ""
     success "Release workflow triggered!"
-    echo "  - GitHub will create a release with changelog"
-    echo "  - Docker images will be built and published"
+    echo "  - GitHub will create a release with changelog (via GoReleaser)"
+    echo "  - Docker images will be built and published to Docker Hub and GHCR"
+    echo "  - No standalone binaries - Docker-only deployment model"
     echo "  - View progress at: https://github.com/Wikid82/charon/actions"
 else
     warning "Not pushed. You can push later with:"

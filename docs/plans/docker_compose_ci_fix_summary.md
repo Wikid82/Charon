@@ -1,7 +1,7 @@
 # Docker Compose CI Fix - Quick Reference
 
-**Document**: [Full Remediation Plan](docker_compose_ci_fix.md)  
-**Status**: Ready for Implementation  
+**Document**: [Full Remediation Plan](docker_compose_ci_fix.md)
+**Status**: Ready for Implementation
 **Priority**: CRITICAL
 
 ---

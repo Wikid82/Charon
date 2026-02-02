@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Docker Build**: Fixed GeoLite2-Country.mmdb checksum mismatch causing CI/CD build failures
+  - Updated Dockerfile (line 352) with current upstream database checksum
+  - Added automated workflow (`.github/workflows/update-geolite2.yml`) for weekly checksum verification
+  - Workflow creates pull requests automatically when upstream database is updated
+  - Build failure resolved: https://github.com/Wikid82/Charon/actions/runs/21584236523/job/62188372617
+  - See [GeoLite2 Maintenance Guide](docs/maintenance/geolite2-checksum-update.md) for manual update procedures
+  - Implementation details: [docs/plans/geolite2_checksum_fix_spec.md](docs/plans/geolite2_checksum_fix_spec.md)
+  - QA verification: [docs/reports/qa_geolite2_checksum_fix.md](docs/reports/qa_geolite2_checksum_fix.md)
+
+### Changed
+
+- **Build Strategy**: Simplified to Docker-only deployment model
+  - GoReleaser now used exclusively for changelog generation (not binary distribution)
+  - All deployment via Docker images (Docker Hub and GHCR)
+  - Removed standalone binary builds for macOS, Windows, and Linux
+  - DEB/RPM packages removed from release workflow
+  - Users should use `docker pull wikid82/charon:latest` or `ghcr.io/wikid82/charon:latest`
+  - See [Getting Started Guide](https://wikid82.github.io/charon/getting-started) for Docker installation instructions
+
+### Fixed
+
 - **CI/CD Workflows**: Fixed multiple GitHub Actions workflow failures
   - **Nightly Build**: Resolved GoReleaser macOS cross-compilation failure by properly configuring Zig toolchain
   - **Playwright E2E**: Fixed test failures by ensuring admin backend service availability and proper Docker networking

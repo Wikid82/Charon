@@ -86,7 +86,9 @@ jobs:
                 }
 
                 // Load propagation config (list of sensitive paths) from .github/propagate-config.yml when available
-                let configPaths = ['scripts/history-rewrite/', 'data/backups', 'docs/plans/history_rewrite.md', '.github/workflows/'];
+                // NOTE: .github/workflows/ was removed from defaults - workflow updates SHOULD propagate
+                // to ensure downstream branches have correct CI/CD configurations
+                let configPaths = ['scripts/history-rewrite/', 'data/backups', 'docs/plans/history_rewrite.md'];
                 try {
                   const configResp = await github.rest.repos.getContent({ owner: context.repo.owner, repo: context.repo.repo, path: '.github/propagate-config.yml', ref: src });
                   const contentStr = Buffer.from(configResp.data.content, 'base64').toString('utf8');
