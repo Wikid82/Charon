@@ -227,3 +227,109 @@ export async function refreshListAndWait(
     // Ignore if no loader exists
   });
 }
+
+/**
+ * Options for switch helper functions
+ */
+export interface SwitchOptions {
+  /** Timeout for waiting operations (default: 5000ms) */
+  timeout?: number;
+  /** Padding to add above element when scrolling (default: 100px for sticky header) */
+  scrollPadding?: number;
+}
+
+/**
+ * Click a Switch/Toggle component reliably across all browsers.
+ *
+ * The Switch component uses a hidden input with a styled sibling div.
+ * This helper clicks the parent <label> to trigger the toggle.
+ *
+ * @param locator - Locator for the switch (e.g., page.getByRole('switch'))
+ * @param options - Configuration options
+ *
+ * @example
+ * ```typescript
+ * // By role with name
+ * await clickSwitch(page.getByRole('switch', { name: /cerberus/i }));
+ *
+ * // By test ID
+ * await clickSwitch(page.getByTestId('toggle-acl'));
+ *
+ * // By label
+ * await clickSwitch(page.getByLabel(/enabled/i));
+ * ```
+ */
+export async function clickSwitch(
+  locator: Locator,
+  options: SwitchOptions = {}
+): Promise<void> {
+  const { scrollPadding = 100, timeout = 5000 } = options;
+
+  // Wait for the switch to be visible
+  await expect(locator).toBeVisible({ timeout });
+
+  // Get the parent label element
+  // Switch structure: <label><input sr-only /><div /></label>
+  const labelElement = locator.locator('xpath=ancestor::label').first();
+
+  // Scroll with padding to clear sticky header
+  await labelElement.evaluate((el, padding) => {
+    el.scrollIntoView({ block: 'center' });
+    // Additional scroll if near top
+    const rect = el.getBoundingClientRect();
+    if (rect.top < padding) {
+      window.scrollBy(0, -(padding - rect.top));
+    }
+  }, scrollPadding);
+
+  // Click the label (which triggers the input)
+  await labelElement.click();
+}
+
+/**
+ * Assert a Switch/Toggle component's checked state.
+ *
+ * @param locator - Locator for the switch
+ * @param expected - Expected checked state (true/false)
+ * @param options - Configuration options
+ */
+export async function expectSwitchState(
+  locator: Locator,
+  expected: boolean,
+  options: SwitchOptions = {}
+): Promise<void> {
+  const { timeout = 5000 } = options;
+
+  if (expected) {
+    await expect(locator).toBeChecked({ timeout });
+  } else {
+    await expect(locator).not.toBeChecked({ timeout });
+  }
+}
+
+/**
+ * Toggle a Switch/Toggle component and verify the state changed.
+ * Returns the new checked state.
+ *
+ * @param locator - Locator for the switch
+ * @param options - Configuration options
+ * @returns The new checked state after toggle
+ */
+export async function toggleSwitch(
+  locator: Locator,
+  options: SwitchOptions = {}
+): Promise<boolean> {
+  const { timeout = 5000 } = options;
+
+  // Get current state
+  const wasChecked = await locator.isChecked();
+
+  // Click to toggle
+  await clickSwitch(locator, options);
+
+  // Verify state changed and return new state
+  const newState = !wasChecked;
+  await expectSwitchState(locator, newState, { timeout });
+
+  return newState;
+}
