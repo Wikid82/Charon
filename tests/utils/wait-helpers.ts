@@ -56,6 +56,43 @@ export async function clickAndWaitForResponse(
 }
 
 /**
+ * Click a Switch/Toggle component and wait for an API response atomically.
+ * Uses the clickSwitch helper to handle the hidden input structure.
+ * @param page - Playwright Page instance
+ * @param switchLocator - Locator for the switch element
+ * @param urlPattern - URL string or RegExp to match
+ * @param options - Configuration options
+ * @returns The matched response
+ */
+export async function clickSwitchAndWaitForResponse(
+  page: Page,
+  switchLocator: Locator,
+  urlPattern: string | RegExp,
+  options: { status?: number; timeout?: number; scrollPadding?: number } = {}
+): Promise<Response> {
+  const { status = 200, timeout = 30000, scrollPadding = 100 } = options;
+
+  // Import dynamically to avoid circular dependency
+  const { clickSwitch } = await import('./ui-helpers');
+
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (resp) => {
+        const urlMatch =
+          typeof urlPattern === 'string'
+            ? resp.url().includes(urlPattern)
+            : urlPattern.test(resp.url());
+        return urlMatch && resp.status() === status;
+      },
+      { timeout }
+    ),
+    clickSwitch(switchLocator, { scrollPadding, timeout }),
+  ]);
+
+  return response;
+}
+
+/**
  * Options for waitForToast
  */
 export interface ToastOptions {

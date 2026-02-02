@@ -18,10 +18,11 @@ import {
   waitForToast,
   waitForAPIResponse,
   clickAndWaitForResponse,
+  clickSwitchAndWaitForResponse,
   waitForFeatureFlagPropagation,
   retryAction,
 } from '../utils/wait-helpers';
-import { getToastLocator } from '../utils/ui-helpers';
+import { getToastLocator, clickSwitch } from '../utils/ui-helpers';
 
 test.describe('System Settings', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -174,7 +175,7 @@ test.describe('System Settings', () => {
         // Use retry logic with exponential backoff
         await retryAction(async () => {
           // Click toggle and wait for PUT request
-          const putResponse = await clickAndWaitForResponse(
+          const putResponse = await clickSwitchAndWaitForResponse(
             page,
             toggle,
             /\/feature-flags/
@@ -219,7 +220,7 @@ test.describe('System Settings', () => {
         // Use retry logic with exponential backoff
         await retryAction(async () => {
           // Click toggle and wait for PUT request
-          const putResponse = await clickAndWaitForResponse(
+          const putResponse = await clickSwitchAndWaitForResponse(
             page,
             toggle,
             /\/feature-flags/
@@ -377,7 +378,7 @@ test.describe('System Settings', () => {
         ).catch(() => null);
 
         // Click and check for overlay simultaneously
-        await toggle.click({ force: true });
+        await clickSwitch(toggle);
 
         // Check if overlay or loading indicator appears
         // ConfigReloadOverlay uses Tailwind classes: "fixed inset-0 bg-slate-900/70"
@@ -423,7 +424,7 @@ test.describe('System Settings', () => {
         // Toggle all three simultaneously
         const togglePromises = [
           retryAction(async () => {
-            const response = await clickAndWaitForResponse(
+            const response = await clickSwitchAndWaitForResponse(
               page,
               cerberusToggle,
               /\/feature-flags/
@@ -475,9 +476,9 @@ test.describe('System Settings', () => {
           .first();
 
         await Promise.all([
-          clickAndWaitForResponse(page, cerberusToggle, /\/feature-flags/),
-          clickAndWaitForResponse(page, crowdsecToggle, /\/feature-flags/),
-          clickAndWaitForResponse(page, uptimeToggle, /\/feature-flags/),
+          clickSwitchAndWaitForResponse(page, cerberusToggle, /\/feature-flags/),
+          clickSwitchAndWaitForResponse(page, crowdsecToggle, /\/feature-flags/),
+          clickSwitchAndWaitForResponse(page, uptimeToggle, /\/feature-flags/),
         ]);
       });
     });
@@ -573,7 +574,7 @@ test.describe('System Settings', () => {
         // Should throw after 3 attempts
         await expect(
           retryAction(async () => {
-            await clickAndWaitForResponse(page, uptimeToggle, /\/feature-flags/);
+            await clickSwitchAndWaitForResponse(page, uptimeToggle, /\/feature-flags/);
           })
         ).rejects.toThrow(/Action failed after 3 attempts/);
       });

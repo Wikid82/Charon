@@ -13,6 +13,7 @@
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForToast, waitForModal } from '../utils/wait-helpers';
+import { clickSwitch } from '../utils/ui-helpers';
 import {
   basicProxyHost,
   proxyHostWithSSL,
@@ -712,7 +713,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
           const wasChecked = await firstToggle.isChecked();
 
           // Toggle the switch
-          await firstToggle.click();
+          await clickSwitch(firstToggle);
           await waitForLoadingComplete(page);
 
           // The toggle state should change (or loading overlay appears)

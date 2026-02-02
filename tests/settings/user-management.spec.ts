@@ -19,7 +19,7 @@ import {
   waitForModal,
   waitForAPIResponse,
 } from '../utils/wait-helpers';
-import { getRowScopedButton, getRowScopedIconButton } from '../utils/ui-helpers';
+import { getRowScopedButton, getRowScopedIconButton, clickSwitch } from '../utils/ui-helpers';
 
 test.describe('User Management', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -823,7 +823,7 @@ test.describe('User Management', () => {
 
         const initialState = await enableSwitch.isChecked();
         // The checkbox is sr-only, click the parent label container
-        await enableSwitch.click({ force: true });
+        await clickSwitch(enableSwitch);
 
         // Wait for API response
         await page.waitForTimeout(500);
