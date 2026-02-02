@@ -1,1094 +1,1075 @@
-# Backend Test Coverage Restoration Plan
+# E2E Test Timeout Remediation Plan
+
+**Status**: Active
+**Created**: 2026-02-02
+**Priority**: P0 (Blocking CI/CD pipeline)
+**Estimated Effort**: 5-7 business days
 
 ## Executive Summary
 
-**Objective:** Restore backend test coverage from current 59.33% patch coverage to **86% locally** (85%+ in CI) with **100% patch coverage** (Codecov requirement).
+E2E tests are timing out due to cascading API bottleneck caused by feature flag polling in `beforeEach` hooks, combined with browser-specific label locator failures. This blocks PR merges and slows development velocity.
 
-**Current State:**
-- Patch Coverage: 59.33% (98 lines missing coverage)
-- 10 files identified with coverage gaps
-- Priority ranking based on missing lines and business impact
+**Impact**:
+- 31 tests × 10s timeout × 12 parallel processes = ~310s minimum execution time per shard
+- 4 shards × 3 browsers = 12 jobs, many exceeding 30min GitHub Actions limit
+- Firefox/WebKit tests fail on DNS provider form due to label locator mismatches
 
-**Strategy:** Systematic file-by-file coverage remediation using table-driven tests, interface mocking, and existing test infrastructure patterns.
+## Root Cause Analysis
 
----
+### Primary Issue: Feature Flag Polling API Bottleneck
 
-## 1. Root Cause Analysis
+**Location**: `tests/settings/system-settings.spec.ts` (lines 27-48)
 
-### Why Coverage Dropped
+```typescript
+test.beforeEach(async ({ page, adminUser }) => {
+  await loginUser(page, adminUser);
+  await waitForLoadingComplete(page);
+  await page.goto('/settings/system');
+  await waitForLoadingComplete(page);
 
-1. **Recent Feature Additions Without Tests**
-   - Caddyfile import enhancements (multi-file, normalization)
-   - CrowdSec hub presets and console enrollment
-   - Manual challenge DNS provider flow
-   - Feature flag batch optimization
-
-2. **Complex Error Paths Untested**
-   - SSRF validation failures
-   - Path traversal edge cases
-   - Process lifecycle edge cases (PID recycling)
-   - Cache TTL expiry and eviction paths
-
-3. **Integration-Heavy Code**
-   - External command execution (Caddy, CrowdSec)
-   - HTTP client operations with fallback logic
-   - File system operations with safety checks
-   - Cron scheduler lifecycle
-
-### Coverage Gap Breakdown
-
-| File | Coverage | Missing | Partials | Priority |
-|------|----------|---------|----------|----------|
-| import_handler.go | 45.83% | 33 lines | 6 branches | 🔴 CRITICAL |
-| crowdsec_handler.go | 21.42% | 5 lines | 6 branches | 🔴 CRITICAL |
-| backup_service.go | 63.33% | 5 lines | 6 branches | 🟡 HIGH |
-| hub_sync.go | 46.66% | 3 lines | 5 branches | 🟡 HIGH |
-| feature_flags_handler.go | 83.33% | 4 lines | 2 branches | 🟢 MEDIUM |
-| importer.go | 76.0% | 22 lines | 4 branches | 🟡 HIGH |
-| security_service.go | 50.0% | 12 lines | 8 branches | 🟡 HIGH |
-| hub_cache.go | 28.57% | 5 lines | 0 branches | 🟡 HIGH |
-| manual_challenge_handler.go | 33.33% | 8 lines | 4 branches | 🟡 HIGH |
-| crowdsec_exec.go | 0% | 1 line | 0 branches | 🟢 LOW |
-
-**Total Impact:** 98 missing lines, 35 partial branches
-
----
-
-## 2. File-by-File Coverage Plan
-
-### File 1: backend/internal/api/handlers/import_handler.go (933 lines)
-
-**Current Coverage:** 45.83% (33 missing, 6 partials)
-**Target Coverage:** 100%
-**Complexity:** 🔴 HIGH (complex file handling, path safety, session management)
-
-**Existing Test File:** `backend/internal/api/handlers/import_handler_test.go`
-
-#### Functions Requiring Coverage
-
-1. **Upload() - Lines 85-150**
-   - Missing: Normalization success/failure paths
-   - Missing: Path traversal validation
-   - Partials: Error handling branches
-
-2. **UploadMulti() - Lines 155-220**
-   - Missing: Multi-file conflict detection
-   - Missing: Archive extraction edge cases
-   - Partials: File validation failures
-
-3. **Commit() - Lines 225-290**
-   - Missing: Transient session promotion
-   - Missing: Import session cleanup
-   - Partials: ProxyHost service failures
-
-4. **DetectImports() - Lines 320-380**
-   - Missing: Empty Caddyfile handling
-   - Missing: Parse failure recovery
-   - Partials: Conflict resolution logic
-
-5. **safeJoin() helper - Lines 450-475**
-   - Missing: Parent directory traversal
-   - Missing: Absolute path rejection
-
-#### Test Cases Required
-
-```go
-// TestUpload_NormalizationSuccess
-// - Upload single-line Caddyfile
-// - Verify NormalizeCaddyfile called
-// - Assert formatted content stored
-
-// TestUpload_NormalizationFailure
-// - Mock importer.NormalizeCaddyfile to return error
-// - Verify upload fails with clear error message
-
-// TestUpload_PathTraversal
-// - Upload Caddyfile with "../../../etc/passwd"
-// - Verify rejection with security error
-
-// TestUploadMulti_ConflictDetection
-// - Upload archive with duplicate domains
-// - Verify conflicts reported in preview
-
-// TestCommit_TransientPromotion
-// - Create transient session
-// - Commit session
-// - Verify DB persistence
-
-// TestDetectImports_EmptyCaddyfile
-// - Upload empty file
-// - Verify graceful handling with no imports
-
-// TestSafeJoin_Traversal
-// - Call safeJoin with "../..", "sensitive.file"
-// - Verify error returned
-
-// TestSafeJoin_AbsolutePath
-// - Call safeJoin with "/etc/passwd"
-// - Verify error returned
+  // ⚠️ PROBLEM: Runs before EVERY test
+  await waitForFeatureFlagPropagation(
+    page,
+    {
+      'cerberus.enabled': true,
+      'crowdsec.console_enrollment': false,
+      'uptime.enabled': false,
+    },
+    { timeout: 10000 } // 10s timeout per test
+  ).catch(() => {
+    console.log('[WARN] Initial state verification skipped');
+  });
+});
 ```
 
-#### Implementation Strategy
+**Why This Causes Timeouts**:
+1. `waitForFeatureFlagPropagation()` polls `/api/v1/feature-flags` every 500ms for up to 10s
+2. Runs in `beforeEach` hook = executes 31 times per test file
+3. 12 parallel processes (4 shards × 3 browsers) all hitting same endpoint
+4. API server degrades under concurrent load → tests timeout → shards exceed job limit
 
-1. **Mock Importer Interface** (NEW)
-   - Create `ImporterInterface` with `NormalizeCaddyfile()`, `ParseCaddyfile()`, `ExtractHosts()`
-   - Update handler to accept interface instead of concrete type
-   - Use in tests to simulate failures
+**Evidence**:
+- `tests/utils/wait-helpers.ts` (lines 411-470): Polling interval 500ms, default timeout 30s
+- Workflow config: 4 shards × 3 browsers = 12 concurrent jobs
+- Observed: Multiple shards exceed 30min job timeout
 
-2. **Table-Driven Path Safety Tests**
-   - Test matrix of forbidden patterns (`..`, absolute paths, unicode tricks)
+### Secondary Issue: Browser-Specific Label Locator Failures
 
-3. **Session Lifecycle Tests**
-   - Test transient → DB promotion
-   - Test cleanup on timeout
-   - Test concurrent access
+**Location**: `tests/dns-provider-types.spec.ts` (line 260)
 
-**Estimated Effort:** 3 developer-days
-
----
-
-### File 2: backend/internal/api/handlers/crowdsec_handler.go (1006 lines)
-
-**Current Coverage:** 21.42% (5 missing, 6 partials)
-**Target Coverage:** 100%
-**Complexity:** 🔴 HIGH (process lifecycle, LAPI integration, hub operations)
-
-**Existing Test File:** `backend/internal/api/handlers/crowdsec_handler_test.go`
-
-#### Functions Requiring Coverage
-
-1. **Start() - Lines 150-200**
-   - Missing: Process already running check
-   - Partials: Executor.Start() failure paths
-
-2. **Stop() - Lines 205-250**
-   - Missing: Clean stop when already stopped
-   - Partials: Signal failure recovery
-
-3. **ImportConfig() - Lines 350-420**
-   - Missing: Archive extraction failures
-   - Missing: Backup rollback on error
-   - Partials: Path validation edge cases
-
-4. **ExportConfig() - Lines 425-480**
-   - Missing: Archive creation failures
-   - Partials: File read errors
-
-5. **ApplyPreset() - Lines 600-680**
-   - Missing: Hub cache miss handling
-   - Missing: CommandExecutor failure recovery
-   - Partials: Rollback on partial apply
-
-6. **ConsoleEnroll() - Lines 750-850**
-   - Missing: LAPI endpoint validation
-   - Missing: Enrollment failure retries
-   - Partials: Token parsing errors
-
-#### Test Cases Required
-
-```go
-// TestStart_AlreadyRunning
-// - Mock Status to return running=true
-// - Call Start
-// - Verify error "already running"
-
-// TestStop_IdempotentStop
-// - Stop when already stopped
-// - Verify no error returned
-
-// TestImportConfig_ExtractionFailure
-// - Mock tar.gz extraction to fail
-// - Verify rollback executed
-// - Verify original config restored
-
-// TestApplyPreset_CacheMiss
-// - Mock HubCache.Load to return ErrCacheMiss
-// - Verify graceful error message
-
-// TestConsoleEnroll_InvalidEndpoint
-// - Provide malformed LAPI URL
-// - Verify rejection with validation error
-
-// TestConsoleEnroll_TokenParseError
-// - Mock HTTP response with invalid JSON
-// - Verify clear error to user
+```typescript
+await test.step('Verify Script path/command field appears', async () => {
+  const scriptField = page.getByLabel(/script.*path/i);
+  await expect(scriptField).toBeVisible({ timeout: 10000 });
+});
 ```
 
-#### Implementation Strategy
+**Why Firefox/WebKit Fail**:
+1. Backend returns `script_path` field with label "Script Path"
+2. Frontend applies `aria-label="Script Path"` to input (line 276 in DNSProviderForm.tsx)
+3. Firefox/WebKit may render Label component differently than Chromium
+4. Regex `/script.*path/i` may not match if label has extra whitespace or is split across nodes
 
-1. **Enhance Existing Mocks**
-   - Add failure modes to `mockCrowdsecExecutor`
-   - Add cache miss scenarios to `mockHubService`
+**Evidence**:
+- `frontend/src/components/DNSProviderForm.tsx` (lines 273-279): Hardcoded `aria-label="Script Path"`
+- `backend/pkg/dnsprovider/custom/script_provider.go` (line 85): Backend returns "Script Path"
+- Test passes in Chromium, fails in Firefox/WebKit = browser-specific rendering difference
 
-2. **Process Lifecycle Matrix**
-   - Test all state transitions: stopped→started, started→stopped, stopped→stopped
+## Requirements (EARS Notation)
 
-3. **LAPI Integration Tests**
-   - Mock HTTP responses for enrollment, bans, decisions
-   - Test timeout and retry logic
+### REQ-1: Feature Flag Polling Optimization
+**WHEN** E2E tests execute, **THE SYSTEM SHALL** minimize API calls to feature flag endpoint to reduce load and execution time.
 
-**Estimated Effort:** 2.5 developer-days
+**Acceptance Criteria**:
+- Feature flag polling occurs once per test file, not per test
+- API calls reduced by 90% (from 31 per shard to <3 per shard)
+- Test execution time reduced by 20-30%
 
----
+### REQ-2: Browser-Agnostic Label Locators
+**WHEN** E2E tests query form fields, **THE SYSTEM SHALL** use locators that work consistently across Chromium, Firefox, and WebKit.
 
-### File 3: backend/internal/services/backup_service.go (426 lines)
+**Acceptance Criteria**:
+- All DNS provider form tests pass on Firefox and WebKit
+- Locators use multiple fallback strategies (`getByLabel`, `getByPlaceholder`, `getById`)
+- No browser-specific workarounds needed
 
-**Current Coverage:** 63.33% (5 missing, 6 partials)
-**Target Coverage:** 100%
-**Complexity:** 🟡 MEDIUM (cron scheduling, zip operations)
+### REQ-3: API Stress Reduction
+**WHEN** parallel test processes execute, **THE SYSTEM SHALL** implement throttling or debouncing to prevent API bottlenecks.
 
-**Existing Test Files:**
-- `backend/internal/services/backup_service_test.go`
-- `backend/internal/services/backup_service_disk_test.go`
+**Acceptance Criteria**:
+- Concurrent API calls limited via request coalescing
+- Tests use cached responses where appropriate
+- API server remains responsive under test load
 
-#### Functions Requiring Coverage
+### REQ-4: Test Isolation
+**WHEN** a test modifies feature flags, **THE SYSTEM SHALL** restore original state without requiring global polling.
 
-1. **Start() - Lines 80-120**
-   - Missing: Cron schedule parsing failures
-   - Missing: Duplicate start prevention
+**Acceptance Criteria**:
+- Feature flag state restored per-test using direct API calls
+- No inter-test dependencies on feature flag state
+- Tests can run in any order without failures
 
-2. **Stop() - Lines 125-145**
-   - Missing: Stop when not started (idempotent)
+## Technical Design
 
-3. **CreateBackup() - Lines 200-280**
-   - Missing: Disk full scenario
-   - Partials: Zip corruption recovery
+### Phase 1: Quick Fixes (Deploy within 24h)
 
-4. **RestoreBackup() - Lines 350-420**
-   - Missing: Zip decompression bomb detection
-   - Partials: Malformed archive handling
+#### Fix 1.1: Remove Unnecessary Feature Flag Polling from beforeEach
+**File**: `tests/settings/system-settings.spec.ts`
 
-5. **GetAvailableSpace() - Lines 450-475**
-   - Missing: Syscall failure handling
+**Change**: Remove `waitForFeatureFlagPropagation()` from `beforeEach` hook entirely.
 
-#### Test Cases Required
+**Rationale**:
+- Tests already verify feature flag state in test steps
+- Initial state verification is redundant if tests toggle and verify in each step
+- Polling is only needed AFTER toggling, not before every test
 
-```go
-// TestStart_InvalidCronSchedule
-// - Create service with invalid cron expression
-// - Call Start()
-// - Verify error returned
+**Implementation**:
+```typescript
+test.beforeEach(async ({ page, adminUser }) => {
+  await loginUser(page, adminUser);
+  await waitForLoadingComplete(page);
+  await page.goto('/settings/system');
+  await waitForLoadingComplete(page);
 
-// TestStop_Idempotent
-// - Stop without calling Start first
-// - Verify no panic, no error
-
-// TestCreateBackup_DiskFull
-// - Mock syscall.Statfs to return 0 available space
-// - Verify backup fails with "disk full" error
-
-// TestRestoreBackup_DecompressionBomb
-// - Create zip with 1GB compressed → 10TB uncompressed
-// - Verify rejection before extraction
-
-// TestGetAvailableSpace_SyscallFailure
-// - Mock Statfs to return error
-// - Verify graceful error handling
+  // ✅ REMOVED: Feature flag polling - tests verify state individually
+});
 ```
 
-#### Implementation Strategy
-
-1. **Cron Lifecycle Tests**
-   - Test start/stop multiple times
-   - Verify scheduler cleanup on stop
-
-2. **Disk Space Mocking**
-   - Use interface for syscall operations (new)
-   - Mock Statfs for edge cases
-
-3. **Archive Safety Tests**
-   - Test zip bomb detection
-   - Test path traversal in archive entries
-
-**Estimated Effort:** 1.5 developer-days
-
----
-
-### File 4: backend/internal/crowdsec/hub_sync.go (916 lines)
-
-**Current Coverage:** 46.66% (3 missing, 5 partials)
-**Target Coverage:** 100%
-**Complexity:** 🟡 MEDIUM (HTTP client, cache, tar.gz extraction)
-
-**Existing Test Files:**
-- `backend/internal/crowdsec/hub_sync_test.go`
-- `backend/internal/crowdsec/hub_pull_apply_test.go`
-- `backend/internal/crowdsec/hub_sync_raw_index_test.go`
-
-#### Functions Requiring Coverage
-
-1. **FetchIndex() - Lines 120-180**
-   - Missing: HTTP timeout handling
-   - Partials: JSON parse failures
-
-2. **Pull() - Lines 250-350**
-   - Missing: Etag cache hit logic
-   - Partials: Fallback URL failures
-
-3. **Apply() - Lines 400-480**
-   - Missing: Tar extraction path traversal
-   - Missing: Rollback on partial apply
-   - Partials: CommandExecutor failures
-
-4. **validateHubURL() - Lines 600-650**
-   - Missing: SSRF protection (private IP ranges)
-   - Missing: Invalid scheme rejection
-
-#### Test Cases Required
-
-```go
-// TestFetchIndex_HTTPTimeout
-// - Mock HTTP client to timeout
-// - Verify graceful error with retry suggestion
-
-// TestPull_EtagCacheHit
-// - Mock HTTP response with matching Etag
-// - Verify 304 Not Modified handling
-
-// TestApply_PathTraversal
-// - Create tar.gz with "../../../etc/passwd"
-// - Verify extraction blocked
-
-// TestValidateHubURL_PrivateIP
-// - Call validateHubURL("http://192.168.1.1/preset")
-// - Verify SSRF protection rejects
-
-// TestValidateHubURL_InvalidScheme
-// - Call validateHubURL("ftp://example.com/preset")
-// - Verify only http/https allowed
-```
-
-#### Implementation Strategy
-
-1. **HTTP Client Mocking**
-   - Use existing `mockHTTPClient` patterns
-   - Add timeout and redirect scenarios
-
-2. **SSRF Protection Tests**
-   - Test all RFC1918 ranges (10.x, 172.16.x, 192.168.x)
-   - Test localhost, link-local (169.254.x)
-
-3. **Archive Safety Matrix**
-   - Test absolute paths, symlinks, path traversal in tar entries
-
-**Estimated Effort:** 2 developer-days
-
----
-
-### File 5: backend/internal/api/handlers/feature_flags_handler.go (128 lines)
-
-**Current Coverage:** 83.33% (4 missing, 2 partials)
-**Target Coverage:** 100%
-**Complexity:** 🟢 LOW (simple CRUD with batch optimization)
-
-**Existing Test Files:**
-- `backend/internal/api/handlers/feature_flags_handler_test.go`
-- `backend/internal/api/handlers/feature_flags_handler_coverage_test.go`
-
-#### Functions Requiring Coverage
-
-1. **GetFlags() - Lines 50-80**
-   - Missing: DB query failure handling
-
-2. **UpdateFlags() - Lines 85-120**
-   - Partials: Transaction rollback paths
-
-#### Test Cases Required
-
-```go
-// TestGetFlags_DatabaseError
-// - Mock db.Find() to return error
-// - Verify 500 response with error code
-
-// TestUpdateFlags_TransactionRollback
-// - Mock transaction to fail mid-update
-// - Verify rollback executed
-// - Verify no partial updates persisted
-```
-
-#### Implementation Strategy
-
-1. **Database Error Scenarios**
-   - Use existing testDB patterns
-   - Inject failures at specific query points
-
-**Estimated Effort:** 0.5 developer-days
-
----
-
-### File 6: backend/internal/caddy/importer.go (438 lines)
-
-**Current Coverage:** 76.0% (22 missing, 4 partials)
-**Target Coverage:** 100%
-**Complexity:** 🟡 MEDIUM (Caddyfile parsing, JSON extraction)
-
-**Existing Test Files:**
-- `backend/internal/caddy/importer_test.go`
-- `backend/internal/caddy/importer_subroute_test.go`
-- `backend/internal/caddy/importer_additional_test.go`
-- `backend/internal/caddy/importer_extra_test.go`
-
-#### Functions Requiring Coverage
-
-1. **NormalizeCaddyfile() - Lines 115-165**
-   - Missing: Temp file write failures
-   - Missing: caddy fmt timeout handling
-
-2. **ParseCaddyfile() - Lines 170-210**
-   - Missing: Path traversal validation
-   - Missing: caddy adapt failures
-
-3. **extractHandlers() - Lines 280-350**
-   - Missing: Deep subroute nesting
-
-4. **BackupCaddyfile() - Lines 400-435**
-   - Missing: Path validation errors
-
-#### Test Cases Required
-
-```go
-// TestNormalizeCaddyfile_TempFileFailure
-// - Mock os.CreateTemp to return error
-// - Verify error propagated
-
-// TestNormalizeCaddyfile_Timeout
-// - Mock executor to timeout
-// - Verify timeout error message
-
-// TestParseCaddyfile_PathTraversal
-// - Call with path "../../../etc/Caddyfile"
-// - Verify rejection
-
-// TestExtractHandlers_DeepNesting
-// - Parse JSON with subroute → subroute → handler
-// - Verify correct flattening
-
-// TestBackupCaddyfile_PathTraversal
-// - Call with originalPath="../../../sensitive"
-// - Verify rejection
-```
-
-#### Implementation Strategy
-
-1. **Executor Mocking**
-   - Use existing `Executor` interface
-   - Add timeout simulation
-
-2. **Path Safety Test Matrix**
-   - Comprehensive traversal patterns
-   - Unicode normalization tricks
-
-**Estimated Effort:** 1.5 developer-days
-
----
-
-### File 7: backend/internal/services/security_service.go (442 lines)
-
-**Current Coverage:** 50.0% (12 missing, 8 partials)
-**Target Coverage:** 100%
-**Complexity:** 🟡 MEDIUM (audit logging, goroutine lifecycle, break-glass tokens)
-
-**Existing Test File:** `backend/internal/services/security_service_test.go`
-
-#### Functions Requiring Coverage
-
-1. **Close() - Lines 40-55**
-   - Missing: Double-close prevention
-
-2. **Flush() - Lines 60-75**
-   - Missing: Timeout on slow audit writes
-
-3. **Get() - Lines 80-110**
-   - Missing: Fallback to first row (backward compat)
-   - Partials: RecordNotFound handling
-
-4. **Upsert() - Lines 115-180**
-   - Missing: Invalid CrowdSec mode rejection
-   - Partials: CIDR validation failures
-
-5. **processAuditEvents() - Lines 300-350**
-   - Missing: Channel close handling
-   - Missing: DB error during audit write
-
-6. **ListAuditLogs() - Lines 380-430**
-   - Partials: Pagination edge cases
-
-#### Test Cases Required
-
-```go
-// TestClose_DoubleClose
-// - Call Close() twice
-// - Verify no panic, idempotent
-
-// TestFlush_SlowWrite
-// - Mock DB write to delay
-// - Verify Flush waits correctly
-
-// TestGet_BackwardCompatFallback
-// - DB with no "default" row but has other rows
-// - Verify fallback to first row
-
-// TestUpsert_InvalidCrowdSecMode
-// - Call with CrowdSecMode="remote"
-// - Verify rejection error
-
-// TestProcessAuditEvents_ChannelClosed
-// - Close channel while processing
-// - Verify graceful shutdown
-
-// TestListAuditLogs_EmptyResult
-// - Query with no matching logs
-// - Verify empty array, not error
-```
-
-#### Implementation Strategy
-
-1. **Goroutine Testing**
-   - Use sync.WaitGroup to verify cleanup
-   - Test channel closure scenarios
-
-2. **CIDR Validation Matrix**
-   - Test valid: "192.168.1.0/24", "10.0.0.1"
-   - Test invalid: "999.999.999.999/99", "not-an-ip"
-
-**Estimated Effort:** 2 developer-days
-
----
-
-### File 8: backend/internal/crowdsec/hub_cache.go (234 lines)
-
-**Current Coverage:** 28.57% (5 missing, 0 partials)
-**Target Coverage:** 100%
-**Complexity:** 🟢 LOW (cache CRUD with TTL)
-
-**Existing Test File:** `backend/internal/crowdsec/hub_cache_test.go`
-
-#### Functions Requiring Coverage
-
-1. **Store() - Lines 60-105**
-   - Missing: Context cancellation handling
-   - Missing: Metadata write failure
-
-2. **Load() - Lines 110-145**
-   - Missing: Expired entry handling
-
-3. **Touch() - Lines 200-220**
-   - Missing: Update timestamp for TTL extension
-
-4. **Size() - Lines 225-240**
-   - Missing: Total cache size calculation
-
-#### Test Cases Required
-
-```go
-// TestStore_ContextCancelled
-// - Cancel context before Store completes
-// - Verify operation aborted
-
-// TestLoad_Expired
-// - Store with short TTL
-// - Wait for expiry
-// - Verify ErrCacheExpired returned
-
-// TestTouch_ExtendTTL
-// - Store entry with 1 hour TTL
-// - Touch after 30 minutes
-// - Verify TTL reset
-
-// TestSize_MultipleEntries
-// - Store 3 presets of known sizes
-// - Call Size()
-// - Verify accurate total
-```
-
-#### Implementation Strategy
-
-1. **TTL Testing**
-   - Use mock time function (`nowFn` field)
-   - Avoid time.Sleep in tests
-
-2. **Context Testing**
-   - Test cancellation at various points
-
-**Estimated Effort:** 1 developer-day
-
----
-
-### File 9: backend/internal/api/handlers/manual_challenge_handler.go (615 lines)
-
-**Current Coverage:** 33.33% (8 missing, 4 partials)
-**Target Coverage:** 100%
-**Complexity:** 🟡 MEDIUM (DNS challenge API with validation)
-
-**Existing Test File:** `backend/internal/api/handlers/manual_challenge_handler_test.go`
-
-#### Functions Requiring Coverage
-
-1. **GetChallenge() - Lines 90-160**
-   - Missing: Provider type validation
-   - Partials: User authorization checks
-
-2. **VerifyChallenge() - Lines 165-240**
-   - Missing: Challenge expired handling
-   - Partials: Provider ownership check
-
-3. **PollChallenge() - Lines 245-310**
-   - Partials: Status update failures
-
-4. **CreateChallenge() - Lines 420-490**
-   - Missing: Duplicate challenge detection
-   - Partials: Provider type check
-
-#### Test Cases Required
-
-```go
-// TestGetChallenge_NonManualProvider
-// - Create challenge on "cloudflare" provider
-// - Call GetChallenge
-// - Verify 400 "invalid provider type"
-
-// TestVerifyChallenge_Expired
-// - Create expired challenge (CreatedAt - 2 hours)
-// - Call VerifyChallenge
-// - Verify 410 Gone response
-
-// TestCreateChallenge_Duplicate
-// - Create challenge for domain
-// - Create second challenge for same domain
-// - Verify 409 Conflict
-
-// TestGetChallenge_Unauthorized
-// - User A creates challenge
-// - User B tries to access
-// - Verify 403 Forbidden
-```
-
-#### Implementation Strategy
-
-1. **Mock Services**
-   - Use existing `ManualChallengeServiceInterface`
-   - Add authorization failure scenarios
-
-2. **Time-Based Testing**
-   - Mock challenge timestamps for expiry tests
-
-**Estimated Effort:** 1.5 developer-days
-
-- **ROLLBACK immediately** if:
-  - Production deployments are affected
-  - Core functionality breaks (API, routing, healthchecks)
-  - Security posture degrades
-  - No clear remediation path within 30 minutes
-
-### File 10: backend/internal/api/handlers/crowdsec_exec.go (149 lines)
-
-**Current Coverage:** 0% (1 line missing, 0 partials)
-**Target Coverage:** 100%
-**Complexity:** 🟢 LOW (PID process checks)
-
-**Existing Test File:** `backend/internal/api/handlers/crowdsec_exec_test.go`
-
-#### Functions Requiring Coverage
-
-1. **isCrowdSecProcess() - Lines 35-45**
-   - Missing: Non-CrowdSec process rejection
-
-#### Test Cases Required
-
-```go
-// TestIsCrowdSecProcess_ValidProcess
-// - Create mock /proc/{pid}/cmdline with "crowdsec"
-// - Call isCrowdSecProcess
-// - Verify returns true
-
-// TestIsCrowdSecProcess_WrongProcess
-// - Create mock /proc/{pid}/cmdline with "nginx"
-// - Verify returns false (PID recycling protection)
-```
-
-#### Implementation Strategy
-
-1. **Mock /proc filesystem**
-   - Use existing `procPath` field for testing
-   - Create temp directory with fake cmdline files
-
-**Estimated Effort:** 0.5 developer-days
-
-      - name: Update Dockerfile
-        if: steps.checksum.outputs.current != steps.checksum.outputs.old
-        run: |
-          sed -i "s/ARG GEOLITE2_COUNTRY_SHA256=.*/ARG GEOLITE2_COUNTRY_SHA256=${{ steps.checksum.outputs.current }}/" Dockerfile
-
-## 3. Implementation Priority
-
-### Phase 1: Critical Files (Week 1)
-**Goal:** Recover 50% of missing coverage
-
-1. **import_handler.go** (3 days)
-   - Highest missing line count (33 lines)
-   - Business-critical import feature
-
-2. **crowdsec_handler.go** (2.5 days)
-   - Core security module functionality
-   - Complex LAPI integration
-
-**Deliverable:** +40 lines coverage, patch coverage → 75%
-
----
-
-### Phase 2: High-Impact Files (Week 2)
-**Goal:** Recover 35% of missing coverage
-
-3. **hub_sync.go** (2 days)
-   - SSRF protection critical
-   - CrowdSec hub operations
-
-4. **security_service.go** (2 days)
-   - Audit logging correctness
-   - Break-glass token security
-
-5. **backup_service.go** (1.5 days)
-   - Data integrity critical
-
-**Deliverable:** +35 lines coverage, patch coverage → 90%
-
----
-
-### Phase 3: Remaining Files (Week 3)
-**Goal:** Achieve 100% patch coverage
-
-6. **importer.go** (1.5 days)
-7. **manual_challenge_handler.go** (1.5 days)
-8. **hub_cache.go** (1 day)
-9. **feature_flags_handler.go** (0.5 days)
-10. **crowdsec_exec.go** (0.5 days)
-
-**Deliverable:** 100% patch coverage, 86%+ local coverage
-
----
-
-## 4. Test Strategy
-
-### Testing Principles
-
-1. **Table-Driven Tests**
-   - Use for input validation and error paths
-   - Pattern: `tests := []struct{ name, input, wantErr string }`
-
-2. **Interface Mocking**
-   - Mock external dependencies (Executor, HTTPClient, DB)
-   - Pattern: Define `*Interface` type, create `mock*` struct
-
-3. **Test Database Isolation**
-   - Use `OpenTestDB()` for in-memory SQLite
-   - Clean up with `defer db.Close()`
-
-4. **Context Testing**
-   - Test cancellation at critical points
-   - Use `context.WithCancel()` in tests
-
-5. **Error Injection**
-   - Mock failures at boundaries (disk full, network timeout, DB error)
-   - Verify graceful degradation
-
-### Test File Organization
-
-```
-backend/internal/
-├── api/handlers/
-│   ├── import_handler.go
-│   ├── import_handler_test.go          # Existing
-│   ├── crowdsec_handler.go
-│   ├── crowdsec_handler_test.go        # Existing
-│   ├── manual_challenge_handler.go
-│   └── manual_challenge_handler_test.go # Existing
-├── services/
-│   ├── backup_service.go
-│   ├── backup_service_test.go          # Existing
-│   ├── security_service.go
-│   └── security_service_test.go        # Existing
-└── crowdsec/
-    ├── hub_sync.go
-    ├── hub_sync_test.go                # Existing
-    ├── hub_cache.go
-    └── hub_cache_test.go               # Existing
-```
-
-### Mock Patterns
-
-#### Example: Mock Importer
-
-```go
-// NEW: Define interface in import_handler.go
-type ImporterInterface interface {
-    NormalizeCaddyfile(content string) (string, error)
-    ParseCaddyfile(path string) ([]byte, error)
-    ExtractHosts(json []byte) (*ImportResult, error)
-}
-
-// In test file
-type mockImporter struct {
-    normalizeErr error
-    parseErr     error
-}
-
-func (m *mockImporter) NormalizeCaddyfile(content string) (string, error) {
-    if m.normalizeErr != nil {
-        return "", m.normalizeErr
+**Expected Impact**: 10s × 31 tests = 310s saved per shard
+
+#### Fix 1.1b: Add Test Isolation Strategy
+**File**: `tests/settings/system-settings.spec.ts`
+
+**Change**: Add `test.afterEach()` hook to restore default feature flag state after each test.
+
+**Rationale**:
+- Not all 31 tests explicitly verify feature flag state in their steps
+- Some tests may modify flags without restoring them
+- State leakage between tests can cause flakiness
+- Explicit cleanup ensures test isolation
+
+**Implementation**:
+```typescript
+test.afterEach(async ({ page }) => {
+  await test.step('Restore default feature flag state', async () => {
+    // Reset to known good state after each test
+    const defaultFlags = {
+      'cerberus.enabled': true,
+      'crowdsec.console_enrollment': false,
+      'uptime.enabled': false,
+    };
+
+    // Direct API call to reset flags (no polling needed)
+    for (const [flag, value] of Object.entries(defaultFlags)) {
+      await page.evaluate(async ({ flag, value }) => {
+        await fetch(`/api/v1/feature-flags/${flag}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: value }),
+        });
+      }, { flag, value });
     }
-    return content, nil
-}
+  });
+});
 ```
 
-#### Example: Table-Driven Path Safety
-
-```go
-func TestSafeJoin_PathTraversal(t *testing.T) {
-    tests := []struct {
-        name    string
-        base    string
-        path    string
-        wantErr bool
-    }{
-        {"relative safe", "/tmp", "file.txt", false},
-        {"parent traversal", "/tmp", "../etc/passwd", true},
-        {"double parent", "/tmp", "../../root", true},
-        {"absolute", "/tmp", "/etc/passwd", true},
-        {"hidden parent", "/tmp", "a/../../../etc", true},
-    }
-
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            _, err := safeJoin(tt.base, tt.path)
-            if (err != nil) != tt.wantErr {
-                t.Errorf("wantErr=%v, got err=%v", tt.wantErr, err)
-            }
-        })
-    }
-}
-```
-
-### Coverage Validation
-
-After each phase, run:
-
+**Validation Command**:
 ```bash
-# Local coverage
-go test ./backend/... -coverprofile=coverage.out
-go tool cover -func=coverage.out | grep total
+# Test isolation: Run tests in random order with multiple workers
+npx playwright test tests/settings/system-settings.spec.ts \
+  --repeat-each=5 \
+  --workers=4 \
+  --project=chromium
 
-# Expected output after Phase 3:
-# total: (statements) 86.0%
-
-# Codecov patch coverage (CI)
-# Expected: 100% for all modified lines
+# Should pass consistently regardless of execution order
 ```
 
----
+**Expected Impact**: Eliminates inter-test dependencies, prevents state leakage
 
-## 5. Definition of Done
+#### Fix 1.2: Investigate and Fix Root Cause of Label Locator Failures
+**File**: `tests/dns-provider-types.spec.ts`
 
-### Coverage Metrics
+**Change**: Investigate why label locator fails in Firefox/WebKit before applying workarounds.
 
-- [x] **Local Coverage:** 86%+ (via `go test -cover`)
-- [x] **CI Coverage:** 85%+ (Codecov reports slightly lower)
-- [x] **Patch Coverage:** 100% (no modified line uncovered)
-
-### Code Quality
-
-- [x] All tests pass on first run (no flakes)
-- [x] No skipped tests (`.Skip()` only for valid reasons)
-- [x] No truncated test output (avoid `head`, `tail`)
-- [x] Table-driven tests for input validation
-- [x] Mock interfaces for external dependencies
-
-### Documentation
-
-- [x] Test file comments explain complex scenarios
-- [x] Test names follow convention: `Test<Function>_<Scenario>`
-- [x] Failure messages are actionable
-
-### Security
-
-- [x] GORM Security Scanner passes (manual stage)
-- [x] Path traversal tests in place
-- [x] SSRF protection validated
-- [x] No hardcoded credentials in tests
-
-### CI Integration
-
-- [x] All tests pass in CI pipeline
-- [x] Codecov patch coverage gate passes
-- [x] No new linting errors introduced
-
----
-
-## 6. Continuous Validation
-
-### Pre-Commit Checks
-
-```bash
-# Run before each commit
-make test-backend-coverage
-
-# Expected output:
-# ✅ Coverage: 86.2%
-# ✅ All tests passed
+**Current Symptom**:
+```typescript
+const scriptField = page.getByLabel(/script.*path/i);
+await expect(scriptField).toBeVisible({ timeout: 10000 });
+// ❌ Passes in Chromium, fails in Firefox/WebKit
 ```
 
-### Daily Monitoring
+**Investigation Steps** (REQUIRED before implementing fix):
 
-- Check Codecov dashboard for regression
-- Review failed CI runs immediately
-- Monitor test execution time (should be <5 min for all backend tests)
-
-### Weekly Review
-
-- Analyze coverage trends (should not drop below 85%)
-- Identify new untested code from PRs
-- Update this plan if new files need coverage
-
----
-
-## 7. Risk Mitigation
-
-### Identified Risks
-
-1. **Flaky Tests**
-   - **Mitigation:** Avoid time.Sleep, use mocks for time
-   - **Detection:** Run tests 10x locally before commit
-
-2. **Mock Drift**
-   - **Mitigation:** Keep mocks in sync with interfaces
-   - **Detection:** CI will fail if interface changes
-
-3. **Coverage Regression**
-   - **Mitigation:** Codecov patch coverage gate (100%)
-   - **Detection:** Automated on every PR
-
-4. **Test Maintenance Burden**
-   - **Mitigation:** Use table-driven tests to reduce duplication
-   - **Detection:** Review test LOC vs production LOC ratio (should be <2:1)
-
----
-
-## 8. Rollout Plan
-
-### Week 1: Critical Files (10 points)
-- Day 1-2: import_handler.go tests
-- Day 3-4: crowdsec_handler.go tests
-- Day 5: Integration testing, coverage validation
-- **Checkpoint:** Coverage → 75%
-
-### Week 2: High-Impact Files (20 points)
-- Day 1-2: hub_sync.go + security_service.go
-- Day 3-4: backup_service.go
-- Day 5: Integration testing, coverage validation
-- **Checkpoint:** Coverage → 90%
-
-### Week 3: Remaining Files (20 points)
-- Day 1: importer.go + manual_challenge_handler.go
-- Day 2: hub_cache.go + feature_flags_handler.go + crowdsec_exec.go
-- Day 3: Full regression testing
-- Day 4: Documentation, PR prep
-- Day 5: Code review iterations
-- **Checkpoint:** Coverage → 86%+, patch coverage 100%
-
----
-
-## 9. Success Criteria
-
-### Quantitative Metrics
-
-| Metric | Current | Target | Status |
-|--------|---------|--------|--------|
-| Local Coverage | ~60% | 86%+ | ❌ |
-| CI Coverage | ~58% | 85%+ | ❌ |
-| Patch Coverage | 59.33% | 100% | ❌ |
-| Missing Lines | 98 | 0 | ❌ |
-| Partial Branches | 35 | 0 | ❌ |
-
-### Qualitative Outcomes
-
-- [x] All critical business logic paths tested
-- [x] Security validation (SSRF, path traversal) enforced by tests
-- [x] Error handling coverage comprehensive
-- [x] Flake-free test suite
-- [x] Fast test execution (<5 min total)
-
----
-
-## 10. Post-Implementation
-
-### Maintenance
-
-1. **New Code Requirements**
-   - All new functions must have tests
-   - Pre-commit hooks enforce coverage
-   - PR reviews check patch coverage
-
-2. **Regression Prevention**
-   - Codecov threshold: 85% enforced
-   - Weekly coverage reports
-   - Coverage trends dashboard
-
-3. **Test Debt Tracking**
-   - Label low-coverage files in backlog
-   - Quarterly coverage audits
-   - Test optimization sprints
-
-**Debug Steps:**
-1. **Check specific stage build:**
+1. **Use Playwright Inspector** to examine actual DOM structure:
    ```bash
-   # Test specific stage
-   docker build --target backend-builder -t test-backend .
-   docker build --target frontend-builder -t test-frontend .
+   PWDEBUG=1 npx playwright test tests/dns-provider-types.spec.ts \
+     --project=firefox \
+     --headed
+   ```
+   - Pause at failure point
+   - Inspect the form field in dev tools
+   - Check actual `aria-label`, `label` association, and `for` attribute
+   - Document differences between Chromium vs Firefox/WebKit
+
+2. **Check Component Implementation**:
+   - Review `frontend/src/components/DNSProviderForm.tsx` (lines 273-279)
+   - Verify Label component from shadcn/ui renders correctly
+   - Check if `htmlFor` attribute matches input `id`
+   - Test manual form interaction in Firefox/WebKit locally
+
+3. **Verify Backend Response**:
+   - Inspect `/api/v1/dns-providers/custom/script` response
+   - Confirm `script_path` field metadata includes correct label
+   - Check if label is being transformed or sanitized
+
+**Potential Root Causes** (investigate in order):
+- Label component not associating with input (missing `htmlFor`/`id` match)
+- Browser-specific text normalization (e.g., whitespace, case sensitivity)
+- ARIA label override conflicting with visible label
+- React hydration issue in Firefox/WebKit
+
+**Fix Strategy** (only after investigation):
+
+**IF** root cause is fixable in component:
+- Fix the actual bug in `DNSProviderForm.tsx`
+- No workaround needed in tests
+- **Document Decision in Decision Record** (required)
+
+**IF** root cause is browser-specific rendering quirk:
+- Use `.or()` chaining as documented fallback:
+  ```typescript
+  await test.step('Verify Script path/command field appears', async () => {
+    // Primary strategy: label locator (works in Chromium)
+    const scriptField = page
+      .getByLabel(/script.*path/i)
+      .or(page.getByPlaceholder(/dns-challenge\.sh/i))  // Fallback 1
+      .or(page.locator('input[id^="field-script"]'));   // Fallback 2
+
+    await expect(scriptField.first()).toBeVisible({ timeout: 10000 });
+  });
+  ```
+- **Document Decision in Decision Record** (required)
+- Add comment explaining why `.or()` is needed
+
+**Decision Record Template** (create if workaround is needed):
+```markdown
+### Decision - 2026-02-02 - DNS Provider Label Locator Workaround
+
+**Decision**: Use `.or()` chaining for Script Path field locator
+
+**Context**:
+- `page.getByLabel(/script.*path/i)` fails in Firefox/WebKit
+- Root cause: [document findings from investigation]
+- Component: `DNSProviderForm.tsx` line 276
+
+**Options**:
+1. Fix component (preferred) - [reason why not chosen]
+2. Use `.or()` chaining (chosen) - [reason]
+3. Skip Firefox/WebKit tests - [reason why not chosen]
+
+**Rationale**: [Explain trade-offs and why workaround is acceptable]
+
+**Impact**:
+- Test reliability: [describe]
+- Maintenance burden: [describe]
+- Future component changes: [describe]
+
+**Review**: Re-evaluate when Playwright or shadcn/ui updates are applied
+```
+
+**Expected Impact**: Tests pass consistently on all browsers with understood root cause
+
+#### Fix 1.3: Add Request Coalescing with Worker Isolation
+**File**: `tests/utils/wait-helpers.ts`
+
+**Change**: Cache in-flight requests with proper worker isolation and sorted keys.
+
+**Implementation**:
+```typescript
+// Add at module level
+const inflightRequests = new Map<string, Promise<Record<string, boolean>>>();
+
+/**
+ * Generate stable cache key with worker isolation
+ * Prevents cache collisions between parallel workers
+ */
+function generateCacheKey(
+  expectedFlags: Record<string, boolean>,
+  workerIndex: number
+): string {
+  // Sort keys to ensure {a:true, b:false} === {b:false, a:true}
+  const sortedFlags = Object.keys(expectedFlags)
+    .sort()
+    .reduce((acc, key) => {
+      acc[key] = expectedFlags[key];
+      return acc;
+    }, {} as Record<string, boolean>);
+
+  // Include worker index to isolate parallel processes
+  return `${workerIndex}:${JSON.stringify(sortedFlags)}`;
+}
+
+export async function waitForFeatureFlagPropagation(
+  page: Page,
+  expectedFlags: Record<string, boolean>,
+  options: FeatureFlagPropagationOptions = {}
+): Promise<Record<string, boolean>> {
+  // Get worker index from test info
+  const workerIndex = test.info().parallelIndex;
+  const cacheKey = generateCacheKey(expectedFlags, workerIndex);
+
+  // Return existing promise if already in flight for this worker
+  if (inflightRequests.has(cacheKey)) {
+    console.log(`[CACHE HIT] Worker ${workerIndex}: ${cacheKey}`);
+    return inflightRequests.get(cacheKey)!;
+  }
+
+  console.log(`[CACHE MISS] Worker ${workerIndex}: ${cacheKey}`);
+
+  const promise = (async () => {
+    // Existing polling logic...
+    const interval = options.interval ?? 500;
+    const timeout = options.timeout ?? 30000;
+    const maxAttempts = options.maxAttempts ?? Math.ceil(timeout / interval);
+
+    let lastResponse: Record<string, boolean> | null = null;
+    let attemptCount = 0;
+
+    while (attemptCount < maxAttempts) {
+      attemptCount++;
+
+      const response = await page.evaluate(async () => {
+        const res = await fetch('/api/v1/feature-flags', {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+      });
+
+      lastResponse = response.data as Record<string, boolean>;
+
+      const allMatch = Object.entries(expectedFlags).every(
+        ([key, expectedValue]) => response.data[key] === expectedValue
+      );
+
+      if (allMatch) {
+        inflightRequests.delete(cacheKey);
+        return lastResponse;
+      }
+
+      await page.waitForTimeout(interval);
+    }
+
+    inflightRequests.delete(cacheKey);
+    throw new Error(
+      `Feature flag propagation timeout after ${attemptCount} attempts (${timeout}ms).\n` +
+      `Expected: ${JSON.stringify(expectedFlags)}\n` +
+      `Actual: ${JSON.stringify(lastResponse)}`
+    );
+  })();
+
+  inflightRequests.set(cacheKey, promise);
+  return promise;
+}
+
+// Clear cache after all tests in a worker complete
+test.afterAll(() => {
+  const workerIndex = test.info().parallelIndex;
+  const keysToDelete = Array.from(inflightRequests.keys())
+    .filter(key => key.startsWith(`${workerIndex}:`));
+
+  keysToDelete.forEach(key => inflightRequests.delete(key));
+  console.log(`[CLEANUP] Worker ${workerIndex}: Cleared ${keysToDelete.length} cache entries`);
+});
+```
+
+**Why Sorted Keys?**
+- `{a:true, b:false}` vs `{b:false, a:true}` are semantically identical
+- Without sorting, they generate different cache keys → cache misses
+- Sorting ensures consistent key regardless of property order
+
+**Why Worker Isolation?**
+- Playwright workers run in parallel across different browser contexts
+- Each worker needs its own cache to avoid state conflicts
+- Worker index provides unique namespace per parallel process
+
+**Expected Impact**: Reduce duplicate API calls by 30-40% (revised from 70-80%)
+
+### Phase 2: Root Cause Fixes (Deploy within 72h)
+
+#### Fix 2.1: Convert Feature Flag Verification to Per-Test Pattern
+**Files**: All test files using `waitForFeatureFlagPropagation()`
+
+**Change**: Move feature flag verification into individual test steps where state changes occur.
+
+**Pattern**:
+```typescript
+// ❌ OLD: Global beforeEach polling
+test.beforeEach(async ({ page }) => {
+  await waitForFeatureFlagPropagation(page, { 'cerberus.enabled': true });
+});
+
+// ✅ NEW: Per-test verification only when toggled
+test('should toggle Cerberus feature', async ({ page }) => {
+  await test.step('Toggle Cerberus feature', async () => {
+    const toggle = page.getByRole('switch', { name: /cerberus/i });
+    const initialState = await toggle.isChecked();
+
+    await retryAction(async () => {
+      const response = await clickSwitchAndWaitForResponse(page, toggle, /\/feature-flags/);
+      expect(response.ok()).toBeTruthy();
+
+      // Only verify propagation after toggle action
+      await waitForFeatureFlagPropagation(page, {
+        'cerberus.enabled': !initialState,
+      });
+    });
+  });
+});
+```
+
+**CRITICAL AUDIT REQUIREMENT**:
+Before implementing, audit all 31 tests in `system-settings.spec.ts` to identify:
+1. Which tests explicitly toggle feature flags (require propagation check)
+2. Which tests only read feature flag state (no propagation check needed)
+3. Which tests assume Cerberus is enabled (document dependency)
+
+**Audit Template**:
+```markdown
+| Test Name | Toggles Flags? | Requires Cerberus? | Action |
+|-----------|----------------|-------------------|--------|
+| "should display security settings" | No | Yes | Add dependency comment |
+| "should toggle ACL" | Yes | Yes | Add propagation check |
+| "should display CrowdSec status" | No | Yes | Add dependency comment |
+```
+
+**Files to Update**:
+- `tests/settings/system-settings.spec.ts` (31 tests)
+- `tests/cerberus/security-dashboard.spec.ts` (if applicable)
+
+**Expected Impact**: 90% reduction in API calls (from 31 per shard to 3-5 per shard)
+
+#### Fix 2.2: Implement Label Helper for Cross-Browser Compatibility
+**File**: `tests/utils/ui-helpers.ts`
+
+**Implementation**:
+```typescript
+/**
+ * Get form field with cross-browser label matching
+ * Tries multiple strategies: label, placeholder, id, aria-label
+ */
+export function getFormFieldByLabel(
+  page: Page,
+  labelPattern: string | RegExp,
+  options: { placeholder?: string | RegExp; fieldId?: string } = {}
+): Locator {
+  const baseLocator = page.getByLabel(labelPattern);
+
+  // Build fallback chain
+  let locator = baseLocator;
+
+  if (options.placeholder) {
+    locator = locator.or(page.getByPlaceholder(options.placeholder));
+  }
+
+  if (options.fieldId) {
+    locator = locator.or(page.locator(`#${options.fieldId}`));
+  }
+
+  // Fallback: role + label text nearby
+  if (typeof labelPattern === 'string') {
+    locator = locator.or(
+      page.getByRole('textbox').filter({
+        has: page.locator(`label:has-text("${labelPattern}")`),
+      })
+    );
+  }
+
+  return locator;
+}
+```
+
+**Usage in Tests**:
+```typescript
+await test.step('Verify Script path/command field appears', async () => {
+  const scriptField = getFormFieldByLabel(
+    page,
+    /script.*path/i,
+    {
+      placeholder: /dns-challenge\.sh/i,
+      fieldId: 'field-script_path'
+    }
+  );
+  await expect(scriptField.first()).toBeVisible();
+});
+```
+
+**Files to Update**:
+- `tests/dns-provider-types.spec.ts` (3 tests)
+- `tests/dns-provider-crud.spec.ts` (accessibility tests)
+
+**Expected Impact**: 100% pass rate on Firefox/WebKit
+
+#### Fix 2.3: Add Conditional Feature Flag Verification
+**File**: `tests/utils/wait-helpers.ts`
+
+**Change**: Skip polling if already in expected state.
+
+**Implementation**:
+```typescript
+export async function waitForFeatureFlagPropagation(
+  page: Page,
+  expectedFlags: Record<string, boolean>,
+  options: FeatureFlagPropagationOptions = {}
+): Promise<Record<string, boolean>> {
+  // Quick check: are we already in expected state?
+  const currentState = await page.evaluate(async () => {
+    const res = await fetch('/api/v1/feature-flags');
+    return res.json();
+  });
+
+  const alreadyMatches = Object.entries(expectedFlags).every(
+    ([key, expectedValue]) => currentState[key] === expectedValue
+  );
+
+  if (alreadyMatches) {
+    console.log('[POLL] Feature flags already in expected state - skipping poll');
+    return currentState;
+  }
+
+  // Existing polling logic...
+}
+```
+
+**Expected Impact**: 50% fewer iterations when state is already correct
+
+### Phase 3: Prevention & Monitoring (Deploy within 1 week)
+
+#### Fix 3.1: Add E2E Performance Budget
+**File**: `.github/workflows/e2e-tests.yml`
+
+**Change**: Add step to enforce execution time limits per shard.
+
+**Implementation**:
+```yaml
+- name: Verify shard performance budget
+  if: always()
+  run: |
+    SHARD_DURATION=$((SHARD_END - SHARD_START))
+    MAX_DURATION=900  # 15 minutes
+
+    if [[ $SHARD_DURATION -gt $MAX_DURATION ]]; then
+      echo "::error::Shard exceeded performance budget: ${SHARD_DURATION}s > ${MAX_DURATION}s"
+      echo "::error::Investigate slow tests or API bottlenecks"
+      exit 1
+    fi
+
+    echo "✅ Shard completed within budget: ${SHARD_DURATION}s"
+```
+
+**Expected Impact**: Early detection of performance regressions
+
+#### Fix 3.2: Add API Call Metrics to Test Reports
+**File**: `tests/utils/wait-helpers.ts`
+
+**Change**: Track and report API call counts.
+
+**Implementation**:
+```typescript
+// Track metrics at module level
+const apiMetrics = {
+  featureFlagCalls: 0,
+  cacheHits: 0,
+  cacheMisses: 0,
+};
+
+export function getAPIMetrics() {
+  return { ...apiMetrics };
+}
+
+export function resetAPIMetrics() {
+  apiMetrics.featureFlagCalls = 0;
+  apiMetrics.cacheHits = 0;
+  apiMetrics.cacheMisses = 0;
+}
+
+// Update waitForFeatureFlagPropagation to increment counters
+export async function waitForFeatureFlagPropagation(...) {
+  apiMetrics.featureFlagCalls++;
+
+  if (inflightRequests.has(cacheKey)) {
+    apiMetrics.cacheHits++;
+    return inflightRequests.get(cacheKey)!;
+  }
+
+  apiMetrics.cacheMisses++;
+  // ...
+}
+```
+
+**Add to test teardown**:
+```typescript
+test.afterAll(async () => {
+  const metrics = getAPIMetrics();
+  console.log('API Call Metrics:', metrics);
+
+  if (metrics.featureFlagCalls > 50) {
+    console.warn(`⚠️ High API call count: ${metrics.featureFlagCalls}`);
+  }
+});
+```
+
+**Expected Impact**: Visibility into API usage patterns
+
+#### Fix 3.3: Document Best Practices for E2E Tests
+**File**: `docs/testing/e2e-best-practices.md` (to be created)
+
+**Content**:
+```markdown
+# E2E Testing Best Practices
+
+## Feature Flag Testing
+
+### ❌ AVOID: Polling in beforeEach
+```typescript
+test.beforeEach(async ({ page }) => {
+  // This runs before EVERY test - expensive!
+  await waitForFeatureFlagPropagation(page, { flag: true });
+});
+```
+
+### ✅ PREFER: Per-test verification
+```typescript
+test('feature toggle', async ({ page }) => {
+  // Only verify after we change the flag
+  await clickToggle(page);
+  await waitForFeatureFlagPropagation(page, { flag: false });
+});
+```
+
+## Cross-Browser Locators
+
+### ❌ AVOID: Label-only locators
+```typescript
+page.getByLabel(/script.*path/i)  // May fail in Firefox/WebKit
+```
+
+### ✅ PREFER: Multi-strategy locators
+```typescript
+getFormFieldByLabel(page, /script.*path/i, {
+  placeholder: /dns-challenge/i,
+  fieldId: 'field-script_path'
+})
+```
+```
+
+**Expected Impact**: Prevent future performance regressions
+
+## Implementation Plan
+
+### Sprint 1: Quick Wins (Days 1-2)
+- [ ] **Task 1.1**: Remove feature flag polling from `system-settings.spec.ts` beforeEach
+  - **Assignee**: TBD
+  - **Files**: `tests/settings/system-settings.spec.ts`
+  - **Validation**: Run test file locally, verify <5min execution time
+
+- [ ] **Task 1.1b**: Add test isolation with afterEach cleanup
+  - **Assignee**: TBD
+  - **Files**: `tests/settings/system-settings.spec.ts`
+  - **Validation**:
+    ```bash
+    npx playwright test tests/settings/system-settings.spec.ts \
+      --repeat-each=5 --workers=4 --project=chromium
+    ```
+
+- [ ] **Task 1.2**: Investigate label locator failures (BEFORE implementing workaround)
+  - **Assignee**: TBD
+  - **Files**: `tests/dns-provider-types.spec.ts`, `frontend/src/components/DNSProviderForm.tsx`
+  - **Validation**: Document investigation findings, create Decision Record if workaround needed
+
+- [ ] **Task 1.3**: Add request coalescing with worker isolation
+  - **Assignee**: TBD
+  - **Files**: `tests/utils/wait-helpers.ts`
+  - **Validation**: Check console logs for cache hits/misses, verify cache clears in afterAll
+
+**Sprint 1 Go/No-Go Checkpoint**:
+
+✅ **PASS Criteria** (all must be green):
+1. **Execution Time**: Test file runs in <5min locally
+   ```bash
+   time npx playwright test tests/settings/system-settings.spec.ts --project=chromium
+   ```
+   Expected: <300s
+
+2. **Test Isolation**: Tests pass with randomization
+   ```bash
+   npx playwright test tests/settings/system-settings.spec.ts \
+     --repeat-each=5 --workers=4 --shard=1/1
+   ```
+   Expected: 0 failures
+
+3. **Cache Performance**: Cache hit rate >30%
+   ```bash
+   grep -o "CACHE HIT" test-output.log | wc -l
+   grep -o "CACHE MISS" test-output.log | wc -l
+   # Calculate: hits / (hits + misses) > 0.30
    ```
 
-## Appendix A: Test Execution Commands
+❌ **STOP and Investigate If**:
+- Execution time >5min (insufficient improvement)
+- Test isolation fails (indicates missing cleanup)
+- Cache hit rate <20% (worker isolation not working)
+- Any new test failures introduced
+
+**Action on Failure**: Revert changes, root cause analysis, re-plan before proceeding to Sprint 2
+
+### Sprint 2: Root Fixes (Days 3-5)
+- [ ] **Task 2.0**: Audit all 31 tests for Cerberus dependencies
+  - **Assignee**: TBD
+  - **Files**: `tests/settings/system-settings.spec.ts`
+  - **Validation**: Complete audit table identifying which tests require propagation checks
+
+- [ ] **Task 2.1**: Refactor feature flag verification to per-test pattern
+  - **Assignee**: TBD
+  - **Files**: `tests/settings/system-settings.spec.ts` (only tests that toggle flags)
+  - **Validation**: All tests pass with <50 API calls total (check metrics)
+  - **Note**: Add `test.step()` wrapper to all refactored examples
+
+- [ ] **Task 2.2**: Create `getFormFieldByLabel` helper (only if workaround confirmed needed)
+  - **Assignee**: TBD
+  - **Files**: `tests/utils/ui-helpers.ts`
+  - **Validation**: Use in 3 test files, verify Firefox/WebKit pass
+  - **Prerequisite**: Decision Record from Task 1.2 investigation
+
+- [ ] **Task 2.3**: Add conditional skip to feature flag polling
+  - **Assignee**: TBD
+  - **Files**: `tests/utils/wait-helpers.ts`
+  - **Validation**: Verify early exit logs appear when state already matches
+
+**Sprint 2 Go/No-Go Checkpoint**:
+
+✅ **PASS Criteria** (all must be green):
+1. **API Call Reduction**: <50 calls per shard
+   ```bash
+   # Add instrumentation to count API calls
+   grep "GET /api/v1/feature-flags" charon.log | wc -l
+   ```
+   Expected: <50 calls
+
+2. **Cross-Browser Stability**: Firefox/WebKit pass rate >95%
+   ```bash
+   npx playwright test --project=firefox --project=webkit
+   ```
+   Expected: <5% failure rate
+
+3. **Test Coverage**: No coverage regression
+   ```bash
+   .github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
+   ```
+   Expected: Coverage ≥ baseline
+
+4. **Audit Completeness**: All 31 tests categorized
+   - Verify audit table is 100% complete
+   - All tests have appropriate propagation checks or dependency comments
+
+❌ **STOP and Investigate If**:
+- API calls still >100 per shard (insufficient improvement)
+- Firefox/WebKit pass rate <90% (locator fixes inadequate)
+- Coverage drops >2% (tests not properly refactored)
+- Missing audit entries (incomplete understanding of dependencies)
+
+**Action on Failure**: Do NOT proceed to Sprint 3. Re-analyze bottlenecks and revise approach.
+
+### Sprint 3: Prevention (Days 6-7)
+- [ ] **Task 3.1**: Add performance budget check to CI
+  - **Assignee**: TBD
+  - **Files**: `.github/workflows/e2e-tests.yml`
+  - **Validation**: Trigger workflow, verify budget check runs
+
+- [ ] **Task 3.2**: Implement API call metrics tracking
+  - **Assignee**: TBD
+  - **Files**: `tests/utils/wait-helpers.ts`, test files
+  - **Validation**: Run test suite, verify metrics in console output
+
+- [ ] **Task 3.3**: Document E2E best practices
+  - **Assignee**: TBD
+  - **Files**: `docs/testing/e2e-best-practices.md` (create)
+  - **Validation**: Technical review by team
+
+## Coverage Impact Analysis
+
+### Baseline Coverage Requirements
+
+**MANDATORY**: Before making ANY changes, establish baseline coverage:
 
 ```bash
-# Run all backend tests
-go test ./backend/...
+# Create baseline coverage report
+.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
 
-# Run with coverage
-go test ./backend/... -coverprofile=coverage.out
+# Save baseline metrics
+cp coverage/e2e/lcov.info coverage/e2e/baseline-lcov.info
+cp coverage/e2e/coverage-summary.json coverage/e2e/baseline-summary.json
 
-# View coverage report in browser
-go tool cover -html=coverage.out
-
-# Run specific file's tests
-go test -v ./backend/internal/api/handlers/import_handler_test.go
-
-# Run with race detector (slower but catches concurrency bugs)
-go test -race ./backend/...
-
-# Generate coverage for CI
-go test ./backend/... -coverprofile=coverage.out -covermode=atomic
+# Document baseline
+echo "Baseline Coverage: $(grep -A 1 'lines' coverage/e2e/coverage-summary.json)" >> docs/plans/coverage-baseline.txt
 ```
 
+**Baseline Thresholds** (from `playwright.config.js`):
+- **Lines**: ≥80%
+- **Functions**: ≥80%
+- **Branches**: ≥80%
+- **Statements**: ≥80%
+
+### Codecov Requirements
+
+**100% Patch Coverage** (from `codecov.yml`):
+- Every line of production code modified MUST be covered by tests
+- Applies to frontend changes in:
+  - `tests/settings/system-settings.spec.ts`
+  - `tests/dns-provider-types.spec.ts`
+  - `tests/utils/wait-helpers.ts`
+  - `tests/utils/ui-helpers.ts`
+
+**Verification Commands**:
+```bash
+# After each sprint, verify coverage
+.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
+
+# Compare to baseline
+diff coverage/e2e/baseline-summary.json coverage/e2e/coverage-summary.json
+
+# Check for regressions
+if [[ $(jq '.total.lines.pct' coverage/e2e/coverage-summary.json) < $(jq '.total.lines.pct' coverage/e2e/baseline-summary.json) ]]; then
+  echo "❌ Coverage regression detected"
+  exit 1
+fi
+
+# Upload to Codecov (CI will enforce patch coverage)
+git diff --name-only main...HEAD > changed-files.txt
+curl -s https://codecov.io/bash | bash -s -- -f coverage/e2e/lcov.info
+```
+
+### Impact Analysis by Sprint
+
+**Sprint 1 Changes**:
+- Files: `system-settings.spec.ts`, `wait-helpers.ts`
+- Risk: Removing polling might reduce coverage of error paths
+- Mitigation: Ensure error handling in `afterEach` is tested
+
+**Sprint 2 Changes**:
+- Files: `system-settings.spec.ts` (31 tests refactored), `ui-helpers.ts`
+- Risk: Per-test refactoring might miss edge cases
+- Mitigation: Run coverage diff after each test refactored
+
+**Sprint 3 Changes**:
+- Files: E2E workflow, test documentation
+- Risk: No production code changes (no coverage impact)
+
+### Coverage Failure Protocol
+
+**IF** coverage drops below baseline:
+1. Identify uncovered lines: `npx nyc report --reporter=html`
+2. Add targeted tests for missed paths
+3. Re-run coverage verification
+4. **DO NOT** merge until coverage restored
+
+**IF** Codecov reports <100% patch coverage:
+1. Review Codecov PR comment for specific lines
+2. Add test cases covering modified lines
+3. Push fixup commit
+4. Re-check Codecov status
+
+## Validation Strategy
+
+### Local Testing (Before push)
+```bash
+# Quick validation: Run affected test file
+npx playwright test tests/settings/system-settings.spec.ts --project=chromium
+
+# Cross-browser validation
+npx playwright test tests/dns-provider-types.spec.ts --project=firefox --project=webkit
+
+# Full suite (should complete in <20min per shard)
+npx playwright test --shard=1/4
+```
+
+### CI Validation (After push)
+1. **Green CI**: All 12 jobs (4 shards × 3 browsers) pass
+2. **Performance**: Each shard completes in <15min (down from 30min)
+3. **API Calls**: Feature flag endpoint receives <100 requests per shard (down from ~1000)
+
+### Rollback Plan
+If fixes introduce failures:
+1. Revert commits atomically (Fix 1.1, 1.2, 1.3 are independent)
+2. Re-enable `test.skip()` for failing tests temporarily
+3. Document known issues in PR comments
+
+## Success Metrics
+
+| Metric | Before | Target | How to Measure |
+|--------|--------|--------|----------------|
+| Shard Execution Time | 30+ min | <15 min | GitHub Actions logs |
+| Feature Flag API Calls | ~1000/shard | <100/shard | Add metrics to wait-helpers.ts |
+| Firefox/WebKit Pass Rate | 70% | 95%+ | CI test results |
+| Job Timeout Rate | 30% | <5% | GitHub Actions workflow analytics |
+
+## Performance Profiling (Optional Enhancement)
+
+### Profiling waitForLoadingComplete()
+
+During Sprint 1, if time permits, profile `waitForLoadingComplete()` to identify additional bottlenecks:
+
+```typescript
+// Add instrumentation to wait-helpers.ts
+export async function waitForLoadingComplete(page: Page, timeout = 30000) {
+  const startTime = Date.now();
+
+  await page.waitForLoadState('networkidle', { timeout });
+  await page.waitForLoadState('domcontentloaded', { timeout });
+
+  const duration = Date.now() - startTime;
+  if (duration > 5000) {
+    console.warn(`[SLOW] waitForLoadingComplete took ${duration}ms`);
+  }
+
+  return duration;
+}
+```
+
+**Analysis**:
+```bash
+# Run tests with profiling enabled
+npx playwright test tests/settings/system-settings.spec.ts --project=chromium > profile.log
+
+# Extract slow calls
+grep "\[SLOW\]" profile.log | sort -t= -k2 -n
+
+# Identify patterns
+# - Is networkidle too strict?
+# - Are certain pages slower than others?
+# - Can we use 'load' state instead of 'networkidle'?
+```
+
+**Potential Optimization**:
+If `networkidle` is consistently slow, consider using `load` state for non-critical pages:
+```typescript
+// For pages without dynamic content
+await page.waitForLoadState('load', { timeout });
+
+// For pages with feature flag updates
+await page.waitForLoadState('networkidle', { timeout });
+```
+
+## Risk Assessment
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|------------|--------|------------|
+| Breaking existing tests | Medium | High | Run full test suite locally before push |
+| Firefox/WebKit still fail | Low | Medium | Add `.or()` chaining for more fallbacks |
+| API server still bottlenecks | Low | Medium | Add rate limiting to test container |
+| Regressions in future PRs | Medium | Medium | Add performance budget check to CI |
+
+## Infrastructure Considerations
+
+### Current Setup
+- **Workflow**: `.github/workflows/e2e-tests.yml`
+- **Sharding**: 4 shards × 3 browsers = 12 jobs
+- **Timeout**: 30 minutes per job
+- **Concurrency**: All jobs run in parallel
+
+### Recommended Changes
+1. **Add caching**: Cache Playwright browsers between runs (already implemented)
+2. **Optimize container startup**: Health check timeout reduced from 60s to 30s
+3. **Consider**: Reduce shards from 4→3 if execution time improves sufficiently
+
+### Monitoring
+- Track job duration trends in GitHub Actions analytics
+- Alert if shard duration exceeds 20min
+- Weekly review of flaky test reports
+
+## Decision Record Template for Workarounds
+
+Whenever a workaround is implemented instead of fixing root cause (e.g., `.or()` chaining for label locators), document the decision:
+
+```markdown
+### Decision - [DATE] - [BRIEF TITLE]
+
+**Decision**: [What was decided]
+
+**Context**:
+- Original issue: [Describe problem]
+- Root cause investigation findings: [Summarize]
+- Component/file affected: [Specific paths]
+
+**Options Evaluated**:
+1. **Fix root cause** (preferred)
+   - Pros: [List]
+   - Cons: [List]
+   - Why not chosen: [Specific reason]
+
+2. **Workaround with `.or()` chaining** (chosen)
+   - Pros: [List]
+   - Cons: [List]
+   - Why chosen: [Specific reason]
+
+3. **Skip affected browsers** (rejected)
+   - Pros: [List]
+   - Cons: [List]
+   - Why not chosen: [Specific reason]
+
+**Rationale**:
+[Detailed explanation of trade-offs and why workaround is acceptable]
+
+**Impact**:
+- **Test Reliability**: [Describe expected improvement]
+- **Maintenance Burden**: [Describe ongoing cost]
+- **Future Considerations**: [What needs to be revisited]
+
+**Review Schedule**:
+[When to re-evaluate - e.g., "After Playwright 1.50 release" or "Q2 2026"]
+
+**References**:
+- Investigation notes: [Link to investigation findings]
+- Related issues: [GitHub issues, if any]
+- Component documentation: [Relevant docs]
+```
+
+**Where to Store**:
+- Simple decisions: Inline comment in test file
+- Complex decisions: `docs/decisions/workaround-[feature]-[date].md`
+- Reference in PR description when merging
+
+## Additional Files to Review
+
+Before implementation, review these files for context:
+
+- [ ] `playwright.config.js` - Test configuration, timeout settings
+- [ ] `.docker/compose/docker-compose.playwright-ci.yml` - Container environment
+- [ ] `tests/fixtures/auth-fixtures.ts` - Login helper usage
+- [ ] `tests/cerberus/security-dashboard.spec.ts` - Other files using feature flag polling
+- [ ] `codecov.yml` - Coverage requirements (patch coverage must remain 100%)
+
+## References
+
+- **Original Issue**: GitHub Actions job timeouts in E2E workflow
+- **Related Docs**:
+  - `docs/testing/playwright-typescript.instructions.md` - Test writing guidelines
+  - `docs/testing/testing.instructions.md` - Testing protocols
+  - `.github/instructions/testing.instructions.md` - CI testing protocols
+- **Prior Plans**:
+  - `docs/plans/phase4-settings-plan.md` - System settings feature implementation
+  - `docs/implementation/dns_providers_IMPLEMENTATION.md` - DNS provider architecture
+
+## Next Steps
+
+1. **Triage**: Assign tasks to team members
+2. **Sprint 1 Kickoff**: Implement quick fixes (1-2 days)
+3. **PR Review**: All changes require approval before merge
+4. **Monitor**: Track metrics for 1 week post-deployment
+5. **Iterate**: Adjust thresholds based on real-world performance
+
 ---
 
-## Appendix B: Reference Test Files
-
-Best examples to follow from existing codebase:
-
-1. **Table-Driven:** `backend/internal/caddy/importer_test.go`
-2. **Mock Interfaces:** `backend/internal/api/handlers/auth_handler_test.go`
-3. **Test DB Usage:** `backend/internal/testutil/testdb_test.go`
-4. **Error Injection:** `backend/internal/services/proxyhost_service_test.go`
-5. **Context Testing:** `backend/internal/network/safeclient_test.go`
-
----
-
-## Sign-Off
-
-**Plan Version:** 1.0
-**Created:** 2025-01-XX
-**Status:** APPROVED FOR IMPLEMENTATION
-
-**Next Steps:**
-1. Review plan with team
-2. Begin Phase 1 implementation
-3. Daily standup on progress
-4. Weekly coverage checkpoint reviews
+**Last Updated**: 2026-02-02
+**Owner**: TBD
+**Reviewers**: TBD

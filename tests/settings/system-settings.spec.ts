@@ -31,20 +31,27 @@ test.describe('System Settings', () => {
     await page.goto('/settings/system');
     await waitForLoadingComplete(page);
 
-    // Phase 4: Verify initial feature flag state before tests start
-    // This ensures tests start with a stable, known state
-    await waitForFeatureFlagPropagation(
-      page,
-      {
-        'cerberus.enabled': true, // Default: enabled
-        'crowdsec.console_enrollment': false, // Default: disabled
-        'uptime.enabled': false, // Default: disabled
-      },
-      { timeout: 10000 } // Shorter timeout for initial check
-    ).catch(() => {
-      // Initial state verification is best-effort
-      // Some tests may have left toggles in different states
-      console.log('[WARN] Initial state verification skipped - flags may be in non-default state');
+    // ✅ FIX 1.1: Removed feature flag polling from beforeEach
+    // Tests verify state individually after toggling actions
+    // Initial state verification is redundant and creates API bottleneck
+    // See: E2E Test Timeout Remediation Plan (Sprint 1, Fix 1.1)
+  });
+
+  test.afterEach(async ({ page }) => {
+    await test.step('Restore default feature flag state', async () => {
+      // ✅ FIX 1.1b: Explicit state restoration for test isolation
+      // Ensures no state leakage between tests without polling overhead
+      // See: E2E Test Timeout Remediation Plan (Sprint 1, Fix 1.1b)
+      const defaultFlags = {
+        'cerberus.enabled': true,
+        'crowdsec.console_enrollment': false,
+        'uptime.enabled': false,
+      };
+
+      // Direct API mutation to reset flags (no polling needed)
+      await page.request.put('/api/v1/feature-flags', {
+        data: defaultFlags,
+      });
     });
   });
 

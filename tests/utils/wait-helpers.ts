@@ -21,6 +21,9 @@ import type { Page, Locator, Response } from '@playwright/test';
 /**
  * Click an element and wait for an API response atomically.
  * Prevents race condition where response completes before wait starts.
+ *
+ * ✅ FIX P0: Added overlay detection and switch component handling
+ *
  * @param page - Playwright Page instance
  * @param clickTarget - Locator or selector string for element to click
  * @param urlPattern - URL string or RegExp to match
@@ -35,9 +38,41 @@ export async function clickAndWaitForResponse(
 ): Promise<Response> {
   const { status = 200, timeout = 30000 } = options;
 
+  // ✅ FIX P0: Wait for config reload overlay to disappear
+  const overlay = page.locator('[data-testid="config-reload-overlay"]');
+  await overlay.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {
+    // Overlay not present or already hidden - continue
+  });
+
   const locator =
     typeof clickTarget === 'string' ? page.locator(clickTarget) : clickTarget;
 
+  // ✅ FIX P0: Detect if clicking a switch component and use proper method
+  const role = await locator.getAttribute('role').catch(() => null);
+  const isSwitch = role === 'switch' ||
+    (await locator.getAttribute('type').catch(() => null) === 'checkbox' &&
+     await locator.getAttribute('aria-label').catch(() => '').then(label => label.includes('toggle')));
+
+  if (isSwitch) {
+    // Use clickSwitch helper for switch components
+    const { clickSwitch } = await import('./ui-helpers');
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (resp) => {
+          const urlMatch =
+            typeof urlPattern === 'string'
+              ? resp.url().includes(urlPattern)
+              : urlPattern.test(resp.url());
+          return urlMatch && resp.status() === status;
+        },
+        { timeout }
+      ),
+      clickSwitch(locator, { timeout }),
+    ]);
+    return response;
+  }
+
+  // Regular click for non-switch elements
   const [response] = await Promise.all([
     page.waitForResponse(
       (resp) => {
@@ -489,9 +524,61 @@ export interface FeatureFlagPropagationOptions {
   maxAttempts?: number;
 }
 
+// ✅ FIX 1.3: Cache for in-flight requests (per-worker isolation)
+// Prevents duplicate API calls when multiple tests wait for same flag state
+// See: E2E Test Timeout Remediation Plan (Sprint 1, Fix 1.3)
+const inflightRequests = new Map<string, Promise<Record<string, boolean>>>();
+
+/**
+ * Normalize feature flag keys to handle API prefix inconsistencies.
+ * Accepts both "cerberus.enabled" and "feature.cerberus.enabled" formats.
+ *
+ * ✅ FIX P0: Handles API key format mismatch where tests expect "cerberus.enabled"
+ * but API returns "feature.cerberus.enabled"
+ *
+ * @param key - Feature flag key (with or without "feature." prefix)
+ * @returns Normalized key with "feature." prefix
+ */
+function normalizeKey(key: string): string {
+  // If key already has "feature." prefix, return as-is
+  if (key.startsWith('feature.')) {
+    return key;
+  }
+  // Otherwise, add the "feature." prefix
+  return `feature.${key}`;
+}
+
+/**
+ * Generate stable cache key with worker isolation
+ * Prevents cache collisions between parallel workers
+ *
+ * ✅ FIX P0: Uses normalized keys to ensure cache hits work correctly
+ */
+function generateCacheKey(
+  expectedFlags: Record<string, boolean>,
+  workerIndex: number
+): string {
+  // Sort keys and normalize them to ensure consistent cache keys
+  // {cerberus.enabled:true} === {feature.cerberus.enabled:true}
+  const sortedFlags = Object.keys(expectedFlags)
+    .sort()
+    .reduce((acc, key) => {
+      const normalizedKey = normalizeKey(key);
+      acc[normalizedKey] = expectedFlags[key];
+      return acc;
+    }, {} as Record<string, boolean>);
+
+  // Include worker index to isolate parallel processes
+  return `${workerIndex}:${JSON.stringify(sortedFlags)}`;
+}
+
 /**
  * Polls the /feature-flags endpoint until expected state is returned.
  * Replaces hard-coded waits with condition-based verification.
+ * Includes request coalescing to reduce API load.
+ *
+ * ✅ FIX P1: Increased timeout from 30s to 60s and added overlay detection
+ * to handle config reload delays during feature flag propagation.
  *
  * @param page - Playwright page object
  * @param expectedFlags - Map of flag names to expected boolean values
@@ -511,55 +598,101 @@ export async function waitForFeatureFlagPropagation(
   expectedFlags: Record<string, boolean>,
   options: FeatureFlagPropagationOptions = {}
 ): Promise<Record<string, boolean>> {
-  const interval = options.interval ?? 500;
-  const timeout = options.timeout ?? 30000;
-  const maxAttempts = options.maxAttempts ?? Math.ceil(timeout / interval);
+  // ✅ FIX P1: Wait for config reload overlay to disappear first
+  // The overlay delays feature flag propagation when Caddy reloads config
+  const overlay = page.locator('[data-testid="config-reload-overlay"]');
+  await overlay.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {
+    // Overlay not present or already hidden - continue
+  });
 
-  let lastResponse: Record<string, boolean> | null = null;
-  let attemptCount = 0;
+  // ✅ FIX 1.3: Request coalescing with worker isolation
+  const { test } = await import('@playwright/test');
+  const workerIndex = test.info().parallelIndex;
+  const cacheKey = generateCacheKey(expectedFlags, workerIndex);
 
-  while (attemptCount < maxAttempts) {
-    attemptCount++;
-
-    // GET /feature-flags via page context to respect CORS and auth
-    const response = await page.evaluate(async () => {
-      const res = await fetch('/api/v1/feature-flags', {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      return {
-        ok: res.ok,
-        status: res.status,
-        data: await res.json(),
-      };
-    });
-
-    lastResponse = response.data as Record<string, boolean>;
-
-    // Check if all expected flags match
-    const allMatch = Object.entries(expectedFlags).every(
-      ([key, expectedValue]) => {
-        return response.data[key] === expectedValue;
-      }
-    );
-
-    if (allMatch) {
-      console.log(
-        `[POLL] Feature flags propagated after ${attemptCount} attempts (${attemptCount * interval}ms)`
-      );
-      return lastResponse;
-    }
-
-    // Wait before next attempt
-    await page.waitForTimeout(interval);
+  // Return cached promise if request already in flight for this worker
+  if (inflightRequests.has(cacheKey)) {
+    console.log(`[CACHE HIT] Worker ${workerIndex}: ${cacheKey}`);
+    return inflightRequests.get(cacheKey)!;
   }
 
-  // Timeout: throw error with diagnostic info
-  throw new Error(
-    `Feature flag propagation timeout after ${attemptCount} attempts (${timeout}ms).\n` +
-      `Expected: ${JSON.stringify(expectedFlags)}\n` +
-      `Actual: ${JSON.stringify(lastResponse)}`
-  );
+  console.log(`[CACHE MISS] Worker ${workerIndex}: ${cacheKey}`);
+
+  const interval = options.interval ?? 500;
+  const timeout = options.timeout ?? 60000; // ✅ FIX P1: Increased from 30s to 60s
+  const maxAttempts = options.maxAttempts ?? Math.ceil(timeout / interval);
+
+  // Create new polling promise
+  const pollingPromise = (async () => {
+    let lastResponse: Record<string, boolean> | null = null;
+    let attemptCount = 0;
+
+    while (attemptCount < maxAttempts) {
+      attemptCount++;
+
+      // GET /feature-flags via page context to respect CORS and auth
+      const response = await page.evaluate(async () => {
+        const res = await fetch('/api/v1/feature-flags', {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        return {
+          ok: res.ok,
+          status: res.status,
+          data: await res.json(),
+        };
+      });
+
+      lastResponse = response.data as Record<string, boolean>;
+
+      // ✅ FIX P0: Check if all expected flags match (with normalization)
+      const allMatch = Object.entries(expectedFlags).every(
+        ([key, expectedValue]) => {
+          const normalizedKey = normalizeKey(key);
+          const actualValue = response.data[normalizedKey];
+
+          if (actualValue === undefined) {
+            console.log(`[WARN] Key "${normalizedKey}" not found in API response`);
+            return false;
+          }
+
+          const matches = actualValue === expectedValue;
+          if (!matches) {
+            console.log(`[MISMATCH] ${normalizedKey}: expected ${expectedValue}, got ${actualValue}`);
+          }
+          return matches;
+        }
+      );
+
+      if (allMatch) {
+        console.log(
+          `[POLL] Feature flags propagated after ${attemptCount} attempts (${attemptCount * interval}ms)`
+        );
+        return lastResponse;
+      }
+
+      // Wait before next attempt
+      await page.waitForTimeout(interval);
+    }
+
+    // Timeout: throw error with diagnostic info
+    throw new Error(
+      `Feature flag propagation timeout after ${attemptCount} attempts (${timeout}ms).\n` +
+        `Expected: ${JSON.stringify(expectedFlags)}\n` +
+        `Actual: ${JSON.stringify(lastResponse)}`
+    );
+  })();
+
+  // Cache the promise
+  inflightRequests.set(cacheKey, pollingPromise);
+
+  try {
+    const result = await pollingPromise;
+    return result;
+  } finally {
+    // Remove from cache after completion
+    inflightRequests.delete(cacheKey);
+  }
 }
 
 /**
@@ -745,4 +878,13 @@ export async function navigateAndWaitForData(
   await expect(dataLoading).toHaveCount(0, { timeout: 5000 }).catch(() => {
     // Ignore if no data-loading elements exist
   });
+}
+
+/**
+ * Clear the feature flag cache
+ * Useful for cleanup or resetting cache state in test hooks
+ */
+export function clearFeatureFlagCache(): void {
+  inflightRequests.clear();
+  console.log('[CACHE] Cleared all cached feature flag requests');
 }

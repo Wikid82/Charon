@@ -1,5 +1,7 @@
 # E2E Testing & Debugging Guide
 
+> **Recent Updates**: See [Sprint 1 Improvements](sprint1-improvements.md) for information about recent E2E test reliability and performance enhancements (February 2026).
+
 ## Quick Navigation
 
 ### Getting Started with E2E Tests
