@@ -13,6 +13,7 @@
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForToast } from '../utils/wait-helpers';
+import { clickSwitch } from '../utils/ui-helpers';
 
 test.describe('WAF Configuration', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -80,13 +81,11 @@ test.describe('WAF Configuration', () => {
 
       if (switchVisible) {
         await test.step('Click mode switch', async () => {
-          await modeSwitch.click();
-          await page.waitForTimeout(500);
+          await clickSwitch(modeSwitch);
         });
 
         await test.step('Revert mode switch', async () => {
-          await modeSwitch.click();
-          await page.waitForTimeout(500);
+          await clickSwitch(modeSwitch);
         });
       }
     });

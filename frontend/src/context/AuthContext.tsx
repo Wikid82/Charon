@@ -76,9 +76,13 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
         old_password: oldPassword,
         new_password: newPassword,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Extract error message from API response
-      const message = error.response?.data?.error || error.message || 'Password change failed';
+      const message = error instanceof Error
+        ? error.message
+        : typeof error === 'object' && error !== null && 'response' in error
+          ? (error as { response?: { data?: { error?: string } } }).response?.data?.error || 'Password change failed'
+          : 'Password change failed';
       throw new Error(message);
     }
   };

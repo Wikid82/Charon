@@ -36,7 +36,7 @@ func TestListDecisions_Success(t *testing.T) {
 		output: []byte(`[{"id":1,"origin":"cscli","type":"ban","scope":"ip","value":"192.168.1.100","duration":"4h","scenario":"manual 'ban' from 'localhost'","created_at":"2025-12-05T10:00:00Z","until":"2025-12-05T14:00:00Z"}]`),
 	}
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -75,7 +75,7 @@ func TestListDecisions_EmptyList(t *testing.T) {
 		output: []byte("null"),
 	}
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -106,7 +106,7 @@ func TestListDecisions_CscliError(t *testing.T) {
 		err: errors.New("cscli not found"),
 	}
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -138,7 +138,7 @@ func TestListDecisions_InvalidJSON(t *testing.T) {
 		output: []byte("invalid json"),
 	}
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -162,7 +162,7 @@ func TestBanIP_Success(t *testing.T) {
 		output: []byte(""),
 	}
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -213,7 +213,7 @@ func TestBanIP_DefaultDuration(t *testing.T) {
 		output: []byte(""),
 	}
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -249,7 +249,7 @@ func TestBanIP_MissingIP(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -272,7 +272,7 @@ func TestBanIP_EmptyIP(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -301,7 +301,7 @@ func TestBanIP_CscliError(t *testing.T) {
 		err: errors.New("cscli failed"),
 	}
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -331,7 +331,7 @@ func TestUnbanIP_Success(t *testing.T) {
 		output: []byte(""),
 	}
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -365,7 +365,7 @@ func TestUnbanIP_CscliError(t *testing.T) {
 		err: errors.New("cscli failed"),
 	}
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -393,7 +393,7 @@ func TestListDecisions_MultipleDecisions(t *testing.T) {
 		]`),
 	}
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.CmdExec = mockExec
 
 	r := gin.New()
@@ -434,7 +434,7 @@ func TestBanIP_InvalidJSON(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")

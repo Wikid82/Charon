@@ -125,6 +125,7 @@ func TestPullThenApplyFlow(t *testing.T) {
 	// Verify files were extracted to dataDir
 	extractedConfig := filepath.Join(dataDir, "config.yaml")
 	require.FileExists(t, extractedConfig, "Config should be extracted")
+	// #nosec G304 -- Test reads from known extracted config path in test dataDir
 	content, err := os.ReadFile(extractedConfig)
 	require.NoError(t, err)
 	require.Contains(t, string(content), "test: config")
@@ -421,8 +422,9 @@ func TestApplyReadsArchiveBeforeBackup(t *testing.T) {
 	cacheDir := filepath.Join(dataDir, "hub_cache") // Cache INSIDE DataDir - this is key!
 
 	// Create DataDir with some existing config to make backup realistic
+	// #nosec G301 -- Test CrowdSec data directory needs standard Unix permissions
 	require.NoError(t, os.MkdirAll(dataDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.yaml"), []byte("existing: config"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.yaml"), []byte("existing: config"), 0o600))
 
 	// Create cache inside DataDir
 	cache, err := NewHubCache(cacheDir, time.Hour)
@@ -478,6 +480,7 @@ func TestApplyReadsArchiveBeforeBackup(t *testing.T) {
 	// Verify files were extracted to DataDir
 	extractedConfig := filepath.Join(dataDir, "config.yaml")
 	require.FileExists(t, extractedConfig, "Config should be extracted")
+	// #nosec G304 -- Test reads from known extracted config path in test dataDir
 	content, err := os.ReadFile(extractedConfig)
 	require.NoError(t, err)
 	require.Contains(t, string(content), "test: applied_config",

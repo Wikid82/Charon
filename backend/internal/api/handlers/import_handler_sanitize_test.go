@@ -23,7 +23,7 @@ func TestImportUploadSanitizesFilename(t *testing.T) {
 	db := OpenTestDB(t)
 	// Create a fake caddy executable to avoid dependency on system binary
 	fakeCaddy := filepath.Join(tmpDir, "caddy")
-	_ = os.WriteFile(fakeCaddy, []byte("#!/bin/sh\nexit 0"), 0o755)
+	_ = os.WriteFile(fakeCaddy, []byte("#!/bin/sh\nexit 0"), 0o750) // #nosec G306 -- executable test script
 	svc := NewImportHandler(db, fakeCaddy, tmpDir, "")
 
 	router := gin.New()

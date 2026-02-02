@@ -15,6 +15,7 @@
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForToast, waitForModal } from '../utils/wait-helpers';
+import { clickSwitch } from '../utils/ui-helpers';
 import {
   allowOnlyAccessList,
   denyOnlyAccessList,
@@ -394,7 +395,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         if (await enabledSwitch.isVisible().catch(() => false)) {
           const wasChecked = await enabledSwitch.isChecked();
-          await enabledSwitch.click();
+          await clickSwitch(enabledSwitch);
           const isNowChecked = await enabledSwitch.isChecked();
           expect(isNowChecked).toBe(!wasChecked);
         }
@@ -551,7 +552,7 @@ test.describe('Access Lists - CRUD Operations', () => {
           // Ensure IP mode is enabled
           const localNetworkSwitch = page.getByLabel(/local.*network.*only/i);
           if (await localNetworkSwitch.isChecked().catch(() => false)) {
-            await localNetworkSwitch.click();
+            await clickSwitch(localNetworkSwitch);
           }
 
           // Add new IP
@@ -1017,7 +1018,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         if (await localNetworkSwitch.isVisible().catch(() => false)) {
           const wasChecked = await localNetworkSwitch.isChecked();
-          await localNetworkSwitch.click();
+          await clickSwitch(localNetworkSwitch);
           const isNowChecked = await localNetworkSwitch.isChecked();
           expect(isNowChecked).toBe(!wasChecked);
         }
@@ -1036,7 +1037,7 @@ test.describe('Access Lists - CRUD Operations', () => {
         if (await localNetworkSwitch.isVisible().catch(() => false)) {
           // Enable local network only
           if (!await localNetworkSwitch.isChecked()) {
-            await localNetworkSwitch.click();
+            await clickSwitch(localNetworkSwitch);
           }
 
           // IP input should be hidden

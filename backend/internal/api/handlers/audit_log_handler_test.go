@@ -33,6 +33,7 @@ func TestAuditLogHandler_List(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupAuditLogTestDB(t)
 	securityService := services.NewSecurityService(db)
+	defer securityService.Close()
 	handler := NewAuditLogHandler(securityService)
 
 	// Create test audit logs
@@ -132,6 +133,7 @@ func TestAuditLogHandler_Get(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupAuditLogTestDB(t)
 	securityService := services.NewSecurityService(db)
+	defer securityService.Close()
 	handler := NewAuditLogHandler(securityService)
 
 	// Create test audit log
@@ -199,6 +201,7 @@ func TestAuditLogHandler_ListByProvider(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupAuditLogTestDB(t)
 	securityService := services.NewSecurityService(db)
+	defer securityService.Close()
 	handler := NewAuditLogHandler(securityService)
 
 	// Create test audit logs
@@ -286,6 +289,7 @@ func TestAuditLogHandler_ListWithDateFilters(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupAuditLogTestDB(t)
 	securityService := services.NewSecurityService(db)
+	defer securityService.Close()
 	handler := NewAuditLogHandler(securityService)
 
 	// Create test audit logs with different timestamps
@@ -370,6 +374,7 @@ func TestAuditLogHandler_ServiceErrors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupAuditLogTestDB(t)
 	securityService := services.NewSecurityService(db)
+	defer securityService.Close()
 	handler := NewAuditLogHandler(securityService)
 
 	t.Run("List fails when database unavailable", func(t *testing.T) {
@@ -420,6 +425,7 @@ func TestAuditLogHandler_List_PaginationBoundaryEdgeCases(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupAuditLogTestDB(t)
 	securityService := services.NewSecurityService(db)
+	defer securityService.Close()
 	handler := NewAuditLogHandler(securityService)
 
 	// Create test audit logs
@@ -510,6 +516,7 @@ func TestAuditLogHandler_ListByProvider_PaginationBoundaryEdgeCases(t *testing.T
 	gin.SetMode(gin.TestMode)
 	db := setupAuditLogTestDB(t)
 	securityService := services.NewSecurityService(db)
+	defer securityService.Close()
 	handler := NewAuditLogHandler(securityService)
 
 	providerID := uint(999)
@@ -579,6 +586,7 @@ func TestAuditLogHandler_List_InvalidDateFormats(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupAuditLogTestDB(t)
 	securityService := services.NewSecurityService(db)
+	defer securityService.Close()
 	handler := NewAuditLogHandler(securityService)
 
 	// Invalid date formats should be ignored (not cause errors)
@@ -624,6 +632,7 @@ func TestAuditLogHandler_Get_InternalError(t *testing.T) {
 	_ = db.AutoMigrate(&models.SecurityAudit{})
 
 	securityService := services.NewSecurityService(db)
+	defer securityService.Close()
 	handler := NewAuditLogHandler(securityService)
 
 	// Close the DB to force internal error (not "not found")

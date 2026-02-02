@@ -9,6 +9,7 @@ applyTo: '**'
 - **Locators**: Prioritize user-facing, role-based locators (`getByRole`, `getByLabel`, `getByText`, etc.) for resilience and accessibility. Use `test.step()` to group interactions and improve test readability and reporting.
 - **Assertions**: Use auto-retrying web-first assertions. These assertions start with the `await` keyword (e.g., `await expect(locator).toHaveText()`). Avoid `expect(locator).toBeVisible()` unless specifically testing for visibility changes.
 - **Timeouts**: Rely on Playwright's built-in auto-waiting mechanisms. Avoid hard-coded waits or increased default timeouts.
+- **Switch/Toggle Components**: Use helper functions from `tests/utils/ui-helpers.ts` (`clickSwitch`, `expectSwitchState`, `toggleSwitch`) for reliable interactions. Never use `{ force: true }` or direct clicks on hidden inputs.
 - **Clarity**: Use descriptive test and step titles that clearly state the intent. Add comments only to explain complex logic or non-obvious interactions.
 
 
@@ -29,6 +30,45 @@ applyTo: '**'
 - **Element Counts**: Use `toHaveCount` to assert the number of elements found by a locator.
 - **Text Content**: Use `toHaveText` for exact text matches and `toContainText` for partial matches.
 - **Navigation**: Use `toHaveURL` to verify the page URL after an action.
+- **Switch States**: Use `expectSwitchState(locator, boolean)` to verify toggle states. This is more reliable than `toBeChecked()` directly.
+
+### Switch/Toggle Interaction Patterns
+
+Switch components use a hidden `<input>` with styled siblings, requiring special handling:
+
+```typescript
+import { clickSwitch, expectSwitchState, toggleSwitch } from './utils/ui-helpers';
+
+// ✅ RECOMMENDED: Click switch with helper
+const aclSwitch = page.getByRole('switch', { name: /acl/i });
+await clickSwitch(aclSwitch);
+
+// ✅ RECOMMENDED: Assert switch state
+await expectSwitchState(aclSwitch, true); // Checked
+
+// ✅ RECOMMENDED: Toggle and verify state change
+const newState = await toggleSwitch(aclSwitch);
+console.log(`Switch is now ${newState ? 'enabled' : 'disabled'}`);
+
+// ❌ AVOID: Direct click on hidden input
+await aclSwitch.click(); // May fail in WebKit/Firefox
+
+// ❌ AVOID: Force clicking (anti-pattern)
+await aclSwitch.click({ force: true }); // Bypasses real user behavior
+
+// ❌ AVOID: Hard-coded waits
+await page.waitForTimeout(500); // Non-deterministic, slows tests
+```
+
+**When to Use**:
+- Settings pages with enable/disable toggles
+- Security dashboard module switches (CrowdSec, ACL, WAF, Rate Limiting)
+- Access lists and configuration toggles
+- Any UI component using the `Switch` primitive from shadcn/ui
+
+**References**:
+- [Helper Implementation](../../tests/utils/ui-helpers.ts)
+- [QA Report](../../docs/reports/qa_report.md)
 
 ### Testing Scope: E2E vs Integration
 

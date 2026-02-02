@@ -66,6 +66,13 @@ func NewEmergencyTokenHandler(tokenService *services.EmergencyTokenService) *Eme
 	}
 }
 
+// Close shuts down the handler's resources (e.g., SecurityService).
+func (h *EmergencyHandler) Close() {
+	if h.securityService != nil {
+		h.securityService.Close()
+	}
+}
+
 // SecurityReset disables all security modules for emergency lockout recovery.
 // This endpoint works in conjunction with the EmergencyBypass middleware which
 // validates the token and IP restrictions, then sets the emergency_bypass flag.

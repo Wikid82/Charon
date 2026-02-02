@@ -1,4 +1,7 @@
 {
+  "accessibility": {
+    "skipToContent": "Skip to main content"
+  },
   "common": {
     "save": "Save",
     "cancel": "Cancel",
@@ -751,6 +754,7 @@
     "emptyFileWarning": "The imported file appears to be empty or contains no valid reverse_proxy directives. Please check the file content below.",
     "uploadOrPaste": "Upload or Paste Caddyfile",
     "description": "Import an existing Caddyfile to automatically create proxy host configurations. The system will detect conflicts and allow you to review changes before committing.",
+    "warningTitle": "Import warning",
     "uploadCaddyfile": "Upload Caddyfile",
     "orPasteContent": "or paste content",
     "caddyfileContent": "Caddyfile Content",
