@@ -14,7 +14,7 @@ jobs:
   update-checksum:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Download and calculate checksum
         id: checksum
@@ -105,7 +105,7 @@ jobs:
 
       - name: Create Pull Request
         if: steps.checksum.outputs.needs_update == 'true'
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6
         with:
           title: "chore(docker): update GeoLite2-Country.mmdb checksum"
           body: |
@@ -160,7 +160,7 @@ jobs:
 
       - name: Report failure via GitHub Issue
         if: failure()
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const errorType = '${{ steps.checksum.outputs.error }}' || 'unknown';
