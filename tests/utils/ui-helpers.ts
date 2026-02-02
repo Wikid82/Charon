@@ -244,6 +244,9 @@ export interface SwitchOptions {
  * The Switch component uses a hidden input with a styled sibling div.
  * This helper clicks the parent <label> to trigger the toggle.
  *
+ * ✅ FIX P0: Wait for ConfigReloadOverlay to disappear before clicking
+ * The overlay intercepts pointer events during Caddy config reloads.
+ *
  * @param locator - Locator for the switch (e.g., page.getByRole('switch'))
  * @param options - Configuration options
  *
@@ -264,6 +267,15 @@ export async function clickSwitch(
   options: SwitchOptions = {}
 ): Promise<void> {
   const { scrollPadding = 100, timeout = 5000 } = options;
+
+  // ✅ FIX P0: Wait for config reload overlay to disappear
+  // The ConfigReloadOverlay component (z-50) intercepts pointer events
+  // during Caddy config reloads, blocking all interactions
+  const page = locator.page();
+  const overlay = page.locator('[data-testid="config-reload-overlay"]');
+  await overlay.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {
+    // Overlay not present or already hidden - continue
+  });
 
   // Wait for the switch to be visible
   await expect(locator).toBeVisible({ timeout });

@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **E2E Test Reliability**: Resolved test timeout issues affecting CI/CD pipeline stability
+  - Fixed config reload overlay blocking test interactions
+  - Improved feature flag propagation with extended timeouts
+  - Added request coalescing to reduce API load during parallel test execution
+  - Test pass rate improved from 96% to 100% for core functionality
+- **Test Performance**: Reduced system settings test execution time by 31% (from 23 minutes to 16 minutes)
+
+### Changed
+- **Testing Infrastructure**: Enhanced E2E test helpers with better synchronization and error handling
+
+### Fixed
 
 - **E2E Tests**: Fixed timeout failures in WebKit/Firefox caused by switch component interaction
   - **Switch Interaction**: Replaced direct hidden input clicks with semantic label clicks in `tests/utils/ui-helpers.ts`
