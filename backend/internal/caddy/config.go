@@ -89,7 +89,9 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	dnsProviderDomains := make(map[uint][]string)
 	var httpChallengeDomains []string
 
-	if acmeEmail != "" {
+	isE2E := os.Getenv("CHARON_ENV") == "e2e"
+
+	if acmeEmail != "" || isE2E {
 		for _, host := range hosts {
 			if !host.Enabled || host.DomainNames == "" {
 				continue
@@ -122,6 +124,14 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 
 		// Create DNS challenge policies for each DNS provider
 		for providerID, domains := range dnsProviderDomains {
+			if isE2E {
+				tlsPolicies = append(tlsPolicies, &AutomationPolicy{
+					Subjects:   dedupeDomains(domains),
+					IssuersRaw: []any{map[string]any{"module": "internal"}},
+				})
+				continue
+			}
+
 			// Find the DNS provider config
 			dnsConfig, ok := dnsProviderMap[providerID]
 			if !ok {
@@ -313,75 +323,88 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 
 		// Create default HTTP challenge policy for non-wildcard domains
 		if len(httpChallengeDomains) > 0 {
-			var issuers []any
-			switch sslProvider {
-			case "letsencrypt":
-				acmeIssuer := map[string]any{
-					"module": "acme",
-					"email":  acmeEmail,
-				}
-				if acmeStaging {
-					acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
-				}
-				issuers = append(issuers, acmeIssuer)
-			case "zerossl":
-				issuers = append(issuers, map[string]any{
-					"module": "zerossl",
+			if isE2E {
+				tlsPolicies = append(tlsPolicies, &AutomationPolicy{
+					Subjects:   dedupeDomains(httpChallengeDomains),
+					IssuersRaw: []any{map[string]any{"module": "internal"}},
 				})
-			default: // "both" or empty
-				acmeIssuer := map[string]any{
-					"module": "acme",
-					"email":  acmeEmail,
+			} else {
+				var issuers []any
+				switch sslProvider {
+				case "letsencrypt":
+					acmeIssuer := map[string]any{
+						"module": "acme",
+						"email":  acmeEmail,
+					}
+					if acmeStaging {
+						acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
+					}
+					issuers = append(issuers, acmeIssuer)
+				case "zerossl":
+					issuers = append(issuers, map[string]any{
+						"module": "zerossl",
+					})
+				default: // "both" or empty
+					acmeIssuer := map[string]any{
+						"module": "acme",
+						"email":  acmeEmail,
+					}
+					if acmeStaging {
+						acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
+					}
+					issuers = append(issuers, acmeIssuer)
+					issuers = append(issuers, map[string]any{
+						"module": "zerossl",
+					})
 				}
-				if acmeStaging {
-					acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
-				}
-				issuers = append(issuers, acmeIssuer)
-				issuers = append(issuers, map[string]any{
-					"module": "zerossl",
+
+				tlsPolicies = append(tlsPolicies, &AutomationPolicy{
+					Subjects:   dedupeDomains(httpChallengeDomains),
+					IssuersRaw: issuers,
 				})
 			}
-
-			tlsPolicies = append(tlsPolicies, &AutomationPolicy{
-				Subjects:   dedupeDomains(httpChallengeDomains),
-				IssuersRaw: issuers,
-			})
 		}
 
 		// Create default policy if no specific domains were configured
 		if len(tlsPolicies) == 0 {
-			var issuers []any
-			switch sslProvider {
-			case "letsencrypt":
-				acmeIssuer := map[string]any{
-					"module": "acme",
-					"email":  acmeEmail,
-				}
-				if acmeStaging {
-					acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
-				}
-				issuers = append(issuers, acmeIssuer)
-			case "zerossl":
-				issuers = append(issuers, map[string]any{
-					"module": "zerossl",
+			if isE2E {
+				tlsPolicies = append(tlsPolicies, &AutomationPolicy{
+					IssuersRaw: []any{map[string]any{"module": "internal"}},
 				})
-			default: // "both" or empty
-				acmeIssuer := map[string]any{
-					"module": "acme",
-					"email":  acmeEmail,
+			} else {
+				var issuers []any
+				switch sslProvider {
+				case "letsencrypt":
+					acmeIssuer := map[string]any{
+						"module": "acme",
+						"email":  acmeEmail,
+					}
+					if acmeStaging {
+						acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
+					}
+					issuers = append(issuers, acmeIssuer)
+				case "zerossl":
+					issuers = append(issuers, map[string]any{
+						"module": "zerossl",
+					})
+				default: // "both" or empty
+					acmeIssuer := map[string]any{
+						"module": "acme",
+						"email":  acmeEmail,
+					}
+					if acmeStaging {
+						acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
+					}
+					issuers = append(issuers, acmeIssuer)
+					issuers = append(issuers, map[string]any{
+						"module": "zerossl",
+					})
 				}
-				if acmeStaging {
-					acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
-				}
-				issuers = append(issuers, acmeIssuer)
-				issuers = append(issuers, map[string]any{
-					"module": "zerossl",
+
+				tlsPolicies = append(tlsPolicies, &AutomationPolicy{
+					IssuersRaw: issuers,
 				})
 			}
-
-			tlsPolicies = append(tlsPolicies, &AutomationPolicy{
-				IssuersRaw: issuers,
-			})
 		}
 
 		config.Apps.TLS = &TLSApp{

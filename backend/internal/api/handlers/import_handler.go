@@ -9,9 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"golang.org/x/text/unicode/norm"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
@@ -30,11 +32,20 @@ type ProxyHostServiceInterface interface {
 	List() ([]models.ProxyHost, error)
 }
 
+// ImporterService defines the interface for Caddyfile import operations
+type ImporterService interface {
+	NormalizeCaddyfile(content string) (string, error)
+	ParseCaddyfile(path string) ([]byte, error)
+	ImportFile(path string) (*caddy.ImportResult, error)
+	ExtractHosts(caddyJSON []byte) (*caddy.ImportResult, error)
+	ValidateCaddyBinary() error
+}
+
 // ImportHandler handles Caddyfile import operations.
 type ImportHandler struct {
 	db              *gorm.DB
 	proxyHostSvc    ProxyHostServiceInterface
-	importerservice *caddy.Importer
+	importerservice ImporterService
 	importDir       string
 	mountPath       string
 }
@@ -658,30 +669,73 @@ func detectImportDirectives(content string) []string {
 
 // safeJoin joins a user-supplied path to a base directory and ensures
 // the resulting path is contained within the base directory.
+// Security: Protects against path traversal, Windows absolute paths, null byte injection,
+// and normalizes Unicode confusables to prevent directory traversal attacks.
 func safeJoin(baseDir, userPath string) (string, error) {
-	clean := filepath.Clean(userPath)
+	// Security: Strip null bytes that could be used to bypass extension checks
+	// Following the principle that we should sanitize rather than reject to be more permissive
+	// while still maintaining security
+	userPath = strings.ReplaceAll(userPath, "\x00", "")
+
+	// Security: Reject paths with invalid UTF-8 encoding
+	if !utf8.ValidString(userPath) {
+		return "", fmt.Errorf("invalid UTF-8 in path")
+	}
+
+	// Security: Apply Unicode NFC normalization to handle confusable characters
+	// This prevents attacks using visually similar Unicode characters (e.g., U+2215 vs /)
+	normalized := norm.NFC.String(userPath)
+
+	// Security: Check for Windows drive letter absolute paths (C:\, D:\, etc.)
+	// Must check BEFORE filepath.Clean as it's an explicit absolute path indicator
+	// On Unix systems, filepath.IsAbs won't catch these, creating security vulnerabilities
+	if len(normalized) >= 3 {
+		// Check for Windows drive letters: C:\, D:\, etc.
+		if (normalized[1] == ':') && (normalized[2] == '\\' || normalized[2] == '/') {
+			c := normalized[0]
+			if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') {
+				return "", fmt.Errorf("windows absolute paths not allowed")
+			}
+		}
+	}
+
+	// Clean the normalized path - this handles platform-specific separators
+	// On Unix, backslashes in \\server\share become part of the filename
+	// On Windows, UNC paths remain absolute and are caught by filepath.IsAbs
+	clean := filepath.Clean(normalized)
+
+	// Reject empty or current directory references
 	if clean == "" || clean == "." {
 		return "", fmt.Errorf("empty path not allowed")
 	}
+
+	// Reject absolute paths (Unix-style + Windows UNC paths after cleaning)
+	// This catches both /etc/passwd on Unix and \\server\share on Windows
 	if filepath.IsAbs(clean) {
 		return "", fmt.Errorf("absolute paths not allowed")
 	}
 
-	// Prevent attempts like ".." at start
+	// Security: Prevent parent directory traversal (.., ../, ..\\)
+	// Only reject ".." when it's followed by a path separator or is the entire path
 	if strings.HasPrefix(clean, ".."+string(os.PathSeparator)) || clean == ".." {
 		return "", fmt.Errorf("path traversal detected")
 	}
 
+	// Join with base directory and verify result stays within base
 	target := filepath.Join(baseDir, clean)
 	rel, err := filepath.Rel(baseDir, target)
 	if err != nil {
 		return "", fmt.Errorf("invalid path")
 	}
-	if strings.HasPrefix(rel, "..") {
+
+	// Final check: ensure relative path doesn't escape base directory
+	// Only reject if ".." is followed by a separator or is the complete path
+	// This allows filenames like "..something" while blocking "../etc" traversal
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		return "", fmt.Errorf("path traversal detected")
 	}
 
-	// Normalize to use base's separators
+	// Normalize path separators for consistency
 	target = path.Clean(target)
 	return target, nil
 }

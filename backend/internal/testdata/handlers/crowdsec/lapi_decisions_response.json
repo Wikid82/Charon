@@ -1,0 +1,13 @@
+[
+  {
+    "id": 1,
+    "origin": "crowdsec",
+    "type": "ban",
+    "scope": "ip",
+    "value": "192.168.1.100",
+    "duration": "4h",
+    "scenario": "crowdsecurity/http-probing",
+    "created_at": "2024-01-01T12:00:00Z",
+    "until": "2024-01-01T16:00:00Z"
+  }
+]

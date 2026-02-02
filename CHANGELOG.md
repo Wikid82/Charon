@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **E2E Tests**: Fixed timeout failures in WebKit/Firefox caused by switch component interaction
+  - **Switch Interaction**: Replaced direct hidden input clicks with semantic label clicks in `tests/utils/ui-helpers.ts`
+  - **Wait Strategy**: Added explicit `await expect(toggle).toBeChecked()` verification replaced fixed `waitForTimeout`
+  - **Cross-Browser**: Resolved `element not visible` and `click intercepted` errors in Firefox/WebKit
+  - **Reference**: See `docs/implementation/2026-02-02_backend_coverage_security_fix.md`
+- **Security**: Fixed 3 critical vulnerabilities in path sanitization (safeJoin)
+  - **Vulnerability**: Path traversal risk in `backend/internal/caddy/config_loader.go`, `config_manager.go`, and `import_handler.go`
+  - **Remediation**: Replaced `filepath.Join` with `utils.SafeJoin` to prevent directory traversal attacks
+  - **Validation**: Added comprehensive test cases for path traversal attempts
+- **Backend Tests**: Improved backend test coverage using real-dependency pattern
+  - **Architecture**: Switched from interface mocking to concrete types for `ConfigLoader` and `ConfigManager` testing
+  - **Coverage**: Increased coverage for critical configuration management components
 - **E2E Tests**: Fixed timeout failures in feature flag toggle tests caused by backend N+1 query pattern
   - **Backend Optimization**: Replaced N+1 query pattern with single batch query in `/api/v1/feature-flags` endpoint
   - **Performance Improvement**: 3-6x latency reduction (600ms → 200ms P99 in CI environment)

@@ -1,7 +1,0 @@
-
-> charon-frontend@0.3.0 pretype-check
-> npm ci --silent
-
-
-> charon-frontend@0.3.0 type-check
-> tsc --noEmit
