@@ -401,7 +401,7 @@ func (i *Importer) ValidateCaddyBinary() error {
 
 // BackupCaddyfile creates a timestamped backup of the original Caddyfile.
 func BackupCaddyfile(originalPath, backupDir string) (string, error) {
-	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
 		return "", fmt.Errorf("creating backup directory: %w", err)
 	}
 
@@ -424,7 +424,7 @@ func BackupCaddyfile(originalPath, backupDir string) (string, error) {
 		return "", fmt.Errorf("reading original file: %w", err)
 	}
 
-	if err := os.WriteFile(backupPath, input, 0o644); err != nil {
+	if err := os.WriteFile(backupPath, input, 0o600); err != nil {
 		return "", fmt.Errorf("writing backup: %w", err)
 	}
 

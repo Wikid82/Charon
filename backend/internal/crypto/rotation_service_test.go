@@ -158,7 +158,7 @@ func TestDecryptWithVersion(t *testing.T) {
 	t.Run("fails when no keys can decrypt", func(t *testing.T) {
 		// Save original keys
 		origKey := os.Getenv("CHARON_ENCRYPTION_KEY")
-		defer os.Setenv("CHARON_ENCRYPTION_KEY", origKey)
+		defer func() { _ = os.Setenv("CHARON_ENCRYPTION_KEY", origKey) }()
 
 		rs, err := NewRotationService(db)
 		require.NoError(t, err)
@@ -210,8 +210,8 @@ func TestRotateAllCredentials(t *testing.T) {
 		require.NoError(t, db.Create(&provider2).Error)
 
 		// Set up rotation service with next key
-		os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
-		defer os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+		_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+		defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT") }()
 
 		rs, err := NewRotationService(db)
 		require.NoError(t, err)
@@ -287,8 +287,8 @@ func TestRotateAllCredentials(t *testing.T) {
 		require.NoError(t, db.Create(&validProvider).Error)
 
 		// Set up rotation service with next key
-		os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
-		defer os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+		_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+		defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT") }()
 
 		rs, err := NewRotationService(db)
 		require.NoError(t, err)
@@ -324,8 +324,8 @@ func TestGetStatus(t *testing.T) {
 	})
 
 	t.Run("returns correct status with next key configured", func(t *testing.T) {
-		os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
-		defer os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+		_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+		defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT") }()
 
 		rs, err := NewRotationService(db)
 		require.NoError(t, err)
@@ -336,8 +336,8 @@ func TestGetStatus(t *testing.T) {
 	})
 
 	t.Run("returns correct status with legacy keys", func(t *testing.T) {
-		os.Setenv("CHARON_ENCRYPTION_KEY_V1", legacyKey)
-		defer os.Unsetenv("CHARON_ENCRYPTION_KEY_V1")
+		_ = os.Setenv("CHARON_ENCRYPTION_KEY_V1", legacyKey)
+		defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY_V1") }()
 
 		rs, err := NewRotationService(db)
 		require.NoError(t, err)
@@ -388,8 +388,8 @@ func TestValidateKeyConfiguration(t *testing.T) {
 	})
 
 	t.Run("validates next key successfully", func(t *testing.T) {
-		os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
-		defer os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+		_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+		defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT") }()
 
 		rs, err := NewRotationService(db)
 		require.NoError(t, err)
@@ -399,8 +399,8 @@ func TestValidateKeyConfiguration(t *testing.T) {
 	})
 
 	t.Run("validates legacy keys successfully", func(t *testing.T) {
-		os.Setenv("CHARON_ENCRYPTION_KEY_V1", legacyKey)
-		defer os.Unsetenv("CHARON_ENCRYPTION_KEY_V1")
+		_ = os.Setenv("CHARON_ENCRYPTION_KEY_V1", legacyKey)
+		defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY_V1") }()
 
 		rs, err := NewRotationService(db)
 		require.NoError(t, err)
@@ -454,8 +454,8 @@ func TestRotationServiceConcurrency(t *testing.T) {
 		require.NoError(t, db.Create(&provider).Error)
 	}
 
-	os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
-	defer os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey))
+	defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT") }()
 
 	rs, err := NewRotationService(db)
 	require.NoError(t, err)
@@ -494,8 +494,8 @@ func TestRotationServiceZeroDowntime(t *testing.T) {
 	})
 
 	t.Run("step 2: configure next key and rotate", func(t *testing.T) {
-		os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
-		defer os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+		require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey))
+		defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT") }()
 
 		rs, err := NewRotationService(db)
 		require.NoError(t, err)
@@ -508,12 +508,12 @@ func TestRotationServiceZeroDowntime(t *testing.T) {
 
 	t.Run("step 3: promote next to current", func(t *testing.T) {
 		// Simulate promotion: NEXT → current, old current → V1
-		os.Setenv("CHARON_ENCRYPTION_KEY", nextKey)
-		os.Setenv("CHARON_ENCRYPTION_KEY_V1", currentKey)
-		os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+		require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", nextKey))
+		_ = os.Setenv("CHARON_ENCRYPTION_KEY_V1", currentKey)
+		_ = os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
 		defer func() {
-			os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
-			os.Unsetenv("CHARON_ENCRYPTION_KEY_V1")
+			_ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+			_ = os.Unsetenv("CHARON_ENCRYPTION_KEY_V1")
 		}()
 
 		rs, err := NewRotationService(db)

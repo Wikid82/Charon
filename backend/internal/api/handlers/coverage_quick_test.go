@@ -19,7 +19,7 @@ func TestBackupHandlerQuick(t *testing.T) {
 	tmpDir := t.TempDir()
 	// prepare a fake "database" so CreateBackup can find it
 	dbPath := filepath.Join(tmpDir, "db.sqlite")
-	if err := os.WriteFile(dbPath, []byte("db"), 0o644); err != nil {
+	if err := os.WriteFile(dbPath, []byte("db"), 0o600); err != nil {
 		t.Fatalf("failed to create tmp db: %v", err)
 	}
 

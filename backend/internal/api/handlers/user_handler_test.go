@@ -117,7 +117,8 @@ func TestUserHandler_RegenerateAPIKey(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]string
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
 	assert.NotEmpty(t, resp["api_key"])
 
 	// Verify DB
@@ -150,9 +151,11 @@ func TestUserHandler_GetProfile(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp models.User
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
 	assert.Equal(t, user.Email, resp.Email)
-	assert.Equal(t, user.APIKey, resp.APIKey)
+	// APIKey is not exposed in JSON (json:"-" tag), so it should be empty in response
+	assert.Empty(t, resp.APIKey, "APIKey should not be exposed in profile response")
 }
 
 func TestUserHandler_RegisterRoutes(t *testing.T) {
@@ -440,7 +443,8 @@ func TestUserHandler_ListUsers_Admin(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var users []map[string]any
-	json.Unmarshal(w.Body.Bytes(), &users)
+	err := json.Unmarshal(w.Body.Bytes(), &users)
+	require.NoError(t, err, "Failed to unmarshal response")
 	assert.Len(t, users, 2)
 }
 
@@ -1071,7 +1075,8 @@ func TestUserHandler_ValidateInvite_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
 	assert.Equal(t, "valid@example.com", resp["email"])
 }
 
@@ -1263,7 +1268,8 @@ func TestUserHandler_InviteUser_Success(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, w.Code)
 
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
 	assert.NotEmpty(t, resp["invite_token"])
 	// email_sent is false because no SMTP is configured
 	assert.Equal(t, false, resp["email_sent"].(bool))
@@ -1381,7 +1387,8 @@ func TestUserHandler_InviteUser_WithSMTPConfigured(t *testing.T) {
 	// Note: email_sent will be false because we can't actually send email in tests,
 	// but the code path through IsConfigured() and getAppName() is still executed
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
 	assert.NotEmpty(t, resp["invite_token"])
 }
 
@@ -1440,7 +1447,8 @@ func TestUserHandler_InviteUser_WithSMTPConfigured_DefaultAppName(t *testing.T) 
 	assert.False(t, user.Enabled)
 
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
 	assert.NotEmpty(t, resp["invite_token"])
 }
 
@@ -1574,7 +1582,8 @@ func TestUserHandler_PreviewInviteURL_Success_Unconfigured(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
 
 	assert.Equal(t, false, resp["is_configured"].(bool))
 	assert.Equal(t, true, resp["warning"].(bool))
@@ -1614,7 +1623,8 @@ func TestUserHandler_PreviewInviteURL_Success_Configured(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
 
 	assert.Equal(t, true, resp["is_configured"].(bool))
 	assert.Equal(t, false, resp["warning"].(bool))
@@ -1945,7 +1955,8 @@ func TestUserHandler_PreviewInviteURL_Unconfigured_DoesNotUseRequestHost(t *test
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
 
 	// Response must NOT contain the malicious host
 	responseJSON := w.Body.String()
@@ -2140,7 +2151,8 @@ func TestResendInvite_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
 	assert.NotEmpty(t, resp["invite_token"])
 	assert.NotEqual(t, "oldtoken123", resp["invite_token"])
 	assert.Equal(t, "pending-user@example.com", resp["email"])
@@ -2186,7 +2198,8 @@ func TestResendInvite_WithExpiredInvite(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
 	assert.NotEmpty(t, resp["invite_token"])
 	assert.NotEqual(t, "expiredtoken", resp["invite_token"])
 

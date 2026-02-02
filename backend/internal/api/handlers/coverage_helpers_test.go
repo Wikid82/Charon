@@ -299,11 +299,11 @@ func TestCrowdsecHandler_ExportConfig(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	configDir := filepath.Join(tmpDir, "crowdsec", "config")
-	require.NoError(t, os.MkdirAll(configDir, 0o755))
+	require.NoError(t, os.MkdirAll(configDir, 0o750))
 
 	// Create test config file
 	configFile := filepath.Join(configDir, "config.yaml")
-	require.NoError(t, os.WriteFile(configFile, []byte("test: config"), 0o644))
+	require.NoError(t, os.WriteFile(configFile, []byte("test: config"), 0o600))
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
@@ -411,6 +411,8 @@ func TestCrowdsecHandler_BanIP(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
+	// Override to simulate cscli failure
+	h.CmdExec = &mockCmdExecutor{err: errors.New("cscli failed")}
 
 	r := gin.New()
 	r.POST("/ban", h.BanIP)

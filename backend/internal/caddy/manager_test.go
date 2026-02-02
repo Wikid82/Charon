@@ -170,7 +170,7 @@ func TestManager_RotateSnapshots(t *testing.T) {
 		// Use past timestamps
 		ts := time.Now().Add(-time.Duration(i+1) * time.Minute).Unix()
 		fname := fmt.Sprintf("config-%d.json", ts)
-		f, _ := os.Create(filepath.Join(tmpDir, fname))
+		f, _ := os.Create(filepath.Join(tmpDir, fname)) // #nosec G304 -- Test creates files in temp dir
 		_ = f.Close()
 	}
 
@@ -289,7 +289,7 @@ func TestManager_ApplyConfig_ValidationError(t *testing.T) {
 	// Setup Manager with a file as configDir to force saveSnapshot error
 	tmpDir := t.TempDir()
 	configDir := filepath.Join(tmpDir, "config-file")
-	_ = os.WriteFile(configDir, []byte("not a dir"), 0o644)
+	_ = os.WriteFile(configDir, []byte("not a dir"), 0o600) // #nosec G306 -- test fixture
 
 	client := NewClient("http://localhost")
 	manager := NewManager(client, db, configDir, "", false, config.SecurityConfig{})
@@ -325,7 +325,7 @@ func TestManager_Rollback_Failure(t *testing.T) {
 	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Create a dummy snapshot manually so rollback has something to try
-	_ = os.WriteFile(filepath.Join(tmpDir, "config-123.json"), []byte("{}"), 0o644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "config-123.json"), []byte("{}"), 0o600) // #nosec G306 -- test fixture
 
 	// Apply Config - will fail, try rollback, rollback will fail
 	err = manager.ApplyConfig(context.Background())

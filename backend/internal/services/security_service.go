@@ -279,7 +279,16 @@ func (s *SecurityService) processAuditEvents() {
 				}
 			}
 		case <-s.done:
-			// Service is shutting down, exit goroutine
+			// Service is shutting down - drain remaining audit events before exiting
+			for audit := range s.auditChan {
+				if err := s.db.Create(audit).Error; err != nil {
+					errMsg := err.Error()
+					if !strings.Contains(errMsg, "no such table") &&
+						!strings.Contains(errMsg, "database is closed") {
+						fmt.Printf("Failed to write audit log: %v\n", err)
+					}
+				}
+			}
 			return
 		}
 	}

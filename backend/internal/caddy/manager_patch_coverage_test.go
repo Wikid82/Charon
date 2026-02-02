@@ -44,9 +44,9 @@ func TestManagerApplyConfig_DNSProviders_NoKey_SkipsDecryption(t *testing.T) {
 	db.Create(&models.SecurityConfig{Name: "default", Enabled: true})
 	db.Create(&models.DNSProvider{Name: "p", ProviderType: "cloudflare", Enabled: true, CredentialsEncrypted: "invalid"})
 
-	os.Unsetenv("CHARON_ENCRYPTION_KEY")
-	os.Unsetenv("ENCRYPTION_KEY")
-	os.Unsetenv("CERBERUS_ENCRYPTION_KEY")
+	_ = os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	_ = os.Unsetenv("ENCRYPTION_KEY")
+	_ = os.Unsetenv("CERBERUS_ENCRYPTION_KEY")
 
 	var capturedLen int
 	origGen := generateConfigFunc

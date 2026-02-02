@@ -315,8 +315,8 @@ func TestCrowdsec_ReadFile_NestedPath(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a nested file in the data dir
-	_ = os.MkdirAll(filepath.Join(tmpDir, "subdir"), 0o755)
-	_ = os.WriteFile(filepath.Join(tmpDir, "subdir", "test.conf"), []byte("nested content"), 0o644)
+	_ = os.MkdirAll(filepath.Join(tmpDir, "subdir"), 0o750)                                         // #nosec G301 -- test fixture
+	_ = os.WriteFile(filepath.Join(tmpDir, "subdir", "test.conf"), []byte("nested content"), 0o600) // #nosec G306 -- test fixture
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
@@ -358,7 +358,7 @@ func TestCrowdsec_WriteFile_Success(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "written")
 
 	// Verify file was created
-	content, err := os.ReadFile(filepath.Join(tmpDir, "new.conf"))
+	content, err := os.ReadFile(filepath.Join(tmpDir, "new.conf")) //nolint:gosec // G304: Test file in temp directory
 	assert.NoError(t, err)
 	assert.Equal(t, "new content", string(content))
 }

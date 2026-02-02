@@ -185,6 +185,7 @@ func (s *PluginLoaderService) LoadPlugin(path string) error {
 
 // computeSignature calculates SHA-256 hash of plugin file.
 func (s *PluginLoaderService) computeSignature(path string) (string, error) {
+	// #nosec G304 -- path is from ReadDir iteration within pluginDir
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err

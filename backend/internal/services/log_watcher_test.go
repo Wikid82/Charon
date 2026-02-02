@@ -321,7 +321,7 @@ func TestLogWatcherIntegration(t *testing.T) {
 	logPath := filepath.Join(tmpDir, "access.log")
 
 	// Create the log file
-	file, err := os.Create(logPath)
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // test fixture path
 	require.NoError(t, err)
 	defer func() { _ = file.Close() }()
 
@@ -450,7 +450,7 @@ func TestLogWatcher_ReadLoop_EOFRetry(t *testing.T) {
 	logPath := filepath.Join(tmpDir, "access.log")
 
 	// Create empty log file
-	file, err := os.Create(logPath)
+	file, err := os.Create(logPath) //nolint:gosec // test fixture path
 	require.NoError(t, err)
 	_ = file.Close()
 
@@ -465,7 +465,7 @@ func TestLogWatcher_ReadLoop_EOFRetry(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Now append a log entry (simulates new data after EOF)
-	file, err = os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	file, err = os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0o600) //nolint:gosec // test fixture path
 	require.NoError(t, err)
 	logEntry := `{"level":"info","ts":1702406400.123,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"192.168.1.1","method":"GET","uri":"/test","host":"example.com","headers":{}},"status":200,"duration":0.001,"size":100}`
 	_, err = file.WriteString(logEntry + "\n")

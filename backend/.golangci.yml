@@ -64,10 +64,31 @@ issues:
         - errcheck
       path: ".*_test\\.go$"
       text: "json\\.Unmarshal|SetPassword|CreateProvider|ProxyHostService\\.Create"
-    # Exclude gosec file permission warnings - 0644/0755 are intentional for config/data dirs
+
+    # Gosec exclusions - be specific to avoid hiding real issues
+    # G104: Ignoring return values - already checked by errcheck
     - linters:
         - gosec
-      text: "G301:|G304:|G306:|G104:|G110:|G305:|G602:"
+      text: "G104:"
+
+    # G301/G302/G306: File permissions - allow in specific contexts
+    - linters:
+        - gosec
+      path: "internal/config/"
+      text: "G301:|G302:|G306:"
+
+    # G304: File path from variable - allow in handlers with proper validation
+    - linters:
+        - gosec
+      path: "internal/api/handlers/"
+      text: "G304:"
+
+    # G602: Slice bounds - allow in test files where it's typically safe
+    - linters:
+        - gosec
+      path: ".*_test\\.go$"
+      text: "G602:"
+
     # Exclude shadow warnings in specific patterns
     - linters:
         - govet

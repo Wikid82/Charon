@@ -157,6 +157,7 @@ func (h *ImportHandler) GetPreview(c *gin.Context) {
 					caddyfileContent = string(content)
 				} else {
 					backupPath := filepath.Join(h.importDir, "backups", filepath.Base(session.SourceFile))
+					// #nosec G304 -- backupPath is constructed from trusted importDir and sanitized basename
 					if content, err := os.ReadFile(backupPath); err == nil {
 						caddyfileContent = string(content)
 					}
@@ -297,6 +298,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid import directory"})
 		return
 	}
+	// #nosec G301 -- Import uploads directory needs group readability for processing
 	if err := os.MkdirAll(uploadsDir, 0o755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create uploads directory"})
 		return
@@ -306,6 +308,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid temp path"})
 		return
 	}
+	// #nosec G306 -- Caddyfile uploads need group readability for Caddy validation
 	if err := os.WriteFile(tempPath, []byte(normalizedContent), 0o644); err != nil {
 		middleware.GetRequestLogger(c).WithField("tempPath", util.SanitizeForLog(filepath.Base(tempPath))).WithError(err).Error("Import Upload: failed to write temp file")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write upload"})
@@ -317,6 +320,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 	if err != nil {
 		// Read a small preview of the uploaded file for diagnostics
 		preview := ""
+		// #nosec G304 -- tempPath is the validated temporary file from Gin SaveUploadedFile
 		if b, rerr := os.ReadFile(tempPath); rerr == nil {
 			if len(b) > 200 {
 				preview = string(b[:200])
@@ -476,6 +480,7 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid session directory"})
 		return
 	}
+	// #nosec G301 -- Session directory with standard permissions for import processing
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session directory"})
 		return
@@ -499,12 +504,14 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 
 		// Create parent directory if file is in a subdirectory
 		if dir := filepath.Dir(targetPath); dir != sessionDir {
+			// #nosec G301 -- Subdirectory within validated session directory
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to create directory for %s", f.Filename)})
 				return
 			}
 		}
 
+		// #nosec G306 -- Imported Caddyfile needs to be readable for processing
 		if err := os.WriteFile(targetPath, []byte(f.Content), 0o644); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to write file %s", f.Filename)})
 			return

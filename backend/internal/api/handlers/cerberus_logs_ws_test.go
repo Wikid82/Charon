@@ -45,6 +45,7 @@ func TestCerberusLogsHandler_SuccessfulConnection(t *testing.T) {
 	logPath := filepath.Join(tmpDir, "access.log")
 
 	// Create the log file
+	// #nosec G304 -- Test fixture file with controlled path
 	_, err := os.Create(logPath)
 	require.NoError(t, err)
 
@@ -81,6 +82,7 @@ func TestCerberusLogsHandler_ReceiveLogEntries(t *testing.T) {
 	logPath := filepath.Join(tmpDir, "access.log")
 
 	// Create the log file
+	// #nosec G304 -- Test fixture uses controlled path from t.TempDir()
 	file, err := os.Create(logPath)
 	require.NoError(t, err)
 	defer func() { _ = file.Close() }()
@@ -150,6 +152,7 @@ func TestCerberusLogsHandler_SourceFilter(t *testing.T) {
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "access.log")
 
+	// #nosec G304 -- Test fixture uses controlled path from t.TempDir()
 	file, err := os.Create(logPath)
 	require.NoError(t, err)
 	defer func() { _ = file.Close() }()
@@ -229,6 +232,7 @@ func TestCerberusLogsHandler_BlockedOnlyFilter(t *testing.T) {
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "access.log")
 
+	// #nosec G304 -- Test fixture uses controlled path from t.TempDir()
 	file, err := os.Create(logPath)
 	require.NoError(t, err)
 	defer func() { _ = file.Close() }()
@@ -305,7 +309,7 @@ func TestCerberusLogsHandler_IPFilter(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "access.log")
-
+	// #nosec G304 -- Test fixture uses controlled path from t.TempDir()
 	file, err := os.Create(logPath)
 	require.NoError(t, err)
 	defer func() { _ = file.Close() }()
@@ -382,7 +386,7 @@ func TestCerberusLogsHandler_ClientDisconnect(t *testing.T) {
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "access.log")
 
-	_, err := os.Create(logPath)
+	_, err := os.Create(logPath) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, err)
 
 	watcher := services.NewLogWatcher(logPath)
@@ -417,7 +421,7 @@ func TestCerberusLogsHandler_MultipleClients(t *testing.T) {
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "access.log")
 
-	file, err := os.Create(logPath)
+	file, err := os.Create(logPath) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, err)
 	defer func() { _ = file.Close() }()
 

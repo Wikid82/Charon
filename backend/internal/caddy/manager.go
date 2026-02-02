@@ -313,7 +313,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	rulesetPaths := make(map[string]string)
 	if len(rulesets) > 0 {
 		corazaDir := filepath.Join(m.configDir, "coraza", "rulesets")
-		if err := os.MkdirAll(corazaDir, 0o755); err != nil {
+		if err := os.MkdirAll(corazaDir, 0o700); err != nil {
 			logger.Log().WithError(err).Warn("failed to create coraza rulesets dir")
 		}
 		for _, rs := range rulesets {

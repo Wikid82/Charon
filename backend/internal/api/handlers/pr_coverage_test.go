@@ -173,8 +173,8 @@ func TestEncryptionHandler_Validate_NonAdminAccess(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	currentKey, _ := crypto.GenerateNewKey()
-	os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
-	defer os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", currentKey))
+	defer func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY")) }()
 
 	db := setupEncryptionTestDB(t)
 	rotationService, _ := crypto.NewRotationService(db)
@@ -195,8 +195,8 @@ func TestEncryptionHandler_GetHistory_PaginationBoundary(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	currentKey, _ := crypto.GenerateNewKey()
-	os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
-	defer os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", currentKey))
+	defer func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY")) }()
 
 	db := setupEncryptionTestDB(t)
 	rotationService, _ := crypto.NewRotationService(db)
@@ -230,9 +230,9 @@ func TestEncryptionHandler_GetStatus_VersionInfo(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	currentKey, _ := crypto.GenerateNewKey()
-	os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", currentKey))
 	defer func() {
-		os.Unsetenv("CHARON_ENCRYPTION_KEY")
+		require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY"))
 	}()
 
 	db := setupEncryptionTestDB(t)
@@ -574,8 +574,8 @@ func TestIsAdmin_NonAdminRole(t *testing.T) {
 // =============================================================================
 
 func setupCredentialHandlerTestWithCtx(t *testing.T) (*gin.Engine, *gorm.DB, *models.DNSProvider, context.Context) {
-	os.Setenv("CHARON_ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
-	t.Cleanup(func() { os.Unsetenv("CHARON_ENCRYPTION_KEY") })
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="))
+	t.Cleanup(func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY")) })
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -676,8 +676,8 @@ func TestCredentialHandler_Update_InvalidProviderType(t *testing.T) {
 }
 
 func TestCredentialHandler_List_DatabaseClosed(t *testing.T) {
-	os.Setenv("CHARON_ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
-	defer os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="))
+	defer func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY")) }()
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -823,8 +823,8 @@ func TestEncryptionHandler_Validate_AdminSuccess(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	currentKey, _ := crypto.GenerateNewKey()
-	os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
-	defer os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", currentKey))
+	defer func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY")) }()
 
 	db := setupEncryptionTestDB(t)
 	rotationService, _ := crypto.NewRotationService(db)

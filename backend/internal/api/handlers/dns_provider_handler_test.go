@@ -241,11 +241,20 @@ func TestDNSProviderHandler_Get(t *testing.T) {
 	})
 
 	t.Run("invalid id", func(t *testing.T) {
+		mockService := new(MockDNSProviderService)
+		handler := NewDNSProviderHandler(mockService)
+		router := gin.New()
+		router.GET("/dns-providers/:id", handler.Get)
+
+		// Non-numeric IDs are treated as UUIDs, returning not found
+		mockService.On("GetByUUID", mock.Anything, "invalid").Return(nil, services.ErrDNSProviderNotFound)
+
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/invalid", nil)
+		req, _ := http.NewRequest("GET", "/dns-providers/invalid", nil)
 		router.ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Equal(t, http.StatusNotFound, w.Code)
+		mockService.AssertExpectations(t)
 	})
 }
 
@@ -362,9 +371,21 @@ func TestDNSProviderHandler_Create(t *testing.T) {
 }
 
 func TestDNSProviderHandler_Update(t *testing.T) {
-	router, mockService := setupDNSProviderTestRouter()
-
 	t.Run("success", func(t *testing.T) {
+		mockService := new(MockDNSProviderService)
+		handler := NewDNSProviderHandler(mockService)
+		router := gin.New()
+		router.PUT("/dns-providers/:id", handler.Update)
+
+		existingProvider := &models.DNSProvider{
+			ID:                   1,
+			UUID:                 "uuid-1",
+			Name:                 "Old Name",
+			ProviderType:         "cloudflare",
+			Enabled:              true,
+			CredentialsEncrypted: "encrypted-data",
+		}
+
 		newName := "Updated Name"
 		reqBody := services.UpdateDNSProviderRequest{
 			Name: &newName,
@@ -379,11 +400,13 @@ func TestDNSProviderHandler_Update(t *testing.T) {
 			CredentialsEncrypted: "encrypted-data",
 		}
 
+		// resolveProvider calls Get first
+		mockService.On("Get", mock.Anything, uint(1)).Return(existingProvider, nil)
 		mockService.On("Update", mock.Anything, uint(1), reqBody).Return(updatedProvider, nil)
 
 		body, _ := json.Marshal(reqBody)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", "/api/v1/dns-providers/1", bytes.NewBuffer(body))
+		req, _ := http.NewRequest("PUT", "/dns-providers/1", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(w, req)
 
@@ -404,10 +427,11 @@ func TestDNSProviderHandler_Update(t *testing.T) {
 		router := gin.New()
 		router.PUT("/dns-providers/:id", handler.Update)
 
+		// resolveProvider calls Get first, which returns not found
+		mockService.On("Get", mock.Anything, uint(999)).Return(nil, services.ErrDNSProviderNotFound)
+
 		name := "Test"
 		reqBody := services.UpdateDNSProviderRequest{Name: &name}
-
-		mockService.On("Update", mock.Anything, uint(999), reqBody).Return(nil, services.ErrDNSProviderNotFound)
 
 		body, _ := json.Marshal(reqBody)
 		w := httptest.NewRecorder()
@@ -421,13 +445,25 @@ func TestDNSProviderHandler_Update(t *testing.T) {
 }
 
 func TestDNSProviderHandler_Delete(t *testing.T) {
-	router, mockService := setupDNSProviderTestRouter()
-
 	t.Run("success", func(t *testing.T) {
+		mockService := new(MockDNSProviderService)
+		handler := NewDNSProviderHandler(mockService)
+		router := gin.New()
+		router.DELETE("/dns-providers/:id", handler.Delete)
+
+		existingProvider := &models.DNSProvider{
+			ID:           1,
+			UUID:         "uuid-1",
+			Name:         "Test Provider",
+			ProviderType: "cloudflare",
+		}
+
+		// resolveProvider calls Get first
+		mockService.On("Get", mock.Anything, uint(1)).Return(existingProvider, nil)
 		mockService.On("Delete", mock.Anything, uint(1)).Return(nil)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("DELETE", "/api/v1/dns-providers/1", nil)
+		req, _ := http.NewRequest("DELETE", "/dns-providers/1", nil)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -447,7 +483,8 @@ func TestDNSProviderHandler_Delete(t *testing.T) {
 		router := gin.New()
 		router.DELETE("/dns-providers/:id", handler.Delete)
 
-		mockService.On("Delete", mock.Anything, uint(999)).Return(services.ErrDNSProviderNotFound)
+		// resolveProvider calls Get first, which returns not found
+		mockService.On("Get", mock.Anything, uint(999)).Return(nil, services.ErrDNSProviderNotFound)
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("DELETE", "/dns-providers/999", nil)
@@ -459,19 +496,31 @@ func TestDNSProviderHandler_Delete(t *testing.T) {
 }
 
 func TestDNSProviderHandler_Test(t *testing.T) {
-	router, mockService := setupDNSProviderTestRouter()
-
 	t.Run("success", func(t *testing.T) {
+		mockService := new(MockDNSProviderService)
+		handler := NewDNSProviderHandler(mockService)
+		router := gin.New()
+		router.POST("/dns-providers/:id/test", handler.Test)
+
+		existingProvider := &models.DNSProvider{
+			ID:           1,
+			UUID:         "uuid-1",
+			Name:         "Test Provider",
+			ProviderType: "cloudflare",
+		}
+
 		testResult := &services.TestResult{
 			Success:           true,
 			Message:           "Credentials validated successfully",
 			PropagationTimeMs: 1234,
 		}
 
+		// resolveProvider calls Get first
+		mockService.On("Get", mock.Anything, uint(1)).Return(existingProvider, nil)
 		mockService.On("Test", mock.Anything, uint(1)).Return(testResult, nil)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/api/v1/dns-providers/1/test", nil)
+		req, _ := http.NewRequest("POST", "/dns-providers/1/test", nil)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -492,7 +541,8 @@ func TestDNSProviderHandler_Test(t *testing.T) {
 		router := gin.New()
 		router.POST("/dns-providers/:id/test", handler.Test)
 
-		mockService.On("Test", mock.Anything, uint(999)).Return(nil, services.ErrDNSProviderNotFound)
+		// resolveProvider calls Get first, which returns not found
+		mockService.On("Get", mock.Anything, uint(999)).Return(nil, services.ErrDNSProviderNotFound)
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("POST", "/dns-providers/999/test", nil)
@@ -772,37 +822,58 @@ func TestDNSProviderHandler_CredentialsNeverExposed(t *testing.T) {
 }
 
 func TestDNSProviderHandler_UpdateInvalidID(t *testing.T) {
-	router, _ := setupDNSProviderTestRouter()
+	mockService := new(MockDNSProviderService)
+	handler := NewDNSProviderHandler(mockService)
+	router := gin.New()
+	router.PUT("/dns-providers/:id", handler.Update)
+
+	// Non-numeric IDs are treated as UUIDs
+	mockService.On("GetByUUID", mock.Anything, "invalid").Return(nil, services.ErrDNSProviderNotFound)
 
 	reqBody := map[string]string{"name": "Test"}
 	body, _ := json.Marshal(reqBody)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("PUT", "/api/v1/dns-providers/invalid", bytes.NewBuffer(body))
+	req, _ := http.NewRequest("PUT", "/dns-providers/invalid", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	mockService.AssertExpectations(t)
 }
 
 func TestDNSProviderHandler_DeleteInvalidID(t *testing.T) {
-	router, _ := setupDNSProviderTestRouter()
+	mockService := new(MockDNSProviderService)
+	handler := NewDNSProviderHandler(mockService)
+	router := gin.New()
+	router.DELETE("/dns-providers/:id", handler.Delete)
+
+	// Non-numeric IDs are treated as UUIDs
+	mockService.On("GetByUUID", mock.Anything, "invalid").Return(nil, services.ErrDNSProviderNotFound)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("DELETE", "/api/v1/dns-providers/invalid", nil)
+	req, _ := http.NewRequest("DELETE", "/dns-providers/invalid", nil)
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	mockService.AssertExpectations(t)
 }
 
 func TestDNSProviderHandler_TestInvalidID(t *testing.T) {
-	router, _ := setupDNSProviderTestRouter()
+	mockService := new(MockDNSProviderService)
+	handler := NewDNSProviderHandler(mockService)
+	router := gin.New()
+	router.POST("/dns-providers/:id/test", handler.Test)
+
+	// Non-numeric IDs are treated as UUIDs
+	mockService.On("GetByUUID", mock.Anything, "invalid").Return(nil, services.ErrDNSProviderNotFound)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/dns-providers/invalid/test", nil)
+	req, _ := http.NewRequest("POST", "/dns-providers/invalid/test", nil)
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	mockService.AssertExpectations(t)
 }
 
 func TestDNSProviderHandler_CreateEncryptionFailure(t *testing.T) {
@@ -835,9 +906,18 @@ func TestDNSProviderHandler_UpdateEncryptionFailure(t *testing.T) {
 	router := gin.New()
 	router.PUT("/dns-providers/:id", handler.Update)
 
+	existingProvider := &models.DNSProvider{
+		ID:           1,
+		UUID:         "uuid-1",
+		Name:         "Test Provider",
+		ProviderType: "cloudflare",
+	}
+
 	name := "Test"
 	reqBody := services.UpdateDNSProviderRequest{Name: &name}
 
+	// resolveProvider calls Get first
+	mockService.On("Get", mock.Anything, uint(1)).Return(existingProvider, nil)
 	mockService.On("Update", mock.Anything, uint(1), reqBody).Return(nil, services.ErrEncryptionFailed)
 
 	body, _ := json.Marshal(reqBody)
@@ -872,6 +952,15 @@ func TestDNSProviderHandler_DeleteServiceError(t *testing.T) {
 	router := gin.New()
 	router.DELETE("/dns-providers/:id", handler.Delete)
 
+	existingProvider := &models.DNSProvider{
+		ID:           1,
+		UUID:         "uuid-1",
+		Name:         "Test Provider",
+		ProviderType: "cloudflare",
+	}
+
+	// resolveProvider calls Get first
+	mockService.On("Get", mock.Anything, uint(1)).Return(existingProvider, nil)
 	mockService.On("Delete", mock.Anything, uint(1)).Return(errors.New("database error"))
 
 	w := httptest.NewRecorder()
@@ -888,6 +977,15 @@ func TestDNSProviderHandler_TestServiceError(t *testing.T) {
 	router := gin.New()
 	router.POST("/dns-providers/:id/test", handler.Test)
 
+	existingProvider := &models.DNSProvider{
+		ID:           1,
+		UUID:         "uuid-1",
+		Name:         "Test Provider",
+		ProviderType: "cloudflare",
+	}
+
+	// resolveProvider calls Get first
+	mockService.On("Get", mock.Anything, uint(1)).Return(existingProvider, nil)
 	mockService.On("Test", mock.Anything, uint(1)).Return(nil, errors.New("service error"))
 
 	w := httptest.NewRecorder()
@@ -928,9 +1026,18 @@ func TestDNSProviderHandler_UpdateInvalidCredentials(t *testing.T) {
 	router := gin.New()
 	router.PUT("/dns-providers/:id", handler.Update)
 
+	existingProvider := &models.DNSProvider{
+		ID:           1,
+		UUID:         "uuid-1",
+		Name:         "Test Provider",
+		ProviderType: "cloudflare",
+	}
+
 	name := "Test"
 	reqBody := services.UpdateDNSProviderRequest{Name: &name}
 
+	// resolveProvider calls Get first
+	mockService.On("Get", mock.Anything, uint(1)).Return(existingProvider, nil)
 	mockService.On("Update", mock.Anything, uint(1), reqBody).Return(nil, services.ErrInvalidCredentials)
 
 	body, _ := json.Marshal(reqBody)
@@ -950,6 +1057,16 @@ func TestDNSProviderHandler_UpdateBindJSONError(t *testing.T) {
 	router := gin.New()
 	router.PUT("/dns-providers/:id", handler.Update)
 
+	existingProvider := &models.DNSProvider{
+		ID:           1,
+		UUID:         "uuid-1",
+		Name:         "Test Provider",
+		ProviderType: "cloudflare",
+	}
+
+	// resolveProvider calls Get first
+	mockService.On("Get", mock.Anything, uint(1)).Return(existingProvider, nil)
+
 	// Send invalid JSON
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("PUT", "/dns-providers/1", bytes.NewBufferString("not valid json"))
@@ -965,9 +1082,18 @@ func TestDNSProviderHandler_UpdateGenericError(t *testing.T) {
 	router := gin.New()
 	router.PUT("/dns-providers/:id", handler.Update)
 
+	existingProvider := &models.DNSProvider{
+		ID:           1,
+		UUID:         "uuid-1",
+		Name:         "Test Provider",
+		ProviderType: "cloudflare",
+	}
+
 	name := "Test"
 	reqBody := services.UpdateDNSProviderRequest{Name: &name}
 
+	// resolveProvider calls Get first
+	mockService.On("Get", mock.Anything, uint(1)).Return(existingProvider, nil)
 	// Return a generic error that doesn't match any known error types
 	mockService.On("Update", mock.Anything, uint(1), reqBody).Return(nil, errors.New("unknown database error"))
 

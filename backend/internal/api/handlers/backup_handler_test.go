@@ -31,12 +31,12 @@ func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string
 	// So if DatabasePath is /tmp/data/charon.db, DataDir is /tmp/data, BackupDir is /tmp/data/backups.
 
 	dataDir := filepath.Join(tmpDir, "data")
-	err = os.MkdirAll(dataDir, 0o755)
+	err = os.MkdirAll(dataDir, 0o750)
 	require.NoError(t, err)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
 	// Create a dummy DB file to back up
-	err = os.WriteFile(dbPath, []byte("dummy db content"), 0o644)
+	err = os.WriteFile(dbPath, []byte("dummy db content"), 0o600)
 	require.NoError(t, err)
 
 	cfg := &config.Config{
@@ -269,8 +269,12 @@ func TestBackupHandler_Create_ServiceError(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Remove write permissions on backup dir to force create error
+	// #nosec G302 -- Test intentionally uses restrictive perms to simulate error
 	_ = os.Chmod(svc.BackupDir, 0o444)
-	defer func() { _ = os.Chmod(svc.BackupDir, 0o755) }()
+	defer func() {
+		// #nosec G302 -- Cleanup restores directory permissions
+		_ = os.Chmod(svc.BackupDir, 0o755)
+	}()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", http.NoBody)
 	resp := httptest.NewRecorder()
@@ -294,7 +298,9 @@ func TestBackupHandler_Delete_InternalError(t *testing.T) {
 	filename := result["filename"]
 
 	// Make backup dir read-only to cause delete error (not NotExist)
+	// #nosec G302 -- Test intentionally sets restrictive permissions to verify error handling
 	_ = os.Chmod(svc.BackupDir, 0o444)
+	// #nosec G302 -- Test cleanup restores directory permissions
 	defer func() { _ = os.Chmod(svc.BackupDir, 0o755) }()
 
 	req = httptest.NewRequest(http.MethodDelete, "/api/v1/backups/"+filename, http.NoBody)
@@ -319,7 +325,9 @@ func TestBackupHandler_Restore_InternalError(t *testing.T) {
 	filename := result["filename"]
 
 	// Make data dir read-only to cause restore error
+	// #nosec G302 -- Test intentionally sets restrictive permissions to verify error handling
 	_ = os.Chmod(svc.DataDir, 0o444)
+	// #nosec G302 -- Test cleanup restores directory permissions
 	defer func() { _ = os.Chmod(svc.DataDir, 0o755) }()
 
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/backups/"+filename+"/restore", http.NoBody)
