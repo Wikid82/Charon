@@ -40,7 +40,7 @@ export default function ImportSitesModal({ visible, onClose, onUploaded }: Props
       try {
         const text = await files[i].text()
         newSites.push({ filename: files[i].name, content: text })
-      } catch (_err) {
+      } catch {
           // ignore read errors for individual files
           newSites.push({ filename: files[i].name, content: '' })
         }

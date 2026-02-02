@@ -81,6 +81,7 @@ func TestUptimeService_CheckAll(t *testing.T) {
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}),
+		ReadHeaderTimeout: 10 * time.Second, // Prevent Slowloris attacks
 	}
 	go func() { _ = server.Serve(listener) }()
 	defer func() { _ = server.Close() }()
@@ -856,6 +857,7 @@ func TestUptimeService_CheckMonitor_EdgeCases(t *testing.T) {
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusNotFound)
 			}),
+			ReadHeaderTimeout: 10 * time.Second, // Prevent Slowloris attacks
 		}
 		go func() { _ = server.Serve(listener) }()
 		defer func() { _ = server.Close() }()

@@ -1,3 +1,8 @@
+# NOTE: golangci-lint-fast now includes test files (_test.go) to catch security
+# issues earlier. The fast config uses gosec with critical-only checks (G101,
+# G110, G305, G401, G501, G502, G503) for acceptable performance.
+# Last updated: 2026-02-02
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -36,9 +41,9 @@ repos:
         entry: scripts/pre-commit-hooks/golangci-lint-fast.sh
         language: script
         files: '\.go$'
-        exclude: '_test\.go$'
+        # Test files are now included to catch security issues (gosec critical checks)
         pass_filenames: false
-        description: "Runs fast, essential linters (staticcheck, govet, errcheck, ineffassign, unused) - BLOCKS commits on failure"
+        description: "Runs fast, essential linters (staticcheck, govet, errcheck, ineffassign, unused, gosec critical) - BLOCKS commits on failure"
       - id: check-version-match
         name: Check .version matches latest Git tag
         entry: bash -c 'scripts/check-version-match-tag.sh'

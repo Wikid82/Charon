@@ -15,6 +15,16 @@ import (
 	"gorm.io/gorm"
 )
 
+// contextKey is a custom type for context keys to avoid collisions (matches test usage)
+type contextKey string
+
+// Context key constants for extracting request metadata
+const (
+	contextKeyUserID    contextKey = "user_id"
+	contextKeyClientIP  contextKey = "client_ip"
+	contextKeyUserAgent contextKey = "user_agent"
+)
+
 var (
 	// ErrDNSProviderNotFound is returned when a DNS provider is not found.
 	ErrDNSProviderNotFound = errors.New("dns provider not found")
@@ -657,6 +667,14 @@ func (s *dnsProviderService) GetProviderCredentialFields(providerType string) ([
 
 // getActorFromContext extracts the user ID from the context
 func getActorFromContext(ctx context.Context) string {
+	// Check for typed contextKey first (from tests and new code)
+	if userID, ok := ctx.Value(contextKeyUserID).(string); ok && userID != "" {
+		return userID
+	}
+	if userID, ok := ctx.Value(contextKeyUserID).(uint); ok && userID > 0 {
+		return fmt.Sprintf("%d", userID)
+	}
+	// Fall back to bare string key (from middleware)
 	if userID, ok := ctx.Value("user_id").(string); ok && userID != "" {
 		return userID
 	}
@@ -668,6 +686,11 @@ func getActorFromContext(ctx context.Context) string {
 
 // getIPFromContext extracts the IP address from the context
 func getIPFromContext(ctx context.Context) string {
+	// Check for typed contextKey first
+	if ip, ok := ctx.Value(contextKeyClientIP).(string); ok {
+		return ip
+	}
+	// Fall back to bare string key
 	if ip, ok := ctx.Value("client_ip").(string); ok {
 		return ip
 	}
@@ -676,6 +699,11 @@ func getIPFromContext(ctx context.Context) string {
 
 // getUserAgentFromContext extracts the User-Agent from the context
 func getUserAgentFromContext(ctx context.Context) string {
+	// Check for typed contextKey first
+	if ua, ok := ctx.Value(contextKeyUserAgent).(string); ok {
+		return ua
+	}
+	// Fall back to bare string key
 	if ua, ok := ctx.Value("user_agent").(string); ok {
 		return ua
 	}

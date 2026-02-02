@@ -60,6 +60,7 @@ func TestConstantTimeCompareBytes(t *testing.T) {
 
 // BenchmarkConstantTimeCompare ensures the function remains constant-time.
 func BenchmarkConstantTimeCompare(b *testing.B) {
+	// #nosec G101 -- Test fixture for benchmarking constant-time comparison, not a real credential
 	secret := "a]3kL9#mP2$vN7@qR5*wX1&yT4^uI8%oE0!"
 
 	b.Run("equal", func(b *testing.B) {

@@ -44,7 +44,9 @@ func (m *mockStopExecutor) Status(_ context.Context, _ string) (running bool, pi
 // createTestSecurityService creates a SecurityService for testing
 func createTestSecurityService(t *testing.T, db *gorm.DB) *services.SecurityService {
 	t.Helper()
-	return services.NewSecurityService(db)
+	svc := services.NewSecurityService(db)
+	t.Cleanup(func() { svc.Close() })
+	return svc
 }
 
 // TestCrowdsecHandler_Stop_Success tests the Stop handler with successful execution

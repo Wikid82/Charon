@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import DNSProviderForm from '../DNSProviderForm'
 import { defaultProviderSchemas } from '../../data/dnsProviderSchemas'
+import type { DNSProvider } from '../../api/dnsProviders'
 
 // Mock hooks used by DNSProviderForm
 vi.mock('../../hooks/useDNSProviders', () => ({
@@ -47,7 +48,7 @@ describe('DNSProviderForm — Script provider (accessibility)', () => {
   })
 
   it('renders Script Path when editing an existing script provider (not required)', async () => {
-    const existingProvider = {
+    const existingProvider: DNSProvider = {
       id: 1,
       uuid: 'p-1',
       name: 'local-script',
@@ -64,7 +65,7 @@ describe('DNSProviderForm — Script provider (accessibility)', () => {
     }
 
     renderWithClient(
-      <DNSProviderForm open={true} onOpenChange={() => {}} provider={existingProvider as any} onSuccess={() => {}} />
+      <DNSProviderForm open={true} onOpenChange={() => {}} provider={existingProvider} onSuccess={() => {}} />
     )
 
     // Since provider prop is provided, providerType should be pre-populated and the field rendered

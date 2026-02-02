@@ -35,7 +35,7 @@ func setupImportTestDB(t *testing.T) *gorm.DB {
 	t.Cleanup(func() {
 		sqlDB, err := db.DB()
 		if err == nil {
-			sqlDB.Close()
+			defer func() { _ = sqlDB.Close() }()
 		}
 	})
 	return db
@@ -1498,11 +1498,12 @@ func TestImportHandler_Commit_SessionSaveWarning(t *testing.T) {
 	router.POST("/import/commit", h.Commit)
 
 	// Inject a GORM callback to force an error when updating ImportSession (simulates non-fatal save warning)
-	db.Callback().Update().Before("gorm:before_update").Register("test:inject_importsession_save_error", func(tx *gorm.DB) {
+	err := db.Callback().Update().Before("gorm:before_update").Register("test:inject_importsession_save_error", func(tx *gorm.DB) {
 		if tx.Statement != nil && tx.Statement.Schema != nil && tx.Statement.Schema.Name == "ImportSession" {
-			tx.AddError(errors.New("simulated session save failure"))
+			_ = tx.AddError(errors.New("simulated session save failure"))
 		}
 	})
+	require.NoError(t, err, "Failed to register GORM callback")
 
 	// Capture global logs so we can assert a warning was emitted
 	var buf bytes.Buffer
@@ -1550,7 +1551,7 @@ func TestGetStatus_DatabaseError(t *testing.T) {
 	// Close DB to trigger error
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

@@ -184,7 +184,8 @@ func TestCheckIntegrity_ActualCorruption(t *testing.T) {
 	_ = sqlDB.Close()
 
 	// Corrupt the database file
-	f, err := os.OpenFile(dbPath, os.O_RDWR, 0o644)
+	// #nosec G304 -- Test function intentionally opens test database file for corruption testing
+	f, err := os.OpenFile(dbPath, os.O_RDWR, 0o600) // #nosec G302 -- Test intentionally opens test database for corruption
 	require.NoError(t, err)
 	stat, err := f.Stat()
 	require.NoError(t, err)

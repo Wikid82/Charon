@@ -216,7 +216,7 @@ func TestUpdateFlags_TransactionRollback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get sql.DB: %v", err)
 	}
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	h := NewFeatureFlagsHandler(db)
 	gin.SetMode(gin.TestMode)
