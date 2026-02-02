@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Docker Build**: Fixed GeoLite2-Country.mmdb checksum mismatch causing CI/CD build failures
+  - Updated Dockerfile (line 352) with current upstream database checksum
+  - Added automated workflow (`.github/workflows/update-geolite2.yml`) for weekly checksum verification
+  - Workflow creates pull requests automatically when upstream database is updated
+  - Build failure resolved: https://github.com/Wikid82/Charon/actions/runs/21584236523/job/62188372617
+  - See [GeoLite2 Maintenance Guide](docs/maintenance/geolite2-checksum-update.md) for manual update procedures
+  - Implementation details: [docs/plans/geolite2_checksum_fix_spec.md](docs/plans/geolite2_checksum_fix_spec.md)
+  - QA verification: [docs/reports/qa_geolite2_checksum_fix.md](docs/reports/qa_geolite2_checksum_fix.md)
+
 ### Changed
 
 - **Build Strategy**: Simplified to Docker-only deployment model
