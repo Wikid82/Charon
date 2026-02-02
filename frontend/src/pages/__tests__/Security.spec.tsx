@@ -10,6 +10,7 @@ import type { SecurityStatus, RuleSetsResponse } from '../../api/security'
 import * as settingsApi from '../../api/settings'
 import * as crowdsecApi from '../../api/crowdsec'
 import { createTestQueryClient } from '../../test/createTestQueryClient'
+import * as logsApi from '../../api/logs'
 
 const mockNavigate = vi.fn()
 
@@ -21,6 +22,10 @@ vi.mock('react-router-dom', async () => {
 vi.mock('../../api/security')
 vi.mock('../../api/settings')
 vi.mock('../../api/crowdsec')
+vi.mock('../../api/logs', () => ({
+  connectLiveLogs: vi.fn(() => vi.fn()),
+  connectSecurityLogs: vi.fn(() => vi.fn()),
+}))
 
 const defaultFeatureFlags = {
   'feature.cerberus.enabled': true,
@@ -76,6 +81,9 @@ describe('Security page', () => {
     vi.mocked(api.getSecurityConfig).mockResolvedValue(mockSecurityConfig)
     vi.mocked(api.getRuleSets).mockResolvedValue(mockRuleSets)
     vi.mocked(api.updateSecurityConfig).mockResolvedValue({})
+    // Mock WebSocket connections for LiveLogViewer
+    vi.mocked(logsApi.connectLiveLogs).mockReturnValue(vi.fn())
+    vi.mocked(logsApi.connectSecurityLogs).mockReturnValue(vi.fn())
   })
 
   it('shows banner when all services are disabled and links to docs', async () => {

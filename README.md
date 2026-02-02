@@ -96,8 +96,10 @@ See exactly what's happening with live request logs, uptime monitoring, and inst
 ### 📥 **Migration Made Easy**
 
 Import your existing configurations with one click:
-- **Caddyfile Import** — Migrate from other Caddy setups
-- **NPM Import** — Import from Nginx Proxy Manager exports
+- **Caddyfile** — Migrate from other Caddy setups
+- **Nginx** — Import from Nginx based configurations (Coming Soon)
+- **Traefik** - Import from Traefik based configurations (Coming Soon)
+- **CrowdSec** - Import from CrowdSec configurations (WIP)
 - **JSON Import** — Restore from Charon backups or generic JSON configs
 
 Already invested in another reverse proxy? Bring your work with you.
