@@ -580,6 +580,9 @@ function generateCacheKey(
  * ✅ FIX P1: Increased timeout from 30s to 60s and added overlay detection
  * to handle config reload delays during feature flag propagation.
  *
+ * ✅ FIX 2.3: Quick check for expected state before polling
+ * Skips polling if flags are already in expected state (50% fewer iterations).
+ *
  * @param page - Playwright page object
  * @param expectedFlags - Map of flag names to expected boolean values
  * @param options - Polling configuration
@@ -604,6 +607,24 @@ export async function waitForFeatureFlagPropagation(
   await overlay.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {
     // Overlay not present or already hidden - continue
   });
+
+  // ✅ FIX 2.3: Quick check - are we already in expected state?
+  const currentState = await page.evaluate(async () => {
+    const res = await fetch('/api/v1/feature-flags');
+    return res.json();
+  });
+
+  const alreadyMatches = Object.entries(expectedFlags).every(
+    ([key, expectedValue]) => {
+      const normalizedKey = normalizeKey(key);
+      return currentState[normalizedKey] === expectedValue;
+    }
+  );
+
+  if (alreadyMatches) {
+    console.log('[POLL] Feature flags already in expected state - skipping poll');
+    return currentState;
+  }
 
   // ✅ FIX 1.3: Request coalescing with worker isolation
   const { test } = await import('@playwright/test');
