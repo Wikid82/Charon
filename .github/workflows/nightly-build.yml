@@ -46,11 +46,16 @@ jobs:
       - name: Sync development to nightly
         id: sync
         run: |
-          # Fetch development branch
+          # Fetch both branches to ensure we have the latest remote state
           git fetch origin development
+          git fetch origin nightly
 
-          # Check if there are differences
-          if git diff --quiet nightly origin/development; then
+          # Sync local nightly with remote nightly to prevent non-fast-forward errors
+          echo "Syncing local nightly with remote nightly..."
+          git reset --hard origin/nightly
+
+          # Check if there are differences between remote branches
+          if git diff --quiet origin/nightly origin/development; then
             echo "No changes to sync from development to nightly"
             echo "has_changes=false" >> $GITHUB_OUTPUT
           else
@@ -61,7 +66,8 @@ jobs:
               echo "Fast-forward not possible, resetting nightly to development"
               git reset --hard origin/development
             }
-            git push origin nightly
+            # Force push to handle cases where nightly diverged from development
+            git push --force origin nightly
             echo "has_changes=true" >> $GITHUB_OUTPUT
           fi
 
@@ -136,6 +142,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=nightly-${{ github.sha }}
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.pushed_at }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true
@@ -232,55 +240,13 @@ jobs:
           docker stop charon-nightly
           docker rm charon-nightly
 
-  build-nightly-release:
-    needs: test-nightly-image
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout nightly branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          ref: nightly
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5  # v6.2.0
-        with:
-          go-version: '1.25.6'
-
-      - name: Set up Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238  # v6.2.0
-        with:
-          node-version: '24.13.0'
-
-      - name: Set up Zig (for cross-compilation)
-        uses: goto-bus-stop/setup-zig@abea47f85e598557f500fa1fd2ab7464fcb39406  # v2.2.1
-        with:
-          version: 0.11.0
-
-      - name: Build frontend
-        working-directory: ./frontend
-        run: |
-          npm ci
-          npm run build
-
-      - name: Run GoReleaser (snapshot mode)
-        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a  # v6.4.0
-        with:
-          distribution: goreleaser
-          version: '~> v2'
-          args: release --snapshot --skip=publish --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload nightly binaries
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
-        with:
-          name: nightly-binaries
-          path: dist/*
-          retention-days: 30
+  # NOTE: Standalone binary builds removed - Charon uses Docker-only deployment
+  # The build-nightly-release job that ran GoReleaser for Windows/macOS/Linux binaries
+  # was removed because:
+  # 1. Charon is distributed exclusively via Docker images
+  # 2. Cross-compilation was failing due to Unix-specific syscalls
+  # 3. No users download standalone binaries (all use Docker)
+  # If standalone binaries are needed in the future, re-add the job with Linux-only targets
 
   verify-nightly-supply-chain:
     needs: build-and-push-nightly

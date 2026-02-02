@@ -91,49 +91,54 @@ cosign verify \
 
 ### 2. Verify SLSA Provenance
 
-**What it does:** Proves the software was built by the official GitHub Actions workflow from the official repository.
+**What it does:** Proves the Docker images were built by the official GitHub Actions workflow from the official repository.
 
-**Step 1: Download provenance**
+**Note:** Charon uses a Docker-only deployment model. SLSA provenance is attached to container images, not standalone binaries.
 
-```bash
-curl -LO https://github.com/Wikid82/charon/releases/download/v1.0.0/provenance.json
-```
-
-**Step 2: Download the binary**
+**For Docker images, provenance is automatically embedded.** You can inspect it using Cosign:
 
 ```bash
-curl -LO https://github.com/Wikid82/charon/releases/download/v1.0.0/charon-linux-amd64
-```
-
-**Step 3: Verify provenance**
-
-```bash
-slsa-verifier verify-artifact \
-  --provenance-path provenance.json \
-  --source-uri github.com/Wikid82/charon \
-  charon-linux-amd64
+# View attestations attached to the image
+cosign verify-attestation \
+  --type slsaprovenance \
+  --certificate-identity-regexp='https://github.com/Wikid82/charon' \
+  --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \
+  ghcr.io/wikid82/charon:v1.0.0 | jq -r '.payload' | base64 -d | jq
 ```
 
 **Expected Output:**
 
-```
-Verified signature against tlog entry index XXXXX at URL: https://rekor.sigstore.dev/api/v1/log/entries/...
-Verified build using builder https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@refs/tags/v1.9.0 at commit SHA256:...
-PASSED: Verified SLSA provenance
+```json
+{
+  "_type": "https://in-toto.io/Statement/v0.1",
+  "predicateType": "https://slsa.dev/provenance/v0.2",
+  "subject": [...],
+  "predicate": {
+    "builder": {
+      "id": "https://github.com/slsa-framework/slsa-github-generator/..."
+    },
+    "buildType": "https://github.com/slsa-framework/slsa-github-generator@v1",
+    "invocation": {
+      "configSource": {
+        "uri": "git+https://github.com/Wikid82/charon@refs/tags/v1.0.0"
+      }
+    }
+  }
+}
 ```
 
 **What to check:**
 
-- ✅ "PASSED: Verified SLSA provenance"
-- ✅ Builder is the official SLSA generator
-- ✅ Source URI matches `github.com/Wikid82/charon`
-- ✅ Entry is recorded in Rekor transparency log
+- ✅ `predicateType` is SLSA provenance
+- ✅ `builder.id` references the official SLSA generator
+- ✅ `configSource.uri` matches `github.com/Wikid82/charon`
+- ✅ No errors during verification
 
 **Troubleshooting:**
 
-- **Error: "artifact hash doesn't match"** → The binary may have been tampered with
-- **Error: "source URI doesn't match"** → The build came from an unofficial repository
-- **Error: "invalid provenance"** → The provenance file may be corrupted
+- **Error: "no matching attestations"** → The image may not have provenance attached
+- **Error: "certificate identity doesn't match"** → The attestation came from an unofficial source
+- **Error: "invalid provenance"** → The provenance may be corrupted
 
 ### 3. Inspect Software Bill of Materials (SBOM)
 
@@ -260,14 +265,15 @@ All signatures are recorded in the public Rekor transparency log:
 
 ### GitHub Release Assets
 
-Each release includes:
+Each Docker image release includes embedded attestations:
 
-- `provenance.json` - SLSA provenance attestation
-- `sbom.spdx.json` - Software Bill of Materials
-- `*.sig` - Cosign signature files (for binaries)
-- `charon-*` - Release binaries
+- **Image Signatures** - Cosign signatures (keyless signing via Sigstore)
+- **SLSA Provenance** - Build attestation proving the image was built by official GitHub Actions
+- **SBOM** - Software Bill of Materials attached to the image
 
-**Download from**: <https://github.com/Wikid82/charon/releases>
+**View releases at**: <https://github.com/Wikid82/charon/releases>
+
+**Note:** Charon uses a Docker-only deployment model. All artifacts are embedded in container images - no standalone binaries are distributed.
 
 ---
 
@@ -322,16 +328,6 @@ Each release includes:
 - Image may be compromised
 
 **Solution:** Only use images from the official repository. Report suspicious images.
-
-#### "slsa-verifier: verification failed"
-
-**Possible causes:**
-
-- Provenance file doesn't match the binary
-- Binary was modified after signing
-- Wrong provenance file downloaded
-
-**Solution:** Re-download both provenance and binary from the same release
 
 #### Grype shows vulnerabilities
 
