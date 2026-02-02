@@ -441,48 +441,154 @@ export async function waitForTableLoad(
 }
 
 /**
+ * Options for waitForFeatureFlagPropagation
+ */
+export interface FeatureFlagPropagationOptions {
+  /** Polling interval in ms (default: 500ms) */
+  interval?: number;
+  /** Maximum time to wait (default: 30000ms) */
+  timeout?: number;
+  /** Maximum number of polling attempts (calculated from timeout/interval) */
+  maxAttempts?: number;
+}
+
+/**
+ * Polls the /feature-flags endpoint until expected state is returned.
+ * Replaces hard-coded waits with condition-based verification.
+ *
+ * @param page - Playwright page object
+ * @param expectedFlags - Map of flag names to expected boolean values
+ * @param options - Polling configuration
+ * @returns The response once expected state is confirmed
+ *
+ * @example
+ * ```typescript
+ * // Wait for Cerberus flag to be disabled
+ * await waitForFeatureFlagPropagation(page, {
+ *   'cerberus.enabled': false
+ * });
+ * ```
+ */
+export async function waitForFeatureFlagPropagation(
+  page: Page,
+  expectedFlags: Record<string, boolean>,
+  options: FeatureFlagPropagationOptions = {}
+): Promise<Record<string, boolean>> {
+  const interval = options.interval ?? 500;
+  const timeout = options.timeout ?? 30000;
+  const maxAttempts = options.maxAttempts ?? Math.ceil(timeout / interval);
+
+  let lastResponse: Record<string, boolean> | null = null;
+  let attemptCount = 0;
+
+  while (attemptCount < maxAttempts) {
+    attemptCount++;
+
+    // GET /feature-flags via page context to respect CORS and auth
+    const response = await page.evaluate(async () => {
+      const res = await fetch('/api/v1/feature-flags', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      return {
+        ok: res.ok,
+        status: res.status,
+        data: await res.json(),
+      };
+    });
+
+    lastResponse = response.data as Record<string, boolean>;
+
+    // Check if all expected flags match
+    const allMatch = Object.entries(expectedFlags).every(
+      ([key, expectedValue]) => {
+        return response.data[key] === expectedValue;
+      }
+    );
+
+    if (allMatch) {
+      console.log(
+        `[POLL] Feature flags propagated after ${attemptCount} attempts (${attemptCount * interval}ms)`
+      );
+      return lastResponse;
+    }
+
+    // Wait before next attempt
+    await page.waitForTimeout(interval);
+  }
+
+  // Timeout: throw error with diagnostic info
+  throw new Error(
+    `Feature flag propagation timeout after ${attemptCount} attempts (${timeout}ms).\n` +
+      `Expected: ${JSON.stringify(expectedFlags)}\n` +
+      `Actual: ${JSON.stringify(lastResponse)}`
+  );
+}
+
+/**
  * Options for retryAction
  */
 export interface RetryOptions {
-  /** Maximum number of attempts (default: 5) */
+  /** Maximum number of attempts (default: 3) */
   maxAttempts?: number;
-  /** Delay between attempts in ms (default: 1000) */
-  interval?: number;
-  /** Maximum total time in ms (default: 30000) */
+  /** Base delay between attempts in ms for exponential backoff (default: 2000ms) */
+  baseDelay?: number;
+  /** Maximum delay cap in ms (default: 10000ms) */
+  maxDelay?: number;
+  /** Maximum total time in ms (default: 15000ms per attempt) */
   timeout?: number;
 }
 
 /**
- * Retry an action until it succeeds or timeout
+ * Retries an action with exponential backoff.
+ * Handles transient network/DB failures gracefully.
+ *
+ * Retry sequence with defaults: 2s, 4s, 8s (capped at maxDelay)
+ *
  * @param action - Async function to retry
- * @param options - Configuration options
- * @returns Result of the successful action
+ * @param options - Retry configuration
+ * @returns Result of successful action
+ *
+ * @example
+ * ```typescript
+ * await retryAction(async () => {
+ *   const response = await clickAndWaitForResponse(page, toggle, /\/feature-flags/);
+ *   expect(response.ok()).toBeTruthy();
+ * });
+ * ```
  */
 export async function retryAction<T>(
   action: () => Promise<T>,
   options: RetryOptions = {}
 ): Promise<T> {
-  const { maxAttempts = 5, interval = 1000, timeout = 30000 } = options;
+  const maxAttempts = options.maxAttempts ?? 3;
+  const baseDelay = options.baseDelay ?? 2000;
+  const maxDelay = options.maxDelay ?? 10000;
 
-  const startTime = Date.now();
-  let lastError: Error | undefined;
+  let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    if (Date.now() - startTime > timeout) {
-      throw new Error(`Retry timeout after ${timeout}ms`);
-    }
-
     try {
-      return await action();
+      console.log(`[RETRY] Attempt ${attempt}/${maxAttempts}`);
+      return await action(); // Success!
     } catch (error) {
       lastError = error as Error;
+      console.log(`[RETRY] Attempt ${attempt} failed: ${lastError.message}`);
+
       if (attempt < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, interval));
+        // Exponential backoff: 2s, 4s, 8s (capped at maxDelay)
+        const delay = Math.min(baseDelay * Math.pow(2, attempt - 1), maxDelay);
+        console.log(`[RETRY] Waiting ${delay}ms before retry...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }
 
-  throw lastError || new Error('Retry failed after max attempts');
+  // All attempts failed
+  throw new Error(
+    `Action failed after ${maxAttempts} attempts.\n` +
+      `Last error: ${lastError?.message}`
+  );
 }
 
 /**
