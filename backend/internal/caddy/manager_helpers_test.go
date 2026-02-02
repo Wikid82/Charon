@@ -173,7 +173,7 @@ func TestGetCredentialForDomain_NoEncryptionKey(t *testing.T) {
 	defer func() {
 		for key, val := range origKeys {
 			if val != "" {
-				os.Setenv(key, val)
+				_ = os.Setenv(key, val)
 			}
 		}
 	}()
@@ -198,12 +198,12 @@ func TestGetCredentialForDomain_NoEncryptionKey(t *testing.T) {
 func TestGetCredentialForDomain_MultiCredential_NoMatch(t *testing.T) {
 	// Save original env vars
 	origKey := os.Getenv("CHARON_ENCRYPTION_KEY")
-	os.Setenv("CHARON_ENCRYPTION_KEY", "test-key-32-characters-long!!!!!")
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", "test-key-32-characters-long!!!!!")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("CHARON_ENCRYPTION_KEY", origKey)
+			_ = os.Setenv("CHARON_ENCRYPTION_KEY", origKey)
 		} else {
-			os.Unsetenv("CHARON_ENCRYPTION_KEY")
+			_ = os.Unsetenv("CHARON_ENCRYPTION_KEY")
 		}
 	}()
 
@@ -241,12 +241,12 @@ func TestGetCredentialForDomain_MultiCredential_NoMatch(t *testing.T) {
 func TestGetCredentialForDomain_MultiCredential_DisabledSkipped(t *testing.T) {
 	// Save original env vars
 	origKey := os.Getenv("CHARON_ENCRYPTION_KEY")
-	os.Setenv("CHARON_ENCRYPTION_KEY", "test-key-32-characters-long!!!!!")
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", "test-key-32-characters-long!!!!!"))
 	defer func() {
 		if origKey != "" {
-			os.Setenv("CHARON_ENCRYPTION_KEY", origKey)
+			require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", origKey))
 		} else {
-			os.Unsetenv("CHARON_ENCRYPTION_KEY")
+			require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY"))
 		}
 	}()
 
@@ -279,12 +279,12 @@ func TestGetCredentialForDomain_MultiCredential_DisabledSkipped(t *testing.T) {
 func TestGetCredentialForDomain_MultiCredential_CatchAllMatch(t *testing.T) {
 	// Save original env vars
 	origKey := os.Getenv("CHARON_ENCRYPTION_KEY")
-	os.Setenv("CHARON_ENCRYPTION_KEY", "test-key-32-characters-long!!!!!")
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", "test-key-32-characters-long!!!!!"))
 	defer func() {
 		if origKey != "" {
-			os.Setenv("CHARON_ENCRYPTION_KEY", origKey)
+			require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", origKey))
 		} else {
-			os.Unsetenv("CHARON_ENCRYPTION_KEY")
+			require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY"))
 		}
 	}()
 

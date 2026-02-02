@@ -283,8 +283,8 @@ func TestApplyPresetHandlerBackupFailure(t *testing.T) {
 
 	baseDir := t.TempDir()
 	dataDir := filepath.Join(baseDir, "crowdsec")
-	require.NoError(t, os.MkdirAll(dataDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "keep.txt"), []byte("before"), 0o644))
+	require.NoError(t, os.MkdirAll(dataDir, 0o750))                                               // #nosec G301 -- test directory
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "keep.txt"), []byte("before"), 0o600)) // #nosec G306 -- test fixture
 
 	hub := crowdsec.NewHubService(nil, nil, dataDir)
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
@@ -319,7 +319,7 @@ func TestApplyPresetHandlerBackupFailure(t *testing.T) {
 	require.Equal(t, "failed", events[0].Status)
 	require.NotEmpty(t, events[0].BackupPath)
 
-	content, readErr := os.ReadFile(filepath.Join(dataDir, "keep.txt"))
+	content, readErr := os.ReadFile(filepath.Join(dataDir, "keep.txt")) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, readErr)
 	require.Equal(t, "before", string(content))
 }
@@ -451,85 +451,85 @@ func TestGetCachedPresetPreviewError(t *testing.T) {
 }
 
 func TestPullCuratedPresetSkipsHub(t *testing.T) {
-gin.SetMode(gin.TestMode)
-t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
+	gin.SetMode(gin.TestMode)
+	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
-// Setup handler with a hub service that would fail if called
-cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
-require.NoError(t, err)
+	// Setup handler with a hub service that would fail if called
+	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
+	require.NoError(t, err)
 
-// We don't set HTTPClient, so any network call would panic or fail if not handled
-hub := crowdsec.NewHubService(nil, cache, t.TempDir())
+	// We don't set HTTPClient, so any network call would panic or fail if not handled
+	hub := crowdsec.NewHubService(nil, cache, t.TempDir())
 
-h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
-h.Hub = hub
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h.Hub = hub
 
-r := gin.New()
-g := r.Group("/api/v1")
-h.RegisterRoutes(g)
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
 
-// Use a known curated preset that doesn't require hub
-slug := "honeypot-friendly-defaults"
+	// Use a known curated preset that doesn't require hub
+	slug := "honeypot-friendly-defaults"
 
-body, _ := json.Marshal(map[string]string{"slug": slug})
-w := httptest.NewRecorder()
-req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/pull", bytes.NewReader(body))
-req.Header.Set("Content-Type", "application/json")
-r.ServeHTTP(w, req)
+	body, _ := json.Marshal(map[string]string{"slug": slug})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/pull", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
 
-require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, http.StatusOK, w.Code)
 
-var resp map[string]any
-require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 
-require.Equal(t, "pulled", resp["status"])
-require.Equal(t, slug, resp["slug"])
-require.Equal(t, "charon-curated", resp["source"])
-require.Contains(t, resp["preview"], "Curated preset")
+	require.Equal(t, "pulled", resp["status"])
+	require.Equal(t, slug, resp["slug"])
+	require.Equal(t, "charon-curated", resp["source"])
+	require.Contains(t, resp["preview"], "Curated preset")
 }
 
 func TestApplyCuratedPresetSkipsHub(t *testing.T) {
-gin.SetMode(gin.TestMode)
-t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
+	gin.SetMode(gin.TestMode)
+	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
-db := OpenTestDB(t)
-require.NoError(t, db.AutoMigrate(&models.CrowdsecPresetEvent{}))
+	db := OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.CrowdsecPresetEvent{}))
 
-// Setup handler with a hub service that would fail if called
-// We intentionally don't put anything in cache to prove we don't check it
-cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
-require.NoError(t, err)
+	// Setup handler with a hub service that would fail if called
+	// We intentionally don't put anything in cache to prove we don't check it
+	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
+	require.NoError(t, err)
 
-hub := crowdsec.NewHubService(nil, cache, t.TempDir())
+	hub := crowdsec.NewHubService(nil, cache, t.TempDir())
 
-h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-h.Hub = hub
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.Hub = hub
 
-r := gin.New()
-g := r.Group("/api/v1")
-h.RegisterRoutes(g)
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
 
-// Use a known curated preset that doesn't require hub
-slug := "honeypot-friendly-defaults"
+	// Use a known curated preset that doesn't require hub
+	slug := "honeypot-friendly-defaults"
 
-body, _ := json.Marshal(map[string]string{"slug": slug})
-w := httptest.NewRecorder()
-req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/apply", bytes.NewReader(body))
-req.Header.Set("Content-Type", "application/json")
-r.ServeHTTP(w, req)
+	body, _ := json.Marshal(map[string]string{"slug": slug})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/apply", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
 
-require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, http.StatusOK, w.Code)
 
-var resp map[string]any
-require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 
-require.Equal(t, "applied", resp["status"])
-require.Equal(t, slug, resp["slug"])
+	require.Equal(t, "applied", resp["status"])
+	require.Equal(t, slug, resp["slug"])
 
-// Verify event was logged
-var events []models.CrowdsecPresetEvent
-require.NoError(t, db.Find(&events).Error)
-require.Len(t, events, 1)
-require.Equal(t, slug, events[0].Slug)
-require.Equal(t, "applied", events[0].Status)
+	// Verify event was logged
+	var events []models.CrowdsecPresetEvent
+	require.NoError(t, db.Find(&events).Error)
+	require.Len(t, events, 1)
+	require.Equal(t, slug, events[0].Slug)
+	require.Equal(t, "applied", events[0].Status)
 }

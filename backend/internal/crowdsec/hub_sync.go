@@ -904,7 +904,7 @@ func (s *HubService) backupExisting(backupPath string) error {
 	logger.Log().WithField("data_dir", s.DataDir).WithField("backup_path", backupPath).Info("rename failed; using copy-based backup")
 
 	// Create backup directory
-	if err := os.MkdirAll(backupPath, 0o755); err != nil {
+	if err := os.MkdirAll(backupPath, 0o700); err != nil {
 		return fmt.Errorf("mkdir backup: %w", err)
 	}
 
@@ -930,7 +930,7 @@ func (s *HubService) rollback(backupPath string) error {
 
 // emptyDir removes all contents of a directory but leaves the directory itself.
 func emptyDir(dir string) error {
-	d, err := os.Open(dir)
+	d, err := os.Open(dir) // #nosec G304 -- Directory path from validated backup root // #nosec G304 -- Directory path from validated backup root
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -961,7 +961,7 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 	if err := emptyDir(targetDir); err != nil {
 		return fmt.Errorf("clean target: %w", err)
 	}
-	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+	if err := os.MkdirAll(targetDir, 0o700); err != nil {
 		return fmt.Errorf("mkdir target: %w", err)
 	}
 
@@ -1006,16 +1006,25 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 			continue
 		}
 
-		if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(destPath), 0o700); err != nil {
 			return fmt.Errorf("mkdir parent: %w", err)
 		}
-		f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, hdr.FileInfo().Mode())
+		f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, hdr.FileInfo().Mode()) // #nosec G304 -- Dest path from tar archive extraction // #nosec G304 -- Dest path from tar archive extraction
 		if err != nil {
 			return fmt.Errorf("open %s: %w", destPath, err)
 		}
-		if _, err := io.Copy(f, tr); err != nil {
+		// Limit decompressed size to prevent decompression bombs (100MB limit)
+		const maxDecompressedSize = 100 * 1024 * 1024 // 100MB
+		limitedReader := io.LimitReader(tr, maxDecompressedSize)
+		written, err := io.Copy(f, limitedReader)
+		if err != nil {
 			_ = f.Close()
 			return fmt.Errorf("write %s: %w", destPath, err)
+		}
+		// Verify we didn't hit the limit (potential attack)
+		if written >= maxDecompressedSize {
+			_ = f.Close()
+			return fmt.Errorf("file %s exceeded decompression limit (%d bytes), potential decompression bomb", destPath, maxDecompressedSize)
 		}
 		if err := f.Close(); err != nil {
 			return fmt.Errorf("close %s: %w", destPath, err)
@@ -1044,7 +1053,7 @@ func copyDir(src, dst string) error {
 		dstPath := filepath.Join(dst, entry.Name())
 
 		if entry.IsDir() {
-			if err := os.MkdirAll(dstPath, 0o755); err != nil {
+			if err := os.MkdirAll(dstPath, 0o700); err != nil {
 				return fmt.Errorf("mkdir %s: %w", dstPath, err)
 			}
 			if err := copyDir(srcPath, dstPath); err != nil {
@@ -1061,7 +1070,7 @@ func copyDir(src, dst string) error {
 
 // copyFile copies a single file.
 func copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
+	srcFile, err := os.Open(src) // #nosec G304 -- Source path from copyDir recursive call // #nosec G304 -- Source path from copyDir recursive call
 	if err != nil {
 		return fmt.Errorf("open src: %w", err)
 	}
@@ -1076,7 +1085,7 @@ func copyFile(src, dst string) error {
 		return fmt.Errorf("stat src: %w", err)
 	}
 
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode())
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode()) // #nosec G304 -- Dst path from copyFile internal call
 	if err != nil {
 		return fmt.Errorf("create dst: %w", err)
 	}

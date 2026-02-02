@@ -53,7 +53,7 @@ func TestComputeSignature(t *testing.T) {
 			// Create temp file with known content
 			tmpDir := t.TempDir()
 			tmpFile := filepath.Join(tmpDir, "test.so")
-			if err := os.WriteFile(tmpFile, tc.fileContent, 0o644); err != nil {
+			if err := os.WriteFile(tmpFile, tc.fileContent, 0o600); err != nil {
 				t.Fatalf("failed to write temp file: %v", err)
 			}
 
@@ -104,7 +104,7 @@ func TestComputeSignatureConsistency(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "consistent.so")
 	content := []byte("plugin binary content for consistency test")
-	if err := os.WriteFile(tmpFile, content, 0o644); err != nil {
+	if err := os.WriteFile(tmpFile, content, 0o600); err != nil { // #nosec G306 -- test fixture
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
@@ -279,7 +279,7 @@ func TestLoadPluginNotInAllowlist(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	pluginFile := filepath.Join(tmpDir, "unknown-provider.so")
-	if err := os.WriteFile(pluginFile, []byte("fake plugin"), 0o644); err != nil {
+	if err := os.WriteFile(pluginFile, []byte("fake plugin"), 0o600); err != nil { // #nosec G306 -- test fixture
 		t.Fatalf("failed to create plugin file: %v", err)
 	}
 
@@ -306,7 +306,7 @@ func TestLoadPluginSignatureMismatch(t *testing.T) {
 	tmpDir := t.TempDir()
 	pluginFile := filepath.Join(tmpDir, "cloudflare.so")
 	content := []byte("fake cloudflare plugin content")
-	if err := os.WriteFile(pluginFile, content, 0o644); err != nil {
+	if err := os.WriteFile(pluginFile, content, 0o600); err != nil { // #nosec G306 -- test fixture
 		t.Fatalf("failed to create plugin file: %v", err)
 	}
 
@@ -333,7 +333,7 @@ func TestLoadPluginSignatureMatch(t *testing.T) {
 	tmpDir := t.TempDir()
 	pluginFile := filepath.Join(tmpDir, "cloudflare.so")
 	content := []byte("fake cloudflare plugin content")
-	if err := os.WriteFile(pluginFile, content, 0o644); err != nil {
+	if err := os.WriteFile(pluginFile, content, 0o600); err != nil { // #nosec G306 -- test fixture
 		t.Fatalf("failed to create plugin file: %v", err)
 	}
 
@@ -374,7 +374,7 @@ func TestLoadPluginPermissiveMode(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	pluginFile := filepath.Join(tmpDir, "any-plugin.so")
-	if err := os.WriteFile(pluginFile, []byte("fake plugin"), 0o644); err != nil {
+	if err := os.WriteFile(pluginFile, []byte("fake plugin"), 0o600); err != nil { // #nosec G306 -- test fixture
 		t.Fatalf("failed to create plugin file: %v", err)
 	}
 
@@ -440,7 +440,7 @@ func TestLoadAllPluginsSkipsDirectories(t *testing.T) {
 	tmpDir := t.TempDir()
 	// Create a subdirectory
 	subDir := filepath.Join(tmpDir, "subdir")
-	if err := os.Mkdir(subDir, 0o755); err != nil {
+	if err := os.Mkdir(subDir, 0o750); err != nil { // #nosec G301 -- test directory
 		t.Fatalf("failed to create subdir: %v", err)
 	}
 
@@ -459,10 +459,10 @@ func TestLoadAllPluginsSkipsNonSoFiles(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	// Create non-.so files
-	if err := os.WriteFile(filepath.Join(tmpDir, "readme.txt"), []byte("readme"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "readme.txt"), []byte("readme"), 0o600); err != nil { // #nosec G306 -- test fixture
 		t.Fatalf("failed to create txt file: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(tmpDir, "plugin.dll"), []byte("dll"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "plugin.dll"), []byte("dll"), 0o600); err != nil { // #nosec G306 -- test fixture
 		t.Fatalf("failed to create dll file: %v", err)
 	}
 
@@ -485,15 +485,17 @@ func TestLoadAllPluginsWorldWritableDirectory(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	pluginDir := filepath.Join(tmpDir, "plugins")
+	//nolint:gosec // G301 test verifies security check with insecure permissions
 	if err := os.Mkdir(pluginDir, 0o777); err != nil {
 		t.Fatalf("failed to create plugin dir: %v", err)
 	}
+	// #nosec G302 -- Test intentionally creates insecure permissions to verify security check
 	if err := os.Chmod(pluginDir, 0o777); err != nil {
 		t.Fatalf("failed to chmod: %v", err)
 	}
 
 	// Create a .so file so ReadDir returns something
-	if err := os.WriteFile(filepath.Join(pluginDir, "test.so"), []byte("test"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(pluginDir, "test.so"), []byte("test"), 0o600); err != nil { // #nosec G306 -- test fixture
 		t.Fatalf("failed to create so file: %v", err)
 	}
 
@@ -669,7 +671,7 @@ func TestSignatureWorkflowEndToEnd(t *testing.T) {
 	content := []byte("this is fake plugin content for e2e test")
 
 	// Write plugin file
-	if err := os.WriteFile(pluginFile, content, 0o644); err != nil {
+	if err := os.WriteFile(pluginFile, content, 0o600); err != nil { // #nosec G306 -- test fixture
 		t.Fatalf("failed to write plugin: %v", err)
 	}
 
@@ -698,7 +700,7 @@ func TestSignatureWorkflowEndToEnd(t *testing.T) {
 	}
 
 	// Step 4: Modify the plugin file (simulating tampering)
-	if err := os.WriteFile(pluginFile, []byte("TAMPERED CONTENT"), 0o644); err != nil {
+	if err := os.WriteFile(pluginFile, []byte("TAMPERED CONTENT"), 0o600); err != nil { // #nosec G306 -- test fixture
 		t.Fatalf("failed to tamper plugin: %v", err)
 	}
 
@@ -814,7 +816,7 @@ func TestComputeSignatureLargeFile(t *testing.T) {
 		content[i] = byte(i % 256)
 	}
 
-	if err := os.WriteFile(tmpFile, content, 0o644); err != nil {
+	if err := os.WriteFile(tmpFile, content, 0o600); err != nil { // #nosec G306 -- test fixture
 		t.Fatalf("failed to write large file: %v", err)
 	}
 
@@ -838,12 +840,12 @@ func TestComputeSignatureSpecialCharactersInPath(t *testing.T) {
 	tmpDir := t.TempDir()
 	// Create path with spaces (common edge case)
 	pluginDir := filepath.Join(tmpDir, "my plugins")
-	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+	if err := os.MkdirAll(pluginDir, 0o750); err != nil { // #nosec G301 -- test directory
 		t.Fatalf("failed to create directory: %v", err)
 	}
 
 	pluginFile := filepath.Join(pluginDir, "my plugin.so")
-	if err := os.WriteFile(pluginFile, []byte("test content"), 0o644); err != nil {
+	if err := os.WriteFile(pluginFile, []byte("test content"), 0o600); err != nil { // #nosec G306 -- test fixture
 		t.Fatalf("failed to write file: %v", err)
 	}
 

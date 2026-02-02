@@ -522,7 +522,8 @@ func TestSecurityHandler_Enable_WithValidBreakGlassToken(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var tokenResp map[string]string
-	_ = json.Unmarshal(w.Body.Bytes(), &tokenResp)
+	err := json.Unmarshal(w.Body.Bytes(), &tokenResp)
+	require.NoError(t, err, "Failed to unmarshal response")
 	token := tokenResp["token"]
 
 	// Now try to enable with the token
@@ -586,7 +587,8 @@ func TestSecurityHandler_Disable_FromLocalhost(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
 	assert.False(t, resp["enabled"].(bool))
 }
 

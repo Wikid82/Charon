@@ -98,6 +98,7 @@ func (s *LogService) QueryLogs(filename string, filter models.LogFilter) ([]mode
 		return nil, 0, err
 	}
 
+	// #nosec G304 -- path is validated by GetLogPath to be within logDir
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, 0, err

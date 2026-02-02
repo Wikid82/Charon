@@ -27,7 +27,7 @@ func TestUpdateAcquisitionConfigSuccess(t *testing.T) {
 
 	// Create fake acquis.yaml path in tmp
 	acquisPath := filepath.Join(tmpDir, "acquis.yaml")
-	_ = os.WriteFile(acquisPath, []byte("# old config"), 0o644)
+	_ = os.WriteFile(acquisPath, []byte("# old config"), 0o600)
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", tmpDir)
 	r := gin.New()
@@ -233,7 +233,7 @@ func TestRegisterBouncerFlow(t *testing.T) {
 
 	// Create fake script
 	scriptPath := filepath.Join(tmpDir, "register_bouncer.sh")
-	_ = os.WriteFile(scriptPath, []byte("#!/bin/bash\necho abc123xyz"), 0o755)
+	_ = os.WriteFile(scriptPath, []byte("#!/bin/bash\necho abc123xyz"), 0o750) // #nosec G306 -- test fixture for executable script
 
 	// Use custom exec that returns API key
 	exec := &fakeExecWithOutput{
@@ -262,7 +262,7 @@ func TestRegisterBouncerExecutionFailure(t *testing.T) {
 
 	// Create fake script
 	scriptPath := filepath.Join(tmpDir, "register_bouncer.sh")
-	_ = os.WriteFile(scriptPath, []byte("#!/bin/bash\nexit 1"), 0o755)
+	_ = os.WriteFile(scriptPath, []byte("#!/bin/bash\nexit 1"), 0o750) // #nosec G306 -- test fixture for executable script
 
 	exec := &fakeExecWithOutput{
 		output: []byte("error occurred"),

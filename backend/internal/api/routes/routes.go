@@ -537,10 +537,11 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 
 		// Ensure log directory and file exist for LogWatcher
 		// This prevents failures after container restart when log file doesn't exist yet
-		if err := os.MkdirAll(filepath.Dir(accessLogPath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(accessLogPath), 0o750); err != nil {
 			logger.Log().WithError(err).WithField("path", accessLogPath).Warn("Failed to create log directory for LogWatcher")
 		}
 		if _, err := os.Stat(accessLogPath); os.IsNotExist(err) {
+			// #nosec G304 -- Creating access log file, path is application-controlled
 			if f, err := os.Create(accessLogPath); err == nil {
 				if err := f.Close(); err != nil {
 					logger.Log().WithError(err).Warn("Failed to close log file")

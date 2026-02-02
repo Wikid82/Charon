@@ -138,10 +138,10 @@ func TestGenerateConfig_WithCrowdSec(t *testing.T) {
 	assert.Contains(t, server.TrustedProxies.Ranges, "10.0.0.0/8", "Should trust private networks")
 	assert.Contains(t, server.TrustedProxies.Ranges, "192.168.0.0/16", "Should trust private networks")
 
-	// Check handler is minimal
-	require.Len(t, server.Routes, 1)
+	// Check handler is minimal (2 routes: emergency + main)
+	require.Len(t, server.Routes, 2)
 
-	route := server.Routes[0]
+	route := server.Routes[1] // Main route is at index 1
 	// Handlers should include crowdsec + reverse_proxy
 	require.GreaterOrEqual(t, len(route.Handle), 2)
 
@@ -181,9 +181,9 @@ func TestGenerateConfig_CrowdSecDisabled(t *testing.T) {
 
 	server := config.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
-	require.Len(t, server.Routes, 1)
+	require.Len(t, server.Routes, 2) // 2 routes: emergency + main
 
-	route := server.Routes[0]
+	route := server.Routes[1] // Main route is at index 1
 
 	// Verify no crowdsec handler
 	for _, h := range route.Handle {

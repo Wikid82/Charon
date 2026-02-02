@@ -52,12 +52,12 @@ func TestDBHealthHandler_Check_WithBackupService(t *testing.T) {
 	// Setup temp dirs for backup service
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	err := os.MkdirAll(dataDir, 0o755)
+	err := os.MkdirAll(dataDir, 0o750) // #nosec G301 -- test directory
 	require.NoError(t, err)
 
 	// Create dummy DB file
 	dbPath := filepath.Join(dataDir, "charon.db")
-	err = os.WriteFile(dbPath, []byte("dummy db"), 0o644)
+	err = os.WriteFile(dbPath, []byte("dummy db"), 0o600) // #nosec G306 -- test fixture
 	require.NoError(t, err)
 
 	cfg := &config.Config{DatabasePath: dbPath}
@@ -169,7 +169,7 @@ func TestNewDBHealthHandler(t *testing.T) {
 	// With backup service
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "charon.db")
-	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("test"), 0o600) // #nosec G306 -- test fixture
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	backupSvc := services.NewBackupService(cfg)
@@ -243,13 +243,14 @@ func TestDBHealthHandler_Check_BackupServiceError(t *testing.T) {
 	// Create backup service with unreadable directory
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "charon.db")
-	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("test"), 0o600) // #nosec G306 -- test fixture
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	backupService := services.NewBackupService(cfg)
 
 	// Make backup directory unreadable to trigger error in GetLastBackupTime
 	_ = os.Chmod(backupService.BackupDir, 0o000)
+	// #nosec G302 -- Test cleanup restores directory permissions
 	defer func() { _ = os.Chmod(backupService.BackupDir, 0o755) }() // Restore for cleanup
 
 	handler := NewDBHealthHandler(db, backupService)
@@ -284,7 +285,7 @@ func TestDBHealthHandler_Check_BackupTimeZero(t *testing.T) {
 	// Create backup service with empty backup directory (no backups yet)
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "charon.db")
-	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("test"), 0o600) // #nosec G306 -- test fixture
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	backupService := services.NewBackupService(cfg)
@@ -312,7 +313,8 @@ func TestDBHealthHandler_Check_BackupTimeZero(t *testing.T) {
 // Helper function to corrupt SQLite database file
 func corruptDBFile(t *testing.T, dbPath string) {
 	t.Helper()
-	f, err := os.OpenFile(dbPath, os.O_RDWR, 0o644)
+	// #nosec G302 -- Test opens database file for corruption testing
+	f, err := os.OpenFile(dbPath, os.O_RDWR, 0o644) //nolint:gosec // G304: Database file for corruption test
 	require.NoError(t, err)
 	defer func() { _ = f.Close() }()
 

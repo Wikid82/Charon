@@ -52,14 +52,16 @@ func (r *RealCommandExecutor) Execute(ctx context.Context, name string, args ...
 
 // CrowdsecHandler manages CrowdSec process and config imports.
 type CrowdsecHandler struct {
-	DB       *gorm.DB
-	Executor CrowdsecExecutor
-	CmdExec  CommandExecutor
-	BinPath  string
-	DataDir  string
-	Hub      *crowdsec.HubService
-	Console  *crowdsec.ConsoleEnrollmentService
-	Security *services.SecurityService
+	DB               *gorm.DB
+	Executor         CrowdsecExecutor
+	CmdExec          CommandExecutor
+	BinPath          string
+	DataDir          string
+	Hub              *crowdsec.HubService
+	Console          *crowdsec.ConsoleEnrollmentService
+	Security         *services.SecurityService
+	LAPIMaxWait      time.Duration // For testing; 0 means 60s default
+	LAPIPollInterval time.Duration // For testing; 0 means 500ms default
 }
 
 func ttlRemainingSeconds(now, retrievedAt time.Time, ttl time.Duration) *int64 {
@@ -244,8 +246,14 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 
 	// Wait for LAPI to be ready (with timeout)
 	lapiReady := false
-	maxWait := 60 * time.Second
-	pollInterval := 500 * time.Millisecond
+	maxWait := h.LAPIMaxWait
+	if maxWait == 0 {
+		maxWait = 60 * time.Second
+	}
+	pollInterval := h.LAPIPollInterval
+	if pollInterval == 0 {
+		pollInterval = 500 * time.Millisecond
+	}
 	deadline := time.Now().Add(maxWait)
 
 	for time.Now().Before(deadline) {
@@ -353,7 +361,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	// Save to temp file
 	tmpDir := os.TempDir()
 	tmpPath := filepath.Join(tmpDir, fmt.Sprintf("crowdsec-import-%d", time.Now().UnixNano()))
-	if err := os.MkdirAll(tmpPath, 0o755); err != nil {
+	if err := os.MkdirAll(tmpPath, 0o750); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create temp dir"})
 		return
 	}
@@ -377,13 +385,14 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		_ = os.Rename(h.DataDir, backupDir)
 	}
 	// Create target dir
-	if err := os.MkdirAll(h.DataDir, 0o755); err != nil {
+	if err := os.MkdirAll(h.DataDir, 0o750); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create config dir"})
 		return
 	}
 
 	// For now, simply copy uploaded file into data dir for operator to handle extraction
 	target := filepath.Join(h.DataDir, file.Filename)
+	// #nosec G304 -- dst is a temp file created by SaveUploadedFile with sanitized filename
 	in, err := os.Open(dst)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open temp file"})
@@ -394,6 +403,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 			logger.Log().WithError(err).Warn("failed to close temp file")
 		}
 	}()
+	// #nosec G304 -- target is filepath.Join of DataDir (internal) and file.Filename (sanitized by Gin)
 	out, err := os.Create(target)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create target file"})
@@ -451,6 +461,7 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 			return err
 		}
 		// Open file
+		// #nosec G304 -- path is validated via filepath.Walk within CrowdSecDataDir
 		f, err := os.Open(path)
 		if err != nil {
 			return err
@@ -523,6 +534,7 @@ func (h *CrowdsecHandler) ReadFile(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
 		return
 	}
+	// #nosec G304 -- p is validated against CrowdSecDataDir by detectFilePath
 	data, err := os.ReadFile(p)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -565,11 +577,11 @@ func (h *CrowdsecHandler) WriteFile(c *gin.Context) {
 		}
 	}
 	// Recreate DataDir and write file
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to prepare dir"})
 		return
 	}
-	if err := os.WriteFile(p, []byte(payload.Content), 0o644); err != nil {
+	if err := os.WriteFile(p, []byte(payload.Content), 0o600); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write file"})
 		return
 	}
@@ -1516,7 +1528,7 @@ func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
 	}
 
 	// Write new config
-	if err := os.WriteFile(acquisPath, []byte(payload.Content), 0o644); err != nil {
+	if err := os.WriteFile(acquisPath, []byte(payload.Content), 0o600); err != nil {
 		logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to write acquisition config")
 		// Try to restore backup if it exists
 		if backupPath != "" {

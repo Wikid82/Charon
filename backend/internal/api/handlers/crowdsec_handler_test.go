@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -52,9 +53,22 @@ func setupCrowdDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+// fastCmdExec is a mock command executor that immediately returns success for LAPI checks
+type fastCmdExec struct{}
+
+func (f *fastCmdExec) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
+	// Return success for lapi status checks to avoid 60s timeout
+	return []byte("ok"), nil
+}
+
 // newTestCrowdsecHandler creates a CrowdsecHandler and registers cleanup to prevent goroutine leaks
 func newTestCrowdsecHandler(t *testing.T, db *gorm.DB, executor CrowdsecExecutor, binPath string, dataDir string) *CrowdsecHandler {
 	h := NewCrowdsecHandler(db, executor, binPath, dataDir)
+	// Override CmdExec to avoid 60s LAPI wait timeout during Start
+	h.CmdExec = &fastCmdExec{}
+	// Set short timeouts for test performance
+	h.LAPIMaxWait = 100 * time.Millisecond
+	h.LAPIPollInterval = 10 * time.Millisecond
 	// Register cleanup to stop SecurityService goroutine
 	if h.Security != nil {
 		t.Cleanup(func() {
@@ -141,8 +155,8 @@ func TestImportCreatesBackup(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 	// create existing config dir with a marker file
-	_ = os.MkdirAll(tmpDir, 0o755)
-	_ = os.WriteFile(filepath.Join(tmpDir, "existing.conf"), []byte("v1"), 0o644)
+	_ = os.MkdirAll(tmpDir, 0o750)                                                // #nosec G301 -- test directory
+	_ = os.WriteFile(filepath.Join(tmpDir, "existing.conf"), []byte("v1"), 0o600) // #nosec G306 -- test fixture
 
 	fe := &fakeExec{}
 	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
@@ -198,9 +212,9 @@ func TestExportConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// create some files to export
-	_ = os.MkdirAll(filepath.Join(tmpDir, "conf.d"), 0o755)
-	_ = os.WriteFile(filepath.Join(tmpDir, "conf.d", "a.conf"), []byte("rule1"), 0o644)
-	_ = os.WriteFile(filepath.Join(tmpDir, "b.conf"), []byte("rule2"), 0o644)
+	_ = os.MkdirAll(filepath.Join(tmpDir, "conf.d"), 0o750)                             // #nosec G301 -- test directory
+	_ = os.WriteFile(filepath.Join(tmpDir, "conf.d", "a.conf"), []byte("rule1"), 0o600) // #nosec G306 -- test fixture
+	_ = os.WriteFile(filepath.Join(tmpDir, "b.conf"), []byte("rule2"), 0o600)           // #nosec G306 -- test fixture
 
 	fe := &fakeExec{}
 	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
@@ -229,9 +243,9 @@ func TestListAndReadFile(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 	// create a nested file
-	_ = os.MkdirAll(filepath.Join(tmpDir, "conf.d"), 0o755)
-	_ = os.WriteFile(filepath.Join(tmpDir, "conf.d", "a.conf"), []byte("rule1"), 0o644)
-	_ = os.WriteFile(filepath.Join(tmpDir, "b.conf"), []byte("rule2"), 0o644)
+	_ = os.MkdirAll(filepath.Join(tmpDir, "conf.d"), 0o750)                             // #nosec G301 -- test directory
+	_ = os.WriteFile(filepath.Join(tmpDir, "conf.d", "a.conf"), []byte("rule1"), 0o600) // #nosec G306 -- test fixture
+	_ = os.WriteFile(filepath.Join(tmpDir, "b.conf"), []byte("rule2"), 0o600)           // #nosec G306 -- test fixture
 
 	fe := &fakeExec{}
 	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
@@ -260,7 +274,7 @@ func TestExportConfigStreamsArchive(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	dataDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.yaml"), []byte("hello"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.yaml"), []byte("hello"), 0o600)) // #nosec G306 -- test fixture
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
 
@@ -302,8 +316,8 @@ func TestWriteFileCreatesBackup(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 	// create existing config dir with a marker file
-	_ = os.MkdirAll(tmpDir, 0o755)
-	_ = os.WriteFile(filepath.Join(tmpDir, "existing.conf"), []byte("v1"), 0o644)
+	_ = os.MkdirAll(tmpDir, 0o750)                                                // #nosec G301 -- test directory
+	_ = os.WriteFile(filepath.Join(tmpDir, "existing.conf"), []byte("v1"), 0o600) // #nosec G306 -- test fixture
 
 	fe := &fakeExec{}
 	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
@@ -486,10 +500,10 @@ func TestListFilesReturnsEntries(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	dataDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "root.txt"), []byte("root"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "root.txt"), []byte("root"), 0o600)) // #nosec G306 -- test fixture
 	nestedDir := filepath.Join(dataDir, "nested")
-	require.NoError(t, os.MkdirAll(nestedDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(nestedDir, "child.txt"), []byte("child"), 0o644))
+	require.NoError(t, os.MkdirAll(nestedDir, 0o750))                                               // #nosec G301 -- test directory
+	require.NoError(t, os.WriteFile(filepath.Join(nestedDir, "child.txt"), []byte("child"), 0o600)) // #nosec G306 -- test fixture
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", dataDir)
 
@@ -1018,7 +1032,7 @@ func TestGetAcquisitionConfigSuccess(t *testing.T) {
 	// Create a temp acquis.yaml to test with
 	tmpDir := t.TempDir()
 	acquisDir := filepath.Join(tmpDir, "crowdsec")
-	require.NoError(t, os.MkdirAll(acquisDir, 0o755))
+	require.NoError(t, os.MkdirAll(acquisDir, 0o750)) // #nosec G301 -- test directory
 
 	acquisContent := `# Test acquisition config
 source: file
@@ -1028,7 +1042,7 @@ labels:
   type: caddy
 `
 	acquisPath := filepath.Join(acquisDir, "acquis.yaml")
-	require.NoError(t, os.WriteFile(acquisPath, []byte(acquisContent), 0o644))
+	require.NoError(t, os.WriteFile(acquisPath, []byte(acquisContent), 0o600)) // #nosec G306 -- test fixture
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", tmpDir)
 	r := gin.New()
@@ -1687,8 +1701,12 @@ func TestCrowdsecHandler_CheckLAPIHealth_InvalidURL(t *testing.T) {
 	require.NoError(t, db.Create(&cfg).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	// Initialize security service
+	// Close original SecurityService to prevent goroutine leak, then replace with new one
+	if h.Security != nil {
+		h.Security.Close()
+	}
 	h.Security = services.NewSecurityService(db)
+	t.Cleanup(func() { h.Security.Close() })
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1726,7 +1744,12 @@ func TestCrowdsecHandler_GetLAPIDecisions_Fallback(t *testing.T) {
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	h.CmdExec = mockExec
+	// Close original SecurityService to prevent goroutine leak, then replace with new one
+	if h.Security != nil {
+		h.Security.Close()
+	}
 	h.Security = services.NewSecurityService(db)
+	t.Cleanup(func() { h.Security.Close() })
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1936,7 +1959,7 @@ func TestCrowdsecHandler_ListDecisions_WithConfigYaml(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	// Create config.yaml to trigger the config path code
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte("# test config"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte("# test config"), 0o600)) // #nosec G306 -- test fixture
 
 	mockExec := &mockCmdExecutor{
 		output: []byte(`[{"id": 1, "origin": "cscli", "type": "ban", "scope": "ip", "value": "10.0.0.1"}]`),
@@ -1977,7 +2000,7 @@ func TestCrowdsecHandler_BanIP_WithConfigYaml(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	// Create config.yaml to trigger the config path code
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte("# test config"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte("# test config"), 0o600)) // #nosec G306 -- test fixture
 
 	mockExec := &mockCmdExecutor{
 		output: []byte("Decision created"),
@@ -2007,7 +2030,7 @@ func TestCrowdsecHandler_UnbanIP_WithConfigYaml(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	// Create config.yaml to trigger the config path code
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte("# test config"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte("# test config"), 0o600)) // #nosec G306 -- test fixture
 
 	mockExec := &mockCmdExecutor{
 		output: []byte("Decision deleted"),
@@ -2035,7 +2058,7 @@ func TestCrowdsecHandler_Status_LAPIReady(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	// Create config.yaml
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte("# test config"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte("# test config"), 0o600)) // #nosec G306 -- test fixture
 
 	// Mock executor that returns success for LAPI status
 	mockExec := &mockCmdExecutor{
