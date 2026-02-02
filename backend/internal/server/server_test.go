@@ -16,6 +16,7 @@ func TestNewRouter(t *testing.T) {
 
 	// Create a dummy frontend dir
 	tempDir := t.TempDir()
+	// #nosec G306 -- Test fixture HTML file needs to be world-readable for HTTP serving test
 	err := os.WriteFile(filepath.Join(tempDir, "index.html"), []byte("<html></html>"), 0o644)
 	assert.NoError(t, err)
 

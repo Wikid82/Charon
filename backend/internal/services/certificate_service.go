@@ -81,6 +81,7 @@ func (s *CertificateService) SyncFromDisk() error {
 			}
 
 			if !info.IsDir() && strings.HasSuffix(info.Name(), ".crt") {
+				// #nosec G304 -- path is controlled by filepath.Walk starting from certRoot
 				certData, err := os.ReadFile(path)
 				if err != nil {
 					logger.Log().WithField("path", util.SanitizeForLog(path)).WithError(err).Error("CertificateService: failed to read cert file")

@@ -93,6 +93,7 @@ func (h *LogsHandler) Download(c *gin.Context) {
 		}
 	}()
 
+	// #nosec G304 -- path is validated via LogService.GetLogPath
 	srcFile, err := os.Open(path)
 	if err != nil {
 		if err := tmpFile.Close(); err != nil {

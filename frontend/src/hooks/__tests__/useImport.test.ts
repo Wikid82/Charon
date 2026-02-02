@@ -6,6 +6,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 
 import * as api from '../../api/import'
 import { useImport } from '../useImport'
+import type { ImportSession, ImportPreview } from '../../api/import'
 
 vi.mock('../../api/import', () => ({
   uploadCaddyfile: vi.fn(),
@@ -58,14 +59,18 @@ describe('useImport (unit)', () => {
   })
 
   it('enables preview query when session state is pending', async () => {
-    const session = {
+    const session: ImportSession = {
       id: 's-pending',
-      state: 'pending' as const,
+      state: 'pending',
       created_at: '2026-01-31T00:00:00.000Z',
       updated_at: '2026-01-31T00:00:00.000Z',
     }
     vi.mocked(api.getImportStatus).mockResolvedValue({ has_pending: true, session })
-    vi.mocked(api.getImportPreview).mockResolvedValue({ session, preview: { hosts: [], conflicts: [], errors: [] } } as any)
+    const mockPreviewResponse: ImportPreview = {
+      session,
+      preview: { hosts: [], conflicts: [], errors: [] }
+    }
+    vi.mocked(api.getImportPreview).mockResolvedValue(mockPreviewResponse)
 
     const { result } = renderHook(() => useImport(), { wrapper })
 
@@ -74,12 +79,12 @@ describe('useImport (unit)', () => {
   })
 
   it('upload stores immediate uploadPreview and exposes preview', async () => {
-    const mockPreview = {
+    const mockPreview: ImportPreview = {
       session: { id: 's1', state: 'reviewing', created_at: '2026-01-31T00:00:00.000Z', updated_at: '2026-01-31T00:00:00.000Z' },
       preview: { hosts: [], conflicts: [], errors: [] },
     }
     vi.mocked(api.getImportStatus).mockResolvedValue({ has_pending: false })
-    vi.mocked(api.uploadCaddyfile).mockResolvedValue(mockPreview as any)
+    vi.mocked(api.uploadCaddyfile).mockResolvedValue(mockPreview)
 
     const { result } = renderHook(() => useImport(), { wrapper })
 

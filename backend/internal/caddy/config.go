@@ -459,8 +459,9 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	// So we should process hosts from newest to oldest, and skip duplicates.
 
 	// Let's iterate in reverse order (assuming input is ID ASC)
+	// The loop condition (i >= 0) prevents out-of-bounds access even if hosts is empty
 	for i := len(hosts) - 1; i >= 0; i-- {
-		host := hosts[i]
+		host := hosts[i] // #nosec G602 -- bounds checked by loop condition
 
 		if !host.Enabled {
 			continue

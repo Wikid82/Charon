@@ -48,7 +48,7 @@ func TestImporter_ParseCaddyfile_Success(t *testing.T) {
 
 	// Create a dummy file to bypass os.Stat check
 	tmpFile := filepath.Join(t.TempDir(), "Caddyfile")
-	err := os.WriteFile(tmpFile, []byte("foo"), 0o644)
+	err := os.WriteFile(tmpFile, []byte("foo"), 0o600)
 	assert.NoError(t, err)
 
 	output, err := importer.ParseCaddyfile(tmpFile)
@@ -66,7 +66,7 @@ func TestImporter_ParseCaddyfile_Failure(t *testing.T) {
 
 	// Create a dummy file
 	tmpFile := filepath.Join(t.TempDir(), "Caddyfile")
-	err := os.WriteFile(tmpFile, []byte("foo"), 0o644)
+	err := os.WriteFile(tmpFile, []byte("foo"), 0o600)
 	assert.NoError(t, err)
 
 	_, err = importer.ParseCaddyfile(tmpFile)
@@ -231,6 +231,7 @@ func TestImporter_ImportFile(t *testing.T) {
 
 	// Create a dummy file
 	tmpFile := filepath.Join(t.TempDir(), "Caddyfile")
+	// #nosec G306 -- Test fixture Caddyfile
 	err := os.WriteFile(tmpFile, []byte("foo"), 0o644)
 	assert.NoError(t, err)
 
@@ -283,6 +284,7 @@ func TestImporter_ValidateCaddyBinary(t *testing.T) {
 func TestBackupCaddyfile(t *testing.T) {
 	tmpDir := t.TempDir()
 	originalFile := filepath.Join(tmpDir, "Caddyfile")
+	// #nosec G306 -- Test fixture file with standard read permissions
 	err := os.WriteFile(originalFile, []byte("original content"), 0o644)
 	assert.NoError(t, err)
 
@@ -293,7 +295,7 @@ func TestBackupCaddyfile(t *testing.T) {
 	assert.NoError(t, err)
 	assert.FileExists(t, backupPath)
 
-	content, err := os.ReadFile(backupPath)
+	content, err := os.ReadFile(backupPath) // #nosec G304 -- Test reading backup file created in test
 	assert.NoError(t, err)
 	assert.Equal(t, "original content", string(content))
 

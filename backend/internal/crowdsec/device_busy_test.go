@@ -17,18 +17,18 @@ func TestApplyWithOpenFileHandles(t *testing.T) {
 	require.NoError(t, err)
 
 	dataDir := filepath.Join(t.TempDir(), "crowdsec")
-	require.NoError(t, os.MkdirAll(dataDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.txt"), []byte("original"), 0o644))
+	require.NoError(t, os.MkdirAll(dataDir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.txt"), []byte("original"), 0o600))
 
 	// Create a subdirectory with nested files (similar to hub_cache)
 	subDir := filepath.Join(dataDir, "hub_cache")
-	require.NoError(t, os.MkdirAll(subDir, 0o755))
+	require.NoError(t, os.MkdirAll(subDir, 0o750))
 	cacheFile := filepath.Join(subDir, "cache.json")
-	require.NoError(t, os.WriteFile(cacheFile, []byte(`{"test": "data"}`), 0o644))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(`{"test": "data"}`), 0o600))
 
 	// Open a file handle to simulate an in-use directory
 	// This would cause os.Rename to fail with "device or resource busy" on some systems
-	f, err := os.Open(cacheFile)
+	f, err := os.Open(cacheFile) // #nosec G304 -- Test opens test cache file // #nosec G304 -- Test opens test cache file
 	require.NoError(t, err)
 	defer func() { _ = f.Close() }()
 
@@ -54,10 +54,12 @@ func TestApplyWithOpenFileHandles(t *testing.T) {
 	require.FileExists(t, backupCachePath)
 
 	// Verify original content was preserved in backup
+	// #nosec G304 -- Test reads from known backup paths created by test
 	content, err := os.ReadFile(backupConfigPath)
 	require.NoError(t, err)
 	require.Equal(t, "original", string(content))
 
+	// #nosec G304 -- Test reads from known backup paths created by test
 	cacheContent, err := os.ReadFile(backupCachePath)
 	require.NoError(t, err)
 	require.Contains(t, string(cacheContent), "test")
@@ -65,6 +67,7 @@ func TestApplyWithOpenFileHandles(t *testing.T) {
 	// Verify new preset was applied
 	newPresetPath := filepath.Join(dataDir, "new", "preset.yaml")
 	require.FileExists(t, newPresetPath)
+	// #nosec G304 -- Test reads from known preset path in test dataDir
 	newContent, err := os.ReadFile(newPresetPath)
 	require.NoError(t, err)
 	require.Contains(t, string(newContent), "new: preset")
@@ -79,6 +82,7 @@ func TestBackupPathOnlySetAfterSuccessfulBackup(t *testing.T) {
 		require.NoError(t, err)
 
 		dataDir := filepath.Join(t.TempDir(), "crowdsec")
+		// #nosec G301 -- Test CrowdSec data directory needs standard Unix permissions
 		require.NoError(t, os.MkdirAll(dataDir, 0o755))
 
 		svc := NewHubService(nil, cache, dataDir)
@@ -94,8 +98,8 @@ func TestBackupPathOnlySetAfterSuccessfulBackup(t *testing.T) {
 		require.NoError(t, err)
 
 		dataDir := filepath.Join(t.TempDir(), "crowdsec")
-		require.NoError(t, os.MkdirAll(dataDir, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "file.txt"), []byte("data"), 0o644))
+		require.NoError(t, os.MkdirAll(dataDir, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "file.txt"), []byte("data"), 0o600))
 
 		archive := makeTarGz(t, map[string]string{"new.yaml": "new: config"})
 		_, err = cache.Store(context.Background(), "test/preset", "etag1", "hub", "preview", archive)

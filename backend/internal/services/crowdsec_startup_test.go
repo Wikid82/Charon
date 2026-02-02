@@ -88,17 +88,17 @@ func setupCrowdsecTestFixtures(t *testing.T) (binPath, dataDir string, cleanup f
 
 	// Create mock binary file
 	binPath = filepath.Join(tempDir, "crowdsec")
-	err = os.WriteFile(binPath, []byte("#!/bin/sh\nexit 0\n"), 0o755)
+	err = os.WriteFile(binPath, []byte("#!/bin/sh\nexit 0\n"), 0o750) // #nosec G306 -- executable test script
 	require.NoError(t, err)
 
 	// Create data directory (passed as dataDir to the function)
 	dataDir = filepath.Join(tempDir, "data")
-	err = os.MkdirAll(dataDir, 0o755)
+	err = os.MkdirAll(dataDir, 0o750) // #nosec G301 -- test directory
 	require.NoError(t, err)
 
 	// Create config directory inside data dir (validation checks dataDir/config)
 	configDir := filepath.Join(dataDir, "config")
-	err = os.MkdirAll(configDir, 0o755)
+	err = os.MkdirAll(configDir, 0o750) // #nosec G301 -- test directory
 	require.NoError(t, err)
 
 	cleanup = func() {

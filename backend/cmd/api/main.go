@@ -71,9 +71,11 @@ func parsePluginSignatures() map[string]string {
 func main() {
 	// Setup logging with rotation
 	logDir := "/app/data/logs"
+	// #nosec G301 -- Log directory with standard permissions
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		// Fallback to local directory if /app/data fails (e.g. local dev)
 		logDir = "data/logs"
+		// #nosec G301 -- Fallback log directory with standard permissions
 		_ = os.MkdirAll(logDir, 0o755)
 	}
 

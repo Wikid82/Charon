@@ -225,11 +225,11 @@ func TestSecurityHandler_GetStatus_SettingsOverride(t *testing.T) {
 
 	// Create SecurityConfig with all security features enabled (DB priority)
 	secCfg := &models.SecurityConfig{
-		Name:            "default",        // Required - GetStatus looks for name='default'
+		Name:            "default", // Required - GetStatus looks for name='default'
 		Enabled:         true,
-		WAFMode:         "block",          // "block" mode enables WAF
+		WAFMode:         "block", // "block" mode enables WAF
 		RateLimitMode:   "enabled",
-		CrowdSecMode:    "local",          // "local" mode enables CrowdSec
+		CrowdSecMode:    "local", // "local" mode enables CrowdSec
 		RateLimitEnable: true,
 	}
 	require.NoError(t, db.Create(secCfg).Error)
@@ -578,7 +578,8 @@ func TestSecurityHandler_GetStatus_CrowdSecModeValidation(t *testing.T) {
 			assert.Equal(t, http.StatusOK, w.Code)
 
 			var resp map[string]map[string]any
-			_ = json.Unmarshal(w.Body.Bytes(), &resp)
+			err := json.Unmarshal(w.Body.Bytes(), &resp)
+			require.NoError(t, err, "Failed to unmarshal response")
 
 			// Invalid modes should be normalized to "disabled"
 			assert.Equal(t, "disabled", resp["crowdsec"]["mode"],

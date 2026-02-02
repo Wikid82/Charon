@@ -521,11 +521,11 @@ func TestSecurityHandler_WAFExclusion_FullWorkflow(t *testing.T) {
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
 		if sqlDB != nil {
-			sqlDB.Close()
+			_ = sqlDB.Close()
 		}
-		os.Remove(dbPath)
-		os.Remove(dbPath + "-wal")
-		os.Remove(dbPath + "-shm")
+		_ = os.Remove(dbPath)
+		_ = os.Remove(dbPath + "-wal")
+		_ = os.Remove(dbPath + "-shm")
 	})
 
 	// Migrate the required models

@@ -49,9 +49,9 @@ func TestGenerateConfig_SingleHost(t *testing.T) {
 	require.NotNil(t, server)
 	require.Contains(t, server.Listen, ":80")
 	require.Contains(t, server.Listen, ":443")
-	require.Len(t, server.Routes, 1)
+	require.Len(t, server.Routes, 2) // Emergency + main route
 
-	route := server.Routes[0]
+	route := server.Routes[1] // Main route is at index 1
 	require.Len(t, route.Match, 1)
 	require.Equal(t, []string{"media.example.com"}, route.Match[0].Host)
 	require.Len(t, route.Handle, 1)
@@ -81,8 +81,8 @@ func TestGenerateConfig_MultipleHosts(t *testing.T) {
 
 	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
-	require.Len(t, config.Apps.HTTP.Servers["charon_server"].Routes, 2)
-	require.Len(t, config.Apps.HTTP.Servers["charon_server"].Routes, 2)
+	require.Len(t, config.Apps.HTTP.Servers["charon_server"].Routes, 4) // 2 hosts × 2 routes each (emergency + main)
+	require.Len(t, config.Apps.HTTP.Servers["charon_server"].Routes, 4) // 2 hosts × 2 routes each
 }
 
 func TestGenerateConfig_WebSocketEnabled(t *testing.T) {
@@ -98,7 +98,7 @@ func TestGenerateConfig_WebSocketEnabled(t *testing.T) {
 	}
 	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
-	route := config.Apps.HTTP.Servers["charon_server"].Routes[0]
+	route := config.Apps.HTTP.Servers["charon_server"].Routes[1] // Main route is at index 1
 	handler := route.Handle[0]
 
 	// Check WebSocket headers are present
@@ -208,16 +208,16 @@ func TestGenerateConfig_Advanced(t *testing.T) {
 
 	server := config.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
-	// Should have 2 routes: 1 for location /api, 1 for main domain
-	require.Len(t, server.Routes, 2)
+	// Should have 3 routes: location /api, emergency, main
+	require.Len(t, server.Routes, 3)
 
-	// Check Location Route (should be first as it is more specific)
+	// Check Location Route (first as it's most specific)
 	locRoute := server.Routes[0]
 	require.Equal(t, []string{"/api", "/api/*"}, locRoute.Match[0].Path)
 	require.Equal(t, []string{"advanced.example.com"}, locRoute.Match[0].Host)
 
-	// Check Main Route
-	mainRoute := server.Routes[1]
+	// Check Main Route (after emergency route)
+	mainRoute := server.Routes[2]
 	require.Nil(t, mainRoute.Match[0].Path) // No path means all paths
 	require.Equal(t, []string{"advanced.example.com"}, mainRoute.Match[0].Host)
 
@@ -465,9 +465,9 @@ func TestGenerateConfig_WithRateLimiting(t *testing.T) {
 
 	server := config.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
-	require.Len(t, server.Routes, 1)
+	require.Len(t, server.Routes, 2) // Emergency + main route
 
-	route := server.Routes[0]
+	route := server.Routes[1] // Main route is at index 1
 	// Handlers should include rate_limit + reverse_proxy
 	require.GreaterOrEqual(t, len(route.Handle), 2)
 
@@ -804,8 +804,8 @@ func TestGenerateConfig_DuplicateDomains(t *testing.T) {
 	server := config.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
 
-	// Should only have 2 routes (one duplicate filtered out)
-	require.Len(t, server.Routes, 2)
+	// Should only have 4 routes (2 hosts × emergency + main, one duplicate filtered out)
+	require.Len(t, server.Routes, 4)
 
 	// Verify unique.example.com is present
 	var foundUnique bool
@@ -877,9 +877,9 @@ func TestGenerateConfig_CrowdSecHandlerAdded(t *testing.T) {
 
 	server := config.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
-	require.Len(t, server.Routes, 1)
+	require.Len(t, server.Routes, 2) // Emergency + main route
 
-	route := server.Routes[0]
+	route := server.Routes[1] // Main route is at index 1
 	// Should have CrowdSec handler + reverse_proxy handler
 	require.GreaterOrEqual(t, len(route.Handle), 2)
 
@@ -917,9 +917,9 @@ func TestGenerateConfig_WithSecurityDecisions(t *testing.T) {
 
 	server := config.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
-	require.Len(t, server.Routes, 1)
+	require.Len(t, server.Routes, 2) // Emergency + main route
 
-	route := server.Routes[0]
+	route := server.Routes[1] // Main route is at index 1
 
 	// Marshal to JSON for inspection
 	b, err := json.Marshal(route.Handle)
@@ -1370,7 +1370,7 @@ func TestGenerateConfig_WithWAFPerHostDisabled(t *testing.T) {
 
 	server := config.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
-	require.Len(t, server.Routes, 2)
+	require.Len(t, server.Routes, 4) // 2 hosts × 2 routes each (emergency + main)
 
 	// Check waf-enabled host has WAF handler
 	var wafEnabledRoute, wafDisabledRoute *Route
@@ -1427,9 +1427,9 @@ func TestGenerateConfig_WithDisabledHost(t *testing.T) {
 
 	server := config.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
-	// Only 1 route for the enabled host
-	require.Len(t, server.Routes, 1)
-	require.Equal(t, []string{"enabled.example.com"}, server.Routes[0].Match[0].Host)
+	// Only 2 routes for the enabled host (emergency + main)
+	require.Len(t, server.Routes, 2)
+	require.Equal(t, []string{"enabled.example.com"}, server.Routes[1].Match[0].Host) // Main route at index 1
 }
 
 // TestGenerateConfig_WithFrontendDir verifies catch-all route with frontend
@@ -1449,11 +1449,11 @@ func TestGenerateConfig_WithFrontendDir(t *testing.T) {
 
 	server := config.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
-	// Should have 2 routes: 1 for the host + 1 catch-all for frontend
-	require.Len(t, server.Routes, 2)
+	// Should have 3 routes: emergency + main for the host + catch-all for frontend
+	require.Len(t, server.Routes, 3)
 
 	// Last route should be catch-all with file_server
-	catchAll := server.Routes[1]
+	catchAll := server.Routes[2]
 	require.Nil(t, catchAll.Match)
 	require.True(t, catchAll.Terminal)
 
@@ -1593,9 +1593,9 @@ func TestGenerateConfig_NormalizeAdvancedConfig(t *testing.T) {
 
 	server := config.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
-	require.Len(t, server.Routes, 1)
+	require.Len(t, server.Routes, 2) // Emergency + main route
 
-	route := server.Routes[0]
+	route := server.Routes[1] // Main route is at index 1
 	// Should have headers handler + reverse_proxy
 	require.GreaterOrEqual(t, len(route.Handle), 2)
 
@@ -1652,7 +1652,7 @@ func TestGenerateConfig_SecurityDecisionsWithAdminWhitelist(t *testing.T) {
 	server := config.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
 
-	route := server.Routes[0]
+	route := server.Routes[1] // Main route is at index 1
 	b, _ := json.Marshal(route.Handle)
 	s := string(b)
 
@@ -1796,7 +1796,7 @@ func TestGetCrowdSecAPIKey(t *testing.T) {
 	defer func() {
 		for k, v := range origVars {
 			if v != "" {
-				os.Setenv(k, v)
+				_ = os.Setenv(k, v)
 			} else {
 				_ = os.Unsetenv(k)
 			}
@@ -1808,13 +1808,13 @@ func TestGetCrowdSecAPIKey(t *testing.T) {
 	require.Equal(t, "", result)
 
 	// Set primary key
-	os.Setenv("CROWDSEC_API_KEY", "primary-key")
+	_ = os.Setenv("CROWDSEC_API_KEY", "primary-key")
 	result = getCrowdSecAPIKey()
 	require.Equal(t, "primary-key", result)
 
 	// Test fallback priority
 	_ = os.Unsetenv("CROWDSEC_API_KEY")
-	os.Setenv("CROWDSEC_BOUNCER_API_KEY", "bouncer-key")
+	_ = os.Setenv("CROWDSEC_BOUNCER_API_KEY", "bouncer-key")
 	result = getCrowdSecAPIKey()
 	require.Equal(t, "bouncer-key", result)
 }

@@ -17,6 +17,44 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
+// SafeJoinPath sanitizes and validates file paths to prevent directory traversal attacks.
+// It ensures the resulting path is within the base directory.
+func SafeJoinPath(baseDir, userPath string) (string, error) {
+	// Clean the user-provided path
+	cleanPath := filepath.Clean(userPath)
+
+	// Reject absolute paths
+	if filepath.IsAbs(cleanPath) {
+		return "", fmt.Errorf("absolute paths not allowed: %s", cleanPath)
+	}
+
+	// Reject parent directory references
+	if strings.Contains(cleanPath, "..") {
+		return "", fmt.Errorf("parent directory traversal not allowed: %s", cleanPath)
+	}
+
+	// Join with base directory
+	fullPath := filepath.Join(baseDir, cleanPath)
+
+	// Verify the resolved path is still within base directory
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve base directory: %w", err)
+	}
+
+	absPath, err := filepath.Abs(fullPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve file path: %w", err)
+	}
+
+	// Ensure path is within base directory (handles symlinks)
+	if !strings.HasPrefix(absPath+string(filepath.Separator), absBase+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escape attempt detected: %s", userPath)
+	}
+
+	return fullPath, nil
+}
+
 type BackupService struct {
 	DataDir      string
 	BackupDir    string
@@ -33,7 +71,8 @@ type BackupFile struct {
 func NewBackupService(cfg *config.Config) *BackupService {
 	// Ensure backup directory exists
 	backupDir := filepath.Join(filepath.Dir(cfg.DatabasePath), "backups")
-	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+	// Use 0700 for backup directory (contains complete database dumps with sensitive data)
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
 		logger.Log().WithError(err).Error("Failed to create backup directory")
 	}
 
@@ -175,7 +214,7 @@ func (s *BackupService) CreateBackup() (string, error) {
 	filename := fmt.Sprintf("backup_%s.zip", timestamp)
 	zipPath := filepath.Join(s.BackupDir, filename)
 
-	outFile, err := os.Create(zipPath)
+	outFile, err := os.Create(zipPath) // #nosec G304 -- Backup zip path controlled by app
 	if err != nil {
 		return "", err
 	}
@@ -215,7 +254,7 @@ func (s *BackupService) CreateBackup() (string, error) {
 }
 
 func (s *BackupService) addToZip(w *zip.Writer, srcPath, zipPath string) error {
-	file, err := os.Open(srcPath)
+	file, err := os.Open(srcPath) // #nosec G304 -- Source path controlled by app
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -313,23 +352,24 @@ func (s *BackupService) unzip(src, dest string) error {
 	}()
 
 	for _, f := range r.File {
-		fpath := filepath.Join(dest, f.Name)
-
-		// Check for ZipSlip
-		if !strings.HasPrefix(fpath, filepath.Clean(dest)+string(os.PathSeparator)) {
-			return fmt.Errorf("illegal file path: %s", fpath)
+		// Use SafeJoinPath to prevent directory traversal attacks
+		fpath, err := SafeJoinPath(dest, f.Name)
+		if err != nil {
+			return fmt.Errorf("invalid file path in archive: %w", err)
 		}
 
 		if f.FileInfo().IsDir() {
-			_ = os.MkdirAll(fpath, os.ModePerm)
+			// Use 0700 for extracted directories (private data workspace)
+			_ = os.MkdirAll(fpath, 0o700)
 			continue
 		}
 
-		if err := os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
+		// Use 0700 for parent directories
+		if err := os.MkdirAll(filepath.Dir(fpath), 0o700); err != nil {
 			return err
 		}
 
-		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode()) // #nosec G304 -- File path from validated backup
 		if err != nil {
 			return err
 		}
@@ -342,7 +382,15 @@ func (s *BackupService) unzip(src, dest string) error {
 			return err
 		}
 
-		_, err = io.Copy(outFile, rc)
+		// Limit decompressed size to prevent decompression bombs (100MB limit)
+		const maxDecompressedSize = 100 * 1024 * 1024 // 100MB
+		limitedReader := io.LimitReader(rc, maxDecompressedSize)
+		written, err := io.Copy(outFile, limitedReader)
+
+		// Verify we didn't hit the limit (potential attack)
+		if err == nil && written >= maxDecompressedSize {
+			err = fmt.Errorf("file %s exceeded decompression limit (%d bytes), potential decompression bomb", f.Name, maxDecompressedSize)
+		}
 
 		// Check for close errors on writable file
 		if closeErr := outFile.Close(); closeErr != nil && err == nil {

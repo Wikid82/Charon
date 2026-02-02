@@ -415,7 +415,7 @@ func TestProxyHostHandler_List_Error(t *testing.T) {
 
 	// Close DB to force error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts", http.NoBody)
 	resp := httptest.NewRecorder()

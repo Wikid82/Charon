@@ -207,10 +207,8 @@ func TestGet(t *testing.T) {
 				if gotProvider.Type() != tt.providerType {
 					t.Errorf("got provider type %s, want %s", gotProvider.Type(), tt.providerType)
 				}
-			} else {
-				if gotProvider != nil {
-					t.Error("expected nil provider for non-existent type")
-				}
+			} else if gotProvider != nil {
+				t.Error("expected nil provider for non-existent type")
 			}
 		})
 	}

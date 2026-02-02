@@ -195,7 +195,8 @@ func TestCredentialHandler_Get(t *testing.T) {
 	var response models.DNSProviderCredential
 	err = json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
-	assert.Equal(t, created.ID, response.ID)
+	// ID is not exposed in JSON (json:"-" tag), use UUID for comparison
+	assert.Equal(t, created.UUID, response.UUID)
 }
 
 func TestCredentialHandler_Get_NotFound(t *testing.T) {
