@@ -342,13 +342,18 @@ jobs:
           echo "Output: playwright-report/ directory"
           echo "════════════════════════════════════════════════════════════"
 
+          # Capture start time for performance budget tracking
           SHARD_START=$(date +%s)
+          echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
 
           npx playwright test \
             --project=${{ matrix.browser }} \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
 
+          # Capture end time for performance budget tracking
           SHARD_END=$(date +%s)
+          echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
+
           SHARD_DURATION=$((SHARD_END - SHARD_START))
 
           echo ""
@@ -360,6 +365,28 @@ jobs:
           PLAYWRIGHT_BASE_URL: http://localhost:8080
           CI: true
           TEST_WORKER_INDEX: ${{ matrix.shard }}
+
+      - name: Verify shard performance budget
+        if: always()
+        run: |
+          # Calculate shard execution time
+          SHARD_DURATION=$((SHARD_END - SHARD_START))
+          MAX_DURATION=900  # 15 minutes
+
+          echo "📊 Performance Budget Check"
+          echo "   Shard Duration: ${SHARD_DURATION}s"
+          echo "   Budget Limit:   ${MAX_DURATION}s"
+          echo "   Utilization:    $((SHARD_DURATION * 100 / MAX_DURATION))%"
+
+          # Fail if shard exceeded performance budget
+          if [[ $SHARD_DURATION -gt $MAX_DURATION ]]; then
+            echo "::error::Shard exceeded performance budget: ${SHARD_DURATION}s > ${MAX_DURATION}s"
+            echo "::error::This likely indicates feature flag polling regression or API bottleneck"
+            echo "::error::Review test logs and consider optimizing wait helpers or API calls"
+            exit 1
+          fi
+
+          echo "✅ Shard completed within budget: ${SHARD_DURATION}s"
 
       - name: Upload HTML report (per-shard)
         if: always()
