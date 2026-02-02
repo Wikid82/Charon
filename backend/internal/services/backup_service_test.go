@@ -20,19 +20,19 @@ func TestBackupService_CreateAndList(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	dataDir := filepath.Join(tmpDir, "data")
-	err = os.MkdirAll(dataDir, 0o755)
+	err = os.MkdirAll(dataDir, 0o700)
 	require.NoError(t, err)
 
 	// Create dummy DB
 	dbPath := filepath.Join(dataDir, "charon.db")
-	err = os.WriteFile(dbPath, []byte("dummy db"), 0o644)
+	err = os.WriteFile(dbPath, []byte("dummy db"), 0o600)
 	require.NoError(t, err)
 
 	// Create dummy caddy dir
 	caddyDir := filepath.Join(dataDir, "caddy")
-	err = os.MkdirAll(caddyDir, 0o755)
+	err = os.MkdirAll(caddyDir, 0o700)
 	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(caddyDir, "caddy.json"), []byte("{}"), 0o644)
+	err = os.WriteFile(filepath.Join(caddyDir, "caddy.json"), []byte("{}"), 0o600)
 	require.NoError(t, err)
 
 	cfg := &config.Config{DatabasePath: dbPath}
@@ -59,13 +59,14 @@ func TestBackupService_CreateAndList(t *testing.T) {
 
 	// Test Restore
 	// Modify DB to verify restore
-	err = os.WriteFile(dbPath, []byte("modified db"), 0o644)
+	err = os.WriteFile(dbPath, []byte("modified db"), 0o600)
 	require.NoError(t, err)
 
 	err = service.RestoreBackup(filename)
 	require.NoError(t, err)
 
 	// Verify DB content restored
+	// #nosec G304 -- Test reads from known database path in test directory
 	content, err := os.ReadFile(dbPath)
 	require.NoError(t, err)
 	assert.Equal(t, "dummy db", string(content))
@@ -87,10 +88,11 @@ func TestBackupService_Restore_ZipSlip(t *testing.T) {
 		DataDir:   filepath.Join(tmpDir, "data"),
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.BackupDir, 0o755)
+	_ = os.MkdirAll(service.BackupDir, 0o700)
 
 	// Create malicious zip
 	zipPath := filepath.Join(service.BackupDir, "malicious.zip")
+	// #nosec G304 -- Test creates malicious zip for security testing
 	zipFile, err := os.Create(zipPath)
 	require.NoError(t, err)
 
@@ -105,7 +107,7 @@ func TestBackupService_Restore_ZipSlip(t *testing.T) {
 	// Attempt restore
 	err = service.RestoreBackup("malicious.zip")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "illegal file path")
+	assert.Contains(t, err.Error(), "parent directory traversal not allowed")
 }
 
 func TestBackupService_PathTraversal(t *testing.T) {
@@ -114,6 +116,7 @@ func TestBackupService_PathTraversal(t *testing.T) {
 		DataDir:   filepath.Join(tmpDir, "data"),
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
+	// #nosec G301 -- Test backup directory needs standard Unix permissions
 	_ = os.MkdirAll(service.BackupDir, 0o755)
 
 	// Test GetBackupPath with traversal
@@ -133,10 +136,12 @@ func TestBackupService_RunScheduledBackup(t *testing.T) {
 	// Setup temp dirs
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
+	// #nosec G301 -- Test data directory needs standard Unix permissions
 	_ = os.MkdirAll(dataDir, 0o755)
 
 	// Create dummy DB
 	dbPath := filepath.Join(dataDir, "charon.db")
+	// #nosec G306 -- Test fixture database file
 	_ = os.WriteFile(dbPath, []byte("dummy db"), 0o644)
 
 	cfg := &config.Config{DatabasePath: dbPath}
@@ -166,10 +171,12 @@ func TestBackupService_CreateBackup_Errors(t *testing.T) {
 	t.Run("cannot create backup directory", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		dbPath := filepath.Join(tmpDir, "charon.db")
+		// #nosec G306 -- Test fixture database file
 		_ = os.WriteFile(dbPath, []byte("test"), 0o644)
 
 		// Create backup dir as a file to cause mkdir error
 		backupDir := filepath.Join(tmpDir, "backups")
+		// #nosec G306 -- Test fixture file used to block directory creation
 		_ = os.WriteFile(backupDir, []byte("blocking"), 0o644)
 
 		service := &BackupService{
@@ -189,6 +196,7 @@ func TestBackupService_RestoreBackup_Errors(t *testing.T) {
 			DataDir:   filepath.Join(tmpDir, "data"),
 			BackupDir: filepath.Join(tmpDir, "backups"),
 		}
+		// #nosec G301 -- Test backup directory needs standard Unix permissions
 		_ = os.MkdirAll(service.BackupDir, 0o755)
 
 		err := service.RestoreBackup("nonexistent.zip")
@@ -201,10 +209,12 @@ func TestBackupService_RestoreBackup_Errors(t *testing.T) {
 			DataDir:   filepath.Join(tmpDir, "data"),
 			BackupDir: filepath.Join(tmpDir, "backups"),
 		}
+		// #nosec G301 -- Test backup directory needs standard Unix permissions
 		_ = os.MkdirAll(service.BackupDir, 0o755)
 
 		// Create invalid zip
 		badZip := filepath.Join(service.BackupDir, "bad.zip")
+		// #nosec G306 -- Test fixture file simulating invalid zip
 		_ = os.WriteFile(badZip, []byte("not a zip"), 0o644)
 
 		err := service.RestoreBackup("bad.zip")
@@ -217,6 +227,7 @@ func TestBackupService_ListBackups_EmptyDir(t *testing.T) {
 	service := &BackupService{
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
+	// #nosec G301 -- Test backup directory needs standard Unix permissions
 	_ = os.MkdirAll(service.BackupDir, 0o755)
 
 	backups, err := service.ListBackups()
@@ -242,12 +253,14 @@ func TestBackupService_CleanupOldBackups(t *testing.T) {
 			DataDir:   filepath.Join(tmpDir, "data"),
 			BackupDir: filepath.Join(tmpDir, "backups"),
 		}
+		// #nosec G301 -- Test backup directory needs standard Unix permissions
 		_ = os.MkdirAll(service.BackupDir, 0o755)
 
 		// Create 10 backup files manually with different timestamps
 		for i := 0; i < 10; i++ {
 			filename := fmt.Sprintf("backup_2025-01-%02d_10-00-00.zip", i+1)
 			zipPath := filepath.Join(service.BackupDir, filename)
+			// #nosec G304 -- Test creates backup files with known paths
 			f, err := os.Create(zipPath)
 			require.NoError(t, err)
 			_ = f.Close()
@@ -277,13 +290,13 @@ func TestBackupService_CleanupOldBackups(t *testing.T) {
 			DataDir:   filepath.Join(tmpDir, "data"),
 			BackupDir: filepath.Join(tmpDir, "backups"),
 		}
-		_ = os.MkdirAll(service.BackupDir, 0o755)
+		_ = os.MkdirAll(service.BackupDir, 0o750)
 
 		// Create 3 backup files
 		for i := 0; i < 3; i++ {
 			filename := fmt.Sprintf("backup_2025-01-%02d_10-00-00.zip", i+1)
 			zipPath := filepath.Join(service.BackupDir, filename)
-			f, err := os.Create(zipPath)
+			f, err := os.Create(zipPath) //nolint:gosec // G304: Test file in temp directory
 			require.NoError(t, err)
 			_ = f.Close()
 		}
@@ -304,13 +317,15 @@ func TestBackupService_CleanupOldBackups(t *testing.T) {
 			DataDir:   filepath.Join(tmpDir, "data"),
 			BackupDir: filepath.Join(tmpDir, "backups"),
 		}
+		// #nosec G301 -- Test fixture directory with standard permissions
 		_ = os.MkdirAll(service.BackupDir, 0o755)
 
 		// Create 5 backup files
 		for i := 0; i < 5; i++ {
 			filename := fmt.Sprintf("backup_2025-01-%02d_10-00-00.zip", i+1)
+			// #nosec G304 -- Test fixture file with controlled path
 			zipPath := filepath.Join(service.BackupDir, filename)
-			f, err := os.Create(zipPath)
+			f, err := os.Create(zipPath) //nolint:gosec // G304: Test file creation
 			require.NoError(t, err)
 			_ = f.Close()
 			modTime := time.Date(2025, 1, i+1, 10, 0, 0, 0, time.UTC)
@@ -332,7 +347,7 @@ func TestBackupService_CleanupOldBackups(t *testing.T) {
 		service := &BackupService{
 			BackupDir: filepath.Join(tmpDir, "backups"),
 		}
-		_ = os.MkdirAll(service.BackupDir, 0o755)
+		_ = os.MkdirAll(service.BackupDir, 0o750)
 
 		deleted, err := service.CleanupOldBackups(7)
 		require.NoError(t, err)
@@ -344,9 +359,10 @@ func TestBackupService_GetLastBackupTime(t *testing.T) {
 	t.Run("returns latest backup time", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		dataDir := filepath.Join(tmpDir, "data")
-		_ = os.MkdirAll(dataDir, 0o755)
+		_ = os.MkdirAll(dataDir, 0o750)
 
 		dbPath := filepath.Join(dataDir, "charon.db")
+		// #nosec G306 -- Test fixture database file
 		_ = os.WriteFile(dbPath, []byte("dummy db"), 0o644)
 
 		cfg := &config.Config{DatabasePath: dbPath}
@@ -368,7 +384,7 @@ func TestBackupService_GetLastBackupTime(t *testing.T) {
 		service := &BackupService{
 			BackupDir: filepath.Join(tmpDir, "backups"),
 		}
-		_ = os.MkdirAll(service.BackupDir, 0o755)
+		_ = os.MkdirAll(service.BackupDir, 0o750)
 
 		lastBackup, err := service.GetLastBackupTime()
 		require.NoError(t, err)
@@ -385,14 +401,15 @@ func TestDefaultBackupRetention(t *testing.T) {
 func TestNewBackupService_BackupDirCreationError(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	_ = os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o750)
 
 	// Create a file where backup dir should be to cause mkdir error
 	backupDirPath := filepath.Join(dataDir, "backups")
+	// #nosec G306 -- Test fixture file used to block directory creation
 	_ = os.WriteFile(backupDirPath, []byte("blocking"), 0o644)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
-	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("test"), 0o600)
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	// Should not panic even if backup dir creation fails (error is logged, not returned)
@@ -405,10 +422,11 @@ func TestNewBackupService_BackupDirCreationError(t *testing.T) {
 func TestNewBackupService_CronScheduleError(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	_ = os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o750)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
-	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
+	// #nosec G306 -- Test fixture file with standard read permissions
+	_ = os.WriteFile(dbPath, []byte("test"), 0o600)
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	// Service should initialize without panic even if cron has issues
@@ -422,7 +440,7 @@ func TestNewBackupService_CronScheduleError(t *testing.T) {
 func TestRunScheduledBackup_CreateBackupFails(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	_ = os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o750)
 
 	// Create a fake database path - don't create the actual file
 	dbPath := filepath.Join(dataDir, "charon.db")
@@ -452,10 +470,10 @@ func TestRunScheduledBackup_CreateBackupFails(t *testing.T) {
 func TestRunScheduledBackup_CleanupFails(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	_ = os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o750)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
-	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("test"), 0o600)
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	service := NewBackupService(cfg)
@@ -466,8 +484,8 @@ func TestRunScheduledBackup_CleanupFails(t *testing.T) {
 	require.NoError(t, err)
 
 	// Make backup directory read-only to cause cleanup to fail
-	_ = os.Chmod(service.BackupDir, 0o444)
-	defer func() { _ = os.Chmod(service.BackupDir, 0o755) }() // Restore for cleanup
+	_ = os.Chmod(service.BackupDir, 0o444)                    // #nosec G302 -- Intentionally testing permission error handling
+	defer func() { _ = os.Chmod(service.BackupDir, 0o755) }() // #nosec G302 -- Restore dir permissions after test
 
 	// Should not panic when cleanup fails
 	service.RunScheduledBackup()
@@ -485,7 +503,7 @@ func TestGetLastBackupTime_ListBackupsError(t *testing.T) {
 	}
 
 	// Create a file where directory should be
-	_ = os.WriteFile(service.BackupDir, []byte("blocking"), 0o644)
+	_ = os.WriteFile(service.BackupDir, []byte("blocking"), 0o600)
 
 	lastBackup, err := service.GetLastBackupTime()
 	assert.Error(t, err)
@@ -497,10 +515,10 @@ func TestGetLastBackupTime_ListBackupsError(t *testing.T) {
 func TestRunScheduledBackup_CleanupDeletesZero(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	_ = os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o750)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
-	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("test"), 0o600)
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	service := NewBackupService(cfg)
@@ -521,13 +539,14 @@ func TestCleanupOldBackups_PartialFailure(t *testing.T) {
 		DataDir:   filepath.Join(tmpDir, "data"),
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.BackupDir, 0o755)
+	_ = os.MkdirAll(service.BackupDir, 0o750)
 
 	// Create 5 backup files
 	for i := 0; i < 5; i++ {
 		filename := fmt.Sprintf("backup_2025-01-%02d_10-00-00.zip", i+1)
+		// #nosec G304 -- Test fixture file with controlled path
 		zipPath := filepath.Join(service.BackupDir, filename)
-		f, err := os.Create(zipPath)
+		f, err := os.Create(zipPath) //nolint:gosec // G304: Test file
 		require.NoError(t, err)
 		_ = f.Close()
 		modTime := time.Date(2025, 1, i+1, 10, 0, 0, 0, time.UTC)
@@ -535,7 +554,7 @@ func TestCleanupOldBackups_PartialFailure(t *testing.T) {
 
 		// Make files 0 and 1 read-only to cause deletion to fail
 		if i < 2 {
-			_ = os.Chmod(zipPath, 0o444)
+			_ = os.Chmod(zipPath, 0o444) // #nosec G302 -- Intentionally testing permission-based deletion failure
 		}
 	}
 
@@ -550,10 +569,10 @@ func TestCleanupOldBackups_PartialFailure(t *testing.T) {
 func TestCreateBackup_CaddyDirMissing(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	_ = os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o750)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
-	_ = os.WriteFile(dbPath, []byte("dummy db"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("dummy db"), 0o600)
 
 	// Explicitly NOT creating caddy directory
 	cfg := &config.Config{DatabasePath: dbPath}
@@ -573,16 +592,16 @@ func TestCreateBackup_CaddyDirMissing(t *testing.T) {
 func TestCreateBackup_CaddyDirUnreadable(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	_ = os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o750)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
-	_ = os.WriteFile(dbPath, []byte("dummy db"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("dummy db"), 0o600)
 
 	// Create caddy dir with no read permissions
 	caddyDir := filepath.Join(dataDir, "caddy")
-	_ = os.MkdirAll(caddyDir, 0o755)
+	_ = os.MkdirAll(caddyDir, 0o750)
 	_ = os.Chmod(caddyDir, 0o000)
-	defer func() { _ = os.Chmod(caddyDir, 0o755) }() // Restore for cleanup
+	defer func() { _ = os.Chmod(caddyDir, 0o700) }() // #nosec G302 -- Test restores permissions / Restore for cleanup
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	service := NewBackupService(cfg)
@@ -599,7 +618,7 @@ func TestCreateBackup_CaddyDirUnreadable(t *testing.T) {
 func TestBackupService_addToZip_FileNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 	zipPath := filepath.Join(tmpDir, "test.zip")
-	zipFile, err := os.Create(zipPath)
+	zipFile, err := os.Create(zipPath) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, err)
 	defer func() { _ = zipFile.Close() }()
 
@@ -621,7 +640,7 @@ func TestBackupService_addToZip_FileOpenError(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	zipPath := filepath.Join(tmpDir, "test.zip")
-	zipFile, err := os.Create(zipPath)
+	zipFile, err := os.Create(zipPath) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, err)
 	defer func() { _ = zipFile.Close() }()
 
@@ -630,14 +649,14 @@ func TestBackupService_addToZip_FileOpenError(t *testing.T) {
 
 	// Create a directory (not a file) that cannot be opened as a file
 	srcPath := filepath.Join(tmpDir, "unreadable_dir")
-	err = os.MkdirAll(srcPath, 0o755)
+	err = os.MkdirAll(srcPath, 0o750)
 	require.NoError(t, err)
 
 	// Create a file inside with no read permissions
 	unreadablePath := filepath.Join(srcPath, "unreadable.txt")
 	err = os.WriteFile(unreadablePath, []byte("test"), 0o000)
 	require.NoError(t, err)
-	defer func() { _ = os.Chmod(unreadablePath, 0o644) }() // Restore for cleanup
+	defer func() { _ = os.Chmod(unreadablePath, 0o600) }() // #nosec G302 -- Test restores permissions / Restore for cleanup
 
 	service := &BackupService{}
 
@@ -651,10 +670,10 @@ func TestBackupService_addToZip_FileOpenError(t *testing.T) {
 func TestBackupService_Start(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	_ = os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o750)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
-	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("test"), 0o600)
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	service := NewBackupService(cfg)
@@ -673,10 +692,10 @@ func TestBackupService_Start(t *testing.T) {
 func TestRunScheduledBackup_CleanupSucceedsWithDeletions(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	_ = os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o750)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
-	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("test"), 0o600)
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	service := NewBackupService(cfg)
@@ -686,7 +705,7 @@ func TestRunScheduledBackup_CleanupSucceedsWithDeletions(t *testing.T) {
 	for i := 0; i < DefaultBackupRetention+3; i++ {
 		filename := fmt.Sprintf("backup_2025-01-%02d_10-00-00.zip", i+1)
 		zipPath := filepath.Join(service.BackupDir, filename)
-		f, err := os.Create(zipPath)
+		f, err := os.Create(zipPath) //nolint:gosec // G304: Test file in temp directory
 		require.NoError(t, err)
 		_ = f.Close()
 		modTime := time.Date(2025, 1, i+1, 10, 0, 0, 0, time.UTC)
@@ -710,7 +729,7 @@ func TestCleanupOldBackups_ListBackupsError(t *testing.T) {
 	}
 
 	// Create a file where directory should be
-	_ = os.WriteFile(service.BackupDir, []byte("blocking"), 0o644)
+	_ = os.WriteFile(service.BackupDir, []byte("blocking"), 0o600)
 
 	deleted, err := service.CleanupOldBackups(5)
 	assert.Error(t, err)
@@ -725,21 +744,21 @@ func TestListBackups_EntryInfoError(t *testing.T) {
 	service := &BackupService{
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.BackupDir, 0o755)
+	_ = os.MkdirAll(service.BackupDir, 0o750)
 
 	// Create a valid zip file
 	zipPath := filepath.Join(service.BackupDir, "backup_test.zip")
-	f, err := os.Create(zipPath)
+	f, err := os.Create(zipPath) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, err)
 	_ = f.Close()
 
 	// Create a non-zip file that should be ignored
 	txtPath := filepath.Join(service.BackupDir, "readme.txt")
-	_ = os.WriteFile(txtPath, []byte("not a backup"), 0o644)
+	_ = os.WriteFile(txtPath, []byte("not a backup"), 0o600)
 
 	// Create a directory that should be ignored
 	dirPath := filepath.Join(service.BackupDir, "subdir.zip")
-	_ = os.MkdirAll(dirPath, 0o755)
+	_ = os.MkdirAll(dirPath, 0o750) // #nosec G301 -- test fixture
 
 	backups, err := service.ListBackups()
 	require.NoError(t, err)
@@ -754,7 +773,7 @@ func TestRestoreBackup_PathTraversal_FirstCheck(t *testing.T) {
 		DataDir:   filepath.Join(tmpDir, "data"),
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.BackupDir, 0o755)
+	_ = os.MkdirAll(service.BackupDir, 0o750) // #nosec G301 -- test fixture
 
 	// Test path traversal with filename containing path separator
 	err := service.RestoreBackup("../../../etc/passwd")
@@ -768,7 +787,7 @@ func TestRestoreBackup_PathTraversal_SecondCheck(t *testing.T) {
 		DataDir:   filepath.Join(tmpDir, "data"),
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.BackupDir, 0o755)
+	_ = os.MkdirAll(service.BackupDir, 0o750) // #nosec G301 -- test fixture
 
 	// Test with a filename that passes the first check but could still
 	// be problematic (this tests the second prefix check)
@@ -783,7 +802,7 @@ func TestDeleteBackup_PathTraversal_SecondCheck(t *testing.T) {
 		DataDir:   filepath.Join(tmpDir, "data"),
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.BackupDir, 0o755)
+	_ = os.MkdirAll(service.BackupDir, 0o750) // #nosec G301 -- test fixture
 
 	// Test first check - filename with path separator
 	err := service.DeleteBackup("sub/file.zip")
@@ -797,7 +816,7 @@ func TestGetBackupPath_PathTraversal_SecondCheck(t *testing.T) {
 		DataDir:   filepath.Join(tmpDir, "data"),
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.BackupDir, 0o755)
+	_ = os.MkdirAll(service.BackupDir, 0o750) // #nosec G301 -- test fixture
 
 	// Test first check - filename with path separator
 	_, err := service.GetBackupPath("sub/file.zip")
@@ -811,12 +830,12 @@ func TestUnzip_DirectoryCreation(t *testing.T) {
 		DataDir:   filepath.Join(tmpDir, "data"),
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.BackupDir, 0o755)
-	_ = os.MkdirAll(service.DataDir, 0o755)
+	_ = os.MkdirAll(service.BackupDir, 0o750)
+	_ = os.MkdirAll(service.DataDir, 0o750)
 
 	// Create a zip with nested directory structure
 	zipPath := filepath.Join(service.BackupDir, "nested.zip")
-	zipFile, err := os.Create(zipPath)
+	zipFile, err := os.Create(zipPath) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, err)
 
 	w := zip.NewWriter(zipFile)
@@ -852,12 +871,12 @@ func TestUnzip_OpenFileError(t *testing.T) {
 		DataDir:   filepath.Join(tmpDir, "data"),
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.BackupDir, 0o755)
-	_ = os.MkdirAll(service.DataDir, 0o755)
+	_ = os.MkdirAll(service.BackupDir, 0o750) // #nosec G301 -- test fixture
+	_ = os.MkdirAll(service.DataDir, 0o750)   // #nosec G301 -- test fixture
 
 	// Create a valid zip
 	zipPath := filepath.Join(service.BackupDir, "test.zip")
-	zipFile, err := os.Create(zipPath)
+	zipFile, err := os.Create(zipPath) // #nosec G304 -- test fixture path
 	require.NoError(t, err)
 
 	w := zip.NewWriter(zipFile)
@@ -869,8 +888,8 @@ func TestUnzip_OpenFileError(t *testing.T) {
 	_ = zipFile.Close()
 
 	// Make data dir read-only to cause OpenFile error
-	_ = os.Chmod(service.DataDir, 0o444)
-	defer func() { _ = os.Chmod(service.DataDir, 0o755) }()
+	_ = os.Chmod(service.DataDir, 0o400)                    // #nosec G302 -- Test intentionally sets restrictive permissions
+	defer func() { _ = os.Chmod(service.DataDir, 0o755) }() // #nosec G302 -- Restoring permissions for cleanup
 
 	err = service.RestoreBackup("test.zip")
 	assert.Error(t, err)
@@ -884,12 +903,12 @@ func TestUnzip_FileOpenInZipError(t *testing.T) {
 		DataDir:   filepath.Join(tmpDir, "data"),
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.BackupDir, 0o755)
-	_ = os.MkdirAll(service.DataDir, 0o755)
+	_ = os.MkdirAll(service.BackupDir, 0o750) // #nosec G301 -- test fixture
+	_ = os.MkdirAll(service.DataDir, 0o750)   // #nosec G301 -- test fixture
 
 	// Create a valid zip with a file
 	zipPath := filepath.Join(service.BackupDir, "valid.zip")
-	zipFile, err := os.Create(zipPath)
+	zipFile, err := os.Create(zipPath) // #nosec G304 -- test fixture path
 	require.NoError(t, err)
 
 	w := zip.NewWriter(zipFile)
@@ -913,7 +932,7 @@ func TestUnzip_FileOpenInZipError(t *testing.T) {
 func TestAddDirToZip_WalkError(t *testing.T) {
 	tmpDir := t.TempDir()
 	zipPath := filepath.Join(tmpDir, "test.zip")
-	zipFile, err := os.Create(zipPath)
+	zipFile, err := os.Create(zipPath) // #nosec G304 -- test fixture path
 	require.NoError(t, err)
 	defer func() { _ = zipFile.Close() }()
 
@@ -932,12 +951,12 @@ func TestAddDirToZip_SkipsDirectories(t *testing.T) {
 
 	// Create directory structure
 	srcDir := filepath.Join(tmpDir, "src")
-	_ = os.MkdirAll(filepath.Join(srcDir, "subdir"), 0o755)
-	_ = os.WriteFile(filepath.Join(srcDir, "file1.txt"), []byte("content1"), 0o644)
-	_ = os.WriteFile(filepath.Join(srcDir, "subdir", "file2.txt"), []byte("content2"), 0o644)
+	_ = os.MkdirAll(filepath.Join(srcDir, "subdir"), 0o750)                                   // #nosec G301 -- test fixture
+	_ = os.WriteFile(filepath.Join(srcDir, "file1.txt"), []byte("content1"), 0o600)           // #nosec G306 -- test fixture
+	_ = os.WriteFile(filepath.Join(srcDir, "subdir", "file2.txt"), []byte("content2"), 0o600) // #nosec G306 -- test fixture
 
 	zipPath := filepath.Join(tmpDir, "test.zip")
-	zipFile, err := os.Create(zipPath)
+	zipFile, err := os.Create(zipPath) // #nosec G304 -- test fixture path
 	require.NoError(t, err)
 
 	w := zip.NewWriter(zipFile)
@@ -996,12 +1015,12 @@ func TestUnzip_CopyError(t *testing.T) {
 		DataDir:   filepath.Join(tmpDir, "data"),
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.BackupDir, 0o755)
-	_ = os.MkdirAll(service.DataDir, 0o755)
+	_ = os.MkdirAll(service.BackupDir, 0o750) // #nosec G301 -- test directory
+	_ = os.MkdirAll(service.DataDir, 0o750)   // #nosec G301 -- test fixture
 
 	// Create a valid zip
 	zipPath := filepath.Join(service.BackupDir, "test.zip")
-	zipFile, err := os.Create(zipPath)
+	zipFile, err := os.Create(zipPath) // #nosec G304 -- test fixture path
 	require.NoError(t, err)
 
 	w := zip.NewWriter(zipFile)
@@ -1014,9 +1033,9 @@ func TestUnzip_CopyError(t *testing.T) {
 
 	// Create the subdir as read-only to cause copy error
 	subDir := filepath.Join(service.DataDir, "subdir")
-	_ = os.MkdirAll(subDir, 0o755)
-	_ = os.Chmod(subDir, 0o444)
-	defer func() { _ = os.Chmod(subDir, 0o755) }()
+	_ = os.MkdirAll(subDir, 0o750) // #nosec G301 -- test directory
+	_ = os.Chmod(subDir, 0o400)
+	defer func() { _ = os.Chmod(subDir, 0o755) }() // #nosec G302 -- Restoring permissions for cleanup
 
 	// Restore should fail because we can't write to subdir
 	err = service.RestoreBackup("test.zip")
@@ -1028,10 +1047,10 @@ func TestCreateBackup_ZipWriterCloseError(t *testing.T) {
 	// by creating a valid backup and ensuring proper cleanup
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	_ = os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o750) // #nosec G301 -- test directory
 
 	dbPath := filepath.Join(dataDir, "charon.db")
-	_ = os.WriteFile(dbPath, []byte("test db content"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("test db content"), 0o600) // #nosec G306 -- test fixture
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	service := NewBackupService(cfg)
@@ -1062,7 +1081,7 @@ func TestCreateBackup_ZipWriterCloseError(t *testing.T) {
 func TestAddToZip_CreateError(t *testing.T) {
 	tmpDir := t.TempDir()
 	zipPath := filepath.Join(tmpDir, "test.zip")
-	zipFile, err := os.Create(zipPath)
+	zipFile, err := os.Create(zipPath) // #nosec G304 -- test fixture path
 	require.NoError(t, err)
 	defer func() { _ = zipFile.Close() }()
 
@@ -1070,7 +1089,7 @@ func TestAddToZip_CreateError(t *testing.T) {
 
 	// Create a source file
 	srcPath := filepath.Join(tmpDir, "source.txt")
-	_ = os.WriteFile(srcPath, []byte("test content"), 0o644)
+	_ = os.WriteFile(srcPath, []byte("test content"), 0o600) // #nosec G306 -- test fixture
 
 	service := &BackupService{}
 
@@ -1093,13 +1112,13 @@ func TestListBackups_IgnoresNonZipFiles(t *testing.T) {
 	service := &BackupService{
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.BackupDir, 0o755)
+	_ = os.MkdirAll(service.BackupDir, 0o750) // #nosec G301 -- test fixture
 
 	// Create various files
-	_ = os.WriteFile(filepath.Join(service.BackupDir, "backup.zip"), []byte(""), 0o644)
-	_ = os.WriteFile(filepath.Join(service.BackupDir, "backup.tar.gz"), []byte(""), 0o644)
-	_ = os.WriteFile(filepath.Join(service.BackupDir, "readme.txt"), []byte(""), 0o644)
-	_ = os.WriteFile(filepath.Join(service.BackupDir, ".hidden.zip"), []byte(""), 0o644)
+	_ = os.WriteFile(filepath.Join(service.BackupDir, "backup.zip"), []byte(""), 0o600)    // #nosec G306 -- test fixture
+	_ = os.WriteFile(filepath.Join(service.BackupDir, "backup.tar.gz"), []byte(""), 0o600) // #nosec G306 -- test fixture
+	_ = os.WriteFile(filepath.Join(service.BackupDir, "readme.txt"), []byte(""), 0o600)    // #nosec G306 -- test fixture
+	_ = os.WriteFile(filepath.Join(service.BackupDir, ".hidden.zip"), []byte(""), 0o600)   // #nosec G306 -- test fixture
 
 	backups, err := service.ListBackups()
 	require.NoError(t, err)
@@ -1121,11 +1140,11 @@ func TestRestoreBackup_CreatesNestedDirectories(t *testing.T) {
 		DataDir:   filepath.Join(tmpDir, "data"),
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.BackupDir, 0o755)
+	_ = os.MkdirAll(service.BackupDir, 0o750) // #nosec G301 -- test fixture
 
 	// Create a zip with deeply nested structure
 	zipPath := filepath.Join(service.BackupDir, "nested.zip")
-	zipFile, err := os.Create(zipPath)
+	zipFile, err := os.Create(zipPath) // #nosec G304 -- test fixture path
 	require.NoError(t, err)
 
 	w := zip.NewWriter(zipFile)
@@ -1150,15 +1169,15 @@ func TestBackupService_FullCycle(t *testing.T) {
 	// Full integration test: create, list, restore, delete
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	_ = os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o750) // #nosec G301 -- test directory
 
 	// Create database and caddy config
 	dbPath := filepath.Join(dataDir, "charon.db")
-	_ = os.WriteFile(dbPath, []byte("original db"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("original db"), 0o600) // #nosec G306 -- test fixture
 
 	caddyDir := filepath.Join(dataDir, "caddy")
-	_ = os.MkdirAll(caddyDir, 0o755)
-	_ = os.WriteFile(filepath.Join(caddyDir, "config.json"), []byte(`{"original": true}`), 0o644)
+	_ = os.MkdirAll(caddyDir, 0o750)                                                              // #nosec G301 -- test directory
+	_ = os.WriteFile(filepath.Join(caddyDir, "config.json"), []byte(`{"original": true}`), 0o600) // #nosec G306 -- test fixture
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	service := NewBackupService(cfg)
@@ -1169,11 +1188,11 @@ func TestBackupService_FullCycle(t *testing.T) {
 	require.NoError(t, err)
 
 	// Modify files
-	_ = os.WriteFile(dbPath, []byte("modified db"), 0o644)
-	_ = os.WriteFile(filepath.Join(caddyDir, "config.json"), []byte(`{"modified": true}`), 0o644)
+	_ = os.WriteFile(dbPath, []byte("modified db"), 0o600)                                        // #nosec G306 -- test fixture
+	_ = os.WriteFile(filepath.Join(caddyDir, "config.json"), []byte(`{"modified": true}`), 0o600) // #nosec G306 -- test fixture
 
 	// Verify modification
-	content, _ := os.ReadFile(dbPath)
+	content, _ := os.ReadFile(dbPath) // #nosec G304 -- test fixture path
 	assert.Equal(t, "modified db", string(content))
 
 	// Restore backup
@@ -1181,10 +1200,10 @@ func TestBackupService_FullCycle(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify restoration
-	content, _ = os.ReadFile(dbPath)
+	content, _ = os.ReadFile(dbPath) // #nosec G304 -- test fixture path
 	assert.Equal(t, "original db", string(content))
 
-	caddyContent, _ := os.ReadFile(filepath.Join(caddyDir, "config.json"))
+	caddyContent, _ := os.ReadFile(filepath.Join(caddyDir, "config.json")) // #nosec G304 -- test fixture path
 	assert.Equal(t, `{"original": true}`, string(caddyContent))
 
 	// List backups
@@ -1214,16 +1233,16 @@ func TestBackupService_AddToZip_Errors(t *testing.T) {
 		DataDir:   filepath.Join(tmpDir, "data"),
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.BackupDir, 0o755)
+	_ = os.MkdirAll(service.BackupDir, 0o750) // #nosec G301 -- test fixture
 
 	t.Run("handle non-existent file gracefully", func(t *testing.T) {
 		zipPath := filepath.Join(service.BackupDir, "test.zip")
-		zipFile, err := os.Create(zipPath)
+		zipFile, err := os.Create(zipPath) // #nosec G304 -- test fixture path
 		require.NoError(t, err)
-		defer zipFile.Close()
+		defer func() { _ = zipFile.Close() }()
 
 		w := zip.NewWriter(zipFile)
-		defer w.Close()
+		defer func() { _ = w.Close() }()
 
 		// Try to add non-existent file - should return nil (graceful)
 		err = service.addToZip(w, "/non/existent/file.txt", "file.txt")
@@ -1233,13 +1252,13 @@ func TestBackupService_AddToZip_Errors(t *testing.T) {
 	t.Run("add valid file to zip", func(t *testing.T) {
 		// Create test file
 		testFile := filepath.Join(tmpDir, "test.txt")
-		err := os.WriteFile(testFile, []byte("test content"), 0o644)
+		err := os.WriteFile(testFile, []byte("test content"), 0o600) // #nosec G306 -- test fixture
 		require.NoError(t, err)
 
 		zipPath := filepath.Join(service.BackupDir, "valid.zip")
-		zipFile, err := os.Create(zipPath)
+		zipFile, err := os.Create(zipPath) // #nosec G304 -- test fixture path
 		require.NoError(t, err)
-		defer zipFile.Close()
+		defer func() { _ = zipFile.Close() }()
 
 		w := zip.NewWriter(zipFile)
 		err = service.addToZip(w, testFile, "test.txt")
@@ -1249,7 +1268,7 @@ func TestBackupService_AddToZip_Errors(t *testing.T) {
 		// Verify file was added to zip
 		r, err := zip.OpenReader(zipPath)
 		require.NoError(t, err)
-		defer r.Close()
+		defer func() { _ = r.Close() }()
 
 		assert.Len(t, r.File, 1)
 		assert.Equal(t, "test.txt", r.File[0].Name)
@@ -1263,12 +1282,12 @@ func TestBackupService_Unzip_ErrorPaths(t *testing.T) {
 		DataDir:   filepath.Join(tmpDir, "data"),
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.BackupDir, 0o755)
+	_ = os.MkdirAll(service.BackupDir, 0o750) // #nosec G301 -- test directory
 
 	t.Run("unzip with invalid zip file", func(t *testing.T) {
 		// Create invalid (corrupted) zip file
 		invalidZip := filepath.Join(service.BackupDir, "invalid.zip")
-		err := os.WriteFile(invalidZip, []byte("not a valid zip"), 0o644)
+		err := os.WriteFile(invalidZip, []byte("not a valid zip"), 0o600) // #nosec G306 -- test fixture
 		require.NoError(t, err)
 
 		err = service.RestoreBackup("invalid.zip")
@@ -1279,7 +1298,7 @@ func TestBackupService_Unzip_ErrorPaths(t *testing.T) {
 	t.Run("unzip with path traversal attempt", func(t *testing.T) {
 		// Create zip with path traversal
 		zipPath := filepath.Join(service.BackupDir, "traversal.zip")
-		zipFile, err := os.Create(zipPath)
+		zipFile, err := os.Create(zipPath) // #nosec G304 -- test fixture path
 		require.NoError(t, err)
 
 		w := zip.NewWriter(zipFile)
@@ -1292,13 +1311,13 @@ func TestBackupService_Unzip_ErrorPaths(t *testing.T) {
 		// Should detect and block path traversal
 		err = service.RestoreBackup("traversal.zip")
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "illegal file path")
+		assert.Contains(t, err.Error(), "parent directory traversal not allowed")
 	})
 
 	t.Run("unzip empty zip file", func(t *testing.T) {
 		// Create empty but valid zip
 		emptyZip := filepath.Join(service.BackupDir, "empty.zip")
-		zipFile, err := os.Create(emptyZip)
+		zipFile, err := os.Create(emptyZip) // #nosec G304 -- test fixture path
 		require.NoError(t, err)
 
 		w := zip.NewWriter(zipFile)
@@ -1318,7 +1337,7 @@ func TestBackupService_GetAvailableSpace_EdgeCases(t *testing.T) {
 		DataDir:   filepath.Join(tmpDir, "data"),
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.DataDir, 0o755)
+	_ = os.MkdirAll(service.DataDir, 0o750) // #nosec G301 -- test directory
 
 	t.Run("get available space for existing directory", func(t *testing.T) {
 		availableBytes, err := service.GetAvailableSpace()
@@ -1351,16 +1370,16 @@ func TestBackupService_AddDirToZip_EdgeCases(t *testing.T) {
 		DataDir:   filepath.Join(tmpDir, "data"),
 		BackupDir: filepath.Join(tmpDir, "backups"),
 	}
-	_ = os.MkdirAll(service.BackupDir, 0o755)
+	_ = os.MkdirAll(service.BackupDir, 0o750) // #nosec G301 -- test fixture
 
 	t.Run("add non-existent directory returns error", func(t *testing.T) {
 		zipPath := filepath.Join(service.BackupDir, "test.zip")
-		zipFile, err := os.Create(zipPath)
+		zipFile, err := os.Create(zipPath) // #nosec G304 -- test fixture path
 		require.NoError(t, err)
-		defer zipFile.Close()
+		defer func() { _ = zipFile.Close() }()
 
 		w := zip.NewWriter(zipFile)
-		defer w.Close()
+		defer func() { _ = w.Close() }()
 
 		err = service.addDirToZip(w, "/non/existent/dir", "base")
 		assert.Error(t, err)
@@ -1368,13 +1387,13 @@ func TestBackupService_AddDirToZip_EdgeCases(t *testing.T) {
 
 	t.Run("add empty directory to zip", func(t *testing.T) {
 		emptyDir := filepath.Join(tmpDir, "empty")
-		err := os.MkdirAll(emptyDir, 0o755)
+		err := os.MkdirAll(emptyDir, 0o750) // #nosec G301 -- test fixture
 		require.NoError(t, err)
 
 		zipPath := filepath.Join(service.BackupDir, "empty.zip")
-		zipFile, err := os.Create(zipPath)
+		zipFile, err := os.Create(zipPath) // #nosec G304 -- test fixture path
 		require.NoError(t, err)
-		defer zipFile.Close()
+		defer func() { _ = zipFile.Close() }()
 
 		w := zip.NewWriter(zipFile)
 		err = service.addDirToZip(w, emptyDir, "empty")
@@ -1384,20 +1403,20 @@ func TestBackupService_AddDirToZip_EdgeCases(t *testing.T) {
 		// Verify zip has no entries (only directories, which are skipped)
 		r, err := zip.OpenReader(zipPath)
 		require.NoError(t, err)
-		defer r.Close()
+		defer func() { _ = r.Close() }()
 		assert.Empty(t, r.File)
 	})
 
 	t.Run("add directory with nested files", func(t *testing.T) {
 		testDir := filepath.Join(tmpDir, "nested")
-		_ = os.MkdirAll(filepath.Join(testDir, "subdir"), 0o755)
-		_ = os.WriteFile(filepath.Join(testDir, "file1.txt"), []byte("content1"), 0o644)
-		_ = os.WriteFile(filepath.Join(testDir, "subdir", "file2.txt"), []byte("content2"), 0o644)
+		_ = os.MkdirAll(filepath.Join(testDir, "subdir"), 0o750)                                   // #nosec G301 -- test directory
+		_ = os.WriteFile(filepath.Join(testDir, "file1.txt"), []byte("content1"), 0o600)           // #nosec G306 -- test fixture
+		_ = os.WriteFile(filepath.Join(testDir, "subdir", "file2.txt"), []byte("content2"), 0o600) // #nosec G306 -- test fixture
 
 		zipPath := filepath.Join(service.BackupDir, "nested.zip")
-		zipFile, err := os.Create(zipPath)
+		zipFile, err := os.Create(zipPath) // #nosec G304 -- test fixture path
 		require.NoError(t, err)
-		defer zipFile.Close()
+		defer func() { _ = zipFile.Close() }()
 
 		w := zip.NewWriter(zipFile)
 		err = service.addDirToZip(w, testDir, "nested")
@@ -1407,7 +1426,7 @@ func TestBackupService_AddDirToZip_EdgeCases(t *testing.T) {
 		// Verify both files were added
 		r, err := zip.OpenReader(zipPath)
 		require.NoError(t, err)
-		defer r.Close()
+		defer func() { _ = r.Close() }()
 		assert.Len(t, r.File, 2)
 	})
 }

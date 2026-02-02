@@ -5,7 +5,6 @@ import React from 'react'
 import {
   usePlugins,
   usePlugin,
-  useProviderFields,
   useEnablePlugin,
   useDisablePlugin,
   useReloadPlugins,
@@ -44,39 +43,6 @@ const mockExternalPlugin: api.PluginInfo = {
   loaded_at: '2025-01-06T00:00:00Z',
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-06T00:00:00Z',
-}
-
-const mockProviderFields: api.ProviderFieldsResponse = {
-  type: 'powerdns',
-  name: 'PowerDNS',
-  required_fields: [
-    {
-      name: 'api_url',
-      label: 'API URL',
-      type: 'text',
-      placeholder: 'https://pdns.example.com:8081',
-      hint: 'PowerDNS HTTP API endpoint',
-      required: true,
-    },
-    {
-      name: 'api_key',
-      label: 'API Key',
-      type: 'password',
-      placeholder: 'Your API key',
-      hint: 'X-API-Key header value',
-      required: true,
-    },
-  ],
-  optional_fields: [
-    {
-      name: 'server_id',
-      label: 'Server ID',
-      type: 'text',
-      placeholder: 'localhost',
-      hint: 'PowerDNS server ID',
-      required: false,
-    },
-  ],
 }
 
 const createWrapper = () => {
@@ -178,69 +144,6 @@ describe('usePlugin', () => {
     vi.mocked(api.getPlugin).mockRejectedValue(mockError)
 
     const { result } = renderHook(() => usePlugin(999), { wrapper: createWrapper() })
-
-    await waitFor(() => {
-      expect(result.current.isError).toBe(true)
-    })
-
-    expect(result.current.error).toEqual(mockError)
-  })
-})
-
-describe('useProviderFields', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('fetches provider credential fields', async () => {
-    vi.mocked(api.getProviderFields).mockResolvedValue(mockProviderFields)
-
-    const { result } = renderHook(() => useProviderFields('powerdns'), {
-      wrapper: createWrapper(),
-    })
-
-    expect(result.current.isLoading).toBe(true)
-
-    await waitFor(() => {
-      expect(result.current.isLoading).toBe(false)
-    })
-
-    expect(result.current.data).toEqual(mockProviderFields)
-    expect(api.getProviderFields).toHaveBeenCalledWith('powerdns')
-  })
-
-  it('is disabled when providerType is empty', async () => {
-    vi.mocked(api.getProviderFields).mockResolvedValue(mockProviderFields)
-
-    const { result } = renderHook(() => useProviderFields(''), { wrapper: createWrapper() })
-
-    expect(result.current.isLoading).toBe(false)
-    expect(result.current.data).toBeUndefined()
-    expect(api.getProviderFields).not.toHaveBeenCalled()
-  })
-
-  it('applies staleTime of 1 hour', async () => {
-    vi.mocked(api.getProviderFields).mockResolvedValue(mockProviderFields)
-
-    const { result } = renderHook(() => useProviderFields('powerdns'), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => {
-      expect(result.current.isLoading).toBe(false)
-    })
-
-    // The staleTime is configured in the hook, data should be cached for 1 hour
-    expect(result.current.data).toEqual(mockProviderFields)
-  })
-
-  it('handles error state', async () => {
-    const mockError = new Error('Provider type not found')
-    vi.mocked(api.getProviderFields).mockRejectedValue(mockError)
-
-    const { result } = renderHook(() => useProviderFields('invalid'), {
-      wrapper: createWrapper(),
-    })
 
     await waitFor(() => {
       expect(result.current.isError).toBe(true)

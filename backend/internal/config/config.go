@@ -92,15 +92,15 @@ func Load() (Config, error) {
 		Debug:           getEnvAny("false", "CHARON_DEBUG", "CPM_DEBUG") == "true",
 	}
 
-	if err := os.MkdirAll(filepath.Dir(cfg.DatabasePath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(cfg.DatabasePath), 0o700); err != nil {
 		return Config{}, fmt.Errorf("ensure data directory: %w", err)
 	}
 
-	if err := os.MkdirAll(cfg.CaddyConfigDir, 0o755); err != nil {
+	if err := os.MkdirAll(cfg.CaddyConfigDir, 0o700); err != nil {
 		return Config{}, fmt.Errorf("ensure caddy config directory: %w", err)
 	}
 
-	if err := os.MkdirAll(cfg.ImportDir, 0o755); err != nil {
+	if err := os.MkdirAll(cfg.ImportDir, 0o700); err != nil {
 		return Config{}, fmt.Errorf("ensure import directory: %w", err)
 	}
 

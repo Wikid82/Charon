@@ -11,6 +11,13 @@
 import { test, expect } from '@playwright/test';
 import { EMERGENCY_TOKEN } from '../fixtures/security';
 
+// CI-specific timeout multiplier: CI environments have higher I/O latency
+const CI_TIMEOUT_MULTIPLIER = process.env.CI ? 3 : 1;
+const BASE_PROPAGATION_WAIT = 5000;
+const BASE_RETRY_INTERVAL = 1000;
+const BASE_RETRY_COUNT = 15;
+const BASE_CERBERUS_WAIT = 3000;
+
 test.describe('Emergency Token Break Glass Protocol', () => {
   /**
    * CRITICAL: Ensure Cerberus AND ACL are enabled before running these tests
@@ -44,9 +51,40 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     console.log('  ✓ Cerberus master switch enabled');
 
     // Wait for Cerberus to activate (extended wait for Caddy reload)
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise(resolve => setTimeout(resolve, BASE_CERBERUS_WAIT * CI_TIMEOUT_MULTIPLIER));
 
-    // STEP 2: Enable ACL (now that Cerberus is active, this will actually be enforced)
+    // STEP 1b: Verify Cerberus is actually active before enabling ACL
+    // This prevents race conditions where ACL enable succeeds but Cerberus isn't ready
+    let cerberusActive = false;
+    let cerberusRetries = BASE_RETRY_COUNT * CI_TIMEOUT_MULTIPLIER;
+
+    while (cerberusRetries > 0 && !cerberusActive) {
+      const statusResponse = await request.get('/api/v1/security/status', {
+        headers: { 'X-Emergency-Token': emergencyToken },
+      });
+
+      if (statusResponse.ok()) {
+        const status = await statusResponse.json();
+        if (status.cerberus?.enabled) {
+          cerberusActive = true;
+          console.log('  ✓ Cerberus verified as active');
+        } else {
+          console.log(`  ⏳ Cerberus not yet active, retrying... (${cerberusRetries} left)`);
+          await new Promise(resolve => setTimeout(resolve, BASE_RETRY_INTERVAL * CI_TIMEOUT_MULTIPLIER));
+          cerberusRetries--;
+        }
+      } else {
+        console.log(`  ⚠️ Status check failed: ${statusResponse.status()}, retrying...`);
+        await new Promise(resolve => setTimeout(resolve, BASE_RETRY_INTERVAL * CI_TIMEOUT_MULTIPLIER));
+        cerberusRetries--;
+      }
+    }
+
+    if (!cerberusActive) {
+      throw new Error('Cerberus verification failed - not active after retries');
+    }
+
+    // STEP 2: Enable ACL (now that Cerberus is verified active, this will actually be enforced)
     const aclResponse = await request.patch('/api/v1/settings', {
       data: { key: 'security.acl.enabled', value: 'true' },
       headers: {
@@ -60,10 +98,10 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     console.log('  ✓ ACL enabled');
 
     // Wait for security propagation (settings need time to apply to Caddy)
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    await new Promise(resolve => setTimeout(resolve, BASE_PROPAGATION_WAIT * CI_TIMEOUT_MULTIPLIER));
 
     // STEP 3: Verify ACL is actually enabled with retry loop (extended intervals)
-    let verifyRetries = 15;
+    let verifyRetries = BASE_RETRY_COUNT * CI_TIMEOUT_MULTIPLIER;
     let aclEnabled = false;
 
     while (verifyRetries > 0 && !aclEnabled) {
@@ -78,7 +116,7 @@ test.describe('Emergency Token Break Glass Protocol', () => {
           console.log('  ✓ ACL verified as enabled');
         } else {
           console.log(`  ⏳ ACL not yet enabled, retrying... (${verifyRetries} left)`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await new Promise(resolve => setTimeout(resolve, BASE_RETRY_INTERVAL * CI_TIMEOUT_MULTIPLIER));
           verifyRetries--;
         }
       } else {
@@ -115,7 +153,7 @@ test.describe('Emergency Token Break Glass Protocol', () => {
         if (acls.length > 0) {
           console.log(`  ✓ Deleted ${acls.length} access list(s)`);
           // Wait for ACL changes to propagate
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise(resolve => setTimeout(resolve, 500 * CI_TIMEOUT_MULTIPLIER));
         } else {
           console.log('  ✓ No access lists to delete');
         }

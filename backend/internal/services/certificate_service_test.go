@@ -40,7 +40,7 @@ func TestNewCertificateService(t *testing.T) {
 
 	// Create the certificates directory
 	certDir := filepath.Join(tmpDir, "certificates")
-	require.NoError(t, os.MkdirAll(certDir, 0o755))
+	require.NoError(t, os.MkdirAll(certDir, 0o750)) // #nosec G301 -- test directory
 
 	// Test service creation
 	svc := NewCertificateService(tmpDir, db)
@@ -107,13 +107,13 @@ func TestCertificateService_GetCertificateInfo(t *testing.T) {
 
 	// Create cert directory
 	certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
-	err = os.MkdirAll(certDir, 0o755)
+	err = os.MkdirAll(certDir, 0o750)
 	if err != nil {
 		t.Fatalf("Failed to create cert dir: %v", err)
 	}
 
 	certPath := filepath.Join(certDir, domain+".crt")
-	err = os.WriteFile(certPath, certPEM, 0o644)
+	err = os.WriteFile(certPath, certPEM, 0o600) // #nosec G306 -- test certificate
 	if err != nil {
 		t.Fatalf("Failed to write cert file: %v", err)
 	}
@@ -135,11 +135,11 @@ func TestCertificateService_GetCertificateInfo(t *testing.T) {
 	expiredCertPEM := generateTestCert(t, expiredDomain, expiredExpiry)
 
 	expiredCertDir := filepath.Join(tmpDir, "certificates", "other", expiredDomain)
-	err = os.MkdirAll(expiredCertDir, 0o755)
+	err = os.MkdirAll(expiredCertDir, 0o750) // #nosec G301 -- test directory
 	assert.NoError(t, err)
 
 	expiredCertPath := filepath.Join(expiredCertDir, expiredDomain+".crt")
-	err = os.WriteFile(expiredCertPath, expiredCertPEM, 0o644)
+	err = os.WriteFile(expiredCertPath, expiredCertPEM, 0o600) // #nosec G306 -- test certificate
 	assert.NoError(t, err)
 
 	// Force rescan to pick up new cert
@@ -231,11 +231,11 @@ func TestCertificateService_Persistence(t *testing.T) {
 	certPEM := generateTestCert(t, domain, expiry)
 
 	certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
-	err = os.MkdirAll(certDir, 0o755)
+	err = os.MkdirAll(certDir, 0o750) // #nosec G301 -- test directory
 	require.NoError(t, err)
 
 	certPath := filepath.Join(certDir, domain+".crt")
-	err = os.WriteFile(certPath, certPEM, 0o644)
+	err = os.WriteFile(certPath, certPEM, 0o600) // #nosec G306 -- test certificate
 	require.NoError(t, err)
 
 	// 2. Sync from disk and call ListCertificates
@@ -394,11 +394,11 @@ func TestCertificateService_ListCertificates_EdgeCases(t *testing.T) {
 		// Create a cert file with invalid content
 		domain := "invalid.com"
 		certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(certDir, 0o755)
+		err = os.MkdirAll(certDir, 0o750) // #nosec G301 -- test directory
 		require.NoError(t, err)
 
 		certPath := filepath.Join(certDir, domain+".crt")
-		err = os.WriteFile(certPath, []byte("invalid certificate content"), 0o644)
+		err = os.WriteFile(certPath, []byte("invalid certificate content"), 0o600) // #nosec G306 -- test certificate
 		require.NoError(t, err)
 
 		certs, err := cs.ListCertificates()
@@ -421,9 +421,9 @@ func TestCertificateService_ListCertificates_EdgeCases(t *testing.T) {
 		expiry1 := time.Now().Add(24 * time.Hour)
 		certPEM1 := generateTestCert(t, domain1, expiry1)
 		certDir1 := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain1)
-		err = os.MkdirAll(certDir1, 0o755)
+		err = os.MkdirAll(certDir1, 0o750) // #nosec G301 -- test directory
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(certDir1, domain1+".crt"), certPEM1, 0o644)
+		err = os.WriteFile(filepath.Join(certDir1, domain1+".crt"), certPEM1, 0o600) // #nosec G306 -- test certificate
 		require.NoError(t, err)
 
 		// Create custom cert via upload
@@ -533,9 +533,9 @@ func TestCertificateService_StagingCertificates(t *testing.T) {
 
 		// Staging path contains "acme-staging"
 		certDir := filepath.Join(tmpDir, "certificates", "acme-staging-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(certDir, 0o755)
+		err = os.MkdirAll(certDir, 0o750) // #nosec G301 -- test directory
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0o644)
+		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0o600) // #nosec G306 -- test certificate
 		require.NoError(t, err)
 
 		err = cs.SyncFromDisk()
@@ -564,16 +564,16 @@ func TestCertificateService_StagingCertificates(t *testing.T) {
 
 		// Create staging cert first (alphabetically comes before production)
 		stagingDir := filepath.Join(tmpDir, "certificates", "acme-staging-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(stagingDir, 0o755)
+		err = os.MkdirAll(stagingDir, 0o750) // #nosec G301 -- test directory
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(stagingDir, domain+".crt"), certPEM, 0o644)
+		err = os.WriteFile(filepath.Join(stagingDir, domain+".crt"), certPEM, 0o600) // #nosec G306 -- test certificate
 		require.NoError(t, err)
 
 		// Create production cert
 		prodDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(prodDir, 0o755)
+		err = os.MkdirAll(prodDir, 0o750) // #nosec G301 -- test directory
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(prodDir, domain+".crt"), certPEM, 0o644)
+		err = os.WriteFile(filepath.Join(prodDir, domain+".crt"), certPEM, 0o600) // #nosec G306 -- test certificate
 		require.NoError(t, err)
 
 		err = cs.SyncFromDisk()
@@ -602,9 +602,9 @@ func TestCertificateService_StagingCertificates(t *testing.T) {
 
 		// First, create only staging cert
 		stagingDir := filepath.Join(tmpDir, "certificates", "acme-staging-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(stagingDir, 0o755)
+		err = os.MkdirAll(stagingDir, 0o750) // #nosec G301 -- test directory
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(stagingDir, domain+".crt"), certPEM, 0o644)
+		err = os.WriteFile(filepath.Join(stagingDir, domain+".crt"), certPEM, 0o600) // #nosec G306 -- test certificate
 		require.NoError(t, err)
 
 		// Scan - should be staging
@@ -617,9 +617,9 @@ func TestCertificateService_StagingCertificates(t *testing.T) {
 
 		// Now add production cert
 		prodDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(prodDir, 0o755)
+		err = os.MkdirAll(prodDir, 0o750) // #nosec G301 -- test directory
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(prodDir, domain+".crt"), certPEM, 0o644)
+		err = os.WriteFile(filepath.Join(prodDir, domain+".crt"), certPEM, 0o600) // #nosec G306 -- test fixture
 		require.NoError(t, err)
 
 		// Rescan - should be upgraded to production
@@ -649,9 +649,9 @@ func TestCertificateService_ExpiringStatus(t *testing.T) {
 		certPEM := generateTestCert(t, domain, expiry)
 
 		certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(certDir, 0o755)
+		err = os.MkdirAll(certDir, 0o750) // #nosec G301 -- test directory
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0o644)
+		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0o600) // #nosec G306 -- test fixture
 		require.NoError(t, err)
 
 		err = cs.SyncFromDisk()
@@ -677,9 +677,9 @@ func TestCertificateService_ExpiringStatus(t *testing.T) {
 		certPEM := generateTestCert(t, domain, expiry)
 
 		certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(certDir, 0o755)
+		err = os.MkdirAll(certDir, 0o750) // #nosec G301 -- test directory
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0o644)
+		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0o600) // #nosec G306 -- test fixture
 		require.NoError(t, err)
 
 		err = cs.SyncFromDisk()
@@ -705,9 +705,9 @@ func TestCertificateService_ExpiringStatus(t *testing.T) {
 		certPEM := generateTestCert(t, domain, expiry)
 
 		certDir := filepath.Join(tmpDir, "certificates", "acme-staging-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(certDir, 0o755)
+		err = os.MkdirAll(certDir, 0o750) // #nosec G301 -- test directory
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0o644)
+		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0o600) // #nosec G306 -- test fixture
 		require.NoError(t, err)
 
 		err = cs.SyncFromDisk()
@@ -737,9 +737,9 @@ func TestCertificateService_StaleCertCleanup(t *testing.T) {
 
 		certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
 		certPath := filepath.Join(certDir, domain+".crt")
-		err = os.MkdirAll(certDir, 0o755)
+		err = os.MkdirAll(certDir, 0o750) // #nosec G301 -- test directory
 		require.NoError(t, err)
-		err = os.WriteFile(certPath, certPEM, 0o644)
+		err = os.WriteFile(certPath, certPEM, 0o600) // #nosec G306 -- test fixture
 		require.NoError(t, err)
 
 		// First scan - should create DB entry
@@ -1093,15 +1093,15 @@ func TestCertificateService_SyncFromDisk_ErrorHandling(t *testing.T) {
 		certPEM := generateTestCert(t, domain, expiry)
 
 		certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(certDir, 0o755)
+		err = os.MkdirAll(certDir, 0o750) // #nosec G301 -- test directory
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0o644)
+		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0o600) // #nosec G306 -- test fixture
 		require.NoError(t, err)
 
 		// Close the database connection to simulate DB error
 		sqlDB, err := db.DB()
 		require.NoError(t, err)
-		sqlDB.Close()
+		_ = sqlDB.Close()
 
 		// Sync should handle DB errors gracefully
 		err = cs.SyncFromDisk()
@@ -1129,7 +1129,8 @@ func TestCertificateService_SyncFromDisk_ErrorHandling(t *testing.T) {
 		assert.NoError(t, err) // Service handles this gracefully
 
 		// Clean up - restore permissions for cleanup
-		_ = os.Chmod(certRoot, 0o755)
+		// #nosec G302 -- Test cleanup restores directory permissions
+		_ = os.Chmod(certRoot, 0o700)
 	})
 
 	t.Run("certificate file with mixed valid and invalid content", func(t *testing.T) {
@@ -1143,18 +1144,18 @@ func TestCertificateService_SyncFromDisk_ErrorHandling(t *testing.T) {
 
 		// Create directory with two files: one valid, one invalid
 		certDir := filepath.Join(tmpDir, "certificates", "test-provider")
-		err = os.MkdirAll(certDir, 0o755)
+		err = os.MkdirAll(certDir, 0o750) // #nosec G301 -- test directory
 		require.NoError(t, err)
 
 		// Valid cert
 		validDomain := "valid.com"
 		validExpiry := time.Now().Add(24 * time.Hour)
 		validCertPEM := generateTestCert(t, validDomain, validExpiry)
-		err = os.WriteFile(filepath.Join(certDir, validDomain+".crt"), validCertPEM, 0o644)
+		err = os.WriteFile(filepath.Join(certDir, validDomain+".crt"), validCertPEM, 0o600) // #nosec G306 -- test fixture
 		require.NoError(t, err)
 
 		// Invalid cert
-		err = os.WriteFile(filepath.Join(certDir, "invalid.crt"), []byte("not a cert"), 0o644)
+		err = os.WriteFile(filepath.Join(certDir, "invalid.crt"), []byte("not a cert"), 0o600) // #nosec G306 -- test fixture
 		require.NoError(t, err)
 
 		err = cs.SyncFromDisk()

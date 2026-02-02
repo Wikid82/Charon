@@ -31,6 +31,7 @@ func NewDefaultCrowdsecExecutor() *DefaultCrowdsecExecutor {
 // This prevents false positives when PIDs are recycled by the OS.
 func (e *DefaultCrowdsecExecutor) isCrowdSecProcess(pid int) bool {
 	cmdlinePath := filepath.Join(e.procPath, strconv.Itoa(pid), "cmdline")
+	// #nosec G304 -- Reading process cmdline for PID validation, path constructed from trusted procPath and pid
 	data, err := os.ReadFile(cmdlinePath)
 	if err != nil {
 		// Process doesn't exist or can't read - not CrowdSec
@@ -66,7 +67,7 @@ func (e *DefaultCrowdsecExecutor) Start(ctx context.Context, binPath, configDir 
 	}
 	pid := cmd.Process.Pid
 	// write pid file
-	if err := os.WriteFile(e.pidFile(configDir), []byte(strconv.Itoa(pid)), 0o644); err != nil {
+	if err := os.WriteFile(e.pidFile(configDir), []byte(strconv.Itoa(pid)), 0o600); err != nil {
 		return pid, fmt.Errorf("failed to write pid file: %w", err)
 	}
 	// wait in background
@@ -81,6 +82,7 @@ func (e *DefaultCrowdsecExecutor) Start(ctx context.Context, binPath, configDir 
 // service or one that was never started will succeed without error.
 func (e *DefaultCrowdsecExecutor) Stop(ctx context.Context, configDir string) error {
 	pidFilePath := e.pidFile(configDir)
+	// #nosec G304 -- Reading PID file for CrowdSec process, path controlled by configDir parameter
 	b, err := os.ReadFile(pidFilePath)
 	if err != nil {
 		// If PID file doesn't exist, service is already stopped - return success

@@ -489,7 +489,7 @@ func TestListProfiles_DBError(t *testing.T) {
 
 	// Close DB to force error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles", http.NoBody)
 	w := httptest.NewRecorder()
@@ -514,7 +514,7 @@ func TestGetProfile_ID_DBError(t *testing.T) {
 
 	// Close DB to force error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/1", http.NoBody)
 	w := httptest.NewRecorder()
@@ -528,7 +528,7 @@ func TestGetProfile_UUID_DBError(t *testing.T) {
 
 	// Close DB to force error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/some-uuid-format", http.NoBody)
 	w := httptest.NewRecorder()
@@ -553,7 +553,7 @@ func TestCreateProfile_DBError(t *testing.T) {
 
 	// Close DB to force error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	payload := map[string]any{
 		"name": "Test Profile",
@@ -619,7 +619,7 @@ func TestUpdateProfile_DBError(t *testing.T) {
 
 	// Close DB to force error on save
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	payload := map[string]any{"name": "Updated"}
 	body, _ := json.Marshal(payload)
@@ -646,7 +646,7 @@ func TestUpdateProfile_LookupDBError(t *testing.T) {
 
 	// Close DB before making request
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	payload := map[string]any{"name": "Updated"}
 	body, _ := json.Marshal(payload)
@@ -693,7 +693,7 @@ func TestDeleteProfile_LookupDBError(t *testing.T) {
 
 	// Close DB before making request
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	req := httptest.NewRequest(http.MethodDelete, "/security/headers/profiles/1", http.NoBody)
 	w := httptest.NewRecorder()
@@ -750,7 +750,7 @@ func TestDeleteProfile_DeleteDBError(t *testing.T) {
 
 	// Close DB before delete to simulate DB error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/security/headers/profiles/%d", profile.ID), http.NoBody)
 	w := httptest.NewRecorder()
@@ -860,7 +860,7 @@ func TestGetProfile_UUID_DBError_NonNotFound(t *testing.T) {
 
 	// Close DB to force a non-NotFound error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Use a valid UUID format to ensure we hit the UUID lookup path
 	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/550e8400-e29b-41d4-a716-446655440000", http.NoBody)
@@ -930,7 +930,7 @@ func TestUpdateProfile_SaveError(t *testing.T) {
 	// during update, complementing the existing tests.
 
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	updates := map[string]any{"name": "Updated Name"}
 	body, _ := json.Marshal(updates)

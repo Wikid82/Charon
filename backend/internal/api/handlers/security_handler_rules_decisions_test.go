@@ -42,7 +42,7 @@ func setupSecurityTestRouterWithExtras(t *testing.T) (*gin.Engine, *gorm.DB) {
 }
 
 func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
-	r, _ := setupSecurityTestRouterWithExtras(t)
+	r, db := setupSecurityTestRouterWithExtras(t)
 
 	payload := `{"ip":"1.2.3.4","action":"block","host":"example.com","rule_id":"manual-1","details":"test"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/security/decisions", strings.NewReader(payload))
@@ -91,10 +91,12 @@ func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
 	require.GreaterOrEqual(t, len(listRsResp["rulesets"]), 1)
 
 	// Delete the ruleset we just created
-	idFloat, ok := listRsResp["rulesets"][0]["id"].(float64)
-	require.True(t, ok)
-	id := int(idFloat)
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/security/rulesets/"+strconv.Itoa(id), http.NoBody)
+	// Note: ID has json:"-" tag so we use UUID to look up the record from DB
+	rulesetUUID, ok := listRsResp["rulesets"][0]["uuid"].(string)
+	require.True(t, ok, "uuid should be present in response")
+	var ruleset models.SecurityRuleSet
+	require.NoError(t, db.Where("uuid = ?", rulesetUUID).First(&ruleset).Error)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/security/rulesets/"+strconv.FormatUint(uint64(ruleset.ID), 10), http.NoBody)
 	resp = httptest.NewRecorder()
 	r.ServeHTTP(resp, req)
 	assert.Equal(t, http.StatusOK, resp.Code)
@@ -159,7 +161,8 @@ func TestSecurityHandler_UpsertDeleteTriggersApplyConfig(t *testing.T) {
 	// Read ID from DB
 	var rs models.SecurityRuleSet
 	assert.NoError(t, db.First(&rs).Error)
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/security/rulesets/"+strconv.Itoa(int(rs.ID)), http.NoBody)
+	// Use FormatUint to avoid integer overflow when converting uint to int
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/security/rulesets/"+strconv.FormatUint(uint64(rs.ID), 10), http.NoBody)
 	resp = httptest.NewRecorder()
 	r.ServeHTTP(resp, req)
 	assert.Equal(t, http.StatusOK, resp.Code)

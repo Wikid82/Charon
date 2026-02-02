@@ -43,18 +43,6 @@ on:
       - 'playwright.config.js'
       - '.github/workflows/e2e-tests.yml'
 
-  push:
-    branches:
-      - main
-      - development
-      - 'feature/**'
-    paths:
-      - 'frontend/**'
-      - 'backend/**'
-      - 'tests/**'
-      - 'playwright.config.js'
-      - '.github/workflows/e2e-tests.yml'
-
   workflow_dispatch:
     inputs:
       browser:
@@ -145,7 +133,7 @@ jobs:
 
   # Run tests in parallel shards
   e2e-tests:
-    name: E2E Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
+    name: E2E ${{ matrix.browser }} (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
     runs-on: ubuntu-latest
     needs: build
     timeout-minutes: 30
@@ -161,7 +149,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
         total-shards: [4]
-        browser: [chromium]
+        browser: [chromium, firefox, webkit]
 
     steps:
       - name: Checkout repository
@@ -249,15 +237,99 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Clean Playwright browser cache
+        run: rm -rf ~/.cache/ms-playwright
+
+
       - name: Cache Playwright browsers
+        id: playwright-cache
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         with:
           path: ~/.cache/ms-playwright
+          # Use exact match only - no restore-keys fallback
+          # This ensures we don't restore stale browsers when Playwright version changes
           key: playwright-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: playwright-${{ matrix.browser }}-
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Install & verify Playwright browsers
+        run: |
+          npx playwright install --with-deps --force
+
+          set -euo pipefail
+
+          echo "🎯 Playwright CLI version"
+          npx playwright --version || true
+
+          echo "🔍 Showing Playwright cache root (if present)"
+          ls -la ~/.cache/ms-playwright || true
+
+          echo "📥 Install or verify browser: ${{ matrix.browser }}"
+
+          # Install when cache miss, otherwise verify the expected executables exist
+          if [[ "${{ steps.playwright-cache.outputs.cache-hit }}" != "true" ]]; then
+            echo "📥 Cache miss - downloading ${{ matrix.browser }} browser..."
+            npx playwright install --with-deps ${{ matrix.browser }}
+          else
+            echo "✅ Cache hit - verifying ${{ matrix.browser }} browser files..."
+          fi
+
+          # Look for the browser-specific headless shell executable(s)
+          case "${{ matrix.browser }}" in
+            chromium)
+              EXPECTED_PATTERN="chrome-headless-shell*"
+              ;;
+            firefox)
+              EXPECTED_PATTERN="firefox*"
+              ;;
+            webkit)
+              EXPECTED_PATTERN="webkit*"
+              ;;
+            *)
+              EXPECTED_PATTERN="*"
+              ;;
+          esac
+
+          echo "Searching for expected files (pattern=$EXPECTED_PATTERN)..."
+          find ~/.cache/ms-playwright -maxdepth 4 -type f -name "$EXPECTED_PATTERN" -print || true
+
+          # Attempt to derive the exact executable path Playwright will use
+          echo "Attempting to resolve Playwright's executable path via Node API (best-effort)"
+          node -e "try{ const pw = require('playwright'); const b = pw['${{ matrix.browser }}']; console.log('exePath:', b.executablePath ? b.executablePath() : 'n/a'); }catch(e){ console.error('node-check-failed', e.message); process.exit(0); }" || true
+
+          # If the expected binary is missing, force reinstall
+          MISSING_COUNT=$(find ~/.cache/ms-playwright -maxdepth 4 -type f -name "$EXPECTED_PATTERN" | wc -l || true)
+          if [[ "$MISSING_COUNT" -lt 1 ]]; then
+            echo "⚠️ Expected Playwright browser executable not found (count=$MISSING_COUNT). Forcing reinstall..."
+            npx playwright install --with-deps ${{ matrix.browser }} --force
+          fi
+
+          echo "Post-install: show cache contents (top 5 lines)"
+          find ~/.cache/ms-playwright -maxdepth 3 -printf '%p\n' | head -40 || true
+
+          # Final sanity check: try a headless launch via a tiny Node script (browser-specific args, retry without args)
+          echo "🔁 Verifying browser can be launched (headless)"
+          node -e "(async()=>{ try{ const pw=require('playwright'); const name='${{ matrix.browser }}'; const browser = pw[name]; const argsMap = { chromium: ['--no-sandbox'], firefox: ['--no-sandbox'], webkit: [] }; const args = argsMap[name] || [];
+            // First attempt: launch with recommended args for this browser
+            try {
+              console.log('attempt-launch', name, 'args', JSON.stringify(args));
+              const b = await browser.launch({ headless: true, args });
+              await b.close();
+              console.log('launch-ok', 'argsUsed', JSON.stringify(args));
+              process.exit(0);
+            } catch (err) {
+              console.warn('launch-with-args-failed', err && err.message);
+              if (args.length) {
+                // Retry without args (some browsers reject unknown flags)
+                console.log('retrying-without-args');
+                const b2 = await browser.launch({ headless: true });
+                await b2.close();
+                console.log('launch-ok-no-args');
+                process.exit(0);
+              }
+              throw err;
+            }
+          } catch (e) { console.error('launch-failed', e && e.message); process.exit(2); } })()" || (echo '❌ Browser launch verification failed' && exit 1)
+
+          echo "✅ Playwright ${{ matrix.browser }} ready and verified"
 
       - name: Run E2E tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -293,7 +365,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: playwright-report-shard-${{ matrix.shard }}
+          name: playwright-report-${{ matrix.browser }}-shard-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 14
 
@@ -309,14 +381,14 @@ jobs:
         if: failure()
         run: |
           echo "📋 Container logs:"
-          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-shard-${{ matrix.shard }}.txt 2>&1
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-${{ matrix.browser }}-shard-${{ matrix.shard }}.txt 2>&1
 
       - name: Upload Docker logs on failure
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: docker-logs-shard-${{ matrix.shard }}
-          path: docker-logs-shard-${{ matrix.shard }}.txt
+          name: docker-logs-${{ matrix.browser }}-shard-${{ matrix.shard }}
+          path: docker-logs-${{ matrix.browser }}-shard-${{ matrix.shard }}.txt
           retention-days: 7
 
       - name: Cleanup
@@ -340,12 +412,11 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Each shard generates its own HTML report for easier debugging:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Shard | HTML Report | Traces (on failure) |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|-------------|---------------------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 1 | \`playwright-report-shard-1\` | \`traces-chromium-shard-1\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| 2 | \`playwright-report-shard-2\` | \`traces-chromium-shard-2\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| 3 | \`playwright-report-shard-3\` | \`traces-chromium-shard-3\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| 4 | \`playwright-report-shard-4\` | \`traces-chromium-shard-4\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Browser | Shards | HTML Reports | Traces (on failure) |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|--------------|---------------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Chromium | 1-4 | \`playwright-report-chromium-shard-{1..4}\` | \`traces-chromium-shard-{1..4}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Firefox | 1-4 | \`playwright-report-firefox-shard-{1..4}\` | \`traces-firefox-shard-{1..4}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| WebKit | 1-4 | \`playwright-report-webkit-shard-{1..4}\` | \`traces-webkit-shard-{1..4}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### How to View Reports" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -402,12 +473,14 @@ jobs:
 
             | Metric | Result |
             |--------|--------|
-            | Browser | Chromium |
-            | Shards | 4 |
+            | Browsers | Chromium, Firefox, WebKit |
+            | Shards per Browser | 4 |
+            | Total Jobs | 12 |
             | Status | ${status} |
 
             **Per-Shard HTML Reports** (easier to debug):
-            - \`playwright-report-shard-1\` through \`playwright-report-shard-4\`
+            - \`playwright-report-{browser}-shard-{1..4}\` (12 total artifacts)
+            - Trace artifacts: \`traces-{browser}-shard-{N}\`
 
             [📊 View workflow run & download reports](${runUrl})
 

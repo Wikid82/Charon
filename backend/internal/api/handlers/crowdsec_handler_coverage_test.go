@@ -33,7 +33,7 @@ func TestCrowdsec_Start_Error(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &errorExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &errorExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -52,7 +52,7 @@ func TestCrowdsec_Stop_Error(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &errorExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &errorExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -71,7 +71,7 @@ func TestCrowdsec_Status_Error(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &errorExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &errorExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -91,7 +91,7 @@ func TestCrowdsec_ReadFile_MissingPath(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -110,7 +110,7 @@ func TestCrowdsec_ReadFile_PathTraversal(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -130,7 +130,7 @@ func TestCrowdsec_ReadFile_NotFound(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -150,7 +150,7 @@ func TestCrowdsec_WriteFile_InvalidPayload(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -170,7 +170,7 @@ func TestCrowdsec_WriteFile_MissingPath(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -193,7 +193,7 @@ func TestCrowdsec_WriteFile_PathTraversal(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -220,7 +220,7 @@ func TestCrowdsec_ExportConfig_NotFound(t *testing.T) {
 	nonExistentDir := "/tmp/crowdsec-nonexistent-dir-12345"
 	_ = os.RemoveAll(nonExistentDir) // Make sure it doesn't exist
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", nonExistentDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", nonExistentDir)
 	// remove any cache dir created during handler init so Export sees missing dir
 	_ = os.RemoveAll(nonExistentDir)
 
@@ -242,7 +242,7 @@ func TestCrowdsec_ListFiles_EmptyDir(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -268,7 +268,7 @@ func TestCrowdsec_ListFiles_NonExistent(t *testing.T) {
 	nonExistentDir := "/tmp/crowdsec-nonexistent-dir-67890"
 	_ = os.RemoveAll(nonExistentDir)
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", nonExistentDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", nonExistentDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -293,7 +293,7 @@ func TestCrowdsec_ImportConfig_NoFile(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -315,10 +315,10 @@ func TestCrowdsec_ReadFile_NestedPath(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a nested file in the data dir
-	_ = os.MkdirAll(filepath.Join(tmpDir, "subdir"), 0o755)
-	_ = os.WriteFile(filepath.Join(tmpDir, "subdir", "test.conf"), []byte("nested content"), 0o644)
+	_ = os.MkdirAll(filepath.Join(tmpDir, "subdir"), 0o750)                                         // #nosec G301 -- test fixture
+	_ = os.WriteFile(filepath.Join(tmpDir, "subdir", "test.conf"), []byte("nested content"), 0o600) // #nosec G306 -- test fixture
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -340,7 +340,7 @@ func TestCrowdsec_WriteFile_Success(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -358,7 +358,7 @@ func TestCrowdsec_WriteFile_Success(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "written")
 
 	// Verify file was created
-	content, err := os.ReadFile(filepath.Join(tmpDir, "new.conf"))
+	content, err := os.ReadFile(filepath.Join(tmpDir, "new.conf")) //nolint:gosec // G304: Test file in temp directory
 	assert.NoError(t, err)
 	assert.Equal(t, "new content", string(content))
 }
@@ -369,7 +369,7 @@ func TestCrowdsec_ListPresets_Disabled(t *testing.T) {
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "false")
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -387,7 +387,7 @@ func TestCrowdsec_ListPresets_Success(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -410,7 +410,7 @@ func TestCrowdsec_PullPreset_Validation(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.Hub = nil // simulate hub unavailable
 
 	r := gin.New()
@@ -435,7 +435,7 @@ func TestCrowdsec_ApplyPreset_Validation(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	h.Hub = nil
 
 	r := gin.New()

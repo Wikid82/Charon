@@ -1018,9 +1018,9 @@ func TestEnsureCAPIRegistered_StandardLayoutExists(t *testing.T) {
 
 	// Create config directory with credentials file (standard layout)
 	configDir := filepath.Join(tmpDir, "config")
-	require.NoError(t, os.MkdirAll(configDir, 0o755))
+	require.NoError(t, os.MkdirAll(configDir, 0o700))
 	credsPath := filepath.Join(configDir, "online_api_credentials.yaml")
-	require.NoError(t, os.WriteFile(credsPath, []byte("url: https://api.crowdsec.net\nlogin: test"), 0o644))
+	require.NoError(t, os.WriteFile(credsPath, []byte("url: https://api.crowdsec.net\nlogin: test"), 0o600))
 
 	exec := &stubEnvExecutor{}
 	svc := NewConsoleEnrollmentService(db, exec, tmpDir, "secret")
@@ -1062,9 +1062,9 @@ func TestFindConfigPath_StandardLayout(t *testing.T) {
 
 	// Create config directory with config.yaml (standard layout)
 	configDir := filepath.Join(tmpDir, "config")
-	require.NoError(t, os.MkdirAll(configDir, 0o755))
+	require.NoError(t, os.MkdirAll(configDir, 0o700))
 	configPath := filepath.Join(configDir, "config.yaml")
-	require.NoError(t, os.WriteFile(configPath, []byte("common:\n  daemonize: false"), 0o644))
+	require.NoError(t, os.WriteFile(configPath, []byte("common:\n  daemonize: false"), 0o600))
 
 	exec := &stubEnvExecutor{}
 	svc := NewConsoleEnrollmentService(db, exec, tmpDir, "secret")
@@ -1080,7 +1080,7 @@ func TestFindConfigPath_RootLayout(t *testing.T) {
 
 	// Create config.yaml in root (not in config/ subdirectory)
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	require.NoError(t, os.WriteFile(configPath, []byte("common:\n  daemonize: false"), 0o644))
+	require.NoError(t, os.WriteFile(configPath, []byte("common:\n  daemonize: false"), 0o600))
 
 	exec := &stubEnvExecutor{}
 	svc := NewConsoleEnrollmentService(db, exec, tmpDir, "secret")

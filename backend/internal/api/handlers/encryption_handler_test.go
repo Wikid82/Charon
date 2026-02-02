@@ -345,6 +345,7 @@ func TestEncryptionHandler_GetHistory(t *testing.T) {
 		require.NoError(t, err)
 
 		failSecurityService := services.NewSecurityService(failDB)
+		defer failSecurityService.Close()
 
 		// Close the database to trigger errors
 		sqlDB, err := failDB.DB()
@@ -488,6 +489,7 @@ func TestEncryptionHandler_IntegrationFlow(t *testing.T) {
 		rotationService, err := crypto.NewRotationService(db)
 		require.NoError(t, err)
 		securityService := services.NewSecurityService(db)
+		defer securityService.Close()
 
 		handler := NewEncryptionHandler(rotationService, securityService)
 		router := setupEncryptionTestRouter(handler, true)
@@ -505,8 +507,8 @@ func TestEncryptionHandler_IntegrationFlow(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		// Step 3: Configure next key
-		_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
-		defer os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+		require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey))
+		defer func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")) }()
 
 		// Reinitialize rotation service to pick up new key
 		// Keep using the same SecurityService and database
@@ -643,11 +645,11 @@ func TestEncryptionHandler_RefreshKey_RotatesCredentials(t *testing.T) {
 	nextKey, err := crypto.GenerateNewKey()
 	require.NoError(t, err)
 
-	_ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
-	_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", currentKey))
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey))
 	defer func() {
-		os.Unsetenv("CHARON_ENCRYPTION_KEY")
-		os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+		require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY"))
+		require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT"))
 	}()
 
 	// Create test provider with encrypted credentials
@@ -699,8 +701,8 @@ func TestEncryptionHandler_RefreshKey_FailsWithoutProvider(t *testing.T) {
 	// Set only current key, no next key
 	currentKey, err := crypto.GenerateNewKey()
 	require.NoError(t, err)
-	_ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
-	defer os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", currentKey))
+	defer func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY")) }()
 
 	rotationService, err := crypto.NewRotationService(db)
 	require.NoError(t, err)
@@ -750,11 +752,11 @@ func TestEncryptionHandler_RefreshKey_InvalidOldKey(t *testing.T) {
 	require.NoError(t, db.Create(&provider).Error)
 
 	// Now set wrong key and try to rotate
-	_ = os.Setenv("CHARON_ENCRYPTION_KEY", wrongKey)
-	_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", wrongKey))
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey))
 	defer func() {
-		os.Unsetenv("CHARON_ENCRYPTION_KEY")
-		os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+		require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY"))
+		require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT"))
 	}()
 
 	rotationService, err := crypto.NewRotationService(db)
@@ -816,11 +818,11 @@ func TestEncryptionHandler_RotateWithPartialFailures(t *testing.T) {
 	nextKey, err := crypto.GenerateNewKey()
 	require.NoError(t, err)
 
-	os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
-	os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", currentKey))
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey))
 	defer func() {
-		os.Unsetenv("CHARON_ENCRYPTION_KEY")
-		os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+		require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY"))
+		require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT"))
 	}()
 
 	// Create a valid provider
@@ -963,6 +965,7 @@ func TestEncryptionHandler_Rotate_AuditStartFailure(t *testing.T) {
 
 	// Create security service and close DB to trigger audit failure
 	securityService := services.NewSecurityService(db)
+	defer securityService.Close()
 
 	// Close the database connection to trigger audit logging failures
 	sqlDB, err := db.DB()
@@ -979,8 +982,6 @@ func TestEncryptionHandler_Rotate_AuditStartFailure(t *testing.T) {
 	// Should still return error (rotation will fail due to closed DB)
 	// But the audit start failure should be logged as warning
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-
-	securityService.Close()
 }
 
 // TestEncryptionHandler_Rotate_AuditFailureFailure tests audit logging failure when rotation fails
@@ -1000,6 +1001,7 @@ func TestEncryptionHandler_Rotate_AuditFailureFailure(t *testing.T) {
 
 	// Create security service and close DB to trigger audit failure
 	securityService := services.NewSecurityService(db)
+	defer securityService.Close()
 
 	// Close the database connection to trigger audit logging failures
 	sqlDB, err := db.DB()
@@ -1017,8 +1019,6 @@ func TestEncryptionHandler_Rotate_AuditFailureFailure(t *testing.T) {
 	// Both audit start and audit failure logging should warn
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Contains(t, w.Body.String(), "CHARON_ENCRYPTION_KEY_NEXT not configured")
-
-	securityService.Close()
 }
 
 // TestEncryptionHandler_Rotate_AuditCompletionFailure tests audit logging failure when rotation completes
@@ -1063,6 +1063,7 @@ func TestEncryptionHandler_Rotate_AuditCompletionFailure(t *testing.T) {
 
 	// Create security service with separate DB and close it to trigger audit failure
 	securityService := services.NewSecurityService(auditDB)
+	defer securityService.Close()
 	sqlDB, err := auditDB.DB()
 	require.NoError(t, err)
 	_ = sqlDB.Close()
@@ -1104,6 +1105,7 @@ func TestEncryptionHandler_Validate_AuditFailureOnError(t *testing.T) {
 
 	// Create security service with separate DB and close it
 	securityService := services.NewSecurityService(auditDB)
+	defer securityService.Close()
 	sqlDB, err := auditDB.DB()
 	require.NoError(t, err)
 	_ = sqlDB.Close()
@@ -1142,6 +1144,7 @@ func TestEncryptionHandler_Validate_AuditFailureOnSuccess(t *testing.T) {
 
 	// Create security service with separate DB and close it to trigger audit failure
 	securityService := services.NewSecurityService(auditDB)
+	defer securityService.Close()
 	sqlDB, err := auditDB.DB()
 	require.NoError(t, err)
 	_ = sqlDB.Close()
@@ -1160,8 +1163,6 @@ func TestEncryptionHandler_Validate_AuditFailureOnSuccess(t *testing.T) {
 	err = json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
 	assert.True(t, response["valid"].(bool))
-
-	securityService.Close()
 }
 
 // TestEncryptionHandler_Rotate_AuditStartLogFailure covers line 63 - audit logging failure at rotation start
@@ -1204,6 +1205,7 @@ func TestEncryptionHandler_Rotate_AuditStartLogFailure(t *testing.T) {
 	// Create security service with separate DB and close it to trigger audit failure
 	// This covers line 63: audit start failure warning
 	securityService := services.NewSecurityService(auditDB)
+	defer securityService.Close()
 	sqlDB, err := auditDB.DB()
 	require.NoError(t, err)
 	_ = sqlDB.Close()
@@ -1223,8 +1225,6 @@ func TestEncryptionHandler_Rotate_AuditStartLogFailure(t *testing.T) {
 	err = json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.SuccessCount)
-
-	securityService.Close()
 }
 
 // TestEncryptionHandler_Rotate_AuditCompletionLogFailure covers line 108 - audit logging failure at rotation completion
@@ -1267,6 +1267,7 @@ func TestEncryptionHandler_Rotate_AuditCompletionLogFailure(t *testing.T) {
 	// Create security service with separate DB and close it to trigger audit failure
 	// This covers line 108: audit completion failure warning
 	securityService := services.NewSecurityService(auditDB)
+	defer securityService.Close()
 	sqlDB, err := auditDB.DB()
 	require.NoError(t, err)
 	_ = sqlDB.Close()
@@ -1286,8 +1287,6 @@ func TestEncryptionHandler_Rotate_AuditCompletionLogFailure(t *testing.T) {
 	err = json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.SuccessCount)
-
-	securityService.Close()
 }
 
 // TestEncryptionHandler_Rotate_AuditRotationFailureLogFailure covers line 85 - audit logging failure when rotation fails
@@ -1309,6 +1308,7 @@ func TestEncryptionHandler_Rotate_AuditRotationFailureLogFailure(t *testing.T) {
 	// Create security service with separate DB and close it to trigger audit failure
 	// This covers line 85: audit failure-to-rotate logging failure
 	securityService := services.NewSecurityService(auditDB)
+	defer securityService.Close()
 	sqlDB, err := auditDB.DB()
 	require.NoError(t, err)
 	_ = sqlDB.Close()
@@ -1324,8 +1324,6 @@ func TestEncryptionHandler_Rotate_AuditRotationFailureLogFailure(t *testing.T) {
 	// Line 85 should log a warning about audit failure
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Contains(t, w.Body.String(), "CHARON_ENCRYPTION_KEY_NEXT not configured")
-
-	securityService.Close()
 }
 
 // TestEncryptionHandler_Validate_AuditValidationSuccessLogFailure covers line 198 - audit logging failure on validation success
@@ -1345,6 +1343,7 @@ func TestEncryptionHandler_Validate_AuditValidationSuccessLogFailure(t *testing.
 	// Create security service with separate DB and close it to trigger audit failure
 	// This covers line 198: audit success logging failure
 	securityService := services.NewSecurityService(auditDB)
+	defer securityService.Close()
 	sqlDB, err := auditDB.DB()
 	require.NoError(t, err)
 	_ = sqlDB.Close()
@@ -1364,8 +1363,6 @@ func TestEncryptionHandler_Validate_AuditValidationSuccessLogFailure(t *testing.
 	err = json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
 	assert.True(t, response["valid"].(bool))
-
-	securityService.Close()
 }
 
 // TestEncryptionHandler_Validate_AuditValidationFailureLogFailure covers line 177 - audit logging failure when validation fails

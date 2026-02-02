@@ -20,6 +20,7 @@ func TestBackupHandlerSanitizesFilename(t *testing.T) {
 	tmpDir := t.TempDir()
 	// prepare a fake "database"
 	dbPath := filepath.Join(tmpDir, "db.sqlite")
+	// #nosec G306 -- Test fixture file with standard permissions
 	if err := os.WriteFile(dbPath, []byte("db"), 0o644); err != nil {
 		t.Fatalf("failed to create tmp db: %v", err)
 	}

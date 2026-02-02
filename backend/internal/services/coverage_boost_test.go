@@ -66,6 +66,7 @@ func TestCoverageBoost_ErrorPaths(t *testing.T) {
 
 	t.Run("SecurityService_Get_NotFound", func(t *testing.T) {
 		svc := NewSecurityService(db)
+		defer svc.Close()
 
 		// No config exists yet
 		_, err := svc.Get()
@@ -74,6 +75,7 @@ func TestCoverageBoost_ErrorPaths(t *testing.T) {
 
 	t.Run("SecurityService_ListRuleSets_EmptyDB", func(t *testing.T) {
 		svc := NewSecurityService(db)
+		defer svc.Close()
 
 		// Should not error with empty db
 		rulesets, err := svc.ListRuleSets()
@@ -84,6 +86,7 @@ func TestCoverageBoost_ErrorPaths(t *testing.T) {
 
 	t.Run("SecurityService_DeleteRuleSet_NotFound", func(t *testing.T) {
 		svc := NewSecurityService(db)
+		defer svc.Close()
 
 		// Test with non-existent ID
 		err := svc.DeleteRuleSet(999)
@@ -92,6 +95,7 @@ func TestCoverageBoost_ErrorPaths(t *testing.T) {
 
 	t.Run("SecurityService_VerifyBreakGlass_MissingConfig", func(t *testing.T) {
 		svc := NewSecurityService(db)
+		defer svc.Close()
 
 		// No config exists
 		valid, err := svc.VerifyBreakGlassToken("default", "anytoken")
@@ -101,6 +105,7 @@ func TestCoverageBoost_ErrorPaths(t *testing.T) {
 
 	t.Run("SecurityService_GenerateBreakGlassToken_Success", func(t *testing.T) {
 		svc := NewSecurityService(db)
+		defer svc.Close()
 
 		// Generate token
 		token, err := svc.GenerateBreakGlassToken("test-config")
@@ -144,6 +149,7 @@ func TestCoverageBoost_SecurityService_AdditionalPaths(t *testing.T) {
 	require.NoError(t, err)
 
 	svc := NewSecurityService(db)
+	defer svc.Close()
 
 	t.Run("Upsert_Create", func(t *testing.T) {
 		// Create initial config
@@ -369,6 +375,7 @@ func TestCoverageBoost_SecurityService_Close(t *testing.T) {
 	require.NoError(t, err)
 
 	svc := NewSecurityService(db)
+	defer svc.Close() // Ensure cleanup even if test panics
 
 	t.Run("Close_Success", func(t *testing.T) {
 		svc.Close()

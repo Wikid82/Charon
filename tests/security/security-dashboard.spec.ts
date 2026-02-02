@@ -14,6 +14,7 @@ import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { request } from '@playwright/test';
 import type { APIRequestContext } from '@playwright/test';
 import { waitForLoadingComplete, waitForToast } from '../utils/wait-helpers';
+import { clickSwitch } from '../utils/ui-helpers';
 import {
   captureSecurityState,
   restoreSecurityState,
@@ -159,9 +160,7 @@ test.describe('Security Dashboard', () => {
 
       await test.step('Toggle ACL state', async () => {
         await page.waitForLoadState('networkidle');
-        await toggle.scrollIntoViewIfNeeded();
-        await page.waitForTimeout(200);
-        await toggle.click({ force: true });
+        await clickSwitch(toggle);
         await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
 
@@ -183,9 +182,7 @@ test.describe('Security Dashboard', () => {
 
       await test.step('Toggle WAF state', async () => {
         await page.waitForLoadState('networkidle');
-        await toggle.scrollIntoViewIfNeeded();
-        await page.waitForTimeout(200);
-        await toggle.click({ force: true });
+        await clickSwitch(toggle);
         await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
 
@@ -207,9 +204,7 @@ test.describe('Security Dashboard', () => {
 
       await test.step('Toggle Rate Limit state', async () => {
         await page.waitForLoadState('networkidle');
-        await toggle.scrollIntoViewIfNeeded();
-        await page.waitForTimeout(200);
-        await toggle.click({ force: true });
+        await clickSwitch(toggle);
         await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
 
@@ -233,9 +228,7 @@ test.describe('Security Dashboard', () => {
 
       await test.step('Toggle ACL state', async () => {
         await page.waitForLoadState('networkidle');
-        await toggle.scrollIntoViewIfNeeded();
-        await page.waitForTimeout(200);
-        await toggle.click({ force: true });
+        await clickSwitch(toggle);
         await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
 

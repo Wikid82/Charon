@@ -67,8 +67,8 @@ func TestEmergencySecurityReset_Success(t *testing.T) {
 
 	// Configure valid token
 	validToken := "this-is-a-valid-emergency-token-with-32-chars-minimum"
-	os.Setenv(EmergencyTokenEnvVar, validToken)
-	defer os.Unsetenv(EmergencyTokenEnvVar)
+	_ = os.Setenv(EmergencyTokenEnvVar, validToken)
+	defer func() { _ = os.Unsetenv(EmergencyTokenEnvVar) }()
 
 	// Create initial security config to verify it gets disabled
 	secConfig := models.SecurityConfig{
@@ -130,8 +130,8 @@ func TestEmergencySecurityReset_InvalidToken(t *testing.T) {
 
 	// Configure valid token
 	validToken := "this-is-a-valid-emergency-token-with-32-chars-minimum"
-	os.Setenv(EmergencyTokenEnvVar, validToken)
-	defer os.Unsetenv(EmergencyTokenEnvVar)
+	_ = os.Setenv(EmergencyTokenEnvVar, validToken)
+	defer func() { _ = os.Unsetenv(EmergencyTokenEnvVar) }()
 
 	// Make request with invalid token
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
@@ -160,8 +160,8 @@ func TestEmergencySecurityReset_MissingToken(t *testing.T) {
 
 	// Configure valid token
 	validToken := "this-is-a-valid-emergency-token-with-32-chars-minimum"
-	os.Setenv(EmergencyTokenEnvVar, validToken)
-	defer os.Unsetenv(EmergencyTokenEnvVar)
+	_ = os.Setenv(EmergencyTokenEnvVar, validToken)
+	defer func() { _ = os.Unsetenv(EmergencyTokenEnvVar) }()
 
 	// Make request without token header
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
@@ -189,7 +189,7 @@ func TestEmergencySecurityReset_NotConfigured(t *testing.T) {
 	router := setupEmergencyRouter(handler)
 
 	// Ensure token is not configured
-	os.Unsetenv(EmergencyTokenEnvVar)
+	_ = os.Unsetenv(EmergencyTokenEnvVar)
 
 	// Make request
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
@@ -219,8 +219,8 @@ func TestEmergencySecurityReset_TokenTooShort(t *testing.T) {
 
 	// Configure token that is too short
 	shortToken := "too-short"
-	os.Setenv(EmergencyTokenEnvVar, shortToken)
-	defer os.Unsetenv(EmergencyTokenEnvVar)
+	require.NoError(t, os.Setenv(EmergencyTokenEnvVar, shortToken))
+	defer func() { require.NoError(t, os.Unsetenv(EmergencyTokenEnvVar)) }()
 
 	// Make request
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
@@ -247,8 +247,8 @@ func TestEmergencySecurityReset_NoRateLimit(t *testing.T) {
 	router := setupEmergencyRouter(handler)
 
 	validToken := "this-is-a-valid-emergency-token-with-32-chars-minimum"
-	os.Setenv(EmergencyTokenEnvVar, validToken)
-	defer os.Unsetenv(EmergencyTokenEnvVar)
+	require.NoError(t, os.Setenv(EmergencyTokenEnvVar, validToken))
+	defer func() { require.NoError(t, os.Unsetenv(EmergencyTokenEnvVar)) }()
 
 	wrongToken := "wrong-token-for-no-rate-limit-test-32chars"
 
@@ -277,8 +277,8 @@ func TestEmergencySecurityReset_TriggersReloadAndCacheInvalidate(t *testing.T) {
 	router := setupEmergencyRouter(handler)
 
 	validToken := "this-is-a-valid-emergency-token-with-32-chars-minimum"
-	os.Setenv(EmergencyTokenEnvVar, validToken)
-	defer os.Unsetenv(EmergencyTokenEnvVar)
+	require.NoError(t, os.Setenv(EmergencyTokenEnvVar, validToken))
+	defer func() { require.NoError(t, os.Unsetenv(EmergencyTokenEnvVar)) }()
 
 	// Make request with valid token
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
@@ -296,6 +296,7 @@ func TestLogEnhancedAudit(t *testing.T) {
 	// Setup
 	db := setupEmergencyTestDB(t)
 	handler := NewEmergencyHandler(db)
+	defer handler.Close() // Flush async audit events
 
 	// Test enhanced audit logging
 	clientIP := "192.168.1.100"
@@ -304,6 +305,9 @@ func TestLogEnhancedAudit(t *testing.T) {
 	duration := 150 * time.Millisecond
 
 	handler.logEnhancedAudit(clientIP, action, details, true, duration)
+
+	// Close to flush async events before querying DB
+	handler.Close()
 
 	// Verify audit log was created
 	var audit models.SecurityAudit
