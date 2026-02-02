@@ -296,7 +296,7 @@ jobs:
       - name: Upload SARIF to GitHub Security
         if: steps.check-artifact.outputs.artifact_found == 'true'
         # github/codeql-action v4
-        uses: github/codeql-action/upload-sarif@f985be5b50bd175586d44aac9ac52926adf12893
+        uses: github/codeql-action/upload-sarif@f52cbc83091da34ce9a8ae0e3db2f977e8d4ecb2
         continue-on-error: true
         with:
           sarif_file: grype-results.sarif
@@ -305,7 +305,7 @@ jobs:
       - name: Upload supply chain artifacts
         if: steps.check-artifact.outputs.artifact_found == 'true'
         # actions/upload-artifact v4.6.0
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        uses: actions/upload-artifact@47309c993abb98030a35d55ef7ff34b7fa1074b5
         with:
           name: ${{ steps.pr-number.outputs.is_push == 'true' && format('supply-chain-{0}', steps.sanitize.outputs.branch) || format('supply-chain-pr-{0}', steps.pr-number.outputs.pr_number) }}
           path: |
