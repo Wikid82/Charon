@@ -529,6 +529,32 @@ export interface FeatureFlagPropagationOptions {
 // See: E2E Test Timeout Remediation Plan (Sprint 1, Fix 1.3)
 const inflightRequests = new Map<string, Promise<Record<string, boolean>>>();
 
+// ✅ FIX 3.2: Track API call metrics for performance monitoring
+// See: E2E Test Timeout Remediation Plan (Phase 3, Fix 3.2)
+const apiMetrics = {
+  featureFlagCalls: 0,
+  cacheHits: 0,
+  cacheMisses: 0,
+};
+
+/**
+ * Get current API call metrics
+ * Returns a copy to prevent external mutation
+ */
+export function getAPIMetrics() {
+  return { ...apiMetrics };
+}
+
+/**
+ * Reset all API call metrics to zero
+ * Useful for cleanup between test suites
+ */
+export function resetAPIMetrics() {
+  apiMetrics.featureFlagCalls = 0;
+  apiMetrics.cacheHits = 0;
+  apiMetrics.cacheMisses = 0;
+}
+
 /**
  * Normalize feature flag keys to handle API prefix inconsistencies.
  * Accepts both "cerberus.enabled" and "feature.cerberus.enabled" formats.
@@ -601,6 +627,9 @@ export async function waitForFeatureFlagPropagation(
   expectedFlags: Record<string, boolean>,
   options: FeatureFlagPropagationOptions = {}
 ): Promise<Record<string, boolean>> {
+  // ✅ FIX 3.2: Track feature flag API calls
+  apiMetrics.featureFlagCalls++;
+
   // ✅ FIX P1: Wait for config reload overlay to disappear first
   // The overlay delays feature flag propagation when Caddy reloads config
   const overlay = page.locator('[data-testid="config-reload-overlay"]');
@@ -634,10 +663,14 @@ export async function waitForFeatureFlagPropagation(
   // Return cached promise if request already in flight for this worker
   if (inflightRequests.has(cacheKey)) {
     console.log(`[CACHE HIT] Worker ${workerIndex}: ${cacheKey}`);
+    // ✅ FIX 3.2: Track cache hit
+    apiMetrics.cacheHits++;
     return inflightRequests.get(cacheKey)!;
   }
 
   console.log(`[CACHE MISS] Worker ${workerIndex}: ${cacheKey}`);
+  // ✅ FIX 3.2: Track cache miss
+  apiMetrics.cacheMisses++;
 
   const interval = options.interval ?? 500;
   const timeout = options.timeout ?? 60000; // ✅ FIX P1: Increased from 30s to 60s
