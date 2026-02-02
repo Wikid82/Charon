@@ -46,11 +46,16 @@ jobs:
       - name: Sync development to nightly
         id: sync
         run: |
-          # Fetch development branch
+          # Fetch both branches to ensure we have the latest remote state
           git fetch origin development
+          git fetch origin nightly
 
-          # Check if there are differences
-          if git diff --quiet nightly origin/development; then
+          # Sync local nightly with remote nightly to prevent non-fast-forward errors
+          echo "Syncing local nightly with remote nightly..."
+          git reset --hard origin/nightly
+
+          # Check if there are differences between remote branches
+          if git diff --quiet origin/nightly origin/development; then
             echo "No changes to sync from development to nightly"
             echo "has_changes=false" >> $GITHUB_OUTPUT
           else
@@ -61,7 +66,8 @@ jobs:
               echo "Fast-forward not possible, resetting nightly to development"
               git reset --hard origin/development
             }
-            git push origin nightly
+            # Force push to handle cases where nightly diverged from development
+            git push --force origin nightly
             echo "has_changes=true" >> $GITHUB_OUTPUT
           fi
 
