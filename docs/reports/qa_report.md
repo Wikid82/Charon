@@ -65,7 +65,12 @@ The Playwright switch helper implementation successfully resolves toggle test fa
 
 All switch helpers properly typed with interfaces and return types.
 
----
+# Verify the change was applied
+if ! grep -q "ARG GEOLITE2_COUNTRY_SHA256=${{ steps.checksum.outputs.current }}" Dockerfile; then
+    echo "❌ Failed to update Dockerfile"
+    exit 1
+fi
+```
 
 ## 3. Code Quality
 
@@ -113,7 +118,11 @@ Switch helpers are test utilities with no security concerns:
 - No production code modification
 - Test environment only
 
----
+**Analysis:**
+```bash
+# Total workflows: 35
+# Workflows using Dockerfile: 7
+```
 
 ## 5. Regression Analysis
 
@@ -143,7 +152,10 @@ Switch helpers are test utilities with no security concerns:
 | TypeScript type safety | ✅ Pass |
 | Zero critical/high security issues | ✅ Pass |
 
----
+**Upstream Source Analysis:**
+- **URL:** `https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb`
+- **Repository:** P3TERX/GeoLite.mmdb (third-party mirror)
+- **Original Source:** MaxMind (reputable GeoIP provider)
 
 ## 7. Approval Decision
 
@@ -163,7 +175,12 @@ Switch helpers are test utilities with no security concerns:
 - No security risk
 - No performance impact
 
----
+**Dockerfile User:**
+```dockerfile
+RUN groupadd -g 1000 charon && \
+    useradd -u 1000 -g charon -d /app -s /usr/sbin/nologin -M charon
+```
+✅ Non-root user (UID 1000) with no login shell.
 
 ## Appendix: Skipped Tests (27)
 

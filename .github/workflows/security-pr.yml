@@ -176,7 +176,10 @@ jobs:
               echo "❌ ERROR: Branch name is empty for push build"
               exit 1
             fi
-            IMAGE_REF="ghcr.io/${IMAGE_NAME}:${BRANCH_NAME}"
+            # Normalize branch name for Docker tag (replace / and other special chars with -)
+            # This matches docker/metadata-action behavior: type=ref,event=branch
+            TAG_SAFE_BRANCH="${BRANCH_NAME//\//-}"
+            IMAGE_REF="ghcr.io/${IMAGE_NAME}:${TAG_SAFE_BRANCH}"
           elif [[ -n "${{ steps.pr-info.outputs.pr_number }}" ]]; then
             IMAGE_REF="ghcr.io/${IMAGE_NAME}:pr-${{ steps.pr-info.outputs.pr_number }}"
           else

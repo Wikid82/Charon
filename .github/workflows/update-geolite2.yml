@@ -96,7 +96,8 @@ jobs:
           set -euo pipefail
 
           echo "🔍 Verifying Dockerfile syntax..."
-          docker build --dry-run -f Dockerfile . || {
+          # Use BuildKit's --check flag for syntax validation (no actual build)
+          DOCKER_BUILDKIT=1 docker build --check -f Dockerfile . 2>&1 || {
             echo "❌ Dockerfile syntax validation failed"
             exit 1
           }

@@ -674,7 +674,11 @@
 
 **Estimated Effort:** 1.5 developer-days
 
----
+- **ROLLBACK immediately** if:
+  - Production deployments are affected
+  - Core functionality breaks (API, routing, healthchecks)
+  - Security posture degrades
+  - No clear remediation path within 30 minutes
 
 ### File 10: backend/internal/api/handlers/crowdsec_exec.go (149 lines)
 
@@ -710,7 +714,10 @@
 
 **Estimated Effort:** 0.5 developer-days
 
----
+      - name: Update Dockerfile
+        if: steps.checksum.outputs.current != steps.checksum.outputs.old
+        run: |
+          sed -i "s/ARG GEOLITE2_COUNTRY_SHA256=.*/ARG GEOLITE2_COUNTRY_SHA256=${{ steps.checksum.outputs.current }}/" Dockerfile
 
 ## 3. Implementation Priority
 
@@ -1030,7 +1037,13 @@ make test-backend-coverage
    - Quarterly coverage audits
    - Test optimization sprints
 
----
+**Debug Steps:**
+1. **Check specific stage build:**
+   ```bash
+   # Test specific stage
+   docker build --target backend-builder -t test-backend .
+   docker build --target frontend-builder -t test-frontend .
+   ```
 
 ## Appendix A: Test Execution Commands
 
