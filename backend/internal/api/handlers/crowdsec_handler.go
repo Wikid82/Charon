@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -1545,6 +1546,240 @@ func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
 	})
 }
 
+// DiagnosticsConnectivity verifies connectivity to all CrowdSec components.
+// GET /api/v1/admin/crowdsec/diagnostics/connectivity
+func (h *CrowdsecHandler) DiagnosticsConnectivity(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	checks := map[string]interface{}{
+		"lapi_running":      false,
+		"lapi_ready":        false,
+		"capi_registered":   false,
+		"capi_reachable":    false,
+		"console_enrolled":  false,
+		"console_reachable": false,
+	}
+
+	// Check 1: LAPI running
+	running, pid, _ := h.Executor.Status(ctx, h.DataDir)
+	checks["lapi_running"] = running
+	if pid > 0 {
+		checks["lapi_pid"] = pid
+	}
+
+	// Check 2: LAPI ready (responds to cscli lapi status)
+	if running {
+		args := []string{"lapi", "status"}
+		configPath := filepath.Join(h.DataDir, "config", "config.yaml")
+		if _, err := os.Stat(configPath); err == nil {
+			args = append([]string{"-c", configPath}, args...)
+		} else {
+			// Fallback to root config
+			configPath = filepath.Join(h.DataDir, "config.yaml")
+			if _, err := os.Stat(configPath); err == nil {
+				args = append([]string{"-c", configPath}, args...)
+			}
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, err := h.CmdExec.Execute(checkCtx, "cscli", args...)
+		cancel()
+		checks["lapi_ready"] = (err == nil)
+	}
+
+	// Check 3: CAPI registered (online_api_credentials.yaml exists)
+	credsPath := filepath.Join(h.DataDir, "config", "online_api_credentials.yaml")
+	if _, err := os.Stat(credsPath); os.IsNotExist(err) {
+		// Fallback to root location
+		credsPath = filepath.Join(h.DataDir, "online_api_credentials.yaml")
+	}
+	checks["capi_registered"] = fileExists(credsPath)
+
+	// Check 4: CAPI reachable (cscli capi status)
+	if checks["capi_registered"].(bool) {
+		args := []string{"capi", "status"}
+		configPath := filepath.Join(h.DataDir, "config", "config.yaml")
+		if _, err := os.Stat(configPath); err == nil {
+			args = append([]string{"-c", configPath}, args...)
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		out, err := h.CmdExec.Execute(checkCtx, "cscli", args...)
+		cancel()
+		checks["capi_reachable"] = (err == nil)
+		if err == nil {
+			checks["capi_status_output"] = strings.TrimSpace(string(out))
+		}
+	}
+
+	// Check 5: Console enrolled
+	if h.Console != nil {
+		status, err := h.Console.Status(ctx)
+		if err == nil {
+			checks["console_enrolled"] = (status.Status == "enrolled" || status.Status == "pending_acceptance")
+			checks["console_status"] = status.Status
+			if status.AgentName != "" {
+				checks["console_agent_name"] = status.AgentName
+			}
+		}
+	}
+
+	// Check 6: Console API reachable (ping crowdsec.net with 5s timeout)
+	consoleURL := "https://api.crowdsec.net/health"
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, consoleURL, http.NoBody)
+	if err == nil {
+		resp, respErr := client.Do(req)
+		if respErr == nil {
+			defer func() {
+				if closeErr := resp.Body.Close(); closeErr != nil {
+					logger.Log().WithError(closeErr).Warn("Failed to close response body")
+				}
+			}()
+			checks["console_reachable"] = (resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent)
+		} else {
+			checks["console_reachable"] = false
+			checks["console_error"] = respErr.Error()
+		}
+	}
+
+	c.JSON(http.StatusOK, checks)
+}
+
+// DiagnosticsConfig validates CrowdSec configuration files.
+// GET /api/v1/admin/crowdsec/diagnostics/config
+func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	validation := map[string]interface{}{
+		"config_exists": false,
+		"config_valid":  false,
+		"acquis_exists": false,
+		"acquis_valid":  false,
+		"lapi_port":     "",
+		"errors":        []string{},
+	}
+
+	errors := []string{}
+
+	// Check config.yaml - try config subdirectory first, then root
+	configPath := filepath.Join(h.DataDir, "config", "config.yaml")
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		configPath = filepath.Join(h.DataDir, "config.yaml")
+	}
+
+	// Path traversal protection: ensure path is within DataDir
+	cleanConfigPath := filepath.Clean(configPath)
+	cleanDataDir := filepath.Clean(h.DataDir)
+	if !strings.HasPrefix(cleanConfigPath, cleanDataDir) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config path"})
+		return
+	}
+
+	if _, err := os.Stat(cleanConfigPath); err == nil {
+		validation["config_exists"] = true
+		validation["config_path"] = cleanConfigPath
+
+		// Read config and check LAPI port
+		// #nosec G304 -- Path validated against DataDir above
+		content, err := os.ReadFile(cleanConfigPath)
+		if err == nil {
+			configStr := string(content)
+			// Extract LAPI port from listen_uri
+			re := regexp.MustCompile(`listen_uri:\s*127\.0\.0\.1:(\d+)`)
+			matches := re.FindStringSubmatch(configStr)
+			if len(matches) > 1 {
+				validation["lapi_port"] = matches[1]
+			}
+		}
+
+		// Validate using cscli config check
+		checkArgs := []string{"-c", cleanConfigPath, "config", "check"}
+		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		out, err := h.CmdExec.Execute(checkCtx, "cscli", checkArgs...)
+		cancel()
+		if err == nil {
+			validation["config_valid"] = true
+		} else {
+			validation["config_valid"] = false
+			errors = append(errors, fmt.Sprintf("config.yaml validation failed: %s", strings.TrimSpace(string(out))))
+		}
+	} else {
+		errors = append(errors, "config.yaml not found")
+	}
+
+	// Check acquis.yaml - try config subdirectory first, then root
+	acquisPath := filepath.Join(h.DataDir, "config", "acquis.yaml")
+	if _, err := os.Stat(acquisPath); os.IsNotExist(err) {
+		acquisPath = filepath.Join(h.DataDir, "acquis.yaml")
+	}
+
+	// Path traversal protection
+	cleanAcquisPath := filepath.Clean(acquisPath)
+	if !strings.HasPrefix(cleanAcquisPath, cleanDataDir) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid acquis path"})
+		return
+	}
+
+	if _, err := os.Stat(cleanAcquisPath); err == nil {
+		validation["acquis_exists"] = true
+		validation["acquis_path"] = cleanAcquisPath
+
+		// Check if it has datasources
+		// #nosec G304 -- Path validated against DataDir above
+		content, err := os.ReadFile(cleanAcquisPath)
+		if err == nil {
+			acquisStr := string(content)
+			if strings.Contains(acquisStr, "source:") && (strings.Contains(acquisStr, "filenames:") || strings.Contains(acquisStr, "filename:")) {
+				validation["acquis_valid"] = true
+			} else {
+				validation["acquis_valid"] = false
+				errors = append(errors, "acquis.yaml missing datasource configuration (expected 'source:' and 'filenames:' or 'filename:')")
+			}
+		}
+	} else {
+		errors = append(errors, "acquis.yaml not found")
+	}
+
+	validation["errors"] = errors
+
+	c.JSON(http.StatusOK, validation)
+}
+
+// ConsoleHeartbeat returns the current heartbeat status for console.
+// GET /api/v1/admin/crowdsec/console/heartbeat
+func (h *CrowdsecHandler) ConsoleHeartbeat(c *gin.Context) {
+	if !h.isConsoleEnrollmentEnabled() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "console enrollment disabled"})
+		return
+	}
+	if h.Console == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "console service unavailable"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	status, err := h.Console.Status(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Return heartbeat-specific information
+	c.JSON(http.StatusOK, gin.H{
+		"status":                         status.Status,
+		"last_heartbeat_at":              status.LastHeartbeatAt,
+		"heartbeat_tracking_implemented": false,
+		"note":                           "Full heartbeat tracking is planned for Phase 3. Currently shows last_heartbeat_at from database if set.",
+		"agent_name":                     status.AgentName,
+		"enrolled_at":                    status.EnrolledAt,
+	})
+}
+
+// fileExists is a helper to check if a file exists
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // RegisterRoutes registers crowdsec admin routes under protected group
 func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/admin/crowdsec/start", h.Start)
@@ -1562,6 +1797,10 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/admin/crowdsec/console/enroll", h.ConsoleEnroll)
 	rg.GET("/admin/crowdsec/console/status", h.ConsoleStatus)
 	rg.DELETE("/admin/crowdsec/console/enrollment", h.DeleteConsoleEnrollment)
+	// Diagnostic endpoints (Phase 1)
+	rg.GET("/admin/crowdsec/diagnostics/connectivity", h.DiagnosticsConnectivity)
+	rg.GET("/admin/crowdsec/diagnostics/config", h.DiagnosticsConfig)
+	rg.GET("/admin/crowdsec/console/heartbeat", h.ConsoleHeartbeat)
 	// Decision management endpoints (Banned IP Dashboard)
 	rg.GET("/admin/crowdsec/decisions", h.ListDecisions)
 	rg.GET("/admin/crowdsec/decisions/lapi", h.GetLAPIDecisions)

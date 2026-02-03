@@ -50,6 +50,9 @@ func TestSecurityToggles(t *testing.T) {
 		// WAF
 		{"EnableWAF", "POST", "/api/v1/security/waf/enable", h.EnableWAF, "security.waf.enabled", "true", ""},
 		{"DisableWAF", "POST", "/api/v1/security/waf/disable", h.DisableWAF, "security.waf.enabled", "false", ""},
+		// WAF Patch
+		{"PatchWAF_True", "PATCH", "/api/v1/security/waf", h.PatchWAF, "security.waf.enabled", "true", `{"enabled": true}`},
+		{"PatchWAF_False", "PATCH", "/api/v1/security/waf", h.PatchWAF, "security.waf.enabled", "false", `{"enabled": false}`},
 
 		// Cerberus
 		{"EnableCerberus", "POST", "/api/v1/security/cerberus/enable", h.EnableCerberus, "feature.cerberus.enabled", "true", ""},
@@ -58,10 +61,16 @@ func TestSecurityToggles(t *testing.T) {
 		// CrowdSec
 		{"EnableCrowdSec", "POST", "/api/v1/security/crowdsec/enable", h.EnableCrowdSec, "security.crowdsec.enabled", "true", ""},
 		{"DisableCrowdSec", "POST", "/api/v1/security/crowdsec/disable", h.DisableCrowdSec, "security.crowdsec.enabled", "false", ""},
+		// CrowdSec Patch
+		{"PatchCrowdSec_True", "PATCH", "/api/v1/security/crowdsec", h.PatchCrowdSec, "security.crowdsec.enabled", "true", `{"enabled": true}`},
+		{"PatchCrowdSec_False", "PATCH", "/api/v1/security/crowdsec", h.PatchCrowdSec, "security.crowdsec.enabled", "false", `{"enabled": false}`},
 
 		// RateLimit
 		{"EnableRateLimit", "POST", "/api/v1/security/rate-limit/enable", h.EnableRateLimit, "security.rate_limit.enabled", "true", ""},
 		{"DisableRateLimit", "POST", "/api/v1/security/rate-limit/disable", h.DisableRateLimit, "security.rate_limit.enabled", "false", ""},
+		// RateLimit Patch
+		{"PatchRateLimit_True", "PATCH", "/api/v1/security/rate-limit", h.PatchRateLimit, "security.rate_limit.enabled", "true", `{"enabled": true}`},
+		{"PatchRateLimit_False", "PATCH", "/api/v1/security/rate-limit", h.PatchRateLimit, "security.rate_limit.enabled", "false", `{"enabled": false}`},
 	}
 
 	for _, tc := range tests {
@@ -117,6 +126,42 @@ func TestPatchACL_InvalidBody(t *testing.T) {
 	c.Set("role", "admin")
 
 	h.PatchACL(c)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestPatchWAF_InvalidBody(t *testing.T) {
+	h, _ := setupToggleTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/api/v1/security/waf", strings.NewReader("invalid"))
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+	c.Set("role", "admin")
+
+	h.PatchWAF(c)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestPatchRateLimit_InvalidBody(t *testing.T) {
+	h, _ := setupToggleTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/api/v1/security/rate-limit", strings.NewReader("invalid"))
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+	c.Set("role", "admin")
+
+	h.PatchRateLimit(c)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestPatchCrowdSec_InvalidBody(t *testing.T) {
+	h, _ := setupToggleTest(t)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/api/v1/security/crowdsec", strings.NewReader("invalid"))
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+	c.Set("role", "admin")
+
+	h.PatchCrowdSec(c)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
