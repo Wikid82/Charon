@@ -35,7 +35,7 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f9
 # CVEs fixed: CVE-2023-24531, CVE-2023-24540, CVE-2023-29402, CVE-2023-29404,
 #             CVE-2023-29405, CVE-2024-24790, CVE-2025-22871, and 15 more
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:fb4b74a39c7318d53539ebda43ccd3ecba6e447a78591889c0efc0a7235ea8b3 AS gosu-builder
+FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:c7aa67236d35587d6e4f2578ebeda2164ab043e7437181a69ac12664dce2aae5 AS gosu-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/gosu
@@ -89,7 +89,7 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
 
 # ---- Backend Builder ----
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:fb4b74a39c7318d53539ebda43ccd3ecba6e447a78591889c0efc0a7235ea8b3 AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:c7aa67236d35587d6e4f2578ebeda2164ab043e7437181a69ac12664dce2aae5 AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
@@ -162,7 +162,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Build Caddy from source to ensure we use the latest Go version and dependencies
 # This fixes vulnerabilities found in the pre-built Caddy images (e.g. CVE-2025-59530, stdlib issues)
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:fb4b74a39c7318d53539ebda43ccd3ecba6e447a78591889c0efc0a7235ea8b3 AS caddy-builder
+FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:c7aa67236d35587d6e4f2578ebeda2164ab043e7437181a69ac12664dce2aae5 AS caddy-builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -227,7 +227,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Build CrowdSec from source to ensure we use Go 1.25.5+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
 # renovate: datasource=docker depName=golang versioning=docker
-FROM --platform=$BUILDPLATFORM golang:1.25.6-trixie@sha256:fb4b74a39c7318d53539ebda43ccd3ecba6e447a78591889c0efc0a7235ea8b3 AS crowdsec-builder
+FROM --platform=$BUILDPLATFORM golang:1.25.6-trixie@sha256:c7aa67236d35587d6e4f2578ebeda2164ab043e7437181a69ac12664dce2aae5 AS crowdsec-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
