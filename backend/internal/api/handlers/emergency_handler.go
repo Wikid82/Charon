@@ -209,14 +209,20 @@ func (h *EmergencyHandler) performSecurityReset(c *gin.Context, clientIP string,
 	})
 }
 
-// disableAllSecurityModules disables Cerberus, ACL, WAF, Rate Limit, and CrowdSec
+// disableAllSecurityModules disables ACL, WAF, Rate Limit, and CrowdSec modules
+// while keeping the Cerberus framework enabled for break glass testing.
 func (h *EmergencyHandler) disableAllSecurityModules() ([]string, error) {
 	disabledModules := []string{}
 
-	// Settings to disable
+	// Settings to disable - NOTE: We keep feature.cerberus.enabled = true
+	// so E2E tests can validate break glass functionality.
+	// Only individual security modules are disabled for clean test state.
 	securitySettings := map[string]string{
-		"feature.cerberus.enabled":    "false",
-		"security.cerberus.enabled":   "false",
+		// Feature framework stays ENABLED (removed from this map)
+		// "feature.cerberus.enabled": "false",  ← BUG FIX: Keep framework enabled
+		// "security.cerberus.enabled": "false", ← BUG FIX: Keep framework enabled
+
+		// Individual security modules disabled for clean slate
 		"security.acl.enabled":        "false",
 		"security.waf.enabled":        "false",
 		"security.rate_limit.enabled": "false",
