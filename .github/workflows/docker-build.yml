@@ -30,8 +30,6 @@ env:
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: wikid82/charon
-  SYFT_VERSION: v1.17.0@sha256:b3b6e6f7e8d9c0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4
-  GRYPE_VERSION: v0.107.0@sha256:a1a2a3a4a5a6a7a8a9b0b1b2b3b4b5b6b7b8b9c0c1c2c3c4c5c6c7c8c9d0d1
 
 jobs:
   build-and-push:
