@@ -118,6 +118,13 @@ export default function Layout({ children }: LayoutProps) {
 
   return (
     <div className="min-h-screen bg-light-bg dark:bg-dark-bg flex transition-colors duration-200">
+      {/* Skip to main content link for accessibility */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:p-4 focus:bg-brand-500 focus:text-white focus:font-medium focus:rounded-md focus:m-2"
+      >
+        {t('accessibility.skipToContent')}
+      </a>
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 z-40">
         <div className="flex items-center gap-3">
@@ -338,7 +345,7 @@ export default function Layout({ children }: LayoutProps) {
       )}
 
       {/* Main Content */}
-      <main className={`flex-1 min-w-0 pt-16 lg:pt-0 flex flex-col transition-all duration-200 ${isCollapsed ? 'lg:ml-20' : 'lg:ml-64'}`}>
+      <main id="main-content" tabIndex={-1} className={`flex-1 min-w-0 pt-16 lg:pt-0 flex flex-col transition-all duration-200 ${isCollapsed ? 'lg:ml-20' : 'lg:ml-64'}`}>
         {/* Desktop Header */}
         <header className="hidden lg:flex items-center justify-between px-8 h-20 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
            <div className="w-1/3 flex items-center gap-4">

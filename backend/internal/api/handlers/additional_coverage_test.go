@@ -309,7 +309,7 @@ func TestCrowdsec_ImportConfig_EmptyUpload(t *testing.T) {
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -451,9 +451,11 @@ func setupLogsDownloadTest(t *testing.T) (h *LogsHandler, logsDir string) {
 	t.Helper()
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
+	// #nosec G301 -- Test fixture directory with standard permissions
 	_ = os.MkdirAll(dataDir, 0o755)
 
 	logsDir = filepath.Join(dataDir, "logs")
+	// #nosec G301 -- Test fixture directory with standard permissions
 	_ = os.MkdirAll(logsDir, 0o755)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
@@ -499,6 +501,7 @@ func TestLogsHandler_Download_Success(t *testing.T) {
 	h, logsDir := setupLogsDownloadTest(t)
 
 	// Create a log file to download
+	// #nosec G306 -- Test fixture file with standard read permissions
 	_ = os.WriteFile(filepath.Join(logsDir, "test.log"), []byte("log content"), 0o644)
 
 	w := httptest.NewRecorder()
@@ -557,10 +560,12 @@ func TestBackupHandler_List_ServiceError(t *testing.T) {
 	// Create a temp dir with invalid permission for backup dir
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
+	// #nosec G301 -- Test fixture directory with standard permissions
 	_ = os.MkdirAll(dataDir, 0o755)
 
 	// Create database file so config is valid
 	dbPath := filepath.Join(dataDir, "charon.db")
+	// #nosec G306 -- Test fixture file with standard read permissions
 	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
 
 	cfg := &config.Config{
@@ -572,6 +577,7 @@ func TestBackupHandler_List_ServiceError(t *testing.T) {
 
 	// Make backup dir a file to cause ReadDir error
 	_ = os.RemoveAll(svc.BackupDir)
+	// #nosec G306 -- Test fixture file intentionally blocking directory creation
 	_ = os.WriteFile(svc.BackupDir, []byte("not a dir"), 0o644)
 
 	w := httptest.NewRecorder()
@@ -589,10 +595,10 @@ func TestBackupHandler_Delete_PathTraversal(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	_ = os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o750)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
-	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("test"), 0o600)
 
 	cfg := &config.Config{
 		DatabasePath: dbPath,
@@ -619,9 +625,11 @@ func TestBackupHandler_Delete_InternalError2(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
+	// #nosec G301 -- Test fixture directory with standard permissions
 	_ = os.MkdirAll(dataDir, 0o755)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
+	// #nosec G306 -- Test fixture file with standard permissions
 	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
 
 	cfg := &config.Config{
@@ -634,13 +642,19 @@ func TestBackupHandler_Delete_InternalError2(t *testing.T) {
 
 	// Create a backup
 	backupsDir := filepath.Join(dataDir, "backups")
+	// #nosec G301 -- Test fixture directory with standard permissions
 	_ = os.MkdirAll(backupsDir, 0o755)
 	backupFile := filepath.Join(backupsDir, "test.zip")
+	// #nosec G306 -- Test fixture file with standard read permissions
 	_ = os.WriteFile(backupFile, []byte("backup"), 0o644)
 
 	// Remove write permissions to cause delete error
+	// #nosec G302 -- Test intentionally uses restrictive perms to simulate error
 	_ = os.Chmod(backupsDir, 0o555)
-	defer func() { _ = os.Chmod(backupsDir, 0o755) }()
+	defer func() {
+		// #nosec G302 -- Cleanup restores directory permissions
+		_ = os.Chmod(backupsDir, 0o755)
+	}()
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -743,7 +757,7 @@ func TestBackupHandler_Create_Error(t *testing.T) {
 	// Use a path where database file doesn't exist
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	_ = os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o750)
 
 	// Don't create the database file - this will cause CreateBackup to fail
 	dbPath := filepath.Join(dataDir, "charon.db")

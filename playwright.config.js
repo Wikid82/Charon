@@ -91,6 +91,8 @@ const enableCoverage = process.env.PLAYWRIGHT_COVERAGE === '1';
  */
 export default defineConfig({
   testDir: './tests',
+  /* Ignore old/deprecated test directories */
+  testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**'],
   /* Global setup - runs once before all tests to clean up orphaned data */
   globalSetup: './tests/global-setup.ts',
   /* Global timeout for each test */

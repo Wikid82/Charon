@@ -22,28 +22,6 @@ export interface PluginInfo {
   updated_at: string
 }
 
-/** Credential field specification */
-export interface CredentialFieldSpec {
-  name: string
-  label: string
-  type: 'text' | 'password' | 'textarea' | 'select'
-  placeholder?: string
-  hint?: string
-  required?: boolean
-  options?: Array<{
-    value: string
-    label: string
-  }>
-}
-
-/** Provider metadata response */
-export interface ProviderFieldsResponse {
-  type: string
-  name: string
-  required_fields: CredentialFieldSpec[]
-  optional_fields: CredentialFieldSpec[]
-}
-
 /**
  * Fetches all plugins (built-in and external).
  * @returns Promise resolving to array of plugin info
@@ -94,16 +72,5 @@ export async function disablePlugin(id: number): Promise<{ message: string }> {
  */
 export async function reloadPlugins(): Promise<{ message: string; count: number }> {
   const response = await client.post<{ message: string; count: number }>('/admin/plugins/reload')
-  return response.data
-}
-
-/**
- * Fetches credential field definitions for a DNS provider type.
- * @param providerType - The provider type (e.g., "cloudflare", "powerdns")
- * @returns Promise resolving to field specifications
- * @throws {AxiosError} If provider type not found or request fails
- */
-export async function getProviderFields(providerType: string): Promise<ProviderFieldsResponse> {
-  const response = await client.get<ProviderFieldsResponse>(`/dns-providers/types/${providerType}/fields`)
   return response.data
 }

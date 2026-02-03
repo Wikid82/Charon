@@ -646,9 +646,18 @@ func getUserIDFromContext(c *gin.Context) uint {
 		case uint:
 			return v
 		case int:
-			return uint(v)
+			// Check for overflow when converting int -> uint
+			if v < 0 {
+				return 0 // Invalid negative ID
+			}
+			return uint(v) // #nosec G115 -- validated non-negative
 		case int64:
-			return uint(v)
+			// Check for overflow when converting int64 -> uint
+			// Use simple bounds check instead of complex expression
+			if v < 0 || v > 4294967295 { // Max uint32, safe for most systems
+				return 0 // Out of valid range
+			}
+			return uint(v) // #nosec G115 -- validated range
 		case uint64:
 			return uint(v)
 		}

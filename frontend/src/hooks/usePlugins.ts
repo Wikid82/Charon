@@ -5,9 +5,7 @@ import {
   enablePlugin,
   disablePlugin,
   reloadPlugins,
-  getProviderFields,
   type PluginInfo,
-  type ProviderFieldsResponse,
 } from '../api/plugins'
 
 /** Query key factory for plugins */
@@ -17,7 +15,6 @@ const queryKeys = {
   list: () => [...queryKeys.lists()] as const,
   details: () => [...queryKeys.all, 'detail'] as const,
   detail: (id: number) => [...queryKeys.details(), id] as const,
-  providerFields: (type: string) => ['dns-providers', 'fields', type] as const,
 }
 
 /**
@@ -41,20 +38,6 @@ export function usePlugin(id: number) {
     queryKey: queryKeys.detail(id),
     queryFn: () => getPlugin(id),
     enabled: id > 0,
-  })
-}
-
-/**
- * Hook for fetching provider credential field definitions.
- * @param providerType - Provider type identifier
- * @returns Query result with field specifications
- */
-export function useProviderFields(providerType: string) {
-  return useQuery({
-    queryKey: queryKeys.providerFields(providerType),
-    queryFn: () => getProviderFields(providerType),
-    enabled: !!providerType,
-    staleTime: 1000 * 60 * 60, // 1 hour - field definitions rarely change
   })
 }
 
@@ -103,4 +86,4 @@ export function useReloadPlugins() {
   })
 }
 
-export type { PluginInfo, ProviderFieldsResponse }
+export type { PluginInfo }

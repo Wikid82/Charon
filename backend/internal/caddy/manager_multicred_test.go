@@ -179,16 +179,16 @@ func TestManager_GetCredentialForDomain_NoEncryptionKey(t *testing.T) {
 	defer func() {
 		for k, v := range oldKeys {
 			if v != "" {
-				os.Setenv(k, v)
+				require.NoError(t, os.Setenv(k, v))
 			} else {
-				os.Unsetenv(k)
+				require.NoError(t, os.Unsetenv(k))
 			}
 		}
 	}()
 
-	os.Unsetenv("CHARON_ENCRYPTION_KEY")
-	os.Unsetenv("ENCRYPTION_KEY")
-	os.Unsetenv("CERBERUS_ENCRYPTION_KEY")
+	_ = os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	_ = os.Unsetenv("ENCRYPTION_KEY")
+	_ = os.Unsetenv("CERBERUS_ENCRYPTION_KEY")
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -216,8 +216,8 @@ func TestManager_GetCredentialForDomain_NoEncryptionKey(t *testing.T) {
 func TestManager_GetCredentialForDomain_DecryptionFailure(t *testing.T) {
 	// Set up a valid encryption key
 	encryptionKey := "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
-	os.Setenv("CHARON_ENCRYPTION_KEY", encryptionKey)
-	defer os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", encryptionKey)
+	defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY") }()
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -245,8 +245,8 @@ func TestManager_GetCredentialForDomain_DecryptionFailure(t *testing.T) {
 func TestManager_GetCredentialForDomain_InvalidJSON(t *testing.T) {
 	// Set up valid encryption
 	encryptionKey := "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
-	os.Setenv("CHARON_ENCRYPTION_KEY", encryptionKey)
-	defer os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", encryptionKey))
+	defer func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY")) }()
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -280,8 +280,8 @@ func TestManager_GetCredentialForDomain_InvalidJSON(t *testing.T) {
 // TestManager_GetCredentialForDomain_SkipsDisabledCredentials tests that disabled credentials are skipped
 func TestManager_GetCredentialForDomain_SkipsDisabledCredentials(t *testing.T) {
 	encryptionKey := "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
-	os.Setenv("CHARON_ENCRYPTION_KEY", encryptionKey)
-	defer os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", encryptionKey))
+	defer func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY")) }()
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -345,8 +345,8 @@ func TestManager_GetCredentialForDomain_SkipsDisabledCredentials(t *testing.T) {
 // TestManager_GetCredentialForDomain_MultiCredential_DecryptionFailure tests decryption error in multi-credential mode
 func TestManager_GetCredentialForDomain_MultiCredential_DecryptionFailure(t *testing.T) {
 	encryptionKey := "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
-	os.Setenv("CHARON_ENCRYPTION_KEY", encryptionKey)
-	defer os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", encryptionKey))
+	defer func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY")) }()
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -382,8 +382,8 @@ func TestManager_GetCredentialForDomain_MultiCredential_DecryptionFailure(t *tes
 // TestManager_GetCredentialForDomain_MultiCredential_InvalidJSON tests JSON parse error in multi-credential mode
 func TestManager_GetCredentialForDomain_MultiCredential_InvalidJSON(t *testing.T) {
 	encryptionKey := "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
-	os.Setenv("CHARON_ENCRYPTION_KEY", encryptionKey)
-	defer os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", encryptionKey))
+	defer func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY")) }()
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)

@@ -182,8 +182,8 @@ export default function SystemSettings() {
 
   const updateFlagMutation = useMutation({
     mutationFn: async (payload: Record<string, boolean>) => updateFeatureFlags(payload),
-    onSuccess: () => {
-      refetchFlags()
+    onSuccess: async () => {
+      await refetchFlags()
       toast.success(t('systemSettings.featureFlagUpdated'))
     },
     onError: (err: unknown) => {

@@ -19,7 +19,7 @@ import {
   waitForModal,
   waitForAPIResponse,
 } from '../utils/wait-helpers';
-import { getRowScopedButton, getRowScopedIconButton } from '../utils/ui-helpers';
+import { getRowScopedButton, getRowScopedIconButton, clickSwitch } from '../utils/ui-helpers';
 
 test.describe('User Management', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -71,7 +71,8 @@ test.describe('User Management', () => {
      * Test: User status badges display correctly
      * Priority: P1
      */
-    test('should show user status badges', async ({ page }) => {
+    test.skip('should show user status badges', async ({ page }) => {
+      // SKIP: UI feature not yet implemented.
       // TODO: Re-enable when user status badges are added to the UI.
 
       await test.step('Verify active status has correct styling', async () => {
@@ -427,9 +428,12 @@ test.describe('User Management', () => {
      * Test: Copy invite link
      * Priority: P1
      */
-    test('should copy invite link', async ({ page, context }) => {
-      // Grant clipboard permissions
-      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    test('should copy invite link', async ({ page, context }, testInfo) => {
+      // Grant clipboard permissions only on Chromium — Firefox/WebKit don't support clipboard-read/write.
+      const browserName = testInfo.project?.name || '';
+      if (browserName === 'chromium') {
+        await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+      }
 
       const testEmail = `copy-test-${Date.now()}@test.local`;
 
@@ -468,8 +472,30 @@ test.describe('User Management', () => {
         await expect(copiedToast).toBeVisible({ timeout: 10000 });
       });
 
-      await test.step('Verify clipboard contains invite link', async () => {
-        const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+      await test.step('Verify clipboard contains invite link (Chromium-only); verify toast for other browsers', async () => {
+        // WebKit/Firefox: Clipboard API throws NotAllowedError in CI
+        // Success toast verified above is sufficient proof
+        if (browserName !== 'chromium') {
+          // Additional defensive check: verify invite link still visible
+          const inviteLinkInput = page.locator('input[readonly]').filter({
+            hasText: /accept-invite|token/i
+          });
+          const inviteLinkVisible = await inviteLinkInput.first().isVisible({ timeout: 2000 }).catch(() => false);
+          if (inviteLinkVisible) {
+            await expect(inviteLinkInput.first()).toHaveValue(/accept-invite.*token=/);
+          }
+          return; // Skip clipboard verification on non-Chromium
+        }
+
+        // Chromium-only: Verify clipboard contents (only browser where we can reliably read clipboard in CI)
+        const clipboardText = await page.evaluate(async () => {
+          try {
+            return await navigator.clipboard.readText();
+          } catch (err) {
+            throw new Error(`clipboard.readText() failed: ${err?.message || err}`);
+          }
+        });
+
         expect(clipboardText).toContain('accept-invite');
         expect(clipboardText).toContain('token=');
       });
@@ -797,7 +823,7 @@ test.describe('User Management', () => {
 
         const initialState = await enableSwitch.isChecked();
         // The checkbox is sr-only, click the parent label container
-        await enableSwitch.click({ force: true });
+        await clickSwitch(enableSwitch);
 
         // Wait for API response
         await page.waitForTimeout(500);

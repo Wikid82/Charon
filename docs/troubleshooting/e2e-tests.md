@@ -375,6 +375,28 @@ Enables all debug output.
    npx playwright test --grep-invert "@slow"
    ```
 
+### Feature Flag Toggle Tests Timing Out
+
+**Symptoms:**
+- Tests in `tests/settings/system-settings.spec.ts` fail with timeout errors
+- Error messages mention feature flag toggles (Cerberus, CrowdSec, Uptime, Persist)
+
+**Cause:**
+- Backend N+1 query pattern causing 300-600ms latency in CI
+- Hard-coded waits insufficient for slower CI environments
+
+**Solution (Fixed in v2.x):**
+- Backend now uses batch query pattern (3-6x faster: 600ms → 200ms P99)
+- Tests use condition-based polling with `waitForFeatureFlagPropagation()`
+- Retry logic with exponential backoff handles transient failures
+
+**If you still experience issues:**
+1. Check backend latency: `grep "[METRICS]" docker logs charon`
+2. Verify batch query is being used (should see `WHERE key IN (...)` in logs)
+3. Ensure you're running latest version with the optimization
+
+📖 **See Also:** [Feature Flags Performance Documentation](../performance/feature-flags-endpoint.md)
+
 ### Container Startup Slow
 
 **Symptoms:** Health check timeouts, tests fail before running.
@@ -439,9 +461,10 @@ If you're still stuck after trying these solutions:
 
 - [Getting Started Guide](../getting-started.md)
 - [GitHub Setup Guide](../github-setup.md)
+- [Feature Flags Performance Documentation](../performance/feature-flags-endpoint.md)
 - [E2E Triage Report](../reports/e2e_triage_report.md)
 - [Playwright Documentation](https://playwright.dev/docs/intro)
 
 ---
 
-**Last Updated:** 2026-01-27
+**Last Updated:** 2026-02-02

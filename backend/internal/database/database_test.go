@@ -278,7 +278,8 @@ func TestConnect_IntegrityCheckWithNonOkResult(t *testing.T) {
 // quick_check return a non-ok result
 func corruptDBSeverely(t *testing.T, dbPath string) {
 	t.Helper()
-	f, err := os.OpenFile(dbPath, os.O_RDWR, 0o644)
+	// #nosec G304 -- Test function intentionally opens test database file for corruption testing
+	f, err := os.OpenFile(dbPath, os.O_RDWR, 0o600) // #nosec G302 -- Test intentionally opens test database for corruption
 	require.NoError(t, err)
 	defer func() { _ = f.Close() }()
 
@@ -298,7 +299,8 @@ func corruptDBSeverely(t *testing.T, dbPath string) {
 func corruptDB(t *testing.T, dbPath string) {
 	t.Helper()
 	// Open and corrupt file
-	f, err := os.OpenFile(dbPath, os.O_RDWR, 0o644)
+	// #nosec G304 -- Test function intentionally opens test database file for corruption testing
+	f, err := os.OpenFile(dbPath, os.O_RDWR, 0o600) // #nosec G302 -- Test intentionally opens test database for corruption
 	require.NoError(t, err)
 	defer func() { _ = f.Close() }()
 

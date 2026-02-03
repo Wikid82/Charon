@@ -213,8 +213,8 @@ func TestEmergencyTokenService_Validate_EnvironmentFallback(t *testing.T) {
 
 	// Set environment variable
 	envToken := "this-is-a-long-test-token-for-environment-fallback-validation"
-	os.Setenv(EmergencyTokenEnvVar, envToken)
-	defer os.Unsetenv(EmergencyTokenEnvVar)
+	_ = os.Setenv(EmergencyTokenEnvVar, envToken)
+	defer func() { _ = os.Unsetenv(EmergencyTokenEnvVar) }()
 
 	// Validate with environment token (no DB token exists)
 	tokenRecord, err := svc.Validate(envToken)
@@ -228,8 +228,8 @@ func TestEmergencyTokenService_Validate_DatabaseTakesPrecedence(t *testing.T) {
 
 	// Set environment variable
 	envToken := "this-is-a-long-test-token-for-environment-fallback-validation"
-	os.Setenv(EmergencyTokenEnvVar, envToken)
-	defer os.Unsetenv(EmergencyTokenEnvVar)
+	_ = os.Setenv(EmergencyTokenEnvVar, envToken)
+	defer func() { _ = os.Unsetenv(EmergencyTokenEnvVar) }()
 
 	// Generate database token
 	dbResp, err := svc.Generate(GenerateRequest{ExpirationDays: 90})
@@ -295,8 +295,8 @@ func TestEmergencyTokenService_GetStatus(t *testing.T) {
 
 		// Set environment variable
 		envToken := "this-is-a-long-test-token-for-environment-configuration"
-		os.Setenv(EmergencyTokenEnvVar, envToken)
-		defer os.Unsetenv(EmergencyTokenEnvVar)
+		_ = os.Setenv(EmergencyTokenEnvVar, envToken)
+		defer func() { _ = os.Unsetenv(EmergencyTokenEnvVar) }()
 
 		// Get status
 		status, err := svc.GetStatus()

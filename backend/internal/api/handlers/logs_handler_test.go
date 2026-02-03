@@ -26,24 +26,24 @@ func setupLogsTest(t *testing.T) (*gin.Engine, *services.LogService, string) {
 	// It derives it from cfg.DatabasePath
 
 	dataDir := filepath.Join(tmpDir, "data")
-	err = os.MkdirAll(dataDir, 0o755)
+	err = os.MkdirAll(dataDir, 0o750) // #nosec G301 -- test directory
 	require.NoError(t, err)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
 
 	// Create logs dir
 	logsDir := filepath.Join(dataDir, "logs")
-	err = os.MkdirAll(logsDir, 0o755)
+	err = os.MkdirAll(logsDir, 0o750) // #nosec G301 -- test directory
 	require.NoError(t, err)
 
 	// Create dummy log files with JSON content
 	log1 := `{"level":"info","ts":1600000000,"msg":"request handled","request":{"method":"GET","host":"example.com","uri":"/","remote_ip":"1.2.3.4"},"status":200}`
 	log2 := `{"level":"error","ts":1600000060,"msg":"error handled","request":{"method":"POST","host":"api.example.com","uri":"/submit","remote_ip":"5.6.7.8"},"status":500}`
 
-	err = os.WriteFile(filepath.Join(logsDir, "access.log"), []byte(log1+"\n"+log2+"\n"), 0o644)
+	err = os.WriteFile(filepath.Join(logsDir, "access.log"), []byte(log1+"\n"+log2+"\n"), 0o600) // #nosec G306 -- test fixture
 	require.NoError(t, err)
 	// Write a charon.log and create a cpmp.log symlink to it for backward compatibility (cpmp is legacy)
-	err = os.WriteFile(filepath.Join(logsDir, "charon.log"), []byte("app log line 1\napp log line 2"), 0o644)
+	err = os.WriteFile(filepath.Join(logsDir, "charon.log"), []byte("app log line 1\napp log line 2"), 0o600) // #nosec G306 -- test fixture
 	require.NoError(t, err)
 	// Create legacy cpmp log symlink (cpmp is a legacy name for Charon)
 	_ = os.Symlink(filepath.Join(logsDir, "charon.log"), filepath.Join(logsDir, "cpmp.log"))

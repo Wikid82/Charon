@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -37,16 +39,38 @@ var defaultFlagValues = map[string]bool{
 // GetFlags returns a map of feature flag -> bool. DB setting takes precedence
 // and falls back to environment variables if present.
 func (h *FeatureFlagsHandler) GetFlags(c *gin.Context) {
+	// Phase 0: Performance instrumentation
+	startTime := time.Now()
+	defer func() {
+		latency := time.Since(startTime).Milliseconds()
+		log.Printf("[METRICS] GET /feature-flags: %dms", latency)
+	}()
+
 	result := make(map[string]bool)
 
+	// Phase 1: Batch query optimization - fetch all flags in single query (eliminating N+1)
+	var settings []models.Setting
+	if err := h.DB.Where("key IN ?", defaultFlags).Find(&settings).Error; err != nil {
+		log.Printf("[ERROR] Failed to fetch feature flags: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch feature flags"})
+		return
+	}
+
+	// Build map for O(1) lookup
+	settingsMap := make(map[string]models.Setting)
+	for _, s := range settings {
+		settingsMap[s.Key] = s
+	}
+
+	// Process all flags using the map
 	for _, key := range defaultFlags {
 		defaultVal := true
 		if v, ok := defaultFlagValues[key]; ok {
 			defaultVal = v
 		}
-		// Try DB
-		var s models.Setting
-		if err := h.DB.Where("key = ?", key).First(&s).Error; err == nil {
+
+		// Check if flag exists in DB
+		if s, exists := settingsMap[key]; exists {
 			v := strings.ToLower(strings.TrimSpace(s.Value))
 			b := v == "1" || v == "true" || v == "yes"
 			result[key] = b
@@ -87,30 +111,44 @@ func (h *FeatureFlagsHandler) GetFlags(c *gin.Context) {
 
 // UpdateFlags accepts a JSON object map[string]bool and upserts settings.
 func (h *FeatureFlagsHandler) UpdateFlags(c *gin.Context) {
+	// Phase 0: Performance instrumentation
+	startTime := time.Now()
+	defer func() {
+		latency := time.Since(startTime).Milliseconds()
+		log.Printf("[METRICS] PUT /feature-flags: %dms", latency)
+	}()
+
 	var payload map[string]bool
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	for k, v := range payload {
-		// Only allow keys in the default list to avoid arbitrary settings
-		allowed := false
-		for _, ak := range defaultFlags {
-			if ak == k {
-				allowed = true
-				break
+	// Phase 1: Transaction wrapping - all updates in single atomic transaction
+	if err := h.DB.Transaction(func(tx *gorm.DB) error {
+		for k, v := range payload {
+			// Only allow keys in the default list to avoid arbitrary settings
+			allowed := false
+			for _, ak := range defaultFlags {
+				if ak == k {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				continue
+			}
+
+			s := models.Setting{Key: k, Value: strconv.FormatBool(v), Type: "bool", Category: "feature"}
+			if err := tx.Where(models.Setting{Key: k}).Assign(s).FirstOrCreate(&s).Error; err != nil {
+				return err // Rollback on error
 			}
 		}
-		if !allowed {
-			continue
-		}
-
-		s := models.Setting{Key: k, Value: strconv.FormatBool(v), Type: "bool", Category: "feature"}
-		if err := h.DB.Where(models.Setting{Key: k}).Assign(s).FirstOrCreate(&s).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save setting"})
-			return
-		}
+		return nil
+	}); err != nil {
+		log.Printf("[ERROR] Failed to update feature flags: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update feature flags"})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})

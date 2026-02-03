@@ -299,13 +299,13 @@ func TestCrowdsecHandler_ExportConfig(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	configDir := filepath.Join(tmpDir, "crowdsec", "config")
-	require.NoError(t, os.MkdirAll(configDir, 0o755))
+	require.NoError(t, os.MkdirAll(configDir, 0o750))
 
 	// Create test config file
 	configFile := filepath.Join(configDir, "config.yaml")
-	require.NoError(t, os.WriteFile(configFile, []byte("test: config"), 0o644))
+	require.NoError(t, os.WriteFile(configFile, []byte("test: config"), 0o600))
 
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	r.GET("/export", h.ExportConfig)
@@ -325,7 +325,7 @@ func TestCrowdsecHandler_CheckLAPIHealth(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	tmpDir := t.TempDir()
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	r.GET("/health", h.CheckLAPIHealth)
@@ -348,7 +348,7 @@ func TestCrowdsecHandler_ConsoleStatus(t *testing.T) {
 	require.NoError(t, db.Create(&models.Setting{Key: "feature.crowdsec.console_enrollment", Value: "true"}).Error)
 
 	tmpDir := t.TempDir()
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	r.GET("/console/status", h.ConsoleStatus)
@@ -367,7 +367,7 @@ func TestCrowdsecHandler_ConsoleEnroll_Disabled(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
 	tmpDir := t.TempDir()
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	r.POST("/console/enroll", h.ConsoleEnroll)
@@ -390,7 +390,7 @@ func TestCrowdsecHandler_DeleteConsoleEnrollment(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
 	tmpDir := t.TempDir()
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	r.DELETE("/console/enroll", h.DeleteConsoleEnrollment)
@@ -410,7 +410,9 @@ func TestCrowdsecHandler_BanIP(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
 	tmpDir := t.TempDir()
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
+	// Override to simulate cscli failure
+	h.CmdExec = &mockCmdExecutor{err: errors.New("cscli failed")}
 
 	r := gin.New()
 	r.POST("/ban", h.BanIP)
@@ -437,7 +439,7 @@ func TestCrowdsecHandler_UnbanIP(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
 	tmpDir := t.TempDir()
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	r.POST("/unban", h.UnbanIP)
@@ -463,7 +465,7 @@ func TestCrowdsecHandler_UpdateAcquisitionConfig(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
 	tmpDir := t.TempDir()
-	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
 	r := gin.New()
 	r.PUT("/acquisition", h.UpdateAcquisitionConfig)

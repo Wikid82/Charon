@@ -135,12 +135,12 @@ func TestBackupCaddyfile_Success(t *testing.T) {
 	tmp := t.TempDir()
 	originalFile := filepath.Join(tmp, "Caddyfile")
 	data := []byte("original-data")
-	_ = os.WriteFile(originalFile, data, 0o644)
+	_ = os.WriteFile(originalFile, data, 0o644) // #nosec G306 -- Test file with non-sensitive data
 	backupDir := filepath.Join(tmp, "backup")
 	path, err := BackupCaddyfile(originalFile, backupDir)
 	require.NoError(t, err)
 	// Backup file should exist and contain same data
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) // #nosec G304 -- Test helper reading controlled test file path
 	require.NoError(t, err)
 	require.Equal(t, data, b)
 }
@@ -195,10 +195,10 @@ func TestImporter_ExtractHosts_DuplicateHost(t *testing.T) {
 func TestBackupCaddyfile_WriteFailure(t *testing.T) {
 	tmp := t.TempDir()
 	originalFile := filepath.Join(tmp, "Caddyfile")
-	_ = os.WriteFile(originalFile, []byte("original"), 0o644)
+	_ = os.WriteFile(originalFile, []byte("original"), 0o644) // #nosec G306 -- Test file with non-sensitive data
 	// Create backup dir and make it readonly to prevent writing (best-effort)
 	backupDir := filepath.Join(tmp, "backup")
-	_ = os.MkdirAll(backupDir, 0o555)
+	_ = os.MkdirAll(backupDir, 0o555) // #nosec G301 -- Intentional read-only permission for permission error test
 	_, err := BackupCaddyfile(originalFile, backupDir)
 	// Might error due to write permission; accept both success or failure depending on platform
 	if err != nil {
@@ -357,14 +357,14 @@ func TestImporter_ExtractHosts_ForceSplitFallback_PartsSscanfFail(t *testing.T) 
 func TestBackupCaddyfile_WriteErrorDeterministic(t *testing.T) {
 	tmp := t.TempDir()
 	originalFile := filepath.Join(tmp, "Caddyfile")
-	_ = os.WriteFile(originalFile, []byte("original-data"), 0o644)
+	_ = os.WriteFile(originalFile, []byte("original-data"), 0o600)
 	backupDir := filepath.Join(tmp, "backup")
-	_ = os.MkdirAll(backupDir, 0o755)
+	_ = os.MkdirAll(backupDir, 0o700)
 	// Determine backup path name the function will use
 	pid := fmt.Sprintf("%d", os.Getpid())
 	// Pre-create a directory at the exact backup path to ensure write fails with EISDIR
 	path := filepath.Join(backupDir, fmt.Sprintf("Caddyfile.%s.backup", pid))
-	_ = os.Mkdir(path, 0o755)
+	_ = os.Mkdir(path, 0o700)
 	_, err := BackupCaddyfile(originalFile, backupDir)
 	require.Error(t, err)
 }
@@ -392,4 +392,23 @@ func TestBackupCaddyfile_InvalidOriginalPath(t *testing.T) {
 	// Path traversal rejection
 	_, err = BackupCaddyfile(filepath.Join("..", "Caddyfile"), tmp)
 	require.Error(t, err)
+}
+
+// failingExec is a test executor that simulates a failing caddy binary.
+type failingExec struct{}
+
+func (f *failingExec) Execute(name string, args ...string) ([]byte, error) {
+	return []byte("caddy: not found"), fmt.Errorf("caddy not available: %s", name)
+}
+
+func TestNormalizeCaddyfile_ExecutorError(t *testing.T) {
+	importer := NewImporter("")
+	// Inject an executor that simulates caddy fmt failure
+	importer.executor = &failingExec{}
+
+	_, err := importer.NormalizeCaddyfile("test")
+	require.Error(t, err)
+	// Error should mention caddy fmt failed and include executor output
+	require.ErrorContains(t, err, "caddy fmt failed")
+	require.ErrorContains(t, err, "caddy: not found")
 }

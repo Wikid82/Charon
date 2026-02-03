@@ -1,6 +1,7 @@
 package caddy
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 )
@@ -22,7 +24,19 @@ type Executor interface {
 type DefaultExecutor struct{}
 
 func (e *DefaultExecutor) Execute(name string, args ...string) ([]byte, error) {
-	return exec.Command(name, args...).Output()
+	// Set a reasonable timeout for Caddy commands (5 seconds should be plenty for fmt/adapt)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, args...)
+	output, err := cmd.CombinedOutput()
+
+	// If context timed out, return a clear error message
+	if ctx.Err() == context.DeadlineExceeded {
+		return output, fmt.Errorf("command timed out after 5 seconds (caddy binary may be unavailable or misconfigured): %s %v", name, args)
+	}
+
+	return output, err
 }
 
 // CaddyConfig represents the root structure of Caddy's JSON config.
@@ -104,6 +118,47 @@ func NewImporter(binaryPath string) *Importer {
 
 // forceSplitFallback used in tests to exercise the fallback branch
 var forceSplitFallback bool
+
+// NormalizeCaddyfile formats single-line Caddyfiles using Caddy's native formatter.
+// This ensures compatibility with Caddy's parser by delegating to `caddy fmt`.
+//
+// Why caddy fmt instead of regex:
+// - Handles nested blocks, comments, imports correctly
+// - Future-proof: automatically supports new Caddy syntax
+// - Battle-tested by Caddy project itself
+func (i *Importer) NormalizeCaddyfile(content string) (string, error) {
+	// Write content to temp file (caddy fmt reads from file)
+	tmpFile, err := os.CreateTemp("", "caddyfile-*.tmp")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+
+	// Note: These OS-level temp file error paths (WriteString/Close failures)
+	// require disk fault injection to test and are impractical to cover in unit tests.
+	// They are defensive error handling for rare I/O failures.
+	if _, err := tmpFile.WriteString(content); err != nil {
+		return "", fmt.Errorf("failed to write temp file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return "", fmt.Errorf("failed to close temp file: %w", err)
+	}
+
+	// Run: caddy fmt --overwrite <tempfile>
+	// Note: --overwrite modifies the file in-place
+	output, err := i.executor.Execute(i.caddyBinaryPath, "fmt", "--overwrite", tmpFile.Name())
+	if err != nil {
+		return "", fmt.Errorf("caddy fmt failed: %w (output: %s)", err, string(output))
+	}
+
+	// Read formatted output
+	formatted, err := os.ReadFile(tmpFile.Name())
+	if err != nil {
+		return "", fmt.Errorf("failed to read formatted file: %w", err)
+	}
+
+	return string(formatted), nil
+}
 
 // ParseCaddyfile reads a Caddyfile and converts it to Caddy JSON.
 func (i *Importer) ParseCaddyfile(caddyfilePath string) ([]byte, error) {
@@ -346,7 +401,7 @@ func (i *Importer) ValidateCaddyBinary() error {
 
 // BackupCaddyfile creates a timestamped backup of the original Caddyfile.
 func BackupCaddyfile(originalPath, backupDir string) (string, error) {
-	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
 		return "", fmt.Errorf("creating backup directory: %w", err)
 	}
 
@@ -369,7 +424,7 @@ func BackupCaddyfile(originalPath, backupDir string) (string, error) {
 		return "", fmt.Errorf("reading original file: %w", err)
 	}
 
-	if err := os.WriteFile(backupPath, input, 0o644); err != nil {
+	if err := os.WriteFile(backupPath, input, 0o600); err != nil {
 		return "", fmt.Errorf("writing backup: %w", err)
 	}
 

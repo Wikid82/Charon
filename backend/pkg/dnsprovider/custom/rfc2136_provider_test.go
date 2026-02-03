@@ -168,6 +168,7 @@ func TestRFC2136Provider_ValidateCredentials(t *testing.T) {
 	provider := NewRFC2136Provider()
 
 	// Valid base64 secret (example)
+	// #nosec G101 -- Test fixture with non-functional credential for validation testing
 	validSecret := "c2VjcmV0a2V5MTIzNDU2Nzg5MA==" // "secretkey1234567890" in base64
 
 	tests := []struct {
@@ -366,10 +367,8 @@ func TestRFC2136Provider_ValidateCredentials(t *testing.T) {
 				if tt.errMsg != "" && !contains(err.Error(), tt.errMsg) {
 					t.Errorf("ValidateCredentials() error = %q, want to contain %q", err.Error(), tt.errMsg)
 				}
-			} else {
-				if err != nil {
-					t.Errorf("ValidateCredentials() unexpected error: %v", err)
-				}
+			} else if err != nil {
+				t.Errorf("ValidateCredentials() unexpected error: %v", err)
 			}
 		})
 	}
@@ -378,6 +377,7 @@ func TestRFC2136Provider_ValidateCredentials(t *testing.T) {
 func TestRFC2136Provider_TestCredentials(t *testing.T) {
 	provider := NewRFC2136Provider()
 
+	// #nosec G101 -- Test fixture with non-functional credential for validation testing
 	validSecret := "c2VjcmV0a2V5MTIzNDU2Nzg5MA=="
 
 	// TestCredentials should behave the same as ValidateCredentials
@@ -411,6 +411,7 @@ func TestRFC2136Provider_SupportsMultiCredential(t *testing.T) {
 func TestRFC2136Provider_BuildCaddyConfig(t *testing.T) {
 	provider := NewRFC2136Provider()
 
+	// #nosec G101 -- Test fixture with non-functional credential for validation testing
 	validSecret := "c2VjcmV0a2V5MTIzNDU2Nzg5MA=="
 
 	tests := []struct {
@@ -520,6 +521,7 @@ func TestRFC2136Provider_BuildCaddyConfig(t *testing.T) {
 func TestRFC2136Provider_BuildCaddyConfigForZone(t *testing.T) {
 	provider := NewRFC2136Provider()
 
+	// #nosec G101 -- Test fixture for RFC2136 provider testing, not a real credential
 	validSecret := "c2VjcmV0a2V5MTIzNDU2Nzg5MA=="
 
 	tests := []struct {

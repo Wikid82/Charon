@@ -22,6 +22,7 @@ func TestResetPasswordCommand_Succeeds(t *testing.T) {
 
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "data", "test.db")
+	// #nosec G301 -- Test fixture directory with standard permissions
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		t.Fatalf("mkdir db dir: %v", err)
 	}
@@ -68,6 +69,7 @@ func TestMigrateCommand_Succeeds(t *testing.T) {
 
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "data", "test.db")
+	// #nosec G301 -- Test fixture directory with standard permissions
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		t.Fatalf("mkdir db dir: %v", err)
 	}
@@ -126,7 +128,7 @@ func TestMigrateCommand_Succeeds(t *testing.T) {
 func TestStartupVerification_MissingTables(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "data", "test.db")
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o750); err != nil {
 		t.Fatalf("mkdir db dir: %v", err)
 	}
 
