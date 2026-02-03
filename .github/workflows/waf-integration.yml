@@ -1,4 +1,4 @@
-name: WAF Integration Tests
+name: WAF integration
 
 on:
   push:

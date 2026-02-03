@@ -20,6 +20,12 @@ Simply manage multiple websites and self-hosted applications. Click, save, done.
   <a href="https://codecov.io/gh/Wikid82/Charon" ><img src="https://codecov.io/gh/Wikid82/Charon/branch/main/graph/badge.svg?token=RXSINLQTGE" alt="Code Coverage"/></a>
  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
   <a href="SECURITY.md"><img src="https://img.shields.io/badge/Security-Audited-brightgreen.svg" alt="Security: Audited"></a>
+  <br>
+  <a href="https://github.com/Wikid82/Charon/actions/workflows/e2e-tests-split.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/e2e-tests-split.yml/badge.svg" alt="E2E Tests" /></a>
+  <a href="https://github.com/Wikid82/Charon/actions/workflows/cerberus-integration.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/cerberus-integration.yml/badge.svg" alt="Cerberus Integration"></a><br>
+  <a href="https://github.com/Wikid82/Charon/actions/workflows/crowdsec-integration.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/crowdsec-integration.yml/badge.svg" alt="CrowdSec Integration"></a>
+  <a href="https://github.com/Wikid82/Charon/actions/workflows/waf-integration.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/waf-integration.yml/badge.svg" alt="WAF Integration"></a>
+  <a href="https://github.com/Wikid82/Charon/actions/workflows/rate-limit-integration.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/rate-limit-integration.yml/badge.svg" alt="Rate Limit Integration Tests"></a>
 </p>
 
 ---
