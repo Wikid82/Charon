@@ -239,3 +239,84 @@ func TestLoad_EmergencyConfig(t *testing.T) {
 	assert.Equal(t, "admin", cfg.Emergency.BasicAuthUsername)
 	assert.Equal(t, "testpass", cfg.Emergency.BasicAuthPassword)
 }
+
+// ============================================
+// splitAndTrim Tests
+// ============================================
+
+func TestSplitAndTrim(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		sep      string
+		expected []string
+	}{
+		{
+			name:     "empty string",
+			input:    "",
+			sep:      ",",
+			expected: nil,
+		},
+		{
+			name:     "comma-separated values",
+			input:    "a,b,c",
+			sep:      ",",
+			expected: []string{"a", "b", "c"},
+		},
+		{
+			name:     "with whitespace",
+			input:    " a , b , c ",
+			sep:      ",",
+			expected: []string{"a", "b", "c"},
+		},
+		{
+			name:     "single value",
+			input:    "test",
+			sep:      ",",
+			expected: []string{"test"},
+		},
+		{
+			name:     "single value with whitespace",
+			input:    "  test  ",
+			sep:      ",",
+			expected: []string{"test"},
+		},
+		{
+			name:     "empty parts filtered",
+			input:    "a,,b,  ,c",
+			sep:      ",",
+			expected: []string{"a", "b", "c"},
+		},
+		{
+			name:     "semicolon separator",
+			input:    "10.0.0.0/8;172.16.0.0/12;192.168.0.0/16",
+			sep:      ";",
+			expected: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
+		},
+		{
+			name:     "mixed whitespace and empty",
+			input:    " , , a , , b , , ",
+			sep:      ",",
+			expected: []string{"a", "b"},
+		},
+		{
+			name:     "tabs and newlines",
+			input:    "a\t,\tb\n,\nc",
+			sep:      ",",
+			expected: []string{"a", "b", "c"},
+		},
+		{
+			name:     "CIDR list example",
+			input:    "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8",
+			sep:      ",",
+			expected: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := splitAndTrim(tt.input, tt.sep)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
