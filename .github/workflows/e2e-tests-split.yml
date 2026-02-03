@@ -11,7 +11,7 @@
 #
 # See docs/plans/browser_alignment_triage.md for details
 
-name: E2E Tests (Split Browsers)
+name: E2E Tests
 
 on:
   pull_request:
