@@ -543,6 +543,29 @@
                 "panel": "shared"
             }
         },
+        {
+            "label": "Utility: Update Grype Version",
+            "type": "shell",
+            "command": "curl -sSfL https://get.anchore.io/grype | sudo sh -s -- -b /usr/local/bin",
+            "group": "none",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Utility: Update Syft Version",
+            "type": "shell",
+            "command": "curl -sSfL https://get.anchore.io/syft | sudo sh -s -- -b /usr/local/bin",
+            "group": "none",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        }
+
     ],
     "inputs": [
         {

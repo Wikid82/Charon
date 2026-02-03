@@ -11,6 +11,7 @@ import { toast } from '../utils/toast'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { LiveLogViewer } from '../components/LiveLogViewer'
 import { SecurityNotificationSettingsModal } from '../components/SecurityNotificationSettingsModal'
+import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
 import { PageShell } from '../components/layout/PageShell'
 import {
   Card,
@@ -395,6 +396,11 @@ export default function Security() {
         )}
 
         <Outlet />
+
+        {/* CrowdSec Bouncer Key Display - only shown when CrowdSec is enabled */}
+        {status.cerberus?.enabled && (crowdsecStatus?.running ?? status.crowdsec.enabled) && (
+          <CrowdSecBouncerKeyDisplay />
+        )}
 
         {/* Security Layer Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

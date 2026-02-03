@@ -298,6 +298,7 @@ docker logs charon 2>&1 | grep HEARTBEAT_POLLER
 
 ## Related
 
+- [CrowdSec Setup Guide](../guides/crowdsec-setup.md) — Beginner-friendly setup walkthrough
 - [Web Application Firewall](./waf.md) — Complement CrowdSec with WAF protection
 - [Access Control](./access-control.md) — Manual IP blocking and geo-restrictions
 - [CrowdSec Troubleshooting](../troubleshooting/crowdsec.md) — Extended troubleshooting guide
