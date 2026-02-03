@@ -266,9 +266,10 @@ grype-results*.json
 grype-results*.sarif
 
 # -----------------------------------------------------------------------------
-# Docker Overrides (new location)
+# Docker
 # -----------------------------------------------------------------------------
 .docker/compose/docker-compose.override.yml
+.docker/compose/docker-compose.test.yml
 
 # Personal test compose file (contains local paths - user-specific)
 docker-compose.test.yml

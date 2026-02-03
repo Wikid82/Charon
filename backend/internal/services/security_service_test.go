@@ -19,12 +19,32 @@ func setupSecurityTestDB(t *testing.T) *gorm.DB {
 	err = db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityDecision{}, &models.SecurityAudit{}, &models.SecurityRuleSet{})
 	assert.NoError(t, err)
 
+	// Close database connection when test completes
+	t.Cleanup(func() {
+		sqlDB, _ := db.DB()
+		if sqlDB != nil {
+			_ = sqlDB.Close()
+		}
+	})
+
 	return db
+}
+
+// newTestSecurityService creates a SecurityService for tests with proper cleanup
+func newTestSecurityService(t *testing.T, db *gorm.DB) *SecurityService {
+	svc := NewSecurityService(db)
+
+	// Stop the background goroutine when test completes
+	t.Cleanup(func() {
+		svc.Close()
+	})
+
+	return svc
 }
 
 func TestSecurityService_Upsert_ValidateAdminWhitelist(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Invalid CIDR in admin whitelist should fail
 	cfg := &models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "invalid-cidr"}
@@ -45,7 +65,7 @@ func TestSecurityService_Upsert_ValidateAdminWhitelist(t *testing.T) {
 
 func TestSecurityService_BreakGlassTokenLifecycle(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Create record
 	cfg := &models.SecurityConfig{Name: "default", Enabled: false}
@@ -69,7 +89,7 @@ func TestSecurityService_BreakGlassTokenLifecycle(t *testing.T) {
 
 func TestSecurityService_LogDecisionAndList(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	dec := &models.SecurityDecision{Source: "manual", Action: "block", IP: "1.2.3.4", Host: "example.com", RuleID: "manual-1", Details: "test manual block"}
 	err := svc.LogDecision(dec)
@@ -83,7 +103,7 @@ func TestSecurityService_LogDecisionAndList(t *testing.T) {
 
 func TestSecurityService_UpsertRuleSet(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Test creating new ruleset
 	rs := &models.SecurityRuleSet{Name: "owasp-crs", SourceURL: "https://example.com/owasp.rules", Mode: "owasp", Content: "rule: 1"}
@@ -118,7 +138,7 @@ func TestSecurityService_UpsertRuleSet(t *testing.T) {
 
 func TestSecurityService_UpsertRuleSet_ContentTooLarge(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Create a string slightly larger than 2MB
 	large := strings.Repeat("x", 2*1024*1024+1)
@@ -129,7 +149,7 @@ func TestSecurityService_UpsertRuleSet_ContentTooLarge(t *testing.T) {
 
 func TestSecurityService_DeleteRuleSet(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	rs := &models.SecurityRuleSet{Name: "owasp-crs", Content: "rule: 1"}
 	err := svc.UpsertRuleSet(rs)
@@ -152,7 +172,7 @@ func TestSecurityService_DeleteRuleSet(t *testing.T) {
 
 func TestSecurityService_Upsert_RejectExternalMode(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// External mode should be rejected by validation
 	cfg := &models.SecurityConfig{Name: "default", Enabled: true, CrowdSecMode: "external"}
@@ -172,7 +192,7 @@ func TestSecurityService_Upsert_RejectExternalMode(t *testing.T) {
 
 func TestSecurityService_GenerateBreakGlassToken_NewConfig(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Generate token for non-existent config (should create it)
 	token, err := svc.GenerateBreakGlassToken("newconfig")
@@ -194,7 +214,7 @@ func TestSecurityService_GenerateBreakGlassToken_NewConfig(t *testing.T) {
 
 func TestSecurityService_GenerateBreakGlassToken_UpdateExisting(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Create initial config
 	cfg := &models.SecurityConfig{Name: "default", Enabled: true}
@@ -223,7 +243,7 @@ func TestSecurityService_GenerateBreakGlassToken_UpdateExisting(t *testing.T) {
 
 func TestSecurityService_VerifyBreakGlassToken_NoConfig(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Verify against non-existent config
 	ok, err := svc.VerifyBreakGlassToken("nonexistent", "anytoken")
@@ -234,7 +254,7 @@ func TestSecurityService_VerifyBreakGlassToken_NoConfig(t *testing.T) {
 
 func TestSecurityService_VerifyBreakGlassToken_NoHash(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Create config without break-glass hash
 	cfg := &models.SecurityConfig{Name: "default", Enabled: true, BreakGlassHash: ""}
@@ -250,7 +270,7 @@ func TestSecurityService_VerifyBreakGlassToken_NoHash(t *testing.T) {
 
 func TestSecurityService_VerifyBreakGlassToken_WrongToken(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Generate valid token
 	token, err := svc.GenerateBreakGlassToken("default")
@@ -275,7 +295,7 @@ func TestSecurityService_VerifyBreakGlassToken_WrongToken(t *testing.T) {
 
 func TestSecurityService_Get_NotFound(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Get from empty database
 	cfg, err := svc.Get()
@@ -286,7 +306,7 @@ func TestSecurityService_Get_NotFound(t *testing.T) {
 
 func TestSecurityService_Upsert_PreserveBreakGlassHash(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Generate token
 	token, err := svc.GenerateBreakGlassToken("default")
@@ -318,7 +338,7 @@ func TestSecurityService_Upsert_PreserveBreakGlassHash(t *testing.T) {
 
 func TestSecurityService_Get_PrefersDefaultConfig(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 	defer svc.Close()
 
 	// Create a non-default config first to simulate environments with multiple rows.
@@ -338,7 +358,7 @@ func TestSecurityService_Get_PrefersDefaultConfig(t *testing.T) {
 
 func TestSecurityService_Upsert_RateLimitFieldsPersist(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// 1. Create initial config with rate limit settings
 	initialCfg := &models.SecurityConfig{
@@ -393,7 +413,7 @@ func TestSecurityService_Upsert_RateLimitFieldsPersist(t *testing.T) {
 
 func TestSecurityService_LogAudit(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Test logging valid audit entry
 	audit := &models.SecurityAudit{
@@ -434,7 +454,7 @@ func TestSecurityService_LogAudit(t *testing.T) {
 
 func TestSecurityService_DeleteRuleSet_NotFound(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Try to delete non-existent ruleset
 	err := svc.DeleteRuleSet(9999)
@@ -443,7 +463,7 @@ func TestSecurityService_DeleteRuleSet_NotFound(t *testing.T) {
 
 func TestSecurityService_ListDecisions_UnlimitedAndLimited(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Create multiple decisions
 	for i := 0; i < 5; i++ {
@@ -472,7 +492,7 @@ func TestSecurityService_ListDecisions_UnlimitedAndLimited(t *testing.T) {
 
 func TestSecurityService_LogDecision_Nil(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Nil decision should not error
 	err := svc.LogDecision(nil)
@@ -481,7 +501,7 @@ func TestSecurityService_LogDecision_Nil(t *testing.T) {
 
 func TestSecurityService_LogDecision_PrefilledUUID(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	dec := &models.SecurityDecision{
 		UUID:    "custom-decision-uuid",
@@ -504,7 +524,7 @@ func TestSecurityService_LogDecision_PrefilledUUID(t *testing.T) {
 
 func TestSecurityService_ListRuleSets_Empty(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Empty database should return empty slice, not error
 	list, err := svc.ListRuleSets()
@@ -515,7 +535,7 @@ func TestSecurityService_ListRuleSets_Empty(t *testing.T) {
 
 func TestSecurityService_Upsert_InvalidCrowdSecMode(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Test various invalid modes
 	invalidModes := []string{"", "invalid", "External", "LOCAL", "disabled123"}
@@ -535,7 +555,7 @@ func TestSecurityService_Upsert_InvalidCrowdSecMode(t *testing.T) {
 
 func TestSecurityService_ListAuditLogs(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Create test audit logs
 	testAudits := []models.SecurityAudit{
@@ -609,7 +629,7 @@ func TestSecurityService_ListAuditLogs(t *testing.T) {
 
 func TestSecurityService_GetAuditLogByUUID(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Create test audit log
 	testAudit := models.SecurityAudit{
@@ -639,7 +659,7 @@ func TestSecurityService_GetAuditLogByUUID(t *testing.T) {
 
 func TestSecurityService_ListAuditLogsByProvider(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	providerID := uint(123)
 	otherProviderID := uint(456)
@@ -701,7 +721,7 @@ func TestSecurityService_ListAuditLogsByProvider(t *testing.T) {
 
 func TestSecurityService_AsyncAuditLogging(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	// Log audit asynchronously
 	audit := &models.SecurityAudit{
@@ -727,7 +747,7 @@ func TestSecurityService_AsyncAuditLogging(t *testing.T) {
 // TestSecurityService_ListAuditLogs_EdgeCases tests edge cases for audit log listing.
 func TestSecurityService_ListAuditLogs_EdgeCases(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	t.Run("list audits with no data returns empty", func(t *testing.T) {
 		audits, total, err := svc.ListAuditLogs(AuditLogFilter{}, 1, 10)
@@ -816,7 +836,7 @@ func TestSecurityService_ListAuditLogs_EdgeCases(t *testing.T) {
 // TestSecurityService_ListAuditLogsByProvider_EdgeCases tests edge cases for provider audit logs.
 func TestSecurityService_ListAuditLogsByProvider_EdgeCases(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 	defer svc.Close()
 
 	t.Run("list audits for non-existent provider returns empty", func(t *testing.T) {
@@ -830,7 +850,7 @@ func TestSecurityService_ListAuditLogsByProvider_EdgeCases(t *testing.T) {
 // TestSecurityService_GenerateBreakGlassToken_EdgeCases tests token generation edge cases.
 func TestSecurityService_GenerateBreakGlassToken_EdgeCases(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 	defer svc.Close()
 
 	t.Run("generated tokens are different on regeneration", func(t *testing.T) {
@@ -853,7 +873,7 @@ func TestSecurityService_GenerateBreakGlassToken_EdgeCases(t *testing.T) {
 // TestSecurityService_Flush_EdgeCases tests flush functionality.
 func TestSecurityService_Flush_EdgeCases(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	t.Run("flush with empty channel completes quickly", func(t *testing.T) {
 		start := time.Now()
@@ -888,7 +908,7 @@ func TestSecurityService_Flush_EdgeCases(t *testing.T) {
 func TestSecurityService_Get_Singleton(t *testing.T) {
 	t.Run("get returns error when no config exists", func(t *testing.T) {
 		db := setupSecurityTestDB(t)
-		svc := NewSecurityService(db)
+		svc := newTestSecurityService(t, db)
 		defer svc.Close()
 
 		_, err := svc.Get()
@@ -898,7 +918,7 @@ func TestSecurityService_Get_Singleton(t *testing.T) {
 
 	t.Run("get returns first config when no default", func(t *testing.T) {
 		db := setupSecurityTestDB(t)
-		svc := NewSecurityService(db)
+		svc := newTestSecurityService(t, db)
 		defer svc.Close()
 
 		// Create only non-default config
@@ -913,7 +933,7 @@ func TestSecurityService_Get_Singleton(t *testing.T) {
 
 	t.Run("get returns default config when exists", func(t *testing.T) {
 		db := setupSecurityTestDB(t)
-		svc := NewSecurityService(db)
+		svc := newTestSecurityService(t, db)
 		defer svc.Close()
 
 		// Create default config
@@ -931,7 +951,7 @@ func TestSecurityService_Get_Singleton(t *testing.T) {
 // TestSecurityService_ListRuleSets_EdgeCases tests rule set listing edge cases.
 func TestSecurityService_ListRuleSets_EdgeCases(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := NewSecurityService(db)
+	svc := newTestSecurityService(t, db)
 
 	t.Run("list rulesets with no data returns empty", func(t *testing.T) {
 		rulesets, err := svc.ListRuleSets()

@@ -28,6 +28,8 @@ type SecurityService struct {
 	auditChan chan *models.SecurityAudit
 	done      chan struct{}  // Channel to signal goroutine to stop
 	wg        sync.WaitGroup // WaitGroup to track goroutine completion
+	closed    bool           // Flag to prevent double-close
+	mu        sync.Mutex     // Mutex to protect closed flag
 }
 
 // NewSecurityService returns a SecurityService using the provided DB
@@ -45,6 +47,14 @@ func NewSecurityService(db *gorm.DB) *SecurityService {
 
 // Close gracefully stops the SecurityService and waits for audit processing to complete
 func (s *SecurityService) Close() {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return // Already closed
+	}
+	s.closed = true
+	s.mu.Unlock()
+
 	close(s.done)      // Signal the goroutine to stop
 	close(s.auditChan) // Close the audit channel
 	s.wg.Wait()        // Wait for the goroutine to finish
@@ -269,7 +279,16 @@ func (s *SecurityService) processAuditEvents() {
 				}
 			}
 		case <-s.done:
-			// Service is shutting down, exit goroutine
+			// Service is shutting down - drain remaining audit events before exiting
+			for audit := range s.auditChan {
+				if err := s.db.Create(audit).Error; err != nil {
+					errMsg := err.Error()
+					if !strings.Contains(errMsg, "no such table") &&
+						!strings.Contains(errMsg, "database is closed") {
+						fmt.Printf("Failed to write audit log: %v\n", err)
+					}
+				}
+			}
 			return
 		}
 	}

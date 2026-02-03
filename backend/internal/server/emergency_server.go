@@ -69,7 +69,7 @@ func (s *EmergencyServer) Start() error {
 	// CRITICAL: Validate emergency token is configured (fail-fast)
 	emergencyToken := os.Getenv(handlers.EmergencyTokenEnvVar)
 	if emergencyToken == "" || len(strings.TrimSpace(emergencyToken)) == 0 {
-		logger.Log().Fatal("FATAL: CHARON_EMERGENCY_SERVER_ENABLED=true but CHARON_EMERGENCY_TOKEN is empty or whitespace. Emergency server cannot start without a valid token.")
+		logger.Log().Error("FATAL: CHARON_EMERGENCY_SERVER_ENABLED=true but CHARON_EMERGENCY_TOKEN is empty or whitespace. Emergency server cannot start without a valid token.")
 		return fmt.Errorf("emergency token not configured")
 	}
 

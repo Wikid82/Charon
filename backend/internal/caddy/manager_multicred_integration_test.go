@@ -26,7 +26,7 @@ func encryptCredentials(t *testing.T, credentials map[string]string) string {
 	// base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
 	// = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
 	encryptionKey := "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
-	os.Setenv("CHARON_ENCRYPTION_KEY", encryptionKey)
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", encryptionKey))
 
 	encryptor, err := crypto.NewEncryptionService(encryptionKey)
 	require.NoError(t, err)

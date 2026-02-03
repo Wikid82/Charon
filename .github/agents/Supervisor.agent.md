@@ -3,7 +3,7 @@ name: 'Supervisor'
 description: 'Code Review Lead for quality assurance and PR review.'
 argument-hint: 'The PR or code change to review (e.g., "Review PR #123 for security issues")'
 tools:
-  ['vscode/memory', 'execute', 'read/terminalSelection', 'read/terminalLastCommand', 'read/problems', 'read/readFile', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'web', 'github/*', 'todo']
+  ['vscode/memory', 'execute', 'read', 'search', 'web', 'github/*', 'todo']
 model: 'claude-opus-4-5-20250514'
 mcp-servers:
   - github

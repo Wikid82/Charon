@@ -33,7 +33,7 @@ func TestListPresetsShowsCachedStatus(t *testing.T) {
 	// Setup handler
 	hub := crowdsec.NewHubService(nil, cache, dataDir)
 	db := OpenTestDB(t)
-	handler := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", dataDir)
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
 	handler.Hub = hub
 
 	r := gin.New()

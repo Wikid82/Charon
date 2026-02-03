@@ -64,7 +64,7 @@ func TestLoad_CharonPrefersOverCPM(t *testing.T) {
 func TestLoad_Error(t *testing.T) {
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "file")
-	f, err := os.Create(filePath)
+	f, err := os.Create(filePath) // #nosec G304 -- Test creates temp config file
 	require.NoError(t, err)
 	_ = f.Close()
 
@@ -119,13 +119,13 @@ func TestGetEnvAny(t *testing.T) {
 func TestLoad_SecurityConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	_ = os.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
-	os.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
-	os.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+	_ = os.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
+	_ = os.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
 
 	// Test security settings
-	os.Setenv("CERBERUS_SECURITY_CROWDSEC_MODE", "live")
-	os.Setenv("CERBERUS_SECURITY_WAF_MODE", "enabled")
-	os.Setenv("CERBERUS_SECURITY_CERBERUS_ENABLED", "true")
+	_ = os.Setenv("CERBERUS_SECURITY_CROWDSEC_MODE", "live")
+	_ = os.Setenv("CERBERUS_SECURITY_WAF_MODE", "enabled")
+	_ = os.Setenv("CERBERUS_SECURITY_CERBERUS_ENABLED", "true")
 	defer func() {
 		_ = os.Unsetenv("CERBERUS_SECURITY_CROWDSEC_MODE")
 		_ = os.Unsetenv("CERBERUS_SECURITY_WAF_MODE")
@@ -145,14 +145,14 @@ func TestLoad_DatabasePathError(t *testing.T) {
 
 	// Create a file where the data directory should be created
 	blockingFile := filepath.Join(tempDir, "blocking")
-	f, err := os.Create(blockingFile)
+	f, err := os.Create(blockingFile) // #nosec G304 -- Test creates blocking file for error condition
 	require.NoError(t, err)
 	_ = f.Close()
 
 	// Try to use a path that requires creating a dir inside the blocking file
-	os.Setenv("CHARON_DB_PATH", filepath.Join(blockingFile, "data", "test.db"))
-	os.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
-	os.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+	_ = os.Setenv("CHARON_DB_PATH", filepath.Join(blockingFile, "data", "test.db"))
+	_ = os.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
+	_ = os.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
 	defer func() {
 		_ = os.Unsetenv("CHARON_DB_PATH")
 		_ = os.Unsetenv("CHARON_CADDY_CONFIG_DIR")
@@ -166,12 +166,12 @@ func TestLoad_DatabasePathError(t *testing.T) {
 
 func TestLoad_ACMEStaging(t *testing.T) {
 	tempDir := t.TempDir()
-	os.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
-	os.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
-	os.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+	_ = os.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
+	_ = os.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
+	_ = os.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
 
 	// Test ACME staging enabled
-	os.Setenv("CHARON_ACME_STAGING", "true")
+	_ = os.Setenv("CHARON_ACME_STAGING", "true")
 	defer func() { _ = os.Unsetenv("CHARON_ACME_STAGING") }()
 
 	cfg, err := Load()
@@ -179,7 +179,7 @@ func TestLoad_ACMEStaging(t *testing.T) {
 	assert.True(t, cfg.ACMEStaging)
 
 	// Test ACME staging disabled
-	os.Setenv("CHARON_ACME_STAGING", "false")
+	require.NoError(t, os.Setenv("CHARON_ACME_STAGING", "false"))
 	cfg, err = Load()
 	require.NoError(t, err)
 	assert.False(t, cfg.ACMEStaging)
@@ -187,20 +187,20 @@ func TestLoad_ACMEStaging(t *testing.T) {
 
 func TestLoad_DebugMode(t *testing.T) {
 	tempDir := t.TempDir()
-	os.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
-	os.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
-	os.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+	require.NoError(t, os.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db")))
+	require.NoError(t, os.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy")))
+	require.NoError(t, os.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports")))
 
 	// Test debug mode enabled
-	os.Setenv("CHARON_DEBUG", "true")
-	defer func() { _ = os.Unsetenv("CHARON_DEBUG") }()
+	require.NoError(t, os.Setenv("CHARON_DEBUG", "true"))
+	defer func() { require.NoError(t, os.Unsetenv("CHARON_DEBUG")) }()
 
 	cfg, err := Load()
 	require.NoError(t, err)
 	assert.True(t, cfg.Debug)
 
 	// Test debug mode disabled
-	os.Setenv("CHARON_DEBUG", "false")
+	require.NoError(t, os.Setenv("CHARON_DEBUG", "false"))
 	cfg, err = Load()
 	require.NoError(t, err)
 	assert.False(t, cfg.Debug)
@@ -208,9 +208,9 @@ func TestLoad_DebugMode(t *testing.T) {
 
 func TestLoad_EmergencyConfig(t *testing.T) {
 	tempDir := t.TempDir()
-	os.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
-	os.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
-	os.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+	require.NoError(t, os.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db")))
+	require.NoError(t, os.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy")))
+	require.NoError(t, os.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports")))
 
 	// Test emergency config defaults
 	cfg, err := Load()
@@ -221,10 +221,10 @@ func TestLoad_EmergencyConfig(t *testing.T) {
 	assert.Equal(t, "", cfg.Emergency.BasicAuthPassword, "Basic auth password should be empty by default")
 
 	// Test emergency config with custom values
-	os.Setenv("CHARON_EMERGENCY_SERVER_ENABLED", "true")
-	os.Setenv("CHARON_EMERGENCY_BIND", "0.0.0.0:2020")
-	os.Setenv("CHARON_EMERGENCY_USERNAME", "admin")
-	os.Setenv("CHARON_EMERGENCY_PASSWORD", "testpass")
+	_ = os.Setenv("CHARON_EMERGENCY_SERVER_ENABLED", "true")
+	_ = os.Setenv("CHARON_EMERGENCY_BIND", "0.0.0.0:2020")
+	_ = os.Setenv("CHARON_EMERGENCY_USERNAME", "admin")
+	_ = os.Setenv("CHARON_EMERGENCY_PASSWORD", "testpass")
 	defer func() {
 		_ = os.Unsetenv("CHARON_EMERGENCY_SERVER_ENABLED")
 		_ = os.Unsetenv("CHARON_EMERGENCY_BIND")

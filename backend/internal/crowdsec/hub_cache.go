@@ -47,7 +47,7 @@ func NewHubCache(baseDir string, ttl time.Duration) (*HubCache, error) {
 	if baseDir == "" {
 		return nil, fmt.Errorf("baseDir required")
 	}
-	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+	if err := os.MkdirAll(baseDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create cache dir: %w", err)
 	}
 	return &HubCache{baseDir: baseDir, ttl: ttl, nowFn: time.Now}, nil
@@ -70,7 +70,7 @@ func (c *HubCache) Store(ctx context.Context, slug, etag, source, preview string
 	dir := filepath.Join(c.baseDir, cleanSlug)
 	logger.Log().WithField("slug", util.SanitizeForLog(cleanSlug)).WithField("cache_dir", util.SanitizeForLog(dir)).WithField("archive_size", len(archive)).Debug("storing preset in cache")
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		logger.Log().WithError(err).WithField("dir", util.SanitizeForLog(dir)).Error("failed to create cache directory")
 		return CachedPreset{}, fmt.Errorf("create slug dir: %w", err)
 	}
@@ -79,11 +79,11 @@ func (c *HubCache) Store(ctx context.Context, slug, etag, source, preview string
 	cacheKey := fmt.Sprintf("%s-%d", cleanSlug, ts.Unix())
 
 	archivePath := filepath.Join(dir, "bundle.tgz")
-	if err := os.WriteFile(archivePath, archive, 0o640); err != nil {
+	if err := os.WriteFile(archivePath, archive, 0o600); err != nil {
 		return CachedPreset{}, fmt.Errorf("write archive: %w", err)
 	}
 	previewPath := filepath.Join(dir, "preview.yaml")
-	if err := os.WriteFile(previewPath, []byte(preview), 0o640); err != nil {
+	if err := os.WriteFile(previewPath, []byte(preview), 0o600); err != nil {
 		return CachedPreset{}, fmt.Errorf("write preview: %w", err)
 	}
 
@@ -102,7 +102,7 @@ func (c *HubCache) Store(ctx context.Context, slug, etag, source, preview string
 	if err != nil {
 		return CachedPreset{}, fmt.Errorf("marshal metadata: %w", err)
 	}
-	if err := os.WriteFile(metaPath, raw, 0o640); err != nil {
+	if err := os.WriteFile(metaPath, raw, 0o600); err != nil {
 		logger.Log().WithError(err).WithField("meta_path", util.SanitizeForLog(metaPath)).Error("failed to write metadata file")
 		return CachedPreset{}, fmt.Errorf("write metadata: %w", err)
 	}
@@ -124,7 +124,7 @@ func (c *HubCache) Load(ctx context.Context, slug string) (CachedPreset, error) 
 	metaPath := filepath.Join(c.baseDir, cleanSlug, "metadata.json")
 	logger.Log().WithField("slug", util.SanitizeForLog(cleanSlug)).WithField("meta_path", util.SanitizeForLog(metaPath)).Debug("attempting to load cached preset")
 
-	data, err := os.ReadFile(metaPath)
+	data, err := os.ReadFile(metaPath) // #nosec G304 -- Reading cached preset metadata
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			logger.Log().WithField("slug", util.SanitizeForLog(cleanSlug)).WithField("meta_path", util.SanitizeForLog(metaPath)).Debug("preset not found in cache (cache miss)")
@@ -241,7 +241,7 @@ func (c *HubCache) Touch(ctx context.Context, slug string) error {
 		return err
 	}
 	metaPath := filepath.Join(c.baseDir, meta.Slug, "metadata.json")
-	return os.WriteFile(metaPath, raw, 0o640)
+	return os.WriteFile(metaPath, raw, 0o600)
 }
 
 // Size returns aggregated size of cached archives (best effort).

@@ -19,7 +19,7 @@ func TestLogService(t *testing.T) {
 
 	dataDir := filepath.Join(tmpDir, "data")
 	logsDir := filepath.Join(dataDir, "logs")
-	err = os.MkdirAll(logsDir, 0o755)
+	err = os.MkdirAll(logsDir, 0o750) // #nosec G301 -- test directory
 	require.NoError(t, err)
 
 	// Create sample JSON logs
@@ -50,9 +50,9 @@ func TestLogService(t *testing.T) {
 
 	content := string(line1) + "\n" + string(line2) + "\n"
 
-	err = os.WriteFile(filepath.Join(logsDir, "access.log"), []byte(content), 0o644)
+	err = os.WriteFile(filepath.Join(logsDir, "access.log"), []byte(content), 0o600) // #nosec G306 -- test fixture
 	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(logsDir, "other.txt"), []byte("ignore me"), 0o644)
+	err = os.WriteFile(filepath.Join(logsDir, "other.txt"), []byte("ignore me"), 0o600) // #nosec G306 -- test fixture
 	require.NoError(t, err)
 
 	cfg := &config.Config{DatabasePath: filepath.Join(dataDir, "charon.db")}
@@ -120,7 +120,7 @@ func TestLogService(t *testing.T) {
 
 	// Test QueryLogs - Non-JSON Logs
 	plainContent := "2023/10/27 10:00:00 Application started\nJust a plain line\n"
-	err = os.WriteFile(filepath.Join(logsDir, "app.log"), []byte(plainContent), 0o644)
+	err = os.WriteFile(filepath.Join(logsDir, "app.log"), []byte(plainContent), 0o600) // #nosec G306 -- test fixture
 	require.NoError(t, err)
 
 	results, total, err = service.QueryLogs("app.log", models.LogFilter{Limit: 10})

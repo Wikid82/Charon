@@ -457,6 +457,54 @@ test('network test', async ({ page }) => {
 });
 ```
 
+## UI Interaction Helpers
+
+### Switch/Toggle Helpers
+
+The `tests/utils/ui-helpers.ts` file provides helpers for reliable Switch/Toggle interactions.
+
+**Problem**: Switch components use a hidden `<input>` with styled siblings, causing Playwright's `click()` to fail with "pointer events intercepted" errors.
+
+**Solution**: Use the switch helper functions:
+
+```typescript
+import { clickSwitch, expectSwitchState, toggleSwitch } from '../utils/ui-helpers';
+
+test('should toggle security features', async ({ page }) => {
+  await page.goto('/settings');
+
+  // ✅ GOOD: Click switch reliably
+  const aclSwitch = page.getByRole('switch', { name: /acl/i });
+  await clickSwitch(aclSwitch);
+
+  // ✅ GOOD: Assert switch state
+  await expectSwitchState(aclSwitch, true);
+
+  // ✅ GOOD: Toggle and get new state
+  const isEnabled = await toggleSwitch(aclSwitch);
+  console.log(`ACL is now ${isEnabled ? 'enabled' : 'disabled'}`);
+
+  // ❌ BAD: Direct click (fails in WebKit/Firefox)
+  await aclSwitch.click({ force: true }); // Don't use force!
+});
+```
+
+**Key Features**:
+- Automatically finds parent `<label>` element
+- Scrolls element into view (sticky header aware)
+- Cross-browser compatible (Chromium, Firefox, WebKit)
+- No `force: true` or hard-coded waits needed
+
+**When to Use**:
+- Any test that clicks Switch/Toggle components
+- Settings pages with enable/disable toggles
+- Security dashboard module toggles (CrowdSec, ACL, WAF, Rate Limiting)
+- Access lists and configuration toggles
+
+**References**:
+- [Implementation](../../tests/utils/ui-helpers.ts) - Full helper code
+- [QA Report](../reports/qa_report.md) - Test results and validation
+
 ## Troubleshooting Debug Features
 
 ### Traces Not Captured

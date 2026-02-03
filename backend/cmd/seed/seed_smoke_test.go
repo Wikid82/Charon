@@ -18,6 +18,7 @@ func TestSeedMain_Smoke(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(wd) })
 
+	// #nosec G301 -- Test data directory, 0o755 acceptable for test environment
 	if err := os.MkdirAll("data", 0o755); err != nil {
 		t.Fatalf("mkdir data: %v", err)
 	}

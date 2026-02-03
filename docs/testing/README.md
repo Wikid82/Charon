@@ -68,7 +68,62 @@ await testStep('Describe action', async () => {
 await testAssert('Check result', assertion, logger);
 ```
 
-#### 🔍 Common Debugging Tasks
+**Switch/Toggle Helpers** (`tests/utils/ui-helpers.ts`)
+```typescript
+import { clickSwitch, expectSwitchState, toggleSwitch } from './utils/ui-helpers';
+
+// Click a switch reliably (handles hidden input pattern)
+await clickSwitch(page.getByRole('switch', { name: /cerberus/i }));
+
+// Assert switch state
+await expectSwitchState(switchLocator, true); // Checked
+await expectSwitchState(switchLocator, false); // Unchecked
+
+// Toggle and get new state
+const newState = await toggleSwitch(switchLocator);
+```
+
+#### � Switch/Toggle Component Testing
+
+**Problem**: Switch components use a hidden `<input>` with a styled sibling, causing "pointer events intercepted" errors.
+
+**Solution**: Use the switch helper functions in `tests/utils/ui-helpers.ts`:
+
+```typescript
+import { clickSwitch, expectSwitchState, toggleSwitch } from './utils/ui-helpers';
+
+// ✅ GOOD: Use clickSwitch helper
+await clickSwitch(page.getByRole('switch', { name: /enable cerberus/i }));
+
+// ✅ GOOD: Assert state after change
+await expectSwitchState(page.getByRole('switch', { name: /acl/i }), true);
+
+// ✅ GOOD: Toggle and get new state
+const isEnabled = await toggleSwitch(page.getByRole('switch', { name: /waf/i }));
+
+// ❌ BAD: Direct click on hidden input (fails in WebKit/Firefox)
+await page.getByRole('switch').click({ force: true }); // Don't use force!
+```
+
+**Key Features**:
+- Automatically handles hidden input pattern
+- Scrolls element into view (sticky header aware)
+- Cross-browser compatible (Chromium, Firefox, WebKit)
+- No `force: true` or hard-coded waits needed
+
+**When to Use**:
+- Any test that clicks Switch/Toggle components
+- Settings pages with enable/disable toggles
+- Security dashboard module toggles
+- Access lists, WAF, rate limiting controls
+
+**References**:
+- [Implementation](../../tests/utils/ui-helpers.ts) - Full helper code
+- [QA Report](../reports/qa_report.md) - Test results and validation
+
+---
+
+#### �🔍 Common Debugging Tasks
 
 **See test output with colors:**
 ```bash
@@ -112,6 +167,7 @@ When tests run in CI/CD:
 | Debug Logger | Structured logging with timing | `tests/utils/debug-logger.ts` |
 | Network Interceptor | HTTP request/response capture | `tests/fixtures/network.ts` |
 | Test Helpers | Step and assertion logging | `tests/utils/test-steps.ts` |
+| Switch Helpers | Reliable toggle/switch interactions | `tests/utils/ui-helpers.ts` |
 | Reporter | Failure analysis and statistics | `tests/reporters/debug-reporter.ts` |
 | Global Setup | Enhanced initialization logging | `tests/global-setup.ts` |
 | Config | Trace/video/screenshot setup | `playwright.config.js` |

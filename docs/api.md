@@ -1598,6 +1598,100 @@ Content-Type: application/json
 }
 ```
 
+#### Upload Multiple Caddyfiles
+
+Upload multiple Caddyfiles in a single request. Useful for importing configurations from multiple site files.
+
+```http
+POST /import/upload-multi
+Content-Type: application/json
+```
+
+**Request Body:**
+
+```json
+{
+  "files": [
+    {
+      "filename": "example.com.Caddyfile",
+      "content": "example.com {\n    reverse_proxy localhost:8080\n}"
+    },
+    {
+      "filename": "api.example.com.Caddyfile",
+      "content": "api.example.com {\n    reverse_proxy localhost:9000\n}"
+    }
+  ]
+}
+```
+
+**Required Fields:**
+
+- `files` - Array of file objects (minimum 1)
+  - `filename` (string, required) - Original filename
+  - `content` (string, required) - Caddyfile content
+
+**Response 200:**
+
+```json
+{
+  "hosts": [
+    {
+      "domain": "example.com",
+      "forward_host": "localhost",
+      "forward_port": 8080,
+      "forward_scheme": "http"
+    },
+    {
+      "domain": "api.example.com",
+      "forward_host": "localhost",
+      "forward_port": 9000,
+      "forward_scheme": "http"
+    }
+  ],
+  "conflicts": [],
+  "errors": [],
+  "warning": ""
+}
+```
+
+**Response 400 (validation error):**
+
+```json
+{
+  "error": "files is required and must contain at least one file"
+}
+```
+
+**Response 400 (parse error with warning):**
+
+```json
+{
+  "error": "Caddyfile uses file_server which is not supported for import",
+  "warning": "file_server directive detected - static file serving is not supported"
+}
+```
+
+**TypeScript Example:**
+
+```typescript
+interface CaddyFile {
+  filename: string;
+  content: string;
+}
+
+const uploadCaddyfilesMulti = async (files: CaddyFile[]): Promise<ImportPreview> => {
+  const { data } = await client.post<ImportPreview>('/import/upload-multi', { files });
+  return data;
+};
+
+// Usage
+const files = [
+  { filename: 'site1.Caddyfile', content: 'site1.com { reverse_proxy :8080 }' },
+  { filename: 'site2.Caddyfile', content: 'site2.com { reverse_proxy :9000 }' }
+];
+const preview = await uploadCaddyfilesMulti(files);
+```
+
 #### Commit Import
 
 Commit the import after resolving conflicts.

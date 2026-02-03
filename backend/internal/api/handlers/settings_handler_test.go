@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
@@ -1287,7 +1288,8 @@ func TestSettingsHandler_TestPublicURL_InvalidScheme(t *testing.T) {
 
 			assert.Equal(t, http.StatusBadRequest, w.Code)
 			var resp map[string]any
-			json.Unmarshal(w.Body.Bytes(), &resp)
+			err := json.Unmarshal(w.Body.Bytes(), &resp)
+			require.NoError(t, err, "Failed to unmarshal response")
 			// BadRequest responses only have 'error' field, not 'reachable'
 			assert.Contains(t, resp["error"].(string), "parse")
 		})
@@ -1334,7 +1336,8 @@ func TestSettingsHandler_ValidatePublicURL_URLWithWarning(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
 	assert.Equal(t, true, resp["valid"])
 	// May have a warning about HTTP vs HTTPS
 }
@@ -1393,7 +1396,8 @@ func TestSettingsHandler_TestPublicURL_IPv6LocalhostBlocked(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
 	assert.False(t, resp["reachable"].(bool))
 	// IPv6 loopback should be blocked
 }

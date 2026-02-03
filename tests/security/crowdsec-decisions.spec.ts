@@ -1,22 +1,22 @@
 /**
- * CrowdSec Decisions (Bans) E2E Tests
+ * CrowdSec Banned IPs (Decisions) E2E Tests
  *
- * Tests the CrowdSec decisions/bans management functionality:
- * - Viewing active decisions/bans
+ * Tests the CrowdSec banned IPs functionality on the main CrowdSec config page:
+ * - Viewing active bans (decisions)
  * - Adding manual IP bans
  * - Removing bans (unban)
- * - Decision details and filtering
+ * - Ban details and status
  *
- * @see /projects/Charon/docs/plans/current_spec.md - Phase 3
+ * NOTE: CrowdSec "Decisions" are managed via the "Banned IPs" card on /security/crowdsec
+ * There is no separate /security/crowdsec/decisions page - functionality is integrated.
+ *
+ * @see /projects/Charon/docs/plans/current_spec.md
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForToast } from '../utils/wait-helpers';
 
-// NOTE: The /security/crowdsec/decisions route doesn't exist as a separate page.
-// Decisions are displayed within the main CrowdSec config page at /security/crowdsec.
-// This test suite is skipped until the dedicated decisions route is implemented.
-test.describe.skip('CrowdSec Decisions Management', () => {
+test.describe('CrowdSec Banned IPs Management', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page);
@@ -24,21 +24,34 @@ test.describe.skip('CrowdSec Decisions Management', () => {
     await waitForLoadingComplete(page);
   });
 
-  test.describe('Decisions List', () => {
-    test('should display decisions page', async ({ page }) => {
-      // The page should load - look for heading or table
-      const heading = page.getByRole('heading', { name: /decisions|bans/i });
-      const table = page.getByRole('table');
-      const grid = page.locator('[class*="grid"], [class*="table"], [class*="list"]');
+  test.describe('Banned IPs Card', () => {
+    test('should display banned IPs section on CrowdSec config page', async ({ page }) => {
+      // Verify we're on the CrowdSec config page
+      await expect(page).toHaveURL('/security/crowdsec');
 
-      const headingVisible = await heading.isVisible().catch(() => false);
-      const tableVisible = await table.isVisible().catch(() => false);
-      const gridVisible = await grid.first().isVisible().catch(() => false);
-
-      // At least one should be visible
-      expect(headingVisible || tableVisible || gridVisible).toBeTruthy();
+      // Verify banned IPs section exists
+      const bannedIpsHeading = page.getByRole('heading', { name: /banned ips/i });
+      await expect(bannedIpsHeading).toBeVisible();
     });
 
+    test('should show ban IP button when CrowdSec is enabled', async ({ page }) => {
+      // Check if CrowdSec is enabled (status card should show "Running")
+      const statusCard = page.locator('[class*="card"]').filter({ hasText: /status/i });
+      const isRunning = await statusCard.getByText(/running|active/i).isVisible().catch(() => false);
+
+      if (isRunning) {
+        // Ban IP button should be visible when CrowdSec is running
+        const banButton = page.getByRole('button', { name: /ban ip/i });
+        await expect(banButton).toBeVisible();
+      } else {
+        // Skip if CrowdSec is not enabled
+        test.skip(true, 'CrowdSec is not enabled - cannot test banned IPs functionality');
+      }
+    });
+  });
+
+  // Data-focused tests skipped - require CrowdSec running and full implementation
+  test.describe.skip('Banned IPs Data Operations (Requires CrowdSec Running)', () => {
     test('should show active decisions if any exist', async ({ page }) => {
       // Wait for decisions to load
       await page.waitForResponse(resp =>
@@ -83,7 +96,7 @@ test.describe.skip('CrowdSec Decisions Management', () => {
     });
   });
 
-  test.describe('Add Decision (Ban IP)', () => {
+  test.describe.skip('Add Decision (Ban IP) - Requires CrowdSec Running', () => {
     test('should have add ban button', async ({ page }) => {
       const addButton = page.getByRole('button', { name: /add|ban|new/i });
       const addButtonVisible = await addButton.isVisible().catch(() => false);
@@ -159,7 +172,7 @@ test.describe.skip('CrowdSec Decisions Management', () => {
     });
   });
 
-  test.describe('Remove Decision (Unban)', () => {
+  test.describe.skip('Remove Decision (Unban) - Requires CrowdSec Running', () => {
     test('should show unban action for each decision', async ({ page }) => {
       // If there are decisions, each should have an unban action
       const unbanButtons = page.getByRole('button', { name: /unban|remove|delete/i });
@@ -189,7 +202,7 @@ test.describe.skip('CrowdSec Decisions Management', () => {
     });
   });
 
-  test.describe('Filtering and Search', () => {
+  test.describe.skip('Filtering and Search - Requires CrowdSec Running', () => {
     test('should have search/filter input', async ({ page }) => {
       const searchInput = page.getByPlaceholder(/search|filter/i);
       const searchVisible = await searchInput.isVisible().catch(() => false);
@@ -212,7 +225,7 @@ test.describe.skip('CrowdSec Decisions Management', () => {
     });
   });
 
-  test.describe('Refresh and Sync', () => {
+  test.describe.skip('Refresh and Sync - Requires CrowdSec Running', () => {
     test('should have refresh button', async ({ page }) => {
       const refreshButton = page.getByRole('button', { name: /refresh|sync|reload/i });
       const refreshVisible = await refreshButton.isVisible().catch(() => false);
@@ -227,7 +240,7 @@ test.describe.skip('CrowdSec Decisions Management', () => {
     });
   });
 
-  test.describe('Navigation', () => {
+  test.describe.skip('Navigation - Requires CrowdSec Running', () => {
     test('should navigate back to CrowdSec config', async ({ page }) => {
       const backLink = page.getByRole('link', { name: /crowdsec|back|config/i });
       const backVisible = await backLink.isVisible().catch(() => false);
@@ -240,7 +253,7 @@ test.describe.skip('CrowdSec Decisions Management', () => {
     });
   });
 
-  test.describe('Accessibility', () => {
+  test.describe.skip('Accessibility - Requires CrowdSec Running', () => {
     test('should be keyboard navigable', async ({ page }) => {
       await page.keyboard.press('Tab');
       // Some element should receive focus

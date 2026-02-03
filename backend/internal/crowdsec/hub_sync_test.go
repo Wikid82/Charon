@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -51,7 +52,14 @@ func makeTarGz(t *testing.T, files map[string]string) []byte {
 	buf := &bytes.Buffer{}
 	gw := gzip.NewWriter(buf)
 	tw := tar.NewWriter(gw)
-	for name, content := range files {
+	// Sort keys for deterministic order in archive
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		content := files[name]
 		hdr := &tar.Header{Name: name, Mode: 0o644, Size: int64(len(content))}
 		require.NoError(t, tw.WriteHeader(hdr))
 		_, err := tw.Write([]byte(content))
@@ -64,6 +72,7 @@ func makeTarGz(t *testing.T, files map[string]string) []byte {
 
 func readFixture(t *testing.T, name string) string {
 	t.Helper()
+	// #nosec G304 -- Test reads from testdata directory with known fixture names
 	data, err := os.ReadFile(filepath.Join("testdata", name))
 	require.NoError(t, err)
 	return string(data)
@@ -260,9 +269,10 @@ func TestApplyRollsBackOnBadArchive(t *testing.T) {
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 	baseDir := filepath.Join(t.TempDir(), "data")
+	// #nosec G301 -- Test data directory needs standard Unix permissions
 	require.NoError(t, os.MkdirAll(baseDir, 0o755))
 	keep := filepath.Join(baseDir, "keep.txt")
-	require.NoError(t, os.WriteFile(keep, []byte("before"), 0o644))
+	require.NoError(t, os.WriteFile(keep, []byte("before"), 0o600))
 
 	badArchive := makeTarGz(t, map[string]string{"../evil.txt": "boom"})
 	_, err = cache.Store(context.Background(), "crowdsecurity/demo", "etag1", "hub", "preview", badArchive)
@@ -272,6 +282,7 @@ func TestApplyRollsBackOnBadArchive(t *testing.T) {
 	_, err = svc.Apply(context.Background(), "crowdsecurity/demo")
 	require.Error(t, err)
 
+	// #nosec G304 -- Reading test fixture file with known path
 	content, readErr := os.ReadFile(keep)
 	require.NoError(t, readErr)
 	require.Equal(t, "before", string(content))
@@ -576,8 +587,9 @@ func TestApplyRollsBackWhenCacheMissing(t *testing.T) {
 	t.Parallel()
 	baseDir := t.TempDir()
 	dataDir := filepath.Join(baseDir, "crowdsec")
+	// #nosec G301 -- Test fixture directory with standard permissions
 	require.NoError(t, os.MkdirAll(dataDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "keep.txt"), []byte("before"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "keep.txt"), []byte("before"), 0o600))
 
 	svc := NewHubService(nil, nil, dataDir)
 	res, err := svc.Apply(context.Background(), "crowdsecurity/demo")
@@ -586,7 +598,7 @@ func TestApplyRollsBackWhenCacheMissing(t *testing.T) {
 	require.NotEmpty(t, res.BackupPath)
 	require.Equal(t, "failed", res.Status)
 
-	content, readErr := os.ReadFile(filepath.Join(dataDir, "keep.txt"))
+	content, readErr := os.ReadFile(filepath.Join(dataDir, "keep.txt")) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, readErr)
 	require.Equal(t, "before", string(content))
 }
@@ -782,12 +794,13 @@ func TestApplyWithCopyBasedBackup(t *testing.T) {
 	require.NoError(t, err)
 
 	dataDir := filepath.Join(t.TempDir(), "data")
-	require.NoError(t, os.MkdirAll(dataDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "existing.txt"), []byte("old data"), 0o644))
+	require.NoError(t, os.MkdirAll(dataDir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "existing.txt"), []byte("old data"), 0o600))
 
 	// Create subdirectory with files
 	subDir := filepath.Join(dataDir, "subdir")
-	require.NoError(t, os.MkdirAll(subDir, 0o755))
+	require.NoError(t, os.MkdirAll(subDir, 0o750))
+	// #nosec G306 -- Test fixture file in subdirectory
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.txt"), []byte("nested"), 0o644))
 
 	archive := makeTarGz(t, map[string]string{"new/config.yaml": "new: config"})
@@ -812,7 +825,8 @@ func TestApplyWithCopyBasedBackup(t *testing.T) {
 func TestBackupExistingHandlesDeviceBusy(t *testing.T) {
 	t.Parallel()
 	dataDir := filepath.Join(t.TempDir(), "data")
-	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	require.NoError(t, os.MkdirAll(dataDir, 0o750))
+	// #nosec G306 -- Test fixture file used for copy-based backup verification
 	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "file.txt"), []byte("content"), 0o644))
 
 	svc := NewHubService(nil, nil, dataDir)
@@ -832,6 +846,7 @@ func TestCopyFile(t *testing.T) {
 
 	// Create source file
 	content := []byte("test file content")
+	// #nosec G306 -- Test fixture source file for copyFile test
 	require.NoError(t, os.WriteFile(srcFile, content, 0o644))
 
 	// Test successful copy
@@ -840,7 +855,7 @@ func TestCopyFile(t *testing.T) {
 	require.FileExists(t, dstFile)
 
 	// Verify content
-	dstContent, err := os.ReadFile(dstFile)
+	dstContent, err := os.ReadFile(dstFile) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, err)
 	require.Equal(t, content, dstContent)
 
@@ -862,12 +877,12 @@ func TestCopyDir(t *testing.T) {
 	dstDir := filepath.Join(tmpDir, "dest")
 
 	// Create source directory structure
-	require.NoError(t, os.MkdirAll(filepath.Join(srcDir, "subdir"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "file1.txt"), []byte("file1"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "subdir", "file2.txt"), []byte("file2"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(srcDir, "subdir"), 0o750)) // #nosec G301 -- test fixture
+	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "file1.txt"), []byte("file1"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "subdir", "file2.txt"), []byte("file2"), 0o600))
 
 	// Create destination directory
-	require.NoError(t, os.MkdirAll(dstDir, 0o755))
+	require.NoError(t, os.MkdirAll(dstDir, 0o750)) // #nosec G301 -- test fixture
 
 	// Test successful copy
 	err := copyDir(srcDir, dstDir)
@@ -878,11 +893,11 @@ func TestCopyDir(t *testing.T) {
 	require.FileExists(t, filepath.Join(dstDir, "subdir", "file2.txt"))
 
 	// Verify content
-	content1, err := os.ReadFile(filepath.Join(dstDir, "file1.txt"))
+	content1, err := os.ReadFile(filepath.Join(dstDir, "file1.txt")) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, err)
 	require.Equal(t, []byte("file1"), content1)
 
-	content2, err := os.ReadFile(filepath.Join(dstDir, "subdir", "file2.txt"))
+	content2, err := os.ReadFile(filepath.Join(dstDir, "subdir", "file2.txt")) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, err)
 	require.Equal(t, []byte("file2"), content2)
 
@@ -893,7 +908,7 @@ func TestCopyDir(t *testing.T) {
 
 	// Test copy file as directory (should fail)
 	fileNotDir := filepath.Join(tmpDir, "file.txt")
-	require.NoError(t, os.WriteFile(fileNotDir, []byte("test"), 0o644))
+	require.NoError(t, os.WriteFile(fileNotDir, []byte("test"), 0o600))
 	err = copyDir(fileNotDir, dstDir)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not a directory")
@@ -1182,7 +1197,7 @@ func TestHubService_Apply_CacheRefresh(t *testing.T) {
 	require.Equal(t, "applied", res.Status)
 
 	// Verify new content was applied
-	content, err := os.ReadFile(filepath.Join(dataDir, "config.yml"))
+	content, err := os.ReadFile(filepath.Join(dataDir, "config.yml")) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, err)
 	require.Equal(t, "new", string(content))
 }
@@ -1193,7 +1208,7 @@ func TestHubService_Apply_RollbackOnExtractionFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	dataDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "important.txt"), []byte("preserve me"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "important.txt"), []byte("preserve me"), 0o600))
 
 	// Create archive with path traversal attempt
 	badArchive := makeTarGz(t, map[string]string{"../escape.txt": "evil"})
@@ -1206,7 +1221,7 @@ func TestHubService_Apply_RollbackOnExtractionFailure(t *testing.T) {
 	require.Error(t, err)
 
 	// Verify rollback preserved original file
-	content, err := os.ReadFile(filepath.Join(dataDir, "important.txt"))
+	content, err := os.ReadFile(filepath.Join(dataDir, "important.txt")) // #nosec G304 -- test fixture path
 	require.NoError(t, err)
 	require.Equal(t, "preserve me", string(content))
 }
@@ -1220,12 +1235,12 @@ func TestCopyDirAndCopyFile(t *testing.T) {
 		dstFile := filepath.Join(tmpDir, "dest.txt")
 
 		content := []byte("test content with special chars: !@#$%")
-		require.NoError(t, os.WriteFile(srcFile, content, 0o644))
+		require.NoError(t, os.WriteFile(srcFile, content, 0o600))
 
 		err := copyFile(srcFile, dstFile)
 		require.NoError(t, err)
 
-		dstContent, err := os.ReadFile(dstFile)
+		dstContent, err := os.ReadFile(dstFile) //nolint:gosec // G304: Test file in temp directory
 		require.NoError(t, err)
 		require.Equal(t, content, dstContent)
 	})
@@ -1236,7 +1251,7 @@ func TestCopyDirAndCopyFile(t *testing.T) {
 		srcFile := filepath.Join(tmpDir, "executable.sh")
 		dstFile := filepath.Join(tmpDir, "copy.sh")
 
-		require.NoError(t, os.WriteFile(srcFile, []byte("#!/bin/bash\necho test"), 0o755))
+		require.NoError(t, os.WriteFile(srcFile, []byte("#!/bin/bash\necho test"), 0o750)) // #nosec G306 -- test fixture for executable
 
 		err := copyFile(srcFile, dstFile)
 		require.NoError(t, err)
@@ -1256,13 +1271,13 @@ func TestCopyDirAndCopyFile(t *testing.T) {
 		dstDir := filepath.Join(tmpDir, "dest")
 
 		// Create complex directory structure
-		require.NoError(t, os.MkdirAll(filepath.Join(srcDir, "a", "b", "c"), 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "root.txt"), []byte("root"), 0o644))
-		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "a", "level1.txt"), []byte("level1"), 0o644))
-		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "a", "b", "level2.txt"), []byte("level2"), 0o644))
-		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "a", "b", "c", "level3.txt"), []byte("level3"), 0o644))
+		require.NoError(t, os.MkdirAll(filepath.Join(srcDir, "a", "b", "c"), 0o750)) // #nosec G301 -- test fixture
+		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "root.txt"), []byte("root"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "a", "level1.txt"), []byte("level1"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "a", "b", "level2.txt"), []byte("level2"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "a", "b", "c", "level3.txt"), []byte("level3"), 0o600))
 
-		require.NoError(t, os.MkdirAll(dstDir, 0o755))
+		require.NoError(t, os.MkdirAll(dstDir, 0o750)) // #nosec G301 -- test fixture
 
 		err := copyDir(srcDir, dstDir)
 		require.NoError(t, err)
@@ -1273,7 +1288,7 @@ func TestCopyDirAndCopyFile(t *testing.T) {
 		require.FileExists(t, filepath.Join(dstDir, "a", "b", "level2.txt"))
 		require.FileExists(t, filepath.Join(dstDir, "a", "b", "c", "level3.txt"))
 
-		content, err := os.ReadFile(filepath.Join(dstDir, "a", "b", "c", "level3.txt"))
+		content, err := os.ReadFile(filepath.Join(dstDir, "a", "b", "c", "level3.txt")) // #nosec G304 -- test fixture path
 		require.NoError(t, err)
 		require.Equal(t, "level3", string(content))
 	})
@@ -1284,8 +1299,8 @@ func TestCopyDirAndCopyFile(t *testing.T) {
 		srcFile := filepath.Join(tmpDir, "file.txt")
 		dstDir := filepath.Join(tmpDir, "dest")
 
-		require.NoError(t, os.WriteFile(srcFile, []byte("test"), 0o644))
-		require.NoError(t, os.MkdirAll(dstDir, 0o755))
+		require.NoError(t, os.WriteFile(srcFile, []byte("test"), 0o600))
+		require.NoError(t, os.MkdirAll(dstDir, 0o750)) // #nosec G301 -- test fixture
 
 		err := copyDir(srcFile, dstDir)
 		require.Error(t, err)
@@ -1302,8 +1317,8 @@ func TestEmptyDir(t *testing.T) {
 	t.Run("empties directory with files", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("content1"), 0o644))
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "file2.txt"), []byte("content2"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("content1"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "file2.txt"), []byte("content2"), 0o600))
 
 		err := emptyDir(dir)
 		require.NoError(t, err)
@@ -1321,8 +1336,8 @@ func TestEmptyDir(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		subDir := filepath.Join(dir, "subdir")
-		require.NoError(t, os.MkdirAll(subDir, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.txt"), []byte("nested"), 0o644))
+		require.NoError(t, os.MkdirAll(subDir, 0o750)) // #nosec G301 -- test fixture
+		require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.txt"), []byte("nested"), 0o600))
 
 		err := emptyDir(dir)
 		require.NoError(t, err)
@@ -1370,7 +1385,7 @@ func TestExtractTarGz(t *testing.T) {
 		require.FileExists(t, filepath.Join(targetDir, "file1.txt"))
 		require.FileExists(t, filepath.Join(targetDir, "subdir", "file2.txt"))
 
-		content1, err := os.ReadFile(filepath.Join(targetDir, "file1.txt"))
+		content1, err := os.ReadFile(filepath.Join(targetDir, "file1.txt")) // #nosec G304 -- test fixture path
 		require.NoError(t, err)
 		require.Equal(t, "content1", string(content1))
 	})
@@ -1475,11 +1490,11 @@ func TestBackupExisting(t *testing.T) {
 	t.Run("creates backup of existing directory", func(t *testing.T) {
 		t.Parallel()
 		dataDir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.txt"), []byte("config data"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.txt"), []byte("config data"), 0o600))
 
 		subDir := filepath.Join(dataDir, "subdir")
-		require.NoError(t, os.MkdirAll(subDir, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.txt"), []byte("nested data"), 0o644))
+		require.NoError(t, os.MkdirAll(subDir, 0o750)) // #nosec G301 -- test fixture
+		require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.txt"), []byte("nested data"), 0o600))
 
 		svc := NewHubService(nil, nil, dataDir)
 		backupPath := filepath.Join(t.TempDir(), "backup")
@@ -1496,7 +1511,7 @@ func TestBackupExisting(t *testing.T) {
 		t.Parallel()
 		dataDir := t.TempDir()
 		originalContent := "important config"
-		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.txt"), []byte(originalContent), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.txt"), []byte(originalContent), 0o600)) // #nosec G306 -- test fixture
 
 		svc := NewHubService(nil, nil, dataDir)
 		backupPath := filepath.Join(t.TempDir(), "backup")
@@ -1504,7 +1519,7 @@ func TestBackupExisting(t *testing.T) {
 		err := svc.backupExisting(backupPath)
 		require.NoError(t, err)
 
-		backupContent, err := os.ReadFile(filepath.Join(backupPath, "config.txt"))
+		backupContent, err := os.ReadFile(filepath.Join(backupPath, "config.txt")) // #nosec G304 -- test fixture path
 		require.NoError(t, err)
 		require.Equal(t, originalContent, string(backupContent))
 	})
@@ -1523,12 +1538,12 @@ func TestRollback(t *testing.T) {
 		backupPath := filepath.Join(parentDir, "backup")
 
 		// Create backup first
-		require.NoError(t, os.MkdirAll(backupPath, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(backupPath, "backed_up.txt"), []byte("backup content"), 0o644))
+		require.NoError(t, os.MkdirAll(backupPath, 0o750))                                                            // #nosec G301 -- test fixture
+		require.NoError(t, os.WriteFile(filepath.Join(backupPath, "backed_up.txt"), []byte("backup content"), 0o600)) // #nosec G306 -- test fixture
 
 		// Create data dir with different content
-		require.NoError(t, os.MkdirAll(dataDir, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "current.txt"), []byte("current content"), 0o644))
+		require.NoError(t, os.MkdirAll(dataDir, 0o750))                                                           // #nosec G301 -- test fixture
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "current.txt"), []byte("current content"), 0o600)) // #nosec G306 -- test fixture
 
 		svc := NewHubService(nil, nil, dataDir)
 
@@ -1840,10 +1855,10 @@ func TestBackupExisting_CopyFallback_Success(t *testing.T) {
 	dataDir := t.TempDir()
 
 	// Create complex directory structure
-	require.NoError(t, os.MkdirAll(filepath.Join(dataDir, "configs", "scenarios"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "main.yaml"), []byte("main config"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "configs", "sub.yaml"), []byte("sub config"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "configs", "scenarios", "s1.yaml"), []byte("scenario 1"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dataDir, "configs", "scenarios"), 0o750))                                   // #nosec G301 -- test fixture
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "main.yaml"), []byte("main config"), 0o600))                      // #nosec G306 -- test fixture
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "configs", "sub.yaml"), []byte("sub config"), 0o600))             // #nosec G306 -- test fixture
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "configs", "scenarios", "s1.yaml"), []byte("scenario 1"), 0o600)) // #nosec G306 -- test fixture
 
 	svc := NewHubService(nil, nil, dataDir)
 	backupPath := filepath.Join(t.TempDir(), "backup")
@@ -1857,7 +1872,7 @@ func TestBackupExisting_CopyFallback_Success(t *testing.T) {
 	require.FileExists(t, filepath.Join(backupPath, "configs", "scenarios", "s1.yaml"))
 
 	// Verify content integrity
-	content, err := os.ReadFile(filepath.Join(backupPath, "configs", "scenarios", "s1.yaml"))
+	content, err := os.ReadFile(filepath.Join(backupPath, "configs", "scenarios", "s1.yaml")) // #nosec G304 -- test fixture path
 	require.NoError(t, err)
 	require.Equal(t, "scenario 1", string(content))
 }
@@ -1866,8 +1881,8 @@ func TestBackupExisting_RenameSuccess(t *testing.T) {
 	t.Parallel()
 	baseDir := t.TempDir()
 	dataDir := filepath.Join(baseDir, "data")
-	require.NoError(t, os.MkdirAll(dataDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "file.txt"), []byte("content"), 0o644))
+	require.NoError(t, os.MkdirAll(dataDir, 0o750))                                                // #nosec G301 -- test fixture
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "file.txt"), []byte("content"), 0o600)) // #nosec G306 -- test fixture
 
 	svc := NewHubService(nil, nil, dataDir)
 	backupPath := filepath.Join(baseDir, "backup")
@@ -1899,7 +1914,7 @@ func TestBackupExisting_PreservesPermissions(t *testing.T) {
 	t.Parallel()
 	dataDir := t.TempDir()
 	execFile := filepath.Join(dataDir, "executable.sh")
-	require.NoError(t, os.WriteFile(execFile, []byte("#!/bin/bash"), 0o755))
+	require.NoError(t, os.WriteFile(execFile, []byte("#!/bin/bash"), 0o750)) // #nosec G306 -- test fixture for executable script
 
 	svc := NewHubService(nil, nil, dataDir)
 	backupPath := filepath.Join(t.TempDir(), "backup")
@@ -1918,7 +1933,7 @@ func TestBackupExisting_PreservesPermissions(t *testing.T) {
 		// If original was renamed (which removes it)
 		backupInfo, err := os.Stat(filepath.Join(backupPath, "executable.sh"))
 		require.NoError(t, err)
-		require.Equal(t, os.FileMode(0o755), backupInfo.Mode()&0o777)
+		require.Equal(t, os.FileMode(0o750), backupInfo.Mode()&0o777)
 	}
 }
 
@@ -2277,9 +2292,9 @@ func TestPeekFirstYAML_FindsYAML(t *testing.T) {
 	t.Parallel()
 	svc := NewHubService(nil, nil, t.TempDir())
 	archive := makeTarGz(t, map[string]string{
-		"readme.txt":  "readme content",
-		"config.yaml": "name: test\nversion: 1.0",
-		"another.yml": "other: config",
+		"readme.txt":    "readme content",
+		"aaa.yaml":      "name: test\nversion: 1.0",
+		"zzz-other.yml": "other: config",
 	})
 
 	result := svc.peekFirstYAML(archive)

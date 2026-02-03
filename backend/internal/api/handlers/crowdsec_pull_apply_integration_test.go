@@ -56,7 +56,7 @@ func TestPullThenApplyIntegration(t *testing.T) {
 	}
 
 	db := OpenTestDB(t)
-	handler := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", dataDir)
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
 	handler.Hub = hub
 
 	r := gin.New()
@@ -127,7 +127,7 @@ func TestApplyWithoutPullReturnsProperError(t *testing.T) {
 	})}
 
 	db := OpenTestDB(t)
-	handler := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", dataDir)
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
 	handler.Hub = hub
 
 	r := gin.New()
@@ -160,9 +160,9 @@ func TestApplyRollbackWhenCacheMissingAndRepullFails(t *testing.T) {
 	cacheDir := t.TempDir()
 	dataRoot := t.TempDir()
 	dataDir := filepath.Join(dataRoot, "crowdsec")
-	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	require.NoError(t, os.MkdirAll(dataDir, 0o750)) // #nosec G301 -- test directory
 	originalFile := filepath.Join(dataDir, "config.yaml")
-	require.NoError(t, os.WriteFile(originalFile, []byte("original"), 0o644))
+	require.NoError(t, os.WriteFile(originalFile, []byte("original"), 0o600)) // #nosec G306 -- test fixture
 
 	cache, err := crowdsec.NewHubCache(cacheDir, time.Hour)
 	require.NoError(t, err)
@@ -175,7 +175,7 @@ func TestApplyRollbackWhenCacheMissingAndRepullFails(t *testing.T) {
 	})}
 
 	db := OpenTestDB(t)
-	handler := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", dataDir)
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
 	handler.Hub = hub
 
 	r := gin.New()
@@ -196,7 +196,7 @@ func TestApplyRollbackWhenCacheMissingAndRepullFails(t *testing.T) {
 	require.Contains(t, body["error"], "Preset cache missing", "error should guide user to repull")
 
 	// Original file should remain after rollback
-	data, readErr := os.ReadFile(originalFile)
+	data, readErr := os.ReadFile(originalFile) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, readErr)
 	require.Equal(t, "original", string(data))
 }
