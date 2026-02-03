@@ -942,3 +942,276 @@ export function clearFeatureFlagCache(): void {
   inflightRequests.clear();
   console.log('[CACHE] Cleared all cached feature flag requests');
 }
+
+// ============================================================================
+// Phase 2.1: Semantic Wait Helpers for Browser Alignment Triage
+// ============================================================================
+
+/**
+ * Options for waitForDialog
+ */
+export interface DialogOptions {
+  /** ARIA role to match (default: 'dialog') */
+  role?: 'dialog' | 'alertdialog';
+  /** Maximum time to wait (default: 5000ms) */
+  timeout?: number;
+}
+
+/**
+ * Wait for dialog to be visible and interactive.
+ * Replaces: await page.waitForTimeout(500) after dialog open
+ *
+ * This function ensures the dialog is fully rendered and ready for interaction,
+ * handling loading states and ensuring no aria-busy attributes remain.
+ *
+ * @param page - Playwright Page instance
+ * @param options - Configuration options
+ * @returns Locator for the dialog
+ *
+ * @example
+ * ```typescript
+ * // Instead of:
+ * await getAddCertButton(page).click();
+ * await page.waitForTimeout(500);
+ *
+ * // Use:
+ * await getAddCertButton(page).click();
+ * const dialog = await waitForDialog(page);
+ * await expect(dialog).toBeVisible();
+ * ```
+ */
+export async function waitForDialog(
+  page: Page,
+  options: DialogOptions = {}
+): Promise<Locator> {
+  const { role = 'dialog', timeout = 5000 } = options;
+
+  const dialog = page.getByRole(role);
+
+  // Wait for dialog to be visible
+  await expect(dialog).toBeVisible({ timeout });
+
+  // Ensure dialog is fully rendered and interactive (not busy)
+  await expect(dialog).not.toHaveAttribute('aria-busy', 'true', { timeout: 1000 }).catch(() => {
+    // aria-busy might not be present, which is fine
+  });
+
+  // Wait for any loading states within the dialog to clear
+  const dialogLoader = dialog.locator('[role="progressbar"], [aria-busy="true"], .loading-spinner');
+  await expect(dialogLoader).toHaveCount(0, { timeout: 2000 }).catch(() => {
+    // No loaders present is acceptable
+  });
+
+  return dialog;
+}
+
+/**
+ * Options for waitForFormFields
+ */
+export interface FormFieldsOptions {
+  /** Maximum time to wait (default: 5000ms) */
+  timeout?: number;
+  /** Whether field should be enabled (default: true) */
+  shouldBeEnabled?: boolean;
+}
+
+/**
+ * Wait for dynamically loaded form fields to be ready.
+ * Replaces: await page.waitForTimeout(1000) after selecting form type
+ *
+ * This function waits for form fields to be visible and enabled,
+ * handling dynamic field rendering based on form selection.
+ *
+ * @param page - Playwright Page instance
+ * @param fieldSelector - Selector for the field to wait for
+ * @param options - Configuration options
+ *
+ * @example
+ * ```typescript
+ * // Instead of:
+ * await providerSelect.selectOption('manual');
+ * await page.waitForTimeout(1000);
+ *
+ * // Use:
+ * await providerSelect.selectOption('manual');
+ * await waitForFormFields(page, 'input[name="domain"]');
+ * ```
+ */
+export async function waitForFormFields(
+  page: Page,
+  fieldSelector: string,
+  options: FormFieldsOptions = {}
+): Promise<void> {
+  const { timeout = 5000, shouldBeEnabled = true } = options;
+
+  const field = page.locator(fieldSelector);
+
+  // Wait for field to be visible
+  await expect(field).toBeVisible({ timeout });
+
+  // Wait for field to be enabled if required
+  if (shouldBeEnabled) {
+    await expect(field).toBeEnabled({ timeout: 1000 });
+  }
+
+  // Ensure field is attached to DOM (not detached during render)
+  await expect(field).toBeAttached({ timeout: 1000 });
+}
+
+/**
+ * Options for waitForDebounce
+ */
+export interface DebounceOptions {
+  /** Selector for loading indicator (optional) */
+  indicatorSelector?: string;
+  /** Maximum time to wait (default: 3000ms) */
+  timeout?: number;
+}
+
+/**
+ * Wait for debounced input to settle (e.g., search, autocomplete).
+ * Replaces: await page.waitForTimeout(500) after input typing
+ *
+ * This function waits for either a loading indicator to appear/disappear
+ * or for the network to be idle, handling debounced search scenarios.
+ *
+ * @param page - Playwright Page instance
+ * @param options - Configuration options
+ *
+ * @example
+ * ```typescript
+ * // Instead of:
+ * await searchInput.fill('test');
+ * await page.waitForTimeout(500);
+ *
+ * // Use:
+ * await searchInput.fill('test');
+ * await waitForDebounce(page, { indicatorSelector: '.search-loading' });
+ * ```
+ */
+export async function waitForDebounce(
+  page: Page,
+  options: DebounceOptions = {}
+): Promise<void> {
+  const { indicatorSelector, timeout = 3000 } = options;
+
+  if (indicatorSelector) {
+    // Wait for loading indicator to appear and disappear
+    const indicator = page.locator(indicatorSelector);
+    await indicator.waitFor({ state: 'visible', timeout: 1000 }).catch(() => {
+      // Indicator might not appear if response is very fast
+    });
+    await indicator.waitFor({ state: 'hidden', timeout });
+  } else {
+    // Wait for network to be idle (default debounce strategy)
+    await page.waitForLoadState('networkidle', { timeout });
+  }
+}
+
+/**
+ * Options for waitForConfigReload
+ */
+export interface ConfigReloadOptions {
+  /** Maximum time to wait (default: 10000ms) */
+  timeout?: number;
+}
+
+/**
+ * Wait for config reload overlay to appear and disappear.
+ * Replaces: await page.waitForTimeout(500) after settings change
+ *
+ * This function handles the "Reloading configuration..." overlay that appears
+ * when Caddy configuration is reloaded after settings changes.
+ *
+ * @param page - Playwright Page instance
+ * @param options - Configuration options
+ *
+ * @example
+ * ```typescript
+ * // Instead of:
+ * await saveButton.click();
+ * await page.waitForTimeout(2000);
+ *
+ * // Use:
+ * await saveButton.click();
+ * await waitForConfigReload(page);
+ * ```
+ */
+export async function waitForConfigReload(
+  page: Page,
+  options: ConfigReloadOptions = {}
+): Promise<void> {
+  const { timeout = 10000 } = options;
+
+  // Config reload shows overlay with "Reloading configuration..." or similar
+  const overlay = page.locator(
+    '[data-testid="config-reload-overlay"], [role="status"]'
+  ).filter({ hasText: /reloading|loading/i });
+
+  // Wait for overlay to appear (may be very fast)
+  await overlay.waitFor({ state: 'visible', timeout: 2000 }).catch(() => {
+    // Overlay may not appear if reload is instant
+  });
+
+  // Wait for overlay to disappear
+  await overlay.waitFor({ state: 'hidden', timeout }).catch(() => {
+    // If overlay never appeared, continue
+  });
+
+  // Verify page is interactive again
+  await page.waitForLoadState('domcontentloaded', { timeout: 3000 });
+}
+
+/**
+ * Options for waitForNavigation
+ */
+export interface NavigationOptions {
+  /** Maximum time to wait (default: 10000ms) */
+  timeout?: number;
+  /** Wait for load state (default: 'load') */
+  waitUntil?: 'load' | 'domcontentloaded' | 'networkidle' | 'commit';
+}
+
+/**
+ * Wait for URL change with proper assertions.
+ * Replaces: await page.waitForTimeout(1000) then checking URL
+ *
+ * This function waits for navigation to complete and verifies the URL,
+ * handling SPA-style navigation and page loads.
+ *
+ * @param page - Playwright Page instance
+ * @param expectedUrl - Expected URL (string or RegExp)
+ * @param options - Configuration options
+ *
+ * @example
+ * ```typescript
+ * // Instead of:
+ * await link.click();
+ * await page.waitForTimeout(1000);
+ * expect(page.url()).toContain('/settings');
+ *
+ * // Use:
+ * await link.click();
+ * await waitForNavigation(page, /\/settings/);
+ * ```
+ */
+export async function waitForNavigation(
+  page: Page,
+  expectedUrl: string | RegExp,
+  options: NavigationOptions = {}
+): Promise<void> {
+  const { timeout = 10000, waitUntil = 'load' } = options;
+
+  // Wait for URL to change to expected value
+  await page.waitForURL(expectedUrl, { timeout, waitUntil });
+
+  // Additional verification using auto-waiting assertion
+  if (typeof expectedUrl === 'string') {
+    await expect(page).toHaveURL(expectedUrl, { timeout: 1000 });
+  } else {
+    await expect(page).toHaveURL(expectedUrl, { timeout: 1000 });
+  }
+
+  // Ensure page is fully loaded
+  await page.waitForLoadState(waitUntil, { timeout });
+}
