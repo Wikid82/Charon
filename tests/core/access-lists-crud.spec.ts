@@ -217,7 +217,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
       await test.step('Open create form', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page, /create|access.*list/i);
       });
 
       await test.step('Fill in ACL name', async () => {
@@ -259,7 +259,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should add client IP addresses', async ({ page }) => {
       await test.step('Open create form', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page, /create|access.*list/i);
       });
 
       await test.step('Fill in name', async () => {
@@ -279,7 +279,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         // Press Enter to add the IP (alternative to clicking Add button)
         await ipInput.press('Enter');
-        await page.waitForTimeout(500); // Wait for IP to be added to list
+        await waitForDebounce(page);
 
         // Verify IP was added to list (should appear as a separate item in the form)
         const addedIP = page.getByText('192.168.1.100');
@@ -294,7 +294,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should add CIDR ranges', async ({ page }) => {
       await test.step('Open create form', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page, /create|access.*list/i);
       });
 
       await test.step('Fill in name', async () => {
@@ -313,7 +313,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         // Press Enter to add the CIDR (alternative to clicking Add button)
         await ipInput.press('Enter');
-        await page.waitForTimeout(500); // Wait for CIDR to be added to list
+        await waitForDebounce(page);
 
         const addedCIDR = page.getByText('10.0.0.0/8');
         await expect(addedCIDR).toBeVisible({ timeout: 5000 });
@@ -327,7 +327,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should select blacklist type', async ({ page }) => {
       await test.step('Open create form', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page, /create|access.*list/i);
       });
 
       await test.step('Change type to blacklist', async () => {
@@ -354,7 +354,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should select geo-blacklist type and add countries', async ({ page }) => {
       await test.step('Open create form', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page, /create|access.*list/i);
       });
 
       await test.step('Fill in name', async () => {
@@ -387,7 +387,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should toggle enabled/disabled state', async ({ page }) => {
       await test.step('Open create form', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page, /create|access.*list/i);
       });
 
       await test.step('Toggle enabled switch', async () => {
@@ -411,7 +411,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
       await test.step('Create ACL', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page, /create|access.*list/i);
 
         await page.locator('#name').fill(aclName);
         await getSaveButton(page).click();
@@ -434,7 +434,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should show security presets for blacklist type', async ({ page }) => {
       await test.step('Open create form', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page, /create|access.*list/i);
       });
 
       await test.step('Select blacklist type', async () => {
@@ -466,7 +466,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should have Get My IP button', async ({ page }) => {
       await test.step('Open create form', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page, /create|access.*list/i);
       });
 
       await test.step('Ensure IP rules section is visible', async () => {
@@ -494,7 +494,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         if (editCount > 0) {
           await editButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForModal(page, /edit|access.*list/i);
 
           // Verify form opens with "Edit" title
           const formTitle = page.getByRole('heading', { name: /edit.*access.*list/i });
@@ -518,7 +518,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         if (editCount > 0) {
           await editButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForModal(page, /edit|access.*list/i);
 
           const nameInput = page.locator('#name');
           const originalName = await nameInput.inputValue();
@@ -547,7 +547,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         if (editCount > 0) {
           await editButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForModal(page, /edit|access.*list/i);
 
           // Ensure IP mode is enabled
           const localNetworkSwitch = page.getByLabel(/local.*network.*only/i);
@@ -576,7 +576,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         if (editCount > 0) {
           await editButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForModal(page, /edit|access.*list/i);
 
           const typeSelect = page.locator('#type');
           const currentType = await typeSelect.inputValue();
@@ -601,7 +601,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         if (editCount > 0) {
           await editButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForModal(page, /edit|access.*list/i);
 
           // Make a small change to description
           const descriptionInput = page.locator('#description');
@@ -627,7 +627,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         if (deleteCount > 0) {
           await deleteButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForDialog(page);
 
           // Confirmation dialog should appear
           const dialog = page.getByRole('dialog');
@@ -658,7 +658,7 @@ test.describe('Access Lists - CRUD Operations', () => {
           const rowsBefore = await page.locator('tbody tr').count();
 
           await deleteButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForDialog(page);
 
           const dialog = page.getByRole('dialog');
           if (await dialog.isVisible().catch(() => false)) {
@@ -680,7 +680,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         if (deleteCount > 0) {
           await deleteButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForDialog(page);
 
           const dialog = page.getByRole('dialog');
           if (await dialog.isVisible().catch(() => false)) {
@@ -703,7 +703,7 @@ test.describe('Access Lists - CRUD Operations', () => {
         if (deleteCount > 0) {
           // For safety, don't actually delete - just verify the dialog mentions backup
           await deleteButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForDialog(page);
 
           const dialog = page.getByRole('dialog');
           if (await dialog.isVisible().catch(() => false)) {
@@ -723,7 +723,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         if (editCount > 0) {
           await editButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForModal(page, /edit|access.*list/i);
 
           // Look for delete button in form
           const deleteInForm = page.getByRole('button', { name: /delete/i });
@@ -746,7 +746,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         if (testCount > 0) {
           await testButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForDialog(page);
 
           // Test IP dialog should open
           const dialog = page.getByRole('dialog');
@@ -770,7 +770,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         if (testCount > 0) {
           await testButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForDialog(page);
 
           const dialog = page.getByRole('dialog');
           if (await dialog.isVisible().catch(() => false)) {
@@ -821,7 +821,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         if (await selectAllCheckbox.isVisible().catch(() => false)) {
           await selectAllCheckbox.click();
-          await page.waitForTimeout(300);
+          await waitForDebounce(page);
 
           // Look for bulk delete button in header
           const bulkDeleteButton = page.getByRole('button', { name: /delete.*\(/i });
@@ -861,7 +861,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should reject empty name', async ({ page }) => {
       await test.step('Try to create with empty name', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page, /create|access.*list/i);
 
         // Leave name empty and try to submit
         const saveButton = getSaveButton(page);
@@ -878,7 +878,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should handle special characters in name', async ({ page }) => {
       await test.step('Test special characters', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page, /create|access.*list/i);
 
         const nameInput = page.locator('#name');
         // Test with safe special characters
@@ -895,7 +895,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should validate CIDR format', async ({ page }) => {
       await test.step('Test CIDR validation', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page, /create|access.*list/i);
 
         await page.locator('#name').fill(`CIDR Validation Test ${generateUniqueId()}`);
 
@@ -911,7 +911,7 @@ test.describe('Access Lists - CRUD Operations', () => {
         await addButton.click();
 
         // Should show error or not add the invalid IP
-        await page.waitForTimeout(500);
+        await waitForDebounce(page);
 
         await getCancelButton(page).click();
       });
@@ -976,7 +976,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should have accessible form labels', async ({ page }) => {
       await test.step('Open form and verify labels', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page, /create|access.*list/i);
 
         // Check that inputs have associated labels
         const nameLabel = page.locator('label[for="name"]');
@@ -990,7 +990,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should be keyboard navigable', async ({ page }) => {
       await test.step('Navigate form with keyboard', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page, /create|access.*list/i);
 
         // Tab through form fields
         await page.keyboard.press('Tab');
@@ -1012,7 +1012,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should toggle local network only (RFC1918)', async ({ page }) => {
       await test.step('Open form and toggle RFC1918 mode', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page, /create|access.*list/i);
 
         const localNetworkSwitch = page.getByLabel(/local.*network.*only/i);
 
@@ -1030,7 +1030,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should hide IP rules when local network only is enabled', async ({ page }) => {
       await test.step('Verify IP input hidden in RFC1918 mode', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page, /create|access.*list/i);
 
         const localNetworkSwitch = page.getByLabel(/local.*network.*only/i);
 
