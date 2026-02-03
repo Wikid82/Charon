@@ -14,7 +14,7 @@
  */
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForToast, waitForModal } from '../utils/wait-helpers';
+import { waitForLoadingComplete, waitForToast, waitForModal, waitForDialog, waitForDebounce } from '../utils/wait-helpers';
 import { clickSwitch } from '../utils/ui-helpers';
 import {
   allowOnlyAccessList,
@@ -85,7 +85,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
     test('should display empty state when no ACLs exist', async ({ page }) => {
       await test.step('Check for empty state or existing ACLs', async () => {
-        await page.waitForTimeout(1000);
+        await waitForDebounce(page, { delay: 1000 }); // Allow initial data fetch
 
         const emptyStateHeading = page.getByRole('heading', { name: /no.*access.*lists/i });
         const table = page.getByRole('table');
@@ -106,7 +106,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should show loading skeleton while fetching data', async ({ page }) => {
       await test.step('Navigate and observe loading state', async () => {
         await page.reload();
-        await page.waitForTimeout(2000);
+        await waitForDebounce(page, { delay: 2000 }); // Allow network requests and render
 
         const table = page.getByRole('table');
         const emptyState = page.getByRole('heading', { name: /no.*access.*lists/i });
@@ -130,7 +130,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         if (await securityMenu.isVisible().catch(() => false)) {
           await securityMenu.click();
-          await page.waitForTimeout(300);
+          await waitForDebounce(page, { delay: 300 }); // Allow menu to expand
         }
 
         if (await accessListsLink.isVisible().catch(() => false)) {
@@ -175,7 +175,7 @@ test.describe('Access Lists - CRUD Operations', () => {
       });
 
       await test.step('Verify form opens', async () => {
-        await page.waitForTimeout(500);
+        await waitForModal(page); // Wait for form modal to open
 
         // The form should be visible (Card component with heading)
         const formTitle = page.getByRole('heading', { name: /create.*access.*list/i });
@@ -190,7 +190,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should validate required name field', async ({ page }) => {
       await test.step('Open create form', async () => {
         await getCreateButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page); // Wait for form modal to open
       });
 
       await test.step('Try to submit with empty name', async () => {
