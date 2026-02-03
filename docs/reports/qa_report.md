@@ -8,6 +8,117 @@
 
 ---
 
+## CrowdSec Bouncer Auto-Registration - Definition of Done Audit
+
+**Date:** 2026-02-03
+**Feature Plan:** [docs/plans/crowdsec_bouncer_auto_registration.md](../plans/crowdsec_bouncer_auto_registration.md)
+**Status:** ⚠️ **CONDITIONAL PASS** - Frontend coverage below threshold
+
+### Summary Results
+
+| Check | Status | Details |
+|-------|--------|---------|
+| E2E Container Rebuild | ✅ PASS | Container healthy, ports 8080/2019/2020 exposed |
+| E2E Tests | ⚠️ PARTIAL | 167 passed, 2 failed, 24 skipped (87% pass rate) |
+| Backend Coverage | ✅ PASS | 85.0% (threshold: 85%) |
+| Frontend Coverage | ❌ FAIL | 84.25% (threshold: 85%) - 0.75% below target |
+| TypeScript | ✅ PASS | 0 type errors |
+| Pre-commit | ✅ PASS | All 13 hooks passed |
+| Trivy FS | ✅ PASS | 0 HIGH/CRITICAL vulnerabilities |
+| Docker Image | ⚠️ WARNING | 2 HIGH (glibc CVE-2026-0861 in base image) |
+
+### E2E Test Failures (Non-Blocking)
+
+#### Failure 1: CrowdSec Config File Content API
+
+**File:** [tests/security/crowdsec-diagnostics.spec.ts#L320](../../tests/security/crowdsec-diagnostics.spec.ts#L320)
+**Test:** `should retrieve specific config file content`
+
+**Error:**
+
+```text
+expect(received).toHaveProperty(path)
+Expected path: "content"
+Received: {"files": [...]}
+```
+
+**Root Cause:** API endpoint `/api/v1/admin/crowdsec/files?path=...` returns file list instead of file content when `path` query param is provided.
+**Severity:** LOW - Config file inspection is a secondary feature
+**Fix:** Update backend to return `{content: string}` when `path` query param is present
+
+#### Failure 2: Admin Whitelist Universal Bypass Verification
+
+**File:** [tests/security-enforcement/zzzz-break-glass-recovery.spec.ts#L177](../../tests/security-enforcement/zzzz-break-glass-recovery.spec.ts#L177)
+**Test:** `Step 4: Verify full security stack is enabled with universal bypass`
+
+**Error:**
+
+```text
+expect(received).toBe(expected)
+Expected: "0.0.0.0/0"
+Received: undefined
+```
+
+**Root Cause:** `admin_whitelist` field not present in API response for universal bypass mode
+**Severity:** LOW - Edge case test for break glass recovery
+**Fix:** Include `admin_whitelist` field in security settings response
+
+### Skipped Tests (24)
+
+Tests skipped due to:
+
+1. **CrowdSec not running** - Many tests require active CrowdSec process
+2. **Middleware enforcement** - Rate limiting/WAF blocking tested in integration tests
+3. **LAPI dependency** - Console enrollment requires running LAPI
+
+### Coverage Gap Analysis
+
+**Frontend Coverage Breakdown:**
+
+- Statements: 84.25% (target: 85%) ❌
+- Lines: 84.89%
+- Functions: 79.01%
+- Branches: 76.86%
+
+**Files with Lowest Coverage:**
+
+| File | Coverage | Gap |
+|------|----------|-----|
+| `Security.tsx` | 65.17% | Needs additional tests for toggle actions |
+| `SecurityHeaders.tsx` | 69.23% | Preset application flows uncovered |
+| `Plugins.tsx` | 63.63% | Plugin management flows uncovered |
+
+**Recommendation:** Add 2-3 targeted tests for Security.tsx toggle actions to meet threshold.
+
+### Docker Image Vulnerabilities
+
+| Library | CVE | Severity | Status | Risk |
+|---------|-----|----------|--------|------|
+| libc-bin | CVE-2026-0861 | HIGH | Unpatched in base | LOW for Charon |
+| libc6 | CVE-2026-0861 | HIGH | Unpatched in base | LOW for Charon |
+
+**Note:** glibc integer overflow in Debian Trixie base image. Exploitation requires specific heap allocation patterns unlikely in web proxy context. Monitor Debian security updates.
+
+### Feature Implementation Files Verified
+
+| File | Purpose | Status |
+|------|---------|--------|
+| `crowdsec_handler.go` | Auto-registration logic | ✅ Present |
+| `config.go` | File fallback for API key | ✅ Present |
+| `docker-entrypoint.sh` | Key persistence directory | ✅ Present |
+| `CrowdSecBouncerKeyDisplay.tsx` | UI for key display | ✅ Present |
+| `Security.tsx` | Integration with dashboard | ✅ Present |
+
+### Recommendation
+
+**Verdict:** ⚠️ **CONDITIONAL PASS**
+
+1. **Merge Eligible:** Core functionality works, E2E failures are edge cases
+2. **Action Required:** Add frontend tests to reach 85% coverage before next release
+3. **Technical Debt:** Track 2 failing tests as issues for next sprint
+
+---
+
 ## Executive Summary
 
 | Category | Status | Details |

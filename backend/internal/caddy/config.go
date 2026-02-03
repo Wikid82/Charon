@@ -1126,7 +1126,8 @@ func buildCrowdSecHandler(_ *models.ProxyHost, _ *models.SecurityConfig, crowdse
 	return Handler{"handler": "crowdsec"}, nil
 }
 
-// getCrowdSecAPIKey retrieves the CrowdSec bouncer API key from environment variables.
+// getCrowdSecAPIKey retrieves the CrowdSec bouncer API key.
+// Priority: environment variables > persistent key file
 func getCrowdSecAPIKey() string {
 	envVars := []string{
 		"CROWDSEC_API_KEY",
@@ -1141,6 +1142,16 @@ func getCrowdSecAPIKey() string {
 			return val
 		}
 	}
+
+	// Priority 2: Check persistent key file
+	const bouncerKeyFile = "/app/data/crowdsec/bouncer_key"
+	if data, err := os.ReadFile(bouncerKeyFile); err == nil {
+		key := strings.TrimSpace(string(data))
+		if key != "" {
+			return key
+		}
+	}
+
 	return ""
 }
 

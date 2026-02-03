@@ -11,6 +11,8 @@
     "create": "Create",
     "update": "Update",
     "close": "Close",
+    "copy": "Copy",
+    "copied": "Copied",
     "confirm": "Confirm",
     "back": "Back",
     "next": "Next",
@@ -266,7 +268,16 @@
       "disabledDescription": "Intrusion Prevention System powered by community threat intelligence",
       "processRunning": "Running (PID {{pid}})",
       "processStopped": "Process stopped",
-      "toggleTooltip": "Toggle CrowdSec protection"
+      "toggleTooltip": "Toggle CrowdSec protection",
+      "bouncerApiKey": "Bouncer API Key",
+      "keyCopied": "API key copied to clipboard",
+      "copyFailed": "Failed to copy API key",
+      "noKeyConfigured": "No bouncer key configured. Enable CrowdSec to auto-register.",
+      "registered": "Registered",
+      "notRegistered": "Not Registered",
+      "sourceEnvVar": "From environment variable",
+      "sourceFile": "From file",
+      "keyStoredAt": "Key stored at"
     },
     "acl": {
       "title": "Access Control",

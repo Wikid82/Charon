@@ -1,6 +1,39 @@
 # Current Active Work
 
-## � BUG FIX: Config API Endpoint in Break Glass Recovery Test (2026-02-03)
+## � NEW: CrowdSec Bouncer Auto-Registration & Key Persistence (2026-02-03)
+
+**Status**: ✅ Plan Complete - Ready for Implementation
+**Priority**: P1 (User Experience Enhancement)
+**Plan**: [crowdsec_bouncer_auto_registration.md](./crowdsec_bouncer_auto_registration.md)
+**Estimated Effort**: 8-12 hours
+
+### Summary
+
+Comprehensive plan to implement automatic bouncer registration, persistent key storage, and UI display. This supersedes the earlier `crowdsec_lapi_auth_fix.md` plan with a complete solution.
+
+**Key Features**:
+
+- Auto-register bouncer on CrowdSec enable (no manual `cscli` commands)
+- Persist key to `/app/data/crowdsec/bouncer_key` (survives rebuilds)
+- Log full key to container logs for user reference
+- Fallback to file if no env var set
+- Env var always takes precedence
+- Display masked key in Security UI with copy button
+- Auto-heal invalid keys by re-registering
+
+See full plan: [crowdsec_bouncer_auto_registration.md](./crowdsec_bouncer_auto_registration.md)
+
+---
+
+## 📋 Prior Work: CrowdSec LAPI Authentication Failure
+
+> **Superseded by**: [crowdsec_bouncer_auto_registration.md](./crowdsec_bouncer_auto_registration.md)
+
+The original quick-fix plan at [crowdsec_lapi_auth_fix.md](./crowdsec_lapi_auth_fix.md) addressed the immediate workaround. The new comprehensive plan above provides the complete solution
+
+---
+
+## 📋 BUG FIX: Config API Endpoint in Break Glass Recovery Test (2026-02-03)
 
 **Status**: ✅ Research Complete - Ready for Implementation
 **Priority**: P1 (Test Failure)

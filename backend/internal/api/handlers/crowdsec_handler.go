@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -61,9 +62,16 @@ type CrowdsecHandler struct {
 	Hub              *crowdsec.HubService
 	Console          *crowdsec.ConsoleEnrollmentService
 	Security         *services.SecurityService
-	LAPIMaxWait      time.Duration // For testing; 0 means 60s default
-	LAPIPollInterval time.Duration // For testing; 0 means 500ms default
+	CaddyManager     *caddy.Manager // For config reload after bouncer registration
+	LAPIMaxWait      time.Duration  // For testing; 0 means 60s default
+	LAPIPollInterval time.Duration  // For testing; 0 means 500ms default
 }
+
+// Bouncer auto-registration constants.
+const (
+	bouncerKeyFile = "/app/data/crowdsec/bouncer_key"
+	bouncerName    = "caddy-bouncer"
+)
 
 func ttlRemainingSeconds(now, retrievedAt time.Time, ttl time.Duration) *int64 {
 	if retrievedAt.IsZero() || ttl <= 0 {
@@ -285,6 +293,22 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 			"warning":    "Process started but LAPI initialization may take additional time",
 		})
 		return
+	}
+
+	// After confirming LAPI is ready, ensure bouncer is registered
+	apiKey, regErr := h.ensureBouncerRegistration(ctx)
+	if regErr != nil {
+		logger.Log().WithError(regErr).Warn("Failed to register bouncer, CrowdSec may not enforce decisions")
+	} else if apiKey != "" {
+		// Log the key for user reference
+		h.logBouncerKeyBanner(apiKey)
+
+		// Regenerate Caddy config with new API key
+		if h.CaddyManager != nil {
+			if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
+				logger.Log().WithError(err).Warn("Failed to reload Caddy config with new bouncer key")
+			}
+		}
 	}
 
 	logger.Log().WithField("pid", pid).Info("CrowdSec started and LAPI is ready")
@@ -1240,6 +1264,221 @@ func getLAPIKey() string {
 	return ""
 }
 
+// BouncerInfo represents the bouncer key information for UI display.
+type BouncerInfo struct {
+	Name       string `json:"name"`
+	KeyPreview string `json:"key_preview"` // First 4 + last 3 chars
+	KeySource  string `json:"key_source"`  // "env_var" | "file" | "none"
+	FilePath   string `json:"file_path"`
+	Registered bool   `json:"registered"`
+}
+
+// ensureBouncerRegistration checks if bouncer is registered and registers if needed.
+// Returns the API key if newly generated (empty if already set via env var or file).
+func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string, error) {
+	// Priority 1: Check environment variables
+	envKey := getBouncerAPIKeyFromEnv()
+	if envKey != "" {
+		if h.validateBouncerKey(ctx) {
+			logger.Log().Info("Using CrowdSec API key from environment variable")
+			return "", nil // Key valid, nothing new to report
+		}
+		logger.Log().Warn("Env-provided CrowdSec API key is invalid or bouncer not registered, will re-register")
+	}
+
+	// Priority 2: Check persistent key file
+	fileKey := readKeyFromFile(bouncerKeyFile)
+	if fileKey != "" {
+		if h.validateBouncerKey(ctx) {
+			logger.Log().WithField("file", bouncerKeyFile).Info("Using CrowdSec API key from file")
+			return "", nil // Key valid
+		}
+		logger.Log().WithField("file", bouncerKeyFile).Warn("File API key is invalid, will re-register")
+	}
+
+	// No valid key found - register new bouncer
+	return h.registerAndSaveBouncer(ctx)
+}
+
+// validateBouncerKey checks if 'caddy-bouncer' is registered with CrowdSec.
+func (h *CrowdsecHandler) validateBouncerKey(ctx context.Context) bool {
+	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	output, err := h.CmdExec.Execute(checkCtx, "cscli", "bouncers", "list", "-o", "json")
+	if err != nil {
+		logger.Log().WithError(err).Debug("Failed to list bouncers")
+		return false
+	}
+
+	// Handle empty or null output
+	if len(output) == 0 || string(output) == "null" || string(output) == "null\n" {
+		return false
+	}
+
+	var bouncers []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(output, &bouncers); err != nil {
+		logger.Log().WithError(err).Debug("Failed to parse bouncers list")
+		return false
+	}
+
+	for _, b := range bouncers {
+		if b.Name == bouncerName {
+			return true
+		}
+	}
+	return false
+}
+
+// registerAndSaveBouncer registers a new bouncer and saves the key to file.
+func (h *CrowdsecHandler) registerAndSaveBouncer(ctx context.Context) (string, error) {
+	// Delete existing bouncer if present (stale registration)
+	deleteCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	_, _ = h.CmdExec.Execute(deleteCtx, "cscli", "bouncers", "delete", bouncerName)
+	cancel()
+
+	// Register new bouncer
+	regCtx, regCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer regCancel()
+
+	output, err := h.CmdExec.Execute(regCtx, "cscli", "bouncers", "add", bouncerName, "-o", "raw")
+	if err != nil {
+		return "", fmt.Errorf("bouncer registration failed: %w: %s", err, string(output))
+	}
+
+	apiKey := strings.TrimSpace(string(output))
+	if apiKey == "" {
+		return "", fmt.Errorf("bouncer registration returned empty API key")
+	}
+
+	// Save key to persistent file
+	if err := saveKeyToFile(bouncerKeyFile, apiKey); err != nil {
+		logger.Log().WithError(err).Warn("Failed to save bouncer key to file")
+		// Continue - key is still valid for this session
+	}
+
+	return apiKey, nil
+}
+
+// logBouncerKeyBanner logs the bouncer key with a formatted banner.
+func (h *CrowdsecHandler) logBouncerKeyBanner(apiKey string) {
+	banner := `
+════════════════════════════════════════════════════════════════════
+🔐 CrowdSec Bouncer Registered Successfully
+────────────────────────────────────────────────────────────────────
+Bouncer Name: %s
+API Key:      %s
+Saved To:     %s
+────────────────────────────────────────────────────────────────────
+💡 TIP: If connecting to an EXTERNAL CrowdSec instance, copy this
+   key to your docker-compose.yml as CHARON_SECURITY_CROWDSEC_API_KEY
+════════════════════════════════════════════════════════════════════`
+	logger.Log().Infof(banner, bouncerName, apiKey, bouncerKeyFile)
+}
+
+// getBouncerAPIKeyFromEnv retrieves the bouncer API key from environment variables.
+func getBouncerAPIKeyFromEnv() string {
+	envVars := []string{
+		"CROWDSEC_API_KEY",
+		"CROWDSEC_BOUNCER_API_KEY",
+		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
+		"CHARON_SECURITY_CROWDSEC_API_KEY",
+		"CPM_SECURITY_CROWDSEC_API_KEY",
+	}
+	for _, key := range envVars {
+		if val := os.Getenv(key); val != "" {
+			return val
+		}
+	}
+	return ""
+}
+
+// readKeyFromFile reads the bouncer key from a file and returns trimmed content.
+func readKeyFromFile(path string) string {
+	// #nosec G304 -- path is a constant defined at compile time (bouncerKeyFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// saveKeyToFile saves the bouncer key to a file with secure permissions.
+func saveKeyToFile(path string, key string) error {
+	if key == "" {
+		return fmt.Errorf("cannot save empty key")
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return fmt.Errorf("create directory: %w", err)
+	}
+
+	if err := os.WriteFile(path, []byte(key+"\n"), 0600); err != nil {
+		return fmt.Errorf("write key file: %w", err)
+	}
+
+	return nil
+}
+
+// GetBouncerInfo returns information about the current bouncer key.
+// GET /api/v1/admin/crowdsec/bouncer
+func (h *CrowdsecHandler) GetBouncerInfo(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	info := BouncerInfo{
+		Name:     bouncerName,
+		FilePath: bouncerKeyFile,
+	}
+
+	// Determine key source
+	envKey := getBouncerAPIKeyFromEnv()
+	fileKey := readKeyFromFile(bouncerKeyFile)
+
+	var fullKey string
+	if envKey != "" {
+		info.KeySource = "env_var"
+		fullKey = envKey
+	} else if fileKey != "" {
+		info.KeySource = "file"
+		fullKey = fileKey
+	} else {
+		info.KeySource = "none"
+	}
+
+	// Generate preview (first 4 + "..." + last 3 chars)
+	if fullKey != "" && len(fullKey) > 7 {
+		info.KeyPreview = fullKey[:4] + "..." + fullKey[len(fullKey)-3:]
+	} else if fullKey != "" {
+		info.KeyPreview = "***"
+	}
+
+	// Check if bouncer is registered
+	info.Registered = h.validateBouncerKey(ctx)
+
+	c.JSON(http.StatusOK, info)
+}
+
+// GetBouncerKey returns the full bouncer key (for copy to clipboard).
+// GET /api/v1/admin/crowdsec/bouncer/key
+func (h *CrowdsecHandler) GetBouncerKey(c *gin.Context) {
+	envKey := getBouncerAPIKeyFromEnv()
+	if envKey != "" {
+		c.JSON(http.StatusOK, gin.H{"key": envKey, "source": "env_var"})
+		return
+	}
+
+	fileKey := readKeyFromFile(bouncerKeyFile)
+	if fileKey != "" {
+		c.JSON(http.StatusOK, gin.H{"key": fileKey, "source": "file"})
+		return
+	}
+
+	c.JSON(http.StatusNotFound, gin.H{"error": "No bouncer key configured"})
+}
+
 // CheckLAPIHealth verifies that CrowdSec LAPI is responding.
 func (h *CrowdsecHandler) CheckLAPIHealth(c *gin.Context) {
 	// Get LAPI URL from security config or use default
@@ -1807,7 +2046,9 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/lapi/health", h.CheckLAPIHealth)
 	rg.POST("/admin/crowdsec/ban", h.BanIP)
 	rg.DELETE("/admin/crowdsec/ban/:ip", h.UnbanIP)
-	// Bouncer registration endpoint
+	// Bouncer management endpoints (auto-registration)
+	rg.GET("/admin/crowdsec/bouncer", h.GetBouncerInfo)
+	rg.GET("/admin/crowdsec/bouncer/key", h.GetBouncerKey)
 	rg.POST("/admin/crowdsec/bouncer/register", h.RegisterBouncer)
 	// Acquisition configuration endpoints
 	rg.GET("/admin/crowdsec/acquisition", h.GetAcquisitionConfig)

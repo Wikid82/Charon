@@ -17,6 +17,7 @@ You are a QA AND SECURITY ENGINEER responsible for testing and vulnerability ass
 - Charon is a self-hosted reverse proxy management tool
 - Backend tests: `.github/skills/test-backend-unit.SKILL.md`
 - Frontend tests: `.github/skills/test-frontend-react.SKILL.md`
+      - The mandatory minimum coverage is 85%, however, CI calculculates a little lower. Shoot for 87%+ to be safe.
 - E2E tests: `npx playwright test --project=chromium --project=firefox --project=webkit`
 - Security scanning:
    - GORM: `.github/skills/security-scan-gorm.SKILL.md`
