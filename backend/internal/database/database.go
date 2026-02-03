@@ -36,10 +36,10 @@ func Connect(dbPath string) (*gorm.DB, error) {
 	// This is required for modernc.org/sqlite (pure-Go driver) which doesn't
 	// support DSN-based pragma parameters like mattn/go-sqlite3
 	pragmas := []string{
-		"PRAGMA journal_mode=WAL",      // Better concurrent access, faster writes
-		"PRAGMA busy_timeout=5000",     // Wait up to 5s instead of failing immediately on lock
-		"PRAGMA synchronous=NORMAL",    // Good balance of safety and speed
-		"PRAGMA cache_size=-64000",     // 64MB cache for better performance
+		"PRAGMA journal_mode=WAL",   // Better concurrent access, faster writes
+		"PRAGMA busy_timeout=5000",  // Wait up to 5s instead of failing immediately on lock
+		"PRAGMA synchronous=NORMAL", // Good balance of safety and speed
+		"PRAGMA cache_size=-64000",  // 64MB cache for better performance
 	}
 	for _, pragma := range pragmas {
 		if _, err := sqlDB.Exec(pragma); err != nil {
