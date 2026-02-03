@@ -12,7 +12,16 @@
  */
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForToast, waitForModal } from '../utils/wait-helpers';
+import {
+  waitForLoadingComplete,
+  waitForToast,
+  waitForModal,
+  waitForDialog,
+  waitForFormFields,
+  waitForDebounce,
+  waitForConfigReload,
+  waitForNavigation,
+} from '../utils/wait-helpers';
 import {
   letsEncryptCertificate,
   customCertificateMock,
@@ -83,7 +92,8 @@ test.describe('SSL Certificates - CRUD Operations', () => {
 
     test('should display empty state when no certificates exist', async ({ page }) => {
       await test.step('Check for empty state or existing certificates', async () => {
-        await page.waitForTimeout(1000);
+        // Wait for page to fully load
+        await waitForLoadingComplete(page);
 
         const emptyCellMessage = page.getByText(/no.*certificates.*found/i);
         const table = page.getByRole('table');
@@ -98,7 +108,8 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should show loading spinner while fetching data', async ({ page }) => {
       await test.step('Navigate and observe loading state', async () => {
         await page.reload();
-        await page.waitForTimeout(2000);
+        // Wait for page to fully load after reload
+        await waitForLoadingComplete(page);
 
         const table = page.getByRole('table');
         const emptyState = page.getByText(/no.*certificates.*found/i);
@@ -122,7 +133,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
 
         if (await sslMenu.isVisible().catch(() => false)) {
           await sslMenu.click();
-          await page.waitForTimeout(300);
+          await waitForDebounce(page); // Wait for menu expansion animation
         }
 
         if (await certificatesLink.isVisible().catch(() => false)) {
@@ -194,7 +205,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
 
           if (isClickable) {
             await nameHeader.click();
-            await page.waitForTimeout(300);
+            await waitForDebounce(page); // Wait for sort animation
 
             // Sort icon should appear
             const sortIcon = nameHeader.locator('svg');
@@ -211,11 +222,11 @@ test.describe('SSL Certificates - CRUD Operations', () => {
 
         if (await expiresHeader.isVisible().catch(() => false)) {
           await expiresHeader.click();
-          await page.waitForTimeout(300);
+          await waitForDebounce(page); // Wait for sort animation
 
           // Verify click toggles sort direction
           await expiresHeader.click();
-          await page.waitForTimeout(300);
+          await waitForDebounce(page); // Wait for sort animation
         }
       });
     });
@@ -237,10 +248,10 @@ test.describe('SSL Certificates - CRUD Operations', () => {
       });
 
       await test.step('Verify upload dialog opens', async () => {
-        await page.waitForTimeout(500);
+        // Wait for dialog to be fully interactive
+        const dialog = await waitForDialog(page);
 
         // The dialog should be visible
-        const dialog = page.getByRole('dialog');
         await expect(dialog).toBeVisible({ timeout: 5000 });
 
         // Verify dialog title
@@ -259,7 +270,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should have friendly name input field', async ({ page }) => {
       await test.step('Open upload dialog', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForDialog(page); // Wait for dialog to be fully interactive
       });
 
       await test.step('Verify name input exists', async () => {
@@ -280,7 +291,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should have certificate file input (.pem, .crt, .cer)', async ({ page }) => {
       await test.step('Open upload dialog', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForDialog(page); // Wait for dialog to be fully interactive
       });
 
       await test.step('Verify certificate file input exists', async () => {
@@ -301,7 +312,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should have private key file input (.pem, .key)', async ({ page }) => {
       await test.step('Open upload dialog', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForDialog(page); // Wait for dialog to be fully interactive
       });
 
       await test.step('Verify private key file input exists', async () => {
@@ -322,7 +333,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should validate required name field', async ({ page }) => {
       await test.step('Open upload dialog', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForDialog(page); // Wait for dialog to be fully interactive
       });
 
       await test.step('Try to submit with empty name', async () => {
@@ -348,7 +359,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should require certificate file', async ({ page }) => {
       await test.step('Open upload dialog', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForDialog(page); // Wait for dialog to be fully interactive
       });
 
       await test.step('Fill name but no certificate file', async () => {
@@ -373,7 +384,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should require private key file', async ({ page }) => {
       await test.step('Open upload dialog', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForDialog(page); // Wait for dialog to be fully interactive
       });
 
       await test.step('Verify private key is required', async () => {
@@ -391,7 +402,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should show upload button with loading state', async ({ page }) => {
       await test.step('Open upload dialog', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForDialog(page); // Wait for dialog to be fully interactive
       });
 
       await test.step('Verify upload button exists', async () => {
@@ -408,7 +419,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should close dialog when Cancel clicked', async ({ page }) => {
       await test.step('Open and close dialog', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForDialog(page); // Wait for dialog to be fully interactive
 
         const dialog = page.getByRole('dialog');
         await expect(dialog).toBeVisible();
@@ -421,7 +432,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should show proper file input styling', async ({ page }) => {
       await test.step('Open upload dialog', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForDialog(page); // Wait for dialog to be fully interactive
       });
 
       await test.step('Verify file inputs have styled buttons', async () => {
@@ -614,7 +625,8 @@ test.describe('SSL Certificates - CRUD Operations', () => {
           });
 
           await deleteButtons.first().click();
-          await page.waitForTimeout(1000);
+          // Wait for toast notification after deletion attempt
+          await waitForDebounce(page);
 
           // Either toast error or successful deletion
           const toast = page.locator('[role="alert"], [role="status"], .toast, .Toastify__toast');
@@ -639,7 +651,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
           });
 
           await deleteButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForDebounce(page); // Wait for confirmation dialog animation
 
           // Rows should remain unchanged
           const rowsAfter = await page.locator('tbody tr').count();
@@ -680,7 +692,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
           await deleteButtons.first().click();
 
           // Loading overlay may appear briefly
-          await page.waitForTimeout(500);
+          await waitForDebounce(page); // Wait for overlay animation
         }
       });
     });
@@ -718,7 +730,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should reject empty friendly name', async ({ page }) => {
       await test.step('Try to upload with empty name', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForDialog(page); // Wait for dialog to be fully interactive
 
         const dialog = page.getByRole('dialog');
         const uploadButton = dialog.getByRole('button', { name: /upload/i });
@@ -734,7 +746,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should handle special characters in name', async ({ page }) => {
       await test.step('Test special characters', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForDialog(page); // Wait for dialog to be fully interactive
 
         const dialog = page.getByRole('dialog');
         const nameInput = dialog.locator('input').first();
@@ -753,7 +765,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should show placeholder text in name input', async ({ page }) => {
       await test.step('Verify placeholder text', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForDialog(page);
 
         const dialog = page.getByRole('dialog');
         const nameInput = dialog.locator('input').first();
@@ -770,7 +782,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should have accessible form labels', async ({ page }) => {
       await test.step('Open form and verify labels', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForDialog(page); // Wait for dialog to be fully interactive
 
         const dialog = page.getByRole('dialog');
 
@@ -786,43 +798,75 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     });
 
     test('should be keyboard navigable', async ({ page }) => {
-      await test.step('Navigate form with keyboard', async () => {
+      await test.step('Open upload dialog and wait for interactivity', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        const dialog = await waitForDialog(page);
+        await expect(dialog).toBeVisible();
+      });
 
-        // Tab through form fields
+      await test.step('Navigate through form fields with Tab key', async () => {
+        // Tab to first input (name field)
         await page.keyboard.press('Tab');
-        await page.keyboard.press('Tab');
-        await page.keyboard.press('Tab');
+        const firstFocusable = page.locator(':focus');
+        await expect(firstFocusable).toBeVisible();
 
-        // Some element should be focused
+        // Tab to next field
+        await page.keyboard.press('Tab');
+        const secondFocusable = page.locator(':focus');
+        await expect(secondFocusable).toBeVisible();
+
+        // Tab to third field
+        await page.keyboard.press('Tab');
+        const thirdFocusable = page.locator(':focus');
+        await expect(thirdFocusable).toBeVisible();
+
+        // Verify at least one element has focus
         const focusedElement = page.locator(':focus');
-        const hasFocus = await focusedElement.isVisible().catch(() => false);
-        expect(hasFocus || true).toBeTruthy();
+        await expect(focusedElement).toBeFocused();
+      });
 
+      await test.step('Close dialog and verify cleanup', async () => {
+        const dialog = page.getByRole('dialog');
         await getCancelButton(page).click();
+
+        // Verify dialog is properly closed
+        await expect(dialog).not.toBeVisible({ timeout: 3000 });
+
+        // Verify page is still interactive
+        await expect(page.getByRole('heading', { name: /certificates/i })).toBeVisible();
       });
     });
 
     test('should close dialog on Escape key', async ({ page }) => {
-      await test.step('Close with Escape key', async () => {
+      await test.step('Open upload dialog', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
-
-        const dialog = page.getByRole('dialog');
+        const dialog = await waitForDialog(page);
         await expect(dialog).toBeVisible();
+      });
 
+      await test.step('Press Escape and verify dialog closes', async () => {
+        const dialog = page.getByRole('dialog');
         await page.keyboard.press('Escape');
 
-        // Dialog may or may not close on Escape depending on implementation
-        await page.waitForTimeout(500);
+        // Explicit verification with timeout
+        await expect(dialog).not.toBeVisible({ timeout: 3000 });
+      });
+
+      await test.step('Verify page state after dialog close', async () => {
+        // Ensure page is still interactive
+        const heading = page.getByRole('heading', { name: /certificates/i });
+        await expect(heading).toBeVisible();
+
+        // Verify no orphaned elements
+        const orphanedDialog = page.getByRole('dialog');
+        await expect(orphanedDialog).toHaveCount(0);
       });
     });
 
     test('should have proper dialog role', async ({ page }) => {
       await test.step('Verify dialog ARIA role', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForDialog(page); // Wait for dialog to be fully interactive
 
         const dialog = page.getByRole('dialog');
         await expect(dialog).toBeVisible();
@@ -834,7 +878,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should have dialog title in heading', async ({ page }) => {
       await test.step('Verify dialog has heading', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForDialog(page); // Wait for dialog to be fully interactive
 
         const dialog = page.getByRole('dialog');
         const heading = dialog.getByRole('heading');
@@ -899,7 +943,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
           await firstRow.hover();
 
           // Row should have hover state
-          await page.waitForTimeout(200);
+          await waitForDebounce(page, { timeout: 1000 }); // Wait for hover animation
         }
       });
     });
@@ -923,7 +967,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should handle responsive layout', async ({ page }) => {
       await test.step('Test mobile viewport', async () => {
         await page.setViewportSize({ width: 375, height: 667 });
-        await page.waitForTimeout(500);
+        await waitForDebounce(page); // Wait for responsive layout adjustment
 
         // Page should still function
         const heading = page.getByRole('heading', { name: /certificates/i });
@@ -950,7 +994,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should show upload error on invalid certificate', async ({ page }) => {
       await test.step('Verify upload error handling', async () => {
         await getAddCertButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForDialog(page); // Wait for dialog to be fully interactive
 
         // Fill in name but with invalid files would trigger error
         // This tests the error handling path
