@@ -52,7 +52,7 @@ env:
 
 concurrency:
   group: e2e-split-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   # Build application once, share across all browser jobs
