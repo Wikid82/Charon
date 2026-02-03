@@ -1,6 +1,65 @@
 # Current Active Work
 
-## 🚨 URGENT: Shard 1 CI Failure Investigation (2026-02-03)
+## � BUG FIX: Config API Endpoint in Break Glass Recovery Test (2026-02-03)
+
+**Status**: ✅ Research Complete - Ready for Implementation
+**Priority**: P1 (Test Failure)
+**Estimated Fix Time**: 10 minutes
+**File**: [tests/security-enforcement/zzzz-break-glass-recovery.spec.ts](../../tests/security-enforcement/zzzz-break-glass-recovery.spec.ts)
+
+### Problem
+
+`GET /api/v1/config` does not exist - the test fails with non-OK status when trying to verify that `admin_whitelist` was persisted.
+
+### Root Cause
+
+Looking at [routes.go#L237](../../backend/internal/api/routes/routes.go#L237):
+```go
+protected.PATCH("/config", settingsHandler.PatchConfig)  // Only PATCH exists, no GET
+```
+
+**There is NO `GET /api/v1/config` route defined.** Only `PATCH` was implemented for bulk config updates.
+
+### Available GET Endpoints
+
+| Endpoint | Response Format | Use For |
+|----------|-----------------|---------|
+| `GET /api/v1/settings` | `{ "key": "value", ... }` (flat map) | All settings |
+| `GET /api/v1/security/config` | `{ "config": { ...SecurityConfig } }` | Security-specific config |
+
+### Fix Required
+
+**File:** `tests/security-enforcement/zzzz-break-glass-recovery.spec.ts` (lines 66-72)
+
+**Current (Broken):**
+```typescript
+const response = await request.get(`${BASE_URL}/api/v1/config`);  // ❌ Doesn't exist
+expect(body.security?.admin_whitelist).toBe('0.0.0.0/0');  // ❌ Wrong format
+```
+
+**Fixed:**
+```typescript
+const response = await request.get(`${BASE_URL}/api/v1/security/config`);  // ✅ Correct endpoint
+expect(body.config?.admin_whitelist).toBe('0.0.0.0/0');  // ✅ Correct path
+```
+
+### Acceptance Criteria
+
+- [ ] Step 1 uses `GET /api/v1/security/config` instead of `GET /api/v1/config`
+- [ ] Assertion accesses `body.config.admin_whitelist` (not `body.security?.admin_whitelist`)
+- [ ] All 4 steps in `zzzz-break-glass-recovery.spec.ts` pass
+
+### Route Reference
+
+From [settings_handler.go](../../backend/internal/api/handlers/settings_handler.go):
+- `PatchConfig()` (line 176) syncs `admin_whitelist` to both Settings table AND SecurityConfig model
+
+From [security_handler.go](../../backend/internal/api/handlers/security_handler.go):
+- `GetConfig()` (line 205) returns SecurityConfig with `admin_whitelist` field
+
+---
+
+## �🚨 URGENT: Shard 1 CI Failure Investigation (2026-02-03)
 
 **Status**: ✅ Root Cause Identified - Fix Ready
 **Priority**: P0 (Blocking CI)
