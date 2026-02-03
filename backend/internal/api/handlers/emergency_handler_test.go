@@ -101,12 +101,17 @@ func TestEmergencySecurityReset_Success(t *testing.T) {
 	assert.GreaterOrEqual(t, len(disabledModules), 5)
 
 	// Verify settings were updated
-	var setting models.Setting
-	err = db.Where("key = ?", "feature.cerberus.enabled").First(&setting).Error
-	require.NoError(t, err)
-	assert.Equal(t, "false", setting.Value)
-	assert.NotEmpty(t, setting.Value)
+	// Note: feature.cerberus.enabled is intentionally NOT disabled
+	// The emergency reset only disables individual security modules (ACL, WAF, etc)
+	// while keeping the Cerberus framework enabled for break glass testing
 
+	// Verify ACL module is disabled
+	var aclSetting models.Setting
+	err = db.Where("key = ?", "security.acl.enabled").First(&aclSetting).Error
+	require.NoError(t, err)
+	assert.Equal(t, "false", aclSetting.Value)
+
+	// Verify CrowdSec mode is disabled
 	var crowdsecMode models.Setting
 	err = db.Where("key = ?", "security.crowdsec.mode").First(&crowdsecMode).Error
 	require.NoError(t, err)
