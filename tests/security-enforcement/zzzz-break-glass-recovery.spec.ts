@@ -90,11 +90,11 @@ test.describe.serial('Break Glass Recovery - Universal Bypass', () => {
     });
 
     await test.step('Verify Cerberus is enabled', async () => {
-      const response = await request.get(`${BASE_URL}/api/v1/security/config`);
+      const response = await request.get(`${BASE_URL}/api/v1/security/status`);
       expect(response.ok()).toBeTruthy();
 
       const body = await response.json();
-      expect(body.enabled).toBe(true); // feature.cerberus.enabled = true
+      expect(body.cerberus.enabled).toBe(true); // feature.cerberus.enabled = true
       console.log('✅ Cerberus framework status verified: ENABLED');
     });
   });
@@ -154,7 +154,7 @@ test.describe.serial('Break Glass Recovery - Universal Bypass', () => {
       const body = await response.json();
 
       // Cerberus framework
-      expect(body.cerberus_enabled).toBe(true);
+      expect(body.cerberus.enabled).toBe(true);
 
       // Security modules
       expect(body.acl?.enabled).toBe(true);
@@ -162,7 +162,7 @@ test.describe.serial('Break Glass Recovery - Universal Bypass', () => {
       expect(body.rate_limit?.enabled).toBe(true);
 
       // CrowdSec may or may not be running
-      console.log(`   Cerberus: ${body.cerberus_enabled ? '✅ ENABLED' : '❌ DISABLED'}`);
+      console.log(`   Cerberus: ${body.cerberus.enabled ? '✅ ENABLED' : '❌ DISABLED'}`);
       console.log(`   ACL:      ${body.acl?.enabled ? '✅ ENABLED' : '❌ DISABLED'}`);
       console.log(`   WAF:      ${body.waf?.enabled ? '✅ ENABLED' : '❌ DISABLED'}`);
       console.log(`   Rate Lim: ${body.rate_limit?.enabled ? '✅ ENABLED' : '❌ DISABLED'}`);

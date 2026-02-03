@@ -23,6 +23,7 @@
 
 import { test as teardown } from '@bgotink/playwright-coverage';
 import { request } from '@playwright/test';
+import { STORAGE_STATE } from './constants';
 
 teardown('verify-security-state-for-ui-tests', async () => {
   console.log('\n🔍 Security Teardown: Verifying state for UI tests...');
@@ -33,39 +34,24 @@ teardown('verify-security-state-for-ui-tests', async () => {
   // Create authenticated request context with storage state
   const requestContext = await request.newContext({
     baseURL,
-    storageState: 'playwright/.auth/admin.json',
+    storageState: STORAGE_STATE,
   });
 
   let allChecksPass = true;
 
   try {
-    // Verify Cerberus framework is enabled
-    const cerberusResponse = await requestContext.get(`${baseURL}/api/v1/security/config`);
-    if (cerberusResponse.ok()) {
-      const config = await cerberusResponse.json();
-      if (config.enabled === true) {
+    // Verify Cerberus framework is enabled via status endpoint
+    const statusResponse = await requestContext.get(`${baseURL}/api/v1/security/status`);
+    if (statusResponse.ok()) {
+      const status = await statusResponse.json();
+      if (status.cerberus.enabled === true) {
         console.log('✅ Cerberus framework: ENABLED');
       } else {
         console.log('⚠️  Cerberus framework: DISABLED (expected: ENABLED)');
         allChecksPass = false;
       }
 
-      if (config.admin_whitelist === '0.0.0.0/0') {
-        console.log('✅ Admin whitelist: 0.0.0.0/0 (universal bypass)');
-      } else {
-        console.log(`⚠️  Admin whitelist: ${config.admin_whitelist || 'none'} (expected: 0.0.0.0/0)`);
-        allChecksPass = false;
-      }
-    } else {
-      console.log('⚠️  Could not verify Cerberus configuration');
-      allChecksPass = false;
-    }
-
-    // Verify security modules status
-    const statusResponse = await requestContext.get(`${baseURL}/api/v1/security/status`);
-    if (statusResponse.ok()) {
-      const status = await statusResponse.json();
-
+      // Verify security modules status
       console.log(`   ACL module:         ${status.acl?.enabled ? '✅ ENABLED' : '⚠️  disabled'}`);
       console.log(`   WAF module:         ${status.waf?.enabled ? '✅ ENABLED' : '⚠️  disabled'}`);
       console.log(`   Rate Limit module:  ${status.rate_limit?.enabled ? '✅ ENABLED' : '⚠️  disabled'}`);
@@ -78,6 +64,21 @@ teardown('verify-security-state-for-ui-tests', async () => {
       }
     } else {
       console.log('⚠️  Could not verify security module status');
+      allChecksPass = false;
+    }
+
+    // Verify admin whitelist via config endpoint
+    const configResponse = await requestContext.get(`${baseURL}/api/v1/security/config`);
+    if (configResponse.ok()) {
+      const configData = await configResponse.json();
+      if (configData.config?.admin_whitelist === '0.0.0.0/0') {
+        console.log('✅ Admin whitelist: 0.0.0.0/0 (universal bypass)');
+      } else {
+        console.log(`⚠️  Admin whitelist: ${configData.config?.admin_whitelist || 'none'} (expected: 0.0.0.0/0)`);
+        allChecksPass = false;
+      }
+    } else {
+      console.log('⚠️  Could not verify admin whitelist configuration');
       allChecksPass = false;
     }
 
