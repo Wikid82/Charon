@@ -1,4 +1,4 @@
-name: Cerberus Integration Tests
+name: Cerberus Integration
 
 on:
   push:

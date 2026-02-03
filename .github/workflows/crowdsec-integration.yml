@@ -1,4 +1,4 @@
-name: CrowdSec Integration Tests
+name: CrowdSec Integration
 
 on:
   push:

@@ -1,4 +1,4 @@
-name: Rate Limit Integration Tests
+name: Rate Limit integration
 
 on:
   push:
