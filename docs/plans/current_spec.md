@@ -1,5 +1,45 @@
 # Current Active Work
 
+## 🚨 URGENT: Shard 1 CI Failure Investigation (2026-02-03)
+
+**Status**: ✅ Root Cause Identified - Fix Ready
+**Priority**: P0 (Blocking CI)
+**Estimated Fix Time**: 1 hour
+**CI Run**: https://github.com/Wikid82/Charon/actions/runs/21613888904
+
+### Problem
+
+After completing Phase 1-3 timeout remediation work:
+- **Shard 1 failed on ALL 3 browsers** (Chromium, Firefox, WebKit)
+- **Shards 2 & 3 passed**
+- **Success Rate: 50% (6/12 jobs)**
+
+### Root Cause
+
+**Dynamic imports in `wait-helpers.ts` cause module resolution delays in CI:**
+- 2 `await import('./ui-helpers')` statements in hot paths
+- CI single worker (`workers: 1`) exposes cold cache timing issues
+- Shard 1 contains 4 refactored files using these helpers extensively
+
+### Solution
+
+**Remove dynamic imports, use static imports:**
+```typescript
+// Add at top of wait-helpers.ts:
+import { clickSwitch } from './ui-helpers';
+
+// Remove 2 dynamic import statements (lines 69-70, 108-109)
+```
+
+**Impact**: Eliminates async module resolution overhead, fixes all Shard 1 failures
+
+### Documentation
+
+- **Investigation Summary**: [shard1_investigation_summary.md](./shard1_investigation_summary.md)
+- **Fix Plan**: [shard1_fix_plan.md](./shard1_fix_plan.md)
+
+---
+
 ## Phase 3: Coverage Improvement ✅ COMPLETE
 
 **Status**: ✅ Complete (with documented constraints)
