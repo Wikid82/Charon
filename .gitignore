@@ -295,3 +295,4 @@ test-data/**
 
 # GORM Security Scanner Reports
 docs/reports/gorm-scan-*.txt
+frontend/trivy-results.json
