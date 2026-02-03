@@ -27,7 +27,7 @@
 <p align="center">
 Simply manage multiple websites and self-hosted applications. Click, save, done. No code, no config files, no PhD required.
 </p>
-<br>
+
 ---
 
 ## Why Charon?
