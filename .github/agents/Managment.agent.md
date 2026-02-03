@@ -66,28 +66,59 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
     - **Manual Testing**: create a new test plan in `docs/issues/*.md` for tracking manual testing focused on finding potential bugs of the implemented features.
     - **Final Report**: Summarize the successful subagent runs.
     - **Commit Message**: Provide a copy and paste code block commit message at the END of the response on format laid out in `.github/instructions/commit-message.instructions.md`
+        - **STRICT RULES**:
+            - ❌ DO NOT mention file names
+            - ❌ DO NOT mention line counts (+10/-2)
+            - ❌ DO NOT summarize diffs mechanically
+            - ✅ DO describe behavior changes, fixes, or intent
+            - ✅ DO explain the reason for the change
+            - ✅ DO assume the reader cannot see the diff
 
     COMMIT MESSAGE FORMAT:
         ```
         ---
 
-            type: descriptive commit title
+            type: concise, descriptive title written in imperative mood
 
-            Detailed commit message body explaining what changed and why
-            - Bullet points for key changes
+            Detailed explanation of:
+            - What behavior changed
+            - Why the change was necessary
+            - Any important side effects or considerations
             - References to issues/PRs
 
         ```
     END COMMIT MESSAGE FORMAT
 
-    - **Type**: Use conventional commit types:
-        - Use `feat:` for new user-facing features
-        - Use `fix:` for bug fixes in application code
-        - Use `chore:` for infrastructure, CI/CD, dependencies, tooling
-        - Use `docs:` for documentation-only changes
-        - Use `refactor:` for code restructuring without functional changes
-        - Include body with technical details and reference any issue numbers
-        - **CRITICAL**: Place commit message at the VERY END after all summaries and file lists so user can easily find and copy it
+        - **Type**:
+            Use conventional commit types:
+            - `feat:` new user-facing behavior
+            - `fix:` bug fixes or incorrect behavior
+            - `chore:` tooling, CI, infra, deps
+            - `docs:` documentation only
+            - `refactor:` internal restructuring without behavior change
+
+        - **CRITICAL**:
+            - The commit message MUST be meaningful without viewing the diff
+            - The commit message MUST be the final content in the response
+
+```
+## Example: before vs after
+
+### ❌ What you’re getting now
+```
+chore: update tests
+
+Edited security-suite-integration.spec.ts +10 -2
+```
+
+### ✅ What you *want*
+```
+fix: harden security suite integration test expectations
+
+- Updated integration test to reflect new authentication error handling
+- Prevents false positives when optional headers are omitted
+- Aligns test behavior with recent proxy validation changes
+```
 
 </workflow>
 
