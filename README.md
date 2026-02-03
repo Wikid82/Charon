@@ -25,7 +25,7 @@ Simply manage multiple websites and self-hosted applications. Click, save, done.
   <a href="https://github.com/Wikid82/Charon/actions/workflows/cerberus-integration.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/cerberus-integration.yml/badge.svg" alt="Cerberus Integration"></a><br>
   <a href="https://github.com/Wikid82/Charon/actions/workflows/crowdsec-integration.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/crowdsec-integration.yml/badge.svg" alt="CrowdSec Integration"></a>
   <a href="https://github.com/Wikid82/Charon/actions/workflows/waf-integration.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/waf-integration.yml/badge.svg" alt="WAF Integration"></a>
-  <a href="https://github.com/Wikid82/Charon/actions/workflows/rate-limit-integration.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/rate-limit-integration.yml/badge.svg" alt="Rate Limit Integration Tests"></a>
+  <a href="https://github.com/Wikid82/Charon/actions/workflows/rate-limit-integration.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/rate-limit-integration.yml/badge.svg" alt="Rate Limit Integration"></a>
 </p>
 
 ---
