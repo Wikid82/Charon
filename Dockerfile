@@ -23,7 +23,7 @@ ARG CADDY_VERSION=2.11.0-beta.2
 ## Using trixie (Debian 13 testing) for faster security updates - bookworm
 ## packages marked "wont-fix" are actively maintained in trixie.
 # renovate: datasource=docker depName=debian versioning=docker
-ARG CADDY_IMAGE=debian:trixie-slim@sha256:77ba0164de17b88dd0bf6cdc8f65569e6e5fa6cd256562998b62553134a00ef0
+ARG CADDY_IMAGE=debian:trixie-slim@sha256:bfc1a095aef012070754f61523632d1603d7508b4d0329cd5eb36e9829501290
 
 # ---- Cross-Compilation Helpers ----
 # renovate: datasource=docker depName=tonistiigi/xx
@@ -65,7 +65,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.13.0-slim@sha256:bf22df20270b654c4e9da59d8d4a3516cce6ba2852e159b27288d645b7a7eedc AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.13.0-slim@sha256:12cdbb6b2b9d4616eb1f6146ce4902fba7cef72ab972285b48e4b355e838460d AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -286,7 +286,7 @@ RUN mkdir -p /crowdsec-out/config && \
 
 # ---- CrowdSec Fallback (for architectures where build fails) ----
 # renovate: datasource=docker depName=debian
-FROM debian:trixie-slim@sha256:77ba0164de17b88dd0bf6cdc8f65569e6e5fa6cd256562998b62553134a00ef0 AS crowdsec-fallback
+FROM debian:trixie-slim@sha256:bfc1a095aef012070754f61523632d1603d7508b4d0329cd5eb36e9829501290 AS crowdsec-fallback
 
 WORKDIR /tmp/crowdsec
 
