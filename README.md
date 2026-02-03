@@ -4,12 +4,6 @@
 
 <h1 align="center">Charon</h1>
 
-<p align="center"><strong>Your server, your rules—without the headaches.</strong></p>
-
-<p align="center">
-Simply manage multiple websites and self-hosted applications. Click, save, done. No code, no config files, no PhD required.
-</p>
-
 <br>
 
 <p align="center">
@@ -27,7 +21,13 @@ Simply manage multiple websites and self-hosted applications. Click, save, done.
   <a href="https://github.com/Wikid82/Charon/actions/workflows/waf-integration.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/waf-integration.yml/badge.svg" alt="WAF Integration"></a>
   <a href="https://github.com/Wikid82/Charon/actions/workflows/rate-limit-integration.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/rate-limit-integration.yml/badge.svg" alt="Rate Limit Integration"></a>
 </p>
+<br>
+<p align="center"><strong>Your server, your rules—without the headaches.</strong></p>
 
+<p align="center">
+Simply manage multiple websites and self-hosted applications. Click, save, done. No code, no config files, no PhD required.
+</p>
+<br>
 ---
 
 ## Why Charon?
