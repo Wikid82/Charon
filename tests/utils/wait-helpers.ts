@@ -17,6 +17,7 @@
 
 import { expect } from '@bgotink/playwright-coverage';
 import type { Page, Locator, Response } from '@playwright/test';
+import { clickSwitch } from './ui-helpers';
 
 /**
  * Click an element and wait for an API response atomically.
@@ -55,7 +56,6 @@ export async function clickAndWaitForResponse(
 
   if (isSwitch) {
     // Use clickSwitch helper for switch components
-    const { clickSwitch } = await import('./ui-helpers');
     const [response] = await Promise.all([
       page.waitForResponse(
         (resp) => {
@@ -106,9 +106,6 @@ export async function clickSwitchAndWaitForResponse(
   options: { status?: number; timeout?: number; scrollPadding?: number } = {}
 ): Promise<Response> {
   const { status = 200, timeout = 30000, scrollPadding = 100 } = options;
-
-  // Import dynamically to avoid circular dependency
-  const { clickSwitch } = await import('./ui-helpers');
 
   const [response] = await Promise.all([
     page.waitForResponse(
