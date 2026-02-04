@@ -600,12 +600,12 @@ func TestExtractCscliErrorMessage(t *testing.T) {
 		{
 			name:     "invalid keyword detection",
 			input:    "The token is invalid",
-			expected: "The token is invalid",
+			expected: "Enrollment token is invalid. Please verify the token from crowdsec.net console.",
 		},
 		{
-			name:     "complex cscli output with msg",
+			name:     "complex cscli output with msg - config not found pattern",
 			input:    `time="2024-01-15T10:30:00Z" level=fatal msg="unable to configure hub: while syncing hub: creating hub index: failed to read index file: open /etc/crowdsec/hub/.index.json: no such file or directory"`,
-			expected: "unable to configure hub: while syncing hub: creating hub index: failed to read index file: open /etc/crowdsec/hub/.index.json: no such file or directory",
+			expected: "CrowdSec configuration file not found. Run CrowdSec initialization first.",
 		},
 	}
 
@@ -651,7 +651,8 @@ func TestEncryptDecrypt(t *testing.T) {
 // LAPI Availability Check Retry Tests
 // ============================================
 
-// TestCheckLAPIAvailable_Retries verifies that checkLAPIAvailable retries 3 times with delays.
+// TestCheckLAPIAvailable_Retries verifies that checkLAPIAvailable retries with exponential backoff.
+// NOTE: This test uses success on 2nd attempt to keep test duration reasonable.
 func TestCheckLAPIAvailable_Retries(t *testing.T) {
 	db := openConsoleTestDB(t)
 
@@ -661,8 +662,7 @@ func TestCheckLAPIAvailable_Retries(t *testing.T) {
 			err error
 		}{
 			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 1: fail
-			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 2: fail
-			{out: []byte("ok"), err: nil},                     // Attempt 3: success
+			{out: []byte("ok"), err: nil},                     // Attempt 2: success
 		},
 	}
 
@@ -673,11 +673,11 @@ func TestCheckLAPIAvailable_Retries(t *testing.T) {
 	err := svc.checkLAPIAvailable(context.Background())
 	elapsed := time.Since(start)
 
-	require.NoError(t, err, "should succeed on 3rd attempt")
-	require.Equal(t, 3, exec.callCount(), "should make 3 attempts")
+	require.NoError(t, err, "should succeed on 2nd attempt")
+	require.Equal(t, 2, exec.callCount(), "should make 2 attempts")
 
-	// Verify delays were applied (should be at least 4 seconds: 2s + 2s delays)
-	require.GreaterOrEqual(t, elapsed, 4*time.Second, "should wait at least 4 seconds with 2 retries")
+	// Verify delays were applied (first delay is 3 seconds with new exponential backoff)
+	require.GreaterOrEqual(t, elapsed, 3*time.Second, "should wait at least 3 seconds with 1 retry")
 
 	// Verify all calls were lapi status checks
 	for _, call := range exec.calls {
@@ -698,6 +698,8 @@ func TestCheckLAPIAvailable_RetriesExhausted(t *testing.T) {
 			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 1: fail
 			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 2: fail
 			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 3: fail
+			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 4: fail
+			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 5: fail
 		},
 	}
 
@@ -706,9 +708,9 @@ func TestCheckLAPIAvailable_RetriesExhausted(t *testing.T) {
 	err := svc.checkLAPIAvailable(context.Background())
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "after 3 attempts")
-	require.Contains(t, err.Error(), "5-10 seconds")
-	require.Equal(t, 3, exec.callCount(), "should make exactly 3 attempts")
+	require.Contains(t, err.Error(), "after 5 attempts")
+	require.Contains(t, err.Error(), "45s total wait")
+	require.Equal(t, 5, exec.callCount(), "should make exactly 5 attempts")
 }
 
 // TestCheckLAPIAvailable_FirstAttemptSuccess verifies no retries when LAPI is immediately available.
@@ -753,6 +755,8 @@ func TestEnroll_RequiresLAPI(t *testing.T) {
 			{out: nil, err: fmt.Errorf("dial tcp 127.0.0.1:8085: connection refused")}, // lapi status fails - attempt 1
 			{out: nil, err: fmt.Errorf("dial tcp 127.0.0.1:8085: connection refused")}, // lapi status fails - attempt 2
 			{out: nil, err: fmt.Errorf("dial tcp 127.0.0.1:8085: connection refused")}, // lapi status fails - attempt 3
+			{out: nil, err: fmt.Errorf("dial tcp 127.0.0.1:8085: connection refused")}, // lapi status fails - attempt 4
+			{out: nil, err: fmt.Errorf("dial tcp 127.0.0.1:8085: connection refused")}, // lapi status fails - attempt 5
 		},
 	}
 	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
@@ -764,10 +768,10 @@ func TestEnroll_RequiresLAPI(t *testing.T) {
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Local API is not running")
-	require.Contains(t, err.Error(), "after 3 attempts")
+	require.Contains(t, err.Error(), "after 5 attempts")
 
-	// Verify that we retried lapi status check 3 times
-	require.Equal(t, 3, exec.callCount())
+	// Verify that we retried lapi status check 5 times with exponential backoff
+	require.Equal(t, 5, exec.callCount())
 	require.Contains(t, exec.calls[0].args, "lapi")
 	require.Contains(t, exec.calls[0].args, "status")
 }

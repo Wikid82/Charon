@@ -13,6 +13,7 @@ import { createBackup } from '../api/backups'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from '../utils/toast'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
+import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
 import { Shield, ShieldOff, Trash2, Search, AlertTriangle, ExternalLink } from 'lucide-react'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 import { CROWDSEC_PRESETS, CrowdsecPreset } from '../data/crowdsecPresets'
@@ -538,6 +539,12 @@ export default function CrowdSecConfig() {
       )}
       <div className="space-y-6">
       <h1 className="text-2xl font-bold">{t('crowdsecConfig.title')}</h1>
+
+      {/* CrowdSec Bouncer API Key - moved from Security Dashboard */}
+      {status.cerberus?.enabled && status.crowdsec.enabled && (
+        <CrowdSecBouncerKeyDisplay />
+      )}
+
       <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-4 mb-4">
         <p className="text-sm text-blue-200">
           <strong>{t('crowdsecConfig.note')}:</strong> {t('crowdsecConfig.noteText')}{' '}

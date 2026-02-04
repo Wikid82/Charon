@@ -249,10 +249,11 @@ func (s *ConsoleEnrollmentService) Enroll(ctx context.Context, req ConsoleEnroll
 
 // checkLAPIAvailable verifies that CrowdSec Local API is running and reachable.
 // This is critical for console enrollment as the enrollment process requires LAPI.
-// It retries up to 3 times with 2-second delays to handle LAPI initialization timing.
+// It retries up to 5 times with exponential backoff (3s, 6s, 12s, 24s) to handle LAPI initialization timing.
+// Total wait time: ~45 seconds max.
 func (s *ConsoleEnrollmentService) checkLAPIAvailable(ctx context.Context) error {
-	maxRetries := 3
-	retryDelay := 2 * time.Second
+	maxRetries := 5
+	baseDelay := 3 * time.Second
 
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {
@@ -262,7 +263,7 @@ func (s *ConsoleEnrollmentService) checkLAPIAvailable(ctx context.Context) error
 			args = append([]string{"-c", configPath}, args...)
 		}
 
-		checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		out, err := s.exec.ExecuteWithEnv(checkCtx, "cscli", args, nil)
 		cancel()
 
@@ -273,12 +274,14 @@ func (s *ConsoleEnrollmentService) checkLAPIAvailable(ctx context.Context) error
 
 		lastErr = err
 		if i < maxRetries-1 {
-			logger.Log().WithError(err).WithField("attempt", i+1).WithField("output", string(out)).Debug("LAPI not ready, retrying")
-			time.Sleep(retryDelay)
+			// Exponential backoff: 3s, 6s, 12s, 24s
+			delay := baseDelay * time.Duration(1<<uint(i))
+			logger.Log().WithError(err).WithField("attempt", i+1).WithField("next_delay_s", delay.Seconds()).WithField("output", string(out)).Debug("LAPI not ready, retrying with exponential backoff")
+			time.Sleep(delay)
 		}
 	}
 
-	return fmt.Errorf("CrowdSec Local API is not running after %d attempts - please wait for LAPI to initialize (typically 5-10 seconds after enabling CrowdSec): %w", maxRetries, lastErr)
+	return fmt.Errorf("CrowdSec Local API is not running after %d attempts (~45s total wait) - please wait for LAPI to initialize or check CrowdSec logs: %w", maxRetries, lastErr)
 }
 
 func (s *ConsoleEnrollmentService) ensureCAPIRegistered(ctx context.Context) error {
@@ -426,10 +429,32 @@ func redactSecret(msg, secret string) string {
 // - "level=error msg=\"...\""
 // - "ERRO[...] ..."
 // - Plain error text
+//
+// It also translates common CrowdSec errors into user-friendly messages.
 func extractCscliErrorMessage(output string) string {
 	output = strings.TrimSpace(output)
 	if output == "" {
 		return ""
+	}
+
+	lowerOutput := strings.ToLower(output)
+
+	// Check for specific error patterns and provide actionable messages
+	errorPatterns := map[string]string{
+		"token is expired":          "Enrollment token has expired. Please generate a new token from crowdsec.net console.",
+		"token is invalid":          "Enrollment token is invalid. Please verify the token from crowdsec.net console.",
+		"already enrolled":          "Agent is already enrolled. Use force=true to re-enroll.",
+		"lapi is not reachable":     "Cannot reach Local API. Ensure CrowdSec is running and LAPI is initialized.",
+		"capi is not reachable":     "Cannot reach Central API. Check network connectivity to crowdsec.net.",
+		"connection refused":        "CrowdSec Local API refused connection. Ensure CrowdSec is running.",
+		"no such file or directory": "CrowdSec configuration file not found. Run CrowdSec initialization first.",
+		"permission denied":         "Permission denied. Ensure the process has access to CrowdSec configuration.",
+	}
+
+	for pattern, message := range errorPatterns {
+		if strings.Contains(lowerOutput, pattern) {
+			return message
+		}
 	}
 
 	// Try to extract from level=error msg="..." format

@@ -130,6 +130,20 @@ if command -v cscli >/dev/null; then
     mkdir -p "$CS_CONFIG_DIR" 2>/dev/null || echo "Warning: Cannot create $CS_CONFIG_DIR"
     mkdir -p "$CS_DATA_DIR" 2>/dev/null || echo "Warning: Cannot create $CS_DATA_DIR"
     mkdir -p "$CS_PERSIST_DIR/hub_cache"
+
+    # ============================================================================
+    # CrowdSec Bouncer Key Persistence Directory
+    # ============================================================================
+    # Create the persistent directory for bouncer key storage.
+    # This directory is inside /app/data which is volume-mounted.
+    # The bouncer key will be stored at /app/data/crowdsec/bouncer_key
+    echo "CrowdSec bouncer key will be stored at: $CS_PERSIST_DIR/bouncer_key"
+
+    # Fix ownership for key directory if running as root
+    if is_root; then
+        chown charon:charon "$CS_PERSIST_DIR" 2>/dev/null || true
+    fi
+
     # Log directories are created at build time with correct ownership
     # Only attempt to create if they don't exist (first run scenarios)
     mkdir -p /var/log/crowdsec 2>/dev/null || true

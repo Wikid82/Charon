@@ -39,6 +39,18 @@ func (m *mockCrowdsecExecutor) Status(ctx context.Context, configDir string) (ru
 	return m.running, m.pid, m.statusErr
 }
 
+// mockCommandExecutor is a test mock for CommandExecutor interface
+type mockCommandExecutor struct {
+	executeCalls [][]string // Track command invocations
+	executeErr   error       // Error to return
+	executeOut   []byte      // Output to return
+}
+
+func (m *mockCommandExecutor) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
+	m.executeCalls = append(m.executeCalls, append([]string{name}, args...))
+	return m.executeOut, m.executeErr
+}
+
 // smartMockCrowdsecExecutor returns running=true after Start is called (for post-start verification)
 type smartMockCrowdsecExecutor struct {
 	startCalled  bool
@@ -110,9 +122,10 @@ func setupCrowdsecTestFixtures(t *testing.T) (binPath, dataDir string, cleanup f
 
 func TestReconcileCrowdSecOnStartup_NilDB(t *testing.T) {
 	exec := &mockCrowdsecExecutor{}
+	cmdExec := &mockCommandExecutor{}
 
 	// Should not panic with nil db
-	ReconcileCrowdSecOnStartup(nil, exec, "crowdsec", "/tmp/crowdsec")
+	ReconcileCrowdSecOnStartup(nil, exec, "crowdsec", "/tmp/crowdsec", cmdExec)
 
 	assert.False(t, exec.startCalled)
 	assert.False(t, exec.statusCalled)
@@ -120,9 +133,10 @@ func TestReconcileCrowdSecOnStartup_NilDB(t *testing.T) {
 
 func TestReconcileCrowdSecOnStartup_NilExecutor(t *testing.T) {
 	db := setupCrowdsecTestDB(t)
+	cmdExec := &mockCommandExecutor{}
 
 	// Should not panic with nil executor
-	ReconcileCrowdSecOnStartup(db, nil, "crowdsec", "/tmp/crowdsec")
+	ReconcileCrowdSecOnStartup(db, nil, "crowdsec", "/tmp/crowdsec", cmdExec)
 }
 
 func TestReconcileCrowdSecOnStartup_NoSecurityConfig_NoSettings(t *testing.T) {
@@ -131,9 +145,10 @@ func TestReconcileCrowdSecOnStartup_NoSecurityConfig_NoSettings(t *testing.T) {
 	defer cleanup()
 
 	exec := &mockCrowdsecExecutor{}
+	cmdExec := &mockCommandExecutor{}
 
 	// No SecurityConfig record, no Settings entry - should create default config with mode=disabled and skip start
-	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir, cmdExec)
 
 	// Verify SecurityConfig was created with disabled mode
 	var cfg models.SecurityConfig
@@ -168,9 +183,10 @@ func TestReconcileCrowdSecOnStartup_NoSecurityConfig_SettingsEnabled(t *testing.
 	exec := &smartMockCrowdsecExecutor{
 		startPid: 12345,
 	}
+	cmdExec := &mockCommandExecutor{} // Mock command executor to avoid real cscli calls
 
 	// No SecurityConfig record but Settings enabled - should create config with mode=local and start
-	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir, cmdExec)
 
 	// Verify SecurityConfig was created with local mode
 	var cfg models.SecurityConfig
@@ -202,9 +218,10 @@ func TestReconcileCrowdSecOnStartup_NoSecurityConfig_SettingsDisabled(t *testing
 	require.NoError(t, db.Create(&setting).Error)
 
 	exec := &mockCrowdsecExecutor{}
+	cmdExec := &mockCommandExecutor{}
 
 	// No SecurityConfig record, Settings disabled - should create config with mode=disabled and skip start
-	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir, cmdExec)
 
 	// Verify SecurityConfig was created with disabled mode
 	var cfg models.SecurityConfig
@@ -221,6 +238,7 @@ func TestReconcileCrowdSecOnStartup_NoSecurityConfig_SettingsDisabled(t *testing
 func TestReconcileCrowdSecOnStartup_ModeDisabled(t *testing.T) {
 	db := setupCrowdsecTestDB(t)
 	exec := &mockCrowdsecExecutor{}
+	cmdExec := &mockCommandExecutor{}
 
 	// Create SecurityConfig with mode=disabled
 	cfg := models.SecurityConfig{
@@ -228,7 +246,7 @@ func TestReconcileCrowdSecOnStartup_ModeDisabled(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
-	ReconcileCrowdSecOnStartup(db, exec, "crowdsec", "/tmp/crowdsec")
+	ReconcileCrowdSecOnStartup(db, exec, "crowdsec", "/tmp/crowdsec", cmdExec)
 
 	assert.False(t, exec.startCalled)
 	assert.False(t, exec.statusCalled)
@@ -243,6 +261,7 @@ func TestReconcileCrowdSecOnStartup_ModeLocal_AlreadyRunning(t *testing.T) {
 		running: true,
 		pid:     12345,
 	}
+	cmdExec := &mockCommandExecutor{}
 
 	// Create SecurityConfig with mode=local
 	cfg := models.SecurityConfig{
@@ -250,7 +269,7 @@ func TestReconcileCrowdSecOnStartup_ModeLocal_AlreadyRunning(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
-	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir, cmdExec)
 
 	assert.True(t, exec.statusCalled)
 	assert.False(t, exec.startCalled, "Should not start if already running")
@@ -282,8 +301,9 @@ func TestReconcileCrowdSecOnStartup_ModeLocal_NotRunning_Starts(t *testing.T) {
 	smartExec := &smartMockCrowdsecExecutor{
 		startPid: 99999,
 	}
+	cmdExec := &mockCommandExecutor{} // Mock to avoid real cscli calls
 
-	ReconcileCrowdSecOnStartup(db, smartExec, binPath, configDir)
+	ReconcileCrowdSecOnStartup(db, smartExec, binPath, configDir, cmdExec)
 
 	assert.True(t, smartExec.statusCalled)
 	assert.True(t, smartExec.startCalled, "Should start if mode=local and not running")
@@ -299,6 +319,7 @@ func TestReconcileCrowdSecOnStartup_ModeLocal_StartError(t *testing.T) {
 		running:  false,
 		startErr: assert.AnError,
 	}
+	cmdExec := &mockCommandExecutor{}
 
 	// Create SecurityConfig with mode=local
 	cfg := models.SecurityConfig{
@@ -307,7 +328,7 @@ func TestReconcileCrowdSecOnStartup_ModeLocal_StartError(t *testing.T) {
 	require.NoError(t, db.Create(&cfg).Error)
 
 	// Should not panic on start error
-	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir, cmdExec)
 
 	assert.True(t, exec.startCalled)
 }
@@ -320,6 +341,7 @@ func TestReconcileCrowdSecOnStartup_StatusError(t *testing.T) {
 	exec := &mockCrowdsecExecutor{
 		statusErr: assert.AnError,
 	}
+	cmdExec := &mockCommandExecutor{}
 
 	// Create SecurityConfig with mode=local
 	cfg := models.SecurityConfig{
@@ -328,7 +350,7 @@ func TestReconcileCrowdSecOnStartup_StatusError(t *testing.T) {
 	require.NoError(t, db.Create(&cfg).Error)
 
 	// Should not panic on status error and should not attempt start
-	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir, cmdExec)
 
 	assert.True(t, exec.statusCalled)
 	assert.False(t, exec.startCalled, "Should not start if status check fails")
@@ -346,6 +368,7 @@ func TestReconcileCrowdSecOnStartup_BinaryNotFound(t *testing.T) {
 	exec := &smartMockCrowdsecExecutor{
 		startPid: 99999,
 	}
+	cmdExec := &mockCommandExecutor{}
 
 	// Create SecurityConfig with mode=local
 	cfg := models.SecurityConfig{
@@ -355,7 +378,7 @@ func TestReconcileCrowdSecOnStartup_BinaryNotFound(t *testing.T) {
 
 	// Pass non-existent binary path
 	nonExistentBin := filepath.Join(dataDir, "nonexistent_binary")
-	ReconcileCrowdSecOnStartup(db, exec, nonExistentBin, dataDir)
+	ReconcileCrowdSecOnStartup(db, exec, nonExistentBin, dataDir, cmdExec)
 
 	// Should not attempt start when binary doesn't exist
 	assert.False(t, exec.startCalled, "Should not start when binary not found")
@@ -369,6 +392,7 @@ func TestReconcileCrowdSecOnStartup_ConfigDirNotFound(t *testing.T) {
 	exec := &smartMockCrowdsecExecutor{
 		startPid: 99999,
 	}
+	cmdExec := &mockCommandExecutor{}
 
 	// Create SecurityConfig with mode=local
 	cfg := models.SecurityConfig{
@@ -380,7 +404,7 @@ func TestReconcileCrowdSecOnStartup_ConfigDirNotFound(t *testing.T) {
 	configPath := filepath.Join(dataDir, "config")
 	require.NoError(t, os.RemoveAll(configPath))
 
-	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir, cmdExec)
 
 	// Should not attempt start when config dir doesn't exist
 	assert.False(t, exec.startCalled, "Should not start when config directory not found")
@@ -413,9 +437,10 @@ func TestReconcileCrowdSecOnStartup_SettingsOverrideEnabled(t *testing.T) {
 	exec := &smartMockCrowdsecExecutor{
 		startPid: 12345,
 	}
+	cmdExec := &mockCommandExecutor{} // Mock to avoid real cscli calls
 
 	// Should start based on Settings override even though SecurityConfig says disabled
-	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir, cmdExec)
 
 	assert.True(t, exec.startCalled, "Should start when Settings override is true")
 }
@@ -429,6 +454,7 @@ func TestReconcileCrowdSecOnStartup_VerificationFails(t *testing.T) {
 	exec := &verificationFailExecutor{
 		startPid: 12345,
 	}
+	cmdExec := &mockCommandExecutor{} // Mock to avoid real cscli calls
 
 	// Create SecurityConfig with mode=local
 	cfg := models.SecurityConfig{
@@ -436,7 +462,7 @@ func TestReconcileCrowdSecOnStartup_VerificationFails(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
-	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir, cmdExec)
 
 	assert.True(t, exec.startCalled, "Should attempt to start")
 	assert.True(t, exec.verifyFailed, "Should detect verification failure")
@@ -450,6 +476,7 @@ func TestReconcileCrowdSecOnStartup_VerificationError(t *testing.T) {
 	exec := &verificationErrorExecutor{
 		startPid: 12345,
 	}
+	cmdExec := &mockCommandExecutor{} // Mock to avoid real cscli calls
 
 	// Create SecurityConfig with mode=local
 	cfg := models.SecurityConfig{
@@ -457,7 +484,7 @@ func TestReconcileCrowdSecOnStartup_VerificationError(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
-	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir, cmdExec)
 
 	assert.True(t, exec.startCalled, "Should attempt to start")
 	assert.True(t, exec.verifyErrorReturned, "Should handle verification error")
@@ -471,6 +498,7 @@ func TestReconcileCrowdSecOnStartup_DBError(t *testing.T) {
 	exec := &smartMockCrowdsecExecutor{
 		startPid: 99999,
 	}
+	cmdExec := &mockCommandExecutor{}
 
 	// Create SecurityConfig with mode=local
 	cfg := models.SecurityConfig{
@@ -485,7 +513,7 @@ func TestReconcileCrowdSecOnStartup_DBError(t *testing.T) {
 	_ = sqlDB.Close()
 
 	// Should handle DB errors gracefully (no panic)
-	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir, cmdExec)
 
 	// Should not start if DB query fails
 	assert.False(t, exec.startCalled)
@@ -499,6 +527,7 @@ func TestReconcileCrowdSecOnStartup_CreateConfigDBError(t *testing.T) {
 	exec := &smartMockCrowdsecExecutor{
 		startPid: 99999,
 	}
+	cmdExec := &mockCommandExecutor{}
 
 	// Close DB immediately to cause Create() to fail
 	sqlDB, err := db.DB()
@@ -507,7 +536,7 @@ func TestReconcileCrowdSecOnStartup_CreateConfigDBError(t *testing.T) {
 
 	// Should handle DB error during Create gracefully (no panic)
 	// This tests line 78-80: DB error after creating SecurityConfig
-	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir, cmdExec)
 
 	// Should not start if SecurityConfig creation fails
 	assert.False(t, exec.startCalled)
@@ -521,6 +550,7 @@ func TestReconcileCrowdSecOnStartup_SettingsTableQueryError(t *testing.T) {
 	exec := &smartMockCrowdsecExecutor{
 		startPid: 99999,
 	}
+	cmdExec := &mockCommandExecutor{}
 
 	// Create SecurityConfig with mode=remote (not local)
 	cfg := models.SecurityConfig{
@@ -534,7 +564,7 @@ func TestReconcileCrowdSecOnStartup_SettingsTableQueryError(t *testing.T) {
 	// This tests lines 83-90: Settings table query handling
 
 	// Should handle missing settings table gracefully
-	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir, cmdExec)
 
 	// Should not start since mode is not local and no settings override
 	assert.False(t, exec.startCalled)
@@ -567,10 +597,11 @@ func TestReconcileCrowdSecOnStartup_SettingsOverrideNonLocalMode(t *testing.T) {
 	exec := &smartMockCrowdsecExecutor{
 		startPid: 12345,
 	}
+	cmdExec := &mockCommandExecutor{} // Mock to avoid real cscli calls
 
 	// This tests lines 92-99: Settings override with non-local mode
 	// Should start based on Settings override even though SecurityConfig says mode=remote
-	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir, cmdExec)
 
 	assert.True(t, exec.startCalled, "Should start when Settings override is true even if mode is not local")
 }

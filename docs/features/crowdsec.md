@@ -84,8 +84,222 @@ CrowdSec settings are stored in Charon's database and synchronized with the Secu
 - **Configuration Sync** — Changes in the UI immediately apply to CrowdSec
 - **State Persistence** — Decisions and configurations survive restarts
 
+## Troubleshooting Console Enrollment
+
+### Engine Shows "Offline" in Console
+
+Your CrowdSec Console dashboard shows your engine as "Offline" even though it's running locally.
+
+**Why this happens:**
+
+CrowdSec sends periodic "heartbeats" to the Console to confirm it's alive. If heartbeats stop reaching the Console servers, your engine appears offline.
+
+**Quick check:**
+
+Run the diagnostic script to test connectivity:
+
+```bash
+./scripts/diagnose-crowdsec.sh
+```
+
+Or use the API endpoint:
+
+```bash
+curl http://localhost:8080/api/v1/cerberus/crowdsec/diagnostics/connectivity
+```
+
+**Common causes and fixes:**
+
+| Cause | Fix |
+|-------|-----|
+| Firewall blocking outbound HTTPS | Allow connections to `api.crowdsec.net` on port 443 |
+| DNS resolution failure | Verify `nslookup api.crowdsec.net` works |
+| Proxy not configured | Set `HTTP_PROXY`/`HTTPS_PROXY` environment variables |
+| Heartbeat service not running | Force a manual heartbeat (see below) |
+
+**Force a manual heartbeat:**
+
+```bash
+curl -X POST http://localhost:8080/api/v1/cerberus/crowdsec/console/heartbeat
+```
+
+### Enrollment Token Expired or Invalid
+
+**Error messages:**
+
+- "token expired"
+- "unauthorized"
+- "invalid enrollment key"
+
+**Solution:**
+
+1. Log in to [console.crowdsec.net](https://console.crowdsec.net)
+2. Navigate to **Instances → Add Instance**
+3. Generate a new enrollment token
+4. Paste the new token in Charon's enrollment form
+
+Tokens expire after a set period. Always use a freshly generated token.
+
+### LAPI Not Started / Connection Refused
+
+**Error messages:**
+
+- "connection refused"
+- "LAPI not available"
+
+**Why this happens:**
+
+CrowdSec's Local API (LAPI) needs 30-60 seconds to fully start after the container launches.
+
+**Check LAPI status:**
+
+```bash
+docker exec charon cscli lapi status
+```
+
+**If you see "connection refused":**
+
+1. Wait 60 seconds after container start
+2. Check CrowdSec is enabled in the Security dashboard
+3. Try toggling CrowdSec OFF then ON again
+
+### Already Enrolled Error
+
+**Error message:** "instance already enrolled"
+
+**Why this happens:**
+
+A previous enrollment attempt succeeded but Charon's local state wasn't updated.
+
+**Verify enrollment:**
+
+1. Log in to [console.crowdsec.net](https://console.crowdsec.net)
+2. Check **Instances** — your engine may already appear
+3. If it's listed, Charon just needs to sync
+
+**Force a re-sync:**
+
+```bash
+curl -X POST http://localhost:8080/api/v1/cerberus/crowdsec/console/heartbeat
+```
+
+### Network/Firewall Issues
+
+**Symptom:** Enrollment hangs or times out
+
+**Test connectivity manually:**
+
+```bash
+# Check DNS resolution
+nslookup api.crowdsec.net
+
+# Test HTTPS connectivity
+curl -I https://api.crowdsec.net
+```
+
+**Required outbound connections:**
+
+| Host | Port | Purpose |
+|------|------|---------|
+| `api.crowdsec.net` | 443 | Console API and heartbeats |
+| `hub.crowdsec.net` | 443 | Hub presets download |
+
+## Using the Diagnostic Script
+
+The diagnostic script checks CrowdSec connectivity and configuration in one command.
+
+**Run all diagnostics:**
+
+```bash
+./scripts/diagnose-crowdsec.sh
+```
+
+**Output as JSON (for automation):**
+
+```bash
+./scripts/diagnose-crowdsec.sh --json
+```
+
+**Use a custom data directory:**
+
+```bash
+./scripts/diagnose-crowdsec.sh --data-dir /custom/path
+```
+
+**What it checks:**
+
+- LAPI availability and health
+- CAPI (Central API) connectivity
+- Console enrollment status
+- Heartbeat service status
+- Configuration file validity
+
+## Diagnostic API Endpoints
+
+Access diagnostics programmatically through these API endpoints:
+
+| Endpoint | Method | What It Does |
+|----------|--------|--------------|
+| `/api/v1/cerberus/crowdsec/diagnostics/connectivity` | GET | Tests LAPI and CAPI connectivity |
+| `/api/v1/cerberus/crowdsec/diagnostics/config` | GET | Validates enrollment configuration |
+| `/api/v1/cerberus/crowdsec/console/heartbeat` | POST | Forces an immediate heartbeat check |
+
+**Example: Check connectivity**
+
+```bash
+curl http://localhost:8080/api/v1/cerberus/crowdsec/diagnostics/connectivity
+```
+
+**Example response:**
+
+```json
+{
+  "lapi": {
+    "status": "healthy",
+    "latency_ms": 12
+  },
+  "capi": {
+    "status": "reachable",
+    "latency_ms": 145
+  }
+}
+```
+
+## Reading the Logs
+
+Look for these log prefixes when debugging:
+
+| Prefix | What It Means |
+|--------|---------------|
+| `[CROWDSEC_ENROLLMENT]` | Enrollment operations (token validation, CAPI registration) |
+| `[HEARTBEAT_POLLER]` | Background heartbeat service activity |
+| `[CROWDSEC_STARTUP]` | LAPI initialization and startup |
+
+**View enrollment logs:**
+
+```bash
+docker logs charon 2>&1 | grep CROWDSEC_ENROLLMENT
+```
+
+**View heartbeat activity:**
+
+```bash
+docker logs charon 2>&1 | grep HEARTBEAT_POLLER
+```
+
+**Common log patterns:**
+
+| Log Message | Meaning |
+|-------------|---------|
+| `heartbeat sent successfully` | Console communication working |
+| `CAPI registration failed: timeout` | Network issue reaching CrowdSec servers |
+| `enrollment completed` | Console enrollment succeeded |
+| `retrying enrollment (attempt 2/3)` | Temporary failure, automatic retry in progress |
+
 ## Related
 
+- [CrowdSec Setup Guide](../guides/crowdsec-setup.md) — Beginner-friendly setup walkthrough
 - [Web Application Firewall](./waf.md) — Complement CrowdSec with WAF protection
 - [Access Control](./access-control.md) — Manual IP blocking and geo-restrictions
+- [CrowdSec Troubleshooting](../troubleshooting/crowdsec.md) — Extended troubleshooting guide
 - [Back to Features](../features.md)

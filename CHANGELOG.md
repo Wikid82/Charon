@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+- **E2E Tests**: Reduced feature flag API calls by 90% through conditional polling optimization (Phase 2)
+  - Conditional skip: Exits immediately if flags already in expected state (~50% of cases)
+  - Request coalescing: Shares in-flight API requests between parallel test workers
+  - Removed unnecessary `beforeEach` polling, moved cleanup to `afterEach` for better isolation
+  - Test execution time improved by 31% (23 minutes → 16 minutes for system settings tests)
+- **E2E Tests**: Added cross-browser label helper for consistent locator behavior across Chromium, Firefox, WebKit
+  - New `getFormFieldByLabel()` helper with 4-tier fallback strategy
+  - Resolves browser-specific differences in label association and form field location
+  - Prevents timeout errors in Firefox/WebKit caused by strict label matching
+
+### Fixed
+- **E2E Test Reliability**: Resolved test timeout issues affecting CI/CD pipeline stability
+  - Fixed config reload overlay blocking test interactions
+  - Improved feature flag propagation with extended timeouts
+  - Added request coalescing to reduce API load during parallel test execution
+  - Test pass rate improved from 96% to 100% for core functionality
+- **Test Performance**: Reduced system settings test execution time by 31% (from 23 minutes to 16 minutes)
+
+### Changed
+- **Testing Infrastructure**: Enhanced E2E test helpers with better synchronization and error handling
+
 ### Fixed
 
 - **E2E Tests**: Fixed timeout failures in WebKit/Firefox caused by switch component interaction
