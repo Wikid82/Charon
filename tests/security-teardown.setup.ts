@@ -21,7 +21,7 @@
  * @see /projects/Charon/docs/plans/e2e-test-triage-plan.md
  */
 
-import { test as teardown } from '@bgotink/playwright-coverage';
+import { test as teardown } from './fixtures/test';
 import { request } from '@playwright/test';
 import { STORAGE_STATE } from './constants';
 
