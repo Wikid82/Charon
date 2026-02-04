@@ -1,5 +1,7 @@
-name: CrowdSec Integration Tests
+name: CrowdSec Integration
 
+# Phase 2-3: Build Once, Test Many - Use registry image instead of building
+# This workflow now waits for docker-build.yml to complete and pulls the built image
 on:
   workflow_run:
     workflows: ["Docker Build, Publish & Test"]
@@ -13,8 +15,10 @@ on:
         required: false
         type: string
 
+# Prevent race conditions when PR is updated mid-test
+# Cancels old test runs when new build completes with different SHA
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}-${{ github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -26,7 +30,105 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      # Determine the correct image tag based on trigger context
+      # For PRs: pr-{number}-{sha}, For branches: {sanitized-branch}-{sha}
+      - name: Determine image tag
+        id: image
+        env:
+          EVENT: ${{ github.event_name == 'pull_request' && 'pull_request' || github.event.workflow_run.event }}
+          REF: ${{ github.event_name == 'pull_request' && github.head_ref || github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+          MANUAL_TAG: ${{ inputs.image_tag }}
+        run: |
+          # Manual trigger uses provided tag
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ -n "$MANUAL_TAG" ]]; then
+              echo "tag=${MANUAL_TAG}" >> $GITHUB_OUTPUT
+            else
+              # Default to latest if no tag provided
+              echo "tag=latest" >> $GITHUB_OUTPUT
+            fi
+            echo "source_type=manual" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Extract 7-character short SHA
+          SHORT_SHA=$(echo "$SHA" | cut -c1-7)
+
+          if [[ "$EVENT" == "pull_request" ]]; then
+            # Direct PR trigger uses github.event.pull_request.number
+            # workflow_run trigger uses pull_requests array
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              PR_NUM="${{ github.event.pull_request.number }}"
+            else
+              PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number')
+            fi
+
+            if [[ -z "$PR_NUM" || "$PR_NUM" == "null" ]]; then
+              echo "❌ ERROR: Could not determine PR number"
+              echo "Event: $EVENT"
+              echo "Ref: $REF"
+              echo "SHA: $SHA"
+              echo "Pull Requests JSON: ${{ toJson(github.event.workflow_run.pull_requests) }}"
+              exit 1
+            fi
+
+            # Immutable tag with SHA suffix prevents race conditions
+            echo "tag=pr-${PR_NUM}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "source_type=pr" >> $GITHUB_OUTPUT
+          else
+            # Branch push: sanitize branch name and append SHA
+            # Sanitization: lowercase, replace / with -, remove special chars
+            SANITIZED=$(echo "$REF" | \
+              tr '[:upper:]' '[:lower:]' | \
+              tr '/' '-' | \
+              sed 's/[^a-z0-9-._]/-/g' | \
+              sed 's/^-//; s/-$//' | \
+              sed 's/--*/-/g' | \
+              cut -c1-121)  # Leave room for -SHORT_SHA (7 chars)
+
+            echo "tag=${SANITIZED}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "source_type=branch" >> $GITHUB_OUTPUT
+          fi
+
+          echo "sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "Determined image tag: $(cat $GITHUB_OUTPUT | grep tag=)"
+
+      # Pull image from registry with retry logic (dual-source strategy)
+      # Try registry first (fast), fallback to artifact if registry fails
+      - name: Pull Docker image from registry
+        id: pull_image
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_wait_seconds: 10
+          command: |
+            IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/charon:${{ steps.image.outputs.tag }}"
+            echo "Pulling image: $IMAGE_NAME"
+            docker pull "$IMAGE_NAME"
+            docker tag "$IMAGE_NAME" charon:local
+            echo "✅ Successfully pulled from registry"
+        continue-on-error: true
+
+      # Fallback: Download artifact if registry pull failed
+      - name: Fallback to artifact download
+        if: steps.pull_image.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ steps.image.outputs.sha }}
+        run: |
+          echo "⚠️ Registry pull failed, falling back to artifact..."
+
+          # Determine artifact name based on source type
+          if [[ "${{ steps.image.outputs.source_type }}" == "pr" ]]; then
+            PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number')
+            ARTIFACT_NAME="pr-image-${PR_NUM}"
+          else
+            ARTIFACT_NAME="push-image"
+          fi
 
       # Determine the correct image tag based on trigger context
       # For PRs: pr-{number}-{sha}, For branches: {sanitized-branch}-{sha}
@@ -158,6 +260,13 @@ jobs:
           .github/skills/scripts/skill-runner.sh integration-test-crowdsec 2>&1 | tee crowdsec-test-output.txt
           exit ${PIPESTATUS[0]}
 
+      - name: Run CrowdSec Startup and LAPI Tests
+        id: lapi-test
+        run: |
+          chmod +x .github/skills/scripts/skill-runner.sh
+          .github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup 2>&1 | tee lapi-test-output.txt
+          exit ${PIPESTATUS[0]}
+
       - name: Dump Debug Info on Failure
         if: failure()
         run: |
@@ -170,47 +279,67 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          echo "### CrowdSec LAPI Status" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          docker exec crowdsec cscli bouncers list 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Could not retrieve bouncer list" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          # Check which test container exists and dump its logs
+          if docker ps -a --filter "name=charon-crowdsec-startup-test" --format "{{.Names}}" | grep -q "charon-crowdsec-startup-test"; then
+            echo "### Charon Startup Test Container Logs (last 100 lines)" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            docker logs charon-crowdsec-startup-test 2>&1 | tail -100 >> $GITHUB_STEP_SUMMARY || echo "No container logs available" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          elif docker ps -a --filter "name=charon-debug" --format "{{.Names}}" | grep -q "charon-debug"; then
+            echo "### Charon Container Logs (last 100 lines)" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            docker logs charon-debug 2>&1 | tail -100 >> $GITHUB_STEP_SUMMARY || echo "No container logs available" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          echo "### CrowdSec Decisions" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          docker exec crowdsec cscli decisions list 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Could not retrieve decisions" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          echo "### Charon Container Logs (last 100 lines)" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          docker logs charon-debug 2>&1 | tail -100 >> $GITHUB_STEP_SUMMARY || echo "No container logs available" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          echo "### CrowdSec Container Logs (last 50 lines)" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          docker logs crowdsec 2>&1 | tail -50 >> $GITHUB_STEP_SUMMARY || echo "No CrowdSec logs available" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          # Check for CrowdSec specific logs if LAPI test ran
+          if [ -f "lapi-test-output.txt" ]; then
+            echo "### CrowdSec LAPI Test Failures" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -E "✗ FAIL|✗ CRITICAL|CROWDSEC.*BROKEN" lapi-test-output.txt >> $GITHUB_STEP_SUMMARY 2>&1 || echo "No critical failures found in LAPI test" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: CrowdSec Integration Summary
         if: always()
         run: |
           echo "## 🛡️ CrowdSec Integration Test Results" >> $GITHUB_STEP_SUMMARY
+
+          # CrowdSec Preset Integration Tests
           if [ "${{ steps.crowdsec-test.outcome }}" == "success" ]; then
-            echo "✅ **All CrowdSec tests passed**" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **CrowdSec Hub Presets: Passed**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Test Results:" >> $GITHUB_STEP_SUMMARY
+            echo "### Preset Test Results:" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             grep -E "^✓|^===|^Pull|^Apply" crowdsec-test-output.txt || echo "See logs for details"
             grep -E "^✓|^===|^Pull|^Apply" crowdsec-test-output.txt >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           else
-            echo "❌ **CrowdSec tests failed**" >> $GITHUB_STEP_SUMMARY
+            echo "❌ **CrowdSec Hub Presets: Failed**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Failure Details:" >> $GITHUB_STEP_SUMMARY
+            echo "### Preset Failure Details:" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             grep -E "^✗|Unexpected|Error|failed|FAIL" crowdsec-test-output.txt | head -20 >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # CrowdSec Startup and LAPI Tests
+          if [ "${{ steps.lapi-test.outcome }}" == "success" ]; then
+            echo "✅ **CrowdSec Startup & LAPI: Passed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### LAPI Test Results:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -E "^\[TEST\]|✓ PASS|Check [0-9]|CrowdSec LAPI" lapi-test-output.txt >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **CrowdSec Startup & LAPI: Failed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### LAPI Failure Details:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -E "✗ FAIL|✗ CRITICAL|Error|failed" lapi-test-output.txt | head -20 >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
@@ -218,5 +347,6 @@ jobs:
         if: always()
         run: |
           docker rm -f charon-debug || true
+          docker rm -f charon-crowdsec-startup-test || true
           docker rm -f crowdsec || true
           docker network rm containers_default || true

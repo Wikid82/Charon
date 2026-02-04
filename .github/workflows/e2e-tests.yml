@@ -2,6 +2,9 @@
 # Runs Playwright E2E tests with sharding for faster execution
 # and collects frontend code coverage via @bgotink/playwright-coverage
 #
+# Phase 4: Build Once, Test Many - Use registry image instead of building
+# This workflow now waits for docker-build.yml to complete and pulls the built image
+#
 # Test Execution Architecture:
 #   - Parallel Sharding: Tests split across 4 shards for speed
 #   - Per-Shard HTML Reports: Each shard generates its own HTML report
@@ -14,19 +17,18 @@
 #   - Tests hit Vite, which proxies API calls to Docker
 #   - V8 coverage maps directly to source files for accurate reporting
 #   - Coverage disabled by default (requires PLAYWRIGHT_COVERAGE=1)
+#   - NOTE: Coverage mode uses Vite dev server, not registry image
 #
 # Triggers:
-#   - Pull requests to main/develop (with path filters)
-#   - Push to main branch
-#   - Manual dispatch with browser selection
+#   - workflow_run after docker-build.yml completes (standard mode)
+#   - Manual dispatch with browser/image selection
 #
 # Jobs:
-#   1. build: Build Docker image and upload as artifact
-#   2. e2e-tests: Run tests in parallel shards, upload per-shard HTML reports
-#   3. test-summary: Generate summary with links to shard reports
-#   4. comment-results: Post test results as PR comment
-#   5. upload-coverage: Merge and upload E2E coverage to Codecov (if enabled)
-#   6. e2e-results: Status check to block merge on failure
+#   1. e2e-tests: Run tests in parallel shards, upload per-shard HTML reports
+#   2. test-summary: Generate summary with links to shard reports
+#   3. comment-results: Post test results as PR comment
+#   4. upload-coverage: Merge and upload E2E coverage to Codecov (if enabled)
+#   5. e2e-results: Status check to block merge on failure
 
 name: E2E Tests
 
@@ -38,6 +40,10 @@ on:
 
   workflow_dispatch:
     inputs:
+      image_tag:
+        description: 'Docker image tag to test (e.g., pr-123-abc1234)'
+        required: false
+        type: string
       browser:
         description: 'Browser to test'
         required: false
@@ -65,74 +71,17 @@ env:
   PLAYWRIGHT_DEBUG: '1'
   CI_LOG_LEVEL: 'verbose'
 
+# Prevent race conditions when PR is updated mid-test
+# Cancels old test runs when new build completes with different SHA
 concurrency:
   group: e2e-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # Build application once, share across test shards
-  build:
-    name: Build Application
-    runs-on: ubuntu-latest
-    outputs:
-      image_digest: ${{ steps.build-image.outputs.digest }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
-
-      - name: Set up Go
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-          cache-dependency-path: backend/go.sum
-
-      - name: Set up Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Cache npm dependencies
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-        with:
-          path: ~/.npm
-          key: npm-${{ hashFiles('package-lock.json') }}
-          restore-keys: npm-
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-
-      - name: Build Docker image
-        id: build-image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
-        with:
-          context: .
-          file: ./Dockerfile
-          push: false
-          load: true
-          tags: charon:e2e-test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Save Docker image
-        run: docker save charon:e2e-test -o charon-e2e-image.tar
-
-      - name: Upload Docker image artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: docker-image
-          path: charon-e2e-image.tar
-          retention-days: 1
-
-  # Run tests in parallel shards
+  # Run tests in parallel shards against registry image
   e2e-tests:
     name: E2E ${{ matrix.browser }} (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
     runs-on: ubuntu-latest
-    needs: build
     timeout-minutes: 30
     # Only run if docker-build.yml succeeded, or if manually triggered
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
@@ -142,7 +91,6 @@ jobs:
       # Enable security-focused endpoints and test gating
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "true"
-      CHARON_E2E_IMAGE_TAG: charon:e2e-test
     strategy:
       fail-fast: false
       matrix:
@@ -152,7 +100,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -252,11 +200,6 @@ jobs:
         env:
           CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
 
-      - name: Load Docker image
-        run: |
-          docker load -i charon-e2e-image.tar
-          docker images | grep charon
-
       - name: Generate ephemeral encryption key
         run: |
           # Generate a unique, ephemeral encryption key for this CI run
@@ -267,7 +210,7 @@ jobs:
       - name: Start test environment
         run: |
           # Use docker-compose.playwright-ci.yml for CI (no .env file, uses GitHub Secrets)
-          # Note: Using pre-built image loaded from artifact - no rebuild needed
+          # Note: Using pre-pulled/pre-built image (charon:e2e-test) - no rebuild needed
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
           echo "✅ Container started via docker-compose.playwright-ci.yml"
 
@@ -402,13 +345,18 @@ jobs:
           echo "Output: playwright-report/ directory"
           echo "════════════════════════════════════════════════════════════"
 
+          # Capture start time for performance budget tracking
           SHARD_START=$(date +%s)
+          echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
 
           npx playwright test \
             --project=${{ matrix.browser }} \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
 
+          # Capture end time for performance budget tracking
           SHARD_END=$(date +%s)
+          echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
+
           SHARD_DURATION=$((SHARD_END - SHARD_START))
 
           echo ""
@@ -420,6 +368,28 @@ jobs:
           PLAYWRIGHT_BASE_URL: http://localhost:8080
           CI: true
           TEST_WORKER_INDEX: ${{ matrix.shard }}
+
+      - name: Verify shard performance budget
+        if: always()
+        run: |
+          # Calculate shard execution time
+          SHARD_DURATION=$((SHARD_END - SHARD_START))
+          MAX_DURATION=900  # 15 minutes
+
+          echo "📊 Performance Budget Check"
+          echo "   Shard Duration: ${SHARD_DURATION}s"
+          echo "   Budget Limit:   ${MAX_DURATION}s"
+          echo "   Utilization:    $((SHARD_DURATION * 100 / MAX_DURATION))%"
+
+          # Fail if shard exceeded performance budget
+          if [[ $SHARD_DURATION -gt $MAX_DURATION ]]; then
+            echo "::error::Shard exceeded performance budget: ${SHARD_DURATION}s > ${MAX_DURATION}s"
+            echo "::error::This likely indicates feature flag polling regression or API bottleneck"
+            echo "::error::Review test logs and consider optimizing wait helpers or API calls"
+            exit 1
+          fi
+
+          echo "✅ Shard completed within budget: ${SHARD_DURATION}s"
 
       - name: Upload HTML report (per-shard)
         if: always()
@@ -491,12 +461,13 @@ jobs:
           echo "- **Docker Logs**: Backend errors available in docker-logs-shard-N artifacts" >> $GITHUB_STEP_SUMMARY
           echo "- **Local repro**: \`npx playwright test --grep=\"test name\"\`" >> $GITHUB_STEP_SUMMARY
 
-  # Comment on PR with results
+  # Comment on PR with results (only for workflow_run triggered by PR)
   comment-results:
     name: Comment Test Results
     runs-on: ubuntu-latest
     needs: [e2e-tests, test-summary]
-    if: github.event_name == 'pull_request' && always()
+    # Only comment if triggered by workflow_run from a pull_request event
+    if: ${{ always() && github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' }}
     permissions:
       pull-requests: write
 
@@ -518,7 +489,20 @@ jobs:
             echo "message=E2E tests did not complete successfully." >> $GITHUB_OUTPUT
           fi
 
+      - name: Get PR number
+        id: pr
+        run: |
+          PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number')
+          if [[ -z "$PR_NUM" || "$PR_NUM" == "null" ]]; then
+            echo "⚠️ Could not determine PR number, skipping comment"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "number=$PR_NUM" >> $GITHUB_OUTPUT
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Comment on PR
+        if: steps.pr.outputs.skip != 'true'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
@@ -526,6 +510,7 @@ jobs:
             const status = '${{ steps.status.outputs.status }}';
             const message = '${{ steps.status.outputs.message }}';
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const prNumber = parseInt('${{ steps.pr.outputs.number }}');
 
             const body = `## ${emoji} E2E Test Results: ${status}
 
@@ -551,7 +536,7 @@ jobs:
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: prNumber,
             });
 
             const botComment = comments.find(comment =>
@@ -570,7 +555,7 @@ jobs:
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.issue.number,
+                issue_number: prNumber,
                 body: body
               });
             }
@@ -586,7 +571,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6

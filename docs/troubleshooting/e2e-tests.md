@@ -4,6 +4,34 @@ Common issues and solutions for Playwright E2E tests.
 
 ---
 
+## Recent Improvements (2026-02)
+
+### Test Timeout Issues - RESOLVED
+
+**Symptoms**: Tests timing out after 30 seconds, config reload overlay blocking interactions
+
+**Resolution**:
+- Extended timeout from 30s to 60s for feature flag propagation
+- Added automatic detection and waiting for config reload overlay
+- Improved test isolation with proper cleanup in afterEach hooks
+
+**If you still experience timeouts**:
+1. Rebuild the E2E container: `.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`
+2. Check Docker logs for health check failures
+3. Verify emergency token is set in `.env` file
+
+### API Key Format Mismatch - RESOLVED
+
+**Symptoms**: Feature flag tests failing with propagation timeout
+
+**Resolution**:
+- Added key normalization to handle both `feature.cerberus.enabled` and `cerberus.enabled` formats
+- Tests now automatically detect and adapt to API response format
+
+**Configuration**: No manual configuration needed, normalization is automatic.
+
+---
+
 ## Quick Diagnostics
 
 **Run these commands first:**

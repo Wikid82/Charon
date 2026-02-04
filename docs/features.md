@@ -74,7 +74,7 @@ Control your security modules with a single click. The Security Dashboard provid
 
 Protect your applications using behavior-based threat detection powered by a global community of security data. Bad actors get blocked automatically before they can cause harm.
 
-→ [Learn More](features/crowdsec.md)
+→ [Learn More](features/crowdsec.md) • [Setup Guide](guides/crowdsec-setup.md)
 
 ---
 

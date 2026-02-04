@@ -45,7 +45,7 @@ func TestGetPresets(t *testing.T) {
 	assert.True(t, apiFriendly.IsPreset)
 	assert.True(t, apiFriendly.HSTSEnabled)
 	assert.False(t, apiFriendly.CSPEnabled)
-	assert.Equal(t, "", apiFriendly.XFrameOptions)              // Allow WebViews
+	assert.Equal(t, "", apiFriendly.XFrameOptions)                         // Allow WebViews
 	assert.Equal(t, "cross-origin", apiFriendly.CrossOriginResourcePolicy) // KEY for APIs
 	assert.Equal(t, 70, apiFriendly.SecurityScore)
 

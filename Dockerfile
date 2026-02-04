@@ -23,7 +23,7 @@ ARG CADDY_VERSION=2.11.0-beta.2
 ## Using trixie (Debian 13 testing) for faster security updates - bookworm
 ## packages marked "wont-fix" are actively maintained in trixie.
 # renovate: datasource=docker depName=debian versioning=docker
-ARG CADDY_IMAGE=debian:trixie-slim@sha256:77ba0164de17b88dd0bf6cdc8f65569e6e5fa6cd256562998b62553134a00ef0
+ARG CADDY_IMAGE=debian:trixie-slim@sha256:f6e2cfac5cf956ea044b4bd75e6397b4372ad88fe00908045e9a0d21712ae3ba
 
 # ---- Cross-Compilation Helpers ----
 # renovate: datasource=docker depName=tonistiigi/xx
@@ -35,7 +35,7 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f9
 # CVEs fixed: CVE-2023-24531, CVE-2023-24540, CVE-2023-29402, CVE-2023-29404,
 #             CVE-2023-29405, CVE-2024-24790, CVE-2025-22871, and 15 more
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:fb4b74a39c7318d53539ebda43ccd3ecba6e447a78591889c0efc0a7235ea8b3 AS gosu-builder
+FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:0032c99f1682c40dca54932e2fe0156dc575ed12c6a4fdec94df9db7a0c17ab0 AS gosu-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/gosu
@@ -65,7 +65,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.13.0-slim@sha256:bf22df20270b654c4e9da59d8d4a3516cce6ba2852e159b27288d645b7a7eedc AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.13.0-slim@sha256:4660b1ca8b28d6d1906fd644abe34b2ed81d15434d26d845ef0aced307cf4b6f AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -89,7 +89,7 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
 
 # ---- Backend Builder ----
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:fb4b74a39c7318d53539ebda43ccd3ecba6e447a78591889c0efc0a7235ea8b3 AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:0032c99f1682c40dca54932e2fe0156dc575ed12c6a4fdec94df9db7a0c17ab0 AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
@@ -162,7 +162,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Build Caddy from source to ensure we use the latest Go version and dependencies
 # This fixes vulnerabilities found in the pre-built Caddy images (e.g. CVE-2025-59530, stdlib issues)
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:fb4b74a39c7318d53539ebda43ccd3ecba6e447a78591889c0efc0a7235ea8b3 AS caddy-builder
+FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:0032c99f1682c40dca54932e2fe0156dc575ed12c6a4fdec94df9db7a0c17ab0 AS caddy-builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -227,7 +227,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Build CrowdSec from source to ensure we use Go 1.25.5+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
 # renovate: datasource=docker depName=golang versioning=docker
-FROM --platform=$BUILDPLATFORM golang:1.25.6-trixie@sha256:fb4b74a39c7318d53539ebda43ccd3ecba6e447a78591889c0efc0a7235ea8b3 AS crowdsec-builder
+FROM --platform=$BUILDPLATFORM golang:1.25.6-trixie@sha256:0032c99f1682c40dca54932e2fe0156dc575ed12c6a4fdec94df9db7a0c17ab0 AS crowdsec-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
@@ -286,7 +286,7 @@ RUN mkdir -p /crowdsec-out/config && \
 
 # ---- CrowdSec Fallback (for architectures where build fails) ----
 # renovate: datasource=docker depName=debian
-FROM debian:trixie-slim@sha256:77ba0164de17b88dd0bf6cdc8f65569e6e5fa6cd256562998b62553134a00ef0 AS crowdsec-fallback
+FROM debian:trixie-slim@sha256:f6e2cfac5cf956ea044b4bd75e6397b4372ad88fe00908045e9a0d21712ae3ba AS crowdsec-fallback
 
 WORKDIR /tmp/crowdsec
 
@@ -349,7 +349,7 @@ RUN groupadd -g 1000 charon && \
 # Download MaxMind GeoLite2 Country database
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
-ARG GEOLITE2_COUNTRY_SHA256=436135ee98a521da715a6d483951f3dbbd62557637f2d50d1987fc048874bd5d
+ARG GEOLITE2_COUNTRY_SHA256=62e263af0a2ee10d7ae6b8bf2515193ff496197ec99ff25279e5987e9bd67f39
 RUN mkdir -p /app/data/geoip && \
     curl -fSL "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
     -o /app/data/geoip/GeoLite2-Country.mmdb && \

@@ -908,6 +908,22 @@ func (h *SecurityHandler) DisableWAF(c *gin.Context) {
 	h.toggleSecurityModule(c, "security.waf.enabled", false)
 }
 
+// PatchWAF handles PATCH requests to enable/disable WAF based on JSON body
+// PATCH /api/v1/security/waf
+// Expects: {"enabled": true/false}
+func (h *SecurityHandler) PatchWAF(c *gin.Context) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	h.toggleSecurityModule(c, "security.waf.enabled", req.Enabled)
+}
+
 // EnableCerberus enables the Cerberus security monitoring module
 // POST /api/v1/security/cerberus/enable
 func (h *SecurityHandler) EnableCerberus(c *gin.Context) {
@@ -932,6 +948,22 @@ func (h *SecurityHandler) DisableCrowdSec(c *gin.Context) {
 	h.toggleSecurityModule(c, "security.crowdsec.enabled", false)
 }
 
+// PatchCrowdSec handles PATCH requests to enable/disable CrowdSec based on JSON body
+// PATCH /api/v1/security/crowdsec
+// Expects: {"enabled": true/false}
+func (h *SecurityHandler) PatchCrowdSec(c *gin.Context) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	h.toggleSecurityModule(c, "security.crowdsec.enabled", req.Enabled)
+}
+
 // EnableRateLimit enables the Rate Limiting security module
 // POST /api/v1/security/rate-limit/enable
 func (h *SecurityHandler) EnableRateLimit(c *gin.Context) {
@@ -942,6 +974,22 @@ func (h *SecurityHandler) EnableRateLimit(c *gin.Context) {
 // POST /api/v1/security/rate-limit/disable
 func (h *SecurityHandler) DisableRateLimit(c *gin.Context) {
 	h.toggleSecurityModule(c, "security.rate_limit.enabled", false)
+}
+
+// PatchRateLimit handles PATCH requests to enable/disable Rate Limiting based on JSON body
+// PATCH /api/v1/security/rate-limit
+// Expects: {"enabled": true/false}
+func (h *SecurityHandler) PatchRateLimit(c *gin.Context) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	h.toggleSecurityModule(c, "security.rate_limit.enabled", req.Enabled)
 }
 
 // toggleSecurityModule is a helper function that handles enabling/disabling security modules

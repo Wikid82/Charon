@@ -1430,3 +1430,49 @@ func TestBackupService_AddDirToZip_EdgeCases(t *testing.T) {
 		assert.Len(t, r.File, 2)
 	})
 }
+
+func TestSafeJoinPath(t *testing.T) {
+	baseDir := "/data/backups"
+
+	t.Run("valid_simple_path", func(t *testing.T) {
+		path, err := SafeJoinPath(baseDir, "backup.zip")
+		assert.NoError(t, err)
+		assert.Equal(t, "/data/backups/backup.zip", path)
+	})
+
+	t.Run("valid_nested_path", func(t *testing.T) {
+		path, err := SafeJoinPath(baseDir, "2024/01/backup.zip")
+		assert.NoError(t, err)
+		assert.Equal(t, "/data/backups/2024/01/backup.zip", path)
+	})
+
+	t.Run("reject_absolute_path", func(t *testing.T) {
+		_, err := SafeJoinPath(baseDir, "/etc/passwd")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "absolute paths not allowed")
+	})
+
+	t.Run("reject_parent_traversal", func(t *testing.T) {
+		_, err := SafeJoinPath(baseDir, "../etc/passwd")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "parent directory traversal not allowed")
+	})
+
+	t.Run("reject_embedded_parent_traversal", func(t *testing.T) {
+		_, err := SafeJoinPath(baseDir, "foo/../../../etc/passwd")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "parent directory traversal not allowed")
+	})
+
+	t.Run("clean_path_normalization", func(t *testing.T) {
+		path, err := SafeJoinPath(baseDir, "./backup.zip")
+		assert.NoError(t, err)
+		assert.Equal(t, "/data/backups/backup.zip", path)
+	})
+
+	t.Run("valid_with_dots_in_filename", func(t *testing.T) {
+		path, err := SafeJoinPath(baseDir, "backup.2024.01.01.zip")
+		assert.NoError(t, err)
+		assert.Equal(t, "/data/backups/backup.2024.01.01.zip", path)
+	})
+}

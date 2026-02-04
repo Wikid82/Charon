@@ -33,7 +33,7 @@ jobs:
     steps:
       # Step 1: Get the code
       - name: 📥 Checkout code
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       # Step 2: Set up Node.js (for building any JS-based doc tools)
       - name: 🔧 Set up Node.js
@@ -277,7 +277,7 @@ jobs:
           <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Caddy Proxy Manager Plus - Documentation</title>
+            <title>Charon - Documentation</title>
             <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
             <style>
               body { background-color: #0f172a; color: #e2e8f0; }
@@ -308,7 +308,7 @@ jobs:
               cat >> "$temp_file" << 'FOOTER'
             </main>
             <footer style="text-align: center; padding: 2rem; color: #64748b;">
-              <p>Caddy Proxy Manager Plus - Built with ❤️ for the community</p>
+              <p>Charon - Built with ❤️ for the community</p>
             </footer>
           </body>
           </html>
