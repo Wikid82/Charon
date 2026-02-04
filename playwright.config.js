@@ -20,13 +20,12 @@ const STORAGE_STATE = join(__dirname, 'playwright/.auth/user.json');
 
 /**
  * Coverage reporter configuration for E2E tests
- * Tracks V8 coverage during Playwright test execution
+ * Only loaded when PLAYWRIGHT_COVERAGE=1
  */
-const coverageReporterConfig = defineCoverageReporterConfig({
-  // Root directory for source file resolution
-  sourceRoot: __dirname,
+const enableCoverage = process.env.PLAYWRIGHT_COVERAGE === '1';
 
-  // Exclude non-application code from coverage
+const coverageReporterConfig = enableCoverage ? defineCoverageReporterConfig({
+  sourceRoot: __dirname,
   exclude: [
     '**/node_modules/**',
     '**/playwright/**',
@@ -38,86 +37,60 @@ const coverageReporterConfig = defineCoverageReporterConfig({
     '**/dist/**',
     '**/build/**',
   ],
-
-  // Output directory for coverage reports
   resultDir: join(__dirname, 'coverage/e2e'),
-
-  // Generate multiple report formats
   reports: [
-    // HTML report for visual inspection
     ['html'],
-    // LCOV for Codecov upload
     ['lcovonly', { file: 'lcov.info' }],
-    // JSON for programmatic access
     ['json', { file: 'coverage.json' }],
-    // Text summary in console
     ['text-summary', { file: null }],
   ],
-
-  // Coverage watermarks (visual thresholds in HTML report)
   watermarks: {
     statements: [50, 80],
     branches: [50, 80],
     functions: [50, 80],
     lines: [50, 80],
   },
-  // Path rewriting for source file resolution
-  rewritePath: ({ absolutePath, relativePath }) => {
-    // Handle paths from Docker container
+  rewritePath: ({ absolutePath }) => {
     if (absolutePath.startsWith('/app/')) {
       return absolutePath.replace('/app/', `${__dirname}/`);
     }
-
-    // Handle Vite dev server paths (relative to frontend/src)
-    // Vite serves files like "/src/components/Button.tsx"
     if (absolutePath.startsWith('/src/')) {
       return join(__dirname, 'frontend', absolutePath);
     }
-
-    // If path doesn't start with /, prepend frontend/src
     if (!absolutePath.startsWith('/') && !absolutePath.includes('/')) {
-      // Bare filenames like "Button.tsx" - try to resolve to frontend/src
       return join(__dirname, 'frontend/src', absolutePath);
     }
-
     return absolutePath;
   },
-});
-
-const enableCoverage = process.env.PLAYWRIGHT_COVERAGE === '1';
+}) : null;
 
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
 export default defineConfig({
   testDir: './tests',
-  /* Ignore old/deprecated test directories */
   testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**'],
-  /* Global timeout for each test - increased to 90s for feature flag propagation
-   * CI uses 60s to fail fast in resource-constrained environment (2-core runners)
-   */
+
+  /* Standard globalSetup - runs once before all tests */
+  globalSetup: './tests/global-setup.ts',
+
+  /* Timeouts */
   timeout: process.env.CI ? 60000 : 90000,
-  /* Timeout for expect() assertions */
-  expect: {
-    timeout: 5000,
-  },
-  /* Run tests in files in parallel */
+  expect: { timeout: 5000 },
+
+  /* Parallelization */
   fullyParallel: true,
-  /* Fail the build on CI if you accidentally left test.only in the source code. */
-  forbidOnly: !!process.env.CI,
-  /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI - single worker to avoid resource starvation */
   workers: process.env.CI ? 1 : undefined,
-  /* Reporter to use. See https://playwright.dev/docs/test-reporters
-   * CI uses per-shard HTML reports (no blob merging needed).
-   * Each shard uploads its own HTML report for easier debugging.
-   */
+
+  /* CI settings */
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+
+  /* Reporters - simplified for CI */
   reporter: [
-    ...(process.env.CI ? [['github']] : [['list']]),
+    process.env.CI ? ['github'] : ['list'],
     ['html', { open: process.env.CI ? 'never' : 'on-failure' }],
     ...(enableCoverage ? [['@bgotink/playwright-coverage', coverageReporterConfig]] : []),
-    ['./tests/reporters/debug-reporter.ts'],
   ],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
@@ -168,25 +141,13 @@ export default defineConfig({
 
   /* Configure projects for major browsers */
   projects: [
-    // 1. Setup project - authentication (runs FIRST)
+    // Setup project - authentication (runs FIRST)
     {
       name: 'setup',
       testMatch: /auth\.setup\.ts/,
     },
 
-    // 2. Preflight setup - runs AFTER auth.setup.ts to ensure storage state exists
-    // This replaces Playwright globalSetup so authenticated setup work can run
-    // deterministically in fresh CI workspaces.
-    {
-      name: 'preflight',
-      testMatch: /preflight\.setup\.ts/,
-      dependencies: ['setup'],
-      fullyParallel: false,
-      workers: 1,
-    },
-
-    // 2. Security Tests - Run WITH security enabled (SEQUENTIAL, headless Chromium)
-    // These tests enable security modules, verify enforcement, then teardown disables all.
+    // Security Tests - Run WITH security enabled (SEQUENTIAL, Chromium only)
     {
       name: 'security-tests',
       testDir: './tests',
@@ -196,33 +157,29 @@ export default defineConfig({
       ],
       dependencies: ['setup'],
       teardown: 'security-teardown',
-      fullyParallel: false, // Force sequential - modules share state
-      workers: 1, // Force single worker to prevent race conditions on security settings
+      fullyParallel: false,
+      workers: 1,
       use: {
         ...devices['Desktop Chrome'],
-        headless: true, // Security tests are API-level, don't need headed
+        headless: true,
         storageState: STORAGE_STATE,
       },
     },
 
-    // 3. Security Teardown - Disable ALL security modules after security-tests
+    // Security Teardown - Disable ALL security modules
     {
       name: 'security-teardown',
       testMatch: /security-teardown\.setup\.ts/,
     },
 
-    // 4. Browser projects - Depend on setup and security-tests (with teardown) for order
-    // Note: Security modules are re-disabled by teardown before these projects execute
-    // TEMPORARY CI FIX: Skip security-tests dependency to unblock pipeline
-    // Re-enable after fixing hanging security test
+    // Browser projects - standard Playwright pattern
     {
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
-        // Use stored authentication state
         storageState: STORAGE_STATE,
       },
-      dependencies: ['preflight'], // Temporarily removed 'security-tests'
+      dependencies: ['setup', 'security-tests'],
     },
 
     {
@@ -231,7 +188,7 @@ export default defineConfig({
         ...devices['Desktop Firefox'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['preflight'], // Temporarily removed 'security-tests'
+      dependencies: ['setup', 'security-tests'],
     },
 
     {
@@ -240,7 +197,7 @@ export default defineConfig({
         ...devices['Desktop Safari'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['preflight'], // Temporarily removed 'security-tests'
+      dependencies: ['setup', 'security-tests'],
     },
 
     /* Test against mobile viewports. */
