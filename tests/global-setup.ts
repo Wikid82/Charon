@@ -10,6 +10,7 @@
 
 import { request, APIRequestContext } from '@playwright/test';
 import { existsSync } from 'fs';
+import { dirname } from 'path';
 import { TestDataManager } from './utils/TestDataManager';
 import { STORAGE_STATE } from './constants';
 
@@ -322,7 +323,9 @@ async function globalSetup(): Promise<void> {
     }
     await authenticatedContext.dispose();
   } else {
-    console.log('⏭️  Skipping authenticated security reset (no auth state file)');
+    const authDir = dirname(STORAGE_STATE);
+    console.log(`⏭️  Skipping authenticated security reset (no auth state file at ${STORAGE_STATE})`);
+    console.log(`   └─ Auth dir exists: ${existsSync(authDir) ? 'Yes' : 'No'} (${authDir})`);
   }
 }
 
