@@ -200,29 +200,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install & verify Playwright Chromium
-        run: |
-          echo "⏳ Installing Playwright Chromium (with system dependencies)..."
-          echo "Start: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          npx playwright install --with-deps chromium
-          INSTALL_EXIT=$?
-          echo "Install exit code: $INSTALL_EXIT"
-
-          if [ $INSTALL_EXIT -ne 0 ]; then
-            echo "::error::Playwright Chromium installation failed"
-            echo "Cache contents:"
-            ls -la ~/.cache/ms-playwright/ || echo "Cache directory empty"
-            exit 1
-          fi
-
-          echo "✅ Verifying Chromium executable..."
-          if npx playwright test --list --project=chromium 2>&1 | grep -q "Chromium"; then
-            echo "✅ Chromium executable verified"
-          else
-            echo "::error::Chromium executable not found after installation"
-            exit 1
-          fi
-          echo "Completion: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
 
       - name: Run Chromium tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -377,29 +356,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install & verify Playwright Firefox
-        run: |
-          echo "⏳ Installing Playwright Firefox (with system dependencies)..."
-          echo "Start: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          npx playwright install --with-deps firefox
-          INSTALL_EXIT=$?
-          echo "Install exit code: $INSTALL_EXIT"
-
-          if [ $INSTALL_EXIT -ne 0 ]; then
-            echo "::error::Playwright Firefox installation failed"
-            echo "Cache contents:"
-            ls -la ~/.cache/ms-playwright/ || echo "Cache directory empty"
-            exit 1
-          fi
-
-          echo "✅ Verifying Firefox executable..."
-          if npx playwright test --list --project=firefox 2>&1 | grep -q "Firefox"; then
-            echo "✅ Firefox executable verified"
-          else
-            echo "::error::Firefox executable not found after installation"
-            exit 1
-          fi
-          echo "Completion: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+      - name: Install Playwright Firefox
+        run: npx playwright install --with-deps firefox
 
       - name: Run Firefox tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -554,29 +512,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install & verify Playwright WebKit
-        run: |
-          echo "⏳ Installing Playwright WebKit (with system dependencies)..."
-          echo "Start: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          npx playwright install --with-deps webkit
-          INSTALL_EXIT=$?
-          echo "Install exit code: $INSTALL_EXIT"
-
-          if [ $INSTALL_EXIT -ne 0 ]; then
-            echo "::error::Playwright WebKit installation failed"
-            echo "Cache contents:"
-            ls -la ~/.cache/ms-playwright/ || echo "Cache directory empty"
-            exit 1
-          fi
-
-          echo "✅ Verifying WebKit executable..."
-          if npx playwright test --list --project=webkit 2>&1 | grep -q "WebKit"; then
-            echo "✅ WebKit executable verified"
-          else
-            echo "::error::WebKit executable not found after installation"
-            exit 1
-          fi
-          echo "Completion: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+      - name: Install Playwright WebKit
+        run: npx playwright install --with-deps webkit
 
       - name: Run WebKit tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
