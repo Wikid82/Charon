@@ -14,9 +14,9 @@ on:
         required: false
         default: '30'
       dry_run:
-        description: 'If true, only logs candidates and does not delete'
+        description: 'If true, only logs candidates and does not delete (default: false for active cleanup)'
         required: false
-        default: 'true'
+        default: 'false'
       keep_last_n:
         description: 'Keep last N newest images (global)'
         required: false

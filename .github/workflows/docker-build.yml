@@ -6,6 +6,19 @@ name: Docker Build, Publish & Test
 # - CVE-2025-68156 verification for Caddy security patches
 # - Enhanced PR handling with dedicated scanning
 # - Improved workflow orchestration with supply-chain-verify.yml
+#
+# PHASE 1 OPTIMIZATION (February 2026):
+# - PR images now pushed to GHCR registry (enables downstream workflow consumption)
+# - Immutable PR tagging: pr-{number}-{short-sha} (prevents race conditions)
+# - Feature branch tagging: {sanitized-branch-name}-{short-sha} (enables unique testing)
+# - Tag sanitization per spec Section 3.2 (handles special chars, slashes, etc.)
+# - Mandatory security scanning for PR images (blocks on CRITICAL/HIGH vulnerabilities)
+# - Retry logic for registry pushes (3 attempts, 10s wait - handles transient failures)
+# - Enhanced metadata labels for image freshness validation
+# - Artifact upload retained as fallback during migration period
+# - Reduced build timeout from 30min to 25min for faster feedback (with retry buffer)
+#
+# See: docs/plans/current_spec.md (Section 4.1 - docker-build.yml changes)
 
 on:
   push:
@@ -36,7 +49,7 @@ jobs:
     env:
       HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20  # Phase 1: Reduced timeout for faster feedback
     permissions:
       contents: read
       packages: write
@@ -106,7 +119,7 @@ jobs:
           echo "image=$DIGEST" >> $GITHUB_OUTPUT
 
       - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        if: steps.skip.outputs.skip_build != 'true'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.GHCR_REGISTRY }}
@@ -120,6 +133,36 @@ jobs:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Phase 1: Compute sanitized feature branch tags with SHA suffix
+      # Implements tag sanitization per spec Section 3.2
+      # Format: {sanitized-branch-name}-{short-sha} (e.g., feature-dns-provider-abc1234)
+      - name: Compute feature branch tag
+        if: steps.skip.outputs.skip_build != 'true' && startsWith(github.ref, 'refs/heads/feature/')
+        id: feature-tag
+        run: |
+          BRANCH_NAME="${GITHUB_REF#refs/heads/}"
+          SHORT_SHA="$(echo ${{ github.sha }} | cut -c1-7)"
+
+          # Sanitization algorithm per spec Section 3.2:
+          # 1. Convert to lowercase
+          # 2. Replace '/' with '-'
+          # 3. Replace special characters with '-'
+          # 4. Remove leading/trailing '-'
+          # 5. Collapse consecutive '-'
+          # 6. Truncate to 121 chars (leave room for -{sha})
+          # 7. Append '-{short-sha}' for uniqueness
+          SANITIZED=$(echo "${BRANCH_NAME}" | \
+            tr '[:upper:]' '[:lower:]' | \
+            tr '/' '-' | \
+            sed 's/[^a-z0-9-._]/-/g' | \
+            sed 's/^-//; s/-$//' | \
+            sed 's/--*/-/g' | \
+            cut -c1-121)
+
+          FEATURE_TAG="${SANITIZED}-${SHORT_SHA}"
+          echo "tag=${FEATURE_TAG}" >> $GITHUB_OUTPUT
+          echo "📦 Computed feature branch tag: ${FEATURE_TAG}"
 
       - name: Extract metadata (tags, labels)
         if: steps.skip.outputs.skip_build != 'true'
@@ -135,32 +178,80 @@ jobs:
             type=semver,pattern={{major}}
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/development' }}
-            type=ref,event=branch,enable=${{ startsWith(github.ref, 'refs/heads/feature/') }}
-            type=raw,value=pr-${{ github.event.pull_request.number }},enable=${{ github.event_name == 'pull_request' }}
+            type=raw,value=${{ steps.feature-tag.outputs.tag }},enable=${{ startsWith(github.ref, 'refs/heads/feature/') && steps.feature-tag.outputs.tag != '' }}
+            type=raw,value=pr-${{ github.event.pull_request.number }}-{{sha}},enable=${{ github.event_name == 'pull_request' }},prefix=,suffix=
             type=sha,format=short,enable=${{ github.event_name != 'pull_request' }}
           flavor: |
             latest=false
-      # For feature branch pushes: build single-platform so we can load locally for artifact
-      # For main/development pushes: build multi-platform for production
-      # For PRs: build single-platform and load locally
-      - name: Build and push Docker image
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            io.charon.pr.number=${{ github.event.pull_request.number }}
+            io.charon.build.timestamp=${{ github.event.repository.updated_at }}
+            io.charon.feature.branch=${{ steps.feature-tag.outputs.tag }}
+      # Phase 1 Optimization: Build once, test many
+      # - For PRs: Single-platform (amd64) + immutable tags (pr-{number}-{short-sha})
+      # - For feature branches: Single-platform + sanitized tags ({branch}-{short-sha})
+      # - For main/dev: Multi-platform (amd64, arm64) for production
+      # - Always push to registry (enables downstream workflow consumption)
+      # - Retry logic handles transient registry failures (3 attempts, 10s wait)
+      # See: docs/plans/current_spec.md Section 4.1
+      - name: Build and push Docker image (with retry)
         if: steps.skip.outputs.skip_build != 'true'
         id: build-and-push
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
+        uses: nick-fields/retry@7152eba30c6575329ac0576536151aca5a72780e # v3.0.0
         with:
-          context: .
-          platforms: ${{ (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true') && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
-          push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          no-cache: true  # Prevent false positive vulnerabilities from cached layers
-          pull: true  # Always pull fresh base images to get latest security patches
-          build-args: |
-            VERSION=${{ steps.meta.outputs.version }}
-            BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
-            VCS_REF=${{ github.sha }}
-            CADDY_IMAGE=${{ steps.caddy.outputs.image }}
+          timeout_minutes: 25
+          max_attempts: 3
+          retry_wait_seconds: 10
+          retry_on: error
+          warning_on_retry: true
+          command: |
+            set -euo pipefail
+
+            echo "🔨 Building Docker image with retry logic..."
+            echo "Platform: ${{ (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true') && 'linux/amd64' || 'linux/amd64,linux/arm64' }}"
+
+            # Build tag arguments from metadata output (newline-separated)
+            TAG_ARGS=""
+            while IFS= read -r tag; do
+              [[ -n "$tag" ]] && TAG_ARGS="${TAG_ARGS} --tag ${tag}"
+            done <<< "${{ steps.meta.outputs.tags }}"
+
+            # Build label arguments from metadata output (newline-separated)
+            LABEL_ARGS=""
+            while IFS= read -r label; do
+              [[ -n "$label" ]] && LABEL_ARGS="${LABEL_ARGS} --label ${label}"
+            done <<< "${{ steps.meta.outputs.labels }}"
+
+            # Determine if we should load locally (PRs and feature pushes need artifacts)
+            LOAD_FLAG=""
+            if [[ "${{ github.event_name }}" == "pull_request" ]] || [[ "${{ steps.skip.outputs.is_feature_push }}" == "true" ]]; then
+              LOAD_FLAG="--load"
+            fi
+
+            # Execute build with all arguments
+            docker buildx build \
+              --platform ${{ (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true') && 'linux/amd64' || 'linux/amd64,linux/arm64' }} \
+              --push \
+              ${LOAD_FLAG} \
+              ${TAG_ARGS} \
+              ${LABEL_ARGS} \
+              --no-cache \
+              --pull \
+              --build-arg VERSION="${{ steps.meta.outputs.version }}" \
+              --build-arg BUILD_DATE="${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}" \
+              --build-arg VCS_REF="${{ github.sha }}" \
+              --build-arg CADDY_IMAGE="${{ steps.caddy.outputs.image }}" \
+              --iidfile /tmp/image-digest.txt \
+              .
+
+            # Extract digest for downstream jobs (format: sha256:xxxxx)
+            # --iidfile writes the image digest in format sha256:xxxxx
+            # For multi-platform builds, this is the manifest list digest
+            # For single-platform builds, this is the image digest
+            DIGEST=$(cat /tmp/image-digest.txt)
+            echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+            echo "✅ Build complete. Digest: ${DIGEST}"
 
       # Critical Fix: Use exact tag from metadata instead of manual reconstruction
       # WHY: docker/build-push-action with load:true applies the exact tags from
@@ -495,6 +586,97 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+
+  scan-pr-image:
+    name: Security Scan PR Image
+    needs: build-and-push
+    if: needs.build-and-push.outputs.skip_build != 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    steps:
+      - name: Normalize image name
+        run: |
+          IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
+
+      - name: Determine PR image tag
+        id: pr-image
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          PR_TAG="pr-${{ github.event.pull_request.number }}-${SHORT_SHA}"
+          echo "tag=${PR_TAG}" >> $GITHUB_OUTPUT
+          echo "image_ref=${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${PR_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate image freshness
+        run: |
+          echo "🔍 Validating image freshness for PR #${{ github.event.pull_request.number }}..."
+          echo "Expected SHA: ${{ github.sha }}"
+          echo "Image: ${{ steps.pr-image.outputs.image_ref }}"
+
+          # Pull image to inspect
+          docker pull "${{ steps.pr-image.outputs.image_ref }}"
+
+          # Extract commit SHA from image label
+          LABEL_SHA=$(docker inspect "${{ steps.pr-image.outputs.image_ref }}" \
+            --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+
+          echo "Image label SHA: ${LABEL_SHA}"
+
+          if [[ "${LABEL_SHA}" != "${{ github.sha }}" ]]; then
+            echo "⚠️ WARNING: Image SHA mismatch!"
+            echo "  Expected: ${{ github.sha }}"
+            echo "  Got:      ${LABEL_SHA}"
+            echo "Image may be stale. Failing scan."
+            exit 1
+          fi
+
+          echo "✅ Image freshness validated"
+
+      - name: Run Trivy scan on PR image (table output)
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
+        with:
+          image-ref: ${{ steps.pr-image.outputs.image_ref }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Run Trivy scan on PR image (SARIF - blocking)
+        id: trivy-scan
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
+        with:
+          image-ref: ${{ steps.pr-image.outputs.image_ref }}
+          format: 'sarif'
+          output: 'trivy-pr-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'  # Block merge if vulnerabilities found
+
+      - name: Upload Trivy scan results
+        if: always()
+        uses: github/codeql-action/upload-sarif@6bc82e05fd0ea64601dd4b465378bbcf57de0314 # v4.32.1
+        with:
+          sarif_file: 'trivy-pr-results.sarif'
+          category: 'docker-pr-image'
+
+      - name: Create scan summary
+        if: always()
+        run: |
+          echo "## 🔒 PR Image Security Scan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: ${{ steps.pr-image.outputs.image_ref }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **PR**: #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Scan Status**: ${{ steps.trivy-scan.outcome == 'success' && '✅ No critical vulnerabilities' || '❌ Vulnerabilities detected' }}" >> $GITHUB_STEP_SUMMARY
 
   test-image:
     name: Test Docker Image
