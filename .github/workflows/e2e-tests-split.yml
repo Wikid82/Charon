@@ -213,21 +213,24 @@ jobs:
           exit $EXIT_CODE
 
       - name: Run Chromium tests
-        timeout-minutes: 4
+        timeout-minutes: 20
         run: |
           echo "════════════════════════════════════════════"
-          echo "Chromium E2E Tests"
+          echo "Chromium E2E Tests (260+ tests, 1 worker)"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          echo "════════════════════════════════════════════"
-
-          echo "Node: $(node -v)"
-          echo "NPM:  $(npm -v)"
+          echo "████████████████████████════════════════════"
 
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
 
+          echo "▶️  Starting test execution..."
           npx playwright test --project=chromium
 
+          SHARD_END=$(date +%s)
+          SHARD_DURATION=$((SHARD_END - SHARD_START))
+          echo ""
+          echo "════════════════════════════════════════════"
+          echo "✅ Chromium Complete | Duration: ${SHARD_DURATION}s"
           echo "════════════════════════════════════════════"
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
@@ -383,23 +386,24 @@ jobs:
           exit $EXIT_CODE
 
       - name: Run Firefox tests
-        timeout-minutes: 15
+        timeout-minutes: 20
         run: |
           echo "════════════════════════════════════════════"
-          echo "Firefox E2E Tests"
+          echo "Firefox E2E Tests (260+ tests, 1 worker)"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          echo "════════════════════════════════════════════"
+          echo "████████████████████████════════════════════"
 
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
 
+          echo "▶️  Starting test execution..."
           npx playwright test --project=firefox
 
           SHARD_END=$(date +%s)
-          echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
           SHARD_DURATION=$((SHARD_END - SHARD_START))
+          echo ""
           echo "════════════════════════════════════════════"
-          echo "Firefox Tests Complete | Duration: ${SHARD_DURATION}s"
+          echo "✅ Firefox Complete | Duration: ${SHARD_DURATION}s"
           echo "════════════════════════════════════════════"
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
@@ -555,23 +559,24 @@ jobs:
           exit $EXIT_CODE
 
       - name: Run WebKit tests
-        timeout-minutes: 15
+        timeout-minutes: 20
         run: |
           echo "════════════════════════════════════════════"
-          echo "WebKit E2E Tests"
+          echo "WebKit E2E Tests (260+ tests, 1 worker)"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          echo "════════════════════════════════════════════"
+          echo "████████████████████████════════════════════"
 
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
 
+          echo "▶️  Starting test execution..."
           npx playwright test --project=webkit
 
           SHARD_END=$(date +%s)
-          echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
           SHARD_DURATION=$((SHARD_END - SHARD_START))
+          echo ""
           echo "════════════════════════════════════════════"
-          echo "WebKit Shard ${{ matrix.shard }} Complete | Duration: ${SHARD_DURATION}s"
+          echo "✅ WebKit Complete | Duration: ${SHARD_DURATION}s"
           echo "════════════════════════════════════════════"
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
