@@ -223,17 +223,12 @@ jobs:
               [[ -n "$label" ]] && LABEL_ARGS="${LABEL_ARGS} --label ${label}"
             done <<< "${{ steps.meta.outputs.labels }}"
 
-            # Determine if we should load locally (PRs and feature pushes need artifacts)
-            LOAD_FLAG=""
-            if [[ "${{ github.event_name }}" == "pull_request" ]] || [[ "${{ steps.skip.outputs.is_feature_push }}" == "true" ]]; then
-              LOAD_FLAG="--load"
-            fi
-
             # Execute build with all arguments
+            # NOTE: Always push to registry (for workflow_run consumption)
+            # For PRs/features, we'll pull the image back for artifact creation
             docker buildx build \
               --platform ${{ (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true') && 'linux/amd64' || 'linux/amd64,linux/arm64' }} \
               --push \
-              ${LOAD_FLAG} \
               ${TAG_ARGS} \
               ${LABEL_ARGS} \
               --no-cache \
@@ -246,12 +241,18 @@ jobs:
               .
 
             # Extract digest for downstream jobs (format: sha256:xxxxx)
-            # --iidfile writes the image digest in format sha256:xxxxx
-            # For multi-platform builds, this is the manifest list digest
-            # For single-platform builds, this is the image digest
             DIGEST=$(cat /tmp/image-digest.txt)
             echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
             echo "✅ Build complete. Digest: ${DIGEST}"
+
+            # For PRs and feature branches, pull the image back locally for artifact creation
+            # This enables backward compatibility with workflows that use artifacts
+            if [[ "${{ github.event_name }}" == "pull_request" ]] || [[ "${{ steps.skip.outputs.is_feature_push }}" == "true" ]]; then
+              echo "📥 Pulling image back for artifact creation..."
+              FIRST_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+              docker pull "${FIRST_TAG}"
+              echo "✅ Image pulled: ${FIRST_TAG}"
+            fi
 
       # Critical Fix: Use exact tag from metadata instead of manual reconstruction
       # WHY: docker/build-push-action with load:true applies the exact tags from
