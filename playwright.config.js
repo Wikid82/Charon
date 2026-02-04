@@ -82,6 +82,7 @@ export default defineConfig({
 
   /* Standard globalSetup - runs once before all tests */
   globalSetup: './tests/global-setup.ts',
+<<<<<<< HEAD
 
   /* Timeouts */
   timeout: process.env.CI ? 60000 : 90000,
@@ -89,6 +90,23 @@ export default defineConfig({
 
   /* Parallelization */
   fullyParallel: true,
+=======
+  /* Global timeout for each test - increased to 90s for feature flag propagation
+   * CI uses 60s to fail fast in resource-constrained environment (2-core runners)
+   */
+  timeout: process.env.CI ? 60000 : 90000,
+  /* Timeout for expect() assertions */
+  expect: {
+    timeout: 5000,
+  },
+  /* Run tests in files in parallel */
+  fullyParallel: true,
+  /* Fail the build on CI if you accidentally left test.only in the source code. */
+  forbidOnly: !!process.env.CI,
+  /* Retry on CI only */
+  retries: process.env.CI ? 2 : 0,
+  /* Opt out of parallel tests on CI - single worker to avoid resource starvation */
+>>>>>>> ff1bb06f (feat(ci): Add explicit timeout enforcement (Phase 2))
   workers: process.env.CI ? 1 : undefined,
 
   /* CI settings */
