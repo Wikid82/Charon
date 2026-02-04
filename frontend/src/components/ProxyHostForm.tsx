@@ -511,8 +511,15 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-dark-card rounded-lg border border-gray-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+    <>
+      {/* Layer 1: Background overlay (z-40) */}
+      <div className="fixed inset-0 bg-black/50 z-40" onClick={onCancel} />
+      
+      {/* Layer 2: Form container (z-50, pointer-events-none) */}
+      <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-50">
+        
+        {/* Layer 3: Form content (pointer-events-auto) */}
+        <div className="bg-dark-card rounded-lg border border-gray-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto pointer-events-auto">
         <div className="p-6 border-b border-gray-800">
           <h2 className="text-2xl font-bold text-white">
             {host ? 'Edit Proxy Host' : 'Add Proxy Host'}
@@ -1360,6 +1367,8 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           </div>
         </div>
       )}
-    </div>
+        </div>
+      </div>
+    </>
   )
 }
