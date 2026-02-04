@@ -535,7 +535,7 @@
         {
             "label": "Utility: Update Go Version",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh utility-update-go-version",
+            "command": "go env -w GOTOOLCHAIN=go$(go list -m -f '{{.Version}}' go@latest)+auto && go list -m -f '{{.Version}}' go@latest && go version",
             "group": "none",
             "problemMatcher": [],
             "presentation": {
