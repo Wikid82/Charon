@@ -220,6 +220,12 @@ jobs:
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "════════════════════════════════════════════"
 
+          echo "Node: $(node -v)"
+          echo "NPM:  $(npm -v)"
+          echo "Kernel: $(uname -a)"
+          echo "Memory (free -m):"
+          free -m || true
+
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
 
@@ -227,7 +233,16 @@ jobs:
           # pw:browser* = browser connection and launch
           # pw:protocol = CDP protocol messages
           # pw:channel = IPC between Playwright and browser
-          export DEBUG=pw:browser*,pw:protocol,pw:channel
+          # pw:api = Playwright runner API calls (helps when hang occurs before browser launch)
+          export DEBUG=pw:api,pw:browser*,pw:protocol,pw:channel
+
+          echo "════════════════════════════════════════════"
+          echo "Preflight: listing tests (discovery only)"
+          echo "Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          npx playwright test --project=chromium --list
+          echo "════════════════════════════════════════════"
+          echo "Running tests"
+          echo "Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
           npx playwright test --project=chromium
           echo "════════════════════════════════════════════"
