@@ -205,7 +205,7 @@ All HIGH vulnerabilities are in **base image system packages** (Debian Trixie):
    - Monitor for Debian security updates
    - Consider if alternative base image is warranted
 
-5. **Staticcheck Version**: Update staticcheck to Go 1.25.6+
+5. **Staticcheck Version**: Update staticcheck to go 1.25.7+
 
 ---
 
