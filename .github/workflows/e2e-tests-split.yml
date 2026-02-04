@@ -121,7 +121,7 @@ jobs:
     if: |
       (github.event_name != 'workflow_dispatch') ||
       (github.event.inputs.browser == 'chromium' || github.event.inputs.browser == 'all')
-    timeout-minutes: 45
+    timeout-minutes: 20
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
@@ -223,6 +223,9 @@ jobs:
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
 
+          # Enable verbose Playwright output to diagnose hang
+          export DEBUG=pw:api
+
           npx playwright test \
             --project=chromium \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
@@ -287,7 +290,7 @@ jobs:
     if: |
       (github.event_name != 'workflow_dispatch') ||
       (github.event.inputs.browser == 'firefox' || github.event.inputs.browser == 'all')
-    timeout-minutes: 45
+    timeout-minutes: 20
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
@@ -397,6 +400,9 @@ jobs:
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
 
+          # Enable verbose Playwright output to diagnose hang
+          export DEBUG=pw:api
+
           npx playwright test \
             --project=firefox \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
@@ -461,7 +467,7 @@ jobs:
     if: |
       (github.event_name != 'workflow_dispatch') ||
       (github.event.inputs.browser == 'webkit' || github.event.inputs.browser == 'all')
-    timeout-minutes: 45
+    timeout-minutes: 20
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
@@ -570,6 +576,9 @@ jobs:
 
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
+
+          # Enable verbose Playwright output to diagnose hang
+          export DEBUG=pw:api
 
           npx playwright test \
             --project=webkit \
