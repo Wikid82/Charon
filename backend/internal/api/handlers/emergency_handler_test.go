@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,7 +18,13 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
+
+func jsonReader(data interface{}) io.Reader {
+	b, _ := json.Marshal(data)
+	return bytes.NewReader(b)
+}
 
 func setupEmergencyTestDB(t *testing.T) *gorm.DB {
 	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
@@ -324,4 +332,261 @@ func TestLogEnhancedAudit(t *testing.T) {
 	assert.Contains(t, audit.Details, "result=success")
 	assert.Contains(t, audit.Details, "duration=")
 	assert.Contains(t, audit.Details, "timestamp=")
+}
+
+func TestNewEmergencyTokenHandler(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+
+	// Create token service
+	tokenService := services.NewEmergencyTokenService(db)
+
+	// Create handler using the token handler constructor
+	handler := NewEmergencyTokenHandler(tokenService)
+
+	// Verify handler was created correctly
+	require.NotNil(t, handler)
+	require.NotNil(t, handler.db)
+	require.NotNil(t, handler.tokenService)
+	require.Nil(t, handler.securityService) // Token handler doesn't need security service
+
+	// Cleanup
+	handler.Close()
+}
+
+func TestGenerateToken_Success(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	tokenService := services.NewEmergencyTokenService(db)
+	handler := NewEmergencyTokenHandler(tokenService)
+	defer handler.Close()
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/v1/emergency/token", func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		handler.GenerateToken(c)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/token",
+		jsonReader(map[string]interface{}{"expiration_days": 30}))
+	req.Header.Set("Content-Type", "application/json")
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp["token"])
+	assert.Equal(t, "30_days", resp["expiration_policy"])
+}
+
+func TestGenerateToken_AdminRequired(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	tokenService := services.NewEmergencyTokenService(db)
+	handler := NewEmergencyTokenHandler(tokenService)
+	defer handler.Close()
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/v1/emergency/token", func(c *gin.Context) {
+		// No role set - simulating non-admin user
+		handler.GenerateToken(c)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/token",
+		jsonReader(map[string]interface{}{"expiration_days": 30}))
+	req.Header.Set("Content-Type", "application/json")
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestGenerateToken_InvalidExpirationDays(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	tokenService := services.NewEmergencyTokenService(db)
+	handler := NewEmergencyTokenHandler(tokenService)
+	defer handler.Close()
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/v1/emergency/token", func(c *gin.Context) {
+		c.Set("role", "admin")
+		handler.GenerateToken(c)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/token",
+		jsonReader(map[string]interface{}{"expiration_days": 500}))
+	req.Header.Set("Content-Type", "application/json")
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "Expiration days must be between 0 and 365")
+}
+
+func TestGetTokenStatus_Success(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	tokenService := services.NewEmergencyTokenService(db)
+	handler := NewEmergencyTokenHandler(tokenService)
+	defer handler.Close()
+
+	// Generate a token first
+	_, _ = tokenService.Generate(services.GenerateRequest{ExpirationDays: 30})
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/v1/emergency/token/status", func(c *gin.Context) {
+		c.Set("role", "admin")
+		handler.GetTokenStatus(c)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/emergency/token/status", nil)
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	// Check key fields exist
+	assert.True(t, resp["configured"].(bool))
+	assert.Equal(t, "30_days", resp["expiration_policy"])
+}
+
+func TestGetTokenStatus_AdminRequired(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	tokenService := services.NewEmergencyTokenService(db)
+	handler := NewEmergencyTokenHandler(tokenService)
+	defer handler.Close()
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/v1/emergency/token/status", handler.GetTokenStatus)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/emergency/token/status", nil)
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestRevokeToken_Success(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	tokenService := services.NewEmergencyTokenService(db)
+	handler := NewEmergencyTokenHandler(tokenService)
+	defer handler.Close()
+
+	// Generate a token first
+	_, _ = tokenService.Generate(services.GenerateRequest{ExpirationDays: 30})
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.DELETE("/api/v1/emergency/token", func(c *gin.Context) {
+		c.Set("role", "admin")
+		handler.RevokeToken(c)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/emergency/token", nil)
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "Emergency token revoked")
+}
+
+func TestRevokeToken_AdminRequired(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	tokenService := services.NewEmergencyTokenService(db)
+	handler := NewEmergencyTokenHandler(tokenService)
+	defer handler.Close()
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.DELETE("/api/v1/emergency/token", handler.RevokeToken)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/emergency/token", nil)
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestUpdateTokenExpiration_Success(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	tokenService := services.NewEmergencyTokenService(db)
+	handler := NewEmergencyTokenHandler(tokenService)
+	defer handler.Close()
+
+	// Generate a token first
+	_, _ = tokenService.Generate(services.GenerateRequest{ExpirationDays: 30})
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.PATCH("/api/v1/emergency/token/expiration", func(c *gin.Context) {
+		c.Set("role", "admin")
+		handler.UpdateTokenExpiration(c)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/emergency/token/expiration",
+		jsonReader(map[string]interface{}{"expiration_days": 60}))
+	req.Header.Set("Content-Type", "application/json")
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "new_expires_at")
+}
+
+func TestUpdateTokenExpiration_AdminRequired(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	tokenService := services.NewEmergencyTokenService(db)
+	handler := NewEmergencyTokenHandler(tokenService)
+	defer handler.Close()
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.PATCH("/api/v1/emergency/token/expiration", handler.UpdateTokenExpiration)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/emergency/token/expiration",
+		jsonReader(map[string]interface{}{"expiration_days": 60}))
+	req.Header.Set("Content-Type", "application/json")
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestUpdateTokenExpiration_InvalidDays(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	tokenService := services.NewEmergencyTokenService(db)
+	handler := NewEmergencyTokenHandler(tokenService)
+	defer handler.Close()
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.PATCH("/api/v1/emergency/token/expiration", func(c *gin.Context) {
+		c.Set("role", "admin")
+		handler.UpdateTokenExpiration(c)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/emergency/token/expiration",
+		jsonReader(map[string]interface{}{"expiration_days": 400}))
+	req.Header.Set("Content-Type", "application/json")
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "Expiration days must be between 0 and 365")
 }

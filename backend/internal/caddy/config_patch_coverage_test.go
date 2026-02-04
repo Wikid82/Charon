@@ -235,11 +235,18 @@ func TestGenerateConfig_HTTPChallenge_ExcludesIPDomains(t *testing.T) {
 }
 
 func TestGetCrowdSecAPIKey_EnvPriority(t *testing.T) {
+	// Skip if bouncer_key file exists (file takes priority over env vars per Phase 1 of LAPI auth fix)
+	const bouncerKeyFile = "/app/data/crowdsec/bouncer_key"
+	if _, err := os.Stat(bouncerKeyFile); err == nil {
+		t.Skip("Skipping env priority test - bouncer_key file exists (file takes priority over env vars)")
+	}
+
 	_ = os.Unsetenv("CROWDSEC_API_KEY")
 	_ = os.Unsetenv("CROWDSEC_BOUNCER_API_KEY")
 
 	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "bouncer")
 	t.Setenv("CROWDSEC_API_KEY", "primary")
+	// CHARON_SECURITY_CROWDSEC_API_KEY has highest priority among env vars
 	require.Equal(t, "primary", getCrowdSecAPIKey())
 
 	_ = os.Unsetenv("CROWDSEC_API_KEY")

@@ -4529,3 +4529,237 @@ func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
 
 	mockCmdExec.AssertExpectations(t)
 }
+
+func TestValidateBouncerKey_BouncerExists(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	mockExec := &mockCmdExecutor{
+		output: []byte(`[{"name":"caddy-bouncer"}]`),
+		err:    nil,
+	}
+
+	h := &CrowdsecHandler{
+		CmdExec: mockExec,
+	}
+
+	ctx := context.Background()
+	result := h.validateBouncerKey(ctx)
+
+	assert.True(t, result)
+	require.Len(t, mockExec.calls, 1)
+	assert.Equal(t, "cscli", mockExec.calls[0].name)
+}
+
+func TestValidateBouncerKey_BouncerNotFound(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	mockExec := &mockCmdExecutor{
+		output: []byte(`[{"name":"some-other-bouncer"}]`),
+		err:    nil,
+	}
+
+	h := &CrowdsecHandler{
+		CmdExec: mockExec,
+	}
+
+	ctx := context.Background()
+	result := h.validateBouncerKey(ctx)
+
+	assert.False(t, result)
+}
+
+func TestValidateBouncerKey_EmptyOutput(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	mockExec := &mockCmdExecutor{
+		output: []byte(``),
+		err:    nil,
+	}
+
+	h := &CrowdsecHandler{
+		CmdExec: mockExec,
+	}
+
+	ctx := context.Background()
+	result := h.validateBouncerKey(ctx)
+
+	assert.False(t, result)
+}
+
+func TestValidateBouncerKey_NullOutput(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	mockExec := &mockCmdExecutor{
+		output: []byte(`null`),
+		err:    nil,
+	}
+
+	h := &CrowdsecHandler{
+		CmdExec: mockExec,
+	}
+
+	ctx := context.Background()
+	result := h.validateBouncerKey(ctx)
+
+	assert.False(t, result)
+}
+
+func TestValidateBouncerKey_CmdError(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	mockExec := &mockCmdExecutor{
+		output: nil,
+		err:    errors.New("command failed"),
+	}
+
+	h := &CrowdsecHandler{
+		CmdExec: mockExec,
+	}
+
+	ctx := context.Background()
+	result := h.validateBouncerKey(ctx)
+
+	assert.False(t, result)
+}
+
+func TestValidateBouncerKey_InvalidJSON(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	mockExec := &mockCmdExecutor{
+		output: []byte(`not valid json`),
+		err:    nil,
+	}
+
+	h := &CrowdsecHandler{
+		CmdExec: mockExec,
+	}
+
+	ctx := context.Background()
+	result := h.validateBouncerKey(ctx)
+
+	assert.False(t, result)
+}
+
+func TestGetBouncerInfo_FromEnvVar(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("CROWDSEC_API_KEY", "test-api-key-12345678901234567890")
+
+	mockExec := &mockCmdExecutor{
+		output: []byte(`[{"name":"caddy-bouncer"}]`),
+		err:    nil,
+	}
+
+	h := &CrowdsecHandler{
+		CmdExec: mockExec,
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/bouncer", nil)
+
+	h.GetBouncerInfo(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, "env_var", resp["key_source"])
+	assert.Equal(t, "caddy-bouncer", resp["name"])
+	assert.True(t, resp["registered"].(bool))
+}
+
+func TestGetBouncerInfo_NotRegistered(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("CROWDSEC_API_KEY", "test-api-key-12345678901234567890")
+
+	mockExec := &mockCmdExecutor{
+		output: []byte(`[{"name":"other-bouncer"}]`),
+		err:    nil,
+	}
+
+	h := &CrowdsecHandler{
+		CmdExec: mockExec,
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/bouncer", nil)
+
+	h.GetBouncerInfo(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, "env_var", resp["key_source"])
+	assert.False(t, resp["registered"].(bool))
+}
+
+func TestGetBouncerKey_FromEnvVar(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("CROWDSEC_API_KEY", "test-env-key-value-12345")
+
+	h := &CrowdsecHandler{}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/bouncer/key", nil)
+
+	h.GetBouncerKey(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]string
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, "test-env-key-value-12345", resp["key"])
+	assert.Equal(t, "env_var", resp["source"])
+}
+
+func TestGetKeyStatus_EnvKeyValid(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("CROWDSEC_API_KEY", "test-api-key-12345678901234567890")
+
+	h := &CrowdsecHandler{}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/key-status", nil)
+
+	h.GetKeyStatus(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, "env", resp["key_source"])
+	assert.Contains(t, resp["current_key_preview"].(string), "...")
+}
+
+func TestGetKeyStatus_EnvKeyRejected(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("CROWDSEC_API_KEY", "rejected-key-123456789012345")
+
+	h := &CrowdsecHandler{
+		envKeyRejected: true,
+		rejectedEnvKey: "rejected-key-123456789012345",
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/key-status", nil)
+
+	h.GetKeyStatus(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.True(t, resp["env_key_rejected"].(bool))
+	assert.Contains(t, resp["message"].(string), "CHARON_SECURITY_CROWDSEC_API_KEY")
+}
