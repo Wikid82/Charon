@@ -1365,6 +1365,8 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           </div>
         </div>
       )}
-    </div>
+        </div>
+      </div>
+    </>
   )
 }

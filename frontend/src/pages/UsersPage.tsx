@@ -168,8 +168,15 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-labelledby="invite-modal-title">
-      <div className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <>
+      {/* Layer 1: Background overlay (z-40) */}
+      <div className="fixed inset-0 bg-black/50 z-40" onClick={handleClose} />
+      
+      {/* Layer 2: Form container (z-50, pointer-events-none) */}
+      <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50" role="dialog" aria-modal="true" aria-labelledby="invite-modal-title">
+        
+        {/* Layer 3: Form content (pointer-events-auto) */}
+        <div className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto pointer-events-auto">
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
           <h3 id="invite-modal-title" className="text-lg font-semibold text-white flex items-center gap-2">
             <UserPlus className="h-5 w-5" />
@@ -358,8 +365,9 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
             </>
           )}
         </div>
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 
@@ -431,8 +439,15 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
   if (!isOpen || !user) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-labelledby="permissions-modal-title">
-      <div className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <>
+      {/* Layer 1: Background overlay (z-40) */}
+      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+      
+      {/* Layer 2: Form container (z-50, pointer-events-none) */}
+      <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50" role="dialog" aria-modal="true" aria-labelledby="permissions-modal-title">
+        
+        {/* Layer 3: Form content (pointer-events-auto) */}
+        <div className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto pointer-events-auto">
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
           <h3 id="permissions-modal-title" className="text-lg font-semibold text-white flex items-center gap-2">
             <Shield className="h-5 w-5" />
@@ -509,8 +524,9 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
             </Button>
           </div>
         </div>
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 
