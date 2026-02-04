@@ -24,7 +24,7 @@
 
 import { test as base, expect } from './test';
 import { request as playwrightRequest } from '@playwright/test';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 import { TestDataManager } from '../utils/TestDataManager';
 import { STORAGE_STATE } from '../constants';
 
@@ -89,6 +89,20 @@ export const test = base.extend<AuthFixtures>({
 
     // Validate cookie domain matches baseURL to catch configuration issues early
     try {
+      try {
+        const { size } = statSync(STORAGE_STATE);
+        const sizeKiB = Math.round(size / 1024);
+        console.log(`Auth state size (fixture): ${size} bytes (${sizeKiB} KiB)`);
+        if (size > 5 * 1024 * 1024) {
+          console.warn(
+            `⚠️ Auth state file is unusually large (>5 MiB). ` +
+            `This can cause Node.js heap OOM when Playwright loads storageState.`
+          );
+        }
+      } catch (err) {
+        console.warn('⚠️ Could not stat auth state file (fixture):', err instanceof Error ? err.message : err);
+      }
+
       const savedState = JSON.parse(readFileSync(STORAGE_STATE, 'utf-8'));
       const cookies = savedState.cookies || [];
       const authCookie = cookies.find((c: { name: string }) => c.name === 'auth_token');
