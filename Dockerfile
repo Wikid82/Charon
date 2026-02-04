@@ -349,7 +349,7 @@ RUN groupadd -g 1000 charon && \
 # Download MaxMind GeoLite2 Country database
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
-ARG GEOLITE2_COUNTRY_SHA256=436135ee98a521da715a6d483951f3dbbd62557637f2d50d1987fc048874bd5d
+ARG GEOLITE2_COUNTRY_SHA256=62e263af0a2ee10d7ae6b8bf2515193ff496197ec99ff25279e5987e9bd67f39
 RUN mkdir -p /app/data/geoip && \
     curl -fSL "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
     -o /app/data/geoip/GeoLite2-Country.mmdb && \
