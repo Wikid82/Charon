@@ -7,11 +7,6 @@ on:
     workflows: ["Docker Build, Publish & Test"]
     types: [completed]
     branches: [main, development, 'feature/**']  # Explicit branch filter prevents unexpected triggers
-
-  pull_request:
-    branches: [main, development, 'feature/**']
-    types: [opened, synchronize, reopened]
-
   # Allow manual trigger for debugging
   workflow_dispatch:
     inputs:
@@ -31,11 +26,8 @@ jobs:
     name: Rate Limiting Integration
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Skip if workflow_run failed, or if PR and docker-build is still running
-    if: |
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      (github.event_name == 'pull_request') ||
-      (github.event_name == 'workflow_dispatch')
+    # Only run if docker-build.yml succeeded, or if manually triggered
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -73,6 +65,62 @@ jobs:
             else
               PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number')
             fi
+
+            if [[ -z "$PR_NUM" || "$PR_NUM" == "null" ]]; then
+              echo "❌ ERROR: Could not determine PR number"
+              echo "Event: $EVENT"
+              echo "Ref: $REF"
+              echo "SHA: $SHA"
+              echo "Pull Requests JSON: ${{ toJson(github.event.workflow_run.pull_requests) }}"
+              exit 1
+            fi
+
+            # Immutable tag with SHA suffix prevents race conditions
+            echo "tag=pr-${PR_NUM}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "source_type=pr" >> $GITHUB_OUTPUT
+          else
+            # Branch push: sanitize branch name and append SHA
+            # Sanitization: lowercase, replace / with -, remove special chars
+            SANITIZED=$(echo "$REF" | \
+              tr '[:upper:]' '[:lower:]' | \
+              tr '/' '-' | \
+              sed 's/[^a-z0-9-._]/-/g' | \
+              sed 's/^-//; s/-$//' | \
+              sed 's/--*/-/g' | \
+              cut -c1-121)  # Leave room for -SHORT_SHA (7 chars)
+
+            echo "tag=${SANITIZED}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "source_type=branch" >> $GITHUB_OUTPUT
+          fi
+
+      # Determine the correct image tag based on trigger context
+      # For PRs: pr-{number}-{sha}, For branches: {sanitized-branch}-{sha}
+      - name: Determine image tag
+        id: image
+        env:
+          EVENT: ${{ github.event.workflow_run.event }}
+          REF: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          MANUAL_TAG: ${{ inputs.image_tag }}
+        run: |
+          # Manual trigger uses provided tag
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ -n "$MANUAL_TAG" ]]; then
+              echo "tag=${MANUAL_TAG}" >> $GITHUB_OUTPUT
+            else
+              # Default to latest if no tag provided
+              echo "tag=latest" >> $GITHUB_OUTPUT
+            fi
+            echo "source_type=manual" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Extract 7-character short SHA
+          SHORT_SHA=$(echo "$SHA" | cut -c1-7)
+
+          if [[ "$EVENT" == "pull_request" ]]; then
+            # Use native pull_requests array (no API calls needed)
+            PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number')
 
             if [[ -z "$PR_NUM" || "$PR_NUM" == "null" ]]; then
               echo "❌ ERROR: Could not determine PR number"
