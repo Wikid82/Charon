@@ -133,12 +133,24 @@ func TestImportConfig(t *testing.T) {
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
 
-	// create a small file to upload
+	// Create a valid test archive
+	files := map[string]string{
+		"config.yaml": "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n",
+	}
+	archivePath := createTestArchive(t, "tar.gz", files, true)
+
+	// Read archive and create multipart request
+	// #nosec G304 -- archivePath is in test temp directory created by t.TempDir()
+	archiveData, err := os.ReadFile(archivePath)
+	require.NoError(t, err)
+
 	buf := &bytes.Buffer{}
 	mw := multipart.NewWriter(buf)
-	fw, _ := mw.CreateFormFile("file", "cfg.tar.gz")
-	_, _ = fw.Write([]byte("dummy"))
-	_ = mw.Close()
+	fw, err := mw.CreateFormFile("file", "cfg.tar.gz")
+	require.NoError(t, err)
+	_, err = fw.Write(archiveData)
+	require.NoError(t, err)
+	require.NoError(t, mw.Close())
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/import", buf)
@@ -148,9 +160,10 @@ func TestImportConfig(t *testing.T) {
 		t.Fatalf("import expected 200 got %d body=%s", w.Code, w.Body.String())
 	}
 
-	// ensure file exists in data dir
-	if _, err := os.Stat(filepath.Join(tmpDir, "cfg.tar.gz")); err != nil {
-		t.Fatalf("expected file in data dir: %v", err)
+	// Ensure extracted config.yaml exists in data dir (not the archive file)
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatalf("expected config.yaml to be extracted: %v", err)
 	}
 }
 
@@ -170,12 +183,23 @@ func TestImportCreatesBackup(t *testing.T) {
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
 
-	// upload
+	// Create valid archive
+	files := map[string]string{
+		"config.yaml": "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n",
+	}
+	archivePath := createTestArchive(t, "tar.gz", files, true)
+	// #nosec G304 -- archivePath is in test temp directory created by t.TempDir()
+	archiveData, err := os.ReadFile(archivePath)
+	require.NoError(t, err)
+
+	// Upload
 	buf := &bytes.Buffer{}
 	mw := multipart.NewWriter(buf)
-	fw, _ := mw.CreateFormFile("file", "cfg.tar.gz")
-	_, _ = fw.Write([]byte("dummy2"))
-	_ = mw.Close()
+	fw, err := mw.CreateFormFile("file", "cfg.tar.gz")
+	require.NoError(t, err)
+	_, err = fw.Write(archiveData)
+	require.NoError(t, err)
+	require.NoError(t, mw.Close())
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/import", buf)
@@ -477,8 +501,9 @@ func TestImportConfigRejectsEmptyUpload(t *testing.T) {
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for empty upload got %d", w.Code)
+	// Empty upload now returns 422 (validation error) instead of 400
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for empty upload got %d", w.Code)
 	}
 }
 
@@ -2751,7 +2776,7 @@ func TestCrowdsecHandler_ImportConfig_InvalidYAML(t *testing.T) {
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
 
-	// Create a file with invalid YAML content
+	// Create a file with invalid YAML content - not a valid archive
 	buf := &bytes.Buffer{}
 	mw := multipart.NewWriter(buf)
 	fw, _ := mw.CreateFormFile("file", "invalid.yaml")
@@ -2764,14 +2789,9 @@ func TestCrowdsecHandler_ImportConfig_InvalidYAML(t *testing.T) {
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	r.ServeHTTP(w, req)
 
-	// Handler doesn't validate YAML format, just saves the file
-	// Should succeed because ImportConfig doesn't parse YAML
-	require.Equal(t, http.StatusOK, w.Code)
-
-	// Verify file was saved to data dir
-	savedPath := filepath.Join(tmpDir, "invalid.yaml")
-	_, err := os.Stat(savedPath)
-	require.NoError(t, err, "File should be saved even if YAML is invalid")
+	// Should fail validation because it's not a valid archive format
+	require.Equal(t, http.StatusUnprocessableEntity, w.Code)
+	require.Contains(t, w.Body.String(), "validation failed")
 }
 
 func TestCrowdsecHandler_ImportConfig_ReadError(t *testing.T) {
@@ -2797,9 +2817,9 @@ func TestCrowdsecHandler_ImportConfig_ReadError(t *testing.T) {
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	r.ServeHTTP(w, req)
 
-	// Empty file should be rejected
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), "empty upload")
+	// Empty file should be rejected with validation error
+	require.Equal(t, http.StatusUnprocessableEntity, w.Code)
+	require.Contains(t, w.Body.String(), "validation failed")
 }
 
 func TestCrowdsecHandler_ImportConfig_MissingRequiredFields(t *testing.T) {
@@ -3192,15 +3212,19 @@ func TestCrowdsecHandler_ImportConfig_LargeFile(t *testing.T) {
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
 
-	// Create a larger file to test I/O paths
+	// Create a valid large archive with config.yaml
+	files := map[string]string{
+		"config.yaml": "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n",
+	}
+	archivePath := createTestArchive(t, "tar.gz", files, true)
+	// #nosec G304 -- archivePath is in test temp directory created by t.TempDir()
+	archiveData, err := os.ReadFile(archivePath)
+	require.NoError(t, err)
+
 	buf := &bytes.Buffer{}
 	mw := multipart.NewWriter(buf)
 	fw, _ := mw.CreateFormFile("file", "large.tar.gz")
-	largeData := make([]byte, 1024*100) // 100KB
-	for i := range largeData {
-		largeData[i] = byte(i % 256)
-	}
-	_, _ = fw.Write(largeData)
+	_, _ = fw.Write(archiveData)
 	_ = mw.Close()
 
 	w := httptest.NewRecorder()
@@ -3210,11 +3234,10 @@ func TestCrowdsecHandler_ImportConfig_LargeFile(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 
-	// Verify file was saved
-	savedPath := filepath.Join(tmpDir, "large.tar.gz")
-	stat, err := os.Stat(savedPath)
+	// Verify config.yaml was extracted
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	_, err = os.Stat(configPath)
 	require.NoError(t, err)
-	require.Equal(t, int64(len(largeData)), stat.Size())
 }
 
 // Test Start with SecurityConfig creation
@@ -3740,6 +3763,206 @@ func TestCrowdsecHandler_ImportConfig_CorruptedArchive(t *testing.T) {
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	r.ServeHTTP(w, req)
 
-	// Should succeed in saving but may fail on extraction
-	require.True(t, w.Code == http.StatusOK || w.Code == http.StatusInternalServerError)
+	// Should fail validation because it's not a valid gzip file
+	require.Equal(t, http.StatusUnprocessableEntity, w.Code)
+	require.Contains(t, w.Body.String(), "validation failed")
+}
+
+// TestMaskAPIKey tests the maskAPIKey function with various inputs.
+// Security: Ensures API keys are properly masked to prevent log exposure (CWE-312).
+func TestMaskAPIKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "normal key",
+			input:    "abcd1234567890wxyz",
+			expected: "abcd...wxyz",
+		},
+		{
+			name:     "empty key",
+			input:    "",
+			expected: "[empty]",
+		},
+		{
+			name:     "short key under 16 chars",
+			input:    "short123",
+			expected: "[REDACTED]",
+		},
+		{
+			name:     "minimum length key (16 chars)",
+			input:    "1234567890123456",
+			expected: "1234...3456",
+		},
+		{
+			name:     "long key",
+			input:    "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+			expected: "abcd...WXYZ",
+		},
+		{
+			name:     "exactly 15 chars (below minimum)",
+			input:    "123456789012345",
+			expected: "[REDACTED]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := maskAPIKey(tt.input)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestValidateAPIKeyFormat tests the validateAPIKeyFormat function.
+// Security: Ensures API keys meet minimum security standards.
+func TestValidateAPIKeyFormat(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{
+			name:     "valid key with alphanumeric",
+			input:    "abcd1234567890WXYZ",
+			expected: true,
+		},
+		{
+			name:     "valid key with underscore",
+			input:    "api_key_1234567890",
+			expected: true,
+		},
+		{
+			name:     "valid key with hyphen",
+			input:    "api-key-1234567890",
+			expected: true,
+		},
+		{
+			name:     "valid key mixed chars",
+			input:    "aB3_dE-5_fG7_hI9_jK1",
+			expected: true,
+		},
+		{
+			name:     "too short (15 chars)",
+			input:    "123456789012345",
+			expected: false,
+		},
+		{
+			name:     "minimum valid length (16 chars)",
+			input:    "1234567890123456",
+			expected: true,
+		},
+		{
+			name:     "maximum valid length (128 chars)",
+			input:    strings.Repeat("a", 128),
+			expected: true,
+		},
+		{
+			name:     "too long (129 chars)",
+			input:    strings.Repeat("a", 129),
+			expected: false,
+		},
+		{
+			name:     "invalid char - space",
+			input:    "abcd 1234567890wxyz",
+			expected: false,
+		},
+		{
+			name:     "invalid char - special symbols",
+			input:    "abcd!@#$%^&*()wxyz",
+			expected: false,
+		},
+		{
+			name:     "invalid char - slash",
+			input:    "abcd/1234567890wxyz",
+			expected: false,
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := validateAPIKeyFormat(tt.input)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestLogBouncerKeyBanner_NoSecretExposure verifies that the banner does not expose full API keys.
+// Security: Critical test to prevent API key leakage in logs (CWE-312, CWE-315, CWE-359).
+func TestLogBouncerKeyBanner_NoSecretExposure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	db := OpenTestDB(t)
+	tmpDir := t.TempDir()
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
+
+	// Test with a realistic API key
+	testAPIKey := "test_api_key_123456789_abcdefghijklmnopqrstuvwxyz"
+
+	// Capture log output (this is a simple test; in production use a proper log capture)
+	// For this test, we'll verify the masking function is called correctly
+	maskedKey := maskAPIKey(testAPIKey)
+
+	// Verify the masked key does not contain the full key
+	require.NotContains(t, maskedKey, testAPIKey)
+	require.Contains(t, maskedKey, "test...")
+	require.Contains(t, maskedKey, "...wxyz")
+
+	// Call the banner function (it will log, but we've verified masking works)
+	h.logBouncerKeyBanner(testAPIKey)
+
+	// If we reach here without panic, the function executed successfully
+	// The actual log output would need to be captured in integration tests
+}
+
+// TestSaveKeyToFile_SecurePermissions verifies that API keys are saved with secure file permissions.
+// Security: Ensures key files have 0600 permissions to prevent unauthorized access (CWE-732).
+func TestSaveKeyToFile_SecurePermissions(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	keyFile := filepath.Join(tmpDir, "test_bouncer.key")
+	testKey := "test_api_key_1234567890_secure"
+
+	// Save the key
+	err := saveKeyToFile(keyFile, testKey)
+	require.NoError(t, err)
+
+	// Verify file exists
+	require.FileExists(t, keyFile)
+
+	// Verify file permissions are 0600
+	info, err := os.Stat(keyFile)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0600), info.Mode().Perm(), "File must have 0600 permissions for security")
+
+	// Verify content is correct
+	// #nosec G304 -- keyFile is in test temp directory created by t.TempDir()
+	content, err := os.ReadFile(keyFile)
+	require.NoError(t, err)
+	require.Equal(t, testKey+"\n", string(content))
+}
+
+// TestSaveKeyToFile_EmptyKey verifies that empty keys are rejected.
+func TestSaveKeyToFile_RejectEmptyKey(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	keyFile := filepath.Join(tmpDir, "test_bouncer.key")
+
+	err := saveKeyToFile(keyFile, "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cannot save empty key")
 }

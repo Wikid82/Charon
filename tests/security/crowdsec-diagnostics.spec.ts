@@ -346,7 +346,7 @@ test.describe('CrowdSec Diagnostics', () => {
 
         // Retrieve file content
         const contentResponse = await request.get(
-          `/api/v1/admin/crowdsec/files?path=${encodeURIComponent(configPath)}`
+          `/api/v1/admin/crowdsec/file?path=${encodeURIComponent(configPath)}`
         );
 
         if (contentResponse.status() === 404) {

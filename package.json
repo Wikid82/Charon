@@ -18,7 +18,9 @@
     "@bgotink/playwright-coverage": "^0.3.2",
     "@playwright/test": "^1.58.1",
     "@types/node": "^25.2.0",
+    "@types/tar": "^6.1.13",
     "dotenv": "^17.2.3",
-    "markdownlint-cli2": "^0.20.0"
+    "markdownlint-cli2": "^0.20.0",
+    "tar": "^7.5.7"
   }
 }

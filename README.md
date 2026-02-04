@@ -562,7 +562,21 @@ docker restart charon
 - Use HTTPS when calling emergency endpoint (HTTP leaks token)
 - Monitor audit logs for emergency token usage
 
-**📍 Management Network Configuration:**
+**� API Key & Credential Management:**
+
+- **Never log sensitive credentials**: Charon automatically masks API keys in logs (e.g., `abcd...xyz9`)
+- **Secure storage**: CrowdSec API keys stored with 0600 permissions (owner read/write only)
+- **No HTTP exposure**: API keys never returned in API responses
+- **No cookie storage**: Keys never stored in browser cookies
+- **Regular rotation**: Rotate CrowdSec bouncer keys every 90 days (recommended)
+- **Environment variables**: Use `CHARON_SECURITY_CROWDSEC_API_KEY` for production deployments
+- **Compliance**: Implementation addresses CWE-312, CWE-315, CWE-359 (GDPR, PCI-DSS, SOC 2)
+
+For detailed security practices, see:
+- 📘 [API Key Handling Guide](docs/security/api-key-handling.md)
+- 🛡️ [Security Best Practices](docs/SECURITY_PRACTICES.md)
+
+**�📍 Management Network Configuration:**
 
 ```yaml
 # Restrict emergency access to trusted networks only
