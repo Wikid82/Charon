@@ -41,7 +41,7 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: 'Docker image tag to test (e.g., pr-123-abc1234)'
+        description: 'Docker image tag to test (e.g., pr-123-abc1234, latest)'
         required: false
         type: string
       browser:
@@ -74,11 +74,7 @@ env:
 # Prevent race conditions when PR is updated mid-test
 # Cancels old test runs when new build completes with different SHA
 concurrency:
-<<<<<<< HEAD
   group: e2e-${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}-${{ github.event.workflow_run.head_sha || github.sha }}
-=======
-  group: e2e-${{ github.workflow }}-${{ github.ref }}
->>>>>>> 8edde88f (fix(ci): add image_tag input for manual triggers in integration workflows)
   cancel-in-progress: true
 
 jobs:
@@ -115,7 +111,7 @@ jobs:
       # Determine the correct image tag based on trigger context
       # For PRs: pr-{number}-{sha}, For branches: {sanitized-branch}-{sha}
       - name: Determine image tag
-        id: determine-tag
+        id: image
         env:
           EVENT: ${{ github.event.workflow_run.event }}
           REF: ${{ github.event.workflow_run.head_branch }}
@@ -171,7 +167,6 @@ jobs:
           echo "sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "Determined image tag: $(cat $GITHUB_OUTPUT | grep tag=)"
 
-<<<<<<< HEAD
       # Pull image from registry with retry logic (dual-source strategy)
       # Try registry first (fast), fallback to artifact if registry fails
       - name: Pull Docker image from registry
@@ -207,7 +202,7 @@ jobs:
           fi
 
           echo "Downloading artifact: $ARTIFACT_NAME"
-          gh run download ${{ github.event.workflow_run.id }} \
+          gh run run download ${{ github.event.workflow_run.id }} \
             --name "$ARTIFACT_NAME" \
             --dir /tmp/docker-image || {
             echo "❌ ERROR: Artifact download failed!"
@@ -237,14 +232,6 @@ jobs:
           else
             echo "✅ Image SHA matches expected commit"
           fi
-=======
-      # Download Docker image artifact from build job
-      - name: Download Docker image
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: docker-image
-          path: .
->>>>>>> 8edde88f (fix(ci): add image_tag input for manual triggers in integration workflows)
 
       - name: Validate Emergency Token Configuration
         run: |
