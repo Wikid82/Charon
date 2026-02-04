@@ -11,6 +11,7 @@ import { toast } from '../utils/toast'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { LiveLogViewer } from '../components/LiveLogViewer'
 import { SecurityNotificationSettingsModal } from '../components/SecurityNotificationSettingsModal'
+import { CrowdSecKeyWarning } from '../components/CrowdSecKeyWarning'
 import { PageShell } from '../components/layout/PageShell'
 import {
   Card,
@@ -350,6 +351,11 @@ export default function Security() {
               </Button>
             </div>
           </Alert>
+        )}
+
+        {/* CrowdSec Key Rejection Warning */}
+        {status.cerberus?.enabled && (crowdsecStatus?.running ?? status.crowdsec.enabled) && (
+          <CrowdSecKeyWarning />
         )}
 
         {/* Admin Whitelist Section */}

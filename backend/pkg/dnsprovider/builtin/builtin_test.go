@@ -86,9 +86,26 @@ func TestRoute53Provider(t *testing.T) {
 		t.Errorf("expected type route53, got %s", p.Type())
 	}
 
+	meta := p.Metadata()
+	if meta.Type != "route53" {
+		t.Errorf("expected metadata type route53, got %s", meta.Type)
+	}
+	if !meta.IsBuiltIn {
+		t.Error("expected IsBuiltIn to be true")
+	}
+
+	if err := p.Cleanup(); err != nil {
+		t.Errorf("Cleanup failed: %v", err)
+	}
+
 	required := p.RequiredCredentialFields()
 	if len(required) != 2 {
 		t.Errorf("expected 2 required fields, got %d", len(required))
+	}
+
+	optional := p.OptionalCredentialFields()
+	if optional == nil {
+		t.Error("optional fields should not be nil")
 	}
 
 	err := p.ValidateCredentials(map[string]string{})
@@ -96,12 +113,40 @@ func TestRoute53Provider(t *testing.T) {
 		t.Error("expected validation error for empty credentials")
 	}
 
-	err = p.ValidateCredentials(map[string]string{
+	creds := map[string]string{
 		"access_key_id":     "test",
 		"secret_access_key": "test",
-	})
+	}
+
+	err = p.ValidateCredentials(creds)
 	if err != nil {
 		t.Errorf("validation failed: %v", err)
+	}
+
+	if err := p.TestCredentials(creds); err != nil {
+		t.Errorf("TestCredentials failed: %v", err)
+	}
+
+	if p.SupportsMultiCredential() {
+		t.Error("expected SupportsMultiCredential to be false")
+	}
+
+	config := p.BuildCaddyConfig(creds)
+	if config["name"] != "route53" {
+		t.Error("expected caddy config name to be route53")
+	}
+
+	zoneConfig := p.BuildCaddyConfigForZone("example.com", creds)
+	if zoneConfig["name"] != "route53" {
+		t.Error("expected zone config name to be route53")
+	}
+
+	if p.PropagationTimeout().Seconds() == 0 {
+		t.Error("expected non-zero propagation timeout")
+	}
+
+	if p.PollingInterval().Seconds() == 0 {
+		t.Error("expected non-zero polling interval")
 	}
 }
 
@@ -112,9 +157,26 @@ func TestDigitalOceanProvider(t *testing.T) {
 		t.Errorf("expected type digitalocean, got %s", p.Type())
 	}
 
+	meta := p.Metadata()
+	if meta.Type != "digitalocean" {
+		t.Errorf("expected metadata type digitalocean, got %s", meta.Type)
+	}
+	if !meta.IsBuiltIn {
+		t.Error("expected IsBuiltIn to be true")
+	}
+
+	if err := p.Cleanup(); err != nil {
+		t.Errorf("Cleanup failed: %v", err)
+	}
+
 	required := p.RequiredCredentialFields()
 	if len(required) != 1 {
 		t.Errorf("expected 1 required field, got %d", len(required))
+	}
+
+	optional := p.OptionalCredentialFields()
+	if optional == nil {
+		t.Error("optional fields should not be nil")
 	}
 
 	err := p.ValidateCredentials(map[string]string{})
@@ -122,9 +184,37 @@ func TestDigitalOceanProvider(t *testing.T) {
 		t.Error("expected validation error for empty credentials")
 	}
 
-	err = p.ValidateCredentials(map[string]string{"api_token": "test"})
+	creds := map[string]string{"api_token": "test"}
+
+	err = p.ValidateCredentials(creds)
 	if err != nil {
 		t.Errorf("validation failed: %v", err)
+	}
+
+	if err := p.TestCredentials(creds); err != nil {
+		t.Errorf("TestCredentials failed: %v", err)
+	}
+
+	if p.SupportsMultiCredential() {
+		t.Error("expected SupportsMultiCredential to be false")
+	}
+
+	config := p.BuildCaddyConfig(creds)
+	if config["name"] != "digitalocean" {
+		t.Error("expected caddy config name to be digitalocean")
+	}
+
+	zoneConfig := p.BuildCaddyConfigForZone("example.com", creds)
+	if zoneConfig["name"] != "digitalocean" {
+		t.Error("expected zone config name to be digitalocean")
+	}
+
+	if p.PropagationTimeout().Seconds() == 0 {
+		t.Error("expected non-zero propagation timeout")
+	}
+
+	if p.PollingInterval().Seconds() == 0 {
+		t.Error("expected non-zero polling interval")
 	}
 }
 
@@ -135,14 +225,64 @@ func TestGoogleCloudDNSProvider(t *testing.T) {
 		t.Errorf("expected type googleclouddns, got %s", p.Type())
 	}
 
+	meta := p.Metadata()
+	if meta.Type != "googleclouddns" {
+		t.Errorf("expected metadata type googleclouddns, got %s", meta.Type)
+	}
+	if !meta.IsBuiltIn {
+		t.Error("expected IsBuiltIn to be true")
+	}
+
+	if err := p.Cleanup(); err != nil {
+		t.Errorf("Cleanup failed: %v", err)
+	}
+
 	required := p.RequiredCredentialFields()
 	if len(required) != 1 {
 		t.Errorf("expected 1 required field, got %d", len(required))
 	}
 
+	optional := p.OptionalCredentialFields()
+	if optional == nil {
+		t.Error("optional fields should not be nil")
+	}
+
 	err := p.ValidateCredentials(map[string]string{})
 	if err == nil {
 		t.Error("expected validation error for empty credentials")
+	}
+
+	creds := map[string]string{"service_account_json": "{}"}
+
+	err = p.ValidateCredentials(creds)
+	if err != nil {
+		t.Errorf("validation failed: %v", err)
+	}
+
+	if err := p.TestCredentials(creds); err != nil {
+		t.Errorf("TestCredentials failed: %v", err)
+	}
+
+	if p.SupportsMultiCredential() {
+		t.Error("expected SupportsMultiCredential to be false")
+	}
+
+	config := p.BuildCaddyConfig(creds)
+	if config["name"] != "googleclouddns" {
+		t.Error("expected caddy config name to be googleclouddns")
+	}
+
+	zoneConfig := p.BuildCaddyConfigForZone("example.com", creds)
+	if zoneConfig["name"] != "googleclouddns" {
+		t.Error("expected zone config name to be googleclouddns")
+	}
+
+	if p.PropagationTimeout().Seconds() == 0 {
+		t.Error("expected non-zero propagation timeout")
+	}
+
+	if p.PollingInterval().Seconds() == 0 {
+		t.Error("expected non-zero polling interval")
 	}
 }
 
@@ -153,9 +293,70 @@ func TestAzureProvider(t *testing.T) {
 		t.Errorf("expected type azure, got %s", p.Type())
 	}
 
+	meta := p.Metadata()
+	if meta.Type != "azure" {
+		t.Errorf("expected metadata type azure, got %s", meta.Type)
+	}
+	if !meta.IsBuiltIn {
+		t.Error("expected IsBuiltIn to be true")
+	}
+
+	if err := p.Cleanup(); err != nil {
+		t.Errorf("Cleanup failed: %v", err)
+	}
+
 	required := p.RequiredCredentialFields()
 	if len(required) != 5 {
 		t.Errorf("expected 5 required fields, got %d", len(required))
+	}
+
+	optional := p.OptionalCredentialFields()
+	if optional == nil {
+		t.Error("optional fields should not be nil")
+	}
+
+	err := p.ValidateCredentials(map[string]string{})
+	if err == nil {
+		t.Error("expected validation error for empty credentials")
+	}
+
+	creds := map[string]string{
+		"tenant_id":       "test-tenant",
+		"client_id":       "test-client",
+		"client_secret":   "test-secret",
+		"subscription_id": "test-sub",
+		"resource_group":  "test-rg",
+	}
+
+	err = p.ValidateCredentials(creds)
+	if err != nil {
+		t.Errorf("validation failed: %v", err)
+	}
+
+	if err := p.TestCredentials(creds); err != nil {
+		t.Errorf("TestCredentials failed: %v", err)
+	}
+
+	if p.SupportsMultiCredential() {
+		t.Error("expected SupportsMultiCredential to be false")
+	}
+
+	config := p.BuildCaddyConfig(creds)
+	if config["name"] != "azure" {
+		t.Error("expected caddy config name to be azure")
+	}
+
+	zoneConfig := p.BuildCaddyConfigForZone("example.com", creds)
+	if zoneConfig["name"] != "azure" {
+		t.Error("expected zone config name to be azure")
+	}
+
+	if p.PropagationTimeout().Seconds() == 0 {
+		t.Error("expected non-zero propagation timeout")
+	}
+
+	if p.PollingInterval().Seconds() == 0 {
+		t.Error("expected non-zero polling interval")
 	}
 }
 
@@ -166,9 +367,64 @@ func TestNamecheapProvider(t *testing.T) {
 		t.Errorf("expected type namecheap, got %s", p.Type())
 	}
 
+	meta := p.Metadata()
+	if meta.Type != "namecheap" {
+		t.Errorf("expected metadata type namecheap, got %s", meta.Type)
+	}
+	if !meta.IsBuiltIn {
+		t.Error("expected IsBuiltIn to be true")
+	}
+
+	if err := p.Cleanup(); err != nil {
+		t.Errorf("Cleanup failed: %v", err)
+	}
+
 	required := p.RequiredCredentialFields()
 	if len(required) != 2 {
 		t.Errorf("expected 2 required fields, got %d", len(required))
+	}
+
+	optional := p.OptionalCredentialFields()
+	if optional == nil {
+		t.Error("optional fields should not be nil")
+	}
+
+	err := p.ValidateCredentials(map[string]string{})
+	if err == nil {
+		t.Error("expected validation error for empty credentials")
+	}
+
+	creds := map[string]string{"api_key": "test-key", "api_user": "test-user"}
+
+	err = p.ValidateCredentials(creds)
+	if err != nil {
+		t.Errorf("validation failed: %v", err)
+	}
+
+	if err := p.TestCredentials(creds); err != nil {
+		t.Errorf("TestCredentials failed: %v", err)
+	}
+
+	if p.SupportsMultiCredential() {
+		t.Error("expected SupportsMultiCredential to be false")
+	}
+
+	config := p.BuildCaddyConfig(creds)
+	if config["name"] != "namecheap" {
+		t.Error("expected caddy config name to be namecheap")
+	}
+
+	zoneConfig := p.BuildCaddyConfigForZone("example.com", creds)
+	if zoneConfig["name"] != "namecheap" {
+		t.Error("expected zone config name to be namecheap")
+	}
+
+	if p.PropagationTimeout().Seconds() == 0 {
+		t.Error("expected non-zero propagation timeout")
+	}
+
+	if p.PollingInterval().Seconds() == 0 {
+		t.Error("expected non-zero polling interval")
 	}
 }
 
@@ -179,9 +435,64 @@ func TestGoDaddyProvider(t *testing.T) {
 		t.Errorf("expected type godaddy, got %s", p.Type())
 	}
 
+	meta := p.Metadata()
+	if meta.Type != "godaddy" {
+		t.Errorf("expected metadata type godaddy, got %s", meta.Type)
+	}
+	if !meta.IsBuiltIn {
+		t.Error("expected IsBuiltIn to be true")
+	}
+
+	if err := p.Cleanup(); err != nil {
+		t.Errorf("Cleanup failed: %v", err)
+	}
+
 	required := p.RequiredCredentialFields()
 	if len(required) != 2 {
 		t.Errorf("expected 2 required fields, got %d", len(required))
+	}
+
+	optional := p.OptionalCredentialFields()
+	if optional == nil {
+		t.Error("optional fields should not be nil")
+	}
+
+	err := p.ValidateCredentials(map[string]string{})
+	if err == nil {
+		t.Error("expected validation error for empty credentials")
+	}
+
+	creds := map[string]string{"api_key": "test-key", "api_secret": "test-secret"}
+
+	err = p.ValidateCredentials(creds)
+	if err != nil {
+		t.Errorf("validation failed: %v", err)
+	}
+
+	if err := p.TestCredentials(creds); err != nil {
+		t.Errorf("TestCredentials failed: %v", err)
+	}
+
+	if p.SupportsMultiCredential() {
+		t.Error("expected SupportsMultiCredential to be false")
+	}
+
+	config := p.BuildCaddyConfig(creds)
+	if config["name"] != "godaddy" {
+		t.Error("expected caddy config name to be godaddy")
+	}
+
+	zoneConfig := p.BuildCaddyConfigForZone("example.com", creds)
+	if zoneConfig["name"] != "godaddy" {
+		t.Error("expected zone config name to be godaddy")
+	}
+
+	if p.PropagationTimeout().Seconds() == 0 {
+		t.Error("expected non-zero propagation timeout")
+	}
+
+	if p.PollingInterval().Seconds() == 0 {
+		t.Error("expected non-zero polling interval")
 	}
 }
 
@@ -192,9 +503,64 @@ func TestHetznerProvider(t *testing.T) {
 		t.Errorf("expected type hetzner, got %s", p.Type())
 	}
 
+	meta := p.Metadata()
+	if meta.Type != "hetzner" {
+		t.Errorf("expected metadata type hetzner, got %s", meta.Type)
+	}
+	if !meta.IsBuiltIn {
+		t.Error("expected IsBuiltIn to be true")
+	}
+
+	if err := p.Cleanup(); err != nil {
+		t.Errorf("Cleanup failed: %v", err)
+	}
+
 	required := p.RequiredCredentialFields()
 	if len(required) != 1 {
 		t.Errorf("expected 1 required field, got %d", len(required))
+	}
+
+	optional := p.OptionalCredentialFields()
+	if optional == nil {
+		t.Error("optional fields should not be nil")
+	}
+
+	err := p.ValidateCredentials(map[string]string{})
+	if err == nil {
+		t.Error("expected validation error for empty credentials")
+	}
+
+	creds := map[string]string{"api_token": "test-token"}
+
+	err = p.ValidateCredentials(creds)
+	if err != nil {
+		t.Errorf("validation failed: %v", err)
+	}
+
+	if err := p.TestCredentials(creds); err != nil {
+		t.Errorf("TestCredentials failed: %v", err)
+	}
+
+	if p.SupportsMultiCredential() {
+		t.Error("expected SupportsMultiCredential to be false")
+	}
+
+	config := p.BuildCaddyConfig(creds)
+	if config["name"] != "hetzner" {
+		t.Error("expected caddy config name to be hetzner")
+	}
+
+	zoneConfig := p.BuildCaddyConfigForZone("example.com", creds)
+	if zoneConfig["name"] != "hetzner" {
+		t.Error("expected zone config name to be hetzner")
+	}
+
+	if p.PropagationTimeout().Seconds() == 0 {
+		t.Error("expected non-zero propagation timeout")
+	}
+
+	if p.PollingInterval().Seconds() == 0 {
+		t.Error("expected non-zero polling interval")
 	}
 }
 
@@ -205,9 +571,64 @@ func TestVultrProvider(t *testing.T) {
 		t.Errorf("expected type vultr, got %s", p.Type())
 	}
 
+	meta := p.Metadata()
+	if meta.Type != "vultr" {
+		t.Errorf("expected metadata type vultr, got %s", meta.Type)
+	}
+	if !meta.IsBuiltIn {
+		t.Error("expected IsBuiltIn to be true")
+	}
+
+	if err := p.Cleanup(); err != nil {
+		t.Errorf("Cleanup failed: %v", err)
+	}
+
 	required := p.RequiredCredentialFields()
 	if len(required) != 1 {
 		t.Errorf("expected 1 required field, got %d", len(required))
+	}
+
+	optional := p.OptionalCredentialFields()
+	if optional == nil {
+		t.Error("optional fields should not be nil")
+	}
+
+	err := p.ValidateCredentials(map[string]string{})
+	if err == nil {
+		t.Error("expected validation error for empty credentials")
+	}
+
+	creds := map[string]string{"api_key": "test-key"}
+
+	err = p.ValidateCredentials(creds)
+	if err != nil {
+		t.Errorf("validation failed: %v", err)
+	}
+
+	if err := p.TestCredentials(creds); err != nil {
+		t.Errorf("TestCredentials failed: %v", err)
+	}
+
+	if p.SupportsMultiCredential() {
+		t.Error("expected SupportsMultiCredential to be false")
+	}
+
+	config := p.BuildCaddyConfig(creds)
+	if config["name"] != "vultr" {
+		t.Error("expected caddy config name to be vultr")
+	}
+
+	zoneConfig := p.BuildCaddyConfigForZone("example.com", creds)
+	if zoneConfig["name"] != "vultr" {
+		t.Error("expected zone config name to be vultr")
+	}
+
+	if p.PropagationTimeout().Seconds() == 0 {
+		t.Error("expected non-zero propagation timeout")
+	}
+
+	if p.PollingInterval().Seconds() == 0 {
+		t.Error("expected non-zero polling interval")
 	}
 }
 
@@ -218,9 +639,64 @@ func TestDNSimpleProvider(t *testing.T) {
 		t.Errorf("expected type dnsimple, got %s", p.Type())
 	}
 
+	meta := p.Metadata()
+	if meta.Type != "dnsimple" {
+		t.Errorf("expected metadata type dnsimple, got %s", meta.Type)
+	}
+	if !meta.IsBuiltIn {
+		t.Error("expected IsBuiltIn to be true")
+	}
+
+	if err := p.Cleanup(); err != nil {
+		t.Errorf("Cleanup failed: %v", err)
+	}
+
 	required := p.RequiredCredentialFields()
 	if len(required) != 1 {
 		t.Errorf("expected 1 required field, got %d", len(required))
+	}
+
+	optional := p.OptionalCredentialFields()
+	if optional == nil {
+		t.Error("optional fields should not be nil")
+	}
+
+	err := p.ValidateCredentials(map[string]string{})
+	if err == nil {
+		t.Error("expected validation error for empty credentials")
+	}
+
+	creds := map[string]string{"api_token": "test-token"}
+
+	err = p.ValidateCredentials(creds)
+	if err != nil {
+		t.Errorf("validation failed: %v", err)
+	}
+
+	if err := p.TestCredentials(creds); err != nil {
+		t.Errorf("TestCredentials failed: %v", err)
+	}
+
+	if p.SupportsMultiCredential() {
+		t.Error("expected SupportsMultiCredential to be false")
+	}
+
+	config := p.BuildCaddyConfig(creds)
+	if config["name"] != "dnsimple" {
+		t.Error("expected caddy config name to be dnsimple")
+	}
+
+	zoneConfig := p.BuildCaddyConfigForZone("example.com", creds)
+	if zoneConfig["name"] != "dnsimple" {
+		t.Error("expected zone config name to be dnsimple")
+	}
+
+	if p.PropagationTimeout().Seconds() == 0 {
+		t.Error("expected non-zero propagation timeout")
+	}
+
+	if p.PollingInterval().Seconds() == 0 {
+		t.Error("expected non-zero polling interval")
 	}
 }
 

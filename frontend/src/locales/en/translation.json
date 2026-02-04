@@ -260,6 +260,7 @@
     "generateTokenTooltip": "Generate a break-glass token for emergency access",
     "enableCerberusFirst": "Enable Cerberus first",
     "layer": "Layer",
+    "auditLogs": "Audit Logs",
     "crowdsec": {
       "title": "CrowdSec",
       "subtitle": "IP Reputation & Threat Intelligence",
@@ -277,7 +278,15 @@
       "notRegistered": "Not Registered",
       "sourceEnvVar": "From environment variable",
       "sourceFile": "From file",
-      "keyStoredAt": "Key stored at"
+      "keyStoredAt": "Key stored at",
+      "keyWarning": {
+        "title": "CrowdSec API Key Updated",
+        "description": "Your configured API key was rejected by CrowdSec LAPI. A new key has been automatically generated to restore protection.",
+        "instructions": "Update your docker-compose.yml with the new key to prevent re-registration on container restart:",
+        "copyButton": "Copy",
+        "copied": "Key copied to clipboard",
+        "restartNote": "After updating docker-compose.yml, restart the container for the change to take effect."
+      }
     },
     "acl": {
       "title": "Access Control",
@@ -896,6 +905,13 @@
     "noteText": "CrowdSec is controlled via the toggle on the",
     "consoleEnrollment": {
       "title": "Console Enrollment",
+      "description": "Connect your CrowdSec LAPI to the CrowdSec Console for centralized management and alerts.",
+      "privacyNote": "Note: Enrollment sends heartbeat data and metrics to CrowdSec. See CrowdSec's privacy policy for details.",
+      "lastHeartbeat": "Last heartbeat",
+      "enrollToken": "Enrollment Token",
+      "tokenHelper": "Get your enrollment token from the CrowdSec Console",
+      "tenantHelper": "Optional: specify the tenant/organization ID if using multi-tenant setup",
+      "ackText": "I understand this will rotate my LAPI credentials if already enrolled",
       "status": "Status",
       "notEnrolled": "Not Enrolled",
       "enrolled": "Enrolled",
