@@ -54,6 +54,10 @@ on:
           - firefox
           - webkit
           - all
+      image_tag:
+        description: 'Docker image tag to test (e.g., pr-123-abc1234, latest)'
+        required: false
+        type: string
 
 env:
   NODE_VERSION: '20'
@@ -70,7 +74,7 @@ env:
 # Prevent race conditions when PR is updated mid-test
 # Cancels old test runs when new build completes with different SHA
 concurrency:
-  group: e2e-${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -163,71 +167,12 @@ jobs:
           echo "sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "Determined image tag: $(cat $GITHUB_OUTPUT | grep tag=)"
 
-      # Pull image from registry with retry logic (dual-source strategy)
-      # Try registry first (fast), fallback to artifact if registry fails
-      - name: Pull Docker image from registry
-        id: pull_image
-        uses: nick-fields/retry@v3
+      # Download Docker image artifact from build job
+      - name: Download Docker image
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          timeout_minutes: 5
-          max_attempts: 3
-          retry_wait_seconds: 10
-          command: |
-            IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/charon:${{ steps.image.outputs.tag }}"
-            echo "Pulling image: $IMAGE_NAME"
-            docker pull "$IMAGE_NAME"
-            docker tag "$IMAGE_NAME" charon:e2e-test
-            echo "✅ Successfully pulled from registry"
-        continue-on-error: true
-
-      # Fallback: Download artifact if registry pull failed
-      - name: Fallback to artifact download
-        if: steps.pull_image.outcome == 'failure'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHA: ${{ steps.image.outputs.sha }}
-        run: |
-          echo "⚠️ Registry pull failed, falling back to artifact..."
-
-          # Determine artifact name based on source type
-          if [[ "${{ steps.image.outputs.source_type }}" == "pr" ]]; then
-            PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number')
-            ARTIFACT_NAME="pr-image-${PR_NUM}"
-          else
-            ARTIFACT_NAME="push-image"
-          fi
-
-          echo "Downloading artifact: $ARTIFACT_NAME"
-          gh run download ${{ github.event.workflow_run.id }} \
-            --name "$ARTIFACT_NAME" \
-            --dir /tmp/docker-image || {
-            echo "❌ ERROR: Artifact download failed!"
-            echo "Available artifacts:"
-            gh run view ${{ github.event.workflow_run.id }} --json artifacts --jq '.artifacts[].name'
-            exit 1
-          }
-
-          docker load < /tmp/docker-image/charon-image.tar
-          docker tag $(docker images --format "{{.Repository}}:{{.Tag}}" | head -1) charon:e2e-test
-          echo "✅ Successfully loaded from artifact"
-
-      # Validate image freshness by checking SHA label
-      - name: Validate image SHA
-        env:
-          SHA: ${{ steps.image.outputs.sha }}
-        run: |
-          LABEL_SHA=$(docker inspect charon:e2e-test --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' | cut -c1-7 || echo "unknown")
-          echo "Expected SHA: $SHA"
-          echo "Image SHA:    $LABEL_SHA"
-
-          if [[ "$LABEL_SHA" != "$SHA" && "$LABEL_SHA" != "unknown" ]]; then
-            echo "⚠️ WARNING: Image SHA mismatch!"
-            echo "Image may be stale. Proceeding with caution..."
-          elif [[ "$LABEL_SHA" == "unknown" ]]; then
-            echo "ℹ️ INFO: Could not determine image SHA from labels (artifact source)"
-          else
-            echo "✅ Image SHA matches expected commit"
-          fi
+          name: docker-image
+          path: .
 
       - name: Validate Emergency Token Configuration
         run: |
