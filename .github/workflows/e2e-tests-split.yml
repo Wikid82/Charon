@@ -46,9 +46,6 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/charon
   PLAYWRIGHT_COVERAGE: ${{ vars.PLAYWRIGHT_COVERAGE || '0' }}
-  # Standard Playwright runner debugging - shows test execution flow
-  DEBUG: 'pw:test'
-  CI_LOG_LEVEL: 'verbose'
 
 concurrency:
   group: e2e-split-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -214,24 +211,7 @@ jobs:
 
       - name: Run Chromium tests
         timeout-minutes: 20
-        run: |
-          echo "════════════════════════════════════════════"
-          echo "Chromium E2E Tests (260+ tests, 1 worker)"
-          echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          echo "████████████████████████════════════════════"
-
-          SHARD_START=$(date +%s)
-          echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
-
-          echo "▶️  Starting test execution..."
-          npx playwright test --project=chromium
-
-          SHARD_END=$(date +%s)
-          SHARD_DURATION=$((SHARD_END - SHARD_START))
-          echo ""
-          echo "════════════════════════════════════════════"
-          echo "✅ Chromium Complete | Duration: ${SHARD_DURATION}s"
-          echo "════════════════════════════════════════════"
+        run: npx playwright test --project=chromium
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           CI: true
@@ -387,24 +367,7 @@ jobs:
 
       - name: Run Firefox tests
         timeout-minutes: 20
-        run: |
-          echo "════════════════════════════════════════════"
-          echo "Firefox E2E Tests (260+ tests, 1 worker)"
-          echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          echo "████████████████████████════════════════════"
-
-          SHARD_START=$(date +%s)
-          echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
-
-          echo "▶️  Starting test execution..."
-          npx playwright test --project=firefox
-
-          SHARD_END=$(date +%s)
-          SHARD_DURATION=$((SHARD_END - SHARD_START))
-          echo ""
-          echo "════════════════════════════════════════════"
-          echo "✅ Firefox Complete | Duration: ${SHARD_DURATION}s"
-          echo "════════════════════════════════════════════"
+        run: npx playwright test --project=firefox
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           CI: true
@@ -560,24 +523,7 @@ jobs:
 
       - name: Run WebKit tests
         timeout-minutes: 20
-        run: |
-          echo "════════════════════════════════════════════"
-          echo "WebKit E2E Tests (260+ tests, 1 worker)"
-          echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          echo "████████████████████████════════════════════"
-
-          SHARD_START=$(date +%s)
-          echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
-
-          echo "▶️  Starting test execution..."
-          npx playwright test --project=webkit
-
-          SHARD_END=$(date +%s)
-          SHARD_DURATION=$((SHARD_END - SHARD_START))
-          echo ""
-          echo "════════════════════════════════════════════"
-          echo "✅ WebKit Complete | Duration: ${SHARD_DURATION}s"
-          echo "════════════════════════════════════════════"
+        run: npx playwright test --project=webkit
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           CI: true
