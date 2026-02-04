@@ -259,7 +259,16 @@
       "disabledDescription": "由社区威胁情报驱动的入侵防御系统",
       "processRunning": "运行中 (PID {{pid}})",
       "processStopped": "进程已停止",
-      "toggleTooltip": "切换 CrowdSec 保护"
+      "toggleTooltip": "切换 CrowdSec 保护",
+      "copyFailed": "复制API密钥失败",
+      "keyWarning": {
+        "title": "CrowdSec API密钥已更新",
+        "description": "您配置的API密钥被CrowdSec LAPI拒绝。已自动生成新密钥以恢复保护。",
+        "instructions": "使用新密钥更新您的docker-compose.yml，以防止容器重启时重新注册：",
+        "copyButton": "复制",
+        "copied": "密钥已复制到剪贴板",
+        "restartNote": "更新docker-compose.yml后，重启容器使更改生效。"
+      }
     },
     "acl": {
       "title": "访问控制",

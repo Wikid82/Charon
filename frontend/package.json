@@ -38,7 +38,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
-    "i18next": "^25.8.0",
+    "i18next": "^25.8.1",
     "i18next-browser-languagedetector": "^8.2.0",
     "lucide-react": "^0.563.0",
     "react": "^19.2.4",
@@ -48,7 +48,7 @@
     "react-i18next": "^16.5.4",
     "react-router-dom": "^7.13.0",
     "tailwind-merge": "^3.4.0",
-    "tldts": "^7.0.21"
+    "tldts": "^7.0.22"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.1",

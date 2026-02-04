@@ -259,7 +259,16 @@
       "disabledDescription": "Sistema de Prevención de Intrusiones impulsado por inteligencia de amenazas comunitaria",
       "processRunning": "Ejecutando (PID {{pid}})",
       "processStopped": "Proceso detenido",
-      "toggleTooltip": "Alternar protección CrowdSec"
+      "toggleTooltip": "Alternar protección CrowdSec",
+      "copyFailed": "Error al copiar la clave API",
+      "keyWarning": {
+        "title": "Clave API de CrowdSec Actualizada",
+        "description": "Su clave API configurada fue rechazada por CrowdSec LAPI. Se ha generado automáticamente una nueva clave para restaurar la protección.",
+        "instructions": "Actualice su docker-compose.yml con la nueva clave para evitar el re-registro al reiniciar el contenedor:",
+        "copyButton": "Copiar",
+        "copied": "Clave copiada al portapapeles",
+        "restartNote": "Después de actualizar docker-compose.yml, reinicie el contenedor para que el cambio surta efecto."
+      }
     },
     "acl": {
       "title": "Control de Acceso",

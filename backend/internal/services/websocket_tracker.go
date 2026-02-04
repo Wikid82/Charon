@@ -21,11 +21,11 @@ type ConnectionInfo struct {
 
 // ConnectionStats provides aggregate statistics about WebSocket connections.
 type ConnectionStats struct {
-	TotalActive       int       `json:"total_active"`
-	LogsConnections   int       `json:"logs_connections"`
-	CerberusConnections int     `json:"cerberus_connections"`
-	OldestConnection  *time.Time `json:"oldest_connection,omitempty"`
-	LastUpdated       time.Time `json:"last_updated"`
+	TotalActive         int        `json:"total_active"`
+	LogsConnections     int        `json:"logs_connections"`
+	CerberusConnections int        `json:"cerberus_connections"`
+	OldestConnection    *time.Time `json:"oldest_connection,omitempty"`
+	LastUpdated         time.Time  `json:"last_updated"`
 }
 
 // WebSocketTracker tracks active WebSocket connections and provides statistics.

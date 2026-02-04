@@ -2,7 +2,10 @@ package services
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -54,7 +57,10 @@ type CrowdsecProcessManager interface {
 // Auto-start conditions (if ANY true, CrowdSec starts):
 // - SecurityConfig.crowdsec_mode == "local"
 // - Settings["security.crowdsec.enabled"] == "true"
-func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, binPath, dataDir string) {
+//
+// cmdExec is optional; if nil, a real command executor will be used for bouncer registration.
+// Tests should pass a mock to avoid executing real cscli commands.
+func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, binPath, dataDir string, cmdExec CommandExecutor) {
 	// Prevent concurrent reconciliation calls
 	reconcileLock.Lock()
 	defer reconcileLock.Unlock()
@@ -228,4 +234,206 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 		"pid":      newPid,
 		"verified": true,
 	}).Info("CrowdSec reconciliation: successfully started and verified CrowdSec")
+
+	// Register bouncer with LAPI after successful startup
+	// This ensures the bouncer API key is registered even if user provided an invalid env var key
+	if cmdExec == nil {
+		cmdExec = &simpleCommandExecutor{}
+	}
+	if err := ensureBouncerRegistrationOnStartup(dataDir, cmdExec); err != nil {
+		logger.Log().WithError(err).Warn("CrowdSec reconciliation: started successfully but bouncer registration failed")
+	}
+}
+
+// CommandExecutor abstracts command execution for testing
+type CommandExecutor interface {
+	Execute(ctx context.Context, name string, args ...string) ([]byte, error)
+}
+
+// ensureBouncerRegistrationOnStartup registers the caddy-bouncer with LAPI during container startup.
+// This is called after CrowdSec LAPI is confirmed running to ensure bouncer key is properly registered.
+// Priority: Validates env var key, then checks file, then auto-generates new key if needed.
+func ensureBouncerRegistrationOnStartup(dataDir string, cmdExec CommandExecutor) error {
+	const (
+		bouncerName    = "caddy-bouncer"
+		bouncerKeyFile = "/app/data/crowdsec/bouncer_key"
+		maxLAPIWait    = 30 * time.Second
+		pollInterval   = 1 * time.Second
+	)
+
+	// Wait for LAPI to be ready (poll cscli lapi status)
+	logger.Log().Info("CrowdSec bouncer registration: waiting for LAPI to be ready...")
+	deadline := time.Now().Add(maxLAPIWait)
+	lapiReady := false
+
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		args := []string{"lapi", "status"}
+		if _, err := os.Stat(filepath.Join(dataDir, "config.yaml")); err == nil {
+			args = append([]string{"-c", filepath.Join(dataDir, "config.yaml")}, args...)
+		}
+		_, err := cmdExec.Execute(ctx, "cscli", args...)
+		cancel()
+
+		if err == nil {
+			lapiReady = true
+			logger.Log().Info("CrowdSec bouncer registration: LAPI is ready")
+			break
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	if !lapiReady {
+		return fmt.Errorf("LAPI not ready within timeout %v", maxLAPIWait)
+	}
+
+	// Priority 1: Check environment variable key
+	envKey := getBouncerAPIKeyFromEnvStartup()
+	if envKey != "" {
+		if testKeyAgainstLAPIStartup(envKey) {
+			logger.Log().WithField("source", "environment_variable").WithField("masked_key", maskAPIKeyStartup(envKey)).Info("CrowdSec bouncer: env var key validated successfully")
+			return nil
+		}
+		logger.Log().WithField("masked_key", maskAPIKeyStartup(envKey)).Warn(
+			"Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but rejected by LAPI. " +
+				"A new valid key will be auto-generated. Update your docker-compose.yml with the new key to avoid re-registration on every restart.",
+		)
+	}
+
+	// Priority 2: Check file-stored key
+	if fileKey, err := os.ReadFile(bouncerKeyFile); err == nil && len(fileKey) > 0 {
+		keyStr := strings.TrimSpace(string(fileKey))
+		if testKeyAgainstLAPIStartup(keyStr) {
+			logger.Log().WithField("source", "file").WithField("file", bouncerKeyFile).WithField("masked_key", maskAPIKeyStartup(keyStr)).Info("CrowdSec bouncer: file-stored key validated successfully")
+			return nil
+		}
+		logger.Log().WithField("file", bouncerKeyFile).Warn("File-stored key rejected by LAPI, will re-register")
+	}
+
+	// No valid key - register new bouncer
+	logger.Log().Info("CrowdSec bouncer registration: registering new bouncer with LAPI...")
+
+	// Delete existing bouncer if present (stale registration)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_, _ = cmdExec.Execute(ctx, "cscli", "bouncers", "delete", bouncerName)
+	cancel()
+
+	// Register new bouncer
+	regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer regCancel()
+
+	output, err := cmdExec.Execute(regCtx, "cscli", "bouncers", "add", bouncerName, "-o", "raw")
+	if err != nil {
+		logger.Log().WithError(err).WithField("output", string(output)).Error("bouncer registration failed")
+		return fmt.Errorf("bouncer registration failed: %w", err)
+	}
+
+	newKey := strings.TrimSpace(string(output))
+	if newKey == "" {
+		logger.Log().Error("bouncer registration returned empty key")
+		return fmt.Errorf("bouncer registration returned empty key")
+	}
+
+	// Save key to file
+	keyDir := filepath.Dir(bouncerKeyFile)
+	if err := os.MkdirAll(keyDir, 0o750); err != nil {
+		logger.Log().WithError(err).WithField("dir", keyDir).Error("failed to create key directory")
+		return fmt.Errorf("failed to create key directory: %w", err)
+	}
+
+	if err := os.WriteFile(bouncerKeyFile, []byte(newKey), 0o600); err != nil {
+		logger.Log().WithError(err).WithField("file", bouncerKeyFile).Error("failed to save bouncer key")
+		return fmt.Errorf("failed to save bouncer key: %w", err)
+	}
+
+	logger.Log().WithFields(map[string]any{
+		"bouncer":    bouncerName,
+		"key_file":   bouncerKeyFile,
+		"masked_key": maskAPIKeyStartup(newKey),
+	}).Info("CrowdSec bouncer: successfully registered and saved key")
+
+	// Log banner for user to copy key to docker-compose if env var was rejected
+	if envKey != "" {
+		logger.Log().Warn("")
+		logger.Log().Warn("╔════════════════════════════════════════════════════════════════════════╗")
+		logger.Log().Warn("║  CROWDSEC BOUNCER KEY MISMATCH                                         ║")
+		logger.Log().Warn("╠════════════════════════════════════════════════════════════════════════╣")
+		logger.Log().WithField("new_key", newKey).Warn("║  Your CHARON_SECURITY_CROWDSEC_API_KEY was rejected by LAPI.          ║")
+		logger.Log().Warn("║  A new valid key has been generated. Update your docker-compose.yml:  ║")
+		logger.Log().Warn("║                                                                        ║")
+		logger.Log().Warnf("║  CHARON_SECURITY_CROWDSEC_API_KEY=%s", newKey)
+		logger.Log().Warn("║                                                                        ║")
+		logger.Log().Warn("╚════════════════════════════════════════════════════════════════════════╝")
+		logger.Log().Warn("")
+	}
+
+	return nil
+}
+
+// Helper functions for startup bouncer registration (minimal dependencies)
+
+func getBouncerAPIKeyFromEnvStartup() string {
+	for _, k := range []string{
+		"CROWDSEC_API_KEY",
+		"CROWDSEC_BOUNCER_API_KEY",
+		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
+		"CHARON_SECURITY_CROWDSEC_API_KEY",
+		"CPM_SECURITY_CROWDSEC_API_KEY",
+	} {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func testKeyAgainstLAPIStartup(apiKey string) bool {
+	if apiKey == "" {
+		return false
+	}
+
+	lapiURL := os.Getenv("CHARON_SECURITY_CROWDSEC_API_URL")
+	if lapiURL == "" {
+		lapiURL = "http://127.0.0.1:8085"
+	}
+	endpoint := strings.TrimRight(lapiURL, "/") + "/v1/decisions/stream"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("X-Api-Key", apiKey)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Debug("Failed to close HTTP response body")
+		}
+	}()
+
+	return resp.StatusCode == 200
+}
+
+func maskAPIKeyStartup(key string) string {
+	if len(key) < 8 {
+		return "***"
+	}
+	return key[:4] + "..." + key[len(key)-4:]
+}
+
+// simpleCommandExecutor provides minimal command execution for startup registration
+type simpleCommandExecutor struct{}
+
+func (e *simpleCommandExecutor) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = os.Environ()
+	return cmd.CombinedOutput()
 }

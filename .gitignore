@@ -8,6 +8,7 @@
 # -----------------------------------------------------------------------------
 docs/reports/performance_diagnostics.md
 docs/plans/chores.md
+docs/plans/blockers.md
 
 # -----------------------------------------------------------------------------
 # Python (pre-commit, tooling)
@@ -294,3 +295,5 @@ test-data/**
 
 # GORM Security Scanner Reports
 docs/reports/gorm-scan-*.txt
+frontend/trivy-results.json
+docs/plans/current_spec_notes.md
