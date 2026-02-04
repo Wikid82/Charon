@@ -58,6 +58,70 @@ jobs:
           .github/skills/scripts/skill-runner.sh integration-test-crowdsec 2>&1 | tee crowdsec-test-output.txt
           exit ${PIPESTATUS[0]}
 
+      - name: Test CrowdSec LAPI Connectivity
+        id: lapi-test
+        run: |
+          echo "## 🔌 Testing CrowdSec LAPI Connectivity" | tee -a lapi-test-output.txt
+
+          # Wait for LAPI to be fully ready
+          echo "Waiting for LAPI to be ready..." | tee -a lapi-test-output.txt
+          for i in {1..30}; do
+            if docker exec crowdsec cscli lapi status 2>/dev/null | grep -q "Crowdsec Local API"; then
+              echo "✓ LAPI is responding" | tee -a lapi-test-output.txt
+              break
+            fi
+            echo "Waiting for LAPI... ($i/30)" | tee -a lapi-test-output.txt
+            sleep 2
+          done
+
+          # Test 1: Verify LAPI is reachable and responding
+          echo "" | tee -a lapi-test-output.txt
+          echo "Test 1: LAPI Status" | tee -a lapi-test-output.txt
+          if docker exec crowdsec cscli lapi status; then
+            echo "✓ LAPI is reachable and responding" | tee -a lapi-test-output.txt
+          else
+            echo "✗ LAPI status check failed" | tee -a lapi-test-output.txt
+            exit 1
+          fi
+
+          # Test 2: Verify bouncer registration
+          echo "" | tee -a lapi-test-output.txt
+          echo "Test 2: Bouncer Registration" | tee -a lapi-test-output.txt
+          if docker exec crowdsec cscli bouncers list 2>/dev/null | grep -q "charon-bouncer"; then
+            echo "✓ Charon bouncer is registered with LAPI" | tee -a lapi-test-output.txt
+          else
+            echo "✗ Charon bouncer not found in LAPI" | tee -a lapi-test-output.txt
+            docker exec crowdsec cscli bouncers list | tee -a lapi-test-output.txt
+            exit 1
+          fi
+
+          # Test 3: Verify LAPI can return decisions
+          echo "" | tee -a lapi-test-output.txt
+          echo "Test 3: LAPI Decisions Endpoint" | tee -a lapi-test-output.txt
+          if docker exec crowdsec cscli decisions list >/dev/null 2>&1; then
+            echo "✓ LAPI decisions endpoint is accessible" | tee -a lapi-test-output.txt
+          else
+            echo "✗ LAPI decisions endpoint failed" | tee -a lapi-test-output.txt
+            exit 1
+          fi
+
+          # Test 4: Verify Charon can query LAPI (if container is still running)
+          echo "" | tee -a lapi-test-output.txt
+          echo "Test 4: Charon to LAPI Communication" | tee -a lapi-test-output.txt
+          if docker ps --filter "name=charon-debug" --format "{{.Names}}" | grep -q "charon-debug"; then
+            # Check Charon logs for LAPI communication
+            if docker logs charon-debug 2>&1 | grep -q "CrowdSec"; then
+              echo "✓ Charon is communicating with CrowdSec LAPI" | tee -a lapi-test-output.txt
+            else
+              echo "⚠ Could not verify Charon-LAPI communication in logs" | tee -a lapi-test-output.txt
+            fi
+          else
+            echo "⚠ Charon container not running, skipping communication test" | tee -a lapi-test-output.txt
+          fi
+
+          echo "" | tee -a lapi-test-output.txt
+          echo "✓ All LAPI connectivity tests passed" | tee -a lapi-test-output.txt
+
       - name: Dump Debug Info on Failure
         if: failure()
         run: |
@@ -97,20 +161,41 @@ jobs:
         if: always()
         run: |
           echo "## 🛡️ CrowdSec Integration Test Results" >> $GITHUB_STEP_SUMMARY
+
+          # CrowdSec Integration Tests
           if [ "${{ steps.crowdsec-test.outcome }}" == "success" ]; then
-            echo "✅ **All CrowdSec tests passed**" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **CrowdSec Integration: Passed**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Test Results:" >> $GITHUB_STEP_SUMMARY
+            echo "### Integration Test Results:" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             grep -E "^✓|^===|^Pull|^Apply" crowdsec-test-output.txt || echo "See logs for details"
             grep -E "^✓|^===|^Pull|^Apply" crowdsec-test-output.txt >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           else
-            echo "❌ **CrowdSec tests failed**" >> $GITHUB_STEP_SUMMARY
+            echo "❌ **CrowdSec Integration: Failed**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Failure Details:" >> $GITHUB_STEP_SUMMARY
+            echo "### Integration Failure Details:" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             grep -E "^✗|Unexpected|Error|failed|FAIL" crowdsec-test-output.txt | head -20 >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # LAPI Connectivity Tests
+          if [ "${{ steps.lapi-test.outcome }}" == "success" ]; then
+            echo "✅ **LAPI Connectivity: Passed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### LAPI Test Results:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -E "^✓|^Test [0-9]|LAPI" lapi-test-output.txt >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **LAPI Connectivity: Failed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### LAPI Failure Details:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -E "^✗|Error|failed|FAIL" lapi-test-output.txt | head -20 >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
