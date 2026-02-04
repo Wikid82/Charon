@@ -24,7 +24,11 @@ const STORAGE_STATE = join(__dirname, 'playwright/.auth/user.json');
 /**
  * Coverage reporter configuration for E2E tests
  * Only loaded when PLAYWRIGHT_COVERAGE=1
+ * Only loaded when PLAYWRIGHT_COVERAGE=1
  */
+const enableCoverage = process.env.PLAYWRIGHT_COVERAGE === '1';
+
+const coverageReporterConfig = enableCoverage ? defineCoverageReporterConfig({
 const enableCoverage = process.env.PLAYWRIGHT_COVERAGE === '1';
 
 const coverageReporterConfig = enableCoverage ? defineCoverageReporterConfig({
@@ -54,6 +58,7 @@ const coverageReporterConfig = enableCoverage ? defineCoverageReporterConfig({
     lines: [50, 80],
   },
   rewritePath: ({ absolutePath }) => {
+  rewritePath: ({ absolutePath }) => {
     if (absolutePath.startsWith('/app/')) {
       return absolutePath.replace('/app/', `${__dirname}/`);
     }
@@ -66,6 +71,7 @@ const coverageReporterConfig = enableCoverage ? defineCoverageReporterConfig({
     return absolutePath;
   },
 }) : null;
+}) : null;
 
 /**
  * @see https://playwright.dev/docs/test-configuration
@@ -76,28 +82,25 @@ export default defineConfig({
 
   /* Standard globalSetup - runs once before all tests */
   globalSetup: './tests/global-setup.ts',
-  /* Global timeout for each test - increased to 90s for feature flag propagation
-   * CI uses 60s to fail fast in resource-constrained environment (2-core runners)
-   */
+
+  /* Timeouts */
   timeout: process.env.CI ? 60000 : 90000,
-  /* Timeout for expect() assertions */
-  expect: {
-    timeout: 5000,
-  },
-  /* Run tests in files in parallel */
+  expect: { timeout: 5000 },
+
+  /* Parallelization */
   fullyParallel: true,
+  workers: process.env.CI ? 1 : undefined,
+
+  /* CI settings */
   workers: process.env.CI ? 1 : undefined,
 
   /* CI settings */
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI - single worker to avoid resource starvation */
-  workers: process.env.CI ? 1 : undefined,
-  /* Reporter to use. See https://playwright.dev/docs/test-reporters
-   * CI uses per-shard HTML reports (no blob merging needed).
-   * Each shard uploads its own HTML report for easier debugging.
-   */
+
+  /* Reporters - simplified for CI */
   reporter: [
+    process.env.CI ? ['github'] : ['list'],
     process.env.CI ? ['github'] : ['list'],
     ['html', { open: process.env.CI ? 'never' : 'on-failure' }],
     ...(enableCoverage ? [['@bgotink/playwright-coverage', coverageReporterConfig]] : []),
@@ -152,11 +155,13 @@ export default defineConfig({
   /* Configure projects for major browsers */
   projects: [
     // Setup project - authentication (runs FIRST)
+    // Setup project - authentication (runs FIRST)
     {
       name: 'setup',
       testMatch: /auth\.setup\.ts/,
     },
 
+    // Security Tests - Run WITH security enabled (SEQUENTIAL, Chromium only)
     // Security Tests - Run WITH security enabled (SEQUENTIAL, Chromium only)
     {
       name: 'security-tests',
@@ -169,30 +174,31 @@ export default defineConfig({
       teardown: 'security-teardown',
       fullyParallel: false,
       workers: 1,
+      fullyParallel: false,
+      workers: 1,
       use: {
         ...devices['Desktop Chrome'],
+        headless: true,
         headless: true,
         storageState: STORAGE_STATE,
       },
     },
 
     // Security Teardown - Disable ALL security modules
+    // Security Teardown - Disable ALL security modules
     {
       name: 'security-teardown',
       testMatch: /security-teardown\.setup\.ts/,
     },
 
-    // 4. Browser projects - Depend on setup and security-tests (with teardown) for order
-    // Note: Security modules are re-disabled by teardown before these projects execute
-    // TEMPORARY CI FIX: Skip security-tests dependency to unblock pipeline
-    // Re-enable after fixing hanging security test
+    // Browser projects - standard Playwright pattern
     {
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup'], // Temporarily removed 'security-tests'
+      dependencies: ['setup', 'security-tests'],
     },
 
     {
@@ -201,7 +207,7 @@ export default defineConfig({
         ...devices['Desktop Firefox'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup'], // Temporarily removed 'security-tests'
+      dependencies: ['setup', 'security-tests'],
     },
 
     {
@@ -210,7 +216,7 @@ export default defineConfig({
         ...devices['Desktop Safari'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup'], // Temporarily removed 'security-tests'
+      dependencies: ['setup', 'security-tests'],
     },
 
     /* Test against mobile viewports. */
