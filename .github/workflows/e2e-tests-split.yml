@@ -223,8 +223,11 @@ jobs:
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
 
-          # Enable verbose Playwright output to diagnose hang
-          export DEBUG=pw:api
+          # Enable verbose Playwright output to diagnose browser launch hang
+          # pw:browser* = browser connection and launch
+          # pw:protocol = CDP protocol messages
+          # pw:channel = IPC between Playwright and browser
+          export DEBUG=pw:browser*,pw:protocol,pw:channel
 
           npx playwright test \
             --project=chromium \
@@ -400,8 +403,11 @@ jobs:
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
 
-          # Enable verbose Playwright output to diagnose hang
-          export DEBUG=pw:api
+          # Enable verbose Playwright output to diagnose browser launch hang
+          # pw:browser* = browser connection and launch
+          # pw:protocol = CDP protocol messages
+          # pw:channel = IPC between Playwright and browser
+          export DEBUG=pw:browser*,pw:protocol,pw:channel
 
           npx playwright test \
             --project=firefox \
@@ -577,8 +583,11 @@ jobs:
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
 
-          # Enable verbose Playwright output to diagnose hang
-          export DEBUG=pw:api
+          # Enable verbose Playwright output to diagnose browser launch hang
+          # pw:browser* = browser connection and launch
+          # pw:protocol = CDP protocol messages
+          # pw:channel = IPC between Playwright and browser
+          export DEBUG=pw:browser*,pw:protocol,pw:channel
 
           npx playwright test \
             --project=webkit \
