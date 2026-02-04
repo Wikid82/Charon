@@ -1,4 +1,4 @@
-import { test as setup } from '@bgotink/playwright-coverage';
+import { test as setup } from './fixtures/test';
 import type { APIRequestContext } from '@playwright/test';
 import { STORAGE_STATE } from './constants';
 import { readFileSync } from 'fs';

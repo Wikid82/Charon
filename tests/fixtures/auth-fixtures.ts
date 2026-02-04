@@ -22,7 +22,7 @@
  * ```
  */
 
-import { test as base, expect } from '@bgotink/playwright-coverage';
+import { test as base, expect } from './test';
 import { request as playwrightRequest } from '@playwright/test';
 import { existsSync, readFileSync } from 'fs';
 import { TestDataManager } from '../utils/TestDataManager';
@@ -239,7 +239,7 @@ export async function logoutUser(page: import('@playwright/test').Page): Promise
 /**
  * Re-export expect from @playwright/test for convenience
  */
-export { expect } from '@bgotink/playwright-coverage';
+export { expect } from './test';
 
 /**
  * Re-export the default test password for use in tests

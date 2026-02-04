@@ -1,4 +1,4 @@
-import { test, expect } from '@bgotink/playwright-coverage';
+import { test, expect } from './fixtures/test';
 import { getToastLocator, refreshListAndWait } from './utils/ui-helpers';
 
 /**

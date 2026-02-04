@@ -8,7 +8,7 @@
  * @see /projects/Charon/docs/plans/current_spec.md - CrowdSec Enforcement Tests
  */
 
-import { test, expect } from '@bgotink/playwright-coverage';
+import { test, expect } from '../fixtures/test';
 import { request } from '@playwright/test';
 import type { APIRequestContext } from '@playwright/test';
 import { STORAGE_STATE } from '../constants';
