@@ -11,7 +11,15 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
+<<<<<<< HEAD
         description: 'Docker image tag to test (e.g., pr-123-abc1234, latest)'
+=======
+<<<<<<< HEAD
+        description: 'Docker image tag to test (e.g., pr-123-abc1234)'
+=======
+        description: 'Docker image tag to test (e.g., pr-123-abc1234, latest)'
+>>>>>>> 8edde88f (fix(ci): add image_tag input for manual triggers in integration workflows)
+>>>>>>> 05695af2 ( git status)
         required: false
         type: string
 
