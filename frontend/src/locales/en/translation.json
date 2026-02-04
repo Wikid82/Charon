@@ -260,6 +260,7 @@
     "generateTokenTooltip": "Generate a break-glass token for emergency access",
     "enableCerberusFirst": "Enable Cerberus first",
     "layer": "Layer",
+    "auditLogs": "Audit Logs",
     "crowdsec": {
       "title": "CrowdSec",
       "subtitle": "IP Reputation & Threat Intelligence",
@@ -904,6 +905,13 @@
     "noteText": "CrowdSec is controlled via the toggle on the",
     "consoleEnrollment": {
       "title": "Console Enrollment",
+      "description": "Connect your CrowdSec LAPI to the CrowdSec Console for centralized management and alerts.",
+      "privacyNote": "Note: Enrollment sends heartbeat data and metrics to CrowdSec. See CrowdSec's privacy policy for details.",
+      "lastHeartbeat": "Last heartbeat",
+      "enrollToken": "Enrollment Token",
+      "tokenHelper": "Get your enrollment token from the CrowdSec Console",
+      "tenantHelper": "Optional: specify the tenant/organization ID if using multi-tenant setup",
+      "ackText": "I understand this will rotate my LAPI credentials if already enrolled",
       "status": "Status",
       "notEnrolled": "Not Enrolled",
       "enrolled": "Enrolled",

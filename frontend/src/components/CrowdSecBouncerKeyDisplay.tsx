@@ -33,7 +33,7 @@ async function fetchBouncerKey(): Promise<string> {
 }
 
 export function CrowdSecBouncerKeyDisplay() {
-  const { t } = useTranslation()
+  const { t, ready } = useTranslation()
   const [copied, setCopied] = useState(false)
   const [isCopying, setIsCopying] = useState(false)
 
@@ -61,7 +61,7 @@ export function CrowdSecBouncerKeyDisplay() {
     }
   }
 
-  if (isLoading) {
+  if (!ready || isLoading) {
     return (
       <Card>
         <CardHeader className="pb-2">

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Copy, Check, AlertTriangle, X } from 'lucide-react'
+import { Copy, Check, AlertTriangle, X, Eye, EyeOff } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Alert } from './ui/Alert'
 import { Button } from './ui/Button'
@@ -35,9 +35,10 @@ function setDismissedState(fullKey: string) {
 }
 
 export function CrowdSecKeyWarning() {
-  const { t } = useTranslation()
+  const { t, ready } = useTranslation()
   const [copied, setCopied] = useState(false)
   const [dismissed, setDismissed] = useState(false)
+  const [showKey, setShowKey] = useState(false)
 
   const { data: keyStatus, isLoading } = useQuery<CrowdSecKeyStatus>({
     queryKey: ['crowdsec-key-status'],
@@ -78,11 +79,12 @@ export function CrowdSecKeyWarning() {
     setDismissed(true)
   }
 
-  if (isLoading || !keyStatus?.env_key_rejected || dismissed) {
+  if (!ready || isLoading || !keyStatus?.env_key_rejected || !keyStatus?.full_key || dismissed) {
     return null
   }
 
   const envVarLine = `CHARON_SECURITY_CROWDSEC_API_KEY=${keyStatus.full_key}`
+  const maskedKey = `CHARON_SECURITY_CROWDSEC_API_KEY=${'•'.repeat(Math.min(keyStatus.full_key.length, 40))}`
 
   return (
     <Alert variant="warning" className="relative">
@@ -114,8 +116,17 @@ export function CrowdSecKeyWarning() {
           </p>
           <div className="flex items-center gap-2">
             <code className="flex-1 bg-surface-elevated rounded px-3 py-2 font-mono text-sm text-content-primary overflow-x-auto whitespace-nowrap">
-              {envVarLine}
+              {showKey ? envVarLine : maskedKey}
             </code>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowKey(!showKey)}
+              className="flex-shrink-0"
+              title={showKey ? 'Hide key' : 'Show key'}
+            >
+              {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </Button>
             <Button
               variant="secondary"
               size="sm"
