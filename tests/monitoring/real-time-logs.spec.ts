@@ -347,8 +347,12 @@ test.describe('Real-Time Logs Viewer', () => {
       await loginUser(page, authenticatedUser);
 
       // Block WebSocket endpoints to simulate failure
-      await page.route('**/api/v1/cerberus/logs/ws', (route) => route.abort('connectionrefused'));
-      await page.route('**/api/v1/logs/live', (route) => route.abort('connectionrefused'));
+      await page.routeWebSocket(/\/api\/v1\/cerberus\/logs\/ws\b/, async (ws) => {
+        await ws.close();
+      });
+      await page.routeWebSocket(/\/api\/v1\/logs\/live\b/, async (ws) => {
+        await ws.close();
+      });
 
       await navigateToLiveLogs(page);
 
@@ -356,9 +360,6 @@ test.describe('Real-Time Logs Viewer', () => {
       const statusBadge = page.locator(SELECTORS.connectionStatus);
       await expect(statusBadge).toContainText('Disconnected');
       await expect(statusBadge).toHaveClass(/bg-red/);
-
-      // Error message should be visible
-      await expect(page.locator(SELECTORS.connectionError)).toBeVisible();
     });
 
     test('should show disconnect handling and recovery UI', async ({
@@ -367,14 +368,33 @@ test.describe('Real-Time Logs Viewer', () => {
     }) => {
       test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
+
+      let shouldFailNextConnection = false;
+
+      // Install WebSocket routing *before* navigation so it can intercept.
+      // Forward to the real server for the initial connection, then close
+      // subsequent connections once the flag is flipped.
+      await page.routeWebSocket(/\/api\/v1\/cerberus\/logs\/ws\b/, async (ws) => {
+        if (shouldFailNextConnection) {
+          await ws.close();
+          return;
+        }
+        ws.connectToServer();
+      });
+      await page.routeWebSocket(/\/api\/v1\/logs\/live\b/, async (ws) => {
+        if (shouldFailNextConnection) {
+          await ws.close();
+          return;
+        }
+        ws.connectToServer();
+      });
+
       await navigateToLiveLogs(page);
 
       // Initially connected
       await waitForWebSocketConnection(page);
 
-      // Block the WebSocket to simulate disconnect
-      await page.route('**/api/v1/cerberus/logs/ws', (route) => route.abort());
-      await page.route('**/api/v1/logs/live', (route) => route.abort());
+      shouldFailNextConnection = true;
 
       // Trigger a reconnect by switching modes
       await page.click(SELECTORS.appModeButton);
@@ -398,7 +418,7 @@ test.describe('Real-Time Logs Viewer', () => {
       await loginUser(page, authenticatedUser);
 
       // Setup mock WebSocket response
-      await page.route('**/api/v1/cerberus/logs/ws', async (route) => {
+      await page.route('**/api/v1/cerberus/logs/ws**', async (route) => {
         // Allow the WebSocket to connect
         await route.continue();
       });

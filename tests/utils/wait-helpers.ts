@@ -15,7 +15,7 @@
  * ```
  */
 
-import { expect } from '@bgotink/playwright-coverage';
+import { expect } from '../fixtures/test';
 import type { Page, Locator, Response } from '@playwright/test';
 import { clickSwitch } from './ui-helpers';
 
