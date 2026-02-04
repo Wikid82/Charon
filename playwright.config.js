@@ -130,8 +130,12 @@ export default defineConfig({
      * E2E tests verify UI/UX on the Charon management interface (port 8080).
      * Middleware enforcement is tested separately via integration tests (backend/integration/).
      * CI can override with PLAYWRIGHT_BASE_URL environment variable if needed.
+     *
+     * IMPORTANT: Using 127.0.0.1 (IPv4 loopback) instead of localhost to avoid
+     * IPv6/IPv4 resolution issues where Node.js/Playwright might prefer ::1 (IPv6)
+     * but the Docker container binds to 0.0.0.0 (IPv4).
      */
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080',
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080',
 
     /* Traces: Capture execution traces for debugging
      *
@@ -255,5 +259,7 @@ export default defineConfig({
   //   url: 'http://localhost:5173',
   //   reuseExistingServer: !process.env.CI,
   //   timeout: 120000,
+  //   stdout: 'pipe',  // PHASE 1: Enable log visibility
+  //   stderr: 'pipe',  // PHASE 1: Enable log visibility
   // },
 });
