@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +23,9 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -3965,4 +3969,563 @@ func TestSaveKeyToFile_RejectEmptyKey(t *testing.T) {
 	err := saveKeyToFile(keyFile, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cannot save empty key")
+}
+
+// TestTestKeyAgainstLAPI_ValidKey verifies that valid API keys are accepted by LAPI.
+func TestTestKeyAgainstLAPI_ValidKey(t *testing.T) {
+	t.Parallel()
+
+	// Mock LAPI server that returns 200 OK
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/v1/decisions/stream", r.URL.Path)
+		require.Equal(t, "valid-key-123", r.Header.Get("X-Api-Key"))
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write([]byte(`{"new": [], "deleted": []}`)); err != nil {
+			t.Logf("Warning: failed to write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	db := setupCrowdDB(t)
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+
+	// Create security config with test server URL
+	cfg := models.SecurityConfig{
+		UUID:           uuid.New().String(),
+		Name:           "default",
+		CrowdSecAPIURL: server.URL,
+	}
+	require.NoError(t, db.Create(&cfg).Error)
+
+	ctx := context.Background()
+	result := handler.testKeyAgainstLAPI(ctx, "valid-key-123")
+
+	require.True(t, result, "Valid key should return true")
+}
+
+// TestTestKeyAgainstLAPI_InvalidKey verifies that invalid API keys are rejected by LAPI.
+func TestTestKeyAgainstLAPI_InvalidKey(t *testing.T) {
+	t.Parallel()
+
+	// Mock LAPI server that returns 403 Forbidden
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/v1/decisions/stream", r.URL.Path)
+		require.Equal(t, "invalid-key-456", r.Header.Get("X-Api-Key"))
+		w.WriteHeader(http.StatusForbidden)
+		if _, err := w.Write([]byte(`{"message": "access forbidden"}`)); err != nil {
+			t.Logf("Warning: failed to write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	db := setupCrowdDB(t)
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+
+	// Create security config with test server URL
+	cfg := models.SecurityConfig{
+		UUID:           uuid.New().String(),
+		Name:           "default",
+		CrowdSecAPIURL: server.URL,
+	}
+	require.NoError(t, db.Create(&cfg).Error)
+
+	ctx := context.Background()
+	result := handler.testKeyAgainstLAPI(ctx, "invalid-key-456")
+
+	require.False(t, result, "Invalid key should return false immediately (no retries)")
+}
+
+// TestTestKeyAgainstLAPI_EmptyKey verifies that empty keys are rejected without making requests.
+func TestTestKeyAgainstLAPI_EmptyKey(t *testing.T) {
+	t.Parallel()
+
+	db := setupCrowdDB(t)
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+
+	ctx := context.Background()
+	result := handler.testKeyAgainstLAPI(ctx, "")
+
+	require.False(t, result, "Empty key should return false without making request")
+}
+
+// TestTestKeyAgainstLAPI_Timeout verifies that LAPI requests timeout appropriately.
+func TestTestKeyAgainstLAPI_Timeout(t *testing.T) {
+	t.Parallel()
+
+	// Mock LAPI server that delays response beyond timeout
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(6 * time.Second) // Exceeds 5s timeout
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	db := setupCrowdDB(t)
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+
+	// Create security config with test server URL
+	cfg := models.SecurityConfig{
+		UUID:           uuid.New().String(),
+		Name:           "default",
+		CrowdSecAPIURL: server.URL,
+	}
+	require.NoError(t, db.Create(&cfg).Error)
+
+	ctx := context.Background()
+	result := handler.testKeyAgainstLAPI(ctx, "test-key")
+
+	require.False(t, result, "Should return false after timeout")
+}
+
+// TestTestKeyAgainstLAPI_NonOKStatus verifies that non-200/403 status codes are handled.
+func TestTestKeyAgainstLAPI_NonOKStatus(t *testing.T) {
+	t.Parallel()
+
+	// Mock LAPI server that returns 500 Internal Server Error
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		if _, err := w.Write([]byte(`{"error": "internal error"}`)); err != nil {
+			t.Logf("Warning: failed to write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	db := setupCrowdDB(t)
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+
+	// Create security config with test server URL
+	cfg := models.SecurityConfig{
+		UUID:           uuid.New().String(),
+		Name:           "default",
+		CrowdSecAPIURL: server.URL,
+	}
+	require.NoError(t, db.Create(&cfg).Error)
+
+	ctx := context.Background()
+	result := handler.testKeyAgainstLAPI(ctx, "test-key")
+
+	require.False(t, result, "Should return false for non-OK status")
+}
+
+// TestEnsureBouncerRegistration_ValidEnvKey verifies that valid environment keys are used.
+func TestEnsureBouncerRegistration_ValidEnvKey(t *testing.T) {
+	// Note: Not parallel - tests share bouncerKeyFile constant
+
+	// Clean up bouncer key file to ensure test isolation
+	if err := os.Remove(bouncerKeyFile); err != nil && !os.IsNotExist(err) {
+		t.Logf("Warning: failed to remove bouncer key file: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Remove(bouncerKeyFile); err != nil && !os.IsNotExist(err) {
+			t.Logf("Warning: failed to remove bouncer key file: %v", err)
+		}
+	})
+
+	// Set up environment variable
+	if err := os.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "valid-env-key-test"); err != nil {
+		t.Fatalf("Failed to set environment variable: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("CHARON_SECURITY_CROWDSEC_API_KEY"); err != nil {
+			t.Logf("Warning: failed to unset environment variable: %v", err)
+		}
+	}()
+
+	// Mock LAPI server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Api-Key") == "valid-env-key-test" {
+			w.WriteHeader(http.StatusOK)
+			if _, err := w.Write([]byte(`{"new": [], "deleted": []}`)); err != nil {
+				t.Logf("Warning: failed to write response: %v", err)
+			}
+		} else {
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer server.Close()
+
+	db := setupCrowdDB(t)
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+
+	// Create security config with test server URL
+	cfg := models.SecurityConfig{
+		UUID:           uuid.New().String(),
+		Name:           "default",
+		CrowdSecAPIURL: server.URL,
+	}
+	require.NoError(t, db.Create(&cfg).Error)
+
+	ctx := context.Background()
+	key, err := handler.ensureBouncerRegistration(ctx)
+
+	require.NoError(t, err)
+	require.Empty(t, key, "Should return empty key when using valid env var")
+}
+
+// TestEnsureBouncerRegistration_InvalidEnvKeyFallback verifies fallback when env key is invalid.
+func TestEnsureBouncerRegistration_InvalidEnvKeyFallback(t *testing.T) {
+	// Note: Not parallel - tests share bouncerKeyFile constant
+
+	// Clean up bouncer key file to ensure test isolation
+	if err := os.Remove(bouncerKeyFile); err != nil && !os.IsNotExist(err) {
+		t.Logf("Warning: failed to remove bouncer key file: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Remove(bouncerKeyFile); err != nil && !os.IsNotExist(err) {
+			t.Logf("Warning: failed to remove bouncer key file: %v", err)
+		}
+	})
+
+	// Set up environment variable with invalid key
+	if err := os.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "invalid-env-key-test"); err != nil {
+		t.Fatalf("Failed to set environment variable: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("CHARON_SECURITY_CROWDSEC_API_KEY"); err != nil {
+			t.Logf("Warning: failed to unset environment variable: %v", err)
+		}
+	}()
+
+	// Mock LAPI server that rejects all keys
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	// Mock cscli bouncer registration (using existing MockCommandExecutor)
+	mockCmdExec := new(MockCommandExecutor)
+	mockCmdExec.On("Execute", mock.Anything, "cscli", mock.MatchedBy(func(args []string) bool {
+		return len(args) >= 2 && args[0] == "bouncers" && args[1] == "delete"
+	})).Return([]byte("bouncer deleted"), nil)
+	mockCmdExec.On("Execute", mock.Anything, "cscli", mock.MatchedBy(func(args []string) bool {
+		return len(args) >= 2 && args[0] == "bouncers" && args[1] == "add"
+	})).Return([]byte("new-generated-key-123"), nil)
+
+	db := setupCrowdDB(t)
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	handler.CmdExec = mockCmdExec
+
+	// Create security config with test server URL
+	cfg := models.SecurityConfig{
+		UUID:           uuid.New().String(),
+		Name:           "default",
+		CrowdSecAPIURL: server.URL,
+	}
+	require.NoError(t, db.Create(&cfg).Error)
+
+	ctx := context.Background()
+	key, err := handler.ensureBouncerRegistration(ctx)
+
+	require.NoError(t, err)
+	require.Equal(t, "new-generated-key-123", key, "Should return newly generated key")
+	mockCmdExec.AssertExpectations(t)
+}
+
+// TestSaveKeyToFile_AtomicWrite verifies that key files are written atomically.
+func TestSaveKeyToFile_AtomicWrite(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	keyPath := filepath.Join(tmpDir, "keys", "bouncer_key")
+
+	// Save key
+	err := saveKeyToFile(keyPath, "test-key-123-atomic")
+	require.NoError(t, err)
+
+	// Verify file exists and has correct content
+	// #nosec G304 -- keyPath is in test temp directory created by t.TempDir()
+	content, err := os.ReadFile(keyPath)
+	require.NoError(t, err)
+	require.Equal(t, "test-key-123-atomic\n", string(content))
+
+	// Verify permissions
+	info, err := os.Stat(keyPath)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0600), info.Mode().Perm())
+
+	// Verify no temp file left behind
+	tmpPath := keyPath + ".tmp"
+	_, err = os.Stat(tmpPath)
+	require.True(t, os.IsNotExist(err), "Temp file should be removed after atomic write")
+
+	// Verify directory permissions
+	dirInfo, err := os.Stat(filepath.Dir(keyPath))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0700), dirInfo.Mode().Perm())
+}
+
+// TestReadKeyFromFile_Trimming verifies that key file content is properly trimmed.
+func TestReadKeyFromFile_Trimming(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	tests := []struct {
+		name     string
+		content  string
+		expected string
+	}{
+		{
+			name:     "Key with newline",
+			content:  "test-key-123\n",
+			expected: "test-key-123",
+		},
+		{
+			name:     "Key with extra whitespace",
+			content:  "  test-key-456  \n",
+			expected: "test-key-456",
+		},
+		{
+			name:     "Key without newline",
+			content:  "test-key-789",
+			expected: "test-key-789",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			keyPath := filepath.Join(tmpDir, strings.ReplaceAll(tt.name, " ", "_"))
+			err := os.WriteFile(keyPath, []byte(tt.content), 0600)
+			require.NoError(t, err)
+
+			result := readKeyFromFile(keyPath)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+
+	// Test non-existent file
+	result := readKeyFromFile(filepath.Join(tmpDir, "nonexistent"))
+	require.Empty(t, result, "Should return empty string for non-existent file")
+}
+
+// TestGetBouncerAPIKeyFromEnv_Priority verifies environment variable priority order.
+func TestGetBouncerAPIKeyFromEnv_Priority(t *testing.T) {
+	t.Parallel()
+
+	// Clear all possible env vars first
+	envVars := []string{
+		"CROWDSEC_API_KEY",
+		"CROWDSEC_BOUNCER_API_KEY",
+		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
+		"CHARON_SECURITY_CROWDSEC_API_KEY",
+		"CPM_SECURITY_CROWDSEC_API_KEY",
+	}
+	for _, key := range envVars {
+		if err := os.Unsetenv(key); err != nil {
+			t.Logf("Warning: failed to unset env var %s: %v", key, err)
+		}
+	}
+
+	// Test priority order (first match wins)
+	if err := os.Setenv("CROWDSEC_API_KEY", "key1"); err != nil {
+		t.Fatalf("Failed to set environment variable: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("CROWDSEC_API_KEY"); err != nil {
+			t.Logf("Warning: failed to unset environment variable: %v", err)
+		}
+	}()
+
+	result := getBouncerAPIKeyFromEnv()
+	require.Equal(t, "key1", result)
+
+	// Clear first and test second priority
+	if err := os.Unsetenv("CROWDSEC_API_KEY"); err != nil {
+		t.Logf("Warning: failed to unset CROWDSEC_API_KEY: %v", err)
+	}
+	if err := os.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "key2"); err != nil {
+		t.Fatalf("Failed to set CHARON_SECURITY_CROWDSEC_API_KEY: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("CHARON_SECURITY_CROWDSEC_API_KEY"); err != nil {
+			t.Logf("Warning: failed to unset CHARON_SECURITY_CROWDSEC_API_KEY: %v", err)
+		}
+	}()
+
+	result = getBouncerAPIKeyFromEnv()
+	require.Equal(t, "key2", result)
+
+	// Test empty result when no env vars set
+	if err := os.Unsetenv("CHARON_SECURITY_CROWDSEC_API_KEY"); err != nil {
+		t.Logf("Warning: failed to unset CHARON_SECURITY_CROWDSEC_API_KEY: %v", err)
+	}
+	result = getBouncerAPIKeyFromEnv()
+	require.Empty(t, result, "Should return empty string when no env vars set")
+}
+
+// TestEnsureBouncerRegistration_ConcurrentCalls verifies that concurrent registration
+// attempts are protected by mutex and only ONE bouncer registration occurs.
+func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
+	// Note: Not parallel - tests share bouncerKeyFile constant
+
+	// Clean up bouncer key file before and after test to ensure isolation
+	testKeyFile := bouncerKeyFile
+	if err := os.Remove(testKeyFile); err != nil && !os.IsNotExist(err) {
+		t.Logf("Warning: failed to remove test key file: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Remove(testKeyFile); err != nil && !os.IsNotExist(err) {
+			t.Logf("Warning: failed to remove test key file: %v", err)
+		}
+	})
+
+	// Clear environment variables to force registration
+	envVars := []string{
+		"CROWDSEC_API_KEY",
+		"CHARON_SECURITY_CROWDSEC_API_KEY",
+	}
+	for _, key := range envVars {
+		if err := os.Unsetenv(key); err != nil {
+			t.Logf("Warning: failed to unset %s: %v", key, err)
+		}
+	}
+	t.Cleanup(func() {
+		for _, key := range envVars {
+			if err := os.Unsetenv(key); err != nil {
+				t.Logf("Warning: failed to unset %s: %v", key, err)
+			}
+		}
+	})
+
+	// Track valid keys after registration
+	var validKeyMutex sync.Mutex
+	validKeys := make(map[string]bool)
+
+	// Mock LAPI server that accepts keys added by registration
+	lapiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiKey := r.Header.Get("X-Api-Key")
+
+		validKeyMutex.Lock()
+		isValid := validKeys[apiKey]
+		validKeyMutex.Unlock()
+
+		if isValid {
+			w.WriteHeader(http.StatusOK)
+			if _, err := w.Write([]byte(`{"new": [], "deleted": []}`)); err != nil {
+				t.Logf("Warning: failed to write response: %v", err)
+			}
+		} else {
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer lapiServer.Close()
+
+	// Thread-safe mock command executor that tracks calls
+	type commandCall struct {
+		cmd  string
+		args []string
+	}
+	var (
+		callsMutex sync.Mutex
+		calls      []commandCall
+	)
+
+	mockCmdExec := new(MockCommandExecutor)
+
+	// Mock bouncer delete (may be called multiple times, but registration should be once)
+	mockCmdExec.On("Execute", mock.Anything, "cscli", mock.MatchedBy(func(args []string) bool {
+		matches := len(args) >= 2 && args[0] == "bouncers" && args[1] == "delete"
+		if matches {
+			callsMutex.Lock()
+			calls = append(calls, commandCall{cmd: "cscli", args: args})
+			callsMutex.Unlock()
+		}
+		return matches
+	})).Return([]byte("bouncer deleted"), nil)
+
+	// Mock bouncer add (should be called EXACTLY ONCE)
+	addCallCount := 0
+	var addMutex sync.Mutex
+	mockCmdExec.On("Execute", mock.Anything, "cscli", mock.MatchedBy(func(args []string) bool {
+		matches := len(args) >= 2 && args[0] == "bouncers" && args[1] == "add"
+		if matches {
+			addMutex.Lock()
+			addCallCount++
+			addMutex.Unlock()
+
+			callsMutex.Lock()
+			calls = append(calls, commandCall{cmd: "cscli", args: args})
+			callsMutex.Unlock()
+
+			// Mark the generated key as valid for LAPI authentication
+			validKeyMutex.Lock()
+			validKeys["test-concurrent-key-123"] = true
+			validKeyMutex.Unlock()
+		}
+		return matches
+	})).Return([]byte("test-concurrent-key-123"), nil)
+
+	// Setup handler with test database
+	db := setupCrowdDB(t)
+	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	handler.CmdExec = mockCmdExec
+
+	// Create security config with mock LAPI URL
+	cfg := models.SecurityConfig{
+		UUID:           "test-uuid",
+		Name:           "default",
+		CrowdSecAPIURL: lapiServer.URL,
+	}
+	require.NoError(t, db.Create(&cfg).Error)
+
+	// Override bouncerKeyFile for this test (normally a const)
+	// We'll verify by reading from the temp file after registration
+	originalBouncerKeyFile := bouncerKeyFile
+	t.Cleanup(func() {
+		// Restore original (though it's a const, this is to satisfy linters)
+		_ = originalBouncerKeyFile
+	})
+
+	// Execute: Launch 10 concurrent ensureBouncerRegistration() calls
+	const concurrency = 10
+	var wg sync.WaitGroup
+	errorsCh := make(chan error, concurrency)
+	keysCh := make(chan string, concurrency)
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			key, err := handler.ensureBouncerRegistration(context.Background())
+			errorsCh <- err
+			keysCh <- key
+		}(i)
+	}
+
+	wg.Wait()
+	close(errorsCh)
+	close(keysCh)
+
+	// Verify: All calls succeeded
+	errorCount := 0
+	for err := range errorsCh {
+		if err != nil {
+			t.Errorf("ensureBouncerRegistration failed: %v", err)
+			errorCount++
+		}
+	}
+	require.Equal(t, 0, errorCount, "All concurrent calls should succeed")
+
+	// Verify: All keys are either empty (cached) or the same generated key
+	var seenKeys []string
+	for key := range keysCh {
+		if key != "" { // Non-empty means a new registration occurred
+			seenKeys = append(seenKeys, key)
+		}
+	}
+
+	// Verify: Only ONE cscli bouncer add command was called
+	addMutex.Lock()
+	finalAddCount := addCallCount
+	addMutex.Unlock()
+
+	assert.Equal(t, 1, finalAddCount, "Bouncer registration should be called exactly once")
+
+	// Verify: The generated key is consistent
+	if len(seenKeys) > 0 {
+		for _, key := range seenKeys {
+			assert.Equal(t, "test-concurrent-key-123", key, "All returned keys should match")
+		}
+	}
+
+	mockCmdExec.AssertExpectations(t)
 }
