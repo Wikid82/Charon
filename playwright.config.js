@@ -82,7 +82,6 @@ export default defineConfig({
 
   /* Standard globalSetup - runs once before all tests */
   globalSetup: './tests/global-setup.ts',
-<<<<<<< HEAD
 
   /* Timeouts */
   timeout: process.env.CI ? 60000 : 90000,
@@ -90,23 +89,6 @@ export default defineConfig({
 
   /* Parallelization */
   fullyParallel: true,
-=======
-  /* Global timeout for each test - increased to 90s for feature flag propagation
-   * CI uses 60s to fail fast in resource-constrained environment (2-core runners)
-   */
-  timeout: process.env.CI ? 60000 : 90000,
-  /* Timeout for expect() assertions */
-  expect: {
-    timeout: 5000,
-  },
-  /* Run tests in files in parallel */
-  fullyParallel: true,
-  /* Fail the build on CI if you accidentally left test.only in the source code. */
-  forbidOnly: !!process.env.CI,
-  /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI - single worker to avoid resource starvation */
->>>>>>> ff1bb06f (feat(ci): Add explicit timeout enforcement (Phase 2))
   workers: process.env.CI ? 1 : undefined,
 
   /* CI settings */
@@ -209,17 +191,14 @@ export default defineConfig({
       testMatch: /security-teardown\.setup\.ts/,
     },
 
-    // 4. Browser projects - Depend on setup and security-tests (with teardown) for order
-    // Note: Security modules are re-disabled by teardown before these projects execute
-    // TEMPORARY CI FIX: Skip security-tests dependency to unblock pipeline
-    // Re-enable after fixing hanging security test
+    // Browser projects - standard Playwright pattern
     {
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup'], // Temporarily removed 'security-tests'
+      dependencies: ['setup', 'security-tests'],
     },
 
     {
@@ -228,7 +207,7 @@ export default defineConfig({
         ...devices['Desktop Firefox'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup'], // Temporarily removed 'security-tests'
+      dependencies: ['setup', 'security-tests'],
     },
 
     {
@@ -237,7 +216,7 @@ export default defineConfig({
         ...devices['Desktop Safari'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup'], // Temporarily removed 'security-tests'
+      dependencies: ['setup', 'security-tests'],
     },
 
     /* Test against mobile viewports. */
