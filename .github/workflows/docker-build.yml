@@ -211,25 +211,25 @@ jobs:
             echo "🔨 Building Docker image with retry logic..."
             echo "Platform: ${{ (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true') && 'linux/amd64' || 'linux/amd64,linux/arm64' }}"
 
-            # Build tag arguments from metadata output (newline-separated)
-            TAG_ARGS=""
+            # Build tag arguments array from metadata output (properly quoted)
+            TAG_ARGS_ARRAY=()
             while IFS= read -r tag; do
-              [[ -n "$tag" ]] && TAG_ARGS="${TAG_ARGS} --tag ${tag}"
+              [[ -n "$tag" ]] && TAG_ARGS_ARRAY+=("--tag" "$tag")
             done <<< "${{ steps.meta.outputs.tags }}"
 
-            # Build label arguments from metadata output (newline-separated)
-            LABEL_ARGS=""
+            # Build label arguments array from metadata output (properly quoted)
+            LABEL_ARGS_ARRAY=()
             while IFS= read -r label; do
-              [[ -n "$label" ]] && LABEL_ARGS="${LABEL_ARGS} --label ${label}"
+              [[ -n "$label" ]] && LABEL_ARGS_ARRAY+=("--label" "$label")
             done <<< "${{ steps.meta.outputs.labels }}"
 
-            # Build the complete command as an array (handles spaces in arguments correctly)
+            # Build the complete command as an array (handles spaces in label values correctly)
             BUILD_CMD=(
               docker buildx build
               --platform "${{ (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true') && 'linux/amd64' || 'linux/amd64,linux/arm64' }}"
               --push
-              ${TAG_ARGS}
-              ${LABEL_ARGS}
+              "${TAG_ARGS_ARRAY[@]}"
+              "${LABEL_ARGS_ARRAY[@]}"
               --no-cache
               --pull
               --build-arg "VERSION=${{ steps.meta.outputs.version }}"
