@@ -155,18 +155,7 @@ jobs:
           SANITIZED=$(echo "${BRANCH_NAME}" | \
             tr '[:upper:]' '[:lower:]' | \
             tr '/' '-' | \
-            sed 's/[^a-z0-9-._]/-/g' | \
-            sed 's/^-//; s/-$//' | \
-            sed 's/--*/-/g' | \
-            cut -c1-121)
-
-          FEATURE_TAG="${SANITIZED}-${SHORT_SHA}"
-          echo "tag=${FEATURE_TAG}" >> $GITHUB_OUTPUT
-          echo "📦 Computed feature branch tag: ${FEATURE_TAG}"
-
-      - name: Extract metadata (tags, labels)
-        if: steps.skip.outputs.skip_build != 'true'
-        id: meta
+          sed 's/[^a-z0-9._-]/-/g' | \
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: |
