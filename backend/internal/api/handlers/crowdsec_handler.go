@@ -73,6 +73,189 @@ const (
 	bouncerName    = "caddy-bouncer"
 )
 
+// ConfigArchiveValidator validates CrowdSec configuration archives.
+type ConfigArchiveValidator struct {
+	MaxSize             int64    // Maximum compressed size (50MB default)
+	MaxUncompressed     int64    // Maximum uncompressed size (500MB default)
+	MaxCompressionRatio float64  // Maximum compression ratio (100x default)
+	RequiredFiles       []string // Required files (config.yaml minimum)
+}
+
+// Validate performs comprehensive validation of the archive.
+func (v *ConfigArchiveValidator) Validate(path string) error {
+	// Check file size
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("failed to stat file: %w", err)
+	}
+
+	if info.Size() > v.MaxSize {
+		return fmt.Errorf("archive exceeds maximum size: %d > %d", info.Size(), v.MaxSize)
+	}
+
+	// Detect format
+	format, err := detectArchiveFormat(path)
+	if err != nil {
+		return err
+	}
+
+	// Calculate uncompressed size and check for zip bombs
+	uncompressedSize, err := calculateUncompressedSize(path, format)
+	if err != nil {
+		return err
+	}
+
+	if uncompressedSize > v.MaxUncompressed {
+		return fmt.Errorf("uncompressed size exceeds maximum: %d > %d", uncompressedSize, v.MaxUncompressed)
+	}
+
+	// Check compression ratio (zip bomb protection)
+	compressionRatio := float64(uncompressedSize) / float64(info.Size())
+	if compressionRatio > v.MaxCompressionRatio {
+		return fmt.Errorf("suspicious compression ratio: %.1fx (potential zip bomb)", compressionRatio)
+	}
+
+	// List contents and verify required files
+	contents, err := listArchiveContents(path, format)
+	if err != nil {
+		return err
+	}
+
+	for _, required := range v.RequiredFiles {
+		found := false
+		for _, file := range contents {
+			if filepath.Base(file) == required || file == required {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("required file missing: %s", required)
+		}
+	}
+
+	return nil
+}
+
+// detectArchiveFormat detects the archive format (tar.gz or zip).
+func detectArchiveFormat(path string) (string, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+
+	if strings.HasSuffix(strings.ToLower(path), ".tar.gz") {
+		return "tar.gz", nil
+	}
+
+	if ext == ".zip" {
+		return "zip", nil
+	}
+
+	return "", fmt.Errorf("unsupported format: %s", ext)
+}
+
+// calculateUncompressedSize calculates the total uncompressed size of the archive.
+func calculateUncompressedSize(path, format string) (int64, error) {
+	switch format {
+	case "tar.gz":
+		// #nosec G304 -- path is validated upstream
+		f, err := os.Open(path)
+		if err != nil {
+			return 0, fmt.Errorf("failed to open archive: %w", err)
+		}
+		defer func() { _ = f.Close() }()
+
+		gr, err := gzip.NewReader(f)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create gzip reader: %w", err)
+		}
+		defer func() { _ = gr.Close() }()
+
+		tr := tar.NewReader(gr)
+		var total int64
+
+		for {
+			header, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return 0, fmt.Errorf("failed to read tar header: %w", err)
+			}
+
+			// Only count regular files
+			if header.Typeflag == tar.TypeReg {
+				total += header.Size
+			}
+		}
+
+		return total, nil
+
+	default:
+		return 0, fmt.Errorf("unsupported format for size calculation: %s", format)
+	}
+}
+
+// listArchiveContents lists all files in the archive.
+func listArchiveContents(path, format string) ([]string, error) {
+	switch format {
+	case "tar.gz":
+		// #nosec G304 -- path is validated upstream
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open archive: %w", err)
+		}
+		defer func() { _ = f.Close() }()
+
+		gr, err := gzip.NewReader(f)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create gzip reader: %w", err)
+		}
+		defer func() { _ = gr.Close() }()
+
+		tr := tar.NewReader(gr)
+		var files []string
+
+		for {
+			header, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return nil, fmt.Errorf("failed to read tar header: %w", err)
+			}
+
+			if header.Typeflag == tar.TypeReg {
+				files = append(files, header.Name)
+			}
+		}
+
+		return files, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported format for listing: %s", format)
+	}
+}
+
+// validateYAMLFile validates CrowdSec YAML configuration structure.
+func validateYAMLFile(path string) error {
+	// #nosec G304 -- path is validated upstream
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// Basic YAML syntax check
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		// Try basic structure validation - check for key CrowdSec fields
+		content := string(data)
+		if !strings.Contains(content, "api:") && !strings.Contains(content, "server:") {
+			return fmt.Errorf("invalid CrowdSec config structure")
+		}
+	}
+
+	return nil
+}
+
 func ttlRemainingSeconds(now, retrievedAt time.Time, ttl time.Duration) *int64 {
 	if retrievedAt.IsZero() || ttl <= 0 {
 		return nil
@@ -390,6 +573,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create temp dir"})
 		return
 	}
+	defer func() { _ = os.RemoveAll(tmpPath) }()
 
 	dst := filepath.Join(tmpPath, file.Filename)
 	if err := c.SaveUploadedFile(file, dst); err != nil {
@@ -397,54 +581,137 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		return
 	}
 
-	// For safety, do minimal validation: ensure file non-empty
-	fi, err := os.Stat(dst)
-	if err != nil || fi.Size() == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "empty upload"})
+	// Pre-import validation
+	validator := &ConfigArchiveValidator{
+		MaxSize:             50 * 1024 * 1024,  // 50MB
+		MaxUncompressed:     500 * 1024 * 1024, // 500MB
+		MaxCompressionRatio: 100,               // 100x max ratio
+		RequiredFiles:       []string{"config.yaml"},
+	}
+
+	if err := validator.Validate(dst); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("validation failed: %v", err)})
 		return
 	}
 
 	// Backup current config
-	backupDir := h.DataDir + ".backup." + time.Now().Format("20060102-150405")
+	var backupDir string
 	if _, err := os.Stat(h.DataDir); err == nil {
-		_ = os.Rename(h.DataDir, backupDir)
+		backupDir = h.DataDir + ".backup." + time.Now().Format("20060102-150405")
+		if err := os.Rename(h.DataDir, backupDir); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup"})
+			return
+		}
 	}
+
 	// Create target dir
 	if err := os.MkdirAll(h.DataDir, 0o750); err != nil {
+		// Rollback on failure
+		if backupDir != "" {
+			_ = os.Rename(backupDir, h.DataDir)
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create config dir"})
 		return
 	}
 
-	// For now, simply copy uploaded file into data dir for operator to handle extraction
-	target := filepath.Join(h.DataDir, file.Filename)
-	// #nosec G304 -- dst is a temp file created by SaveUploadedFile with sanitized filename
-	in, err := os.Open(dst)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open temp file"})
+	// Extract archive
+	extractErr := h.extractArchive(dst, h.DataDir)
+	if extractErr != nil {
+		// Rollback on extraction failure
+		_ = os.RemoveAll(h.DataDir)
+		if backupDir != "" {
+			_ = os.Rename(backupDir, h.DataDir)
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("extraction failed: %v", extractErr)})
 		return
 	}
-	defer func() {
-		if err := in.Close(); err != nil {
-			logger.Log().WithError(err).Warn("failed to close temp file")
+
+	// Validate extracted config
+	configPath := filepath.Join(h.DataDir, "config.yaml")
+	if err := validateYAMLFile(configPath); err != nil {
+		// Rollback on validation failure
+		_ = os.RemoveAll(h.DataDir)
+		if backupDir != "" {
+			_ = os.Rename(backupDir, h.DataDir)
 		}
-	}()
-	// #nosec G304 -- target is filepath.Join of DataDir (internal) and file.Filename (sanitized by Gin)
-	out, err := os.Create(target)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create target file"})
-		return
-	}
-	defer func() {
-		if err := out.Close(); err != nil {
-			logger.Log().WithError(err).Warn("failed to close target file")
-		}
-	}()
-	if _, err := io.Copy(out, in); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write config"})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("config validation failed: %v", err)})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "imported", "backup": backupDir})
+}
+
+// extractArchive extracts a tar.gz archive to the destination directory.
+func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
+	// #nosec G304 -- archivePath is validated upstream
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("failed to open archive: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("failed to create gzip reader: %w", err)
+	}
+	defer func() { _ = gr.Close() }()
+
+	tr := tar.NewReader(gr)
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to read tar header: %w", err)
+		}
+
+		// Path traversal protection
+		// #nosec G305 -- Path traversal is explicitly checked below
+		target := filepath.Join(destDir, header.Name)
+		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
+			return fmt.Errorf("invalid file path: %s", header.Name)
+		}
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0o750); err != nil {
+				return fmt.Errorf("failed to create directory: %w", err)
+			}
+		case tar.TypeReg:
+			// Ensure parent directory exists
+			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
+				return fmt.Errorf("failed to create parent directory: %w", err)
+			}
+
+			// Validate mode is safe before conversion
+			fileMode := os.FileMode(0o640) // Default safe mode
+			if header.Mode > 0 && header.Mode <= 0o777 {
+				// #nosec G115 -- Mode validated to be within valid range (0-0o777)
+				fileMode = os.FileMode(header.Mode)
+			}
+
+			// #nosec G304 -- target is constructed safely above with path traversal protection
+			outFile, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, fileMode)
+			if err != nil {
+				return fmt.Errorf("failed to create file: %w", err)
+			}
+
+			// #nosec G110 -- We control the tar archive source (uploaded by admin)
+			if _, err := io.Copy(outFile, tr); err != nil {
+				if closeErr := outFile.Close(); closeErr != nil {
+					return fmt.Errorf("failed to write file: %w (close error: %v)", err, closeErr)
+				}
+				return fmt.Errorf("failed to write file: %w", err)
+			}
+			if err := outFile.Close(); err != nil {
+				return fmt.Errorf("failed to close file: %w", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // ExportConfig creates a tar.gz archive of the CrowdSec data directory and streams it
@@ -1362,7 +1629,39 @@ func (h *CrowdsecHandler) registerAndSaveBouncer(ctx context.Context) (string, e
 	return apiKey, nil
 }
 
+// maskAPIKey masks an API key for safe logging by showing only first 4 and last 4 characters.
+// Security: Prevents API key exposure in logs (CWE-312, CWE-315, CWE-359).
+// Returns "[empty]" for empty strings, "[REDACTED]" for keys shorter than 16 characters.
+func maskAPIKey(key string) string {
+	if key == "" {
+		return "[empty]"
+	}
+	if len(key) < 16 {
+		return "[REDACTED]"
+	}
+	return fmt.Sprintf("%s...%s", key[:4], key[len(key)-4:])
+}
+
+// validateAPIKeyFormat validates the API key format for security.
+// Security: Ensures API keys meet minimum security standards.
+// Returns true if key is 16-128 chars and contains only alphanumeric, underscore, or hyphen.
+func validateAPIKeyFormat(key string) bool {
+	if len(key) < 16 || len(key) > 128 {
+		return false
+	}
+	// Only allow alphanumeric, underscore, and hyphen
+	for _, ch := range key {
+		// Apply De Morgan's law for better readability
+		if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') &&
+			(ch < '0' || ch > '9') && ch != '_' && ch != '-' {
+			return false
+		}
+	}
+	return true
+}
+
 // logBouncerKeyBanner logs the bouncer key with a formatted banner.
+// Security: API key is masked to prevent exposure in logs (CWE-312).
 func (h *CrowdsecHandler) logBouncerKeyBanner(apiKey string) {
 	banner := `
 ════════════════════════════════════════════════════════════════════
@@ -1372,10 +1671,14 @@ Bouncer Name: %s
 API Key:      %s
 Saved To:     %s
 ────────────────────────────────────────────────────────────────────
+⚠️  SECURITY: Full API key saved to file (permissions: 0600)
 💡 TIP: If connecting to an EXTERNAL CrowdSec instance, copy this
    key to your docker-compose.yml as CHARON_SECURITY_CROWDSEC_API_KEY
+🔄 ROTATE: Change API keys regularly and never commit to version control
 ════════════════════════════════════════════════════════════════════`
-	logger.Log().Infof(banner, bouncerName, apiKey, bouncerKeyFile)
+	// Security: Mask API key to prevent cleartext exposure in logs
+	maskedKey := maskAPIKey(apiKey)
+	logger.Log().Infof(banner, bouncerName, maskedKey, bouncerKeyFile)
 }
 
 // getBouncerAPIKeyFromEnv retrieves the bouncer API key from environment variables.

@@ -328,8 +328,9 @@ func TestCrowdsec_ImportConfig_EmptyUpload(t *testing.T) {
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, 400, w.Code)
-	assert.Contains(t, w.Body.String(), "empty upload")
+	// Empty upload now returns 422 (validation error) instead of 400
+	assert.Equal(t, 422, w.Code)
+	assert.Contains(t, w.Body.String(), "validation failed")
 }
 
 // Backup Handler additional coverage tests

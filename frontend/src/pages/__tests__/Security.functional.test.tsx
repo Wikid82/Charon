@@ -99,10 +99,7 @@ vi.mock('../../components/LiveLogViewer', () => ({
   LiveLogViewer: () => <div data-testid="live-log-viewer">Mocked Live Log Viewer</div>,
 }))
 
-// Mock CrowdSecBouncerKeyDisplay
-vi.mock('../../components/CrowdSecBouncerKeyDisplay', () => ({
-  CrowdSecBouncerKeyDisplay: () => <div data-testid="bouncer-key-display">Mocked Bouncer Key Display</div>,
-}))
+// NOTE: CrowdSecBouncerKeyDisplay mock removed (moved to CrowdSecConfig page)
 
 vi.mock('../../hooks/useSecurity', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../hooks/useSecurity')>()
@@ -404,31 +401,8 @@ describe('Security Page - Functional Tests', () => {
     })
   })
 
-  describe('CrowdSec Bouncer Key Display', () => {
-    it('should show bouncer key display when Cerberus and CrowdSec are enabled', async () => {
-      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
-
-      await renderSecurityPage()
-
-      await waitFor(() => {
-        expect(screen.getByTestId('bouncer-key-display')).toBeInTheDocument()
-      })
-    })
-
-    it('should not show bouncer key display when CrowdSec is disabled', async () => {
-      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusCrowdsecDisabled)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
-
-      await renderSecurityPage()
-
-      await waitFor(() => {
-        expect(screen.getByText(/Cerberus Dashboard/i)).toBeInTheDocument()
-      })
-
-      expect(screen.queryByTestId('bouncer-key-display')).not.toBeInTheDocument()
-    })
-  })
+  // NOTE: CrowdSec Bouncer Key Display moved to CrowdSecConfig page (Sprint 3)
+  // Tests for bouncer key display are now in CrowdSecConfig tests
 
   describe('Live Log Viewer', () => {
     it('should show live log viewer when Cerberus is enabled', async () => {
