@@ -40,10 +40,6 @@ on:
 
   workflow_dispatch:
     inputs:
-      image_tag:
-        description: 'Docker image tag to test (e.g., pr-123-abc1234)'
-        required: false
-        type: string
       browser:
         description: 'Browser to test'
         required: false
