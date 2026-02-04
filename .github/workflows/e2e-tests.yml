@@ -2,6 +2,9 @@
 # Runs Playwright E2E tests with sharding for faster execution
 # and collects frontend code coverage via @bgotink/playwright-coverage
 #
+# Phase 4: Build Once, Test Many - Use registry image instead of building
+# This workflow now waits for docker-build.yml to complete and pulls the built image
+#
 # Test Execution Architecture:
 #   - Parallel Sharding: Tests split across 4 shards for speed
 #   - Per-Shard HTML Reports: Each shard generates its own HTML report
@@ -14,37 +17,33 @@
 #   - Tests hit Vite, which proxies API calls to Docker
 #   - V8 coverage maps directly to source files for accurate reporting
 #   - Coverage disabled by default (requires PLAYWRIGHT_COVERAGE=1)
+#   - NOTE: Coverage mode uses Vite dev server, not registry image
 #
 # Triggers:
-#   - Pull requests to main/develop (with path filters)
-#   - Push to main branch
-#   - Manual dispatch with browser selection
+#   - workflow_run after docker-build.yml completes (standard mode)
+#   - Manual dispatch with browser/image selection
 #
 # Jobs:
-#   1. build: Build Docker image and upload as artifact
-#   2. e2e-tests: Run tests in parallel shards, upload per-shard HTML reports
-#   3. test-summary: Generate summary with links to shard reports
-#   4. comment-results: Post test results as PR comment
-#   5. upload-coverage: Merge and upload E2E coverage to Codecov (if enabled)
-#   6. e2e-results: Status check to block merge on failure
+#   1. e2e-tests: Run tests in parallel shards, upload per-shard HTML reports
+#   2. test-summary: Generate summary with links to shard reports
+#   3. comment-results: Post test results as PR comment
+#   4. upload-coverage: Merge and upload E2E coverage to Codecov (if enabled)
+#   5. e2e-results: Status check to block merge on failure
 
 name: E2E Tests
 
 on:
-  pull_request:
-    branches:
-      - main
-      - development
-      - 'feature/**'
-    paths:
-      - 'frontend/**'
-      - 'backend/**'
-      - 'tests/**'
-      - 'playwright.config.js'
-      - '.github/workflows/e2e-tests.yml'
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types: [completed]
+    branches: [main, development, 'feature/**']  # Explicit branch filter prevents unexpected triggers
 
   workflow_dispatch:
     inputs:
+      image_tag:
+        description: 'Docker image tag to test (e.g., pr-123-abc1234)'
+        required: false
+        type: string
       browser:
         description: 'Browser to test'
         required: false
@@ -68,82 +67,26 @@ env:
   PLAYWRIGHT_DEBUG: '1'
   CI_LOG_LEVEL: 'verbose'
 
+# Prevent race conditions when PR is updated mid-test
+# Cancels old test runs when new build completes with different SHA
 concurrency:
-  group: e2e-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: e2e-${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}-${{ github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
-  # Build application once, share across test shards
-  build:
-    name: Build Application
-    runs-on: ubuntu-latest
-    outputs:
-      image_digest: ${{ steps.build-image.outputs.digest }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Set up Go
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-          cache-dependency-path: backend/go.sum
-
-      - name: Set up Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Cache npm dependencies
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-        with:
-          path: ~/.npm
-          key: npm-${{ hashFiles('package-lock.json') }}
-          restore-keys: npm-
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-
-      - name: Build Docker image
-        id: build-image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
-        with:
-          context: .
-          file: ./Dockerfile
-          push: false
-          load: true
-          tags: charon:e2e-test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Save Docker image
-        run: docker save charon:e2e-test -o charon-e2e-image.tar
-
-      - name: Upload Docker image artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: docker-image
-          path: charon-e2e-image.tar
-          retention-days: 1
-
-  # Run tests in parallel shards
+  # Run tests in parallel shards against registry image
   e2e-tests:
     name: E2E ${{ matrix.browser }} (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
     runs-on: ubuntu-latest
-    needs: build
     timeout-minutes: 30
+    # Only run if docker-build.yml succeeded, or if manually triggered
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     env:
       # Required for security teardown (emergency reset fallback when ACL blocks API)
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       # Enable security-focused endpoints and test gating
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "true"
-      CHARON_E2E_IMAGE_TAG: charon:e2e-test
     strategy:
       fail-fast: false
       matrix:
@@ -161,10 +104,130 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Download Docker image
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      # Determine the correct image tag based on trigger context
+      # For PRs: pr-{number}-{sha}, For branches: {sanitized-branch}-{sha}
+      - name: Determine image tag
+        id: image
+        env:
+          EVENT: ${{ github.event.workflow_run.event }}
+          REF: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          MANUAL_TAG: ${{ inputs.image_tag }}
+        run: |
+          # Manual trigger uses provided tag
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ -n "$MANUAL_TAG" ]]; then
+              echo "tag=${MANUAL_TAG}" >> $GITHUB_OUTPUT
+            else
+              # Default to latest if no tag provided
+              echo "tag=latest" >> $GITHUB_OUTPUT
+            fi
+            echo "source_type=manual" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Extract 7-character short SHA
+          SHORT_SHA=$(echo "$SHA" | cut -c1-7)
+
+          if [[ "$EVENT" == "pull_request" ]]; then
+            # Use native pull_requests array (no API calls needed)
+            PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number')
+
+            if [[ -z "$PR_NUM" || "$PR_NUM" == "null" ]]; then
+              echo "❌ ERROR: Could not determine PR number"
+              echo "Event: $EVENT"
+              echo "Ref: $REF"
+              echo "SHA: $SHA"
+              echo "Pull Requests JSON: ${{ toJson(github.event.workflow_run.pull_requests) }}"
+              exit 1
+            fi
+
+            # Immutable tag with SHA suffix prevents race conditions
+            echo "tag=pr-${PR_NUM}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "source_type=pr" >> $GITHUB_OUTPUT
+          else
+            # Branch push: sanitize branch name and append SHA
+            # Sanitization: lowercase, replace / with -, remove special chars
+            SANITIZED=$(echo "$REF" | \
+              tr '[:upper:]' '[:lower:]' | \
+              tr '/' '-' | \
+              sed 's/[^a-z0-9-._]/-/g' | \
+              sed 's/^-//; s/-$//' | \
+              sed 's/--*/-/g' | \
+              cut -c1-121)  # Leave room for -SHORT_SHA (7 chars)
+
+            echo "tag=${SANITIZED}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "source_type=branch" >> $GITHUB_OUTPUT
+          fi
+
+          echo "sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "Determined image tag: $(cat $GITHUB_OUTPUT | grep tag=)"
+
+      # Pull image from registry with retry logic (dual-source strategy)
+      # Try registry first (fast), fallback to artifact if registry fails
+      - name: Pull Docker image from registry
+        id: pull_image
+        uses: nick-fields/retry@v3
         with:
-          name: docker-image
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_wait_seconds: 10
+          command: |
+            IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/charon:${{ steps.image.outputs.tag }}"
+            echo "Pulling image: $IMAGE_NAME"
+            docker pull "$IMAGE_NAME"
+            docker tag "$IMAGE_NAME" charon:e2e-test
+            echo "✅ Successfully pulled from registry"
+        continue-on-error: true
+
+      # Fallback: Download artifact if registry pull failed
+      - name: Fallback to artifact download
+        if: steps.pull_image.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ steps.image.outputs.sha }}
+        run: |
+          echo "⚠️ Registry pull failed, falling back to artifact..."
+
+          # Determine artifact name based on source type
+          if [[ "${{ steps.image.outputs.source_type }}" == "pr" ]]; then
+            PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number')
+            ARTIFACT_NAME="pr-image-${PR_NUM}"
+          else
+            ARTIFACT_NAME="push-image"
+          fi
+
+          echo "Downloading artifact: $ARTIFACT_NAME"
+          gh run download ${{ github.event.workflow_run.id }} \
+            --name "$ARTIFACT_NAME" \
+            --dir /tmp/docker-image || {
+            echo "❌ ERROR: Artifact download failed!"
+            echo "Available artifacts:"
+            gh run view ${{ github.event.workflow_run.id }} --json artifacts --jq '.artifacts[].name'
+            exit 1
+          }
+
+          docker load < /tmp/docker-image/charon-image.tar
+          docker tag $(docker images --format "{{.Repository}}:{{.Tag}}" | head -1) charon:e2e-test
+          echo "✅ Successfully loaded from artifact"
+
+      # Validate image freshness by checking SHA label
+      - name: Validate image SHA
+        env:
+          SHA: ${{ steps.image.outputs.sha }}
+        run: |
+          LABEL_SHA=$(docker inspect charon:e2e-test --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' | cut -c1-7 || echo "unknown")
+          echo "Expected SHA: $SHA"
+          echo "Image SHA:    $LABEL_SHA"
+
+          if [[ "$LABEL_SHA" != "$SHA" && "$LABEL_SHA" != "unknown" ]]; then
+            echo "⚠️ WARNING: Image SHA mismatch!"
+            echo "Image may be stale. Proceeding with caution..."
+          elif [[ "$LABEL_SHA" == "unknown" ]]; then
+            echo "ℹ️ INFO: Could not determine image SHA from labels (artifact source)"
+          else
+            echo "✅ Image SHA matches expected commit"
+          fi
 
       - name: Validate Emergency Token Configuration
         run: |
@@ -192,11 +255,6 @@ jobs:
         env:
           CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
 
-      - name: Load Docker image
-        run: |
-          docker load -i charon-e2e-image.tar
-          docker images | grep charon
-
       - name: Generate ephemeral encryption key
         run: |
           # Generate a unique, ephemeral encryption key for this CI run
@@ -207,7 +265,7 @@ jobs:
       - name: Start test environment
         run: |
           # Use docker-compose.playwright-ci.yml for CI (no .env file, uses GitHub Secrets)
-          # Note: Using pre-built image loaded from artifact - no rebuild needed
+          # Note: Using pre-pulled/pre-built image (charon:e2e-test) - no rebuild needed
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
           echo "✅ Container started via docker-compose.playwright-ci.yml"
 
@@ -458,12 +516,13 @@ jobs:
           echo "- **Docker Logs**: Backend errors available in docker-logs-shard-N artifacts" >> $GITHUB_STEP_SUMMARY
           echo "- **Local repro**: \`npx playwright test --grep=\"test name\"\`" >> $GITHUB_STEP_SUMMARY
 
-  # Comment on PR with results
+  # Comment on PR with results (only for workflow_run triggered by PR)
   comment-results:
     name: Comment Test Results
     runs-on: ubuntu-latest
     needs: [e2e-tests, test-summary]
-    if: github.event_name == 'pull_request' && always()
+    # Only comment if triggered by workflow_run from a pull_request event
+    if: ${{ always() && github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' }}
     permissions:
       pull-requests: write
 
@@ -485,7 +544,20 @@ jobs:
             echo "message=E2E tests did not complete successfully." >> $GITHUB_OUTPUT
           fi
 
+      - name: Get PR number
+        id: pr
+        run: |
+          PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number')
+          if [[ -z "$PR_NUM" || "$PR_NUM" == "null" ]]; then
+            echo "⚠️ Could not determine PR number, skipping comment"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "number=$PR_NUM" >> $GITHUB_OUTPUT
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Comment on PR
+        if: steps.pr.outputs.skip != 'true'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
@@ -493,6 +565,7 @@ jobs:
             const status = '${{ steps.status.outputs.status }}';
             const message = '${{ steps.status.outputs.message }}';
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const prNumber = parseInt('${{ steps.pr.outputs.number }}');
 
             const body = `## ${emoji} E2E Test Results: ${status}
 
@@ -518,7 +591,7 @@ jobs:
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: prNumber,
             });
 
             const botComment = comments.find(comment =>
@@ -537,7 +610,7 @@ jobs:
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.issue.number,
+                issue_number: prNumber,
                 body: body
               });
             }
