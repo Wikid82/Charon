@@ -212,11 +212,11 @@ jobs:
           find ~/.cache/ms-playwright -name "*chromium*" -o -name "*chrome*" 2>/dev/null | head -10 || echo "No chromium files found"
           exit $EXIT_CODE
 
-      - name: Run Chromium tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
+      - name: Run Chromium tests
         timeout-minutes: 15
         run: |
-          echo "════════════════════════════════════════════"
-          echo "Chromium E2E Tests - Shard ${{ matrix.shard }}/${{ matrix.total-shards }}"
+          echo "═══════════════════════════════════════════="
+          echo "Chromium E2E Tests"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "════════════════════════════════════════════"
 
@@ -229,26 +229,18 @@ jobs:
           # pw:channel = IPC between Playwright and browser
           export DEBUG=pw:browser*,pw:protocol,pw:channel
 
-          npx playwright test \
-            --project=chromium \
-            --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
-
-          SHARD_END=$(date +%s)
-          echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
-          SHARD_DURATION=$((SHARD_END - SHARD_START))
-          echo "════════════════════════════════════════════"
-          echo "Chromium Shard ${{ matrix.shard }} Complete | Duration: ${SHARD_DURATION}s"
+          npx playwright test --project=chromium
           echo "════════════════════════════════════════════"
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           CI: true
           TEST_WORKER_INDEX: ${{ matrix.shard }}
 
-      - name: Upload HTML report (Chromium shard ${{ matrix.shard }})
+      - name: Upload HTML report (Chromium)
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: playwright-report-chromium-shard-${{ matrix.shard }}
+          name: playwright-report-chromium
           path: playwright-report/
           retention-days: 14
 
@@ -256,7 +248,7 @@ jobs:
         if: always() && env.PLAYWRIGHT_COVERAGE == '1'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: e2e-coverage-chromium-shard-${{ matrix.shard }}
+          name: e2e-coverage-chromium
           path: coverage/e2e/
           retention-days: 7
 
@@ -264,21 +256,21 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: traces-chromium-shard-${{ matrix.shard }}
+          name: traces-chromium
           path: test-results/**/*.zip
           retention-days: 7
 
       - name: Collect Docker logs on failure
         if: failure()
         run: |
-          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-chromium-shard-${{ matrix.shard }}.txt 2>&1
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-chromium.txt 2>&1
 
       - name: Upload Docker logs on failure
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: docker-logs-chromium-shard-${{ matrix.shard }}
-          path: docker-logs-chromium-shard-${{ matrix.shard }}.txt
+          name: docker-logs-chromium
+          path: docker-logs-chromium.txt
           retention-days: 7
 
       - name: Cleanup
@@ -392,11 +384,11 @@ jobs:
           find ~/.cache/ms-playwright -name "*firefox*" 2>/dev/null | head -10 || echo "No firefox files found"
           exit $EXIT_CODE
 
-      - name: Run Firefox tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
+      - name: Run Firefox tests
         timeout-minutes: 15
         run: |
           echo "════════════════════════════════════════════"
-          echo "Firefox E2E Tests - Shard ${{ matrix.shard }}/${{ matrix.total-shards }}"
+          echo "Firefox E2E Tests"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "════════════════════════════════════════════"
 
@@ -409,15 +401,14 @@ jobs:
           # pw:channel = IPC between Playwright and browser
           export DEBUG=pw:browser*,pw:protocol,pw:channel
 
-          npx playwright test \
-            --project=firefox \
-            --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
+          npx playwright test --project=firefox
 
           SHARD_END=$(date +%s)
           echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
           SHARD_DURATION=$((SHARD_END - SHARD_START))
           echo "════════════════════════════════════════════"
-          echo "Firefox Shard ${{ matrix.shard }} Complete | Duration: ${SHARD_DURATION}s"
+          echo "Firefox Tests Complete | Duration: ${SHARD_DURATION}s"
+          echo "════════════════════════════════════════════"
           echo "════════════════════════════════════════════"
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
@@ -428,7 +419,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: playwright-report-firefox-shard-${{ matrix.shard }}
+          name: playwright-report-firefox
           path: playwright-report/
           retention-days: 14
 
@@ -436,7 +427,7 @@ jobs:
         if: always() && env.PLAYWRIGHT_COVERAGE == '1'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: e2e-coverage-firefox-shard-${{ matrix.shard }}
+          name: e2e-coverage-firefox
           path: coverage/e2e/
           retention-days: 7
 
@@ -444,21 +435,21 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: traces-firefox-shard-${{ matrix.shard }}
+          name: traces-firefox
           path: test-results/**/*.zip
           retention-days: 7
 
       - name: Collect Docker logs on failure
         if: failure()
         run: |
-          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-firefox-shard-${{ matrix.shard }}.txt 2>&1
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-firefox.txt 2>&1
 
       - name: Upload Docker logs on failure
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: docker-logs-firefox-shard-${{ matrix.shard }}
-          path: docker-logs-firefox-shard-${{ matrix.shard }}.txt
+          name: docker-logs-firefox
+          path: docker-logs-firefox.txt
           retention-days: 7
 
       - name: Cleanup
@@ -572,11 +563,11 @@ jobs:
           find ~/.cache/ms-playwright -name "*webkit*" -o -name "*MiniBrowser*" 2>/dev/null | head -10 || echo "No webkit files found"
           exit $EXIT_CODE
 
-      - name: Run WebKit tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
+      - name: Run WebKit tests
         timeout-minutes: 15
         run: |
           echo "════════════════════════════════════════════"
-          echo "WebKit E2E Tests - Shard ${{ matrix.shard }}/${{ matrix.total-shards }}"
+          echo "WebKit E2E Tests"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "════════════════════════════════════════════"
 
@@ -589,9 +580,7 @@ jobs:
           # pw:channel = IPC between Playwright and browser
           export DEBUG=pw:browser*,pw:protocol,pw:channel
 
-          npx playwright test \
-            --project=webkit \
-            --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
+          npx playwright test --project=webkit
 
           SHARD_END=$(date +%s)
           echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
@@ -608,7 +597,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: playwright-report-webkit-shard-${{ matrix.shard }}
+          name: playwright-report-webkit
           path: playwright-report/
           retention-days: 14
 
@@ -616,7 +605,7 @@ jobs:
         if: always() && env.PLAYWRIGHT_COVERAGE == '1'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: e2e-coverage-webkit-shard-${{ matrix.shard }}
+          name: e2e-coverage-webkit
           path: coverage/e2e/
           retention-days: 7
 
@@ -624,21 +613,21 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: traces-webkit-shard-${{ matrix.shard }}
+          name: traces-webkit
           path: test-results/**/*.zip
           retention-days: 7
 
       - name: Collect Docker logs on failure
         if: failure()
         run: |
-          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-webkit-shard-${{ matrix.shard }}.txt 2>&1
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-webkit.txt 2>&1
 
       - name: Upload Docker logs on failure
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: docker-logs-webkit-shard-${{ matrix.shard }}
-          path: docker-logs-webkit-shard-${{ matrix.shard }}.txt
+          name: docker-logs-webkit
+          path: docker-logs-webkit.txt
           retention-days: 7
 
       - name: Cleanup
