@@ -4,7 +4,7 @@ description: 'DevOps specialist for CI/CD pipelines, deployment debugging, and G
 argument-hint: 'The CI/CD or infrastructure task (e.g., "Debug failing GitHub Action workflow")'
 tools:
   ['execute', 'read', 'agent', 'github/*', 'github/*', 'io.github.goreleaser/mcp/*', 'edit/createDirectory', 'edit/createFile', 'edit/editFiles', 'edit/editNotebook', 'search', 'web', 'github/*', 'todo', 'ms-azuretools.vscode-containers/containerToolsConfig']
-model: 'claude-opus-4-5-20250514'
+model: 'Cloaude Sonnet 4.5'
 mcp-servers:
   - github
 ---

@@ -4,7 +4,7 @@ description: 'Quality Assurance and Security Engineer for testing and vulnerabil
 argument-hint: 'The component or feature to test (e.g., "Run security scan on authentication endpoints")'
 tools:
   ['vscode/extensions', 'vscode/getProjectSetupInfo', 'vscode/installExtension', 'vscode/openSimpleBrowser', 'vscode/runCommand', 'vscode/askQuestions', 'vscode/switchAgent', 'vscode/vscodeAPI', 'execute', 'read', 'agent', 'playwright/*', 'trivy-mcp/*', 'edit', 'search', 'web', 'playwright/*', 'todo']
-model: 'claude-opus-4-5-20250514'
+model: 'Cloaude Sonnet 4.5'
 mcp-servers:
   - trivy-mcp
   - playwright
