@@ -4,7 +4,7 @@ description: 'Engineering Director. Delegates ALL research and execution. DO NOT
 argument-hint: 'The high-level goal (e.g., "Build the new Proxy Host Dashboard widget")'
 tools:
   ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'github/*', 'github/*', 'github/*', 'io.github.goreleaser/mcp/*', 'playwright/*', 'trivy-mcp/*', 'playwright/*', 'vscode.mermaid-chat-features/renderMermaidDiagram', 'github.vscode-pull-request-github/issue_fetch', 'github.vscode-pull-request-github/suggest-fix', 'github.vscode-pull-request-github/searchSyntax', 'github.vscode-pull-request-github/doSearch', 'github.vscode-pull-request-github/renderIssues', 'github.vscode-pull-request-github/activePullRequest', 'github.vscode-pull-request-github/openPullRequest', 'ms-azuretools.vscode-containers/containerToolsConfig', 'todo']
-model: 'claude-opus-4-5-20250514'
+model: 'Cloaude Sonnet 4.5'
 ---
 You are the ENGINEERING DIRECTOR.
 **YOUR OPERATING MODEL: AGGRESSIVE DELEGATION.**
