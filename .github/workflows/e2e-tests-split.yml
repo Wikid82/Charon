@@ -46,8 +46,8 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/charon
   PLAYWRIGHT_COVERAGE: ${{ vars.PLAYWRIGHT_COVERAGE || '0' }}
-  DEBUG: 'charon:*,charon-test:*'
-  PLAYWRIGHT_DEBUG: '1'
+  # Standard Playwright runner debugging - shows test execution flow
+  DEBUG: 'pw:test'
   CI_LOG_LEVEL: 'verbose'
 
 concurrency:
@@ -215,36 +215,19 @@ jobs:
       - name: Run Chromium tests
         timeout-minutes: 4
         run: |
-          echo "═══════════════════════════════════════════="
+          echo "════════════════════════════════════════════"
           echo "Chromium E2E Tests"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "════════════════════════════════════════════"
 
           echo "Node: $(node -v)"
           echo "NPM:  $(npm -v)"
-          echo "Kernel: $(uname -a)"
-          echo "Memory (free -m):"
-          free -m || true
 
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
 
-          # Enable verbose Playwright output to diagnose browser launch hang
-          # pw:browser* = browser connection and launch
-          # pw:protocol = CDP protocol messages
-          # pw:channel = IPC between Playwright and browser
-          # pw:api = Playwright runner API calls (helps when hang occurs before browser launch)
-          export DEBUG=pw:api,pw:browser*,pw:protocol,pw:channel
-
-          echo "════════════════════════════════════════════"
-          echo "Preflight: listing tests (discovery only)"
-          echo "Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          npx playwright test --project=chromium --list
-          echo "════════════════════════════════════════════"
-          echo "Running tests"
-          echo "Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-
           npx playwright test --project=chromium
+
           echo "════════════════════════════════════════════"
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
@@ -410,12 +393,6 @@ jobs:
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
 
-          # Enable verbose Playwright output to diagnose browser launch hang
-          # pw:browser* = browser connection and launch
-          # pw:protocol = CDP protocol messages
-          # pw:channel = IPC between Playwright and browser
-          export DEBUG=pw:browser*,pw:protocol,pw:channel
-
           npx playwright test --project=firefox
 
           SHARD_END=$(date +%s)
@@ -423,7 +400,6 @@ jobs:
           SHARD_DURATION=$((SHARD_END - SHARD_START))
           echo "════════════════════════════════════════════"
           echo "Firefox Tests Complete | Duration: ${SHARD_DURATION}s"
-          echo "════════════════════════════════════════════"
           echo "════════════════════════════════════════════"
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
@@ -588,12 +564,6 @@ jobs:
 
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
-
-          # Enable verbose Playwright output to diagnose browser launch hang
-          # pw:browser* = browser connection and launch
-          # pw:protocol = CDP protocol messages
-          # pw:channel = IPC between Playwright and browser
-          export DEBUG=pw:browser*,pw:protocol,pw:channel
 
           npx playwright test --project=webkit
 
