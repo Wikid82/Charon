@@ -7,6 +7,11 @@ on:
     branches: [main, development, 'feature/**']  # Explicit branch filter prevents unexpected triggers
   # Allow manual trigger for debugging
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Docker image tag to test (e.g., pr-123-abc1234, latest)'
+        required: false
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
