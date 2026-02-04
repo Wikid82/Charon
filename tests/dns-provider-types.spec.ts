@@ -1,4 +1,5 @@
 import { test, expect } from '@bgotink/playwright-coverage';
+import { getFormFieldByLabel } from './utils/ui-helpers';
 
 /**
  * DNS Provider Types E2E Tests
@@ -210,8 +211,16 @@ test.describe('DNS Provider Types', () => {
       });
 
       await test.step('Verify Webhook URL field appears', async () => {
-        // Directly wait for provider-specific field (confirms full React cycle)
-        await expect(page.getByLabel(/create.*url/i)).toBeVisible({ timeout: 10000 });
+        // ✅ FIX 2.2: Use cross-browser label helper with fallbacks
+        const urlField = getFormFieldByLabel(
+          page,
+          /create.*url/i,
+          {
+            placeholder: /https?:\/\//i,
+            fieldId: 'field-create_url'
+          }
+        );
+        await expect(urlField.first()).toBeVisible({ timeout: 10000 });
       });
     });
 
@@ -230,8 +239,16 @@ test.describe('DNS Provider Types', () => {
       });
 
       await test.step('Verify RFC2136 server field appears', async () => {
-        // Directly wait for provider-specific field (confirms full React cycle)
-        await expect(page.getByLabel(/dns.*server/i)).toBeVisible({ timeout: 10000 });
+        // ✅ FIX 2.2: Use cross-browser label helper with fallbacks
+        const serverField = getFormFieldByLabel(
+          page,
+          /dns.*server/i,
+          {
+            placeholder: /dns\.example\.com|nameserver/i,
+            fieldId: 'field-nameserver'
+          }
+        );
+        await expect(serverField.first()).toBeVisible({ timeout: 10000 });
       });
     });
 
@@ -246,9 +263,16 @@ test.describe('DNS Provider Types', () => {
       });
 
       await test.step('Verify Script path/command field appears', async () => {
-        // Directly wait for provider-specific field (confirms full React cycle)
-        const scriptField = page.getByLabel(/script.*path/i);
-        await expect(scriptField).toBeVisible({ timeout: 10000 });
+        // ✅ FIX 2.2: Use cross-browser label helper with fallbacks
+        const scriptField = getFormFieldByLabel(
+          page,
+          /script.*path/i,
+          {
+            placeholder: /dns-challenge\.sh/i,
+            fieldId: 'field-script_path'
+          }
+        );
+        await expect(scriptField.first()).toBeVisible({ timeout: 10000 });
       });
     });
   });

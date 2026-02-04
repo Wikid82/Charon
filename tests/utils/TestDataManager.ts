@@ -213,23 +213,36 @@ export class TestDataManager {
       payload.name = data.name;
     }
 
-    const response = await this.request.post('/api/v1/proxy-hosts', {
-      data: payload,
-    });
+    try {
+      // Add explicit timeout with descriptive error for debugging
+      const response = await this.request.post('/api/v1/proxy-hosts', {
+        data: payload,
+        timeout: 30000, // 30s timeout
+      });
 
-    if (!response.ok()) {
-      throw new Error(`Failed to create proxy host: ${await response.text()}`);
+      if (!response.ok()) {
+        throw new Error(`Failed to create proxy host: ${await response.text()}`);
+      }
+
+      const result = await response.json();
+      this.resources.push({
+        id: result.uuid || result.id,
+        type: 'proxy-host',
+        namespace: this.namespace,
+        createdAt: new Date(),
+      });
+
+      return { id: result.uuid || result.id, domain: namespacedDomain };
+    } catch (error) {
+      // Provide descriptive error for timeout debugging
+      if (error instanceof Error && error.message.includes('timeout')) {
+        throw new Error(
+          `Timeout creating proxy host for ${namespacedDomain} after 30s. ` +
+          `This may indicate API bottleneck or feature flag polling overhead.`
+        );
+      }
+      throw error;
     }
-
-    const result = await response.json();
-    this.resources.push({
-      id: result.uuid || result.id,
-      type: 'proxy-host',
-      namespace: this.namespace,
-      createdAt: new Date(),
-    });
-
-    return { id: result.uuid || result.id, domain: namespacedDomain };
   }
 
   /**

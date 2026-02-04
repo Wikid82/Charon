@@ -24,7 +24,7 @@ type User struct {
 	UUID                string     `json:"uuid" gorm:"uniqueIndex"`
 	Email               string     `json:"email" gorm:"uniqueIndex"`
 	APIKey              string     `json:"-" gorm:"uniqueIndex"` // For external API access, never exposed in JSON
-	PasswordHash        string     `json:"-"`                          // Never serialize password hash
+	PasswordHash        string     `json:"-"`                    // Never serialize password hash
 	Name                string     `json:"name"`
 	Role                string     `json:"role" gorm:"default:'user'"` // "admin", "user", "viewer"
 	Enabled             bool       `json:"enabled" gorm:"default:true"`

@@ -505,12 +505,15 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		protected.PATCH("/security/acl", securityHandler.PatchACL) // E2E tests use PATCH
 		protected.POST("/security/waf/enable", securityHandler.EnableWAF)
 		protected.POST("/security/waf/disable", securityHandler.DisableWAF)
+		protected.PATCH("/security/waf", securityHandler.PatchWAF) // E2E tests use PATCH
 		protected.POST("/security/cerberus/enable", securityHandler.EnableCerberus)
 		protected.POST("/security/cerberus/disable", securityHandler.DisableCerberus)
 		protected.POST("/security/crowdsec/enable", securityHandler.EnableCrowdSec)
 		protected.POST("/security/crowdsec/disable", securityHandler.DisableCrowdSec)
+		protected.PATCH("/security/crowdsec", securityHandler.PatchCrowdSec) // E2E tests use PATCH
 		protected.POST("/security/rate-limit/enable", securityHandler.EnableRateLimit)
 		protected.POST("/security/rate-limit/disable", securityHandler.DisableRateLimit)
+		protected.PATCH("/security/rate-limit", securityHandler.PatchRateLimit) // E2E tests use PATCH
 
 		// CrowdSec process management and import
 		// Data dir for crowdsec (persisted on host via volumes)

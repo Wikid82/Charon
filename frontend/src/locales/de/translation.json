@@ -259,7 +259,16 @@
       "disabledDescription": "Intrusion Prevention System mit Community-Bedrohungsintelligenz",
       "processRunning": "Läuft (PID {{pid}})",
       "processStopped": "Prozess gestoppt",
-      "toggleTooltip": "CrowdSec-Schutz umschalten"
+      "toggleTooltip": "CrowdSec-Schutz umschalten",
+      "copyFailed": "Kopieren des API-Schlüssels fehlgeschlagen",
+      "keyWarning": {
+        "title": "CrowdSec API-Schlüssel aktualisiert",
+        "description": "Ihr konfigurierter API-Schlüssel wurde von CrowdSec LAPI abgelehnt. Ein neuer Schlüssel wurde automatisch generiert, um den Schutz wiederherzustellen.",
+        "instructions": "Aktualisieren Sie Ihre docker-compose.yml mit dem neuen Schlüssel, um eine erneute Registrierung beim Container-Neustart zu verhindern:",
+        "copyButton": "Kopieren",
+        "copied": "Schlüssel in Zwischenablage kopiert",
+        "restartNote": "Nach der Aktualisierung der docker-compose.yml starten Sie den Container neu, damit die Änderung wirksam wird."
+      }
     },
     "acl": {
       "title": "Zugriffskontrolle",

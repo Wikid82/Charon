@@ -12,7 +12,7 @@
  */
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForToast, waitForModal } from '../utils/wait-helpers';
+import { waitForLoadingComplete, waitForToast, waitForModal, waitForDialog, waitForDebounce } from '../utils/wait-helpers';
 import { clickSwitch } from '../utils/ui-helpers';
 import {
   basicProxyHost,
@@ -32,7 +32,7 @@ async function dismissDomainDialog(page: Page): Promise<void> {
   const noThanksBtn = page.getByRole('button', { name: /No, thanks/i });
   if (await noThanksBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
     await noThanksBtn.click();
-    await page.waitForTimeout(300);
+    await waitForDebounce(page, { delay: 300 }); // Allow dialog to close and DOM to update
   }
 }
 
@@ -92,7 +92,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
     test('should display empty state when no hosts exist', async ({ page, testData }) => {
       await test.step('Check for empty state or existing hosts', async () => {
         // Wait for page to settle
-        await page.waitForTimeout(1000);
+        await waitForDebounce(page, { delay: 1000 }); // Allow initial data fetch and render
 
         // The page may show empty state or hosts depending on test data
         const emptyStateHeading = page.getByRole('heading', { name: 'No proxy hosts' });
@@ -118,7 +118,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         await page.reload();
 
         // Wait for page to load - check for either table or empty state
-        await page.waitForTimeout(2000);
+        await waitForDebounce(page, { delay: 2000 }); // Allow network requests and render
 
         const table = page.getByRole('table');
         const emptyState = page.getByRole('heading', { name: 'No proxy hosts' });
@@ -159,6 +159,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
       await test.step('Click Add Host button', async () => {
         const addButton = getAddHostButton(page);
         await addButton.click();
+        await waitForModal(page); // Wait for modal to open
       });
 
       await test.step('Verify form modal opens', async () => {
@@ -175,7 +176,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
     test('should validate required fields', async ({ page }) => {
       await test.step('Open create form', async () => {
         await getAddHostButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page); // Wait for form modal to open
       });
 
       await test.step('Try to submit empty form', async () => {
@@ -201,7 +202,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
     test('should validate domain format', async ({ page }) => {
       await test.step('Open create form', async () => {
         await getAddHostButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page); // Wait for form modal to open
       });
 
       await test.step('Enter invalid domain', async () => {
@@ -220,7 +221,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
     test('should validate port number range (1-65535)', async ({ page }) => {
       await test.step('Open create form', async () => {
         await getAddHostButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page); // Wait for form modal to open
       });
 
       await test.step('Enter invalid port (too high)', async () => {
@@ -256,7 +257,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
       await test.step('Open create form', async () => {
         await getAddHostButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page); // Wait for form modal to open
       });
 
       await test.step('Fill in minimal required fields', async () => {
@@ -308,7 +309,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         const hostInList = page.getByText(hostConfig.domain);
 
         // First, wait for any modal to close (form submission complete)
-        await page.waitForTimeout(1000);
+        await waitForDebounce(page, { delay: 1000 }); // Allow form submission and modal close
 
         // Try waiting for success indicators with proper retry logic
         let verified = false;
@@ -354,7 +355,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
       await test.step('Open create form', async () => {
         await getAddHostButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page); // Wait for form modal to open
       });
 
       await test.step('Fill in fields with SSL options', async () => {
@@ -402,7 +403,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
       await test.step('Open create form', async () => {
         await getAddHostButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page); // Wait for form modal to open
       });
 
       await test.step('Fill form with WebSocket enabled', async () => {
@@ -438,7 +439,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
     test('should show form with all security options', async ({ page }) => {
       await test.step('Open create form', async () => {
         await getAddHostButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page); // Wait for form modal to open
       });
 
       await test.step('Verify security options are present', async () => {
@@ -465,7 +466,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
     test('should show application preset selector', async ({ page }) => {
       await test.step('Open create form', async () => {
         await getAddHostButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page); // Wait for form modal to open
       });
 
       await test.step('Verify application preset dropdown', async () => {
@@ -489,7 +490,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
     test('should show test connection button', async ({ page }) => {
       await test.step('Open create form', async () => {
         await getAddHostButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page); // Wait for form modal to open
       });
 
       await test.step('Verify test connection button exists', async () => {
@@ -603,7 +604,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
         if (editCount > 0) {
           await editButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForModal(page); // Wait for edit modal to open
 
           // Verify form opens with "Edit" title
           const formTitle = page.getByRole('heading', { name: /edit.*proxy.*host/i });
@@ -627,7 +628,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
         if (editCount > 0) {
           await editButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForModal(page); // Wait for edit modal to open
 
           const domainInput = page.locator('#domain-names');
           const originalDomain = await domainInput.inputValue();
@@ -653,7 +654,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
         if (editCount > 0) {
           await editButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForModal(page); // Wait for edit modal to open
 
           const forceSSLCheckbox = page.getByLabel(/force.*ssl/i);
           const wasChecked = await forceSSLCheckbox.isChecked();
@@ -681,7 +682,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
         if (editCount > 0) {
           await editButtons.first().click();
-          await page.waitForTimeout(500);
+          await waitForModal(page); // Wait for edit modal to open
 
           // Update forward host
           const forwardHostInput = page.locator('#forward-host');
@@ -735,7 +736,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
           if (await rowDeleteButton.isVisible().catch(() => false)) {
             await rowDeleteButton.click();
-            await page.waitForTimeout(500);
+            await waitForDialog(page); // Wait for confirmation dialog
 
             // Confirmation dialog should appear
             const dialog = page.getByRole('dialog').or(page.getByRole('alertdialog'));
@@ -763,7 +764,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
         if (await rowDeleteButton.isVisible().catch(() => false)) {
           await rowDeleteButton.click();
-          await page.waitForTimeout(500);
+          await waitForDialog(page); // Wait for confirmation dialog
 
           const dialog = page.getByRole('dialog').or(page.getByRole('alertdialog'));
 
@@ -789,7 +790,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
         if (await rowDeleteButton.isVisible().catch(() => false)) {
           await rowDeleteButton.click();
-          await page.waitForTimeout(500);
+          await waitForDialog(page); // Wait for confirmation dialog
 
           const dialog = page.getByRole('dialog').or(page.getByRole('alertdialog'));
 
@@ -813,7 +814,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
         if (await selectAllCheckbox.isVisible().catch(() => false)) {
           await selectAllCheckbox.click();
-          await page.waitForTimeout(300);
+          await waitForDebounce(page, { delay: 300 }); // Allow selection state to update
 
           // Bulk action bar should appear
           const bulkBar = page.getByText(/selected/i);
@@ -842,13 +843,13 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
         if (await selectAllCheckbox.isVisible().catch(() => false)) {
           await selectAllCheckbox.click();
-          await page.waitForTimeout(300);
+          await waitForDebounce(page, { delay: 300 }); // Allow selection state to update
 
           const bulkApplyButton = page.getByRole('button', { name: /bulk.*apply/i });
 
           if (await bulkApplyButton.isVisible().catch(() => false)) {
             await bulkApplyButton.click();
-            await page.waitForTimeout(500);
+            await waitForModal(page); // Wait for bulk apply modal
 
             // Bulk apply modal should open
             const modal = page.getByRole('dialog');
@@ -872,13 +873,13 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
         if (await selectAllCheckbox.isVisible().catch(() => false)) {
           await selectAllCheckbox.click();
-          await page.waitForTimeout(300);
+          await waitForDebounce(page, { delay: 300 }); // Allow selection state to update
 
           const manageACLButton = page.getByRole('button', { name: /manage.*acl|acl/i });
 
           if (await manageACLButton.isVisible().catch(() => false)) {
             await manageACLButton.click();
-            await page.waitForTimeout(500);
+            await waitForModal(page); // Wait for ACL modal
 
             // ACL modal should open
             const modal = page.getByRole('dialog');
@@ -910,7 +911,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
     test('should have accessible form labels', async ({ page }) => {
       await test.step('Open form and verify labels', async () => {
         await getAddHostButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page); // Wait for form modal to open
 
         // Check that inputs have associated labels
         const nameInput = page.locator('#proxy-name');
@@ -927,7 +928,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
     test('should be keyboard navigable', async ({ page }) => {
       await test.step('Navigate form with keyboard', async () => {
         await getAddHostButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page); // Wait for form modal to open
 
         // Tab through form fields
         await page.keyboard.press('Tab');
@@ -955,7 +956,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
     test('should show Docker container selector when source is selected', async ({ page }) => {
       await test.step('Open form and check Docker options', async () => {
         await getAddHostButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page); // Wait for form modal to open
 
         // Source dropdown should be visible
         const sourceSelect = page.locator('#connection-source');
@@ -974,7 +975,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
     test('should show containers dropdown when Docker source selected', async ({ page }) => {
       await test.step('Select Docker source', async () => {
         await getAddHostButton(page).click();
-        await page.waitForTimeout(500);
+        await waitForModal(page); // Wait for form modal to open
 
         const sourceSelect = page.locator('#connection-source');
         await sourceSelect.selectOption('local');

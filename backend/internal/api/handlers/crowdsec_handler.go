@@ -13,10 +13,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -60,8 +63,208 @@ type CrowdsecHandler struct {
 	Hub              *crowdsec.HubService
 	Console          *crowdsec.ConsoleEnrollmentService
 	Security         *services.SecurityService
-	LAPIMaxWait      time.Duration // For testing; 0 means 60s default
-	LAPIPollInterval time.Duration // For testing; 0 means 500ms default
+	CaddyManager     *caddy.Manager // For config reload after bouncer registration
+	LAPIMaxWait      time.Duration  // For testing; 0 means 60s default
+	LAPIPollInterval time.Duration  // For testing; 0 means 500ms default
+
+	// registrationMutex protects concurrent bouncer registration attempts
+	registrationMutex sync.Mutex
+
+	// envKeyRejected tracks whether the env var key was rejected by LAPI
+	// This is set during ensureBouncerRegistration() and used by GetKeyStatus()
+	envKeyRejected bool
+
+	// rejectedEnvKey stores the masked env key that was rejected for user notification
+	rejectedEnvKey string
+}
+
+// Bouncer auto-registration constants.
+const (
+	bouncerKeyFile = "/app/data/crowdsec/bouncer_key"
+	bouncerName    = "caddy-bouncer"
+)
+
+// ConfigArchiveValidator validates CrowdSec configuration archives.
+type ConfigArchiveValidator struct {
+	MaxSize             int64    // Maximum compressed size (50MB default)
+	MaxUncompressed     int64    // Maximum uncompressed size (500MB default)
+	MaxCompressionRatio float64  // Maximum compression ratio (100x default)
+	RequiredFiles       []string // Required files (config.yaml minimum)
+}
+
+// Validate performs comprehensive validation of the archive.
+func (v *ConfigArchiveValidator) Validate(path string) error {
+	// Check file size
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("failed to stat file: %w", err)
+	}
+
+	if info.Size() > v.MaxSize {
+		return fmt.Errorf("archive exceeds maximum size: %d > %d", info.Size(), v.MaxSize)
+	}
+
+	// Detect format
+	format, err := detectArchiveFormat(path)
+	if err != nil {
+		return err
+	}
+
+	// Calculate uncompressed size and check for zip bombs
+	uncompressedSize, err := calculateUncompressedSize(path, format)
+	if err != nil {
+		return err
+	}
+
+	if uncompressedSize > v.MaxUncompressed {
+		return fmt.Errorf("uncompressed size exceeds maximum: %d > %d", uncompressedSize, v.MaxUncompressed)
+	}
+
+	// Check compression ratio (zip bomb protection)
+	compressionRatio := float64(uncompressedSize) / float64(info.Size())
+	if compressionRatio > v.MaxCompressionRatio {
+		return fmt.Errorf("suspicious compression ratio: %.1fx (potential zip bomb)", compressionRatio)
+	}
+
+	// List contents and verify required files
+	contents, err := listArchiveContents(path, format)
+	if err != nil {
+		return err
+	}
+
+	for _, required := range v.RequiredFiles {
+		found := false
+		for _, file := range contents {
+			if filepath.Base(file) == required || file == required {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("required file missing: %s", required)
+		}
+	}
+
+	return nil
+}
+
+// detectArchiveFormat detects the archive format (tar.gz or zip).
+func detectArchiveFormat(path string) (string, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+
+	if strings.HasSuffix(strings.ToLower(path), ".tar.gz") {
+		return "tar.gz", nil
+	}
+
+	if ext == ".zip" {
+		return "zip", nil
+	}
+
+	return "", fmt.Errorf("unsupported format: %s", ext)
+}
+
+// calculateUncompressedSize calculates the total uncompressed size of the archive.
+func calculateUncompressedSize(path, format string) (int64, error) {
+	switch format {
+	case "tar.gz":
+		// #nosec G304 -- path is validated upstream
+		f, err := os.Open(path)
+		if err != nil {
+			return 0, fmt.Errorf("failed to open archive: %w", err)
+		}
+		defer func() { _ = f.Close() }()
+
+		gr, err := gzip.NewReader(f)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create gzip reader: %w", err)
+		}
+		defer func() { _ = gr.Close() }()
+
+		tr := tar.NewReader(gr)
+		var total int64
+
+		for {
+			header, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return 0, fmt.Errorf("failed to read tar header: %w", err)
+			}
+
+			// Only count regular files
+			if header.Typeflag == tar.TypeReg {
+				total += header.Size
+			}
+		}
+
+		return total, nil
+
+	default:
+		return 0, fmt.Errorf("unsupported format for size calculation: %s", format)
+	}
+}
+
+// listArchiveContents lists all files in the archive.
+func listArchiveContents(path, format string) ([]string, error) {
+	switch format {
+	case "tar.gz":
+		// #nosec G304 -- path is validated upstream
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open archive: %w", err)
+		}
+		defer func() { _ = f.Close() }()
+
+		gr, err := gzip.NewReader(f)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create gzip reader: %w", err)
+		}
+		defer func() { _ = gr.Close() }()
+
+		tr := tar.NewReader(gr)
+		var files []string
+
+		for {
+			header, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return nil, fmt.Errorf("failed to read tar header: %w", err)
+			}
+
+			if header.Typeflag == tar.TypeReg {
+				files = append(files, header.Name)
+			}
+		}
+
+		return files, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported format for listing: %s", format)
+	}
+}
+
+// validateYAMLFile validates CrowdSec YAML configuration structure.
+func validateYAMLFile(path string) error {
+	// #nosec G304 -- path is validated upstream
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// Basic YAML syntax check
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		// Try basic structure validation - check for key CrowdSec fields
+		content := string(data)
+		if !strings.Contains(content, "api:") && !strings.Contains(content, "server:") {
+			return fmt.Errorf("invalid CrowdSec config structure")
+		}
+	}
+
+	return nil
 }
 
 func ttlRemainingSeconds(now, retrievedAt time.Time, ttl time.Duration) *int64 {
@@ -286,6 +489,22 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 		return
 	}
 
+	// After confirming LAPI is ready, ensure bouncer is registered
+	apiKey, regErr := h.ensureBouncerRegistration(ctx)
+	if regErr != nil {
+		logger.Log().WithError(regErr).Warn("Failed to register bouncer, CrowdSec may not enforce decisions")
+	} else if apiKey != "" {
+		// Log the key for user reference
+		h.logBouncerKeyBanner(apiKey)
+
+		// Regenerate Caddy config with new API key
+		if h.CaddyManager != nil {
+			if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
+				logger.Log().WithError(err).Warn("Failed to reload Caddy config with new bouncer key")
+			}
+		}
+	}
+
 	logger.Log().WithField("pid", pid).Info("CrowdSec started and LAPI is ready")
 	c.JSON(http.StatusOK, gin.H{
 		"status":     "started",
@@ -365,6 +584,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create temp dir"})
 		return
 	}
+	defer func() { _ = os.RemoveAll(tmpPath) }()
 
 	dst := filepath.Join(tmpPath, file.Filename)
 	if err := c.SaveUploadedFile(file, dst); err != nil {
@@ -372,54 +592,137 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		return
 	}
 
-	// For safety, do minimal validation: ensure file non-empty
-	fi, err := os.Stat(dst)
-	if err != nil || fi.Size() == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "empty upload"})
+	// Pre-import validation
+	validator := &ConfigArchiveValidator{
+		MaxSize:             50 * 1024 * 1024,  // 50MB
+		MaxUncompressed:     500 * 1024 * 1024, // 500MB
+		MaxCompressionRatio: 100,               // 100x max ratio
+		RequiredFiles:       []string{"config.yaml"},
+	}
+
+	if err := validator.Validate(dst); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("validation failed: %v", err)})
 		return
 	}
 
 	// Backup current config
-	backupDir := h.DataDir + ".backup." + time.Now().Format("20060102-150405")
+	var backupDir string
 	if _, err := os.Stat(h.DataDir); err == nil {
-		_ = os.Rename(h.DataDir, backupDir)
+		backupDir = h.DataDir + ".backup." + time.Now().Format("20060102-150405")
+		if err := os.Rename(h.DataDir, backupDir); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup"})
+			return
+		}
 	}
+
 	// Create target dir
 	if err := os.MkdirAll(h.DataDir, 0o750); err != nil {
+		// Rollback on failure
+		if backupDir != "" {
+			_ = os.Rename(backupDir, h.DataDir)
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create config dir"})
 		return
 	}
 
-	// For now, simply copy uploaded file into data dir for operator to handle extraction
-	target := filepath.Join(h.DataDir, file.Filename)
-	// #nosec G304 -- dst is a temp file created by SaveUploadedFile with sanitized filename
-	in, err := os.Open(dst)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open temp file"})
+	// Extract archive
+	extractErr := h.extractArchive(dst, h.DataDir)
+	if extractErr != nil {
+		// Rollback on extraction failure
+		_ = os.RemoveAll(h.DataDir)
+		if backupDir != "" {
+			_ = os.Rename(backupDir, h.DataDir)
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("extraction failed: %v", extractErr)})
 		return
 	}
-	defer func() {
-		if err := in.Close(); err != nil {
-			logger.Log().WithError(err).Warn("failed to close temp file")
+
+	// Validate extracted config
+	configPath := filepath.Join(h.DataDir, "config.yaml")
+	if err := validateYAMLFile(configPath); err != nil {
+		// Rollback on validation failure
+		_ = os.RemoveAll(h.DataDir)
+		if backupDir != "" {
+			_ = os.Rename(backupDir, h.DataDir)
 		}
-	}()
-	// #nosec G304 -- target is filepath.Join of DataDir (internal) and file.Filename (sanitized by Gin)
-	out, err := os.Create(target)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create target file"})
-		return
-	}
-	defer func() {
-		if err := out.Close(); err != nil {
-			logger.Log().WithError(err).Warn("failed to close target file")
-		}
-	}()
-	if _, err := io.Copy(out, in); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write config"})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("config validation failed: %v", err)})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "imported", "backup": backupDir})
+}
+
+// extractArchive extracts a tar.gz archive to the destination directory.
+func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
+	// #nosec G304 -- archivePath is validated upstream
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("failed to open archive: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("failed to create gzip reader: %w", err)
+	}
+	defer func() { _ = gr.Close() }()
+
+	tr := tar.NewReader(gr)
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to read tar header: %w", err)
+		}
+
+		// Path traversal protection
+		// #nosec G305 -- Path traversal is explicitly checked below
+		target := filepath.Join(destDir, header.Name)
+		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
+			return fmt.Errorf("invalid file path: %s", header.Name)
+		}
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0o750); err != nil {
+				return fmt.Errorf("failed to create directory: %w", err)
+			}
+		case tar.TypeReg:
+			// Ensure parent directory exists
+			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
+				return fmt.Errorf("failed to create parent directory: %w", err)
+			}
+
+			// Validate mode is safe before conversion
+			fileMode := os.FileMode(0o640) // Default safe mode
+			if header.Mode > 0 && header.Mode <= 0o777 {
+				// #nosec G115 -- Mode validated to be within valid range (0-0o777)
+				fileMode = os.FileMode(header.Mode)
+			}
+
+			// #nosec G304 -- target is constructed safely above with path traversal protection
+			outFile, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, fileMode)
+			if err != nil {
+				return fmt.Errorf("failed to create file: %w", err)
+			}
+
+			// #nosec G110 -- We control the tar archive source (uploaded by admin)
+			if _, err := io.Copy(outFile, tr); err != nil {
+				if closeErr := outFile.Close(); closeErr != nil {
+					return fmt.Errorf("failed to write file: %w (close error: %v)", err, closeErr)
+				}
+				return fmt.Errorf("failed to write file: %w", err)
+			}
+			if err := outFile.Close(); err != nil {
+				return fmt.Errorf("failed to close file: %w", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // ExportConfig creates a tar.gz archive of the CrowdSec data directory and streams it
@@ -1239,6 +1542,507 @@ func getLAPIKey() string {
 	return ""
 }
 
+// BouncerInfo represents the bouncer key information for UI display.
+type BouncerInfo struct {
+	Name       string `json:"name"`
+	KeyPreview string `json:"key_preview"` // First 4 + last 3 chars
+	KeySource  string `json:"key_source"`  // "env_var" | "file" | "none"
+	FilePath   string `json:"file_path"`
+	Registered bool   `json:"registered"`
+}
+
+// KeyStatusResponse represents the API response for the key-status endpoint.
+// This endpoint provides UX feedback when env var keys are rejected by LAPI.
+type KeyStatusResponse struct {
+	// KeySource indicates where the current key came from
+	// Values: "env" (from environment variable), "file" (from bouncer_key file), "auto-generated" (newly generated)
+	KeySource string `json:"key_source"`
+
+	// EnvKeyRejected is true if an environment variable key was set but rejected by LAPI
+	EnvKeyRejected bool `json:"env_key_rejected"`
+
+	// CurrentKeyPreview shows a masked preview of the current valid key (first 4 + last 4 chars)
+	CurrentKeyPreview string `json:"current_key_preview,omitempty"`
+
+	// RejectedKeyPreview shows a masked preview of the rejected env key (if applicable)
+	RejectedKeyPreview string `json:"rejected_key_preview,omitempty"`
+
+	// FullKey is the unmasked valid key, only returned when EnvKeyRejected is true
+	// so the user can copy it to fix their docker-compose.yml
+	FullKey string `json:"full_key,omitempty"`
+
+	// Message provides user-friendly guidance
+	Message string `json:"message,omitempty"`
+
+	// Valid indicates whether the current key is valid (authenticated successfully with LAPI)
+	Valid bool `json:"valid"`
+
+	// BouncerName is the name of the registered bouncer
+	BouncerName string `json:"bouncer_name"`
+
+	// KeyFilePath is the path where the valid key is stored
+	KeyFilePath string `json:"key_file_path"`
+}
+
+// testKeyAgainstLAPI validates an API key by making an authenticated request to LAPI.
+// Uses /v1/decisions/stream endpoint which requires authentication.
+// Returns true if the key is accepted (200 OK), false otherwise.
+// Implements retry logic with exponential backoff for LAPI startup (connection refused).
+// Fails fast on 403 Forbidden (invalid key - no retries).
+func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string) bool {
+	if apiKey == "" {
+		return false
+	}
+
+	// Get LAPI URL from security config or use default
+	lapiURL := "http://127.0.0.1:8085"
+	if h.Security != nil {
+		cfg, err := h.Security.Get()
+		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
+			lapiURL = cfg.CrowdSecAPIURL
+		}
+	}
+
+	// Use /v1/decisions/stream endpoint (guaranteed to require authentication)
+	endpoint := fmt.Sprintf("%s/v1/decisions/stream", strings.TrimRight(lapiURL, "/"))
+
+	// Retry logic for LAPI startup (30s max with exponential backoff)
+	const maxStartupWait = 30 * time.Second
+	const initialBackoff = 500 * time.Millisecond
+	const maxBackoff = 5 * time.Second
+
+	backoff := initialBackoff
+	startTime := time.Now()
+	attempt := 0
+
+	for {
+		attempt++
+
+		// Check for context cancellation before each attempt
+		select {
+		case <-ctx.Done():
+			logger.Log().WithField("attempts", attempt).Debug("Context cancelled during LAPI key validation")
+			return false
+		default:
+			// Continue
+		}
+
+		// Create request with 5s timeout per attempt
+		testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		req, err := http.NewRequestWithContext(testCtx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			cancel()
+			logger.Log().WithError(err).Debug("Failed to create LAPI test request")
+			return false
+		}
+
+		// Set API key header
+		req.Header.Set("X-Api-Key", apiKey)
+
+		// Execute request
+		client := network.NewInternalServiceHTTPClient(5 * time.Second)
+		resp, err := client.Do(req)
+		cancel()
+
+		if err != nil {
+			// Check if connection refused (LAPI not ready yet)
+			if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "connect: connection refused") {
+				// LAPI not ready - retry with backoff if within time limit
+				if time.Since(startTime) < maxStartupWait {
+					logger.Log().WithField("attempt", attempt).WithField("backoff", backoff).WithField("elapsed", time.Since(startTime)).Debug("LAPI not ready, retrying with backoff")
+
+					// Check for context cancellation before sleeping
+					select {
+					case <-ctx.Done():
+						logger.Log().WithField("attempts", attempt).Debug("Context cancelled during LAPI retry")
+						return false
+					case <-time.After(backoff):
+						// Continue with retry
+					}
+
+					// Exponential backoff: 500ms → 750ms → 1125ms → ... (capped at 5s)
+					backoff = time.Duration(float64(backoff) * 1.5)
+					if backoff > maxBackoff {
+						backoff = maxBackoff
+					}
+					continue
+				}
+
+				logger.Log().WithField("attempts", attempt).WithField("elapsed", time.Since(startTime)).WithField("max_wait", maxStartupWait).Warn("LAPI failed to start within timeout")
+				return false
+			}
+
+			// Other errors (not connection refused)
+			logger.Log().WithError(err).Debug("Failed to connect to LAPI for key validation")
+			return false
+		}
+		defer func() {
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				logger.Log().WithError(closeErr).Debug("Failed to close HTTP response body")
+			}
+		}()
+
+		// Check response status
+		if resp.StatusCode == http.StatusOK {
+			logger.Log().WithField("attempts", attempt).WithField("elapsed", time.Since(startTime)).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key validated successfully against LAPI")
+			return true
+		}
+
+		// 403 Forbidden = bad key, fail fast (no retries)
+		if resp.StatusCode == http.StatusForbidden {
+			logger.Log().WithField("status", resp.StatusCode).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key rejected by LAPI (403 Forbidden)")
+			return false
+		}
+
+		// Other non-OK status codes
+		logger.Log().WithField("status", resp.StatusCode).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key validation returned unexpected status")
+		return false
+	}
+}
+
+// GetKeyStatus returns the current CrowdSec bouncer key status and any rejection information.
+// This endpoint provides UX feedback when env var keys are rejected by LAPI.
+// @Summary Get CrowdSec API key status
+// @Description Returns current key source, validity, and rejection status if env key was invalid
+// @Tags crowdsec
+// @Produce json
+// @Success 200 {object} KeyStatusResponse
+// @Router /admin/crowdsec/key-status [get]
+func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
+	h.registrationMutex.Lock()
+	defer h.registrationMutex.Unlock()
+
+	response := KeyStatusResponse{
+		BouncerName: bouncerName,
+		KeyFilePath: bouncerKeyFile,
+	}
+
+	// Check for rejected env key first
+	if h.envKeyRejected && h.rejectedEnvKey != "" {
+		response.EnvKeyRejected = true
+		response.RejectedKeyPreview = maskAPIKey(h.rejectedEnvKey)
+		response.Message = "Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but was rejected by LAPI. " +
+			"Either remove it from docker-compose.yml or update it to match the valid key stored in /app/data/crowdsec/bouncer_key."
+	}
+
+	// Determine current key source and status
+	envKey := getBouncerAPIKeyFromEnv()
+	fileKey := readKeyFromFile(bouncerKeyFile)
+
+	switch {
+	case envKey != "" && !h.envKeyRejected:
+		// Env key is set and was accepted
+		response.KeySource = "env"
+		response.CurrentKeyPreview = maskAPIKey(envKey)
+		response.Valid = true
+	case fileKey != "":
+		// Using file key (either because no env key, or env key was rejected)
+		if h.envKeyRejected {
+			response.KeySource = "auto-generated"
+			// Provide the full key so the user can copy it to fix their docker-compose.yml
+			// Security: User is already authenticated as admin and needs this to fix their config
+			response.FullKey = fileKey
+		} else {
+			response.KeySource = "file"
+		}
+		response.CurrentKeyPreview = maskAPIKey(fileKey)
+		// Verify key is still valid
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+		defer cancel()
+		response.Valid = h.testKeyAgainstLAPI(ctx, fileKey)
+	default:
+		// No key available
+		response.KeySource = "none"
+		response.Valid = false
+		response.Message = "No CrowdSec API key configured. Start CrowdSec to auto-generate one."
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// ensureBouncerRegistration checks if bouncer is registered and registers if needed.
+// Returns the API key if newly generated (empty if already set via env var or file).
+func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string, error) {
+	h.registrationMutex.Lock()
+	defer h.registrationMutex.Unlock()
+
+	// Priority 1: Check environment variables
+	envKey := getBouncerAPIKeyFromEnv()
+	if envKey != "" {
+		// Test key against LAPI (not just bouncer name)
+		if h.testKeyAgainstLAPI(ctx, envKey) {
+			logger.Log().WithField("source", "environment_variable").WithField("masked_key", maskAPIKey(envKey)).Info("CrowdSec bouncer authentication successful")
+			// Clear any previous rejection state
+			h.envKeyRejected = false
+			h.rejectedEnvKey = ""
+			return "", nil // Key valid, nothing new to report
+		}
+		// Track the rejected env key for API status endpoint
+		h.envKeyRejected = true
+		h.rejectedEnvKey = envKey
+		logger.Log().WithField("masked_key", maskAPIKey(envKey)).Warn(
+			"Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but invalid. " +
+				"Either remove it from docker-compose.yml or update it to match the " +
+				"auto-generated key. A new valid key will be generated and saved.",
+		)
+	}
+
+	// Priority 2: Check persistent key file
+	fileKey := readKeyFromFile(bouncerKeyFile)
+	if fileKey != "" {
+		// Test key against LAPI (not just bouncer name)
+		if h.testKeyAgainstLAPI(ctx, fileKey) {
+			logger.Log().WithField("source", "file").WithField("file", bouncerKeyFile).WithField("masked_key", maskAPIKey(fileKey)).Info("CrowdSec bouncer authentication successful")
+			return "", nil // Key valid
+		}
+		logger.Log().WithField("file", bouncerKeyFile).WithField("masked_key", maskAPIKey(fileKey)).Warn("File-stored API key failed LAPI authentication, will re-register")
+	}
+
+	// No valid key found - register new bouncer
+	newKey, err := h.registerAndSaveBouncer(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	// Warn user if env var is set but doesn't match the new key
+	if envKey != "" && envKey != newKey {
+		logger.Log().WithField("env_key_masked", maskAPIKey(envKey)).WithField("valid_key_masked", maskAPIKey(newKey)).Warn(
+			"IMPORTANT: Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but invalid. " +
+				"Either remove it from docker-compose.yml or update it to match the " +
+				"auto-generated key shown above. The valid key has been saved to " +
+				"/app/data/crowdsec/bouncer_key and will be used on future restarts.",
+		)
+	}
+
+	return newKey, nil
+}
+
+// validateBouncerKey checks if 'caddy-bouncer' is registered with CrowdSec.
+func (h *CrowdsecHandler) validateBouncerKey(ctx context.Context) bool {
+	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	output, err := h.CmdExec.Execute(checkCtx, "cscli", "bouncers", "list", "-o", "json")
+	if err != nil {
+		logger.Log().WithError(err).Debug("Failed to list bouncers")
+		return false
+	}
+
+	// Handle empty or null output
+	if len(output) == 0 || string(output) == "null" || string(output) == "null\n" {
+		return false
+	}
+
+	var bouncers []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(output, &bouncers); err != nil {
+		logger.Log().WithError(err).Debug("Failed to parse bouncers list")
+		return false
+	}
+
+	for _, b := range bouncers {
+		if b.Name == bouncerName {
+			return true
+		}
+	}
+	return false
+}
+
+// registerAndSaveBouncer registers a new bouncer and saves the key to file.
+func (h *CrowdsecHandler) registerAndSaveBouncer(ctx context.Context) (string, error) {
+	// Delete existing bouncer if present (stale registration)
+	deleteCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	_, _ = h.CmdExec.Execute(deleteCtx, "cscli", "bouncers", "delete", bouncerName)
+	cancel()
+
+	// Register new bouncer
+	regCtx, regCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer regCancel()
+
+	output, err := h.CmdExec.Execute(regCtx, "cscli", "bouncers", "add", bouncerName, "-o", "raw")
+	if err != nil {
+		return "", fmt.Errorf("bouncer registration failed: %w: %s", err, string(output))
+	}
+
+	apiKey := strings.TrimSpace(string(output))
+	if apiKey == "" {
+		return "", fmt.Errorf("bouncer registration returned empty API key")
+	}
+
+	// Save key to persistent file
+	if err := saveKeyToFile(bouncerKeyFile, apiKey); err != nil {
+		logger.Log().WithError(err).Warn("Failed to save bouncer key to file")
+		// Continue - key is still valid for this session
+	}
+
+	return apiKey, nil
+}
+
+// maskAPIKey masks an API key for safe logging by showing only first 4 and last 4 characters.
+// Security: Prevents API key exposure in logs (CWE-312, CWE-315, CWE-359).
+// Returns "[empty]" for empty strings, "[REDACTED]" for keys shorter than 16 characters.
+func maskAPIKey(key string) string {
+	if key == "" {
+		return "[empty]"
+	}
+	if len(key) < 16 {
+		return "[REDACTED]"
+	}
+	return fmt.Sprintf("%s...%s", key[:4], key[len(key)-4:])
+}
+
+// validateAPIKeyFormat validates the API key format for security.
+// Security: Ensures API keys meet minimum security standards.
+// Returns true if key is 16-128 chars and contains only alphanumeric, underscore, or hyphen.
+func validateAPIKeyFormat(key string) bool {
+	if len(key) < 16 || len(key) > 128 {
+		return false
+	}
+	// Only allow alphanumeric, underscore, and hyphen
+	for _, ch := range key {
+		// Apply De Morgan's law for better readability
+		if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') &&
+			(ch < '0' || ch > '9') && ch != '_' && ch != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+// logBouncerKeyBanner logs the bouncer key with a formatted banner.
+// Security: API key is masked to prevent exposure in logs (CWE-312).
+func (h *CrowdsecHandler) logBouncerKeyBanner(apiKey string) {
+	banner := `
+════════════════════════════════════════════════════════════════════
+🔐 CrowdSec Bouncer Registered Successfully
+────────────────────────────────────────────────────────────────────
+Bouncer Name: %s
+API Key:      %s
+Saved To:     %s
+────────────────────────────────────────────────────────────────────
+⚠️  SECURITY: Full API key saved to file (permissions: 0600)
+💡 TIP: If connecting to an EXTERNAL CrowdSec instance, copy this
+   key to your docker-compose.yml as CHARON_SECURITY_CROWDSEC_API_KEY
+🔄 ROTATE: Change API keys regularly and never commit to version control
+════════════════════════════════════════════════════════════════════`
+	// Security: Mask API key to prevent cleartext exposure in logs
+	maskedKey := maskAPIKey(apiKey)
+	logger.Log().Infof(banner, bouncerName, maskedKey, bouncerKeyFile)
+}
+
+// getBouncerAPIKeyFromEnv retrieves the bouncer API key from environment variables.
+func getBouncerAPIKeyFromEnv() string {
+	envVars := []string{
+		"CROWDSEC_API_KEY",
+		"CROWDSEC_BOUNCER_API_KEY",
+		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
+		"CHARON_SECURITY_CROWDSEC_API_KEY",
+		"CPM_SECURITY_CROWDSEC_API_KEY",
+	}
+	for _, key := range envVars {
+		if val := os.Getenv(key); val != "" {
+			return val
+		}
+	}
+	return ""
+}
+
+// readKeyFromFile reads the bouncer key from a file and returns trimmed content.
+func readKeyFromFile(path string) string {
+	// #nosec G304 -- path is a constant defined at compile time (bouncerKeyFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// saveKeyToFile saves the bouncer key to a file with secure permissions.
+// Uses atomic write pattern (temp file → rename) to prevent corruption.
+func saveKeyToFile(path string, key string) error {
+	if key == "" {
+		return fmt.Errorf("cannot save empty key")
+	}
+
+	// Ensure directory exists with proper permissions
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create key directory: %w", err)
+	}
+
+	// Atomic write: temp file → rename
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, []byte(key+"\n"), 0600); err != nil {
+		return fmt.Errorf("failed to write key file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		if removeErr := os.Remove(tmpPath); removeErr != nil {
+			logger.Log().WithError(removeErr).Warn("Failed to clean up temporary key file")
+		}
+		return fmt.Errorf("failed to finalize key file: %w", err)
+	}
+
+	return nil
+}
+
+// GetBouncerInfo returns information about the current bouncer key.
+// GET /api/v1/admin/crowdsec/bouncer
+func (h *CrowdsecHandler) GetBouncerInfo(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	info := BouncerInfo{
+		Name:     bouncerName,
+		FilePath: bouncerKeyFile,
+	}
+
+	// Determine key source
+	envKey := getBouncerAPIKeyFromEnv()
+	fileKey := readKeyFromFile(bouncerKeyFile)
+
+	var fullKey string
+	if envKey != "" {
+		info.KeySource = "env_var"
+		fullKey = envKey
+	} else if fileKey != "" {
+		info.KeySource = "file"
+		fullKey = fileKey
+	} else {
+		info.KeySource = "none"
+	}
+
+	// Generate preview (first 4 + "..." + last 3 chars)
+	if fullKey != "" && len(fullKey) > 7 {
+		info.KeyPreview = fullKey[:4] + "..." + fullKey[len(fullKey)-3:]
+	} else if fullKey != "" {
+		info.KeyPreview = "***"
+	}
+
+	// Check if bouncer is registered
+	info.Registered = h.validateBouncerKey(ctx)
+
+	c.JSON(http.StatusOK, info)
+}
+
+// GetBouncerKey returns the full bouncer key (for copy to clipboard).
+// GET /api/v1/admin/crowdsec/bouncer/key
+func (h *CrowdsecHandler) GetBouncerKey(c *gin.Context) {
+	envKey := getBouncerAPIKeyFromEnv()
+	if envKey != "" {
+		c.JSON(http.StatusOK, gin.H{"key": envKey, "source": "env_var"})
+		return
+	}
+
+	fileKey := readKeyFromFile(bouncerKeyFile)
+	if fileKey != "" {
+		c.JSON(http.StatusOK, gin.H{"key": fileKey, "source": "file"})
+		return
+	}
+
+	c.JSON(http.StatusNotFound, gin.H{"error": "No bouncer key configured"})
+}
+
 // CheckLAPIHealth verifies that CrowdSec LAPI is responding.
 func (h *CrowdsecHandler) CheckLAPIHealth(c *gin.Context) {
 	// Get LAPI URL from security config or use default
@@ -1545,6 +2349,240 @@ func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
 	})
 }
 
+// DiagnosticsConnectivity verifies connectivity to all CrowdSec components.
+// GET /api/v1/admin/crowdsec/diagnostics/connectivity
+func (h *CrowdsecHandler) DiagnosticsConnectivity(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	checks := map[string]interface{}{
+		"lapi_running":      false,
+		"lapi_ready":        false,
+		"capi_registered":   false,
+		"capi_reachable":    false,
+		"console_enrolled":  false,
+		"console_reachable": false,
+	}
+
+	// Check 1: LAPI running
+	running, pid, _ := h.Executor.Status(ctx, h.DataDir)
+	checks["lapi_running"] = running
+	if pid > 0 {
+		checks["lapi_pid"] = pid
+	}
+
+	// Check 2: LAPI ready (responds to cscli lapi status)
+	if running {
+		args := []string{"lapi", "status"}
+		configPath := filepath.Join(h.DataDir, "config", "config.yaml")
+		if _, err := os.Stat(configPath); err == nil {
+			args = append([]string{"-c", configPath}, args...)
+		} else {
+			// Fallback to root config
+			configPath = filepath.Join(h.DataDir, "config.yaml")
+			if _, err := os.Stat(configPath); err == nil {
+				args = append([]string{"-c", configPath}, args...)
+			}
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, err := h.CmdExec.Execute(checkCtx, "cscli", args...)
+		cancel()
+		checks["lapi_ready"] = (err == nil)
+	}
+
+	// Check 3: CAPI registered (online_api_credentials.yaml exists)
+	credsPath := filepath.Join(h.DataDir, "config", "online_api_credentials.yaml")
+	if _, err := os.Stat(credsPath); os.IsNotExist(err) {
+		// Fallback to root location
+		credsPath = filepath.Join(h.DataDir, "online_api_credentials.yaml")
+	}
+	checks["capi_registered"] = fileExists(credsPath)
+
+	// Check 4: CAPI reachable (cscli capi status)
+	if checks["capi_registered"].(bool) {
+		args := []string{"capi", "status"}
+		configPath := filepath.Join(h.DataDir, "config", "config.yaml")
+		if _, err := os.Stat(configPath); err == nil {
+			args = append([]string{"-c", configPath}, args...)
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		out, err := h.CmdExec.Execute(checkCtx, "cscli", args...)
+		cancel()
+		checks["capi_reachable"] = (err == nil)
+		if err == nil {
+			checks["capi_status_output"] = strings.TrimSpace(string(out))
+		}
+	}
+
+	// Check 5: Console enrolled
+	if h.Console != nil {
+		status, err := h.Console.Status(ctx)
+		if err == nil {
+			checks["console_enrolled"] = (status.Status == "enrolled" || status.Status == "pending_acceptance")
+			checks["console_status"] = status.Status
+			if status.AgentName != "" {
+				checks["console_agent_name"] = status.AgentName
+			}
+		}
+	}
+
+	// Check 6: Console API reachable (ping crowdsec.net with 5s timeout)
+	consoleURL := "https://api.crowdsec.net/health"
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, consoleURL, http.NoBody)
+	if err == nil {
+		resp, respErr := client.Do(req)
+		if respErr == nil {
+			defer func() {
+				if closeErr := resp.Body.Close(); closeErr != nil {
+					logger.Log().WithError(closeErr).Warn("Failed to close response body")
+				}
+			}()
+			checks["console_reachable"] = (resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent)
+		} else {
+			checks["console_reachable"] = false
+			checks["console_error"] = respErr.Error()
+		}
+	}
+
+	c.JSON(http.StatusOK, checks)
+}
+
+// DiagnosticsConfig validates CrowdSec configuration files.
+// GET /api/v1/admin/crowdsec/diagnostics/config
+func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	validation := map[string]interface{}{
+		"config_exists": false,
+		"config_valid":  false,
+		"acquis_exists": false,
+		"acquis_valid":  false,
+		"lapi_port":     "",
+		"errors":        []string{},
+	}
+
+	errors := []string{}
+
+	// Check config.yaml - try config subdirectory first, then root
+	configPath := filepath.Join(h.DataDir, "config", "config.yaml")
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		configPath = filepath.Join(h.DataDir, "config.yaml")
+	}
+
+	// Path traversal protection: ensure path is within DataDir
+	cleanConfigPath := filepath.Clean(configPath)
+	cleanDataDir := filepath.Clean(h.DataDir)
+	if !strings.HasPrefix(cleanConfigPath, cleanDataDir) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config path"})
+		return
+	}
+
+	if _, err := os.Stat(cleanConfigPath); err == nil {
+		validation["config_exists"] = true
+		validation["config_path"] = cleanConfigPath
+
+		// Read config and check LAPI port
+		// #nosec G304 -- Path validated against DataDir above
+		content, err := os.ReadFile(cleanConfigPath)
+		if err == nil {
+			configStr := string(content)
+			// Extract LAPI port from listen_uri
+			re := regexp.MustCompile(`listen_uri:\s*127\.0\.0\.1:(\d+)`)
+			matches := re.FindStringSubmatch(configStr)
+			if len(matches) > 1 {
+				validation["lapi_port"] = matches[1]
+			}
+		}
+
+		// Validate using cscli config check
+		checkArgs := []string{"-c", cleanConfigPath, "config", "check"}
+		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		out, err := h.CmdExec.Execute(checkCtx, "cscli", checkArgs...)
+		cancel()
+		if err == nil {
+			validation["config_valid"] = true
+		} else {
+			validation["config_valid"] = false
+			errors = append(errors, fmt.Sprintf("config.yaml validation failed: %s", strings.TrimSpace(string(out))))
+		}
+	} else {
+		errors = append(errors, "config.yaml not found")
+	}
+
+	// Check acquis.yaml - try config subdirectory first, then root
+	acquisPath := filepath.Join(h.DataDir, "config", "acquis.yaml")
+	if _, err := os.Stat(acquisPath); os.IsNotExist(err) {
+		acquisPath = filepath.Join(h.DataDir, "acquis.yaml")
+	}
+
+	// Path traversal protection
+	cleanAcquisPath := filepath.Clean(acquisPath)
+	if !strings.HasPrefix(cleanAcquisPath, cleanDataDir) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid acquis path"})
+		return
+	}
+
+	if _, err := os.Stat(cleanAcquisPath); err == nil {
+		validation["acquis_exists"] = true
+		validation["acquis_path"] = cleanAcquisPath
+
+		// Check if it has datasources
+		// #nosec G304 -- Path validated against DataDir above
+		content, err := os.ReadFile(cleanAcquisPath)
+		if err == nil {
+			acquisStr := string(content)
+			if strings.Contains(acquisStr, "source:") && (strings.Contains(acquisStr, "filenames:") || strings.Contains(acquisStr, "filename:")) {
+				validation["acquis_valid"] = true
+			} else {
+				validation["acquis_valid"] = false
+				errors = append(errors, "acquis.yaml missing datasource configuration (expected 'source:' and 'filenames:' or 'filename:')")
+			}
+		}
+	} else {
+		errors = append(errors, "acquis.yaml not found")
+	}
+
+	validation["errors"] = errors
+
+	c.JSON(http.StatusOK, validation)
+}
+
+// ConsoleHeartbeat returns the current heartbeat status for console.
+// GET /api/v1/admin/crowdsec/console/heartbeat
+func (h *CrowdsecHandler) ConsoleHeartbeat(c *gin.Context) {
+	if !h.isConsoleEnrollmentEnabled() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "console enrollment disabled"})
+		return
+	}
+	if h.Console == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "console service unavailable"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	status, err := h.Console.Status(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Return heartbeat-specific information
+	c.JSON(http.StatusOK, gin.H{
+		"status":                         status.Status,
+		"last_heartbeat_at":              status.LastHeartbeatAt,
+		"heartbeat_tracking_implemented": false,
+		"note":                           "Full heartbeat tracking is planned for Phase 3. Currently shows last_heartbeat_at from database if set.",
+		"agent_name":                     status.AgentName,
+		"enrolled_at":                    status.EnrolledAt,
+	})
+}
+
+// fileExists is a helper to check if a file exists
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // RegisterRoutes registers crowdsec admin routes under protected group
 func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/admin/crowdsec/start", h.Start)
@@ -1562,14 +2600,21 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/admin/crowdsec/console/enroll", h.ConsoleEnroll)
 	rg.GET("/admin/crowdsec/console/status", h.ConsoleStatus)
 	rg.DELETE("/admin/crowdsec/console/enrollment", h.DeleteConsoleEnrollment)
+	// Diagnostic endpoints (Phase 1)
+	rg.GET("/admin/crowdsec/diagnostics/connectivity", h.DiagnosticsConnectivity)
+	rg.GET("/admin/crowdsec/diagnostics/config", h.DiagnosticsConfig)
+	rg.GET("/admin/crowdsec/console/heartbeat", h.ConsoleHeartbeat)
 	// Decision management endpoints (Banned IP Dashboard)
 	rg.GET("/admin/crowdsec/decisions", h.ListDecisions)
 	rg.GET("/admin/crowdsec/decisions/lapi", h.GetLAPIDecisions)
 	rg.GET("/admin/crowdsec/lapi/health", h.CheckLAPIHealth)
 	rg.POST("/admin/crowdsec/ban", h.BanIP)
 	rg.DELETE("/admin/crowdsec/ban/:ip", h.UnbanIP)
-	// Bouncer registration endpoint
+	// Bouncer management endpoints (auto-registration)
+	rg.GET("/admin/crowdsec/bouncer", h.GetBouncerInfo)
+	rg.GET("/admin/crowdsec/bouncer/key", h.GetBouncerKey)
 	rg.POST("/admin/crowdsec/bouncer/register", h.RegisterBouncer)
+	rg.GET("/admin/crowdsec/key-status", h.GetKeyStatus)
 	// Acquisition configuration endpoints
 	rg.GET("/admin/crowdsec/acquisition", h.GetAcquisitionConfig)
 	rg.PUT("/admin/crowdsec/acquisition", h.UpdateAcquisitionConfig)

@@ -3,8 +3,8 @@
   "Trivy": {
     "Version": "0.69.0"
   },
-  "ReportID": "019c1bce-57f1-7ea8-b0dd-c00790adcd6a",
-  "CreatedAt": "2026-02-02T00:43:53.713964056Z",
+  "ReportID": "019c226e-2330-76c4-96ac-7e89c916af61",
+  "CreatedAt": "2026-02-03T07:36:09.264448838Z",
   "ArtifactName": ".",
   "ArtifactType": "filesystem",
   "Results": [
@@ -377,7 +377,7 @@
           "Name": "date-fns",
           "Identifier": {
             "PURL": "pkg:npm/date-fns@4.1.0",
-            "UID": "884b0fc055f10cdd"
+            "UID": "66ae05a6ab34e05a"
           },
           "Version": "4.1.0",
           "Licenses": [
@@ -386,8 +386,8 @@
           "Relationship": "direct",
           "Locations": [
             {
-              "StartLine": 4398,
-              "EndLine": 4407
+              "StartLine": 4388,
+              "EndLine": 4397
             }
           ],
           "AnalyzedBy": "npm"
@@ -397,7 +397,7 @@
           "Name": "i18next",
           "Identifier": {
             "PURL": "pkg:npm/i18next@25.8.0",
-            "UID": "7c4c6ff6cc7a5dc4"
+            "UID": "cf88584baa8e215d"
           },
           "Version": "25.8.0",
           "Licenses": [
@@ -410,8 +410,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 5395,
-              "EndLine": 5426
+              "StartLine": 5385,
+              "EndLine": 5416
             }
           ],
           "AnalyzedBy": "npm"
@@ -421,7 +421,7 @@
           "Name": "i18next-browser-languagedetector",
           "Identifier": {
             "PURL": "pkg:npm/i18next-browser-languagedetector@8.2.0",
-            "UID": "7bb50dc0c16f3c4f"
+            "UID": "42f78ae517a78a58"
           },
           "Version": "8.2.0",
           "Licenses": [
@@ -433,8 +433,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 5427,
-              "EndLine": 5435
+              "StartLine": 5417,
+              "EndLine": 5425
             }
           ],
           "AnalyzedBy": "npm"
@@ -444,7 +444,7 @@
           "Name": "lucide-react",
           "Identifier": {
             "PURL": "pkg:npm/lucide-react@0.563.0",
-            "UID": "1a6d1a4dfa96e8de"
+            "UID": "5211ef47e26683ad"
           },
           "Version": "0.563.0",
           "Licenses": [
@@ -456,8 +456,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 6077,
-              "EndLine": 6085
+              "StartLine": 6067,
+              "EndLine": 6075
             }
           ],
           "AnalyzedBy": "npm"
@@ -467,7 +467,7 @@
           "Name": "react",
           "Identifier": {
             "PURL": "pkg:npm/react@19.2.4",
-            "UID": "855cbca4eaf57aa6"
+            "UID": "9f712b6f820b9731"
           },
           "Version": "19.2.4",
           "Licenses": [
@@ -476,8 +476,8 @@
           "Relationship": "direct",
           "Locations": [
             {
-              "StartLine": 6604,
-              "EndLine": 6613
+              "StartLine": 6594,
+              "EndLine": 6603
             }
           ],
           "AnalyzedBy": "npm"
@@ -487,7 +487,7 @@
           "Name": "react-dom",
           "Identifier": {
             "PURL": "pkg:npm/react-dom@19.2.4",
-            "UID": "88eb1d694321fbed"
+            "UID": "bb258f6a7d43d423"
           },
           "Version": "19.2.4",
           "Licenses": [
@@ -500,8 +500,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 6614,
-              "EndLine": 6626
+              "StartLine": 6604,
+              "EndLine": 6616
             }
           ],
           "AnalyzedBy": "npm"
@@ -511,7 +511,7 @@
           "Name": "react-hook-form",
           "Identifier": {
             "PURL": "pkg:npm/react-hook-form@7.71.1",
-            "UID": "77101e20a2e766bd"
+            "UID": "26657421be5cd95d"
           },
           "Version": "7.71.1",
           "Licenses": [
@@ -523,8 +523,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 6627,
-              "EndLine": 6642
+              "StartLine": 6617,
+              "EndLine": 6632
             }
           ],
           "AnalyzedBy": "npm"
@@ -534,7 +534,7 @@
           "Name": "react-hot-toast",
           "Identifier": {
             "PURL": "pkg:npm/react-hot-toast@2.6.0",
-            "UID": "54c24742781a9292"
+            "UID": "1b5f5181759d366b"
           },
           "Version": "2.6.0",
           "Licenses": [
@@ -549,8 +549,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 6643,
-              "EndLine": 6659
+              "StartLine": 6633,
+              "EndLine": 6649
             }
           ],
           "AnalyzedBy": "npm"
@@ -560,7 +560,7 @@
           "Name": "react-i18next",
           "Identifier": {
             "PURL": "pkg:npm/react-i18next@16.5.4",
-            "UID": "bf3cc08510a4bd8"
+            "UID": "1f92d8aa9ce37e3f"
           },
           "Version": "16.5.4",
           "Licenses": [
@@ -577,8 +577,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 6660,
-              "EndLine": 6686
+              "StartLine": 6650,
+              "EndLine": 6676
             }
           ],
           "AnalyzedBy": "npm"
@@ -588,7 +588,7 @@
           "Name": "react-router-dom",
           "Identifier": {
             "PURL": "pkg:npm/react-router-dom@7.13.0",
-            "UID": "1da7d7d6d0c35ae0"
+            "UID": "e2bad973cb2674db"
           },
           "Version": "7.13.0",
           "Licenses": [
@@ -602,8 +602,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 6773,
-              "EndLine": 6788
+              "StartLine": 6763,
+              "EndLine": 6778
             }
           ],
           "AnalyzedBy": "npm"
@@ -613,7 +613,7 @@
           "Name": "tailwind-merge",
           "Identifier": {
             "PURL": "pkg:npm/tailwind-merge@3.4.0",
-            "UID": "8d386bd17a27a80e"
+            "UID": "ac8f66a9704cf799"
           },
           "Version": "3.4.0",
           "Licenses": [
@@ -622,8 +622,8 @@
           "Relationship": "direct",
           "Locations": [
             {
-              "StartLine": 7091,
-              "EndLine": 7100
+              "StartLine": 7081,
+              "EndLine": 7090
             }
           ],
           "AnalyzedBy": "npm"
@@ -633,7 +633,7 @@
           "Name": "tldts",
           "Identifier": {
             "PURL": "pkg:npm/tldts@7.0.21",
-            "UID": "58093751fb82bf5c"
+            "UID": "7551629308696c9c"
           },
           "Version": "7.0.21",
           "Licenses": [
@@ -645,8 +645,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 7166,
-              "EndLine": 7177
+              "StartLine": 7156,
+              "EndLine": 7167
             }
           ],
           "AnalyzedBy": "npm"
@@ -656,7 +656,7 @@
           "Name": "typescript",
           "Identifier": {
             "PURL": "pkg:npm/typescript@5.9.3",
-            "UID": "c243ec754eae1ef3"
+            "UID": "4cd37def2f79133"
           },
           "Version": "5.9.3",
           "Licenses": [
@@ -665,8 +665,8 @@
           "Relationship": "direct",
           "Locations": [
             {
-              "StartLine": 7265,
-              "EndLine": 7279
+              "StartLine": 7255,
+              "EndLine": 7269
             }
           ],
           "AnalyzedBy": "npm"
@@ -1758,7 +1758,7 @@
           "Name": "delayed-stream",
           "Identifier": {
             "PURL": "pkg:npm/delayed-stream@1.0.0",
-            "UID": "74b5ea9cecf60b6d"
+            "UID": "a9c0600e06eac5bd"
           },
           "Version": "1.0.0",
           "Licenses": [
@@ -1768,8 +1768,8 @@
           "Relationship": "indirect",
           "Locations": [
             {
-              "StartLine": 4440,
-              "EndLine": 4448
+              "StartLine": 4430,
+              "EndLine": 4438
             }
           ],
           "AnalyzedBy": "npm"
@@ -1779,7 +1779,7 @@
           "Name": "detect-node-es",
           "Identifier": {
             "PURL": "pkg:npm/detect-node-es@1.1.0",
-            "UID": "265f6233a0afaf02"
+            "UID": "161a75c4e924b135"
           },
           "Version": "1.1.0",
           "Licenses": [
@@ -1789,8 +1789,8 @@
           "Relationship": "indirect",
           "Locations": [
             {
-              "StartLine": 4469,
-              "EndLine": 4474
+              "StartLine": 4459,
+              "EndLine": 4464
             }
           ],
           "AnalyzedBy": "npm"
@@ -1800,7 +1800,7 @@
           "Name": "dunder-proto",
           "Identifier": {
             "PURL": "pkg:npm/dunder-proto@1.0.1",
-            "UID": "fcec93c02e429bcc"
+            "UID": "ec1fe7783d720190"
           },
           "Version": "1.0.1",
           "Licenses": [
@@ -1815,8 +1815,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 4482,
-              "EndLine": 4495
+              "StartLine": 4472,
+              "EndLine": 4485
             }
           ],
           "AnalyzedBy": "npm"
@@ -1826,7 +1826,7 @@
           "Name": "es-define-property",
           "Identifier": {
             "PURL": "pkg:npm/es-define-property@1.0.1",
-            "UID": "2920bb5e9822bf0f"
+            "UID": "eebb7a8d37c24239"
           },
           "Version": "1.0.1",
           "Licenses": [
@@ -1836,8 +1836,8 @@
           "Relationship": "indirect",
           "Locations": [
             {
-              "StartLine": 4530,
-              "EndLine": 4538
+              "StartLine": 4520,
+              "EndLine": 4528
             }
           ],
           "AnalyzedBy": "npm"
@@ -1847,7 +1847,7 @@
           "Name": "es-errors",
           "Identifier": {
             "PURL": "pkg:npm/es-errors@1.3.0",
-            "UID": "1175edd22a0e4913"
+            "UID": "b285ebd74effc005"
           },
           "Version": "1.3.0",
           "Licenses": [
@@ -1857,8 +1857,8 @@
           "Relationship": "indirect",
           "Locations": [
             {
-              "StartLine": 4539,
-              "EndLine": 4547
+              "StartLine": 4529,
+              "EndLine": 4537
             }
           ],
           "AnalyzedBy": "npm"
@@ -1868,7 +1868,7 @@
           "Name": "es-object-atoms",
           "Identifier": {
             "PURL": "pkg:npm/es-object-atoms@1.1.1",
-            "UID": "209a5c2557f1cff6"
+            "UID": "5ae51a69d2f5f165"
           },
           "Version": "1.1.1",
           "Licenses": [
@@ -1881,8 +1881,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 4555,
-              "EndLine": 4566
+              "StartLine": 4545,
+              "EndLine": 4556
             }
           ],
           "AnalyzedBy": "npm"
@@ -1892,7 +1892,7 @@
           "Name": "es-set-tostringtag",
           "Identifier": {
             "PURL": "pkg:npm/es-set-tostringtag@2.1.0",
-            "UID": "85abb1b27d8269f5"
+            "UID": "9d20dbf97bb73639"
           },
           "Version": "2.1.0",
           "Licenses": [
@@ -1908,8 +1908,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 4567,
-              "EndLine": 4581
+              "StartLine": 4557,
+              "EndLine": 4571
             }
           ],
           "AnalyzedBy": "npm"
@@ -1919,7 +1919,7 @@
           "Name": "follow-redirects",
           "Identifier": {
             "PURL": "pkg:npm/follow-redirects@1.15.11",
-            "UID": "7b30dce9c3d8348d"
+            "UID": "aa143347a2eef503"
           },
           "Version": "1.15.11",
           "Licenses": [
@@ -1929,8 +1929,8 @@
           "Relationship": "indirect",
           "Locations": [
             {
-              "StartLine": 5072,
-              "EndLine": 5091
+              "StartLine": 5062,
+              "EndLine": 5081
             }
           ],
           "AnalyzedBy": "npm"
@@ -1940,7 +1940,7 @@
           "Name": "form-data",
           "Identifier": {
             "PURL": "pkg:npm/form-data@4.0.5",
-            "UID": "19151b49ec06d541"
+            "UID": "1af502aab8e79fbe"
           },
           "Version": "4.0.5",
           "Licenses": [
@@ -1957,8 +1957,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 5092,
-              "EndLine": 5107
+              "StartLine": 5082,
+              "EndLine": 5097
             }
           ],
           "AnalyzedBy": "npm"
@@ -1968,7 +1968,7 @@
           "Name": "function-bind",
           "Identifier": {
             "PURL": "pkg:npm/function-bind@1.1.2",
-            "UID": "755ef2346e8775a6"
+            "UID": "90e8bf9b6f374810"
           },
           "Version": "1.1.2",
           "Licenses": [
@@ -1978,8 +1978,8 @@
           "Relationship": "indirect",
           "Locations": [
             {
-              "StartLine": 5153,
-              "EndLine": 5161
+              "StartLine": 5143,
+              "EndLine": 5151
             }
           ],
           "AnalyzedBy": "npm"
@@ -1989,7 +1989,7 @@
           "Name": "get-intrinsic",
           "Identifier": {
             "PURL": "pkg:npm/get-intrinsic@1.3.0",
-            "UID": "5ea1f472bee829e7"
+            "UID": "5b14ee4a6e78ae12"
           },
           "Version": "1.3.0",
           "Licenses": [
@@ -2011,8 +2011,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 5172,
-              "EndLine": 5195
+              "StartLine": 5162,
+              "EndLine": 5185
             }
           ],
           "AnalyzedBy": "npm"
@@ -2022,7 +2022,7 @@
           "Name": "get-nonce",
           "Identifier": {
             "PURL": "pkg:npm/get-nonce@1.0.1",
-            "UID": "b959b656744d771e"
+            "UID": "8d2aab17371e7d02"
           },
           "Version": "1.0.1",
           "Licenses": [
@@ -2032,8 +2032,8 @@
           "Relationship": "indirect",
           "Locations": [
             {
-              "StartLine": 5196,
-              "EndLine": 5204
+              "StartLine": 5186,
+              "EndLine": 5194
             }
           ],
           "AnalyzedBy": "npm"
@@ -2043,7 +2043,7 @@
           "Name": "get-proto",
           "Identifier": {
             "PURL": "pkg:npm/get-proto@1.0.1",
-            "UID": "8eabdb84392a6e5f"
+            "UID": "149d8b827bc943b9"
           },
           "Version": "1.0.1",
           "Licenses": [
@@ -2057,8 +2057,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 5205,
-              "EndLine": 5217
+              "StartLine": 5195,
+              "EndLine": 5207
             }
           ],
           "AnalyzedBy": "npm"
@@ -2068,7 +2068,7 @@
           "Name": "goober",
           "Identifier": {
             "PURL": "pkg:npm/goober@2.1.18",
-            "UID": "5885d5e87c1742ff"
+            "UID": "e7e271bf5a844429"
           },
           "Version": "2.1.18",
           "Licenses": [
@@ -2081,8 +2081,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 5244,
-              "EndLine": 5252
+              "StartLine": 5234,
+              "EndLine": 5242
             }
           ],
           "AnalyzedBy": "npm"
@@ -2092,7 +2092,7 @@
           "Name": "gopd",
           "Identifier": {
             "PURL": "pkg:npm/gopd@1.2.0",
-            "UID": "479dd7958612ba61"
+            "UID": "e18cd2fbc05d7125"
           },
           "Version": "1.2.0",
           "Licenses": [
@@ -2102,8 +2102,8 @@
           "Relationship": "indirect",
           "Locations": [
             {
-              "StartLine": 5253,
-              "EndLine": 5264
+              "StartLine": 5243,
+              "EndLine": 5254
             }
           ],
           "AnalyzedBy": "npm"
@@ -2113,7 +2113,7 @@
           "Name": "has-symbols",
           "Identifier": {
             "PURL": "pkg:npm/has-symbols@1.1.0",
-            "UID": "a895d3b793238cff"
+            "UID": "a283c02c49d3f252"
           },
           "Version": "1.1.0",
           "Licenses": [
@@ -2123,8 +2123,8 @@
           "Relationship": "indirect",
           "Locations": [
             {
-              "StartLine": 5282,
-              "EndLine": 5293
+              "StartLine": 5272,
+              "EndLine": 5283
             }
           ],
           "AnalyzedBy": "npm"
@@ -2134,7 +2134,7 @@
           "Name": "has-tostringtag",
           "Identifier": {
             "PURL": "pkg:npm/has-tostringtag@1.0.2",
-            "UID": "c4813993a6a7c0ac"
+            "UID": "c58b38a8a467e7a0"
           },
           "Version": "1.0.2",
           "Licenses": [
@@ -2147,8 +2147,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 5294,
-              "EndLine": 5308
+              "StartLine": 5284,
+              "EndLine": 5298
             }
           ],
           "AnalyzedBy": "npm"
@@ -2158,7 +2158,7 @@
           "Name": "hasown",
           "Identifier": {
             "PURL": "pkg:npm/hasown@2.0.2",
-            "UID": "9757d3e95ca2c091"
+            "UID": "53141c08f7de74ad"
           },
           "Version": "2.0.2",
           "Licenses": [
@@ -2171,8 +2171,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 5309,
-              "EndLine": 5320
+              "StartLine": 5299,
+              "EndLine": 5310
             }
           ],
           "AnalyzedBy": "npm"
@@ -2182,7 +2182,7 @@
           "Name": "html-parse-stringify",
           "Identifier": {
             "PURL": "pkg:npm/html-parse-stringify@3.0.1",
-            "UID": "20090dd24550bb7a"
+            "UID": "ff269be2c011e325"
           },
           "Version": "3.0.1",
           "Licenses": [
@@ -2195,8 +2195,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 5358,
-              "EndLine": 5366
+              "StartLine": 5348,
+              "EndLine": 5356
             }
           ],
           "AnalyzedBy": "npm"
@@ -2206,7 +2206,7 @@
           "Name": "math-intrinsics",
           "Identifier": {
             "PURL": "pkg:npm/math-intrinsics@1.1.0",
-            "UID": "f822aea6774efa46"
+            "UID": "adba356acaabd534"
           },
           "Version": "1.1.0",
           "Licenses": [
@@ -2216,8 +2216,8 @@
           "Relationship": "indirect",
           "Locations": [
             {
-              "StartLine": 6134,
-              "EndLine": 6142
+              "StartLine": 6124,
+              "EndLine": 6132
             }
           ],
           "AnalyzedBy": "npm"
@@ -2227,7 +2227,7 @@
           "Name": "mime-db",
           "Identifier": {
             "PURL": "pkg:npm/mime-db@1.52.0",
-            "UID": "c5f3f0d742431278"
+            "UID": "47929c1afc0da451"
           },
           "Version": "1.52.0",
           "Licenses": [
@@ -2237,8 +2237,8 @@
           "Relationship": "indirect",
           "Locations": [
             {
-              "StartLine": 6187,
-              "EndLine": 6195
+              "StartLine": 6177,
+              "EndLine": 6185
             }
           ],
           "AnalyzedBy": "npm"
@@ -2248,7 +2248,7 @@
           "Name": "mime-types",
           "Identifier": {
             "PURL": "pkg:npm/mime-types@2.1.35",
-            "UID": "3eda74cd0241e274"
+            "UID": "7a5ef7b10bc742b7"
           },
           "Version": "2.1.35",
           "Licenses": [
@@ -2261,8 +2261,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 6196,
-              "EndLine": 6207
+              "StartLine": 6186,
+              "EndLine": 6197
             }
           ],
           "AnalyzedBy": "npm"
@@ -2272,7 +2272,7 @@
           "Name": "proxy-from-env",
           "Identifier": {
             "PURL": "pkg:npm/proxy-from-env@1.1.0",
-            "UID": "77c5b9125b43951"
+            "UID": "145e2df05b647264"
           },
           "Version": "1.1.0",
           "Licenses": [
@@ -2282,8 +2282,8 @@
           "Relationship": "indirect",
           "Locations": [
             {
-              "StartLine": 6567,
-              "EndLine": 6572
+              "StartLine": 6557,
+              "EndLine": 6562
             }
           ],
           "AnalyzedBy": "npm"
@@ -2293,7 +2293,7 @@
           "Name": "react-remove-scroll",
           "Identifier": {
             "PURL": "pkg:npm/react-remove-scroll@2.7.2",
-            "UID": "bf7238a76bf756d9"
+            "UID": "7569416ee7cb249d"
           },
           "Version": "2.7.2",
           "Licenses": [
@@ -2312,8 +2312,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 6704,
-              "EndLine": 6728
+              "StartLine": 6694,
+              "EndLine": 6718
             }
           ],
           "AnalyzedBy": "npm"
@@ -2323,7 +2323,7 @@
           "Name": "react-remove-scroll-bar",
           "Identifier": {
             "PURL": "pkg:npm/react-remove-scroll-bar@2.3.8",
-            "UID": "6e47ce6e30dd06d3"
+            "UID": "1646d25aaaaa204d"
           },
           "Version": "2.3.8",
           "Licenses": [
@@ -2339,8 +2339,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 6729,
-              "EndLine": 6750
+              "StartLine": 6719,
+              "EndLine": 6740
             }
           ],
           "AnalyzedBy": "npm"
@@ -2350,7 +2350,7 @@
           "Name": "react-router",
           "Identifier": {
             "PURL": "pkg:npm/react-router@7.13.0",
-            "UID": "72c9597ad977f0ca"
+            "UID": "961c09ee47ec433b"
           },
           "Version": "7.13.0",
           "Licenses": [
@@ -2366,8 +2366,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 6751,
-              "EndLine": 6772
+              "StartLine": 6741,
+              "EndLine": 6762
             }
           ],
           "AnalyzedBy": "npm"
@@ -2377,7 +2377,7 @@
           "Name": "react-style-singleton",
           "Identifier": {
             "PURL": "pkg:npm/react-style-singleton@2.2.3",
-            "UID": "e8e674f1be9b73f3"
+            "UID": "ab151a7dc3eba233"
           },
           "Version": "2.2.3",
           "Licenses": [
@@ -2393,8 +2393,8 @@
           ],
           "Locations": [
             {
-              "StartLine": 6789,
-              "EndLine": 6810
+              "StartLine": 6779,
+              "EndLine": 6800
             }
           ],
           "AnalyzedBy": "npm"
@@ -2404,7 +2404,7 @@
           "Name": "scheduler",
           "Identifier": {
             "PURL": "pkg:npm/scheduler@0.27.0",
-            "UID": "563d2e9b10b482a3"
+            "UID": "93896fdc142d8487"
           },
           "Version": "0.27.0",
           "Licenses": [
@@ -2414,8 +2414,8 @@
           "Relationship": "indirect",
           "Locations": [
             {
-              "StartLine": 6938,
-              "EndLine": 6943
+              "StartLine": 6928,
+              "EndLine": 6933
             }
           ],
           "AnalyzedBy": "npm"
@@ -2425,7 +2425,7 @@
           "Name": "set-cookie-parser",
           "Identifier": {
             "PURL": "pkg:npm/set-cookie-parser@2.7.2",
-            "UID": "79450af7b8ffd6d4"
+            "UID": "b98c94ead75f3d5a"
           },
           "Version": "2.7.2",
           "Licenses": [
@@ -2435,8 +2435,8 @@
           "Relationship": "indirect",
           "Locations": [
             {
-              "StartLine": 6957,
-              "EndLine": 6962
+              "StartLine": 6947,
+              "EndLine": 6952
             }
           ],
           "AnalyzedBy": "npm"
@@ -2446,7 +2446,7 @@
           "Name": "tldts-core",
           "Identifier": {
             "PURL": "pkg:npm/tldts-core@7.0.21",
-            "UID": "bb66e3c92d7fc874"
+            "UID": "4988099281d4455e"
           },
           "Version": "7.0.21",
           "Licenses": [
@@ -2456,8 +2456,8 @@
           "Relationship": "indirect",
           "Locations": [
             {
-              "StartLine": 7178,
-              "EndLine": 7183
+              "StartLine": 7168,
+              "EndLine": 7173
             }
           ],
           "AnalyzedBy": "npm"
@@ -2467,7 +2467,7 @@
           "Name": "tslib",
           "Identifier": {
             "PURL": "pkg:npm/tslib@2.8.1",
-            "UID": "369f375378a2ea04"
+            "UID": "2f189a9f32443ba2"
           },
           "Version": "2.8.1",
           "Licenses": [
@@ -2477,8 +2477,8 @@
           "Relationship": "indirect",
           "Locations": [
             {
-              "StartLine": 7246,
-              "EndLine": 7251
+              "StartLine": 7236,
+              "EndLine": 7241
             }
           ],
           "AnalyzedBy": "npm"

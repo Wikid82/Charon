@@ -73,11 +73,11 @@ func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
 	}
 
 	// Parse query filters
-	sourceFilter := strings.ToLower(c.Query("source"))     // waf, crowdsec, ratelimit, acl, normal
-	levelFilter := strings.ToLower(c.Query("level"))       // info, warn, error
-	ipFilter := c.Query("ip")                              // Partial match on client IP
-	hostFilter := strings.ToLower(c.Query("host"))         // Partial match on host
-	blockedOnly := c.Query("blocked_only") == "true"       // Only show blocked requests
+	sourceFilter := strings.ToLower(c.Query("source")) // waf, crowdsec, ratelimit, acl, normal
+	levelFilter := strings.ToLower(c.Query("level"))   // info, warn, error
+	ipFilter := c.Query("ip")                          // Partial match on client IP
+	hostFilter := strings.ToLower(c.Query("host"))     // Partial match on host
+	blockedOnly := c.Query("blocked_only") == "true"   // Only show blocked requests
 
 	// Subscribe to log watcher
 	logChan := h.watcher.Subscribe()
