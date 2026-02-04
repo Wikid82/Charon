@@ -213,6 +213,7 @@ jobs:
           exit $EXIT_CODE
 
       - name: Run Chromium tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
+        timeout-minutes: 15
         run: |
           echo "════════════════════════════════════════════"
           echo "Chromium E2E Tests - Shard ${{ matrix.shard }}/${{ matrix.total-shards }}"
@@ -386,6 +387,7 @@ jobs:
           exit $EXIT_CODE
 
       - name: Run Firefox tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
+        timeout-minutes: 15
         run: |
           echo "════════════════════════════════════════════"
           echo "Firefox E2E Tests - Shard ${{ matrix.shard }}/${{ matrix.total-shards }}"
@@ -559,6 +561,7 @@ jobs:
           exit $EXIT_CODE
 
       - name: Run WebKit tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
+        timeout-minutes: 15
         run: |
           echo "════════════════════════════════════════════"
           echo "WebKit E2E Tests - Shard ${{ matrix.shard }}/${{ matrix.total-shards }}"
