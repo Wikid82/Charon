@@ -3,6 +3,27 @@ description: 'Best practices for writing clear, consistent, and meaningful Git c
 applyTo: '**'
 ---
 
+## AI-Specific Requirements (Mandatory)
+
+When generating commit messages automatically:
+
+- ❌ DO NOT mention file names, paths, or extensions
+- ❌ DO NOT mention line counts, diffs, or change statistics
+  (e.g. "+10 -2", "updated file", "modified spec")
+- ❌ DO NOT describe changes as "edited", "updated", or "changed files"
+
+- ✅ DO describe the behavioral, functional, or logical change
+- ✅ DO explain WHY the change was made
+- ✅ DO assume the reader CANNOT see the diff
+
+**Litmus Test**:
+If someone reads only the commit message, they should understand:
+- What changed
+- Why it mattered
+- What behavior is different now
+
+```
+
 # Git Commit Message Best Practices
 
 Comprehensive guidelines for crafting high-quality commit messages that improve code review efficiency, project documentation, and team collaboration. Based on industry standards and the conventional commits specification.

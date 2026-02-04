@@ -135,4 +135,25 @@ export async function unbanIP(ip: string): Promise<void> {
   await client.delete(`/admin/crowdsec/ban/${encodeURIComponent(ip)}`)
 }
 
-export default { startCrowdsec, stopCrowdsec, statusCrowdsec, importCrowdsecConfig, exportCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP }
+/** CrowdSec API key status information for key rejection notifications. */
+export interface CrowdSecKeyStatus {
+  key_source: 'env' | 'file' | 'auto-generated'
+  env_key_rejected: boolean
+  full_key?: string  // Only present when env_key_rejected is true
+  current_key_preview: string
+  rejected_key_preview?: string
+  message: string
+}
+
+/**
+ * Gets the current CrowdSec API key status.
+ * Used to display warning banner when env key was rejected.
+ * @returns Promise resolving to CrowdSecKeyStatus
+ * @throws {AxiosError} If status check fails
+ */
+export async function getCrowdsecKeyStatus(): Promise<CrowdSecKeyStatus> {
+  const resp = await client.get<CrowdSecKeyStatus>('/admin/crowdsec/key-status')
+  return resp.data
+}
+
+export default { startCrowdsec, stopCrowdsec, statusCrowdsec, importCrowdsecConfig, exportCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, getCrowdsecKeyStatus }

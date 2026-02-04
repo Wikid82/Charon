@@ -57,14 +57,6 @@ jobs:
           echo "  Event: ${{ github.event.workflow_run.event }}"
           echo "  PR Count: ${{ toJson(github.event.workflow_run.pull_requests) }}"
 
-      - name: Install Verification Tools
-        run: |
-          # Install Syft
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
-
-          # Install Grype
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
-
       - name: Determine Image Tag
         id: tag
         run: |
@@ -119,40 +111,30 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
+      # Generate SBOM using official Anchore action (auto-updated by Renovate)
+      - name: Generate and Verify SBOM
+        if: steps.image-check.outputs.exists == 'true'
+        uses: anchore/sbom-action@deef08a0db64bfad603422135db61477b16cef56 # v0.22.1
+        with:
+          image: ghcr.io/${{ github.repository_owner }}/charon:${{ steps.tag.outputs.tag }}
+          format: cyclonedx-json
+          output-file: sbom-verify.cyclonedx.json
+
       - name: Verify SBOM Completeness
         if: steps.image-check.outputs.exists == 'true'
-        env:
-          IMAGE: ghcr.io/${{ github.repository_owner }}/charon:${{ steps.tag.outputs.tag }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Verifying SBOM for ${IMAGE}..."
+          echo "Verifying SBOM completeness..."
           echo ""
 
-          # Log Syft version for debugging
-          echo "Syft version:"
-          syft version
-          echo ""
+          # Count components
+          COMPONENT_COUNT=$(jq '.components | length' sbom-verify.cyclonedx.json 2>/dev/null || echo "0")
 
-          # Generate fresh SBOM in CycloneDX format (aligned with docker-build.yml)
-          echo "Generating SBOM in CycloneDX JSON format..."
-          if ! syft ${IMAGE} -o cyclonedx-json > sbom-generated.json; then
-            echo "❌ Failed to generate SBOM"
-            echo ""
-            echo "Debug information:"
-            echo "Image: ${IMAGE}"
-            echo "Syft exit code: $?"
-            exit 1  # Fail on real errors, not silent exit
-          fi
+          echo "SBOM components: ${COMPONENT_COUNT}"
 
-          # Check SBOM content
-          GENERATED_COUNT=$(jq '.components | length' sbom-generated.json 2>/dev/null || echo "0")
-
-          echo "Generated SBOM components: ${GENERATED_COUNT}"
-
-          if [[ ${GENERATED_COUNT} -eq 0 ]]; then
+          if [[ ${COMPONENT_COUNT} -eq 0 ]]; then
             echo "⚠️ SBOM contains no components - may indicate an issue"
           else
-            echo "✅ SBOM contains ${GENERATED_COUNT} components"
+            echo "✅ SBOM contains ${COMPONENT_COUNT} components"
           fi
 
       - name: Upload SBOM Artifact
@@ -160,7 +142,7 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: sbom-${{ steps.tag.outputs.tag }}
-          path: sbom-generated.json
+          path: sbom-verify.cyclonedx.json
           retention-days: 30
 
       - name: Validate SBOM File
@@ -178,32 +160,32 @@ jobs:
           fi
 
           # Check file exists
-          if [[ ! -f sbom-generated.json ]]; then
+          if [[ ! -f sbom-verify.cyclonedx.json ]]; then
             echo "❌ SBOM file does not exist"
             echo "valid=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           # Check file is non-empty
-          if [[ ! -s sbom-generated.json ]]; then
+          if [[ ! -s sbom-verify.cyclonedx.json ]]; then
             echo "❌ SBOM file is empty"
             echo "valid=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           # Validate JSON structure
-          if ! jq empty sbom-generated.json 2>/dev/null; then
+          if ! jq empty sbom-verify.cyclonedx.json 2>/dev/null; then
             echo "❌ SBOM file contains invalid JSON"
             echo "SBOM content:"
-            cat sbom-generated.json
+            cat sbom-verify.cyclonedx.json
             echo "valid=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           # Validate CycloneDX structure
-          BOMFORMAT=$(jq -r '.bomFormat // "missing"' sbom-generated.json)
-          SPECVERSION=$(jq -r '.specVersion // "missing"' sbom-generated.json)
-          COMPONENTS=$(jq '.components // [] | length' sbom-generated.json)
+          BOMFORMAT=$(jq -r '.bomFormat // "missing"' sbom-verify.cyclonedx.json)
+          SPECVERSION=$(jq -r '.specVersion // "missing"' sbom-verify.cyclonedx.json)
+          COMPONENTS=$(jq '.components // [] | length' sbom-verify.cyclonedx.json)
 
           echo "SBOM Format: ${BOMFORMAT}"
           echo "Spec Version: ${SPECVERSION}"
@@ -224,42 +206,48 @@ jobs:
             echo "valid=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Scan for Vulnerabilities
-        if: steps.validate-sbom.outputs.valid == 'true'
-        env:
-          IMAGE: ghcr.io/${{ github.repository_owner }}/charon:${{ steps.tag.outputs.tag }}
-        run: |
-          echo "Scanning for vulnerabilities with Grype..."
-          echo "SBOM format: CycloneDX JSON"
-          echo "SBOM size: $(wc -c < sbom-generated.json) bytes"
+          echo "SBOM Format: ${BOMFORMAT}"
+          echo "Spec Version: ${SPECVERSION}"
+          echo "Components: ${COMPONENTS}"
           echo ""
 
-          # Update Grype vulnerability database
-          echo "Updating Grype vulnerability database..."
-          grype db update
-          echo ""
-
-          # Run Grype with explicit path and better error handling
-          if ! grype sbom:./sbom-generated.json --output json --file vuln-scan.json; then
-            echo ""
-            echo "❌ Grype scan failed"
-            echo ""
-            echo "Debug information:"
-            echo "Grype version:"
-            grype version
-            echo ""
-            echo "SBOM preview (first 1000 characters):"
-            head -c 1000 sbom-generated.json
-            echo ""
-            exit 1  # Fail the step to surface the issue
+          if [[ "${BOMFORMAT}" != "CycloneDX" ]]; then
+            echo "❌ Invalid bomFormat: expected 'CycloneDX', got '${BOMFORMAT}'"
+            echo "valid=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
-          echo "✅ Grype scan completed successfully"
-          echo ""
+          if [[ "${COMPONENTS}" == "0" ]]; then
+            echo "⚠️ SBOM has no components - may indicate incomplete scan"
+            echo "valid=partial" >> $GITHUB_OUTPUT
+          else
+            echo "✅ SBOM is valid with ${COMPONENTS} components"
+            echo "valid=true" >> $GITHUB_OUTPUT
+          fi
 
-          # Display human-readable results
-          echo "Vulnerability summary:"
-          grype sbom:./sbom-generated.json --output table || true
+      # Scan for vulnerabilities using official Anchore action (auto-updated by Renovate)
+      - name: Scan for Vulnerabilities
+        if: steps.validate-sbom.outputs.valid == 'true'
+        uses: anchore/scan-action@8d2fce09422cd6037e577f4130e9b925e9a37175 # v7.3.1
+        id: scan
+        with:
+          sbom: sbom-verify.cyclonedx.json
+          fail-build: false
+          output-format: json
+
+      - name: Process Vulnerability Results
+        if: steps.validate-sbom.outputs.valid == 'true'
+        run: |
+          echo "Processing vulnerability results..."
+
+          # The scan-action outputs results.json and results.sarif
+          # Rename for consistency
+          if [[ -f results.json ]]; then
+            mv results.json vuln-scan.json
+          fi
+          if [[ -f results.sarif ]]; then
+            mv results.sarif vuln-scan.sarif
+          fi
 
           # Parse and categorize results
           CRITICAL=$(jq '[.matches[] | select(.vulnerability.severity == "Critical")] | length' vuln-scan.json 2>/dev/null || echo "0")

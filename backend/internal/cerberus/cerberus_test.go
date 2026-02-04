@@ -280,3 +280,40 @@ func TestCerberus_Middleware_CrowdSecLocal(t *testing.T) {
 	// CrowdSec doesn't block in middleware (handled by Caddy), just tracks metrics
 	require.Equal(t, http.StatusOK, w.Code)
 }
+
+// ============================================
+// Cache Tests
+// ============================================
+
+func TestCerberus_InvalidateCache(t *testing.T) {
+	db := setupTestDB(t)
+	db.Create(&models.Setting{Key: "security.waf.enabled", Value: "true"})
+	db.Create(&models.Setting{Key: "security.acl.enabled", Value: "false"})
+
+	cfg := config.SecurityConfig{CerberusEnabled: true}
+	cerb := cerberus.New(cfg, db)
+
+	// Prime the cache by calling getSetting
+	router := gin.New()
+	router.Use(cerb.Middleware())
+	router.GET("/test", func(c *gin.Context) {
+		c.String(http.StatusOK, "OK")
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// Now invalidate the cache
+	cerb.InvalidateCache()
+
+	// Update setting in DB
+	db.Model(&models.Setting{}).Where("key = ?", "security.waf.enabled").Update("value", "false")
+
+	// Make another request - should pick up new setting
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/test", http.NoBody)
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+}

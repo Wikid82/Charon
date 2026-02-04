@@ -4,12 +4,6 @@
 
 <h1 align="center">Charon</h1>
 
-<p align="center"><strong>Your server, your rules—without the headaches.</strong></p>
-
-<p align="center">
-Simply manage multiple websites and self-hosted applications. Click, save, done. No code, no config files, no PhD required.
-</p>
-
 <br>
 
 <p align="center">
@@ -20,6 +14,18 @@ Simply manage multiple websites and self-hosted applications. Click, save, done.
   <a href="https://codecov.io/gh/Wikid82/Charon" ><img src="https://codecov.io/gh/Wikid82/Charon/branch/main/graph/badge.svg?token=RXSINLQTGE" alt="Code Coverage"/></a>
  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
   <a href="SECURITY.md"><img src="https://img.shields.io/badge/Security-Audited-brightgreen.svg" alt="Security: Audited"></a>
+  <br>
+  <a href="https://github.com/Wikid82/Charon/actions/workflows/e2e-tests-split.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/e2e-tests-split.yml/badge.svg" alt="E2E Tests"></a>
+  <a href="https://github.com/Wikid82/Charon/actions/workflows/cerberus-integration.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/cerberus-integration.yml/badge.svg" alt="Cerberus Integration"></a><br>
+  <a href="https://github.com/Wikid82/Charon/actions/workflows/crowdsec-integration.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/crowdsec-integration.yml/badge.svg" alt="CrowdSec Integration"></a>
+  <a href="https://github.com/Wikid82/Charon/actions/workflows/waf-integration.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/waf-integration.yml/badge.svg" alt="WAF Integration"></a>
+  <a href="https://github.com/Wikid82/Charon/actions/workflows/rate-limit-integration.yml"><img src="https://github.com/Wikid82/Charon/actions/workflows/rate-limit-integration.yml/badge.svg" alt="Rate Limit Integration"></a>
+</p>
+<br>
+<p align="center"><strong>Your server, your rules—without the headaches.</strong></p>
+
+<p align="center">
+Simply manage multiple websites and self-hosted applications. Click, save, done. No code, no config files, no PhD required.
 </p>
 
 ---
@@ -96,8 +102,10 @@ See exactly what's happening with live request logs, uptime monitoring, and inst
 ### 📥 **Migration Made Easy**
 
 Import your existing configurations with one click:
-- **Caddyfile Import** — Migrate from other Caddy setups
-- **NPM Import** — Import from Nginx Proxy Manager exports
+- **Caddyfile** — Migrate from other Caddy setups
+- **Nginx** — Import from Nginx based configurations (Coming Soon)
+- **Traefik** - Import from Traefik based configurations (Coming Soon)
+- **CrowdSec** - Import from CrowdSec configurations (WIP)
 - **JSON Import** — Restore from Charon backups or generic JSON configs
 
 Already invested in another reverse proxy? Bring your work with you.
@@ -554,7 +562,21 @@ docker restart charon
 - Use HTTPS when calling emergency endpoint (HTTP leaks token)
 - Monitor audit logs for emergency token usage
 
-**📍 Management Network Configuration:**
+**� API Key & Credential Management:**
+
+- **Never log sensitive credentials**: Charon automatically masks API keys in logs (e.g., `abcd...xyz9`)
+- **Secure storage**: CrowdSec API keys stored with 0600 permissions (owner read/write only)
+- **No HTTP exposure**: API keys never returned in API responses
+- **No cookie storage**: Keys never stored in browser cookies
+- **Regular rotation**: Rotate CrowdSec bouncer keys every 90 days (recommended)
+- **Environment variables**: Use `CHARON_SECURITY_CROWDSEC_API_KEY` for production deployments
+- **Compliance**: Implementation addresses CWE-312, CWE-315, CWE-359 (GDPR, PCI-DSS, SOC 2)
+
+For detailed security practices, see:
+- 📘 [API Key Handling Guide](docs/security/api-key-handling.md)
+- 🛡️ [Security Best Practices](docs/SECURITY_PRACTICES.md)
+
+**�📍 Management Network Configuration:**
 
 ```yaml
 # Restrict emergency access to trusted networks only

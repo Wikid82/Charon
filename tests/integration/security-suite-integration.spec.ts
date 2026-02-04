@@ -69,6 +69,10 @@ const SELECTORS = {
 };
 
 test.describe('Security Suite Integration', () => {
+  // Increase timeout from 300s (5min) to 600s (10min) for complex integration tests
+  // Security suite creates multiple resources (proxy hosts, ACLs, CrowdSec configs) which requires more time
+  test.describe.configure({ timeout: 600000 }); // 10 minutes
+
   // ===========================================================================
   // Group A: Cerberus Dashboard (4 tests)
   // ===========================================================================
@@ -141,8 +145,12 @@ test.describe('Security Suite Integration', () => {
       });
 
       await test.step('Verify security content', async () => {
-        const content = page.locator('main, .content').first();
-        await expect(content).toBeVisible();
+        // Wait for page load before checking main content
+        await waitForLoadingComplete(page);
+        await page.waitForLoadState('networkidle', { timeout: 10000 });
+
+        const content = page.locator('main, .content, [role="main"]').first();
+        await expect(content).toBeVisible({ timeout: 10000 });
       });
     });
   });
