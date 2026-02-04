@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -547,4 +548,384 @@ func TestCrowdSecDiagnosticsConfig(t *testing.T) {
 	)
 
 	t.Log("TestCrowdSecDiagnosticsConfig completed successfully")
+}
+
+// Helper: execDockerCommand runs a command inside the container and returns output.
+func execDockerCommand(containerName string, args ...string) (string, error) {
+	fullArgs := append([]string{"exec", containerName}, args...)
+	cmd := exec.Command("docker", fullArgs...)
+	output, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(output)), err
+}
+
+// TestBouncerAuth_InvalidEnvKeyAutoRecovers verifies that when an invalid API key is set
+// via environment variable, Charon detects the failure and auto-generates a new valid key.
+//
+// Test Steps:
+// 1. Set CHARON_SECURITY_CROWDSEC_API_KEY=fakeinvalidkey in environment
+// 2. Enable CrowdSec via API
+// 3. Verify logs show:
+//   - "Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but invalid"
+//   - "A new valid key will be generated and saved"
+//
+// 4. Verify new key auto-generated and saved to file
+// 5. Verify Caddy bouncer connects successfully with new key
+func TestBouncerAuth_InvalidEnvKeyAutoRecovers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	tc := newTestConfig()
+
+	// Wait for API to be ready
+	if err := tc.waitForAPI(t, 60*time.Second); err != nil {
+		t.Skipf("API not available, skipping test: %v", err)
+	}
+
+	// Authenticate
+	if err := tc.authenticate(t); err != nil {
+		t.Fatalf("Authentication failed: %v", err)
+	}
+
+	// Note: Environment variable must be set in docker-compose.yml before starting container.
+	// This test assumes CHARON_SECURITY_CROWDSEC_API_KEY=fakeinvalidkey is already set.
+	t.Log("Step 1: Assuming invalid environment variable is set (CHARON_SECURITY_CROWDSEC_API_KEY=fakeinvalidkey)")
+
+	// Step 2: Enable CrowdSec
+	t.Log("Step 2: Enabling CrowdSec via API")
+	resp, err := tc.doRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", nil)
+	if err != nil {
+		t.Fatalf("Failed to start CrowdSec: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && !strings.Contains(string(body), "already running") {
+		if strings.Contains(string(body), "not found") || strings.Contains(string(body), "not available") {
+			t.Skip("CrowdSec binary not available - skipping")
+		}
+		t.Logf("Start response: %s (continuing despite non-200 status)", string(body))
+	}
+
+	// Wait for LAPI to initialize
+	tc.waitForLAPIReady(t, 30*time.Second)
+
+	// Step 3: Check logs for auto-recovery messages
+	t.Log("Step 3: Checking container logs for auto-recovery messages")
+	logs, err := execDockerCommand(tc.ContainerName, "cat", "/var/log/charon/charon.log")
+	if err != nil {
+		// Try docker logs command if log file doesn't exist
+		cmd := exec.Command("docker", "logs", "--tail", "200", tc.ContainerName)
+		output, _ := cmd.CombinedOutput()
+		logs = string(output)
+	}
+
+	if !strings.Contains(logs, "Environment variable") && !strings.Contains(logs, "invalid") {
+		t.Logf("Warning: Expected warning messages not found in logs. This may indicate env var was not set before container start.")
+		t.Logf("Logs (last 500 chars): %s", logs[max(0, len(logs)-500):])
+	}
+
+	// Step 4: Verify key file exists and contains a valid key
+	t.Log("Step 4: Verifying bouncer key file exists")
+	keyFilePath := "/app/data/crowdsec/bouncer_key"
+	generatedKey, err := execDockerCommand(tc.ContainerName, "cat", keyFilePath)
+	if err != nil {
+		t.Fatalf("Failed to read bouncer key file: %v", err)
+	}
+
+	if generatedKey == "" {
+		t.Fatal("Bouncer key file is empty")
+	}
+
+	if generatedKey == "fakeinvalidkey" {
+		t.Fatal("Key should be regenerated, not the invalid env var")
+	}
+
+	t.Logf("Generated key (masked): %s...%s", generatedKey[:min(4, len(generatedKey))], generatedKey[max(0, len(generatedKey)-4):])
+
+	// Step 5: Verify Caddy bouncer can authenticate with generated key
+	t.Log("Step 5: Verifying Caddy bouncer authentication with generated key")
+	lapiURL := tc.BaseURL // LAPI is on same host in test environment
+	req, err := http.NewRequest("GET", lapiURL+"/v1/decisions/stream", nil)
+	if err != nil {
+		t.Fatalf("Failed to create LAPI request: %v", err)
+	}
+	req.Header.Set("X-Api-Key", generatedKey)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	decisionsResp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Failed to query LAPI: %v", err)
+	}
+	defer decisionsResp.Body.Close()
+
+	if decisionsResp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(decisionsResp.Body)
+		t.Fatalf("LAPI authentication failed with status %d: %s", decisionsResp.StatusCode, string(respBody))
+	}
+
+	t.Log("✅ Auto-recovery from invalid env var successful")
+}
+
+// TestBouncerAuth_ValidEnvKeyPreserved verifies that when a valid API key is set
+// via environment variable, it is used without triggering new registration.
+//
+// Test Steps:
+// 1. Pre-register bouncer with cscli
+// 2. Note: Registered key must be set as CHARON_SECURITY_CROWDSEC_API_KEY before starting container
+// 3. Enable CrowdSec
+// 4. Verify logs show "source=environment_variable"
+// 5. Verify no duplicate bouncer registration
+// 6. Verify authentication works with env key
+func TestBouncerAuth_ValidEnvKeyPreserved(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	tc := newTestConfig()
+
+	// Wait for API to be ready
+	if err := tc.waitForAPI(t, 60*time.Second); err != nil {
+		t.Skipf("API not available, skipping test: %v", err)
+	}
+
+	// Authenticate
+	if err := tc.authenticate(t); err != nil {
+		t.Fatalf("Authentication failed: %v", err)
+	}
+
+	// Step 1: Pre-register bouncer (if not already registered)
+	t.Log("Step 1: Checking if bouncer is pre-registered")
+	listOutput, err := execDockerCommand(tc.ContainerName, "cscli", "bouncers", "list", "-o", "json")
+	if err != nil {
+		t.Logf("Failed to list bouncers: %v (this is expected if CrowdSec not fully initialized)", err)
+	}
+
+	bouncerExists := strings.Contains(listOutput, `"name":"caddy-bouncer"`)
+	t.Logf("Bouncer exists: %v", bouncerExists)
+
+	// Step 2: Note - Environment variable must be set in docker-compose.yml with the registered key
+	t.Log("Step 2: Assuming valid environment variable is set (must match pre-registered key)")
+
+	// Step 3: Enable CrowdSec
+	t.Log("Step 3: Enabling CrowdSec via API")
+	resp, err := tc.doRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", nil)
+	if err != nil {
+		t.Fatalf("Failed to start CrowdSec: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && !strings.Contains(string(body), "already running") {
+		if strings.Contains(string(body), "not found") || strings.Contains(string(body), "not available") {
+			t.Skip("CrowdSec binary not available - skipping")
+		}
+		t.Logf("Start response: %s (continuing)", string(body))
+	}
+
+	// Wait for LAPI
+	tc.waitForLAPIReady(t, 30*time.Second)
+
+	// Step 4: Check logs for environment variable source
+	t.Log("Step 4: Checking logs for env var source indicator")
+	logs, err := execDockerCommand(tc.ContainerName, "cat", "/var/log/charon/charon.log")
+	if err != nil {
+		cmd := exec.Command("docker", "logs", "--tail", "200", tc.ContainerName)
+		output, _ := cmd.CombinedOutput()
+		logs = string(output)
+	}
+
+	if !strings.Contains(logs, "source=environment_variable") {
+		t.Logf("Warning: Expected 'source=environment_variable' not found in logs")
+		t.Logf("This may indicate the env var was not set before container start")
+	}
+
+	// Step 5: Verify no duplicate bouncer registration
+	t.Log("Step 5: Verifying no duplicate bouncer registration")
+	listOutputAfter, err := execDockerCommand(tc.ContainerName, "cscli", "bouncers", "list", "-o", "json")
+	if err == nil {
+		bouncerCount := strings.Count(listOutputAfter, `"name":"caddy-bouncer"`)
+		if bouncerCount > 1 {
+			t.Errorf("Expected exactly 1 bouncer, found %d duplicates", bouncerCount)
+		}
+		t.Logf("Bouncer count: %d (expected 1)", bouncerCount)
+	}
+
+	// Step 6: Verify authentication works
+	t.Log("Step 6: Verifying authentication (key must be set correctly in env)")
+	keyFromFile, err := execDockerCommand(tc.ContainerName, "cat", "/app/data/crowdsec/bouncer_key")
+	if err != nil {
+		t.Logf("Could not read key file: %v", err)
+		return // Cannot verify without key
+	}
+
+	lapiURL := tc.BaseURL
+	req, err := http.NewRequest("GET", lapiURL+"/v1/decisions/stream", nil)
+	if err != nil {
+		t.Fatalf("Failed to create LAPI request: %v", err)
+	}
+	req.Header.Set("X-Api-Key", strings.TrimSpace(keyFromFile))
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	decisionsResp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Failed to query LAPI: %v", err)
+	}
+	defer decisionsResp.Body.Close()
+
+	if decisionsResp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(decisionsResp.Body)
+		t.Errorf("LAPI authentication failed with status %d: %s", decisionsResp.StatusCode, string(respBody))
+	} else {
+		t.Log("✅ Valid environment variable preserved successfully")
+	}
+}
+
+// TestBouncerAuth_FileKeyPersistsAcrossRestarts verifies that an auto-generated key
+// is saved to file and reused across container restarts.
+//
+// Test Steps:
+// 1. Clear any existing key file
+// 2. Enable CrowdSec (triggers auto-generation)
+// 3. Read generated key from file
+// 4. Restart Charon container
+// 5. Verify same key is still in file
+// 6. Verify logs show "source=file"
+// 7. Verify authentication works with persisted key
+func TestBouncerAuth_FileKeyPersistsAcrossRestarts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	tc := newTestConfig()
+
+	// Wait for API to be ready
+	if err := tc.waitForAPI(t, 60*time.Second); err != nil {
+		t.Skipf("API not available, skipping test: %v", err)
+	}
+
+	// Authenticate
+	if err := tc.authenticate(t); err != nil {
+		t.Fatalf("Authentication failed: %v", err)
+	}
+
+	// Step 1: Clear key file (note: requires container to be started without env var set)
+	t.Log("Step 1: Clearing key file")
+	keyFilePath := "/app/data/crowdsec/bouncer_key"
+	_, _ = execDockerCommand(tc.ContainerName, "rm", "-f", keyFilePath) // Ignore error if file doesn't exist
+
+	// Step 2: Enable CrowdSec to trigger key auto-generation
+	t.Log("Step 2: Enabling CrowdSec to trigger key auto-generation")
+	resp, err := tc.doRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", nil)
+	if err != nil {
+		t.Fatalf("Failed to start CrowdSec: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && !strings.Contains(string(body), "already running") {
+		if strings.Contains(string(body), "not found") || strings.Contains(string(body), "not available") {
+			t.Skip("CrowdSec binary not available - skipping")
+		}
+	}
+
+	// Wait for LAPI and key generation
+	tc.waitForLAPIReady(t, 30*time.Second)
+	time.Sleep(5 * time.Second) // Allow time for key file creation
+
+	// Step 3: Read generated key
+	t.Log("Step 3: Reading generated key from file")
+	originalKey, err := execDockerCommand(tc.ContainerName, "cat", keyFilePath)
+	if err != nil {
+		t.Fatalf("Failed to read bouncer key file after generation: %v", err)
+	}
+
+	if originalKey == "" {
+		t.Fatal("Bouncer key file is empty after generation")
+	}
+
+	t.Logf("Original key (masked): %s...%s", originalKey[:min(4, len(originalKey))], originalKey[max(0, len(originalKey)-4):])
+
+	// Step 4: Restart container
+	t.Log("Step 4: Restarting Charon container")
+	cmd := exec.Command("docker", "restart", tc.ContainerName)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to restart container: %v, output: %s", err, string(output))
+	}
+
+	// Wait for container to come back up
+	time.Sleep(10 * time.Second)
+	if err := tc.waitForAPI(t, 60*time.Second); err != nil {
+		t.Fatalf("API not available after restart: %v", err)
+	}
+
+	// Re-authenticate after restart
+	if err := tc.authenticate(t); err != nil {
+		t.Fatalf("Authentication failed after restart: %v", err)
+	}
+
+	// Step 5: Verify same key persisted
+	t.Log("Step 5: Verifying key persisted after restart")
+	persistedKey, err := execDockerCommand(tc.ContainerName, "cat", keyFilePath)
+	if err != nil {
+		t.Fatalf("Failed to read bouncer key file after restart: %v", err)
+	}
+
+	if persistedKey != originalKey {
+		t.Errorf("Key changed after restart. Original: %s...%s, After: %s...%s",
+			originalKey[:4], originalKey[len(originalKey)-4:],
+			persistedKey[:min(4, len(persistedKey))], persistedKey[max(0, len(persistedKey)-4):])
+	}
+
+	// Step 6: Verify logs show file source
+	t.Log("Step 6: Checking logs for file source indicator")
+	logs, err := execDockerCommand(tc.ContainerName, "cat", "/var/log/charon/charon.log")
+	if err != nil {
+		cmd := exec.Command("docker", "logs", "--tail", "200", tc.ContainerName)
+		output, _ := cmd.CombinedOutput()
+		logs = string(output)
+	}
+
+	if !strings.Contains(logs, "source=file") {
+		t.Logf("Warning: Expected 'source=file' not found in logs after restart")
+	}
+
+	// Step 7: Verify authentication with persisted key
+	t.Log("Step 7: Verifying authentication with persisted key")
+	lapiURL := tc.BaseURL
+	req, err := http.NewRequest("GET", lapiURL+"/v1/decisions/stream", nil)
+	if err != nil {
+		t.Fatalf("Failed to create LAPI request: %v", err)
+	}
+	req.Header.Set("X-Api-Key", persistedKey)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	decisionsResp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Failed to query LAPI: %v", err)
+	}
+	defer decisionsResp.Body.Close()
+
+	if decisionsResp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(decisionsResp.Body)
+		t.Fatalf("LAPI authentication failed with status %d: %s", decisionsResp.StatusCode, string(respBody))
+	}
+
+	t.Log("✅ File key persistence across restarts successful")
+}
+
+// Helper: min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// Helper: max returns the maximum of two integers
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

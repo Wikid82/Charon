@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
@@ -65,6 +66,9 @@ type CrowdsecHandler struct {
 	CaddyManager     *caddy.Manager // For config reload after bouncer registration
 	LAPIMaxWait      time.Duration  // For testing; 0 means 60s default
 	LAPIPollInterval time.Duration  // For testing; 0 means 500ms default
+
+	// registrationMutex protects concurrent bouncer registration attempts
+	registrationMutex sync.Mutex
 }
 
 // Bouncer auto-registration constants.
@@ -1540,31 +1544,155 @@ type BouncerInfo struct {
 	Registered bool   `json:"registered"`
 }
 
+// testKeyAgainstLAPI validates an API key by making an authenticated request to LAPI.
+// Uses /v1/decisions/stream endpoint which requires authentication.
+// Returns true if the key is accepted (200 OK), false otherwise.
+// Implements retry logic with exponential backoff for LAPI startup (connection refused).
+// Fails fast on 403 Forbidden (invalid key - no retries).
+func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string) bool {
+	if apiKey == "" {
+		return false
+	}
+
+	// Get LAPI URL from security config or use default
+	lapiURL := "http://127.0.0.1:8085"
+	if h.Security != nil {
+		cfg, err := h.Security.Get()
+		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
+			lapiURL = cfg.CrowdSecAPIURL
+		}
+	}
+
+	// Use /v1/decisions/stream endpoint (guaranteed to require authentication)
+	endpoint := fmt.Sprintf("%s/v1/decisions/stream", strings.TrimRight(lapiURL, "/"))
+
+	// Retry logic for LAPI startup (30s max with exponential backoff)
+	const maxStartupWait = 30 * time.Second
+	const initialBackoff = 500 * time.Millisecond
+	const maxBackoff = 5 * time.Second
+
+	backoff := initialBackoff
+	startTime := time.Now()
+	attempt := 0
+
+	for {
+		attempt++
+
+		// Create request with 5s timeout per attempt
+		testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		req, err := http.NewRequestWithContext(testCtx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			cancel()
+			logger.Log().WithError(err).Debug("Failed to create LAPI test request")
+			return false
+		}
+
+		// Set API key header
+		req.Header.Set("X-Api-Key", apiKey)
+
+		// Execute request
+		client := network.NewInternalServiceHTTPClient(5 * time.Second)
+		resp, err := client.Do(req)
+		cancel()
+
+		if err != nil {
+			// Check if connection refused (LAPI not ready yet)
+			if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "connect: connection refused") {
+				// LAPI not ready - retry with backoff if within time limit
+				if time.Since(startTime) < maxStartupWait {
+					logger.Log().WithField("attempt", attempt).WithField("backoff", backoff).WithField("elapsed", time.Since(startTime)).Debug("LAPI not ready, retrying with backoff")
+
+					time.Sleep(backoff)
+
+					// Exponential backoff: 500ms → 750ms → 1125ms → ... (capped at 5s)
+					backoff = time.Duration(float64(backoff) * 1.5)
+					if backoff > maxBackoff {
+						backoff = maxBackoff
+					}
+					continue
+				}
+
+				logger.Log().WithField("attempts", attempt).WithField("elapsed", time.Since(startTime)).WithField("max_wait", maxStartupWait).Warn("LAPI failed to start within timeout")
+				return false
+			}
+
+			// Other errors (not connection refused)
+			logger.Log().WithError(err).Debug("Failed to connect to LAPI for key validation")
+			return false
+		}
+		defer func() {
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				logger.Log().WithError(closeErr).Debug("Failed to close HTTP response body")
+			}
+		}()
+
+		// Check response status
+		if resp.StatusCode == http.StatusOK {
+			logger.Log().WithField("attempts", attempt).WithField("elapsed", time.Since(startTime)).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key validated successfully against LAPI")
+			return true
+		}
+
+		// 403 Forbidden = bad key, fail fast (no retries)
+		if resp.StatusCode == http.StatusForbidden {
+			logger.Log().WithField("status", resp.StatusCode).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key rejected by LAPI (403 Forbidden)")
+			return false
+		}
+
+		// Other non-OK status codes
+		logger.Log().WithField("status", resp.StatusCode).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key validation returned unexpected status")
+		return false
+	}
+}
+
 // ensureBouncerRegistration checks if bouncer is registered and registers if needed.
 // Returns the API key if newly generated (empty if already set via env var or file).
 func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string, error) {
+	h.registrationMutex.Lock()
+	defer h.registrationMutex.Unlock()
+
 	// Priority 1: Check environment variables
 	envKey := getBouncerAPIKeyFromEnv()
 	if envKey != "" {
-		if h.validateBouncerKey(ctx) {
-			logger.Log().Info("Using CrowdSec API key from environment variable")
+		// Test key against LAPI (not just bouncer name)
+		if h.testKeyAgainstLAPI(ctx, envKey) {
+			logger.Log().WithField("source", "environment_variable").WithField("masked_key", maskAPIKey(envKey)).Info("CrowdSec bouncer authentication successful")
 			return "", nil // Key valid, nothing new to report
 		}
-		logger.Log().Warn("Env-provided CrowdSec API key is invalid or bouncer not registered, will re-register")
+		logger.Log().WithField("masked_key", maskAPIKey(envKey)).Warn(
+			"Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but invalid. " +
+				"Either remove it from docker-compose.yml or update it to match the " +
+				"auto-generated key. A new valid key will be generated and saved.",
+		)
 	}
 
 	// Priority 2: Check persistent key file
 	fileKey := readKeyFromFile(bouncerKeyFile)
 	if fileKey != "" {
-		if h.validateBouncerKey(ctx) {
-			logger.Log().WithField("file", bouncerKeyFile).Info("Using CrowdSec API key from file")
+		// Test key against LAPI (not just bouncer name)
+		if h.testKeyAgainstLAPI(ctx, fileKey) {
+			logger.Log().WithField("source", "file").WithField("file", bouncerKeyFile).WithField("masked_key", maskAPIKey(fileKey)).Info("CrowdSec bouncer authentication successful")
 			return "", nil // Key valid
 		}
-		logger.Log().WithField("file", bouncerKeyFile).Warn("File API key is invalid, will re-register")
+		logger.Log().WithField("file", bouncerKeyFile).WithField("masked_key", maskAPIKey(fileKey)).Warn("File-stored API key failed LAPI authentication, will re-register")
 	}
 
 	// No valid key found - register new bouncer
-	return h.registerAndSaveBouncer(ctx)
+	newKey, err := h.registerAndSaveBouncer(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	// Warn user if env var is set but doesn't match the new key
+	if envKey != "" && envKey != newKey {
+		logger.Log().WithField("env_key_masked", maskAPIKey(envKey)).WithField("valid_key_masked", maskAPIKey(newKey)).Warn(
+			"IMPORTANT: Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but invalid. " +
+				"Either remove it from docker-compose.yml or update it to match the " +
+				"auto-generated key shown above. The valid key has been saved to " +
+				"/app/data/crowdsec/bouncer_key and will be used on future restarts.",
+		)
+	}
+
+	return newKey, nil
 }
 
 // validateBouncerKey checks if 'caddy-bouncer' is registered with CrowdSec.
@@ -1709,18 +1837,29 @@ func readKeyFromFile(path string) string {
 }
 
 // saveKeyToFile saves the bouncer key to a file with secure permissions.
+// Uses atomic write pattern (temp file → rename) to prevent corruption.
 func saveKeyToFile(path string, key string) error {
 	if key == "" {
 		return fmt.Errorf("cannot save empty key")
 	}
 
+	// Ensure directory exists with proper permissions
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0750); err != nil {
-		return fmt.Errorf("create directory: %w", err)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create key directory: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(key+"\n"), 0600); err != nil {
-		return fmt.Errorf("write key file: %w", err)
+	// Atomic write: temp file → rename
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, []byte(key+"\n"), 0600); err != nil {
+		return fmt.Errorf("failed to write key file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		if removeErr := os.Remove(tmpPath); removeErr != nil {
+			logger.Log().WithError(removeErr).Warn("Failed to clean up temporary key file")
+		}
+		return fmt.Errorf("failed to finalize key file: %w", err)
 	}
 
 	return nil
