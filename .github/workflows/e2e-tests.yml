@@ -48,6 +48,10 @@ on:
           - firefox
           - webkit
           - all
+      image_tag:
+        description: 'Docker image tag to test (e.g., pr-123-abc1234, latest)'
+        required: false
+        type: string
 
 env:
   NODE_VERSION: '20'
@@ -62,7 +66,7 @@ env:
   CI_LOG_LEVEL: 'verbose'
 
 concurrency:
-  group: e2e-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -215,13 +219,12 @@ jobs:
           echo "sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "Determined image tag: $(cat $GITHUB_OUTPUT | grep tag=)"
 
-      # Pull image from registry with retry logic (dual-source strategy)
-      # Try registry first (fast), fallback to artifact if registry fails
-      - name: Pull Docker image from registry
-        id: pull_image
-        uses: nick-fields/retry@v3
+      # Download Docker image artifact from build job
+      - name: Download Docker image
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: docker-image
+          path: .
 
       - name: Validate Emergency Token Configuration
         run: |
