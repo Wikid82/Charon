@@ -223,22 +223,26 @@ jobs:
               [[ -n "$label" ]] && LABEL_ARGS="${LABEL_ARGS} --label ${label}"
             done <<< "${{ steps.meta.outputs.labels }}"
 
-            # Execute build with all arguments
-            # NOTE: Always push to registry (for workflow_run consumption)
-            # For PRs/features, we'll pull the image back for artifact creation
-            docker buildx build \
-              --platform ${{ (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true') && 'linux/amd64' || 'linux/amd64,linux/arm64' }} \
-              --push \
-              ${TAG_ARGS} \
-              ${LABEL_ARGS} \
-              --no-cache \
-              --pull \
-              --build-arg VERSION="${{ steps.meta.outputs.version }}" \
-              --build-arg BUILD_DATE="${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}" \
-              --build-arg VCS_REF="${{ github.sha }}" \
-              --build-arg CADDY_IMAGE="${{ steps.caddy.outputs.image }}" \
-              --iidfile /tmp/image-digest.txt \
+            # Build the complete command as an array (handles spaces in arguments correctly)
+            BUILD_CMD=(
+              docker buildx build
+              --platform "${{ (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true') && 'linux/amd64' || 'linux/amd64,linux/arm64' }}"
+              --push
+              ${TAG_ARGS}
+              ${LABEL_ARGS}
+              --no-cache
+              --pull
+              --build-arg "VERSION=${{ steps.meta.outputs.version }}"
+              --build-arg "BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}"
+              --build-arg "VCS_REF=${{ github.sha }}"
+              --build-arg "CADDY_IMAGE=${{ steps.caddy.outputs.image }}"
+              --iidfile /tmp/image-digest.txt
               .
+            )
+
+            # Execute build
+            echo "Executing: ${BUILD_CMD[*]}"
+            "${BUILD_CMD[@]}"
 
             # Extract digest for downstream jobs (format: sha256:xxxxx)
             DIGEST=$(cat /tmp/image-digest.txt)
