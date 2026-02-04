@@ -76,20 +76,27 @@ export default defineConfig({
 
   /* Standard globalSetup - runs once before all tests */
   globalSetup: './tests/global-setup.ts',
-
-  /* Timeouts */
+  /* Global timeout for each test - increased to 90s for feature flag propagation
+   * CI uses 60s to fail fast in resource-constrained environment (2-core runners)
+   */
   timeout: process.env.CI ? 60000 : 90000,
-  expect: { timeout: 5000 },
-
-  /* Parallelization */
+  /* Timeout for expect() assertions */
+  expect: {
+    timeout: 5000,
+  },
+  /* Run tests in files in parallel */
   fullyParallel: true,
   workers: process.env.CI ? 1 : undefined,
 
   /* CI settings */
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-
-  /* Reporters - simplified for CI */
+  /* Opt out of parallel tests on CI - single worker to avoid resource starvation */
+  workers: process.env.CI ? 1 : undefined,
+  /* Reporter to use. See https://playwright.dev/docs/test-reporters
+   * CI uses per-shard HTML reports (no blob merging needed).
+   * Each shard uploads its own HTML report for easier debugging.
+   */
   reporter: [
     process.env.CI ? ['github'] : ['list'],
     ['html', { open: process.env.CI ? 'never' : 'on-failure' }],
