@@ -1,15 +1,15 @@
-# E2E Tests Workflow (Phase 1 Hotfix - Split Browser Jobs)
+# E2E Tests Workflow (Sequential Execution - Fixes Race Conditions)
 #
-# EMERGENCY HOTFIX: Browser jobs are now completely independent to prevent
-# interruptions in one browser from blocking others.
+# Root Cause: Tests that disable security features (via emergency endpoint) were
+# running in parallel shards, causing some shards to fail before security was disabled.
 #
 # Changes from original:
-#   - Split into 3 independent jobs: e2e-chromium, e2e-firefox, e2e-webkit
-#   - Each browser job runs only its tests (no cross-browser dependencies)
-#   - Separate coverage upload with browser-specific flags
-#   - Enhanced diagnostic logging for interruption analysis
+#   - Reduced from 4 shards to 1 shard per browser (12 jobs → 3 jobs)
+#   - Each browser runs ALL tests sequentially (no sharding within browser)
+#   - Browsers still run in parallel (complete job isolation)
+#   - Acceptable performance tradeoff for CI stability (90% local → 100% CI pass rate)
 #
-# See docs/plans/browser_alignment_triage.md for details
+# See docs/plans/e2e_ci_failure_diagnosis.md for details
 
 name: E2E Tests
 
@@ -130,8 +130,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
-        total-shards: [4]
+        shard: [1]  # Single shard: all tests run sequentially to avoid race conditions
+        total-shards: [1]
 
     steps:
       - name: Checkout repository
@@ -293,8 +293,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
-        total-shards: [4]
+        shard: [1]  # Single shard: all tests run sequentially to avoid race conditions
+        total-shards: [1]
 
     steps:
       - name: Checkout repository
@@ -456,8 +456,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
-        total-shards: [4]
+        shard: [1]  # Single shard: all tests run sequentially to avoid race conditions
+        total-shards: [1]
 
     steps:
       - name: Checkout repository
@@ -618,16 +618,14 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Browser | Status | Shards | Notes |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|--------|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Chromium | ${{ needs.e2e-chromium.result }} | 4 | Independent execution |" >> $GITHUB_STEP_SUMMARY
-          echo "| Firefox | ${{ needs.e2e-firefox.result }} | 4 | Independent execution |" >> $GITHUB_STEP_SUMMARY
-          echo "| WebKit | ${{ needs.e2e-webkit.result }} | 4 | Independent execution |" >> $GITHUB_STEP_SUMMARY
+          echo "| Chromium | ${{ needs.e2e-chromium.result }} | 1 | Sequential execution |" >> $GITHUB_STEP_SUMMARY
+          echo "| Firefox | ${{ needs.e2e-firefox.result }} | 1 | Sequential execution |" >> $GITHUB_STEP_SUMMARY
+          echo "| WebKit | ${{ needs.e2e-webkit.result }} | 1 | Sequential execution |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Phase 1 Hotfix Benefits" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Complete Browser Isolation:** Each browser runs in separate GitHub Actions job" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **No Cross-Contamination:** Chromium interruption cannot affect Firefox/WebKit" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Parallel Execution:** All browsers can run simultaneously" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Independent Failure:** One browser failure does not block others" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Browser Parallelism:** All 3 browsers run simultaneously (job-level)" >> $GITHUB_STEP_SUMMARY
+          echo "- ℹ️  **Sequential Tests:** Each browser runs all tests sequentially (no sharding)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Per-Shard HTML Reports" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -763,12 +761,12 @@ jobs:
 
             ${message}
 
-            ### Browser Results (Phase 1 Hotfix Active)
+            ### Browser Results (Sequential Execution)
             | Browser | Status | Shards | Execution |
             |---------|--------|--------|-----------|
-            | Chromium | ${chromium === 'success' ? '✅ Passed' : chromium === 'failure' ? '❌ Failed' : '⚠️ ' + chromium} | 4 | Independent |
-            | Firefox | ${firefox === 'success' ? '✅ Passed' : firefox === 'failure' ? '❌ Failed' : '⚠️ ' + firefox} | 4 | Independent |
-            | WebKit | ${webkit === 'success' ? '✅ Passed' : webkit === 'failure' ? '❌ Failed' : '⚠️ ' + webkit} | 4 | Independent |
+            | Chromium | ${chromium === 'success' ? '✅ Passed' : chromium === 'failure' ? '❌ Failed' : '⚠️ ' + chromium} | 1 | Sequential |
+            | Firefox | ${firefox === 'success' ? '✅ Passed' : firefox === 'failure' ? '❌ Failed' : '⚠️ ' + firefox} | 1 | Sequential |
+            | WebKit | ${webkit === 'success' ? '✅ Passed' : webkit === 'failure' ? '❌ Failed' : '⚠️ ' + webkit} | 1 | Sequential |
 
             **Phase 1 Hotfix Active:** Each browser runs in a separate job. One browser failure does not block others.
 
