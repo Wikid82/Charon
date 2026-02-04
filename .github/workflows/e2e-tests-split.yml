@@ -52,7 +52,7 @@ env:
 
 concurrency:
   group: e2e-split-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   # Build application once, share across all browser jobs
@@ -365,6 +365,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Playwright Chromium
+        run: |
+          echo "📦 Installing Chromium (required by security-tests dependency)..."
+          npx playwright install --with-deps chromium
+          EXIT_CODE=$?
+          echo "✅ Install command completed (exit code: $EXIT_CODE)"
+          exit $EXIT_CODE
+
       - name: Install Playwright Firefox
         run: |
           echo "📦 Installing Firefox..."
@@ -529,6 +537,14 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install Playwright Chromium
+        run: |
+          echo "📦 Installing Chromium (required by security-tests dependency)..."
+          npx playwright install --with-deps chromium
+          EXIT_CODE=$?
+          echo "✅ Install command completed (exit code: $EXIT_CODE)"
+          exit $EXIT_CODE
 
       - name: Install Playwright WebKit
         run: |
