@@ -213,7 +213,7 @@ jobs:
           exit $EXIT_CODE
 
       - name: Run Chromium tests
-        timeout-minutes: 15
+        timeout-minutes: 4
         run: |
           echo "═══════════════════════════════════════════="
           echo "Chromium E2E Tests"
