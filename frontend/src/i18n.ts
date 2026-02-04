@@ -22,7 +22,7 @@ i18n
   .init({
     resources,
     fallbackLng: 'en', // Fallback to English if translation not found
-    debug: false, // Set to true for debugging
+    debug: false,
     interpolation: {
       escapeValue: false, // React already escapes values
     },

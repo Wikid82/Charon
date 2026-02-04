@@ -174,7 +174,8 @@ test.describe.serial('Break Glass Recovery - Universal Bypass', () => {
       expect(response.ok()).toBeTruthy();
 
       const body = await response.json();
-      expect(body.admin_whitelist).toBe('0.0.0.0/0');
+      // API wraps config in a "config" key
+      expect(body.config?.admin_whitelist).toBe('0.0.0.0/0');
 
       console.log('✅ Universal bypass confirmed: admin_whitelist = 0.0.0.0/0');
     });

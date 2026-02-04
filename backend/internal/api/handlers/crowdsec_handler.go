@@ -69,6 +69,13 @@ type CrowdsecHandler struct {
 
 	// registrationMutex protects concurrent bouncer registration attempts
 	registrationMutex sync.Mutex
+
+	// envKeyRejected tracks whether the env var key was rejected by LAPI
+	// This is set during ensureBouncerRegistration() and used by GetKeyStatus()
+	envKeyRejected bool
+
+	// rejectedEnvKey stores the masked env key that was rejected for user notification
+	rejectedEnvKey string
 }
 
 // Bouncer auto-registration constants.
@@ -1544,6 +1551,39 @@ type BouncerInfo struct {
 	Registered bool   `json:"registered"`
 }
 
+// KeyStatusResponse represents the API response for the key-status endpoint.
+// This endpoint provides UX feedback when env var keys are rejected by LAPI.
+type KeyStatusResponse struct {
+	// KeySource indicates where the current key came from
+	// Values: "env" (from environment variable), "file" (from bouncer_key file), "auto-generated" (newly generated)
+	KeySource string `json:"key_source"`
+
+	// EnvKeyRejected is true if an environment variable key was set but rejected by LAPI
+	EnvKeyRejected bool `json:"env_key_rejected"`
+
+	// CurrentKeyPreview shows a masked preview of the current valid key (first 4 + last 4 chars)
+	CurrentKeyPreview string `json:"current_key_preview,omitempty"`
+
+	// RejectedKeyPreview shows a masked preview of the rejected env key (if applicable)
+	RejectedKeyPreview string `json:"rejected_key_preview,omitempty"`
+
+	// FullKey is the unmasked valid key, only returned when EnvKeyRejected is true
+	// so the user can copy it to fix their docker-compose.yml
+	FullKey string `json:"full_key,omitempty"`
+
+	// Message provides user-friendly guidance
+	Message string `json:"message,omitempty"`
+
+	// Valid indicates whether the current key is valid (authenticated successfully with LAPI)
+	Valid bool `json:"valid"`
+
+	// BouncerName is the name of the registered bouncer
+	BouncerName string `json:"bouncer_name"`
+
+	// KeyFilePath is the path where the valid key is stored
+	KeyFilePath string `json:"key_file_path"`
+}
+
 // testKeyAgainstLAPI validates an API key by making an authenticated request to LAPI.
 // Uses /v1/decisions/stream endpoint which requires authentication.
 // Returns true if the key is accepted (200 OK), false otherwise.
@@ -1578,6 +1618,15 @@ func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string)
 	for {
 		attempt++
 
+		// Check for context cancellation before each attempt
+		select {
+		case <-ctx.Done():
+			logger.Log().WithField("attempts", attempt).Debug("Context cancelled during LAPI key validation")
+			return false
+		default:
+			// Continue
+		}
+
 		// Create request with 5s timeout per attempt
 		testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		req, err := http.NewRequestWithContext(testCtx, http.MethodGet, endpoint, nil)
@@ -1602,7 +1651,14 @@ func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string)
 				if time.Since(startTime) < maxStartupWait {
 					logger.Log().WithField("attempt", attempt).WithField("backoff", backoff).WithField("elapsed", time.Since(startTime)).Debug("LAPI not ready, retrying with backoff")
 
-					time.Sleep(backoff)
+					// Check for context cancellation before sleeping
+					select {
+					case <-ctx.Done():
+						logger.Log().WithField("attempts", attempt).Debug("Context cancelled during LAPI retry")
+						return false
+					case <-time.After(backoff):
+						// Continue with retry
+					}
 
 					// Exponential backoff: 500ms → 750ms → 1125ms → ... (capped at 5s)
 					backoff = time.Duration(float64(backoff) * 1.5)
@@ -1644,6 +1700,66 @@ func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string)
 	}
 }
 
+// GetKeyStatus returns the current CrowdSec bouncer key status and any rejection information.
+// This endpoint provides UX feedback when env var keys are rejected by LAPI.
+// @Summary Get CrowdSec API key status
+// @Description Returns current key source, validity, and rejection status if env key was invalid
+// @Tags crowdsec
+// @Produce json
+// @Success 200 {object} KeyStatusResponse
+// @Router /admin/crowdsec/key-status [get]
+func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
+	h.registrationMutex.Lock()
+	defer h.registrationMutex.Unlock()
+
+	response := KeyStatusResponse{
+		BouncerName: bouncerName,
+		KeyFilePath: bouncerKeyFile,
+	}
+
+	// Check for rejected env key first
+	if h.envKeyRejected && h.rejectedEnvKey != "" {
+		response.EnvKeyRejected = true
+		response.RejectedKeyPreview = maskAPIKey(h.rejectedEnvKey)
+		response.Message = "Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but was rejected by LAPI. " +
+			"Either remove it from docker-compose.yml or update it to match the valid key stored in /app/data/crowdsec/bouncer_key."
+	}
+
+	// Determine current key source and status
+	envKey := getBouncerAPIKeyFromEnv()
+	fileKey := readKeyFromFile(bouncerKeyFile)
+
+	switch {
+	case envKey != "" && !h.envKeyRejected:
+		// Env key is set and was accepted
+		response.KeySource = "env"
+		response.CurrentKeyPreview = maskAPIKey(envKey)
+		response.Valid = true
+	case fileKey != "":
+		// Using file key (either because no env key, or env key was rejected)
+		if h.envKeyRejected {
+			response.KeySource = "auto-generated"
+			// Provide the full key so the user can copy it to fix their docker-compose.yml
+			// Security: User is already authenticated as admin and needs this to fix their config
+			response.FullKey = fileKey
+		} else {
+			response.KeySource = "file"
+		}
+		response.CurrentKeyPreview = maskAPIKey(fileKey)
+		// Verify key is still valid
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+		defer cancel()
+		response.Valid = h.testKeyAgainstLAPI(ctx, fileKey)
+	default:
+		// No key available
+		response.KeySource = "none"
+		response.Valid = false
+		response.Message = "No CrowdSec API key configured. Start CrowdSec to auto-generate one."
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
 // ensureBouncerRegistration checks if bouncer is registered and registers if needed.
 // Returns the API key if newly generated (empty if already set via env var or file).
 func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string, error) {
@@ -1656,8 +1772,14 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string
 		// Test key against LAPI (not just bouncer name)
 		if h.testKeyAgainstLAPI(ctx, envKey) {
 			logger.Log().WithField("source", "environment_variable").WithField("masked_key", maskAPIKey(envKey)).Info("CrowdSec bouncer authentication successful")
+			// Clear any previous rejection state
+			h.envKeyRejected = false
+			h.rejectedEnvKey = ""
 			return "", nil // Key valid, nothing new to report
 		}
+		// Track the rejected env key for API status endpoint
+		h.envKeyRejected = true
+		h.rejectedEnvKey = envKey
 		logger.Log().WithField("masked_key", maskAPIKey(envKey)).Warn(
 			"Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but invalid. " +
 				"Either remove it from docker-compose.yml or update it to match the " +
@@ -2492,6 +2614,7 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/bouncer", h.GetBouncerInfo)
 	rg.GET("/admin/crowdsec/bouncer/key", h.GetBouncerKey)
 	rg.POST("/admin/crowdsec/bouncer/register", h.RegisterBouncer)
+	rg.GET("/admin/crowdsec/key-status", h.GetKeyStatus)
 	// Acquisition configuration endpoints
 	rg.GET("/admin/crowdsec/acquisition", h.GetAcquisitionConfig)
 	rg.PUT("/admin/crowdsec/acquisition", h.UpdateAcquisitionConfig)

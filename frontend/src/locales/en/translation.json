@@ -277,7 +277,15 @@
       "notRegistered": "Not Registered",
       "sourceEnvVar": "From environment variable",
       "sourceFile": "From file",
-      "keyStoredAt": "Key stored at"
+      "keyStoredAt": "Key stored at",
+      "keyWarning": {
+        "title": "CrowdSec API Key Updated",
+        "description": "Your configured API key was rejected by CrowdSec LAPI. A new key has been automatically generated to restore protection.",
+        "instructions": "Update your docker-compose.yml with the new key to prevent re-registration on container restart:",
+        "copyButton": "Copy",
+        "copied": "Key copied to clipboard",
+        "restartNote": "After updating docker-compose.yml, restart the container for the change to take effect."
+      }
     },
     "acl": {
       "title": "Access Control",
