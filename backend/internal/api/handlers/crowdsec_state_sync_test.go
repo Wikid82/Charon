@@ -20,6 +20,21 @@ func TestStartSyncsSettingsTable(t *testing.T) {
 	// Migrate both SecurityConfig and Setting tables
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
+	// Mock LAPI server for testKeyAgainstLAPI (returns 200 OK for any key)
+	mockLAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"new": [], "deleted": []}`))
+	}))
+	defer mockLAPI.Close()
+
+	// Create SecurityConfig with mock LAPI URL so testKeyAgainstLAPI uses it
+	secCfg := models.SecurityConfig{
+		UUID:           "test-uuid",
+		Name:           "default",
+		CrowdSecAPIURL: mockLAPI.URL,
+	}
+	require.NoError(t, db.Create(&secCfg).Error)
+
 	tmpDir := t.TempDir()
 	fe := &fakeExec{}
 	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
@@ -68,6 +83,21 @@ func TestStopSyncsSettingsTable(t *testing.T) {
 
 	// Migrate both SecurityConfig and Setting tables
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
+
+	// Mock LAPI server for testKeyAgainstLAPI (returns 200 OK for any key)
+	mockLAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"new": [], "deleted": []}`))
+	}))
+	defer mockLAPI.Close()
+
+	// Create SecurityConfig with mock LAPI URL so testKeyAgainstLAPI uses it
+	secCfg := models.SecurityConfig{
+		UUID:           "test-uuid",
+		Name:           "default",
+		CrowdSecAPIURL: mockLAPI.URL,
+	}
+	require.NoError(t, db.Create(&secCfg).Error)
 
 	tmpDir := t.TempDir()
 	fe := &fakeExec{}
@@ -122,9 +152,30 @@ func TestStartAndStopStateConsistency(t *testing.T) {
 
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
+	// Mock LAPI server for testKeyAgainstLAPI (returns 200 OK for any key)
+	mockLAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"new": [], "deleted": []}`))
+	}))
+	defer mockLAPI.Close()
+
+	// Create SecurityConfig with mock LAPI URL so testKeyAgainstLAPI uses it
+	secCfg := models.SecurityConfig{
+		UUID:           "test-uuid",
+		Name:           "default",
+		CrowdSecAPIURL: mockLAPI.URL,
+	}
+	require.NoError(t, db.Create(&secCfg).Error)
+
 	tmpDir := t.TempDir()
 	fe := &fakeExec{}
 	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
+
+	// Replace CmdExec to simulate LAPI ready immediately (for cscli bouncers list)
+	h.CmdExec = &mockCommandExecutor{
+		output: []byte("lapi is running"),
+		err:    nil,
+	}
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -173,6 +224,21 @@ func TestExistingSettingIsUpdated(t *testing.T) {
 
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
+	// Mock LAPI server for testKeyAgainstLAPI (returns 200 OK for any key)
+	mockLAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"new": [], "deleted": []}`))
+	}))
+	defer mockLAPI.Close()
+
+	// Create SecurityConfig with mock LAPI URL so testKeyAgainstLAPI uses it
+	secCfg := models.SecurityConfig{
+		UUID:           "test-uuid",
+		Name:           "default",
+		CrowdSecAPIURL: mockLAPI.URL,
+	}
+	require.NoError(t, db.Create(&secCfg).Error)
+
 	// Pre-create a setting with a different value
 	existingSetting := models.Setting{
 		Key:      "security.crowdsec.enabled",
@@ -185,6 +251,12 @@ func TestExistingSettingIsUpdated(t *testing.T) {
 	tmpDir := t.TempDir()
 	fe := &fakeExec{}
 	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
+
+	// Replace CmdExec to prevent LAPI wait loop - simulate LAPI ready
+	h.CmdExec = &mockCommandExecutor{
+		output: []byte("lapi is running"),
+		err:    nil,
+	}
 
 	r := gin.New()
 	g := r.Group("/api/v1")

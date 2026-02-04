@@ -459,23 +459,34 @@ Charon maintains transparency about security issues and their resolution. Below 
 
 ## Known Security Considerations
 
-### Alpine Base Image Vulnerabilities (2026-01-13)
+### Debian Base Image CVEs (2026-02-04) — TEMPORARY
 
-**Status**: 9 Alpine OS package vulnerabilities identified and accepted pending upstream patches.
+**Status**: ⚠️ 7 HIGH severity CVEs in Debian Trixie base image. **Alpine migration in progress.**
+
+**Background**: Migrated from Alpine → Debian due to CVE-2025-60876 (busybox heap overflow). Debian now has worse CVE posture with no fixes available. Reverting to Alpine as Alpine CVE-2025-60876 is now patched.
 
 **Affected Packages**:
-- **busybox** (3 packages): CVE-2025-60876 (MEDIUM) - Heap buffer overflow
-- **curl** (7 CVEs): CVE-2025-15079, CVE-2025-14819, CVE-2025-14524, CVE-2025-13034, CVE-2025-10966, CVE-2025-14017 (MEDIUM), CVE-2025-15224 (LOW)
+- **libc6/libc-bin** (glibc): CVE-2026-0861 (CVSS 8.4), CVE-2025-15281, CVE-2026-0915
+- **libtasn1-6**: CVE-2025-13151 (CVSS 7.5)
+- **libtiff**: 2 additional HIGH CVEs
 
-**Risk Assessment**: LOW overall risk due to:
-- No upstream patches available from Alpine Security Team
-- Low exploitability in containerized deployment (no shell access, localhost-only curl usage)
-- Multiple layers of defense-in-depth mitigation
-- Active monitoring for patches
+**Fix Status**: ❌ No fixes available from Debian Security Team
 
-**Review Date**: 2026-02-13 (30 days)
+**Risk Assessment**: 🟢 **LOW actual risk**
+- CVEs affect system libraries, NOT Charon application code
+- Container isolation limits exploit surface area
+- No direct exploit paths identified in Charon's usage patterns
+- Network ingress filtered through Caddy proxy
 
-**Details**: See [VULNERABILITY_ACCEPTANCE.md](docs/security/VULNERABILITY_ACCEPTANCE.md) for complete risk assessment, mitigation strategies, and monitoring plan.
+**Mitigation**: Alpine base image migration
+- **Spec**: [`docs/plans/alpine_migration_spec.md`](docs/plans/alpine_migration_spec.md)
+- **Security Advisory**: [`docs/security/advisory_2026-02-04_debian_cves_temporary.md`](docs/security/advisory_2026-02-04_debian_cves_temporary.md)
+- **Timeline**: 2-3 weeks (target completion: March 5, 2026)
+- **Expected Outcome**: 100% CVE reduction (7 HIGH → 0)
+
+**Review Date**: 2026-02-11 (Phase 1 Alpine CVE verification)
+
+**Details**: See [VULNERABILITY_ACCEPTANCE.md](docs/security/VULNERABILITY_ACCEPTANCE.md) for complete risk assessment and monitoring plan.
 
 ### Third-Party Dependencies
 

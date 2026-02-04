@@ -476,3 +476,155 @@ func TestGetBaseURL_EmptyHost(t *testing.T) {
 	// Should still return valid URL with empty host
 	assert.Equal(t, "http://", baseURL)
 }
+
+// ============================================
+// GetConfiguredPublicURL Tests
+// ============================================
+
+func TestGetConfiguredPublicURL_ValidURL(t *testing.T) {
+	db := setupTestDB(t)
+
+	// Insert a valid configured public URL
+	setting := models.Setting{
+		Key:   "app.public_url",
+		Value: "https://example.com",
+	}
+	err := db.Create(&setting).Error
+	require.NoError(t, err)
+
+	publicURL, ok := GetConfiguredPublicURL(db)
+
+	assert.True(t, ok, "should return true for valid URL")
+	assert.Equal(t, "https://example.com", publicURL)
+}
+
+func TestGetConfiguredPublicURL_WithTrailingSlash(t *testing.T) {
+	db := setupTestDB(t)
+
+	setting := models.Setting{
+		Key:   "app.public_url",
+		Value: "https://example.com/",
+	}
+	err := db.Create(&setting).Error
+	require.NoError(t, err)
+
+	publicURL, ok := GetConfiguredPublicURL(db)
+
+	assert.True(t, ok)
+	assert.Equal(t, "https://example.com", publicURL, "should remove trailing slash")
+}
+
+func TestGetConfiguredPublicURL_NoSetting(t *testing.T) {
+	db := setupTestDB(t)
+	// No setting created
+
+	publicURL, ok := GetConfiguredPublicURL(db)
+
+	assert.False(t, ok, "should return false when setting doesn't exist")
+	assert.Equal(t, "", publicURL)
+}
+
+func TestGetConfiguredPublicURL_EmptyValue(t *testing.T) {
+	db := setupTestDB(t)
+
+	setting := models.Setting{
+		Key:   "app.public_url",
+		Value: "",
+	}
+	err := db.Create(&setting).Error
+	require.NoError(t, err)
+
+	publicURL, ok := GetConfiguredPublicURL(db)
+
+	assert.False(t, ok, "should return false for empty value")
+	assert.Equal(t, "", publicURL)
+}
+
+func TestGetConfiguredPublicURL_WithPort(t *testing.T) {
+	db := setupTestDB(t)
+
+	setting := models.Setting{
+		Key:   "app.public_url",
+		Value: "https://example.com:8443",
+	}
+	err := db.Create(&setting).Error
+	require.NoError(t, err)
+
+	publicURL, ok := GetConfiguredPublicURL(db)
+
+	assert.True(t, ok)
+	assert.Equal(t, "https://example.com:8443", publicURL)
+}
+
+func TestGetConfiguredPublicURL_InvalidURL(t *testing.T) {
+	db := setupTestDB(t)
+
+	testCases := []struct {
+		name  string
+		value string
+	}{
+		{"invalid scheme", "ftp://example.com"},
+		{"with path", "https://example.com/admin"},
+		{"with query", "https://example.com?query=1"},
+		{"with fragment", "https://example.com#section"},
+		{"with userinfo", "https://user:pass@example.com"},
+		{"no host", "https://"},
+		{"embedded newline", "https://exam\nple.com"}, // Newline in middle (not trimmed)
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Clean DB for each sub-test
+			db.Where("1 = 1").Delete(&models.Setting{})
+
+			setting := models.Setting{
+				Key:   "app.public_url",
+				Value: tc.value,
+			}
+			err := db.Create(&setting).Error
+			require.NoError(t, err)
+
+			publicURL, ok := GetConfiguredPublicURL(db)
+
+			assert.False(t, ok, "should return false for invalid URL: %s", tc.value)
+			assert.Equal(t, "", publicURL)
+		})
+	}
+}
+
+// ============================================
+// Additional GetConfiguredPublicURL Edge Cases
+// ============================================
+
+func TestGetConfiguredPublicURL_WithWhitespace(t *testing.T) {
+	db := setupTestDB(t)
+
+	setting := models.Setting{
+		Key:   "app.public_url",
+		Value: "  https://example.com  ",
+	}
+	err := db.Create(&setting).Error
+	require.NoError(t, err)
+
+	publicURL, ok := GetConfiguredPublicURL(db)
+
+	assert.True(t, ok, "should trim whitespace")
+	assert.Equal(t, "https://example.com", publicURL)
+}
+
+func TestGetConfiguredPublicURL_TrailingNewline(t *testing.T) {
+	db := setupTestDB(t)
+
+	// Trailing newlines are removed by TrimSpace before validation
+	setting := models.Setting{
+		Key:   "app.public_url",
+		Value: "https://example.com\n",
+	}
+	err := db.Create(&setting).Error
+	require.NoError(t, err)
+
+	publicURL, ok := GetConfiguredPublicURL(db)
+
+	assert.True(t, ok, "trailing newline should be trimmed")
+	assert.Equal(t, "https://example.com", publicURL)
+}

@@ -24,8 +24,18 @@ test.describe('Emergency Security Reset (Break-Glass)', () => {
     expect(response.ok()).toBeTruthy();
     const body = await response.json();
     expect(body.success).toBe(true);
+
+    // Verify individual security modules are disabled
     expect(body.disabled_modules).toContain('security.acl.enabled');
-    expect(body.disabled_modules).toContain('feature.cerberus.enabled');
+    expect(body.disabled_modules).toContain('security.waf.enabled');
+    expect(body.disabled_modules).toContain('security.rate_limit.enabled');
+    expect(body.disabled_modules).toContain('security.crowdsec.enabled');
+    expect(body.disabled_modules).toContain('security.crowdsec.mode');
+
+    // NOTE: feature.cerberus.enabled is NOT disabled by emergency reset
+    // The Cerberus framework stays enabled to allow security module management
+    // Only enforcement modules (ACL, WAF, Rate Limit, CrowdSec) are disabled
+    expect(body.disabled_modules).not.toContain('feature.cerberus.enabled');
   });
 
   test('should reject request with invalid token', async ({ request }) => {

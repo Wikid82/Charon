@@ -35,25 +35,10 @@ services:
       - CHARON_CADDY_BINARY=caddy
       - CHARON_IMPORT_CADDYFILE=/import/Caddyfile
       - CHARON_IMPORT_DIR=/app/data/imports
-      # Security Services (Optional)
-      # 🚨 DEPRECATED: CrowdSec environment variables are no longer used.
-      # CrowdSec is now GUI-controlled via the Security dashboard.
-      # Remove these lines and use the GUI toggle instead.
-      # See: https://wikid82.github.io/charon/migration-guide
-      #- CERBERUS_SECURITY_CROWDSEC_MODE=disabled # ⚠️ DEPRECATED - Use GUI toggle
-      #- CERBERUS_SECURITY_CROWDSEC_API_URL= # ⚠️ DEPRECATED - External mode removed
-      #- CERBERUS_SECURITY_CROWDSEC_API_KEY= # ⚠️ DEPRECATED - External mode removed
-      #- CERBERUS_SECURITY_WAF_MODE=disabled # disabled, enabled
-      #- CERBERUS_SECURITY_RATELIMIT_ENABLED=false
-      #- CERBERUS_SECURITY_ACL_ENABLED=false
-      # Backward compatibility: CPM_ prefixed variables are still supported
-      # 🚨 DEPRECATED: Use GUI toggle instead (see Security dashboard)
-      #- CPM_SECURITY_CROWDSEC_MODE=disabled # ⚠️ DEPRECATED
-      #- CPM_SECURITY_CROWDSEC_API_URL= # ⚠️ DEPRECATED
-      #- CPM_SECURITY_CROWDSEC_API_KEY= # ⚠️ DEPRECATED
-      #- CPM_SECURITY_WAF_MODE=disabled
-      #- CPM_SECURITY_RATELIMIT_ENABLED=false
-      #- CPM_SECURITY_ACL_ENABLED=false
+      # Paste your CrowdSec API details here to prevent auto reregistration on startup
+      # Obtained from your CrowdSec settings on first setup
+      - CHARON_SECURITY_CROWDSEC_API_URL=http://localhost:8085
+      - CHARON_SECURITY_CROWDSEC_API_KEY=<your-crowdsec-api-key-here>
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

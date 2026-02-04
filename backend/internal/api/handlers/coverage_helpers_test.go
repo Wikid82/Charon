@@ -537,3 +537,106 @@ func Test_safeFloat64ToUint(t *testing.T) {
 		})
 	}
 }
+
+// Test CrowdsecHandler_DiagnosticsConnectivity
+func TestCrowdsecHandler_DiagnosticsConnectivity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}, &models.CrowdsecConsoleEnrollment{}))
+
+	// Enable console enrollment feature
+	require.NoError(t, db.Create(&models.Setting{Key: "feature.crowdsec.console_enrollment", Value: "true"}).Error)
+
+	tmpDir := t.TempDir()
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
+
+	r := gin.New()
+	r.GET("/diagnostics/connectivity", h.DiagnosticsConnectivity)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/diagnostics/connectivity", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	// Should return a JSON response with connectivity checks
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Contains(t, result, "lapi_running")
+	assert.Contains(t, result, "lapi_ready")
+	assert.Contains(t, result, "capi_registered")
+}
+
+// Test CrowdsecHandler_DiagnosticsConfig
+func TestCrowdsecHandler_DiagnosticsConfig(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
+
+	tmpDir := t.TempDir()
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
+
+	r := gin.New()
+	r.GET("/diagnostics/config", h.DiagnosticsConfig)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/diagnostics/config", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	// Should return a JSON response with config validation
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Contains(t, result, "config_exists")
+	assert.Contains(t, result, "config_valid")
+	assert.Contains(t, result, "acquis_exists")
+}
+
+// Test CrowdsecHandler_ConsoleHeartbeat
+func TestCrowdsecHandler_ConsoleHeartbeat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}, &models.CrowdsecConsoleEnrollment{}))
+
+	// Enable console enrollment feature
+	require.NoError(t, db.Create(&models.Setting{Key: "feature.crowdsec.console_enrollment", Value: "true"}).Error)
+
+	tmpDir := t.TempDir()
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
+
+	r := gin.New()
+	r.GET("/console/heartbeat", h.ConsoleHeartbeat)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/console/heartbeat", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	// Should return a JSON response with heartbeat info
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Contains(t, result, "status")
+	assert.Contains(t, result, "heartbeat_tracking_implemented")
+}
+
+// Test CrowdsecHandler_ConsoleHeartbeat_Disabled
+func TestCrowdsecHandler_ConsoleHeartbeat_Disabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
+
+	tmpDir := t.TempDir()
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
+
+	r := gin.New()
+	r.GET("/console/heartbeat", h.ConsoleHeartbeat)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/console/heartbeat", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	// Should return 404 when console enrollment is disabled
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}

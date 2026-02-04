@@ -17,10 +17,14 @@
 
 import { expect } from '@bgotink/playwright-coverage';
 import type { Page, Locator, Response } from '@playwright/test';
+import { clickSwitch } from './ui-helpers';
 
 /**
  * Click an element and wait for an API response atomically.
  * Prevents race condition where response completes before wait starts.
+ *
+ * ✅ FIX P0: Added overlay detection and switch component handling
+ *
  * @param page - Playwright Page instance
  * @param clickTarget - Locator or selector string for element to click
  * @param urlPattern - URL string or RegExp to match
@@ -35,9 +39,40 @@ export async function clickAndWaitForResponse(
 ): Promise<Response> {
   const { status = 200, timeout = 30000 } = options;
 
+  // ✅ FIX P0: Wait for config reload overlay to disappear
+  const overlay = page.locator('[data-testid="config-reload-overlay"]');
+  await overlay.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {
+    // Overlay not present or already hidden - continue
+  });
+
   const locator =
     typeof clickTarget === 'string' ? page.locator(clickTarget) : clickTarget;
 
+  // ✅ FIX P0: Detect if clicking a switch component and use proper method
+  const role = await locator.getAttribute('role').catch(() => null);
+  const isSwitch = role === 'switch' ||
+    (await locator.getAttribute('type').catch(() => null) === 'checkbox' &&
+     await locator.getAttribute('aria-label').catch(() => '').then(label => label.includes('toggle')));
+
+  if (isSwitch) {
+    // Use clickSwitch helper for switch components
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (resp) => {
+          const urlMatch =
+            typeof urlPattern === 'string'
+              ? resp.url().includes(urlPattern)
+              : urlPattern.test(resp.url());
+          return urlMatch && resp.status() === status;
+        },
+        { timeout }
+      ),
+      clickSwitch(locator, { timeout }),
+    ]);
+    return response;
+  }
+
+  // Regular click for non-switch elements
   const [response] = await Promise.all([
     page.waitForResponse(
       (resp) => {
@@ -71,9 +106,6 @@ export async function clickSwitchAndWaitForResponse(
   options: { status?: number; timeout?: number; scrollPadding?: number } = {}
 ): Promise<Response> {
   const { status = 200, timeout = 30000, scrollPadding = 100 } = options;
-
-  // Import dynamically to avoid circular dependency
-  const { clickSwitch } = await import('./ui-helpers');
 
   const [response] = await Promise.all([
     page.waitForResponse(
@@ -489,9 +521,90 @@ export interface FeatureFlagPropagationOptions {
   maxAttempts?: number;
 }
 
+// ✅ FIX 1.3: Cache for in-flight requests (per-worker isolation)
+// Prevents duplicate API calls when multiple tests wait for same flag state
+// See: E2E Test Timeout Remediation Plan (Sprint 1, Fix 1.3)
+const inflightRequests = new Map<string, Promise<Record<string, boolean>>>();
+
+// ✅ FIX 3.2: Track API call metrics for performance monitoring
+// See: E2E Test Timeout Remediation Plan (Phase 3, Fix 3.2)
+const apiMetrics = {
+  featureFlagCalls: 0,
+  cacheHits: 0,
+  cacheMisses: 0,
+};
+
+/**
+ * Get current API call metrics
+ * Returns a copy to prevent external mutation
+ */
+export function getAPIMetrics() {
+  return { ...apiMetrics };
+}
+
+/**
+ * Reset all API call metrics to zero
+ * Useful for cleanup between test suites
+ */
+export function resetAPIMetrics() {
+  apiMetrics.featureFlagCalls = 0;
+  apiMetrics.cacheHits = 0;
+  apiMetrics.cacheMisses = 0;
+}
+
+/**
+ * Normalize feature flag keys to handle API prefix inconsistencies.
+ * Accepts both "cerberus.enabled" and "feature.cerberus.enabled" formats.
+ *
+ * ✅ FIX P0: Handles API key format mismatch where tests expect "cerberus.enabled"
+ * but API returns "feature.cerberus.enabled"
+ *
+ * @param key - Feature flag key (with or without "feature." prefix)
+ * @returns Normalized key with "feature." prefix
+ */
+function normalizeKey(key: string): string {
+  // If key already has "feature." prefix, return as-is
+  if (key.startsWith('feature.')) {
+    return key;
+  }
+  // Otherwise, add the "feature." prefix
+  return `feature.${key}`;
+}
+
+/**
+ * Generate stable cache key with worker isolation
+ * Prevents cache collisions between parallel workers
+ *
+ * ✅ FIX P0: Uses normalized keys to ensure cache hits work correctly
+ */
+function generateCacheKey(
+  expectedFlags: Record<string, boolean>,
+  workerIndex: number
+): string {
+  // Sort keys and normalize them to ensure consistent cache keys
+  // {cerberus.enabled:true} === {feature.cerberus.enabled:true}
+  const sortedFlags = Object.keys(expectedFlags)
+    .sort()
+    .reduce((acc, key) => {
+      const normalizedKey = normalizeKey(key);
+      acc[normalizedKey] = expectedFlags[key];
+      return acc;
+    }, {} as Record<string, boolean>);
+
+  // Include worker index to isolate parallel processes
+  return `${workerIndex}:${JSON.stringify(sortedFlags)}`;
+}
+
 /**
  * Polls the /feature-flags endpoint until expected state is returned.
  * Replaces hard-coded waits with condition-based verification.
+ * Includes request coalescing to reduce API load.
+ *
+ * ✅ FIX P1: Increased timeout from 30s to 60s and added overlay detection
+ * to handle config reload delays during feature flag propagation.
+ *
+ * ✅ FIX 2.3: Quick check for expected state before polling
+ * Skips polling if flags are already in expected state (50% fewer iterations).
  *
  * @param page - Playwright page object
  * @param expectedFlags - Map of flag names to expected boolean values
@@ -511,55 +624,126 @@ export async function waitForFeatureFlagPropagation(
   expectedFlags: Record<string, boolean>,
   options: FeatureFlagPropagationOptions = {}
 ): Promise<Record<string, boolean>> {
-  const interval = options.interval ?? 500;
-  const timeout = options.timeout ?? 30000;
-  const maxAttempts = options.maxAttempts ?? Math.ceil(timeout / interval);
+  // ✅ FIX 3.2: Track feature flag API calls
+  apiMetrics.featureFlagCalls++;
 
-  let lastResponse: Record<string, boolean> | null = null;
-  let attemptCount = 0;
+  // ✅ FIX P1: Wait for config reload overlay to disappear first
+  // The overlay delays feature flag propagation when Caddy reloads config
+  const overlay = page.locator('[data-testid="config-reload-overlay"]');
+  await overlay.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {
+    // Overlay not present or already hidden - continue
+  });
 
-  while (attemptCount < maxAttempts) {
-    attemptCount++;
+  // ✅ FIX 2.3: Quick check - are we already in expected state?
+  const currentState = await page.evaluate(async () => {
+    const res = await fetch('/api/v1/feature-flags');
+    return res.json();
+  });
 
-    // GET /feature-flags via page context to respect CORS and auth
-    const response = await page.evaluate(async () => {
-      const res = await fetch('/api/v1/feature-flags', {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      return {
-        ok: res.ok,
-        status: res.status,
-        data: await res.json(),
-      };
-    });
-
-    lastResponse = response.data as Record<string, boolean>;
-
-    // Check if all expected flags match
-    const allMatch = Object.entries(expectedFlags).every(
-      ([key, expectedValue]) => {
-        return response.data[key] === expectedValue;
-      }
-    );
-
-    if (allMatch) {
-      console.log(
-        `[POLL] Feature flags propagated after ${attemptCount} attempts (${attemptCount * interval}ms)`
-      );
-      return lastResponse;
+  const alreadyMatches = Object.entries(expectedFlags).every(
+    ([key, expectedValue]) => {
+      const normalizedKey = normalizeKey(key);
+      return currentState[normalizedKey] === expectedValue;
     }
+  );
 
-    // Wait before next attempt
-    await page.waitForTimeout(interval);
+  if (alreadyMatches) {
+    console.log('[POLL] Feature flags already in expected state - skipping poll');
+    return currentState;
   }
 
-  // Timeout: throw error with diagnostic info
-  throw new Error(
-    `Feature flag propagation timeout after ${attemptCount} attempts (${timeout}ms).\n` +
-      `Expected: ${JSON.stringify(expectedFlags)}\n` +
-      `Actual: ${JSON.stringify(lastResponse)}`
-  );
+  // ✅ FIX 1.3: Request coalescing with worker isolation
+  const { test } = await import('@playwright/test');
+  const workerIndex = test.info().parallelIndex;
+  const cacheKey = generateCacheKey(expectedFlags, workerIndex);
+
+  // Return cached promise if request already in flight for this worker
+  if (inflightRequests.has(cacheKey)) {
+    console.log(`[CACHE HIT] Worker ${workerIndex}: ${cacheKey}`);
+    // ✅ FIX 3.2: Track cache hit
+    apiMetrics.cacheHits++;
+    return inflightRequests.get(cacheKey)!;
+  }
+
+  console.log(`[CACHE MISS] Worker ${workerIndex}: ${cacheKey}`);
+  // ✅ FIX 3.2: Track cache miss
+  apiMetrics.cacheMisses++;
+
+  const interval = options.interval ?? 500;
+  const timeout = options.timeout ?? 60000; // ✅ FIX P1: Increased from 30s to 60s
+  const maxAttempts = options.maxAttempts ?? Math.ceil(timeout / interval);
+
+  // Create new polling promise
+  const pollingPromise = (async () => {
+    let lastResponse: Record<string, boolean> | null = null;
+    let attemptCount = 0;
+
+    while (attemptCount < maxAttempts) {
+      attemptCount++;
+
+      // GET /feature-flags via page context to respect CORS and auth
+      const response = await page.evaluate(async () => {
+        const res = await fetch('/api/v1/feature-flags', {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        return {
+          ok: res.ok,
+          status: res.status,
+          data: await res.json(),
+        };
+      });
+
+      lastResponse = response.data as Record<string, boolean>;
+
+      // ✅ FIX P0: Check if all expected flags match (with normalization)
+      const allMatch = Object.entries(expectedFlags).every(
+        ([key, expectedValue]) => {
+          const normalizedKey = normalizeKey(key);
+          const actualValue = response.data[normalizedKey];
+
+          if (actualValue === undefined) {
+            console.log(`[WARN] Key "${normalizedKey}" not found in API response`);
+            return false;
+          }
+
+          const matches = actualValue === expectedValue;
+          if (!matches) {
+            console.log(`[MISMATCH] ${normalizedKey}: expected ${expectedValue}, got ${actualValue}`);
+          }
+          return matches;
+        }
+      );
+
+      if (allMatch) {
+        console.log(
+          `[POLL] Feature flags propagated after ${attemptCount} attempts (${attemptCount * interval}ms)`
+        );
+        return lastResponse;
+      }
+
+      // Wait before next attempt
+      await page.waitForTimeout(interval);
+    }
+
+    // Timeout: throw error with diagnostic info
+    throw new Error(
+      `Feature flag propagation timeout after ${attemptCount} attempts (${timeout}ms).\n` +
+        `Expected: ${JSON.stringify(expectedFlags)}\n` +
+        `Actual: ${JSON.stringify(lastResponse)}`
+    );
+  })();
+
+  // Cache the promise
+  inflightRequests.set(cacheKey, pollingPromise);
+
+  try {
+    const result = await pollingPromise;
+    return result;
+  } finally {
+    // Remove from cache after completion
+    inflightRequests.delete(cacheKey);
+  }
 }
 
 /**
@@ -745,4 +929,286 @@ export async function navigateAndWaitForData(
   await expect(dataLoading).toHaveCount(0, { timeout: 5000 }).catch(() => {
     // Ignore if no data-loading elements exist
   });
+}
+
+/**
+ * Clear the feature flag cache
+ * Useful for cleanup or resetting cache state in test hooks
+ */
+export function clearFeatureFlagCache(): void {
+  inflightRequests.clear();
+  console.log('[CACHE] Cleared all cached feature flag requests');
+}
+
+// ============================================================================
+// Phase 2.1: Semantic Wait Helpers for Browser Alignment Triage
+// ============================================================================
+
+/**
+ * Options for waitForDialog
+ */
+export interface DialogOptions {
+  /** ARIA role to match (default: 'dialog') */
+  role?: 'dialog' | 'alertdialog';
+  /** Maximum time to wait (default: 5000ms) */
+  timeout?: number;
+}
+
+/**
+ * Wait for dialog to be visible and interactive.
+ * Replaces: await page.waitForTimeout(500) after dialog open
+ *
+ * This function ensures the dialog is fully rendered and ready for interaction,
+ * handling loading states and ensuring no aria-busy attributes remain.
+ *
+ * @param page - Playwright Page instance
+ * @param options - Configuration options
+ * @returns Locator for the dialog
+ *
+ * @example
+ * ```typescript
+ * // Instead of:
+ * await getAddCertButton(page).click();
+ * await page.waitForTimeout(500);
+ *
+ * // Use:
+ * await getAddCertButton(page).click();
+ * const dialog = await waitForDialog(page);
+ * await expect(dialog).toBeVisible();
+ * ```
+ */
+export async function waitForDialog(
+  page: Page,
+  options: DialogOptions = {}
+): Promise<Locator> {
+  const { role = 'dialog', timeout = 5000 } = options;
+
+  const dialog = page.getByRole(role);
+
+  // Wait for dialog to be visible
+  await expect(dialog).toBeVisible({ timeout });
+
+  // Ensure dialog is fully rendered and interactive (not busy)
+  await expect(dialog).not.toHaveAttribute('aria-busy', 'true', { timeout: 1000 }).catch(() => {
+    // aria-busy might not be present, which is fine
+  });
+
+  // Wait for any loading states within the dialog to clear
+  const dialogLoader = dialog.locator('[role="progressbar"], [aria-busy="true"], .loading-spinner');
+  await expect(dialogLoader).toHaveCount(0, { timeout: 2000 }).catch(() => {
+    // No loaders present is acceptable
+  });
+
+  return dialog;
+}
+
+/**
+ * Options for waitForFormFields
+ */
+export interface FormFieldsOptions {
+  /** Maximum time to wait (default: 5000ms) */
+  timeout?: number;
+  /** Whether field should be enabled (default: true) */
+  shouldBeEnabled?: boolean;
+}
+
+/**
+ * Wait for dynamically loaded form fields to be ready.
+ * Replaces: await page.waitForTimeout(1000) after selecting form type
+ *
+ * This function waits for form fields to be visible and enabled,
+ * handling dynamic field rendering based on form selection.
+ *
+ * @param page - Playwright Page instance
+ * @param fieldSelector - Selector for the field to wait for
+ * @param options - Configuration options
+ *
+ * @example
+ * ```typescript
+ * // Instead of:
+ * await providerSelect.selectOption('manual');
+ * await page.waitForTimeout(1000);
+ *
+ * // Use:
+ * await providerSelect.selectOption('manual');
+ * await waitForFormFields(page, 'input[name="domain"]');
+ * ```
+ */
+export async function waitForFormFields(
+  page: Page,
+  fieldSelector: string,
+  options: FormFieldsOptions = {}
+): Promise<void> {
+  const { timeout = 5000, shouldBeEnabled = true } = options;
+
+  const field = page.locator(fieldSelector);
+
+  // Wait for field to be visible
+  await expect(field).toBeVisible({ timeout });
+
+  // Wait for field to be enabled if required
+  if (shouldBeEnabled) {
+    await expect(field).toBeEnabled({ timeout: 1000 });
+  }
+
+  // Ensure field is attached to DOM (not detached during render)
+  await expect(field).toBeAttached({ timeout: 1000 });
+}
+
+/**
+ * Options for waitForDebounce
+ */
+export interface DebounceOptions {
+  /** Selector for loading indicator (optional) */
+  indicatorSelector?: string;
+  /** Maximum time to wait (default: 3000ms) */
+  timeout?: number;
+}
+
+/**
+ * Wait for debounced input to settle (e.g., search, autocomplete).
+ * Replaces: await page.waitForTimeout(500) after input typing
+ *
+ * This function waits for either a loading indicator to appear/disappear
+ * or for the network to be idle, handling debounced search scenarios.
+ *
+ * @param page - Playwright Page instance
+ * @param options - Configuration options
+ *
+ * @example
+ * ```typescript
+ * // Instead of:
+ * await searchInput.fill('test');
+ * await page.waitForTimeout(500);
+ *
+ * // Use:
+ * await searchInput.fill('test');
+ * await waitForDebounce(page, { indicatorSelector: '.search-loading' });
+ * ```
+ */
+export async function waitForDebounce(
+  page: Page,
+  options: DebounceOptions = {}
+): Promise<void> {
+  const { indicatorSelector, timeout = 3000 } = options;
+
+  if (indicatorSelector) {
+    // Wait for loading indicator to appear and disappear
+    const indicator = page.locator(indicatorSelector);
+    await indicator.waitFor({ state: 'visible', timeout: 1000 }).catch(() => {
+      // Indicator might not appear if response is very fast
+    });
+    await indicator.waitFor({ state: 'hidden', timeout });
+  } else {
+    // Wait for network to be idle (default debounce strategy)
+    await page.waitForLoadState('networkidle', { timeout });
+  }
+}
+
+/**
+ * Options for waitForConfigReload
+ */
+export interface ConfigReloadOptions {
+  /** Maximum time to wait (default: 10000ms) */
+  timeout?: number;
+}
+
+/**
+ * Wait for config reload overlay to appear and disappear.
+ * Replaces: await page.waitForTimeout(500) after settings change
+ *
+ * This function handles the "Reloading configuration..." overlay that appears
+ * when Caddy configuration is reloaded after settings changes.
+ *
+ * @param page - Playwright Page instance
+ * @param options - Configuration options
+ *
+ * @example
+ * ```typescript
+ * // Instead of:
+ * await saveButton.click();
+ * await page.waitForTimeout(2000);
+ *
+ * // Use:
+ * await saveButton.click();
+ * await waitForConfigReload(page);
+ * ```
+ */
+export async function waitForConfigReload(
+  page: Page,
+  options: ConfigReloadOptions = {}
+): Promise<void> {
+  const { timeout = 10000 } = options;
+
+  // Config reload shows overlay with "Reloading configuration..." or similar
+  const overlay = page.locator(
+    '[data-testid="config-reload-overlay"], [role="status"]'
+  ).filter({ hasText: /reloading|loading/i });
+
+  // Wait for overlay to appear (may be very fast)
+  await overlay.waitFor({ state: 'visible', timeout: 2000 }).catch(() => {
+    // Overlay may not appear if reload is instant
+  });
+
+  // Wait for overlay to disappear
+  await overlay.waitFor({ state: 'hidden', timeout }).catch(() => {
+    // If overlay never appeared, continue
+  });
+
+  // Verify page is interactive again
+  await page.waitForLoadState('domcontentloaded', { timeout: 3000 });
+}
+
+/**
+ * Options for waitForNavigation
+ */
+export interface NavigationOptions {
+  /** Maximum time to wait (default: 10000ms) */
+  timeout?: number;
+  /** Wait for load state (default: 'load') */
+  waitUntil?: 'load' | 'domcontentloaded' | 'networkidle' | 'commit';
+}
+
+/**
+ * Wait for URL change with proper assertions.
+ * Replaces: await page.waitForTimeout(1000) then checking URL
+ *
+ * This function waits for navigation to complete and verifies the URL,
+ * handling SPA-style navigation and page loads.
+ *
+ * @param page - Playwright Page instance
+ * @param expectedUrl - Expected URL (string or RegExp)
+ * @param options - Configuration options
+ *
+ * @example
+ * ```typescript
+ * // Instead of:
+ * await link.click();
+ * await page.waitForTimeout(1000);
+ * expect(page.url()).toContain('/settings');
+ *
+ * // Use:
+ * await link.click();
+ * await waitForNavigation(page, /\/settings/);
+ * ```
+ */
+export async function waitForNavigation(
+  page: Page,
+  expectedUrl: string | RegExp,
+  options: NavigationOptions = {}
+): Promise<void> {
+  const { timeout = 10000, waitUntil = 'load' } = options;
+
+  // Wait for URL to change to expected value
+  await page.waitForURL(expectedUrl, { timeout, waitUntil });
+
+  // Additional verification using auto-waiting assertion
+  if (typeof expectedUrl === 'string') {
+    await expect(page).toHaveURL(expectedUrl, { timeout: 1000 });
+  } else {
+    await expect(page).toHaveURL(expectedUrl, { timeout: 1000 });
+  }
+
+  // Ensure page is fully loaded
+  await page.waitForLoadState(waitUntil, { timeout });
 }

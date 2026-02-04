@@ -244,6 +244,9 @@ export interface SwitchOptions {
  * The Switch component uses a hidden input with a styled sibling div.
  * This helper clicks the parent <label> to trigger the toggle.
  *
+ * ✅ FIX P0: Wait for ConfigReloadOverlay to disappear before clicking
+ * The overlay intercepts pointer events during Caddy config reloads.
+ *
  * @param locator - Locator for the switch (e.g., page.getByRole('switch'))
  * @param options - Configuration options
  *
@@ -264,6 +267,15 @@ export async function clickSwitch(
   options: SwitchOptions = {}
 ): Promise<void> {
   const { scrollPadding = 100, timeout = 5000 } = options;
+
+  // ✅ FIX P0: Wait for config reload overlay to disappear
+  // The ConfigReloadOverlay component (z-50) intercepts pointer events
+  // during Caddy config reloads, blocking all interactions
+  const page = locator.page();
+  const overlay = page.locator('[data-testid="config-reload-overlay"]');
+  await overlay.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {
+    // Overlay not present or already hidden - continue
+  });
 
   // Wait for the switch to be visible
   await expect(locator).toBeVisible({ timeout });
@@ -332,4 +344,72 @@ export async function toggleSwitch(
   await expectSwitchState(locator, newState, { timeout });
 
   return newState;
+}
+
+/**
+ * Options for form field helper
+ */
+export interface FormFieldOptions {
+  /** Placeholder text to use as fallback */
+  placeholder?: string | RegExp;
+  /** Field ID to use as fallback */
+  fieldId?: string;
+}
+
+/**
+ * Get form field with cross-browser label matching.
+ * Tries multiple strategies: label, placeholder, id, aria-label.
+ *
+ * ✅ FIX 2.2: Cross-browser label matching for Firefox/WebKit compatibility
+ * Implements fallback chain to handle browser differences in label association.
+ *
+ * @param page - Playwright Page instance
+ * @param labelPattern - Text or RegExp to match label
+ * @param options - Configuration options with fallback strategies
+ * @returns Locator for the form field
+ *
+ * @example
+ * ```typescript
+ * // Basic usage with label only
+ * const nameInput = getFormFieldByLabel(page, /name/i);
+ *
+ * // With fallbacks for robustness
+ * const scriptField = getFormFieldByLabel(
+ *   page,
+ *   /script.*path/i,
+ *   {
+ *     placeholder: /dns-challenge\.sh/i,
+ *     fieldId: 'field-script_path'
+ *   }
+ * );
+ * ```
+ */
+export function getFormFieldByLabel(
+  page: Page,
+  labelPattern: string | RegExp,
+  options: FormFieldOptions = {}
+): Locator {
+  const baseLocator = page.getByLabel(labelPattern);
+
+  // Build fallback chain
+  let locator = baseLocator;
+
+  if (options.placeholder) {
+    locator = locator.or(page.getByPlaceholder(options.placeholder));
+  }
+
+  if (options.fieldId) {
+    locator = locator.or(page.locator(`#${options.fieldId}`));
+  }
+
+  // Fallback: role + label text nearby
+  if (typeof labelPattern === 'string') {
+    locator = locator.or(
+      page.getByRole('textbox').filter({
+        has: page.locator(`label:has-text("${labelPattern}")`),
+      })
+    );
+  }
+
+  return locator;
 }

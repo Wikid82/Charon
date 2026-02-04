@@ -821,6 +821,13 @@ func TestGenerateConfig_DuplicateDomains(t *testing.T) {
 
 // TestGenerateConfig_WithCrowdSecApp verifies CrowdSec app configuration
 func TestGenerateConfig_WithCrowdSecApp(t *testing.T) {
+	const bouncerKeyFile = "/app/data/crowdsec/bouncer_key"
+
+	// Skip if bouncer_key file exists (file takes priority over env vars per Phase 1 of LAPI auth fix)
+	if _, err := os.Stat(bouncerKeyFile); err == nil {
+		t.Skip("Skipping env var test - bouncer_key file exists (file takes priority over env vars)")
+	}
+
 	hosts := []models.ProxyHost{
 		{
 			UUID:        "test-uuid",
@@ -1786,6 +1793,13 @@ func TestNormalizeAdvancedConfig_ArrayInput(t *testing.T) {
 
 // TestGetCrowdSecAPIKey verifies API key retrieval from environment
 func TestGetCrowdSecAPIKey(t *testing.T) {
+	const bouncerKeyFile = "/app/data/crowdsec/bouncer_key"
+
+	// Skip if bouncer_key file exists (file takes priority over env vars per Phase 1 of LAPI auth fix)
+	if _, err := os.Stat(bouncerKeyFile); err == nil {
+		t.Skip("Skipping env var test - bouncer_key file exists (file takes priority over env vars)")
+	}
+
 	// Save original values
 	origVars := map[string]string{}
 	envVars := []string{"CROWDSEC_API_KEY", "CROWDSEC_BOUNCER_API_KEY", "CERBERUS_SECURITY_CROWDSEC_API_KEY", "CHARON_SECURITY_CROWDSEC_API_KEY", "CPM_SECURITY_CROWDSEC_API_KEY"}

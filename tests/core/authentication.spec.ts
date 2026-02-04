@@ -16,7 +16,7 @@
  */
 
 import { test, expect, loginUser, logoutUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import { waitForToast, waitForLoadingComplete, waitForAPIResponse } from '../utils/wait-helpers';
+import { waitForToast, waitForLoadingComplete, waitForAPIResponse, waitForDebounce } from '../utils/wait-helpers';
 
 test.describe('Authentication Flows', () => {
   test.describe('Login with Valid Credentials', () => {
@@ -350,7 +350,7 @@ test.describe('Authentication Flows', () => {
       await test.step('Trigger an API call by navigating', async () => {
         await page.goto('/proxy-hosts');
         // Wait for the 401 response to be processed and UI to react
-        await page.waitForTimeout(2000);
+        await waitForDebounce(page);
       });
 
       await test.step('Verify redirect to login or error message', async () => {

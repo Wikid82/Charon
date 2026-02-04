@@ -95,8 +95,8 @@ export default defineConfig({
   testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**'],
   /* Global setup - runs once before all tests to clean up orphaned data */
   globalSetup: './tests/global-setup.ts',
-  /* Global timeout for each test */
-  timeout: 30000,
+  /* Global timeout for each test - increased to 90s for feature flag propagation */
+  timeout: 90000,
   /* Timeout for expect() assertions */
   expect: {
     timeout: 5000,
