@@ -35,7 +35,7 @@ jobs:
       # Determine the correct image tag based on trigger context
       # For PRs: pr-{number}-{sha}, For branches: {sanitized-branch}-{sha}
       - name: Determine image tag
-        id: image
+        id: determine-tag
         env:
           EVENT: ${{ github.event.workflow_run.event }}
           REF: ${{ github.event.workflow_run.head_branch }}
