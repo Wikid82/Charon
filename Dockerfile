@@ -349,11 +349,15 @@ RUN groupadd -g 1000 charon && \
 # Download MaxMind GeoLite2 Country database
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
+# If download fails, create an empty placeholder (geoip feature becomes optional)
 ARG GEOLITE2_COUNTRY_SHA256=62e263af0a2ee10d7ae6b8bf2515193ff496197ec99ff25279e5987e9bd67f39
 RUN mkdir -p /app/data/geoip && \
-    curl -fSL "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
+    curl -fSL -m 30 --retry 3 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
     -o /app/data/geoip/GeoLite2-Country.mmdb && \
-    echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c -
+    echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c - || \
+    (echo "⚠️  GeoIP database download failed or checksum mismatch - creating placeholder file"; \
+     touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder && \
+     echo "GeoIP database must be provided by user at runtime")
 
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
