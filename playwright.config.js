@@ -93,8 +93,6 @@ export default defineConfig({
   testDir: './tests',
   /* Ignore old/deprecated test directories */
   testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**'],
-  /* Global setup - runs once before all tests to clean up orphaned data */
-  globalSetup: './tests/global-setup.ts',
   /* Global timeout for each test - increased to 90s for feature flag propagation
    * CI uses 60s to fail fast in resource-constrained environment (2-core runners)
    */
@@ -176,6 +174,17 @@ export default defineConfig({
       testMatch: /auth\.setup\.ts/,
     },
 
+    // 2. Preflight setup - runs AFTER auth.setup.ts to ensure storage state exists
+    // This replaces Playwright globalSetup so authenticated setup work can run
+    // deterministically in fresh CI workspaces.
+    {
+      name: 'preflight',
+      testMatch: /preflight\.setup\.ts/,
+      dependencies: ['setup'],
+      fullyParallel: false,
+      workers: 1,
+    },
+
     // 2. Security Tests - Run WITH security enabled (SEQUENTIAL, headless Chromium)
     // These tests enable security modules, verify enforcement, then teardown disables all.
     {
@@ -213,7 +222,7 @@ export default defineConfig({
         // Use stored authentication state
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup'], // Temporarily removed 'security-tests'
+      dependencies: ['preflight'], // Temporarily removed 'security-tests'
     },
 
     {
@@ -222,7 +231,7 @@ export default defineConfig({
         ...devices['Desktop Firefox'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup'], // Temporarily removed 'security-tests'
+      dependencies: ['preflight'], // Temporarily removed 'security-tests'
     },
 
     {
@@ -231,7 +240,7 @@ export default defineConfig({
         ...devices['Desktop Safari'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup'], // Temporarily removed 'security-tests'
+      dependencies: ['preflight'], // Temporarily removed 'security-tests'
     },
 
     /* Test against mobile viewports. */
