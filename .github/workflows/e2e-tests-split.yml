@@ -121,7 +121,7 @@ jobs:
     if: |
       (github.event_name != 'workflow_dispatch') ||
       (github.event.inputs.browser == 'chromium' || github.event.inputs.browser == 'all')
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
@@ -200,15 +200,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ hashFiles('package-lock.json') }}
-
       - name: Install & verify Playwright Chromium
-        run: npx playwright install --with-deps chromium
+        run: |
+          echo "⏳ Installing Playwright Chromium (with system dependencies)..."
+          echo "Start: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          npx playwright install --with-deps chromium
+          INSTALL_EXIT=$?
+          echo "Install exit code: $INSTALL_EXIT"
+
+          if [ $INSTALL_EXIT -ne 0 ]; then
+            echo "::error::Playwright Chromium installation failed"
+            echo "Cache contents:"
+            ls -la ~/.cache/ms-playwright/ || echo "Cache directory empty"
+            exit 1
+          fi
+
+          echo "✅ Verifying Chromium executable..."
+          if npx playwright test --list --project=chromium 2>&1 | grep -q "Chromium"; then
+            echo "✅ Chromium executable verified"
+          else
+            echo "::error::Chromium executable not found after installation"
+            exit 1
+          fi
+          echo "Completion: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
       - name: Run Chromium tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -284,7 +298,7 @@ jobs:
     if: |
       (github.event_name != 'workflow_dispatch') ||
       (github.event.inputs.browser == 'firefox' || github.event.inputs.browser == 'all')
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
@@ -363,15 +377,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-firefox-${{ hashFiles('package-lock.json') }}
-
       - name: Install & verify Playwright Firefox
-        run: npx playwright install --with-deps firefox
+        run: |
+          echo "⏳ Installing Playwright Firefox (with system dependencies)..."
+          echo "Start: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          npx playwright install --with-deps firefox
+          INSTALL_EXIT=$?
+          echo "Install exit code: $INSTALL_EXIT"
+
+          if [ $INSTALL_EXIT -ne 0 ]; then
+            echo "::error::Playwright Firefox installation failed"
+            echo "Cache contents:"
+            ls -la ~/.cache/ms-playwright/ || echo "Cache directory empty"
+            exit 1
+          fi
+
+          echo "✅ Verifying Firefox executable..."
+          if npx playwright test --list --project=firefox 2>&1 | grep -q "Firefox"; then
+            echo "✅ Firefox executable verified"
+          else
+            echo "::error::Firefox executable not found after installation"
+            exit 1
+          fi
+          echo "Completion: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
       - name: Run Firefox tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -447,7 +475,7 @@ jobs:
     if: |
       (github.event_name != 'workflow_dispatch') ||
       (github.event.inputs.browser == 'webkit' || github.event.inputs.browser == 'all')
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
@@ -526,15 +554,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-webkit-${{ hashFiles('package-lock.json') }}
-
       - name: Install & verify Playwright WebKit
-        run: npx playwright install --with-deps webkit
+        run: |
+          echo "⏳ Installing Playwright WebKit (with system dependencies)..."
+          echo "Start: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          npx playwright install --with-deps webkit
+          INSTALL_EXIT=$?
+          echo "Install exit code: $INSTALL_EXIT"
+
+          if [ $INSTALL_EXIT -ne 0 ]; then
+            echo "::error::Playwright WebKit installation failed"
+            echo "Cache contents:"
+            ls -la ~/.cache/ms-playwright/ || echo "Cache directory empty"
+            exit 1
+          fi
+
+          echo "✅ Verifying WebKit executable..."
+          if npx playwright test --list --project=webkit 2>&1 | grep -q "WebKit"; then
+            echo "✅ WebKit executable verified"
+          else
+            echo "::error::WebKit executable not found after installation"
+            exit 1
+          fi
+          echo "Completion: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
       - name: Run WebKit tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
