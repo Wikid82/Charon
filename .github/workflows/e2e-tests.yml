@@ -12,8 +12,8 @@
 #   - Trace Collection: Failure traces captured for debugging
 #
 # Coverage Architecture:
-#   - Backend: Docker container at localhost:8080 (API)
-#   - Frontend: Vite dev server at localhost:3000 (serves source files)
+#   - Backend: Docker container at 127.0.0.1:8080 (API)
+#   - Frontend: Vite dev server at 127.0.0.1:3000 (serves source files)
 #   - Tests hit Vite, which proxies API calls to Docker
 #   - V8 coverage maps directly to source files for accurate reporting
 #   - Coverage disabled by default (requires PLAYWRIGHT_COVERAGE=1)
@@ -283,9 +283,9 @@ jobs:
             ATTEMPT=$((ATTEMPT + 1))
             echo "Attempt ${ATTEMPT}/${MAX_ATTEMPTS}..."
 
-            if curl -sf http://localhost:8080/api/v1/health > /dev/null 2>&1; then
+            if curl -sf http://127.0.0.1:8080/api/v1/health > /dev/null 2>&1; then
               echo "✅ Charon is healthy!"
-              curl -s http://localhost:8080/api/v1/health | jq .
+              curl -s http://127.0.0.1:8080/api/v1/health | jq .
               exit 0
             fi
 
@@ -424,7 +424,7 @@ jobs:
           echo "════════════════════════════════════════════════════════════"
         env:
           # Test directly against Docker container (no coverage)
-          PLAYWRIGHT_BASE_URL: http://localhost:8080
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           CI: true
           TEST_WORKER_INDEX: ${{ matrix.shard }}
 
