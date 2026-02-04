@@ -104,8 +104,6 @@ export default defineConfig({
     process.env.CI ? ['github'] : ['list'],
     ['html', { open: process.env.CI ? 'never' : 'on-failure' }],
     ...(enableCoverage ? [['@bgotink/playwright-coverage', coverageReporterConfig]] : []),
-    // Line reporter for cleaner CI output (shows one-line status per test)
-    ...(process.env.CI ? [['line']] : []),
   ],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
