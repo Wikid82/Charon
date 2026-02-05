@@ -1,7 +1,7 @@
 import { test as setup } from './fixtures/test';
 import type { APIRequestContext } from '@playwright/test';
 import { STORAGE_STATE } from './constants';
-import { readFileSync, statSync } from 'fs';
+import { readFileSync } from 'fs';
 
 /**
  * Authentication Setup for E2E Tests
@@ -57,21 +57,6 @@ async function performLoginAndSaveState(
   // Store the authentication state
   await request.storageState({ path: STORAGE_STATE });
   console.log(`Auth state saved to ${STORAGE_STATE}`);
-
-  // Log storage state size to diagnose CI JSON.parse OOM
-  try {
-    const { size } = statSync(STORAGE_STATE);
-    const sizeKiB = Math.round(size / 1024);
-    console.log(`Auth state size: ${size} bytes (${sizeKiB} KiB)`);
-    if (size > 5 * 1024 * 1024) {
-      console.warn(
-        `⚠️ Auth state file is unusually large (>5 MiB). ` +
-        `This can cause Node.js heap OOM when Playwright loads storageState.`
-      );
-    }
-  } catch (err) {
-    console.warn('⚠️ Could not stat auth state file:', err instanceof Error ? err.message : err);
-  }
 
   // Verify cookie domain matches expected base URL
   try {
