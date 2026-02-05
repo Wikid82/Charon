@@ -171,10 +171,10 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
     <>
       {/* Layer 1: Background overlay (z-40) */}
       <div className="fixed inset-0 bg-black/50 z-40" onClick={handleClose} />
-      
+
       {/* Layer 2: Form container (z-50, pointer-events-none) */}
       <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50" role="dialog" aria-modal="true" aria-labelledby="invite-modal-title">
-        
+
         {/* Layer 3: Form content (pointer-events-auto) */}
         <div className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto pointer-events-auto">
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
@@ -442,10 +442,10 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
     <>
       {/* Layer 1: Background overlay (z-40) */}
       <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
-      
+
       {/* Layer 2: Form container (z-50, pointer-events-none) */}
       <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50" role="dialog" aria-modal="true" aria-labelledby="permissions-modal-title">
-        
+
         {/* Layer 3: Form content (pointer-events-auto) */}
         <div className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto pointer-events-auto">
         <div className="flex items-center justify-between p-4 border-b border-gray-800">

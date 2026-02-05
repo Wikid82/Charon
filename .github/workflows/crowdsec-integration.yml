@@ -35,7 +35,7 @@ jobs:
       # Determine the correct image tag based on trigger context
       # For PRs: pr-{number}-{sha}, For branches: {sanitized-branch}-{sha}
       - name: Determine image tag
-        id: image
+        id: determine-tag
         env:
           EVENT: ${{ github.event.workflow_run.event }}
           REF: ${{ github.event.workflow_run.head_branch }}
@@ -101,7 +101,7 @@ jobs:
           max_attempts: 3
           retry_wait_seconds: 10
           command: |
-            IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/charon:${{ steps.image.outputs.tag }}"
+            IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/charon:${{ steps.determine-tag.outputs.tag }}"
             echo "Pulling image: $IMAGE_NAME"
             docker pull "$IMAGE_NAME"
             docker tag "$IMAGE_NAME" charon:local
@@ -113,12 +113,12 @@ jobs:
         if: steps.pull_image.outcome == 'failure'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHA: ${{ steps.image.outputs.sha }}
+          SHA: ${{ steps.determine-tag.outputs.sha }}
         run: |
           echo "⚠️ Registry pull failed, falling back to artifact..."
 
           # Determine artifact name based on source type
-          if [[ "${{ steps.image.outputs.source_type }}" == "pr" ]]; then
+          if [[ "${{ steps.determine-tag.outputs.source_type }}" == "pr" ]]; then
             PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number')
             ARTIFACT_NAME="pr-image-${PR_NUM}"
           else
@@ -142,7 +142,7 @@ jobs:
       # Validate image freshness by checking SHA label
       - name: Validate image SHA
         env:
-          SHA: ${{ steps.image.outputs.sha }}
+          SHA: ${{ steps.determine-tag.outputs.sha }}
         run: |
           LABEL_SHA=$(docker inspect charon:local --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' | cut -c1-7)
           echo "Expected SHA: $SHA"

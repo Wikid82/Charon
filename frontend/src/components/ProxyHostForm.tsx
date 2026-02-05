@@ -13,6 +13,7 @@ import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
 import { SecurityScoreDisplay } from './SecurityScoreDisplay'
 import { parse } from 'tldts'
 import { Alert } from './ui/Alert'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui'
 import { isLikelyDockerContainerIP, isPrivateOrDockerIP } from '../utils/validation'
 import DNSProviderSelector from './DNSProviderSelector'
 import { useDetectDNSProvider } from '../hooks/useDNSDetection'
@@ -512,24 +513,13 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
   return (
     <>
-      {/* Layer 1: Background overlay (z-40) */}
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={onCancel} />
-      
-      {/* Layer 2: Form container (z-50, pointer-events-none) */}
-      <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-50">
-        
-        {/* Layer 3: Form content (pointer-events-auto) */}
-        <div 
-          className="bg-dark-card rounded-lg border border-gray-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto pointer-events-auto"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="proxy-host-form-title"
-        >
-          <div className="p-6 border-b border-gray-800">
-            <h2 id="proxy-host-form-title" className="text-2xl font-bold text-white">
+      <Dialog open={true} onOpenChange={(open) => !open && onCancel()}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0 gap-0">
+          <DialogHeader className="p-6 border-b border-gray-800">
+            <DialogTitle className="text-2xl font-bold text-white">
               {host ? 'Edit Proxy Host' : 'Add Proxy Host'}
-            </h2>
-          </div>
+            </DialogTitle>
+          </DialogHeader>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           {error && (
@@ -1280,7 +1270,8 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             </button>
           </div>
         </form>
-      </div>
+        </DialogContent>
+      </Dialog>
 
       {/* New Domain Prompt Modal */}
       {showDomainPrompt && (
@@ -1372,8 +1363,6 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           </div>
         </div>
       )}
-        </div>
-      </div>
     </>
   )
 }
