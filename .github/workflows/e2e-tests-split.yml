@@ -127,8 +127,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1]  # Single shard: all tests run sequentially to avoid race conditions
-        total-shards: [1]
+        shard: [1, 2]  # 2 shards: parallel test execution to stay under 20-minute timeout
+        total-shards: [2]
 
     steps:
       - name: Checkout repository
@@ -211,7 +211,7 @@ jobs:
 
       - name: Run Chromium tests
         timeout-minutes: 20
-        run: npx playwright test --project=chromium
+        run: npx playwright test --project=chromium --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           CI: true
@@ -221,7 +221,7 @@ jobs:
         if: success() || failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: playwright-report-chromium
+          name: playwright-report-chromium-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 14
 
@@ -229,7 +229,7 @@ jobs:
         if: (success() || failure()) && env.PLAYWRIGHT_COVERAGE == '1'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: e2e-coverage-chromium
+          name: e2e-coverage-chromium-${{ matrix.shard }}
           path: coverage/e2e/
           retention-days: 7
 
@@ -237,7 +237,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: traces-chromium
+          name: traces-chromium-${{ matrix.shard }}
           path: test-results/**/*.zip
           retention-days: 7
 
@@ -250,7 +250,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: docker-logs-chromium
+          name: docker-logs-chromium-${{ matrix.shard }}
           path: docker-logs-chromium.txt
           retention-days: 7
 
@@ -275,8 +275,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1]  # Single shard: all tests run sequentially to avoid race conditions
-        total-shards: [1]
+        shard: [1, 2]  # 2 shards: parallel test execution to stay under 20-minute timeout
+        total-shards: [2]
 
     steps:
       - name: Checkout repository
@@ -367,7 +367,7 @@ jobs:
 
       - name: Run Firefox tests
         timeout-minutes: 20
-        run: npx playwright test --project=firefox
+        run: npx playwright test --project=firefox --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           CI: true
@@ -377,7 +377,7 @@ jobs:
         if: success() || failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: playwright-report-firefox
+          name: playwright-report-firefox-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 14
 
@@ -385,7 +385,7 @@ jobs:
         if: (success() || failure()) && env.PLAYWRIGHT_COVERAGE == '1'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: e2e-coverage-firefox
+          name: e2e-coverage-firefox-${{ matrix.shard }}
           path: coverage/e2e/
           retention-days: 7
 
@@ -393,7 +393,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: traces-firefox
+          name: traces-firefox-${{ matrix.shard }}
           path: test-results/**/*.zip
           retention-days: 7
 
@@ -406,7 +406,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: docker-logs-firefox
+          name: docker-logs-firefox-${{ matrix.shard }}
           path: docker-logs-firefox.txt
           retention-days: 7
 
@@ -431,8 +431,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1]  # Single shard: all tests run sequentially to avoid race conditions
-        total-shards: [1]
+        shard: [1, 2]  # 2 shards: parallel test execution to stay under 20-minute timeout
+        total-shards: [2]
 
     steps:
       - name: Checkout repository
@@ -523,7 +523,7 @@ jobs:
 
       - name: Run WebKit tests
         timeout-minutes: 20
-        run: npx playwright test --project=webkit
+        run: npx playwright test --project=webkit --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           CI: true
@@ -533,7 +533,7 @@ jobs:
         if: success() || failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: playwright-report-webkit
+          name: playwright-report-webkit-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 14
 
@@ -541,7 +541,7 @@ jobs:
         if: (success() || failure()) && env.PLAYWRIGHT_COVERAGE == '1'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: e2e-coverage-webkit
+          name: e2e-coverage-webkit-${{ matrix.shard }}
           path: coverage/e2e/
           retention-days: 7
 
@@ -549,7 +549,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: traces-webkit
+          name: traces-webkit-${{ matrix.shard }}
           path: test-results/**/*.zip
           retention-days: 7
 
@@ -562,7 +562,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: docker-logs-webkit
+          name: docker-logs-webkit-${{ matrix.shard }}
           path: docker-logs-webkit.txt
           retention-days: 7
 
@@ -586,14 +586,15 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Browser | Status | Shards | Notes |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|--------|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Chromium | ${{ needs.e2e-chromium.result }} | 1 | Sequential execution |" >> $GITHUB_STEP_SUMMARY
-          echo "| Firefox | ${{ needs.e2e-firefox.result }} | 1 | Sequential execution |" >> $GITHUB_STEP_SUMMARY
-          echo "| WebKit | ${{ needs.e2e-webkit.result }} | 1 | Sequential execution |" >> $GITHUB_STEP_SUMMARY
+          echo "| Chromium | ${{ needs.e2e-chromium.result }} | 2 | Parallel execution (2 shards) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Firefox | ${{ needs.e2e-firefox.result }} | 2 | Parallel execution (2 shards) |" >> $GITHUB_STEP_SUMMARY
+          echo "| WebKit | ${{ needs.e2e-webkit.result }} | 2 | Parallel execution (2 shards) |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Phase 1 Hotfix Benefits" >> $GITHUB_STEP_SUMMARY
+          echo "### Execution Strategy" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ **Browser Parallelism:** All 3 browsers run simultaneously (job-level)" >> $GITHUB_STEP_SUMMARY
-          echo "- ℹ️  **Sequential Tests:** Each browser runs all tests sequentially (no sharding)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Test Sharding:** Each browser splits tests across 2 parallel shards" >> $GITHUB_STEP_SUMMARY
+          echo "- ⏱️ **Target Duration:** ~10 minutes per shard (vs 20+ minutes without sharding)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Per-Shard HTML Reports" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -729,19 +730,19 @@ jobs:
 
             ${message}
 
-            ### Browser Results (Sequential Execution)
+            ### Browser Results (Parallel Sharding)
             | Browser | Status | Shards | Execution |
             |---------|--------|--------|-----------|
-            | Chromium | ${chromium === 'success' ? '✅ Passed' : chromium === 'failure' ? '❌ Failed' : '⚠️ ' + chromium} | 1 | Sequential |
-            | Firefox | ${firefox === 'success' ? '✅ Passed' : firefox === 'failure' ? '❌ Failed' : '⚠️ ' + firefox} | 1 | Sequential |
-            | WebKit | ${webkit === 'success' ? '✅ Passed' : webkit === 'failure' ? '❌ Failed' : '⚠️ ' + webkit} | 1 | Sequential |
+            | Chromium | ${chromium === 'success' ? '✅ Passed' : chromium === 'failure' ? '❌ Failed' : '⚠️ ' + chromium} | 6 | Parallel (6 shards) |
+            | Firefox | ${firefox === 'success' ? '✅ Passed' : firefox === 'failure' ? '❌ Failed' : '⚠️ ' + firefox} | 6 | Parallel (6 shards) |
+            | WebKit | ${webkit === 'success' ? '✅ Passed' : webkit === 'failure' ? '❌ Failed' : '⚠️ ' + webkit} | 6| Parallel (6 shards) |
 
-            **Phase 1 Hotfix Active:** Each browser runs in a separate job. One browser failure does not block others.
+            **Sharding Active:** Tests split across 2 shards per browser to stay under 20-minute timeout.
 
             [📊 View workflow run & download reports](${runUrl})
 
             ---
-            <sub>🤖 Phase 1 Emergency Hotfix - See docs/plans/browser_alignment_triage.md</sub>`;
+            <sub>🤖 Sharding enabled - Target: ~10 minutes per shard</sub>`;
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
