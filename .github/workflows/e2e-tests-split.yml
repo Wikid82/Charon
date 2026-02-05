@@ -218,7 +218,7 @@ jobs:
           TEST_WORKER_INDEX: ${{ matrix.shard }}
 
       - name: Upload HTML report (Chromium)
-        if: always()
+        if: success() || failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: playwright-report-chromium
@@ -226,7 +226,7 @@ jobs:
           retention-days: 14
 
       - name: Upload Chromium coverage (if enabled)
-        if: always() && env.PLAYWRIGHT_COVERAGE == '1'
+        if: (success() || failure()) && env.PLAYWRIGHT_COVERAGE == '1'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: e2e-coverage-chromium
@@ -255,7 +255,7 @@ jobs:
           retention-days: 7
 
       - name: Cleanup
-        if: always()
+        if: success() || failure() || cancelled()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
   # Firefox browser tests (independent)
@@ -374,7 +374,7 @@ jobs:
           TEST_WORKER_INDEX: ${{ matrix.shard }}
 
       - name: Upload HTML report (Firefox shard ${{ matrix.shard }})
-        if: always()
+        if: success() || failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: playwright-report-firefox
@@ -382,7 +382,7 @@ jobs:
           retention-days: 14
 
       - name: Upload Firefox coverage (if enabled)
-        if: always() && env.PLAYWRIGHT_COVERAGE == '1'
+        if: (success() || failure()) && env.PLAYWRIGHT_COVERAGE == '1'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: e2e-coverage-firefox
@@ -411,7 +411,7 @@ jobs:
           retention-days: 7
 
       - name: Cleanup
-        if: always()
+        if: success() || failure() || cancelled()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
   # WebKit browser tests (independent)
@@ -530,7 +530,7 @@ jobs:
           TEST_WORKER_INDEX: ${{ matrix.shard }}
 
       - name: Upload HTML report (WebKit shard ${{ matrix.shard }})
-        if: always()
+        if: success() || failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: playwright-report-webkit
@@ -538,7 +538,7 @@ jobs:
           retention-days: 14
 
       - name: Upload WebKit coverage (if enabled)
-        if: always() && env.PLAYWRIGHT_COVERAGE == '1'
+        if: (success() || failure()) && env.PLAYWRIGHT_COVERAGE == '1'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: e2e-coverage-webkit
@@ -567,7 +567,7 @@ jobs:
           retention-days: 7
 
       - name: Cleanup
-        if: always()
+        if: success() || failure() || cancelled()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
   # Test summary job
@@ -575,7 +575,7 @@ jobs:
     name: E2E Test Summary
     runs-on: ubuntu-latest
     needs: [e2e-chromium, e2e-firefox, e2e-webkit]
-    if: always()
+    if: success() || failure()
 
     steps:
       - name: Generate job summary
@@ -604,7 +604,7 @@ jobs:
     name: Upload E2E Coverage
     runs-on: ubuntu-latest
     needs: [e2e-chromium, e2e-firefox, e2e-webkit]
-    if: vars.PLAYWRIGHT_COVERAGE == '1' && always()
+    if: vars.PLAYWRIGHT_COVERAGE == '1' && (success() || failure())
 
     steps:
       - name: Checkout repository
@@ -691,7 +691,7 @@ jobs:
     name: Comment Test Results
     runs-on: ubuntu-latest
     needs: [e2e-chromium, e2e-firefox, e2e-webkit, test-summary]
-    if: github.event_name == 'pull_request' && always()
+    if: github.event_name == 'pull_request' && (success() || failure())
     permissions:
       pull-requests: write
 
@@ -775,7 +775,7 @@ jobs:
     name: E2E Test Results (Final)
     runs-on: ubuntu-latest
     needs: [e2e-chromium, e2e-firefox, e2e-webkit]
-    if: always()
+    if: success() || failure()
 
     steps:
       - name: Check test results
