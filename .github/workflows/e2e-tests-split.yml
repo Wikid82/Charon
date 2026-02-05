@@ -254,7 +254,7 @@ jobs:
     if: |
       (github.event_name != 'workflow_dispatch') ||
       (github.event.inputs.browser == 'chromium' || github.event.inputs.browser == 'all')
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
@@ -263,8 +263,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]  # 4 shards for non-security tests
-        total-shards: [4]
+        shard: [1, 2, 3]  # 3 shards for non-security tests
+        total-shards: [3]
 
     steps:
       - name: Checkout repository
@@ -494,6 +494,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Playwright Chromium
+        run: |
+          echo "📦 Installing Chromium (required by security-tests dependency)..."
+          npx playwright install --with-deps chromium
+          EXIT_CODE=$?
+          echo "✅ Install command completed (exit code: $EXIT_CODE)"
+          exit $EXIT_CODE
+
       - name: Install Playwright Firefox
         run: |
           echo "📦 Installing Firefox..."
@@ -550,7 +558,7 @@ jobs:
     if: |
       (github.event_name != 'workflow_dispatch') ||
       (github.event.inputs.browser == 'firefox' || github.event.inputs.browser == 'all')
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
@@ -559,8 +567,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]  # 4 shards for non-security tests
-        total-shards: [4]
+        shard: [1, 2, 3]  # 3 shards for non-security tests
+        total-shards: [3]
 
     steps:
       - name: Checkout repository
@@ -798,6 +806,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Playwright Chromium
+        run: |
+          echo "📦 Installing Chromium (required by security-tests dependency)..."
+          npx playwright install --with-deps chromium
+          EXIT_CODE=$?
+          echo "✅ Install command completed (exit code: $EXIT_CODE)"
+          exit $EXIT_CODE
+
       - name: Install Playwright WebKit
         run: |
           echo "📦 Installing WebKit..."
@@ -854,7 +870,7 @@ jobs:
     if: |
       (github.event_name != 'workflow_dispatch') ||
       (github.event.inputs.browser == 'webkit' || github.event.inputs.browser == 'all')
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
@@ -863,8 +879,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]  # 4 shards for non-security tests
-        total-shards: [4]
+        shard: [1, 2, 3]  # 3 shards for non-security tests
+        total-shards: [3]
 
     steps:
       - name: Checkout repository
@@ -1031,14 +1047,14 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Browser | Status | Shards | Notes |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|--------|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Chromium | ${{ needs.e2e-chromium.result }} | 2 | Parallel execution (2 shards) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Firefox | ${{ needs.e2e-firefox.result }} | 2 | Parallel execution (2 shards) |" >> $GITHUB_STEP_SUMMARY
-          echo "| WebKit | ${{ needs.e2e-webkit.result }} | 2 | Parallel execution (2 shards) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Chromium | ${{ needs.e2e-chromium.result }} | 3 | Parallel execution (3 shards) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Firefox | ${{ needs.e2e-firefox.result }} | 3 | Parallel execution (3 shards) |" >> $GITHUB_STEP_SUMMARY
+          echo "| WebKit | ${{ needs.e2e-webkit.result }} | 3 | Parallel execution (3 shards) |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Execution Strategy" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ **Browser Parallelism:** All 3 browsers run simultaneously (job-level)" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Test Sharding:** Each browser splits tests across 2 parallel shards" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Test Sharding:** Each browser splits tests across 3 parallel shards" >> $GITHUB_STEP_SUMMARY
           echo "- ⏱️ **Target Duration:** ~10 minutes per shard (vs 20+ minutes without sharding)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Per-Shard HTML Reports" >> $GITHUB_STEP_SUMMARY
@@ -1178,11 +1194,11 @@ jobs:
             ### Browser Results (Parallel Sharding)
             | Browser | Status | Shards | Execution |
             |---------|--------|--------|-----------|
-            | Chromium | ${chromium === 'success' ? '✅ Passed' : chromium === 'failure' ? '❌ Failed' : '⚠️ ' + chromium} | 2 | Parallel (2 shards) |
-            | Firefox | ${firefox === 'success' ? '✅ Passed' : firefox === 'failure' ? '❌ Failed' : '⚠️ ' + firefox} | 2 | Parallel (2 shards) |
-            | WebKit | ${webkit === 'success' ? '✅ Passed' : webkit === 'failure' ? '❌ Failed' : '⚠️ ' + webkit} | 2 | Parallel (2 shards) |
+            | Chromium | ${chromium === 'success' ? '✅ Passed' : chromium === 'failure' ? '❌ Failed' : '⚠️ ' + chromium} | 3 | Parallel (3 shards) |
+            | Firefox | ${firefox === 'success' ? '✅ Passed' : firefox === 'failure' ? '❌ Failed' : '⚠️ ' + firefox} | 3 | Parallel (3 shards) |
+            | WebKit | ${webkit === 'success' ? '✅ Passed' : webkit === 'failure' ? '❌ Failed' : '⚠️ ' + webkit} | 3 | Parallel (3 shards) |
 
-            **Sharding Active:** Tests split across 2 shards per browser to stay under 20-minute timeout.
+            **Sharding Active:** Tests split across 3 shards per browser to stay under 25-minute timeout.
 
             [📊 View workflow run & download reports](${runUrl})
 
