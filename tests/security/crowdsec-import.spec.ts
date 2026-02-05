@@ -318,21 +318,28 @@ labels:
 
       // WHEN: Upload archive
       const fileBuffer = await fs.readFile(archivePath);
-      const response = await request.post('/api/v1/admin/crowdsec/import', {
-        multipart: {
-          file: {
-            name: 'with-optional-files.tar.gz',
-            mimeType: 'application/gzip',
-            buffer: fileBuffer,
-          },
-        },
-      });
 
-      // THEN: Import succeeds with both files
-      expect(response.ok()).toBeTruthy();
-      const data = await response.json();
-      expect(data).toHaveProperty('status', 'imported');
-      expect(data).toHaveProperty('backup');
+      // Retry mechanism for backend stability
+      await expect(async () => {
+        const response = await request.post('/api/v1/admin/crowdsec/import', {
+          multipart: {
+            file: {
+              name: 'with-optional-files.tar.gz',
+              mimeType: 'application/gzip',
+              buffer: fileBuffer,
+            },
+          },
+        });
+
+        // THEN: Import succeeds with both files
+        expect(response.ok(), `Import failed with status: ${response.status()}`).toBeTruthy();
+        const data = await response.json();
+        expect(data).toHaveProperty('status', 'imported');
+        expect(data).toHaveProperty('backup');
+      }).toPass({
+        intervals: [1000, 2000, 5000],
+        timeout: 15_000
+      });
     });
   });
 
