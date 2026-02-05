@@ -5,11 +5,14 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 /**
- * Read environment variables from file.
+ * Read environment variables from file (local development only).
+ * In CI, environment variables are provided by GitHub secrets.
  * https://github.com/motdotla/dotenv
  */
 import dotenv from 'dotenv';
-dotenv.config({ path: join(dirname(fileURLToPath(import.meta.url)), '.env') });
+if (!process.env.CI) {
+  dotenv.config({ path: join(dirname(fileURLToPath(import.meta.url)), '.env') });
+}
 
 /**
  * Auth state storage path - shared across all browser projects

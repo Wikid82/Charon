@@ -13,6 +13,7 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { request } from '@playwright/test';
 import type { APIRequestContext } from '@playwright/test';
+import { STORAGE_STATE } from '../constants';
 import { waitForLoadingComplete, waitForToast } from '../utils/wait-helpers';
 import { clickSwitch } from '../utils/ui-helpers';
 import {
@@ -130,9 +131,10 @@ test.describe('Security Dashboard', () => {
         return;
       }
 
-      // Create fresh request context for cleanup (cannot reuse fixture from beforeAll)
+      // Create authenticated request context for cleanup (cannot reuse fixture from beforeAll)
       const cleanupRequest = await request.newContext({
         baseURL: 'http://localhost:8080',
+        storageState: STORAGE_STATE,
       });
 
       try {
