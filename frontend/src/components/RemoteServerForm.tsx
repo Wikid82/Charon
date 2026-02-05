@@ -69,10 +69,10 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
     <>
       {/* Layer 1: Background overlay (z-40) */}
       <div className="fixed inset-0 bg-black/50 z-40" onClick={onCancel} />
-      
+
       {/* Layer 2: Form container (z-50, pointer-events-none) */}
       <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-50">
-        
+
         {/* Layer 3: Form content (pointer-events-auto) */}
         <div className="bg-dark-card rounded-lg border border-gray-800 max-w-lg w-full pointer-events-auto">
         <div className="p-6 border-b border-gray-800">

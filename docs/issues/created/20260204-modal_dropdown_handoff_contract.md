@@ -1,8 +1,8 @@
 # Modal Dropdown Fix - Local Environment Handoff Contract
 
-**Date**: 2026-02-04  
-**Status**: Implementation Complete - Testing Required  
-**Environment**: Codespace → Local Development Environment  
+**Date**: 2026-02-04
+**Status**: Implementation Complete - Testing Required
+**Environment**: Codespace → Local Development Environment
 
 ---
 
@@ -12,7 +12,7 @@
 All 7 P0 critical modal components have been updated with the 3-layer modal architecture:
 
 1. ✅ **ProxyHostForm.tsx** - ACL selector, Security Headers dropdowns fixed
-2. ✅ **UsersPage.tsx** - InviteUserModal role/permission dropdowns fixed  
+2. ✅ **UsersPage.tsx** - InviteUserModal role/permission dropdowns fixed
 3. ✅ **UsersPage.tsx** - EditPermissionsModal dropdowns fixed
 4. ✅ **Uptime.tsx** - CreateMonitorModal & EditMonitorModal type dropdowns fixed
 5. ✅ **RemoteServerForm.tsx** - Provider dropdown fixed
@@ -74,7 +74,7 @@ docker-compose -f .docker/compose/docker-compose.yml up -d
 # Navigate to: http://localhost:8080/proxy-hosts
 # 1. Click "Add Proxy Host"
 # 2. Test ACL dropdown - should open and allow selection
-# 3. Test Security Headers dropdown - should open and allow selection  
+# 3. Test Security Headers dropdown - should open and allow selection
 # 4. Fill form and submit - should work normally
 # 5. Edit existing proxy host - repeat dropdown tests
 ```
@@ -82,7 +82,7 @@ docker-compose -f .docker/compose/docker-compose.yml up -d
 **B. User Management Modals**
 ```bash
 # Navigate to: http://localhost:8080/users
-# 1. Click "Invite User"  
+# 1. Click "Invite User"
 # 2. Test Role dropdown (User/Admin) - should work
 # 3. Test Permission Mode dropdown - should work
 # 4. Click existing user "Edit Permissions"
@@ -94,7 +94,7 @@ docker-compose -f .docker/compose/docker-compose.yml up -d
 # Navigate to: http://localhost:8080/uptime
 # 1. Click "Create Monitor"
 # 2. Test Monitor Type dropdown (HTTP/TCP) - should work
-# 3. Save monitor, then click "Configure"  
+# 3. Save monitor, then click "Configure"
 # 4. Test Monitor Type dropdown in edit mode - should work
 ```
 
@@ -130,7 +130,7 @@ npx playwright test --grep "dropdown|select|acl|security.headers" --project=chro
 ```bash
 # Test in each browser for compatibility
 npx playwright test tests/integration/proxy-acl-integration.spec.ts --project=chromium
-npx playwright test tests/integration/proxy-acl-integration.spec.ts --project=firefox  
+npx playwright test tests/integration/proxy-acl-integration.spec.ts --project=firefox
 npx playwright test tests/integration/proxy-acl-integration.spec.ts --project=webkit
 ```
 
@@ -152,7 +152,7 @@ npx playwright test tests/integration/proxy-acl-integration.spec.ts --project=we
 # Frontend type check
 cd frontend && npm run type-check
 
-# Backend tests (should be unaffected)  
+# Backend tests (should be unaffected)
 cd backend && go test ./...
 
 # Full test suite
@@ -217,7 +217,7 @@ native select dropdown menus from being blocked by modal overlays.
 
 Components fixed:
 - ProxyHostForm: ACL selector and Security Headers dropdowns
-- User management: Role and permission mode selection  
+- User management: Role and permission mode selection
 - Uptime monitors: Monitor type selection (HTTP/TCP)
 - Remote servers: Provider selection dropdown
 - CrowdSec: IP ban duration selection
@@ -238,7 +238,7 @@ the UI interface.
 ### Definition of Done
 - [ ] Manual testing completed for all 7 components
 - [ ] All E2E tests passing
-- [ ] Cross-browser verification complete  
+- [ ] Cross-browser verification complete
 - [ ] No console errors or TypeScript issues
 - [ ] Code review approved (if applicable)
 - [ ] Commit message follows conventional format
