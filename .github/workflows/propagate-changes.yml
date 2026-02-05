@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - development
+      - 'hotfix/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
