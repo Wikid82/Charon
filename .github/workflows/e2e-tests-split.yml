@@ -127,7 +127,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]  # 2 shards: parallel test execution to stay under 20-minute timeout
+        shard: [1, 2, 3, 4, 5, 6]  # 2 shards: parallel test execution to stay under 20-minute timeout
         total-shards: [2]
 
     steps:
@@ -275,7 +275,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]  # 2 shards: parallel test execution to stay under 20-minute timeout
+        shard: [1, 2, 3, 4, 5, 6]  # 2 shards: parallel test execution to stay under 20-minute timeout
         total-shards: [2]
 
     steps:
@@ -431,7 +431,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]  # 2 shards: parallel test execution to stay under 20-minute timeout
+        shard: [1, 2, 3, 4, 5, 6]  # 2 shards: parallel test execution to stay under 20-minute timeout
         total-shards: [2]
 
     steps:
@@ -733,9 +733,9 @@ jobs:
             ### Browser Results (Parallel Sharding)
             | Browser | Status | Shards | Execution |
             |---------|--------|--------|-----------|
-            | Chromium | ${chromium === 'success' ? '✅ Passed' : chromium === 'failure' ? '❌ Failed' : '⚠️ ' + chromium} | 6 | Parallel (6 shards) |
-            | Firefox | ${firefox === 'success' ? '✅ Passed' : firefox === 'failure' ? '❌ Failed' : '⚠️ ' + firefox} | 6 | Parallel (6 shards) |
-            | WebKit | ${webkit === 'success' ? '✅ Passed' : webkit === 'failure' ? '❌ Failed' : '⚠️ ' + webkit} | 6| Parallel (6 shards) |
+            | Chromium | ${chromium === 'success' ? '✅ Passed' : chromium === 'failure' ? '❌ Failed' : '⚠️ ' + chromium} | 2 | Parallel (2 shards) |
+            | Firefox | ${firefox === 'success' ? '✅ Passed' : firefox === 'failure' ? '❌ Failed' : '⚠️ ' + firefox} | 2 | Parallel (2 shards) |
+            | WebKit | ${webkit === 'success' ? '✅ Passed' : webkit === 'failure' ? '❌ Failed' : '⚠️ ' + webkit} | 2 | Parallel (2 shards) |
 
             **Sharding Active:** Tests split across 2 shards per browser to stay under 20-minute timeout.
 
