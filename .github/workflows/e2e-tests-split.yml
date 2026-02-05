@@ -127,8 +127,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]  # 2 shards: parallel test execution to stay under 20-minute timeout
-        total-shards: [9]
+        shard: [1, 2, 3,4, 5, 6, 7, 8]  # 2 shards: parallel test execution to stay under 20-minute timeout
+        total-shards: [8]
 
     steps:
       - name: Checkout repository
@@ -275,8 +275,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]  # 2 shards: parallel test execution to stay under 20-minute timeout
-        total-shards: [9]
+        shard: [1, 2, 3,4, 5, 6, 7, 8]  # 2 shards: parallel test execution to stay under 20-minute timeout
+        total-shards: [8]
 
     steps:
       - name: Checkout repository
@@ -431,8 +431,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]  # 2 shards: parallel test execution to stay under 20-minute timeout
-        total-shards: [9]
+        shard: [1, 2, 3,4, 5, 6, 7, 8]  # 2 shards: parallel test execution to stay under 20-minute timeout
+        total-shards: [8]
 
     steps:
       - name: Checkout repository
