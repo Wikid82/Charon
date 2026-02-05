@@ -1175,10 +1175,10 @@ export default function CrowdSecConfig() {
         <>
           {/* Layer 1: Background overlay (z-40) */}
           <div className="fixed inset-0 bg-black/60 z-40" onClick={() => setShowBanModal(false)} />
-          
+
           {/* Layer 2: Form container (z-50, pointer-events-none) */}
           <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
-            
+
             {/* Layer 3: Form content (pointer-events-auto) */}
             <div className="bg-dark-card rounded-lg p-6 w-[480px] max-w-full pointer-events-auto">
             <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
@@ -1233,6 +1233,7 @@ export default function CrowdSecConfig() {
             </div>
           </div>
         </div>
+      </>
       )}
 
       {/* Unban Confirmation Modal */}

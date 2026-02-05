@@ -1,9 +1,9 @@
 # Comprehensive Modal Z-Index Fix Plan
 
-**Date**: 2026-02-04  
-**Issue**: Widespread modal overlay z-index pattern breaking dropdown interactions  
-**Scope**: 11 modal components across the application  
-**Fix Strategy**: Unified 3-layer modal restructuring  
+**Date**: 2026-02-04
+**Issue**: Widespread modal overlay z-index pattern breaking dropdown interactions
+**Scope**: 11 modal components across the application
+**Fix Strategy**: Unified 3-layer modal restructuring
 
 ---
 
@@ -73,10 +73,10 @@ With the 3-layer pattern:
 <>
   {/* Layer 1: Background overlay (z-40) */}
   <div className="fixed inset-0 bg-black/50 z-40" onClick={onCancel} />
-  
+
   {/* Layer 2: Form container (z-50, pointer-events-none) */}
   <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-50">
-    
+
     {/* Layer 3: Form content (pointer-events-auto) */}
     <div className="... pointer-events-auto">
       <form className="pointer-events-auto">
@@ -96,7 +96,7 @@ With the 3-layer pattern:
 **Priority Order** (most business-critical first):
 1. **ProxyHostForm.tsx** (30 min) - Security policy assignment
 2. **UsersPage.tsx** - InviteUserModal (20 min) - User management
-3. **UsersPage.tsx** - EditPermissionsModal (30 min) - Permission management  
+3. **UsersPage.tsx** - EditPermissionsModal (30 min) - Permission management
 4. **Uptime.tsx** - Both modals (45 min) - Monitor management
 5. **RemoteServerForm.tsx** (20 min) - Infrastructure management
 6. **CrowdSecConfig.tsx** - BanIPModal (20 min) - Security management
@@ -108,7 +108,7 @@ Analysis and fix of remaining interactive modals if needed.
 ### Phase 3: Testing & Validation (2-3 hours)
 
 - Manual testing of all dropdown interactions
-- E2E test updates 
+- E2E test updates
 - Cross-browser verification
 
 **Total Estimated Time: 7-11 hours**
@@ -121,7 +121,7 @@ Analysis and fix of remaining interactive modals if needed.
 
 For each P0 component:
 - [ ] Modal opens correctly
-- [ ] Background overlay click-to-close works  
+- [ ] Background overlay click-to-close works
 - [ ] All dropdown menus open and respond to clicks
 - [ ] Dropdown options are selectable
 - [ ] Form submission works with selected values
@@ -147,15 +147,15 @@ For each P0 component:
 **Risk Level: LOW-MEDIUM**
 
 **Mitigating Factors:**
-✅ Non-breaking change (only CSS/DOM structure)  
-✅ Identical fix pattern across all components  
-✅ Well-understood solution (already documented in ConfigReloadOverlay)  
-✅ Only affects modal presentation layer  
+✅ Non-breaking change (only CSS/DOM structure)
+✅ Identical fix pattern across all components
+✅ Well-understood solution (already documented in ConfigReloadOverlay)
+✅ Only affects modal presentation layer
 
 **Risk Areas:**
-⚠️ Multiple files being modified simultaneously  
-⚠️ Modal close behavior could be affected  
-⚠️ CSS specificity or responsive behavior could change  
+⚠️ Multiple files being modified simultaneously
+⚠️ Modal close behavior could be affected
+⚠️ CSS specificity or responsive behavior could change
 
 **Mitigation Strategy:**
 - Fix components one at a time
@@ -197,7 +197,7 @@ For each P0 component:
 ## Post-Implementation Actions
 
 1. **Documentation Update**: Update modal component patterns in design system docs
-2. **Code Review Guidelines**: Add z-index modal pattern to code review checklist  
+2. **Code Review Guidelines**: Add z-index modal pattern to code review checklist
 3. **Linting Rule**: Consider ESLint rule to detect problematic modal patterns
 4. **Design System**: Create reusable Modal component with correct z-index pattern
 

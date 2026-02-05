@@ -54,10 +54,6 @@ on:
           - firefox
           - webkit
           - all
-      image_tag:
-        description: 'Docker image tag to test (e.g., pr-123-abc1234, latest)'
-        required: false
-        type: string
 
 env:
   NODE_VERSION: '20'

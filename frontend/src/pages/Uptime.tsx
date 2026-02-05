@@ -230,10 +230,10 @@ const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void; t: (ke
         <>
             {/* Layer 1: Background overlay (z-40) */}
             <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
-            
+
             {/* Layer 2: Form container (z-50, pointer-events-none) */}
             <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-50">
-                
+
                 {/* Layer 3: Form content (pointer-events-auto) */}
                 <div className="bg-gray-800 rounded-lg border border-gray-700 max-w-md w-full p-6 shadow-xl pointer-events-auto">
                 <div className="flex justify-between items-center mb-6">
@@ -347,10 +347,10 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
         <>
             {/* Layer 1: Background overlay (z-40) */}
             <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
-            
+
             {/* Layer 2: Form container (z-50, pointer-events-none) */}
             <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-50">
-                
+
                 {/* Layer 3: Form content (pointer-events-auto) */}
                 <div className="bg-gray-800 rounded-lg border border-gray-700 max-w-md w-full p-6 shadow-xl pointer-events-auto">
                     <div className="flex justify-between items-center mb-6">
