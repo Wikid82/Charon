@@ -7,6 +7,8 @@ on:
     workflows: ["Docker Build, Publish & Test"]
     types: [completed]
     branches: [main, development, 'feature/**', 'hotfix/**']  # Explicit branch filter prevents unexpected triggers
+  pull_request:
+    branches: [main, development, 'feature/**', 'hotfix/**']
   # Allow manual trigger for debugging
   workflow_dispatch:
     inputs:
