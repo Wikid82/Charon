@@ -9,7 +9,7 @@ import { dirname, join } from 'path';
  * https://github.com/motdotla/dotenv
  */
 import dotenv from 'dotenv';
-dotenv.config({ path: join(dirname(fileURLToPath(import.meta.url)), '.env') });
+dotenv.config({ path: join(dirname(fileURLToPath(import.meta.url)), '.env'), debug: false });
 
 /**
  * Auth state storage path - shared across all browser projects
