@@ -198,7 +198,7 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup', 'security-tests'],
+      dependencies: ['setup'],
     },
 
     {
