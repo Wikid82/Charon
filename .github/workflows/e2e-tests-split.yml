@@ -48,7 +48,7 @@ env:
   PLAYWRIGHT_COVERAGE: ${{ vars.PLAYWRIGHT_COVERAGE || '0' }}
 
 concurrency:
-  group: e2e-split-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: e2e-tests-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
