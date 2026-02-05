@@ -36,7 +36,7 @@ on:
   workflow_run:
     workflows: ["Docker Build, Publish & Test"]
     types: [completed]
-    branches: [main, development, 'feature/**']  # Explicit branch filter prevents unexpected triggers
+    branches: [main, development, 'feature/**', 'hotfix/**']  # Explicit branch filter prevents unexpected triggers
 
   workflow_dispatch:
     inputs:

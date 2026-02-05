@@ -26,12 +26,14 @@ on:
       - main
       - development
       - 'feature/**'
+      - 'hotfix/**'
     # Note: Tags are handled by release-goreleaser.yml to avoid duplicate builds
   pull_request:
     branches:
       - main
       - development
       - 'feature/**'
+      - 'hotfix/**'
   workflow_dispatch:
   workflow_call:
 
