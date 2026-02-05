@@ -98,46 +98,7 @@ matrix:
 - ✅ Comments properly explain the change
 - ✅ Consistent across all 3 browser jobs (chromium, firefox, webkit)
 
-### Job Dependencies
-**Status**: ✅ PASS
-
-**Verified**:
-- ✅ `e2e-chromium`, `e2e-firefox`, `e2e-webkit` all depend on `build` job
-- ✅ `test-summary` depends on all 3 browser jobs
-- ✅ `upload-coverage` depends on all 3 browser jobs
-- ✅ `comment-results` depends on browser jobs + test-summary
-- ✅ `e2e-results` depends on all 3 browser jobs
-
-**Dependency Graph**:
-```
-build
-├── e2e-chromium ─┐
-├── e2e-firefox ──┼─→ test-summary ─┐
-└── e2e-webkit ───┘                  ├─→ comment-results
-                                     │
-                 upload-coverage ────┘
-                 e2e-results (final status check)
-```
-
-### Artifact Naming
-**Status**: ✅ PASS
-
-**Verified**:
-Each browser produces uniquely named artifacts:
-- `playwright-report-chromium-shard-1`
-- `playwright-report-firefox-shard-1`
-- `playwright-report-webkit-shard-1`
-- `e2e-coverage-chromium-shard-1`
-- `e2e-coverage-firefox-shard-1`
-- `e2e-coverage-webkit-shard-1`
-- `traces-chromium-shard-1` (on failure)
-- `traces-firefox-shard-1` (on failure)
-- `traces-webkit-shard-1` (on failure)
-- `docker-logs-chromium-shard-1` (on failure)
-- `docker-logs-firefox-shard-1` (on failure)
-- `docker-logs-webkit-shard-1` (on failure)
-
-**Conflict Risk**: ✅ None - all artifact names include browser-specific identifiers
+5. **Staticcheck Version**: Update staticcheck to go 1.25.7+
 
 ---
 
