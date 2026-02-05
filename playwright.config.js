@@ -7,9 +7,14 @@ import { dirname, join } from 'path';
 /**
  * Read environment variables from file (local development only).
  * In CI, environment variables are provided by GitHub secrets.
+ * Read environment variables from file (local development only).
+ * In CI, environment variables are provided by GitHub secrets.
  * https://github.com/motdotla/dotenv
  */
 import dotenv from 'dotenv';
+if (!process.env.CI) {
+  dotenv.config({ path: join(dirname(fileURLToPath(import.meta.url)), '.env') });
+}
 if (!process.env.CI) {
   dotenv.config({ path: join(dirname(fileURLToPath(import.meta.url)), '.env') });
 }
@@ -81,7 +86,15 @@ export default defineConfig({
   testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**'],
 
   /* Standard globalSetup - runs once before all tests */
+
+  /* Standard globalSetup - runs once before all tests */
   globalSetup: './tests/global-setup.ts',
+
+  /* Timeouts */
+  timeout: process.env.CI ? 60000 : 90000,
+  expect: { timeout: 5000 },
+
+  /* Parallelization */
 
   /* Timeouts */
   timeout: process.env.CI ? 60000 : 90000,
@@ -97,6 +110,8 @@ export default defineConfig({
   /* CI settings */
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
+
+  /* Reporters - simplified for CI */
 
   /* Reporters - simplified for CI */
   reporter: [
@@ -120,7 +135,12 @@ export default defineConfig({
      * IMPORTANT: Using 127.0.0.1 (IPv4 loopback) instead of localhost to avoid
      * IPv6/IPv4 resolution issues where Node.js/Playwright might prefer ::1 (IPv6)
      * but the Docker container binds to 0.0.0.0 (IPv4).
+     *
+     * IMPORTANT: Using 127.0.0.1 (IPv4 loopback) instead of localhost to avoid
+     * IPv6/IPv4 resolution issues where Node.js/Playwright might prefer ::1 (IPv6)
+     * but the Docker container binds to 0.0.0.0 (IPv4).
      */
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080',
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080',
 
     /* Traces: Capture execution traces for debugging
@@ -192,12 +212,14 @@ export default defineConfig({
     },
 
     // Browser projects - standard Playwright pattern
+    // Browser projects - standard Playwright pattern
     {
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
         storageState: STORAGE_STATE,
       },
+      dependencies: ['setup'],
       dependencies: ['setup'],
     },
 
@@ -246,6 +268,8 @@ export default defineConfig({
   //   url: 'http://localhost:5173',
   //   reuseExistingServer: !process.env.CI,
   //   timeout: 120000,
+  //   stdout: 'pipe',  // PHASE 1: Enable log visibility
+  //   stderr: 'pipe',  // PHASE 1: Enable log visibility
   //   stdout: 'pipe',  // PHASE 1: Enable log visibility
   //   stderr: 'pipe',  // PHASE 1: Enable log visibility
   // },
