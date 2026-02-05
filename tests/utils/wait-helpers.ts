@@ -52,7 +52,7 @@ export async function clickAndWaitForResponse(
   const role = await locator.getAttribute('role').catch(() => null);
   const isSwitch = role === 'switch' ||
     (await locator.getAttribute('type').catch(() => null) === 'checkbox' &&
-     await locator.getAttribute('aria-label').catch(() => '').then(label => label.includes('toggle')));
+     await locator.getAttribute('aria-label').then(l => (l || '').includes('toggle')).catch(() => false));
 
   if (isSwitch) {
     // Use clickSwitch helper for switch components
@@ -238,9 +238,20 @@ export async function waitForLoadingComplete(
   const { timeout = 10000 } = options;
 
   // Wait for any loading indicator to disappear
-  const loader = page.locator(
-    '[role="progressbar"], [aria-busy="true"], .loading-spinner, .loading, .spinner, [data-loading="true"]'
-  );
+  // Updated to be more specific and exclude pulsing UI badges
+  const loader = page.locator([
+    '[role="progressbar"]',
+    '[aria-busy="true"]',
+    '.loading-spinner',
+    '.loading',
+    '.spinner',
+    '[data-loading="true"]',
+    'div.animate-pulse', // Only divs upon animate-pulse (skeletons), excluding spans (badges)
+    '[role="status"][aria-label="Loading"]',
+    '[role="status"][aria-label="Authenticating"]',
+    '[role="status"][aria-label="Security Loading"]'
+  ].join(', '));
+
   await expect(loader).toHaveCount(0, { timeout });
 }
 
@@ -1063,6 +1074,8 @@ export interface DebounceOptions {
   indicatorSelector?: string;
   /** Maximum time to wait (default: 3000ms) */
   timeout?: number;
+  /** Optional delay for debounce settling (default: 300ms) */
+  delay?: number;
 }
 
 /**
@@ -1090,7 +1103,7 @@ export async function waitForDebounce(
   page: Page,
   options: DebounceOptions = {}
 ): Promise<void> {
-  const { indicatorSelector, timeout = 3000 } = options;
+  const { indicatorSelector, timeout = 3000, delay = 300 } = options;
 
   if (indicatorSelector) {
     // Wait for loading indicator to appear and disappear
@@ -1100,6 +1113,10 @@ export async function waitForDebounce(
     });
     await indicator.waitFor({ state: 'hidden', timeout });
   } else {
+    // Manually wait for the debounce delay to ensure subsequent requests are triggered
+    if (delay > 0) {
+      await page.waitForTimeout(delay);
+    }
     // Wait for network to be idle (default debounce strategy)
     await page.waitForLoadState('networkidle', { timeout });
   }

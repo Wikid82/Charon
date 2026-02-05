@@ -393,6 +393,76 @@ npx playwright test tests/settings/system-settings.spec.ts \
 
 ---
 
+## Robust Assertions for Dynamic Content
+
+### ❌ AVOID: Boolean Logic on Transient States
+
+**Anti-Pattern**:
+```typescript
+const hasEmptyMessage = await emptyCellMessage.isVisible().catch(() => false);
+const hasTable = await table.isVisible().catch(() => false);
+expect(hasEmptyMessage || hasTable).toBeTruthy();
+```
+
+**Why This Is Bad**:
+- Fails during the split second where neither element is fully visible (loading transitions).
+- Playwright's auto-retrying logic is bypassed by the `catch()` block.
+- Leads to flaky "false negatives" where both checks return false before content loads.
+
+### ✅ PREFER: Locator Composition with `.or()`
+
+**Correct Pattern**:
+```typescript
+await expect(
+  page.getByRole('table').or(page.getByText(/no.*certificates.*found/i))
+).toBeVisible({ timeout: 10000 });
+```
+
+**Why This Is Better**:
+- Leverages Playwright's built-in **auto-retry** mechanism.
+- Waits for *either* condition to become true.
+- Handles loading spinners and layout shifts gracefully.
+- Reduces boilerplate code.
+
+---
+
+## Resilient Actions
+
+### ❌ AVOID: Fixed Timeouts or Custom Loops
+
+**Anti-Pattern**:
+```typescript
+// Flaky custom retry loop
+for (let i = 0; i < 3; i++) {
+  try {
+    await action();
+    break;
+  } catch (e) {
+    await page.waitForTimeout(1000);
+  }
+}
+```
+
+### ✅ PREFER: `.toPass()` for Verification Loops
+
+**Correct Pattern**:
+```typescript
+await expect(async () => {
+  const response = await request.post('/endpoint');
+  expect(response.ok()).toBeTruthy();
+}).toPass({
+  intervals: [1000, 2000, 5000],
+  timeout: 15_000
+});
+```
+
+**Why This Is Better**:
+- Built-in assertion retry logic.
+- Configurable backoff intervals.
+- Cleaner syntax for verifying eventual success (e.g. valid API response after background processing).
+
+---
+
 ## Summary Checklist
 
 Before writing E2E tests, verify:

@@ -519,12 +519,17 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-50">
         
         {/* Layer 3: Form content (pointer-events-auto) */}
-        <div className="bg-dark-card rounded-lg border border-gray-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto pointer-events-auto">
-        <div className="p-6 border-b border-gray-800">
-          <h2 className="text-2xl font-bold text-white">
-            {host ? 'Edit Proxy Host' : 'Add Proxy Host'}
-          </h2>
-        </div>
+        <div 
+          className="bg-dark-card rounded-lg border border-gray-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto pointer-events-auto"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="proxy-host-form-title"
+        >
+          <div className="p-6 border-b border-gray-800">
+            <h2 id="proxy-host-form-title" className="text-2xl font-bold text-white">
+              {host ? 'Edit Proxy Host' : 'Add Proxy Host'}
+            </h2>
+          </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           {error && (

@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Testing Infrastructure**: Enhanced E2E test helpers with better synchronization and error handling
+- **CI**: Optimized E2E workflow shards [Reduced from 4 to 3]
 
 ### Fixed
 
@@ -76,6 +77,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enables reliable selector for testing feature toggle overlay visibility
 - **E2E Tests**: Skipped WAF enforcement test (middleware behavior tested in integration)
   - `waf-enforcement.spec.ts` now skipped with reason referencing `backend/integration/coraza_integration_test.go`
+- **CI**: Added missing Chromium dependency for Security jobs
+- **E2E Tests**: Stabilized Proxy Host and Certificate tests (wait helpers, locators)
 
 ### Changed
 
