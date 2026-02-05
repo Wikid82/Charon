@@ -110,7 +110,143 @@ jobs:
           path: charon-e2e-image.tar
           retention-days: 1
 
-  # Chromium browser tests (independent)
+  # Security Enforcement Tests (Chromium) - ISOLATED SERIAL EXECUTION
+  # These tests enable/disable Cerberus and must run alone to avoid contaminating other shards
+  e2e-chromium-security:
+    name: E2E Chromium (Security Enforcement)
+    runs-on: ubuntu-latest
+    needs: build
+    if: |
+      (github.event_name != 'workflow_dispatch') ||
+      (github.event.inputs.browser == 'chromium' || github.event.inputs.browser == 'all')
+    timeout-minutes: 30
+    env:
+      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+      CHARON_EMERGENCY_SERVER_ENABLED: "true"
+      CHARON_SECURITY_TESTS_ENABLED: "true"
+      CHARON_E2E_IMAGE_TAG: charon:e2e-test
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1]  # Single shard - security tests run serially
+        total-shards: [1]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Download Docker image
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: docker-image
+
+      - name: Validate Emergency Token Configuration
+        run: |
+          echo "🔐 Validating emergency token configuration..."
+          if [ -z "$CHARON_EMERGENCY_TOKEN" ]; then
+            echo "::error title=Missing Secret::CHARON_EMERGENCY_TOKEN secret not configured"
+            exit 1
+          fi
+          TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
+          if [ $TOKEN_LENGTH -lt 64 ]; then
+            echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
+            exit 1
+          fi
+          MASKED_TOKEN="${CHARON_EMERGENCY_TOKEN:0:8}...${CHARON_EMERGENCY_TOKEN: -4}"
+          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH, preview: $MASKED_TOKEN)"
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+
+      - name: Load Docker image
+        run: |
+          docker load -i charon-e2e-image.tar
+          docker images | grep charon
+
+      - name: Generate ephemeral encryption key
+        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> $GITHUB_ENV
+
+      - name: Start test environment
+        run: |
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
+          echo "✅ Container started for Chromium security enforcement tests"
+
+      - name: Wait for service health
+        run: |
+          echo "⏳ Waiting for Charon to be healthy..."
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+          while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Attempt ${ATTEMPT}/${MAX_ATTEMPTS}..."
+            if curl -sf http://127.0.0.1:8080/api/v1/health > /dev/null 2>&1; then
+              echo "✅ Charon is healthy!"
+              curl -s http://127.0.0.1:8080/api/v1/health | jq .
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "❌ Health check failed"
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs
+          exit 1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: |
+          echo "📦 Installing Chromium..."
+          npx playwright install --with-deps chromium
+          EXIT_CODE=$?
+          echo "✅ Install command completed (exit code: $EXIT_CODE)"
+          exit $EXIT_CODE
+
+      - name: Run Security Enforcement Tests (Chromium)
+        timeout-minutes: 25
+        run: npx playwright test --project=chromium tests/security-enforcement/
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
+          CI: true
+
+      - name: Upload HTML report (Chromium Security)
+        if: success() || failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: playwright-report-chromium-security
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload test traces on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: traces-chromium-security
+          path: test-results/**/*.zip
+          retention-days: 7
+
+      - name: Collect Docker logs on failure
+        if: failure()
+        run: |
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-chromium-security.txt 2>&1
+
+      - name: Upload Docker logs on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: docker-logs-chromium-security
+          path: docker-logs-chromium-security.txt
+          retention-days: 7
+
+      - name: Cleanup
+        if: success() || failure() || cancelled()
+        run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
+
+  # Chromium browser tests (non-security) - PARALLEL SHARDED EXECUTION
   e2e-chromium:
     name: E2E Chromium (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
     runs-on: ubuntu-latest
@@ -122,13 +258,13 @@ jobs:
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
-      CHARON_SECURITY_TESTS_ENABLED: "true"
+      CHARON_SECURITY_TESTS_ENABLED: "false"  # Cerberus OFF for non-security tests
       CHARON_E2E_IMAGE_TAG: charon:e2e-test
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3,4, 5, 6, 7, 8]  # 2 shards: parallel test execution to stay under 20-minute timeout
-        total-shards: [8]
+        shard: [1, 2, 3, 4]  # 4 shards for non-security tests
+        total-shards: [4]
 
     steps:
       - name: Checkout repository
@@ -209,9 +345,22 @@ jobs:
           find ~/.cache/ms-playwright -name "*chromium*" -o -name "*chrome*" 2>/dev/null | head -10 || echo "No chromium files found"
           exit $EXIT_CODE
 
-      - name: Run Chromium tests
+      - name: Run Chromium tests (Non-Security)
         timeout-minutes: 20
-        run: npx playwright test --project=chromium --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
+        run: |
+          # Run all tests except security-enforcement directory (Cerberus is OFF by default)
+          npx playwright test --project=chromium \
+            tests/core \
+            tests/dns-provider-crud.spec.ts \
+            tests/dns-provider-types.spec.ts \
+            tests/emergency-server \
+            tests/integration \
+            tests/manual-dns-provider.spec.ts \
+            tests/monitoring \
+            tests/security \
+            tests/settings \
+            tests/tasks \
+            --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           CI: true
@@ -258,7 +407,142 @@ jobs:
         if: success() || failure() || cancelled()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
-  # Firefox browser tests (independent)
+  # Security Enforcement Tests (Firefox) - ISOLATED SERIAL EXECUTION
+  e2e-firefox-security:
+    name: E2E Firefox (Security Enforcement)
+    runs-on: ubuntu-latest
+    needs: build
+    if: |
+      (github.event_name != 'workflow_dispatch') ||
+      (github.event.inputs.browser == 'firefox' || github.event.inputs.browser == 'all')
+    timeout-minutes: 30
+    env:
+      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+      CHARON_EMERGENCY_SERVER_ENABLED: "true"
+      CHARON_SECURITY_TESTS_ENABLED: "true"
+      CHARON_E2E_IMAGE_TAG: charon:e2e-test
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1]  # Single shard - security tests run serially
+        total-shards: [1]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Download Docker image
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: docker-image
+
+      - name: Validate Emergency Token Configuration
+        run: |
+          echo "🔐 Validating emergency token configuration..."
+          if [ -z "$CHARON_EMERGENCY_TOKEN" ]; then
+            echo "::error title=Missing Secret::CHARON_EMERGENCY_TOKEN secret not configured"
+            exit 1
+          fi
+          TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
+          if [ $TOKEN_LENGTH -lt 64 ]; then
+            echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
+            exit 1
+          fi
+          MASKED_TOKEN="${CHARON_EMERGENCY_TOKEN:0:8}...${CHARON_EMERGENCY_TOKEN: -4}"
+          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH, preview: $MASKED_TOKEN)"
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+
+      - name: Load Docker image
+        run: |
+          docker load -i charon-e2e-image.tar
+          docker images | grep charon
+
+      - name: Generate ephemeral encryption key
+        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> $GITHUB_ENV
+
+      - name: Start test environment
+        run: |
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
+          echo "✅ Container started for Firefox security enforcement tests"
+
+      - name: Wait for service health
+        run: |
+          echo "⏳ Waiting for Charon to be healthy..."
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+          while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Attempt ${ATTEMPT}/${MAX_ATTEMPTS}..."
+            if curl -sf http://127.0.0.1:8080/api/v1/health > /dev/null 2>&1; then
+              echo "✅ Charon is healthy!"
+              curl -s http://127.0.0.1:8080/api/v1/health | jq .
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "❌ Health check failed"
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs
+          exit 1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Firefox
+        run: |
+          echo "📦 Installing Firefox..."
+          npx playwright install --with-deps firefox
+          EXIT_CODE=$?
+          echo "✅ Install command completed (exit code: $EXIT_CODE)"
+          exit $EXIT_CODE
+
+      - name: Run Security Enforcement Tests (Firefox)
+        timeout-minutes: 25
+        run: npx playwright test --project=firefox tests/security-enforcement/
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
+          CI: true
+
+      - name: Upload HTML report (Firefox Security)
+        if: success() || failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: playwright-report-firefox-security
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload test traces on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: traces-firefox-security
+          path: test-results/**/*.zip
+          retention-days: 7
+
+      - name: Collect Docker logs on failure
+        if: failure()
+        run: |
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-firefox-security.txt 2>&1
+
+      - name: Upload Docker logs on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: docker-logs-firefox-security
+          path: docker-logs-firefox-security.txt
+          retention-days: 7
+
+      - name: Cleanup
+        if: success() || failure() || cancelled()
+        run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
+
+  # Firefox browser tests (non-security) - PARALLEL SHARDED EXECUTION
   e2e-firefox:
     name: E2E Firefox (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
     runs-on: ubuntu-latest
@@ -270,13 +554,13 @@ jobs:
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
-      CHARON_SECURITY_TESTS_ENABLED: "true"
+      CHARON_SECURITY_TESTS_ENABLED: "false"  # Cerberus OFF for non-security tests
       CHARON_E2E_IMAGE_TAG: charon:e2e-test
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3,4, 5, 6, 7, 8]  # 2 shards: parallel test execution to stay under 20-minute timeout
-        total-shards: [8]
+        shard: [1, 2, 3, 4]  # 4 shards for non-security tests
+        total-shards: [4]
 
     steps:
       - name: Checkout repository
@@ -365,9 +649,22 @@ jobs:
           find ~/.cache/ms-playwright -name "*firefox*" 2>/dev/null | head -10 || echo "No firefox files found"
           exit $EXIT_CODE
 
-      - name: Run Firefox tests
+      - name: Run Firefox tests (Non-Security)
         timeout-minutes: 20
-        run: npx playwright test --project=firefox --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
+        run: |
+          # Run all tests except security-enforcement directory (Cerberus is OFF by default)
+          npx playwright test --project=firefox \
+            tests/core \
+            tests/dns-provider-crud.spec.ts \
+            tests/dns-provider-types.spec.ts \
+            tests/emergency-server \
+            tests/integration \
+            tests/manual-dns-provider.spec.ts \
+            tests/monitoring \
+            tests/security \
+            tests/settings \
+            tests/tasks \
+            --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           CI: true
@@ -414,7 +711,142 @@ jobs:
         if: success() || failure() || cancelled()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
-  # WebKit browser tests (independent)
+  # Security Enforcement Tests (WebKit) - ISOLATED SERIAL EXECUTION
+  e2e-webkit-security:
+    name: E2E WebKit (Security Enforcement)
+    runs-on: ubuntu-latest
+    needs: build
+    if: |
+      (github.event_name != 'workflow_dispatch') ||
+      (github.event.inputs.browser == 'webkit' || github.event.inputs.browser == 'all')
+    timeout-minutes: 30
+    env:
+      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+      CHARON_EMERGENCY_SERVER_ENABLED: "true"
+      CHARON_SECURITY_TESTS_ENABLED: "true"
+      CHARON_E2E_IMAGE_TAG: charon:e2e-test
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1]  # Single shard - security tests run serially
+        total-shards: [1]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Download Docker image
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: docker-image
+
+      - name: Validate Emergency Token Configuration
+        run: |
+          echo "🔐 Validating emergency token configuration..."
+          if [ -z "$CHARON_EMERGENCY_TOKEN" ]; then
+            echo "::error title=Missing Secret::CHARON_EMERGENCY_TOKEN secret not configured"
+            exit 1
+          fi
+          TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
+          if [ $TOKEN_LENGTH -lt 64 ]; then
+            echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
+            exit 1
+          fi
+          MASKED_TOKEN="${CHARON_EMERGENCY_TOKEN:0:8}...${CHARON_EMERGENCY_TOKEN: -4}"
+          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH, preview: $MASKED_TOKEN)"
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+
+      - name: Load Docker image
+        run: |
+          docker load -i charon-e2e-image.tar
+          docker images | grep charon
+
+      - name: Generate ephemeral encryption key
+        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> $GITHUB_ENV
+
+      - name: Start test environment
+        run: |
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
+          echo "✅ Container started for WebKit security enforcement tests"
+
+      - name: Wait for service health
+        run: |
+          echo "⏳ Waiting for Charon to be healthy..."
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+          while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Attempt ${ATTEMPT}/${MAX_ATTEMPTS}..."
+            if curl -sf http://127.0.0.1:8080/api/v1/health > /dev/null 2>&1; then
+              echo "✅ Charon is healthy!"
+              curl -s http://127.0.0.1:8080/api/v1/health | jq .
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "❌ Health check failed"
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs
+          exit 1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright WebKit
+        run: |
+          echo "📦 Installing WebKit..."
+          npx playwright install --with-deps webkit
+          EXIT_CODE=$?
+          echo "✅ Install command completed (exit code: $EXIT_CODE)"
+          exit $EXIT_CODE
+
+      - name: Run Security Enforcement Tests (WebKit)
+        timeout-minutes: 25
+        run: npx playwright test --project=webkit tests/security-enforcement/
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
+          CI: true
+
+      - name: Upload HTML report (WebKit Security)
+        if: success() || failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: playwright-report-webkit-security
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload test traces on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: traces-webkit-security
+          path: test-results/**/*.zip
+          retention-days: 7
+
+      - name: Collect Docker logs on failure
+        if: failure()
+        run: |
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-webkit-security.txt 2>&1
+
+      - name: Upload Docker logs on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: docker-logs-webkit-security
+          path: docker-logs-webkit-security.txt
+          retention-days: 7
+
+      - name: Cleanup
+        if: success() || failure() || cancelled()
+        run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
+
+  # WebKit browser tests (non-security) - PARALLEL SHARDED EXECUTION
   e2e-webkit:
     name: E2E WebKit (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
     runs-on: ubuntu-latest
@@ -426,13 +858,13 @@ jobs:
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
-      CHARON_SECURITY_TESTS_ENABLED: "true"
+      CHARON_SECURITY_TESTS_ENABLED: "false"  # Cerberus OFF for non-security tests
       CHARON_E2E_IMAGE_TAG: charon:e2e-test
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3,4, 5, 6, 7, 8]  # 2 shards: parallel test execution to stay under 20-minute timeout
-        total-shards: [8]
+        shard: [1, 2, 3, 4]  # 4 shards for non-security tests
+        total-shards: [4]
 
     steps:
       - name: Checkout repository
@@ -521,9 +953,22 @@ jobs:
           find ~/.cache/ms-playwright -name "*webkit*" -o -name "*MiniBrowser*" 2>/dev/null | head -10 || echo "No webkit files found"
           exit $EXIT_CODE
 
-      - name: Run WebKit tests
+      - name: Run WebKit tests (Non-Security)
         timeout-minutes: 20
-        run: npx playwright test --project=webkit --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
+        run: |
+          # Run all tests except security-enforcement directory (Cerberus is OFF by default)
+          npx playwright test --project=webkit \
+            tests/core \
+            tests/dns-provider-crud.spec.ts \
+            tests/dns-provider-types.spec.ts \
+            tests/emergency-server \
+            tests/integration \
+            tests/manual-dns-provider.spec.ts \
+            tests/monitoring \
+            tests/security \
+            tests/settings \
+            tests/tasks \
+            --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           CI: true
