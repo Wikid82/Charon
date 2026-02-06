@@ -8,10 +8,6 @@ on:
     types:
       - completed
     branches: [main, development, 'feature/**', 'hotfix/**']
-  push:
-    branches: [main, development, 'feature/**', 'hotfix/**']
-  pull_request:
-    branches: [main, development, 'feature/**', 'hotfix/**']
 
   workflow_dispatch:
     inputs:
@@ -35,11 +31,9 @@ jobs:
     name: Verify Supply Chain
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Run for: manual dispatch, direct push/PR, or successful workflow_run triggered by push/PR
+    # Run for: manual dispatch, or successful workflow_run triggered by push/PR
     if: >
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'push' ||
-      github.event_name == 'pull_request' ||
       (github.event_name == 'workflow_run' &&
        (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'push') &&
        github.event.workflow_run.conclusion == 'success')
