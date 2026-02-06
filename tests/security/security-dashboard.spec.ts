@@ -22,7 +22,7 @@ import {
   CapturedSecurityState,
 } from '../utils/security-helpers';
 
-test.describe('Security Dashboard', () => {
+test.describe('Security Dashboard @security', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page);

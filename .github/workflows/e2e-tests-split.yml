@@ -236,7 +236,8 @@ jobs:
 
           npx playwright test \
             --project=chromium \
-            tests/security-enforcement/
+            tests/security-enforcement/ \
+            tests/security/
 
           SHARD_END=$(date +%s)
           echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
@@ -401,7 +402,8 @@ jobs:
 
           npx playwright test \
             --project=firefox \
-            tests/security-enforcement/
+            tests/security-enforcement/ \
+            tests/security/
 
           SHARD_END=$(date +%s)
           echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
@@ -566,7 +568,8 @@ jobs:
 
           npx playwright test \
             --project=webkit \
-            tests/security-enforcement/
+            tests/security-enforcement/ \
+            tests/security/
 
           SHARD_END=$(date +%s)
           echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
@@ -726,7 +729,6 @@ jobs:
             tests/integration \
             tests/manual-dns-provider.spec.ts \
             tests/monitoring \
-            tests/security \
             tests/settings \
             tests/tasks
 
@@ -852,6 +854,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Playwright Chromium (required by security-tests dependency)
+        run: |
+          echo "📦 Installing Chromium (required by security-tests dependency)..."
+          npx playwright install --with-deps chromium
+          EXIT_CODE=$?
+          echo "✅ Install command completed (exit code: $EXIT_CODE)"
+          exit $EXIT_CODE
+
       - name: Install Playwright Firefox
         run: |
           echo "📦 Installing Firefox..."
@@ -882,7 +892,6 @@ jobs:
             tests/integration \
             tests/manual-dns-provider.spec.ts \
             tests/monitoring \
-            tests/security \
             tests/settings \
             tests/tasks
 
@@ -1008,6 +1017,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Playwright Chromium (required by security-tests dependency)
+        run: |
+          echo "📦 Installing Chromium (required by security-tests dependency)..."
+          npx playwright install --with-deps chromium
+          EXIT_CODE=$?
+          echo "✅ Install command completed (exit code: $EXIT_CODE)"
+          exit $EXIT_CODE
+
       - name: Install Playwright WebKit
         run: |
           echo "📦 Installing WebKit..."
@@ -1038,7 +1055,6 @@ jobs:
             tests/integration \
             tests/manual-dns-provider.spec.ts \
             tests/monitoring \
-            tests/security \
             tests/settings \
             tests/tasks
 
