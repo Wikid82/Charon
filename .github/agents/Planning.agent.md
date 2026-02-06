@@ -3,7 +3,7 @@ name: 'Planning'
 description: 'Principal Architect for technical planning and design decisions.'
 argument-hint: 'The feature or system to plan (e.g., "Design the architecture for Real-Time Logs")'
 tools:
-  ['agent', 'execute', 'read', 'search', 'edit/createDirectory', 'edit/createFile', 'edit/editFiles', 'edit/editNotebook', 'todo', 'web', 'vscode/openSimpleBrowser', 'vscode/runCommand', 'vscode/askQuestions', 'github/*', 'vscode.mermaid-chat-features/renderMermaidDiagram', 'github.vscode-pull-request-github/*']
+  ['vscode/openSimpleBrowser', 'vscode/runCommand', 'vscode/askQuestions', 'execute', 'read', 'agent', 'edit/createDirectory', 'edit/createFile', 'edit/editFiles', 'edit/editNotebook', 'search', 'web', 'github/*', 'github/*', 'github/*', 'trivy-mcp/*', 'playwright/*', 'vscode.mermaid-chat-features/renderMermaidDiagram', 'github.vscode-pull-request-github/issue_fetch', 'github.vscode-pull-request-github/suggest-fix', 'github.vscode-pull-request-github/searchSyntax', 'github.vscode-pull-request-github/doSearch', 'github.vscode-pull-request-github/renderIssues', 'github.vscode-pull-request-github/activePullRequest', 'github.vscode-pull-request-github/openPullRequest', 'ms-azuretools.vscode-containers/containerToolsConfig', 'todo']
 model: 'Cloaude Sonnet 4.5'
 mcp-servers:
   - github
