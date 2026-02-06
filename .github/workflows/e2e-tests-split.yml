@@ -10,7 +10,7 @@
 #
 # See docs/implementation/E2E_TEST_REORGANIZATION_IMPLEMENTATION.md for full details
 
-name: 'E2E Tests (Split - Security + Sharded)'
+name: 'E2E Tests'
 
 on:
   workflow_run:
