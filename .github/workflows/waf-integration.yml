@@ -22,7 +22,7 @@ on:
 # Prevent race conditions when PR is updated mid-test
 # Cancels old test runs when new build completes with different SHA
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: true
 
 jobs:
