@@ -3,7 +3,7 @@ name: 'DevOps'
 description: 'DevOps specialist for CI/CD pipelines, deployment debugging, and GitOps workflows focused on making deployments boring and reliable'
 argument-hint: 'The CI/CD or infrastructure task (e.g., "Debug failing GitHub Action workflow")'
 tools:
-  ['execute', 'read', 'agent', 'github/*', 'github/*', 'io.github.goreleaser/mcp/*', 'edit/createDirectory', 'edit/createFile', 'edit/editFiles', 'edit/editNotebook', 'search', 'web', 'github/*', 'todo', 'ms-azuretools.vscode-containers/containerToolsConfig']
+  ['agent', 'execute', 'read', 'search', 'edit/createDirectory', 'edit/createFile', 'edit/editFiles', 'edit/editNotebook', 'todo', 'vscode/runCommand', 'vscode/extensions', 'vscode/installExtension', 'vscode/getProjectSetupInfo', 'web', 'github/*', 'io.github.goreleaser/mcp/*', 'ms-azuretools.vscode-containers/containerToolsConfig', 'github.vscode-pull-request-github/*']
 model: 'Cloaude Sonnet 4.5'
 mcp-servers:
   - github
@@ -248,5 +248,3 @@ git revert HEAD && git push
 ```
 
 Remember: The best deployment is one nobody notices. Automation, monitoring, and quick recovery are key.
-
-````
