@@ -1175,7 +1175,6 @@ export default function CrowdSecConfig() {
         <>
           {/* Layer 1: Background overlay (z-40) */}
           <div className="fixed inset-0 bg-black/60 z-40" onClick={() => setShowBanModal(false)} />
-
           {/* Layer 2: Form container (z-50, pointer-events-none) */}
           <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
 

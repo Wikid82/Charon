@@ -5,22 +5,22 @@ on:
     branches:
       - main
       - development
-    paths:
-      - 'backend/**'
+      - 'feature/**'
+      - 'hotfix/**'
   pull_request:
     branches:
       - main
       - development
-    paths:
-      - 'backend/**'
+      - 'feature/**'
+      - 'hotfix/**'
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.25.6'
+  GO_VERSION: '1.25.7'
   GOTOOLCHAIN: auto
 
 # Minimal permissions at workflow level; write permissions granted at job level for push only

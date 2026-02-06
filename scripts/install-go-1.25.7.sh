@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # Script to install go 1.25.7 to /usr/local/go
-# Usage: sudo ./scripts/install-go-1.25.6.sh
+# Usage: sudo ./scripts/install-go-1.25.7.sh
 
-GO_VERSION="1.25.6"
+GO_VERSION="1.25.7"
 ARCH="linux-amd64"
 TARFILE="go${GO_VERSION}.${ARCH}.tar.gz"
 TMPFILE="/tmp/${TARFILE}"

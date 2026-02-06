@@ -3,7 +3,7 @@ name: 'Supervisor'
 description: 'Code Review Lead for quality assurance and PR review.'
 argument-hint: 'The PR or code change to review (e.g., "Review PR #123 for security issues")'
 tools:
-  ['vscode/memory', 'execute', 'read', 'search', 'web', 'github/*', 'todo']
+  ['agent', 'execute', 'read', 'search', 'todo', 'web', 'github/*', 'github.vscode-pull-request-github/*']
 model: 'Cloaude Sonnet 4.5'
 mcp-servers:
   - github
