@@ -5,12 +5,16 @@ on:
     branches:
       - main
       - development
+      - feature/**
+      - hotfix/**
     paths:
       - 'backend/**'
   pull_request:
     branches:
       - main
       - development
+      - feature/**
+      - hotfix/**
     paths:
       - 'backend/**'
   workflow_dispatch:
