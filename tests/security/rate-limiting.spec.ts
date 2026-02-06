@@ -13,7 +13,7 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForToast } from '../utils/wait-helpers';
 
-test.describe('Rate Limiting Configuration', () => {
+test.describe('Rate Limiting Configuration @security', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page);
