@@ -418,6 +418,7 @@ export default function DNSProviderForm({
             {showAdvanced && (
               <div className="mt-4 space-y-3">
                 <Input
+                  id="propagation-timeout"
                   label={t('dnsProviders.propagationTimeout')}
                   type="number"
                   value={propagationTimeout}
@@ -427,6 +428,7 @@ export default function DNSProviderForm({
                   max={600}
                 />
                 <Input
+                  id="polling-interval"
                   label={t('dnsProviders.pollingInterval')}
                   type="number"
                   value={pollingInterval}

@@ -485,8 +485,9 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
       {isGeoType && (
         <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Select Countries</label>
+            <label htmlFor="country-select" className="block text-sm font-medium text-gray-300 mb-2">Select Countries</label>
             <select
+              id="country-select"
               onChange={(e) => {
                 if (e.target.value) {
                   handleAddCountry(e.target.value);

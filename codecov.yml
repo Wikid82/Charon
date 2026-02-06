@@ -9,7 +9,7 @@ coverage:
         threshold: 1%
     patch:
       default:
-        target: 85%
+        target: 100%
 
 # Exclude test artifacts and non-production code from coverage
 ignore:
@@ -38,6 +38,7 @@ ignore:
   - "frontend/src/testUtils/**"      # Mock factories (createMockProxyHost)
   - "frontend/src/__tests__/**"      # i18n.test.ts and other tests
   - "frontend/src/setupTests.ts"     # Vitest setup file
+  - "frontend/src/locales/**"        # Locale JSON resources
   - "**/mockData.ts"                 # Mock data factories
   - "**/createTestQueryClient.ts"    # Test-specific utilities
   - "**/createMockProxyHost.ts"      # Test-specific utilities
