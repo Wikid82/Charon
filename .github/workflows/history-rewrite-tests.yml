@@ -2,12 +2,17 @@ name: History Rewrite Tests
 
 on:
   push:
-    paths:
-      - 'scripts/history-rewrite/**'
-      - '.github/workflows/history-rewrite-tests.yml'
+    branches:
+      - main
+      - development
+      - 'feature/**'
+      - 'hotfix/**'
   pull_request:
-    paths:
-      - 'scripts/history-rewrite/**'
+    branches:
+      - main
+      - development
+      - 'feature/**'
+      - 'hotfix/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

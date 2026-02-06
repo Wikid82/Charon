@@ -2,9 +2,17 @@ name: CodeQL - Analyze
 
 on:
   push:
-    branches: [ main, development, 'feature/**' ]
+    branches:
+      - main
+      - development
+      - 'feature/**'
+      - 'hotfix/**'
   pull_request:
-    branches: [ main, development ]
+    branches:
+      - main
+      - development
+      - 'feature/**'
+      - 'hotfix/**'
   schedule:
     - cron: '0 3 * * 1'
 

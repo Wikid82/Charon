@@ -1,6 +1,8 @@
 name: History Rewrite Dry-Run
 
 on:
+  push:
+    branches: [main, development, 'feature/**', 'hotfix/**']
   pull_request:
     types: [opened, synchronize, reopened]
   schedule:

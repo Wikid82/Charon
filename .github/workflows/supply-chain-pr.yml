@@ -119,7 +119,7 @@ jobs:
 
       - name: Check for PR image artifact
         id: check-artifact
-        if: steps.pr-number.outputs.pr_number != '' || steps.pr-number.outputs.is_push == 'true'
+        if: github.event_name == 'workflow_run' && (steps.pr-number.outputs.pr_number != '' || steps.pr-number.outputs.is_push == 'true')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -191,14 +191,14 @@ jobs:
           echo "✅ Found artifact: ${ARTIFACT_NAME} (ID: ${ARTIFACT_ID})"
 
       - name: Skip if no artifact
-        if: (steps.pr-number.outputs.pr_number == '' && steps.pr-number.outputs.is_push != 'true') || steps.check-artifact.outputs.artifact_found != 'true'
+        if: github.event_name == 'workflow_run' && ((steps.pr-number.outputs.pr_number == '' && steps.pr-number.outputs.is_push != 'true') || steps.check-artifact.outputs.artifact_found != 'true')
         run: |
           echo "ℹ️ No PR image artifact found - skipping supply chain verification"
           echo "This is expected if the Docker build did not produce an artifact for this PR"
           exit 0
 
       - name: Download PR image artifact
-        if: steps.check-artifact.outputs.artifact_found == 'true'
+        if: github.event_name == 'workflow_run' && steps.set-target.outputs.image_name != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -216,9 +216,9 @@ jobs:
           unzip -o artifact.zip
           echo "✅ Artifact downloaded and extracted"
 
-      - name: Load Docker image
-        if: steps.check-artifact.outputs.artifact_found == 'true'
-        id: load-image
+      - name: Load Docker image (Artifact)
+        if: github.event_name == 'workflow_run' && steps.set-target.outputs.image_name != ''
+        id: load-image-artifact
         run: |
           if [[ ! -f "charon-pr-image.tar" ]]; then
             echo "❌ charon-pr-image.tar not found in artifact"
@@ -246,18 +246,36 @@ jobs:
           echo "image_name=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
           echo "✅ Loaded image: ${IMAGE_NAME}"
 
+      - name: Build Docker image (Local)
+        if: github.event_name != 'workflow_run'
+        id: build-image-local
+        run: |
+          echo "🐳 Building Docker image locally..."
+          docker build -t charon:local .
+          echo "image_name=charon:local" >> "$GITHUB_OUTPUT"
+          echo "✅ Built image: charon:local"
+
+      - name: Set Target Image
+        id: set-target
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "image_name=${{ steps.load-image-artifact.outputs.image_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "image_name=${{ steps.build-image-local.outputs.image_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
       # Generate SBOM using official Anchore action (auto-updated by Renovate)
       - name: Generate SBOM
-        if: steps.check-artifact.outputs.artifact_found == 'true'
+        if: steps.set-target.outputs.image_name != ''
         uses: anchore/sbom-action@28d71544de8eaf1b958d335707167c5f783590ad # v0.22.2
         id: sbom
         with:
-          image: ${{ steps.load-image.outputs.image_name }}
+          image: ${{ steps.set-target.outputs.image_name }}
           format: cyclonedx-json
           output-file: sbom.cyclonedx.json
 
       - name: Count SBOM components
-        if: steps.check-artifact.outputs.artifact_found == 'true'
+        if: steps.set-target.outputs.image_name != ''
         id: sbom-count
         run: |
           COMPONENT_COUNT=$(jq '.components | length' sbom.cyclonedx.json 2>/dev/null || echo "0")
@@ -266,7 +284,7 @@ jobs:
 
       # Scan for vulnerabilities using official Anchore action (auto-updated by Renovate)
       - name: Scan for vulnerabilities
-        if: steps.check-artifact.outputs.artifact_found == 'true'
+        if: steps.set-target.outputs.image_name != ''
         uses: anchore/scan-action@7037fa011853d5a11690026fb85feee79f4c946c # v7.3.2
         id: grype-scan
         with:
@@ -275,7 +293,7 @@ jobs:
           output-format: json
 
       - name: Process vulnerability results
-        if: steps.check-artifact.outputs.artifact_found == 'true'
+        if: steps.set-target.outputs.image_name != ''
         id: vuln-summary
         run: |
           # The scan-action outputs results.json and results.sarif
@@ -316,7 +334,7 @@ jobs:
           echo "  Total: ${TOTAL_COUNT}"
 
       - name: Upload SARIF to GitHub Security
-        if: steps.check-artifact.outputs.artifact_found == 'true'
+        if: steps.set-target.outputs.image_name != ''
         uses: github/codeql-action/upload-sarif@6bc82e05fd0ea64601dd4b465378bbcf57de0314 # v4
         continue-on-error: true
         with:
@@ -324,7 +342,7 @@ jobs:
           category: supply-chain-pr
 
       - name: Upload supply chain artifacts
-        if: steps.check-artifact.outputs.artifact_found == 'true'
+        if: steps.set-target.outputs.image_name != ''
         # actions/upload-artifact v4.6.0
         uses: actions/upload-artifact@47309c993abb98030a35d55ef7ff34b7fa1074b5
         with:
@@ -335,7 +353,7 @@ jobs:
           retention-days: 14
 
       - name: Comment on PR
-        if: steps.check-artifact.outputs.artifact_found == 'true' && steps.pr-number.outputs.is_push != 'true'
+        if: steps.set-target.outputs.image_name != '' && steps.pr-number.outputs.is_push != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -412,7 +430,7 @@ jobs:
           echo "✅ PR comment posted"
 
       - name: Fail on critical vulnerabilities
-        if: steps.check-artifact.outputs.artifact_found == 'true'
+        if: steps.set-target.outputs.image_name != ''
         run: |
           CRITICAL_COUNT="${{ steps.grype-scan.outputs.critical_count }}"
 

@@ -6,6 +6,13 @@ on:
       - main
       - development
       - 'feature/**'
+      - 'hotfix/**'
+  pull_request:
+    branches:
+      - main
+      - development
+      - 'feature/**'
+      - 'hotfix/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
