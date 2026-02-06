@@ -84,6 +84,12 @@ describe('Security page', () => {
     // Mock WebSocket connections for LiveLogViewer
     vi.mocked(logsApi.connectLiveLogs).mockReturnValue(vi.fn())
     vi.mocked(logsApi.connectSecurityLogs).mockReturnValue(vi.fn())
+    vi.mocked(crowdsecApi.getCrowdsecKeyStatus).mockResolvedValue({
+      env_key_rejected: false,
+      key_source: 'auto-generated',
+      current_key_preview: '...',
+      message: 'OK'
+    })
   })
 
   it('shows banner when all services are disabled and links to docs', async () => {
