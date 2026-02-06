@@ -286,15 +286,19 @@ jobs:
           echo "component_count=${COMPONENT_COUNT}" >> "$GITHUB_OUTPUT"
           echo "✅ SBOM generated with ${COMPONENT_COUNT} components"
 
-      # Scan for vulnerabilities using official Anchore action (auto-updated by Renovate)
+      # Scan for vulnerabilities using manual Grype installation (pinned to v0.107.1)
+      - name: Install Grype
+        if: steps.set-target.outputs.image_name != ''
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.107.1
+
       - name: Scan for vulnerabilities
         if: steps.set-target.outputs.image_name != ''
-        uses: anchore/scan-action@7037fa011853d5a11690026fb85feee79f4c946c # v7.3.2
         id: grype-scan
-        with:
-          sbom: sbom.cyclonedx.json
-          fail-build: false
-          output-format: json
+        run: |
+          echo "🔍 Scanning SBOM for vulnerabilities..."
+          grype sbom:sbom.cyclonedx.json -o json > grype-results.json
+          grype sbom:sbom.cyclonedx.json -o sarif > grype-results.sarif
 
       - name: Debug Output Files
         if: steps.set-target.outputs.image_name != ''
@@ -306,23 +310,12 @@ jobs:
         if: steps.set-target.outputs.image_name != ''
         id: vuln-summary
         run: |
-          # The scan-action outputs results.json and results.sarif
-          JSON_RESULT="results.json"
-          SARIF_RESULT="results.sarif"
-
           # Verify scan actually produced output
-          if [[ ! -f "$JSON_RESULT" ]]; then
-             echo "❌ Error: $JSON_RESULT not found!"
+          if [[ ! -f "grype-results.json" ]]; then
+             echo "❌ Error: grype-results.json not found!"
              echo "Available files:"
              ls -la
              exit 1
-          fi
-
-          # Rename for consistency with downstream steps
-          mv "$JSON_RESULT" grype-results.json
-
-          if [[ -f "$SARIF_RESULT" ]]; then
-            mv "$SARIF_RESULT" grype-results.sarif
           fi
 
           # Debug content (head)

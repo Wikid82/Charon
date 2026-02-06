@@ -242,3 +242,43 @@ Frontend Lint (Fix)......................................................Passed
 *QA Report generated: 2026-02-05*
 *Agent: QA Security Engineer*
 *Validation Type: Health Check*
+
+# QA Report - Style & Syntax Validation (Automated)
+
+**Date:** February 6, 2026
+**Target:** `.github/workflows/supply-chain-pr.yml`
+**Trigger:** Manual validation request
+**Auditor:** QA Security Engineer (Gemini 3 Pro)
+
+## 1. Syntax & Style (Yamllint)
+
+**Command:** `yamllint .github/workflows/supply-chain-pr.yml`
+**Status:** ⚠️ **WARNINGS**
+
+### Findings
+- **Line Length:** Multiple violations of 80-character limit.
+  - *Context:* Most violations are within `run` scripts or conditional `if` expressions.
+  - *Impact:* Style only. Does not affect execution validity.
+  - *Decision:* **Accept Risk**. Maintaining readability of inline bash scripts and complex GitHub Actions expressions is prioritized over strict line wrapping.
+
+- **Boolean Values:** Warning: `truthy value should be one of [false, true]` at line 5 (`cancel-in-progress: true`).
+  - *Context:* Yamllint prefers precise boolean strictness.
+  - *Impact:* None. GitHub Actions parser handles this correctly.
+
+## 2. Logic Verification
+
+- **Artifact Handling:** Verified correct flow for `workflow_run` events.
+  - `Skip if no artifact` correctly exits job early.
+  - `Set Target Image` correctly depends on execution path.
+- **Filename Consistency:** Verified `charon-pr-image.tar` expectation matches `docker-build.yml` artifact generation.
+
+## 3. Security Scan (Trivy)
+
+**Command:** `trivy fs --scanners secret,misconfig .github/workflows/supply-chain-pr.yml`
+**Status:** ✅ **PASS**
+
+- **Secrets:** No hardcoded secrets detected.
+- **Misconfigurations:** No significant infrastructure misconfigurations found by Trivy policies.
+
+## 4. Conclusion
+The workflow file is syntactically valid and logically sound. Style warnings from `yamllint` are noted but considered non-blocking for functionality.
