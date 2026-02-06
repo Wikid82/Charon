@@ -2,9 +2,17 @@ name: Quality Checks
 
 on:
   push:
-    branches: [ main, development, 'feature/**' ]
+    branches:
+      - main
+      - development
+      - 'feature/**'
+      - 'hotfix/**'
   pull_request:
-    branches: [ main, development ]
+    branches:
+      - main
+      - development
+      - 'feature/**'
+      - 'hotfix/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

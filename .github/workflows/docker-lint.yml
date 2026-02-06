@@ -2,11 +2,11 @@ name: Docker Lint
 
 on:
   push:
-    branches: [ main, development, 'feature/**' ]
+    branches: [ main, development, 'feature/**', 'hotfix/**' ]
     paths:
       - 'Dockerfile'
   pull_request:
-    branches: [ main, development ]
+    branches: [ main, development, 'feature/**', 'hotfix/**' ]
     paths:
       - 'Dockerfile'
 

@@ -30,8 +30,8 @@ jobs:
     name: Coraza WAF Integration
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Only run if docker-build.yml succeeded, or if manually triggered
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    # Only run if docker-build.yml succeeded, or if manually triggered, OR on direct push/PR
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request' }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -100,10 +100,19 @@ jobs:
           echo "sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "Determined image tag: $(cat $GITHUB_OUTPUT | grep tag=)"
 
+      # Build image locally for Push/PR events to ensure immediate feedback
+      - name: Build Docker image (Local)
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+        run: |
+          echo "Building image locally for integration test..."
+          docker build -t charon:local .
+          echo "✅ Successfully built charon:local"
+
       # Pull image from registry with retry logic (dual-source strategy)
       # Try registry first (fast), fallback to artifact if registry fails
       - name: Pull Docker image from registry
         id: pull_image
+        if: ${{ github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch' }}
         uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
         with:
           timeout_minutes: 5
@@ -118,8 +127,9 @@ jobs:
         continue-on-error: true
 
       # Fallback: Download artifact if registry pull failed
+      # Only runs if pull_image failed AND we are in a workflow_run context
       - name: Fallback to artifact download
-        if: steps.pull_image.outcome == 'failure'
+        if: steps.pull_image.outcome == 'failure' && github.event_name == 'workflow_run'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SHA: ${{ steps.determine-tag.outputs.sha }}

@@ -5,18 +5,14 @@ on:
     branches:
       - main
       - development
-      - feature/**
-      - hotfix/**
-    paths:
-      - 'backend/**'
+      - 'feature/**'
+      - 'hotfix/**'
   pull_request:
     branches:
       - main
       - development
-      - feature/**
-      - hotfix/**
-    paths:
-      - 'backend/**'
+      - 'feature/**'
+      - 'hotfix/**'
   workflow_dispatch:
 
 concurrency:

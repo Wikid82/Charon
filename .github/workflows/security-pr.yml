@@ -33,6 +33,8 @@ jobs:
     # Run for: manual dispatch, PR builds, or any push builds from docker-build
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request' ||
       ((github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'push') &&
        github.event.workflow_run.conclusion == 'success')
 
@@ -92,9 +94,16 @@ jobs:
             echo "is_push=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Build Docker image (Local)
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: |
+          echo "Building image locally for security scan..."
+          docker build -t charon:local .
+          echo "✅ Successfully built charon:local"
+
       - name: Check for PR image artifact
         id: check-artifact
-        if: steps.pr-info.outputs.pr_number != '' || steps.pr-info.outputs.is_push == 'true'
+        if: (steps.pr-info.outputs.pr_number != '' || steps.pr-info.outputs.is_push == 'true') && github.event_name != 'push' && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -159,7 +168,7 @@ jobs:
           fi
 
       - name: Skip if no artifact
-        if: (steps.pr-info.outputs.pr_number == '' && steps.pr-info.outputs.is_push != 'true') || steps.check-artifact.outputs.artifact_exists != 'true'
+        if: ((steps.pr-info.outputs.pr_number == '' && steps.pr-info.outputs.is_push != 'true') || steps.check-artifact.outputs.artifact_exists != 'true') && github.event_name != 'push' && github.event_name != 'pull_request'
         run: |
           echo "ℹ️ Skipping security scan - no PR image artifact available"
           echo "This is expected for:"
@@ -186,9 +195,31 @@ jobs:
           docker images | grep charon
 
       - name: Extract charon binary from container
-        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
         id: extract
         run: |
+          # Use local image for Push/PR events
+          if [[ "${{ github.event_name }}" == "push" || "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "Using local image: charon:local"
+            CONTAINER_ID=$(docker create "charon:local")
+            echo "container_id=${CONTAINER_ID}" >> "$GITHUB_OUTPUT"
+
+            # Extract the charon binary
+            mkdir -p ./scan-target
+            docker cp "${CONTAINER_ID}:/app/charon" ./scan-target/charon
+            docker rm "${CONTAINER_ID}"
+
+            if [[ -f "./scan-target/charon" ]]; then
+              echo "✅ Binary extracted successfully"
+              ls -lh ./scan-target/charon
+              echo "binary_path=./scan-target" >> "$GITHUB_OUTPUT"
+            else
+              echo "❌ Failed to extract binary"
+              exit 1
+            fi
+            exit 0
+          fi
+
           # Normalize image name for reference
           IMAGE_NAME=$(echo "${{ github.repository_owner }}/charon" | tr '[:upper:]' '[:lower:]')
           if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
@@ -241,7 +272,7 @@ jobs:
           fi
 
       - name: Run Trivy filesystem scan (SARIF output)
-        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
         # aquasecurity/trivy-action v0.33.1
         uses: aquasecurity/trivy-action@22438a435773de8c97dc0958cc0b823c45b064ac
         with:
@@ -253,7 +284,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload Trivy SARIF to GitHub Security
-        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
         # github/codeql-action v4
         uses: github/codeql-action/upload-sarif@f959778b39f110f7919139e242fa5ac47393c877
         with:
@@ -262,7 +293,7 @@ jobs:
         continue-on-error: true
 
       - name: Run Trivy filesystem scan (fail on CRITICAL/HIGH)
-        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
         # aquasecurity/trivy-action v0.33.1
         uses: aquasecurity/trivy-action@22438a435773de8c97dc0958cc0b823c45b064ac
         with:
@@ -273,7 +304,7 @@ jobs:
           exit-code: '1'
 
       - name: Upload scan artifacts
-        if: always() && steps.check-artifact.outputs.artifact_exists == 'true'
+        if: always() && (steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request')
         # actions/upload-artifact v4.4.3
         uses: actions/upload-artifact@47309c993abb98030a35d55ef7ff34b7fa1074b5
         with:
@@ -283,7 +314,7 @@ jobs:
           retention-days: 14
 
       - name: Create job summary
-        if: always() && steps.check-artifact.outputs.artifact_exists == 'true'
+        if: always() && (steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request')
         run: |
           if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
             echo "## 🔒 Security Scan Results - Branch: ${{ github.event.workflow_run.head_branch }}" >> $GITHUB_STEP_SUMMARY

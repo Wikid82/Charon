@@ -13,10 +13,14 @@
 name: 'E2E Tests'
 
 on:
-  workflow_run:
-    workflows: ["Docker Build, Publish & Test"]
-    types: [completed]
+  push:
     branches: [main, development, 'feature/**', 'hotfix/**']
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'tests/**'
+      - 'playwright.config.js'
+      - '.github/workflows/e2e-tests-split.yml'
   pull_request:
     branches: [main, development, 'feature/**', 'hotfix/**']
     paths:
