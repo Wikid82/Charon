@@ -7,6 +7,11 @@ on:
     workflows: ["Docker Build, Publish & Test"]
     types:
       - completed
+    branches: [main, development, 'feature/**', 'hotfix/**']
+  push:
+    branches: [main, development, 'feature/**', 'hotfix/**']
+  pull_request:
+    branches: [main, development, 'feature/**', 'hotfix/**']
 
   workflow_dispatch:
     inputs:
@@ -56,15 +61,15 @@ jobs:
             exit 0
           fi
 
-          if [[ "${{ github.event_name }}" != "workflow_run" ]]; then
-            echo "❌ No PR number provided and not triggered by workflow_run"
+          if [[ "${{ github.event_name }}" != "workflow_run" && "${{ github.event_name }}" != "push" && "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "❌ No PR number provided and not triggered by workflow_run/push/pr"
             echo "pr_number=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # Extract PR number from workflow_run context
-          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
-          HEAD_BRANCH="${{ github.event.workflow_run.head_branch }}"
+          # Extract PR number from context
+          HEAD_SHA="${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}"
+          HEAD_BRANCH="${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}"
 
           echo "🔍 Looking for PR with head SHA: ${HEAD_SHA}"
           echo "🔍 Head branch: ${HEAD_BRANCH}"
@@ -94,9 +99,10 @@ jobs:
           fi
 
           # Check if this is a push event (not a PR)
-          if [[ "${{ github.event.workflow_run.event }}" == "push" ]]; then
+          if [[ "${{ github.event.workflow_run.event }}" == "push" || "${{ github.event_name }}" == "push" ]]; then
             echo "is_push=true" >> "$GITHUB_OUTPUT"
-            echo "✅ Detected push build from branch: ${{ github.event.workflow_run.head_branch }}"
+            HEAD_BRANCH="${{ github.event.workflow_run.head_branch || github.ref_name }}"
+            echo "✅ Detected push build from branch: ${HEAD_BRANCH}"
           else
             echo "is_push=false" >> "$GITHUB_OUTPUT"
           fi
@@ -135,10 +141,37 @@ jobs:
               -H "X-GitHub-Api-Version: 2022-11-28" \
               "/repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" \
               --jq ".artifacts[] | select(.name == \"${ARTIFACT_NAME}\") | .id" 2>/dev/null || echo "")
+          else
+            # If RUN_ID is empty (push/pr trigger), try to find a recent successful run for this SHA
+            HEAD_SHA="${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}"
+            echo "🔍 Searching for workflow run for SHA: ${HEAD_SHA}"
+            # Retry a few times as the run might be just starting or finishing
+            for i in {1..3}; do
+               RUN_ID=$(gh api \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  "/repos/${{ github.repository }}/actions/workflows/docker-build.yml/runs?head_sha=${HEAD_SHA}&status=success&per_page=1" \
+                  --jq '.workflow_runs[0].id // empty' 2>/dev/null || echo "")
+               if [[ -n "${RUN_ID}" ]]; then
+                  echo "✅ Found Run ID: ${RUN_ID}"
+                  break
+               fi
+               echo "⏳ Waiting for workflow run to appear/complete... ($i/3)"
+               sleep 5
+            done
+
+            if [[ -n "${RUN_ID}" ]]; then
+               ARTIFACT_ID=$(gh api \
+                 -H "Accept: application/vnd.github+json" \
+                 -H "X-GitHub-Api-Version: 2022-11-28" \
+                 "/repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" \
+                 --jq ".artifacts[] | select(.name == \"${ARTIFACT_NAME}\") | .id" 2>/dev/null || echo "")
+            fi
           fi
 
           if [[ -z "${ARTIFACT_ID}" ]]; then
-            # Fallback: search recent artifacts
+            # Fallback for manual or missing info: search recent artifacts by name
+            echo "🔍 Falling back to search by artifact name..."
             ARTIFACT_ID=$(gh api \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \

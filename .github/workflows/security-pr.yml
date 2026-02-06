@@ -8,6 +8,11 @@ on:
     workflows: ["Docker Build, Publish & Test"]
     types:
       - completed
+    branches: [main, development, 'feature/**', 'hotfix/**']
+  push:
+    branches: [main, development, 'feature/**', 'hotfix/**']
+  pull_request:
+    branches: [main, development, 'feature/**', 'hotfix/**']
 
   workflow_dispatch:
     inputs:
@@ -59,8 +64,8 @@ jobs:
             exit 0
           fi
 
-          # Extract PR number from workflow_run context
-          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          # Extract PR number from context
+          HEAD_SHA="${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}"
           echo "🔍 Looking for PR with head SHA: ${HEAD_SHA}"
 
           # Query GitHub API for PR associated with this commit
@@ -79,9 +84,10 @@ jobs:
           fi
 
           # Check if this is a push event (not a PR)
-          if [[ "${{ github.event.workflow_run.event }}" == "push" ]]; then
+          if [[ "${{ github.event.workflow_run.event }}" == "push" || "${{ github.event_name }}" == "push" ]]; then
+            HEAD_BRANCH="${{ github.event.workflow_run.head_branch || github.ref_name }}"
             echo "is_push=true" >> "$GITHUB_OUTPUT"
-            echo "✅ Detected push build from branch: ${{ github.event.workflow_run.head_branch }}"
+            echo "✅ Detected push build from branch: ${HEAD_BRANCH}"
           else
             echo "is_push=false" >> "$GITHUB_OUTPUT"
           fi
@@ -116,6 +122,21 @@ jobs:
               echo "artifact_exists=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
+          elif [[ -z "${RUN_ID}" ]]; then
+            # If triggered by push/pull_request, RUN_ID is empty. Find recent run for this commit.
+            HEAD_SHA="${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}"
+            echo "🔍 Searching for workflow run for SHA: ${HEAD_SHA}"
+            # Retry a few times as the run might be just starting or finishing
+            for i in {1..3}; do
+              RUN_ID=$(gh api \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "/repos/${{ github.repository }}/actions/workflows/docker-build.yml/runs?head_sha=${HEAD_SHA}&status=success&per_page=1" \
+                --jq '.workflow_runs[0].id // empty' 2>/dev/null || echo "")
+              if [[ -n "${RUN_ID}" ]]; then break; fi
+              echo "⏳ Waiting for workflow run to appear/complete... ($i/3)"
+              sleep 5
+            done
           fi
 
           echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
