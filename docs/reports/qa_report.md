@@ -1,3 +1,47 @@
+# QA Report - Supply Chain Workflow Audit
+
+**Date:** February 6, 2026
+**Target:** `.github/workflows/supply-chain-pr.yml`
+**Trigger:** Manual Lint Request
+**Auditor:** QA Security Engineer (Gemini 3 Pro)
+
+## 1. Executive Summary
+
+A manual audit and linting session was performed on the `supply-chain-pr.yml` workflow. Critical logic errors were identified that would have prevented the workflow from correctly downloading artifacts during a PR event. Security vulnerabilities related to script injection were also mitigated.
+
+**Status:** 🟡 **REMEDIATED** (Issues found and fixed)
+
+## 2. Findings & Remediation
+
+### A. Logic Error: Circular Dependency
+*   **Severity:** 🔴 **CRITICAL**
+*   **Issue:** The steps "Download PR image artifact" and "Load Docker image" conditionally depended on `steps.set-target.outputs.image_name`. However, the `set-target` step is defined **after** these steps in the workflow execution order.
+*   **Impact:** These steps would invariably evaluate to `false` or crash, causing the workflow to skip image verification for PRs.
+*   **Fix:** Updated the conditions to depend on `steps.check-artifact.outputs.artifact_found == 'true'`, which is correctly populated by the preceding step.
+
+### B. Security: Script Injection Risk
+*   **Severity:** 🟠 **HIGH**
+*   **Issue:** User-controlled inputs (`github.head_ref`, `inputs.pr_number`) were used directly in inline scripts (`run` blocks).
+*   **Impact:** A malicious branch name or PR number could potentially execute arbitrary commands in the runner environment.
+*   **Fix:** Mapped all user inputs to environment variables (`env` block) and referenced them via shell variables (e.g., `${BRANCH_NAME}`) instead of template injection.
+
+### C. Syntax & Linting
+*   **Tool:** `actionlint`
+*   **Result:** Identified the logic errors and security warnings mentioned above.
+*   **Status:** All reported errors logic/security errors addressed. Shellcheck style warnings (redirects) noted but lower priority.
+
+### D. Security Scan (Trivy)
+*   **Tool:** `trivy fs`
+*   **Command:** `trivy fs --scanners secret,misconfig .github/workflows/supply-chain-pr.yml`
+*   **Result:** ✅ **PASS**
+    *   No secrets detected.
+    *   No infrastructure misconfigurations detected by Trivy policies.
+
+## 3. Verification
+The workflow file has been updated with the fixes. It is recommended to trigger a test run (via PR or workflow_dispatch) to verify the runtime behavior.
+
+---
+
 # QA Report - Phase 6 Audit (Playwright Config Update)
 
 **Date:** February 6, 2026

@@ -53,22 +53,25 @@ jobs:
         id: pr-number
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
+          WORKFLOW_RUN_EVENT: ${{ github.event.workflow_run.event }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.repository }}
         run: |
-          if [[ -n "${{ inputs.pr_number }}" ]]; then
-            echo "pr_number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
-            echo "📋 Using manually provided PR number: ${{ inputs.pr_number }}"
+          if [[ -n "${INPUT_PR_NUMBER}" ]]; then
+            echo "pr_number=${INPUT_PR_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "📋 Using manually provided PR number: ${INPUT_PR_NUMBER}"
             exit 0
           fi
 
-          if [[ "${{ github.event_name }}" != "workflow_run" && "${{ github.event_name }}" != "push" && "${{ github.event_name }}" != "pull_request" ]]; then
+          if [[ "${EVENT_NAME}" != "workflow_run" && "${EVENT_NAME}" != "push" && "${EVENT_NAME}" != "pull_request" ]]; then
             echo "❌ No PR number provided and not triggered by workflow_run/push/pr"
             echo "pr_number=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-
-          # Extract PR number from context
-          HEAD_SHA="${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}"
-          HEAD_BRANCH="${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}"
 
           echo "🔍 Looking for PR with head SHA: ${HEAD_SHA}"
           echo "🔍 Head branch: ${HEAD_BRANCH}"
@@ -77,7 +80,7 @@ jobs:
           PR_NUMBER=$(gh api \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/${{ github.repository }}/pulls?state=open&head=${{ github.repository_owner }}:${HEAD_BRANCH}" \
+            "/repos/${REPO_NAME}/pulls?state=open&head=${REPO_OWNER}:${HEAD_BRANCH}" \
             --jq '.[0].number // empty' 2>/dev/null || echo "")
 
           if [[ -z "${PR_NUMBER}" ]]; then
@@ -85,7 +88,7 @@ jobs:
             PR_NUMBER=$(gh api \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              "/repos/${{ github.repository }}/commits/${HEAD_SHA}/pulls" \
+              "/repos/${REPO_NAME}/commits/${HEAD_SHA}/pulls" \
               --jq '.[0].number // empty' 2>/dev/null || echo "")
           fi
 
@@ -98,9 +101,8 @@ jobs:
           fi
 
           # Check if this is a push event (not a PR)
-          if [[ "${{ github.event.workflow_run.event }}" == "push" || "${{ github.event_name }}" == "push" ]]; then
+          if [[ "${WORKFLOW_RUN_EVENT}" == "push" || "${EVENT_NAME}" == "push" ]]; then
             echo "is_push=true" >> "$GITHUB_OUTPUT"
-            HEAD_BRANCH="${{ github.event.workflow_run.head_branch || github.ref_name }}"
             echo "✅ Detected push build from branch: ${HEAD_BRANCH}"
           else
             echo "is_push=false" >> "$GITHUB_OUTPUT"
@@ -108,28 +110,32 @@ jobs:
 
       - name: Sanitize branch name
         id: sanitize
+        env:
+          BRANCH_NAME: ${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
         run: |
           # Sanitize branch name for use in artifact names
           # Replace / with - to avoid invalid reference format errors
-          BRANCH="${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}"
-          SANITIZED=$(echo "$BRANCH" | tr '/' '-')
+          SANITIZED=$(echo "$BRANCH_NAME" | tr '/' '-')
           echo "branch=${SANITIZED}" >> "$GITHUB_OUTPUT"
-          echo "📋 Sanitized branch name: ${BRANCH} -> ${SANITIZED}"
+          echo "📋 Sanitized branch name: ${BRANCH_NAME} -> ${SANITIZED}"
 
       - name: Check for PR image artifact
         id: check-artifact
         if: github.event_name == 'workflow_run' && (steps.pr-number.outputs.pr_number != '' || steps.pr-number.outputs.is_push == 'true')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IS_PUSH: ${{ steps.pr-number.outputs.is_push }}
+          PR_NUMBER: ${{ steps.pr-number.outputs.pr_number }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+          REPO_NAME: ${{ github.repository }}
         run: |
           # Determine artifact name based on event type
-          if [[ "${{ steps.pr-number.outputs.is_push }}" == "true" ]]; then
+          if [[ "${IS_PUSH}" == "true" ]]; then
             ARTIFACT_NAME="push-image"
           else
-            PR_NUMBER="${{ steps.pr-number.outputs.pr_number }}"
             ARTIFACT_NAME="pr-image-${PR_NUMBER}"
           fi
-          RUN_ID="${{ github.event.workflow_run.id }}"
 
           echo "🔍 Looking for artifact: ${ARTIFACT_NAME}"
 
@@ -138,18 +144,17 @@ jobs:
             ARTIFACT_ID=$(gh api \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              "/repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" \
+              "/repos/${REPO_NAME}/actions/runs/${RUN_ID}/artifacts" \
               --jq ".artifacts[] | select(.name == \"${ARTIFACT_NAME}\") | .id" 2>/dev/null || echo "")
           else
             # If RUN_ID is empty (push/pr trigger), try to find a recent successful run for this SHA
-            HEAD_SHA="${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}"
             echo "🔍 Searching for workflow run for SHA: ${HEAD_SHA}"
             # Retry a few times as the run might be just starting or finishing
             for i in {1..3}; do
                RUN_ID=$(gh api \
                   -H "Accept: application/vnd.github+json" \
                   -H "X-GitHub-Api-Version: 2022-11-28" \
-                  "/repos/${{ github.repository }}/actions/workflows/docker-build.yml/runs?head_sha=${HEAD_SHA}&status=success&per_page=1" \
+                  "/repos/${REPO_NAME}/actions/workflows/docker-build.yml/runs?head_sha=${HEAD_SHA}&status=success&per_page=1" \
                   --jq '.workflow_runs[0].id // empty' 2>/dev/null || echo "")
                if [[ -n "${RUN_ID}" ]]; then
                   echo "✅ Found Run ID: ${RUN_ID}"
@@ -163,7 +168,7 @@ jobs:
                ARTIFACT_ID=$(gh api \
                  -H "Accept: application/vnd.github+json" \
                  -H "X-GitHub-Api-Version: 2022-11-28" \
-                 "/repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" \
+                 "/repos/${REPO_NAME}/actions/runs/${RUN_ID}/artifacts" \
                  --jq ".artifacts[] | select(.name == \"${ARTIFACT_NAME}\") | .id" 2>/dev/null || echo "")
             fi
           fi
@@ -174,7 +179,7 @@ jobs:
             ARTIFACT_ID=$(gh api \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              "/repos/${{ github.repository }}/actions/artifacts?name=${ARTIFACT_NAME}" \
+              "/repos/${REPO_NAME}/actions/artifacts?name=${ARTIFACT_NAME}" \
               --jq '.artifacts[0].id // empty' 2>/dev/null || echo "")
           fi
 
@@ -197,26 +202,26 @@ jobs:
           exit 0
 
       - name: Download PR image artifact
-        if: github.event_name == 'workflow_run' && steps.set-target.outputs.image_name != ''
+        if: github.event_name == 'workflow_run' && steps.check-artifact.outputs.artifact_found == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARTIFACT_ID: ${{ steps.check-artifact.outputs.artifact_id }}
+          ARTIFACT_NAME: ${{ steps.check-artifact.outputs.artifact_name }}
+          REPO_NAME: ${{ github.repository }}
         run: |
-          ARTIFACT_ID="${{ steps.check-artifact.outputs.artifact_id }}"
-          ARTIFACT_NAME="${{ steps.check-artifact.outputs.artifact_name }}"
-
           echo "📦 Downloading artifact: ${ARTIFACT_NAME}"
 
           gh api \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}/zip" \
+            "/repos/${REPO_NAME}/actions/artifacts/${ARTIFACT_ID}/zip" \
             > artifact.zip
 
           unzip -o artifact.zip
           echo "✅ Artifact downloaded and extracted"
 
       - name: Load Docker image (Artifact)
-        if: github.event_name == 'workflow_run' && steps.set-target.outputs.image_name != ''
+        if: github.event_name == 'workflow_run' && steps.check-artifact.outputs.artifact_found == 'true'
         id: load-image-artifact
         run: |
           if [[ ! -f "charon-pr-image.tar" ]]; then
@@ -291,33 +296,45 @@ jobs:
           fail-build: false
           output-format: json
 
+      - name: Debug Output Files
+        if: steps.set-target.outputs.image_name != ''
+        run: |
+            echo "📂 Listing workspace files:"
+            ls -la
+
       - name: Process vulnerability results
         if: steps.set-target.outputs.image_name != ''
         id: vuln-summary
         run: |
           # The scan-action outputs results.json and results.sarif
-          # Rename for consistency with downstream steps
-          if [[ -f results.json ]]; then
-            mv results.json grype-results.json
-          fi
-          if [[ -f results.sarif ]]; then
-            mv results.sarif grype-results.sarif
+          JSON_RESULT="results.json"
+          SARIF_RESULT="results.sarif"
+
+          # Verify scan actually produced output
+          if [[ ! -f "$JSON_RESULT" ]]; then
+             echo "❌ Error: $JSON_RESULT not found!"
+             echo "Available files:"
+             ls -la
+             exit 1
           fi
 
-          # Count vulnerabilities by severity
-          if [[ -f grype-results.json ]]; then
-            CRITICAL_COUNT=$(jq '[.matches[] | select(.vulnerability.severity == "Critical")] | length' grype-results.json 2>/dev/null || echo "0")
-            HIGH_COUNT=$(jq '[.matches[] | select(.vulnerability.severity == "High")] | length' grype-results.json 2>/dev/null || echo "0")
-            MEDIUM_COUNT=$(jq '[.matches[] | select(.vulnerability.severity == "Medium")] | length' grype-results.json 2>/dev/null || echo "0")
-            LOW_COUNT=$(jq '[.matches[] | select(.vulnerability.severity == "Low")] | length' grype-results.json 2>/dev/null || echo "0")
-            TOTAL_COUNT=$(jq '.matches | length' grype-results.json 2>/dev/null || echo "0")
-          else
-            CRITICAL_COUNT=0
-            HIGH_COUNT=0
-            MEDIUM_COUNT=0
-            LOW_COUNT=0
-            TOTAL_COUNT=0
+          # Rename for consistency with downstream steps
+          mv "$JSON_RESULT" grype-results.json
+
+          if [[ -f "$SARIF_RESULT" ]]; then
+            mv "$SARIF_RESULT" grype-results.sarif
           fi
+
+          # Debug content (head)
+          echo "📄 Grype JSON Preview:"
+          head -n 20 grype-results.json
+
+          # Count vulnerabilities by severity - strict failing if file is missing (already checked above)
+          CRITICAL_COUNT=$(jq '[.matches[] | select(.vulnerability.severity == "Critical")] | length' grype-results.json 2>/dev/null || echo "0")
+          HIGH_COUNT=$(jq '[.matches[] | select(.vulnerability.severity == "High")] | length' grype-results.json 2>/dev/null || echo "0")
+          MEDIUM_COUNT=$(jq '[.matches[] | select(.vulnerability.severity == "Medium")] | length' grype-results.json 2>/dev/null || echo "0")
+          LOW_COUNT=$(jq '[.matches[] | select(.vulnerability.severity == "Low")] | length' grype-results.json 2>/dev/null || echo "0")
+          TOTAL_COUNT=$(jq '.matches | length' grype-results.json 2>/dev/null || echo "0")
 
           echo "critical_count=${CRITICAL_COUNT}" >> "$GITHUB_OUTPUT"
           echo "high_count=${HIGH_COUNT}" >> "$GITHUB_OUTPUT"
@@ -431,7 +448,7 @@ jobs:
       - name: Fail on critical vulnerabilities
         if: steps.set-target.outputs.image_name != ''
         run: |
-          CRITICAL_COUNT="${{ steps.grype-scan.outputs.critical_count }}"
+          CRITICAL_COUNT="${{ steps.vuln-summary.outputs.critical_count }}"
 
           if [[ "${CRITICAL_COUNT}" -gt 0 ]]; then
             echo "🚨 Found ${CRITICAL_COUNT} CRITICAL vulnerabilities!"
