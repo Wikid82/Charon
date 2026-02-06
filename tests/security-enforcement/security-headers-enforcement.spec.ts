@@ -9,7 +9,7 @@
  * @see /projects/Charon/docs/plans/current_spec.md - Security Headers Enforcement Tests
  */
 
-import { test, expect } from '@bgotink/playwright-coverage';
+import { test, expect } from '../fixtures/test';
 import { request } from '@playwright/test';
 import type { APIRequestContext } from '@playwright/test';
 import { STORAGE_STATE } from '../constants';
@@ -19,7 +19,7 @@ test.describe('Security Headers Enforcement', () => {
 
   test.beforeAll(async () => {
     requestContext = await request.newContext({
-      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080',
+      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080',
       storageState: STORAGE_STATE,
     });
   });

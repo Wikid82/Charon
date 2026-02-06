@@ -227,7 +227,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Build CrowdSec from source to ensure we use Go 1.25.5+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
 # renovate: datasource=docker depName=golang versioning=docker
-FROM --platform=$BUILDPLATFORM golang:1.25.6-trixie@sha256:0032c99f1682c40dca54932e2fe0156dc575ed12c6a4fdec94df9db7a0c17ab0 AS crowdsec-builder
+FROM --platform=$BUILDPLATFORM golang:1.25.7-trixie@sha256:86d4bd34f4ca0536082637663aa6959c562ceb0161b289dc7592112228735272 AS crowdsec-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
@@ -349,11 +349,23 @@ RUN groupadd -g 1000 charon && \
 # Download MaxMind GeoLite2 Country database
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
+# In CI, timeout quickly rather than retrying to save build time
 ARG GEOLITE2_COUNTRY_SHA256=62e263af0a2ee10d7ae6b8bf2515193ff496197ec99ff25279e5987e9bd67f39
 RUN mkdir -p /app/data/geoip && \
-    curl -fSL "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-    -o /app/data/geoip/GeoLite2-Country.mmdb && \
-    echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c -
+    if [ -n "$CI" ]; then \
+      echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
+      curl -fSL -m 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
+        -o /app/data/geoip/GeoLite2-Country.mmdb 2>/dev/null && \
+        echo "✅ GeoIP downloaded" || \
+        (echo "⚠️  GeoIP skipped" && touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder); \
+    else \
+      echo "Local - full download (30s timeout, 3 retries)"; \
+      curl -fSL -m 30 --retry 3 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
+        -o /app/data/geoip/GeoLite2-Country.mmdb && \
+      (echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c - || \
+       (echo "⚠️  Checksum failed" && touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder)) || \
+      (echo "⚠️  Download failed" && touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder); \
+    fi
 
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy

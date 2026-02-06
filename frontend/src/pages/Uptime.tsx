@@ -227,8 +227,15 @@ const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void; t: (ke
     };
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <div className="bg-gray-800 rounded-lg border border-gray-700 max-w-md w-full p-6 shadow-xl">
+        <>
+            {/* Layer 1: Background overlay (z-40) */}
+            <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+
+            {/* Layer 2: Form container (z-50, pointer-events-none) */}
+            <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-50">
+
+                {/* Layer 3: Form content (pointer-events-auto) */}
+                <div className="bg-gray-800 rounded-lg border border-gray-700 max-w-md w-full p-6 shadow-xl pointer-events-auto">
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-xl font-bold text-white">{t('uptime.configureMonitor')}</h2>
                     <button onClick={onClose} className="text-gray-400 hover:text-white">
@@ -236,7 +243,7 @@ const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void; t: (ke
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form onSubmit={handleSubmit} className="space-y-4 pointer-events-auto">
                 <div>
                   <label htmlFor="monitor-name" className="block text-sm font-medium text-gray-300 mb-1">
                     {t('common.name')}
@@ -303,8 +310,9 @@ const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void; t: (ke
                         </button>
                     </div>
                 </form>
+                </div>
             </div>
-        </div>
+        </>
     );
 };
 
@@ -336,16 +344,23 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
     };
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <div className="bg-gray-800 rounded-lg border border-gray-700 max-w-md w-full p-6 shadow-xl">
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold text-white">{t('uptime.createMonitor')}</h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label={t('common.close')}>
-                        <X size={24} />
-                    </button>
-                </div>
+        <>
+            {/* Layer 1: Background overlay (z-40) */}
+            <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
 
-                <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Layer 2: Form container (z-50, pointer-events-none) */}
+            <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-50">
+
+                {/* Layer 3: Form content (pointer-events-auto) */}
+                <div className="bg-gray-800 rounded-lg border border-gray-700 max-w-md w-full p-6 shadow-xl pointer-events-auto">
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-xl font-bold text-white">{t('uptime.createMonitor')}</h2>
+                        <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label={t('common.close')}>
+                            <X size={24} />
+                        </button>
+                    </div>
+
+                    <form onSubmit={handleSubmit} className="space-y-4 pointer-events-auto">
                     <div>
                         <label htmlFor="create-monitor-name" className="block text-sm font-medium text-gray-300 mb-1">
                             {t('common.name')} *
@@ -447,8 +462,9 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
                         </button>
                     </div>
                 </form>
+                </div>
             </div>
-        </div>
+        </>
     );
 };
 

@@ -44,6 +44,7 @@ vi.mock('react-i18next', () => ({
       }
       return translations[key] || key
     },
+    ready: true,
   }),
 }))
 
