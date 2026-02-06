@@ -655,6 +655,7 @@ export default function CrowdSecConfig() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Input
+                id="console-enrollment-token"
                 label={t('crowdsecConfig.consoleEnrollment.enrollToken')}
                 type="password"
                 value={enrollmentToken}
@@ -666,6 +667,7 @@ export default function CrowdSecConfig() {
                 data-testid="console-enrollment-token"
               />
               <Input
+                id="console-agent-name"
                 label={t('crowdsecConfig.consoleEnrollment.agentName')}
                 value={consoleAgentName}
                 onChange={(e) => setConsoleAgentName(e.target.value)}
@@ -674,6 +676,7 @@ export default function CrowdSecConfig() {
                 data-testid="console-agent-name"
               />
               <Input
+                id="console-tenant"
                 label={t('crowdsecConfig.consoleEnrollment.tenant')}
                 value={consoleTenant}
                 onChange={(e) => setConsoleTenant(e.target.value)}
@@ -686,6 +689,7 @@ export default function CrowdSecConfig() {
 
             <div className="flex items-center gap-2">
               <input
+                id="console-ack"
                 type="checkbox"
                 className="h-4 w-4 accent-blue-500"
                 checked={consoleAck}
@@ -693,7 +697,7 @@ export default function CrowdSecConfig() {
                 disabled={isConsolePending}
                 data-testid="console-ack-checkbox"
               />
-              <span className="text-sm text-gray-400">{t('crowdsecConfig.consoleEnrollment.ackText')}</span>
+              <label htmlFor="console-ack" className="text-sm text-gray-400">{t('crowdsecConfig.consoleEnrollment.ackText')}</label>
             </div>
             {consoleErrors.ack && <p className="text-sm text-red-400" data-testid="console-enroll-error">{consoleErrors.ack}</p>}
 
@@ -801,10 +805,11 @@ export default function CrowdSecConfig() {
                       {/* Re-enrollment form */}
                       <div className="space-y-3">
                         <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-1">
+                          <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="reenroll-token">
                             {t('crowdsecConfig.reenroll.newEnrollmentKey')}
                           </label>
                           <Input
+                            id="reenroll-token"
                             type="text"
                             value={enrollmentToken}
                             onChange={(e) => setEnrollmentToken(e.target.value)}
@@ -813,10 +818,11 @@ export default function CrowdSecConfig() {
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-1">
+                          <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="reenroll-agent-name">
                             {t('crowdsecConfig.consoleEnrollment.agentName')}
                           </label>
                           <Input
+                            id="reenroll-agent-name"
                             type="text"
                             value={consoleAgentName}
                             onChange={(e) => setConsoleAgentName(e.target.value)}
@@ -824,10 +830,11 @@ export default function CrowdSecConfig() {
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-1">
+                          <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="reenroll-tenant">
                             {t('crowdsecConfig.reenroll.tenantOptional')}
                           </label>
                           <Input
+                            id="reenroll-tenant"
                             type="text"
                             value={consoleTenant}
                             onChange={(e) => setConsoleTenant(e.target.value)}
@@ -972,7 +979,7 @@ export default function CrowdSecConfig() {
                 </div>
               ))
             ) : (
-              <div className="p-4 text-center text-gray-500 text-sm">{t('crowdsecConfig.presets.noResults', { query: searchQuery })}</div>
+              <div className="p-4 text-center text-gray-500 text-sm">{t('crowdsecConfig.presets.noPresets', { query: searchQuery })}</div>
             )}
           </div>
 
@@ -1110,6 +1117,7 @@ export default function CrowdSecConfig() {
               <h3 className="text-md font-semibold">{t('crowdsecConfig.bannedIps.title')}</h3>
             </div>
             <Button
+              data-testid="ban-ip-trigger"
               onClick={() => setShowBanModal(true)}
               disabled={status.crowdsec.mode === 'disabled'}
               size="sm"
@@ -1186,14 +1194,16 @@ export default function CrowdSecConfig() {
             </h3>
             <div className="space-y-4">
               <Input
+                id="ban-ip"
                 label={t('crowdsecConfig.banModal.ipLabel')}
                 placeholder="192.168.1.100"
                 value={banForm.ip}
                 onChange={(e) => setBanForm({ ...banForm, ip: e.target.value })}
               />
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">{t('crowdsecConfig.banModal.durationLabel')}</label>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5" htmlFor="ban-duration">{t('crowdsecConfig.banModal.durationLabel')}</label>
                 <select
+                  id="ban-duration"
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white"
                   value={banForm.duration}
                   onChange={(e) => setBanForm({ ...banForm, duration: e.target.value })}
@@ -1207,8 +1217,9 @@ export default function CrowdSecConfig() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">{t('crowdsecConfig.banModal.reasonLabel')}</label>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5" htmlFor="ban-reason">{t('crowdsecConfig.banModal.reasonLabel')}</label>
                 <textarea
+                  id="ban-reason"
                   placeholder={t('crowdsecConfig.banModal.reasonPlaceholder')}
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={3}

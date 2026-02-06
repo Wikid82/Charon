@@ -756,7 +756,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
           {/* DNS Provider Selector for Wildcard Domains */}
           {hasWildcardDomain && (
-            <div className="space-y-3">
+            <div className="space-y-3" data-testid="dns-provider-section">
               <Alert variant="info">
                 <Info className="h-4 w-4" />
                 <div>

@@ -19,7 +19,7 @@
     "test:ui": "vitest --ui",
     "check-coverage": "bash ../scripts/frontend-test-coverage.sh",
     "pretest:coverage": "npm ci --silent && node -e \"require('fs').mkdirSync('coverage/.tmp', { recursive: true })\"",
-    "test:coverage": "vitest run --coverage --coverage.provider=istanbul --coverage.reporter=json-summary --coverage.reporter=lcov --coverage.reporter=text",
+    "test:coverage": "vitest run --coverage",
     "e2e:install": "npx playwright install --with-deps",
     "e2e:test": "playwright test",
     "e2e:up:block": "docker compose -f ../.docker/compose/docker-compose.local.yml down && CHARON_SECURITY_WAF_MODE=block docker compose -f ../.docker/compose/docker-compose.local.yml up -d",
