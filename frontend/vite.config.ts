@@ -13,26 +13,6 @@ export default defineConfig({
       }
     }
   },
-  test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: './src/setupTests.ts',
-    testTimeout: 10000, // 10 seconds max per test
-    hookTimeout: 10000, // 10 seconds for beforeEach/afterEach
-    coverage: {
-      provider: 'istanbul',
-      reporter: ['text', 'json-summary', 'lcov'],
-      reportsDirectory: './coverage',
-      exclude: [
-        'node_modules/',
-        'src/setupTests.ts',
-        '**/*.d.ts',
-        '**/*.config.*',
-        '**/mockData',
-        'dist/'
-      ]
-    }
-  },
   build: {
     outDir: 'dist',
     sourcemap: true,
