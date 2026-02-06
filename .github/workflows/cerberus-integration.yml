@@ -6,19 +6,23 @@ on:
   workflow_run:
     workflows: ["Docker Build, Publish & Test"]
     types: [completed]
-    branches: [main, development, 'feature/**']  # Explicit branch filter prevents unexpected triggers
+    branches: [main, development, 'feature/**', 'hotfix/**']
+  push:
+    branches: [main, development, 'feature/**', 'hotfix/**']
+  pull_request:
+    branches: [main, development, 'feature/**', 'hotfix/**']
   # Allow manual trigger for debugging
   workflow_dispatch:
     inputs:
       image_tag:
-        description: 'Docker image tag to test (e.g., pr-123-abc1234)'
+        description: 'Docker image tag to test (e.g., pr-123-abc1234, latest)'
         required: false
         type: string
 
 # Prevent race conditions when PR is updated mid-test
 # Cancels old test runs when new build completes with different SHA
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.event || github.event_name }}-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -26,8 +30,8 @@ jobs:
     name: Cerberus Security Stack Integration
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Only run if docker-build.yml succeeded, or if manually triggered
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    # Only run if docker-build.yml succeeded, or if manually triggered, OR on direct push/PR
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request' }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -37,9 +41,9 @@ jobs:
       - name: Determine image tag
         id: determine-tag
         env:
-          EVENT: ${{ github.event.workflow_run.event }}
-          REF: ${{ github.event.workflow_run.head_branch }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
+          EVENT: ${{ github.event.workflow_run.event || github.event_name }}
+          REF: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
           MANUAL_TAG: ${{ inputs.image_tag }}
         run: |
           # Manual trigger uses provided tag
@@ -60,6 +64,11 @@ jobs:
           if [[ "$EVENT" == "pull_request" ]]; then
             # Use native pull_requests array (no API calls needed)
             PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number')
+
+            # Fallback for direct PR trigger
+            if [[ -z "$PR_NUM" || "$PR_NUM" == "null" ]]; then
+               PR_NUM="${{ github.event.number }}"
+            fi
 
             if [[ -z "$PR_NUM" || "$PR_NUM" == "null" ]]; then
               echo "❌ ERROR: Could not determine PR number"
@@ -91,10 +100,19 @@ jobs:
           echo "sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "Determined image tag: $(cat $GITHUB_OUTPUT | grep tag=)"
 
+      # Build image locally for Push/PR events to ensure immediate feedback
+      - name: Build Docker image (Local)
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+        run: |
+          echo "Building image locally for integration test..."
+          docker build -t charon:local .
+          echo "✅ Successfully built charon:local"
+
       # Pull image from registry with retry logic (dual-source strategy)
       # Try registry first (fast), fallback to artifact if registry fails
       - name: Pull Docker image from registry
         id: pull_image
+        if: ${{ github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch' }}
         uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
         with:
           timeout_minutes: 5
@@ -109,8 +127,9 @@ jobs:
         continue-on-error: true
 
       # Fallback: Download artifact if registry pull failed
+      # Only runs if pull_image failed AND we are in a workflow_run context
       - name: Fallback to artifact download
-        if: steps.pull_image.outcome == 'failure'
+        if: steps.pull_image.outcome == 'failure' && github.event_name == 'workflow_run'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SHA: ${{ steps.determine-tag.outputs.sha }}

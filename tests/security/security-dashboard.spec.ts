@@ -22,7 +22,7 @@ import {
   CapturedSecurityState,
 } from '../utils/security-helpers';
 
-test.describe('Security Dashboard', () => {
+test.describe('Security Dashboard @security', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page);
@@ -133,7 +133,7 @@ test.describe('Security Dashboard', () => {
 
       // Create authenticated request context for cleanup (cannot reuse fixture from beforeAll)
       const cleanupRequest = await request.newContext({
-        baseURL: 'http://localhost:8080',
+        baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080',
         storageState: STORAGE_STATE,
       });
 

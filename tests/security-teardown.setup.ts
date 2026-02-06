@@ -29,7 +29,7 @@ teardown('verify-security-state-for-ui-tests', async () => {
   console.log('\n🔍 Security Teardown: Verifying state for UI tests...');
   console.log('   Expected: Cerberus ON + All modules ON + Universal bypass (0.0.0.0/0)');
 
-  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
 
   // Create authenticated request context with storage state
   const requestContext = await request.newContext({
