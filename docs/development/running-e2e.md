@@ -24,6 +24,14 @@ This document explains how to run Playwright tests using a real browser (headed)
   npx playwright test --ui
   ```
 
+- Open the running Docker E2E app in your system browser (one-step via VS Code task):
+  - Run the VS Code task: **Open: App in System Browser (Docker E2E)**
+  - This will rebuild the E2E container (if needed), wait for http://localhost:8080 to respond, and open your system browser automatically.
+
+- Open the running Docker E2E app in VS Code Simple Browser:
+  - Run the VS Code task: **Open: App in Simple Browser (Docker E2E)**
+  - Then use the command palette: `Simple Browser: Open URL` → paste `http://localhost:8080`
+
 ## Using the project's E2E Docker image (recommended for parity with CI)
 1. Rebuild/start the E2E container (this sets up the full test environment):
    ```bash
@@ -55,4 +63,4 @@ This document explains how to run Playwright tests using a real browser (headed)
 - Playwright auth artifacts are ignored by git (`playwright/.auth/`). Do not commit credentials.
 
 ---
-If you'd like, I can open a PR with these changes (scripts + config + docs) and add a short CI note to `.github/` workflows.  
+If you'd like, I can open a PR with these changes (scripts + config + docs) and add a short CI note to `.github/` workflows.
