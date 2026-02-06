@@ -182,7 +182,8 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup'],
+      dependencies: ['setup', 'security-tests'],
+      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
     },
 
     {
@@ -192,6 +193,7 @@ export default defineConfig({
         storageState: STORAGE_STATE,
       },
       dependencies: ['setup', 'security-tests'],
+      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
     },
 
     {
@@ -201,6 +203,7 @@ export default defineConfig({
         storageState: STORAGE_STATE,
       },
       dependencies: ['setup', 'security-tests'],
+      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
     },
 
     /* Test against mobile viewports. */

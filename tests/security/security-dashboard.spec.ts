@@ -133,7 +133,7 @@ test.describe('Security Dashboard @security', () => {
 
       // Create authenticated request context for cleanup (cannot reuse fixture from beforeAll)
       const cleanupRequest = await request.newContext({
-        baseURL: 'http://localhost:8080',
+        baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080',
         storageState: STORAGE_STATE,
       });
 
