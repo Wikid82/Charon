@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### CI/CD
+- **Supply Chain**: Optimized verification workflow to prevent redundant builds
+  - Change: Removed direct Push/PR triggers; now waits for 'Docker Build' via `workflow_run`
+
 ### Security
 - **Supply Chain**: Enhanced PR verification workflow stability and accuracy
   - **Vulnerability Reporting**: Eliminated false negatives ("0 vulnerabilities") by enforcing strict failure conditions
