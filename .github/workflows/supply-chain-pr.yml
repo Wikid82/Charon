@@ -48,10 +48,6 @@ jobs:
       - name: Checkout repository
         # actions/checkout v4.2.2
         uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98
-        with:
-          sparse-checkout: |
-            .github
-          sparse-checkout-cone-mode: false
 
       - name: Extract PR number from workflow_run
         id: pr-number
