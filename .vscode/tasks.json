@@ -157,6 +157,18 @@
             }
         },
         {
+            "label": "Test: E2E Playwright (UI - Headless Server)",
+            "type": "shell",
+            "command": "npm run e2e:ui:headless-server",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
             "label": "Lint: Pre-commit (All Files)",
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh qa-precommit-all",
@@ -501,6 +513,57 @@
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean --no-cache",
             "group": "build",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Open: App in Simple Browser (Docker E2E)",
+            "type": "shell",
+            "dependsOn": ["Docker: Rebuild E2E Environment"],
+            "command": "bash -lc 'printf "Waiting for Charon at http://localhost:8080...\n"; for i in {1..60}; do if curl -fsS http://localhost:8080/ >/dev/null 2>&1; then echo "Ready: http://localhost:8080"; exit 0; fi; sleep 1; done; echo "Timed out waiting for http://localhost:8080"; exit 1'",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "echo": true,
+                "close": false
+            }
+        },
+        {
+            "label": "Open: App in System Browser (Docker E2E)",
+            "type": "shell",
+            "dependsOn": ["Docker: Rebuild E2E Environment"],
+            "command": "bash -lc '\\
+              printf "Waiting for Charon at http://localhost:8080...\\n"; \
+              for i in {1..60}; do \
+                if curl -fsS http://localhost:8080/ >/dev/null 2>&1; then echo "Ready: http://localhost:8080"; break; fi; \
+                sleep 1; \
+              done; \
+              if command -v xdg-open >/dev/null 2>&1; then xdg-open http://localhost:8080 >/dev/null 2>&1 & disown; \
+              elif command -v sensible-browser >/dev/null 2>&1; then sensible-browser http://localhost:8080 >/dev/null 2>&1 & disown; \
+              elif command -v gio >/dev/null 2>&1; then gio open http://localhost:8080 >/dev/null 2>&1 & disown; \
+              elif command -v open >/dev/null 2>&1; then open http://localhost:8080 >/dev/null 2>&1 & disown; \
+              else echo "No known browser opener found. Open http://localhost:8080 manually."; fi'",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "echo": true,
+                "close": false
+            }
+        },
+        {
+            "label": "Record: Playwright codegen (Docker E2E)",
+            "type": "shell",
+            "dependsOn": ["Docker: Rebuild E2E Environment"],
+            "command": "bash -lc 'npx playwright codegen http://localhost:8080 --output=tests/recorded.from_codegen.spec.ts'",
+            "group": "test",
             "problemMatcher": [],
             "presentation": {
                 "reveal": "always",
