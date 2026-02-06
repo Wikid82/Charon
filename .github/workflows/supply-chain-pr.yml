@@ -35,10 +35,13 @@ jobs:
     name: Verify Supply Chain
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Run for: manual dispatch, PR builds, or any push builds from docker-build
+    # Run for: manual dispatch, direct push/PR, or successful workflow_run triggered by push/PR
     if: >
       github.event_name == 'workflow_dispatch' ||
-      ((github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'push') &&
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_run' &&
+       (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'push') &&
        github.event.workflow_run.conclusion == 'success')
 
     steps:
