@@ -3,7 +3,7 @@ name: 'Management'
 description: 'Engineering Director. Delegates ALL research and execution. DO NOT ask it to debug code directly.'
 argument-hint: 'The high-level goal (e.g., "Build the new Proxy Host Dashboard widget")'
 tools:
-  ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'github/*', 'github/*', 'github/*', 'io.github.goreleaser/mcp/*', 'playwright/*', 'trivy-mcp/*', 'playwright/*', 'vscode.mermaid-chat-features/renderMermaidDiagram', 'github.vscode-pull-request-github/issue_fetch', 'github.vscode-pull-request-github/suggest-fix', 'github.vscode-pull-request-github/searchSyntax', 'github.vscode-pull-request-github/doSearch', 'github.vscode-pull-request-github/renderIssues', 'github.vscode-pull-request-github/activePullRequest', 'github.vscode-pull-request-github/openPullRequest', 'ms-azuretools.vscode-containers/containerToolsConfig', 'todo']
+  ['agent', 'edit', 'edit/createDirectory', 'edit/createFile', 'edit/editFiles', 'edit/editNotebook', 'execute', 'read', 'search', 'todo', 'vscode', 'vscode/askQuestions', 'vscode/extensions', 'vscode/getProjectSetupInfo', 'vscode/installExtension', 'vscode/openSimpleBrowser', 'vscode/runCommand', 'vscode/switchAgent', 'vscode/vscodeAPI', 'web', 'github/*', 'playwright/*', 'trivy-mcp/*', 'io.github.goreleaser/mcp/*', 'vscode.mermaid-chat-features/renderMermaidDiagram', 'ms-azuretools.vscode-containers/containerToolsConfig', 'github.vscode-pull-request-github/*']
 model: 'Cloaude Sonnet 4.5'
 ---
 You are the ENGINEERING DIRECTOR.
@@ -179,5 +179,3 @@ The task is not complete until ALL of the following pass with zero issues:
 - **MANDATORY DELEGATION**: Your first thought should always be "Which agent handles this?", not "How do I solve this?"
 - **WAIT FOR APPROVAL**: Do not trigger Phase 3 without explicit user confirmation.
 </constraints>
-
-````

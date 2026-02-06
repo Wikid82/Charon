@@ -95,13 +95,14 @@ test.describe('SSL Certificates - CRUD Operations', () => {
         // Wait for page to fully load
         await waitForLoadingComplete(page);
 
-        const emptyCellMessage = page.getByText(/no.*certificates.*found/i);
         const table = page.getByRole('table');
+        const emptyState = page.getByText(/no.*certificates.*found/i);
 
-        const hasEmptyMessage = await emptyCellMessage.isVisible().catch(() => false);
-        const hasTable = await table.isVisible().catch(() => false);
-
-        expect(hasEmptyMessage || hasTable).toBeTruthy();
+        await expect(async () => {
+          const hasTable = await table.count() > 0 && await table.first().isVisible();
+          const hasEmpty = await emptyState.count() > 0 && await emptyState.first().isVisible();
+          expect(hasTable || hasEmpty).toBeTruthy();
+        }).toPass({ timeout: 10000 });
       });
     });
 
@@ -114,10 +115,11 @@ test.describe('SSL Certificates - CRUD Operations', () => {
         const table = page.getByRole('table');
         const emptyState = page.getByText(/no.*certificates.*found/i);
 
-        const hasTable = await table.isVisible().catch(() => false);
-        const hasEmpty = await emptyState.isVisible().catch(() => false);
-
-        expect(hasTable || hasEmpty).toBeTruthy();
+        await expect(async () => {
+          const hasTable = await table.count() > 0 && await table.first().isVisible();
+          const hasEmpty = await emptyState.count() > 0 && await emptyState.first().isVisible();
+          expect(hasTable || hasEmpty).toBeTruthy();
+        }).toPass({ timeout: 10000 });
       });
     });
 

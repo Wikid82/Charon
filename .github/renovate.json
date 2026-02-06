@@ -116,6 +116,17 @@
       "depNameTemplate": "golang/go",
       "datasourceTemplate": "golang-version",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track GO_VERSION in Actions workflows",
+      "fileMatch": ["^\\.github/workflows/.*\\.yml$"],
+      "matchStrings": [
+        "GO_VERSION: ['\"]?(?<currentValue>[\\d\\.]+)['\"]?"
+      ],
+      "depNameTemplate": "golang/go",
+      "datasourceTemplate": "golang-version",
+      "versioningTemplate": "semver"
     }
   ],
 

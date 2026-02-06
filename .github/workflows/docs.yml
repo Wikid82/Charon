@@ -3,11 +3,18 @@ name: Deploy Documentation to GitHub Pages
 on:
   push:
     branches:
-      - main           # Deploy docs when pushing to main
+      - '**'
     paths:
-      - 'docs/**'      # Only run if docs folder changes
-      - 'README.md'    # Or if README changes
-      - '.github/workflows/docs.yml'  # Or if this workflow changes
+      - 'docs/**'
+      - 'README.md'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches:
+      - '**'
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:   # Allow manual trigger
 
 # Sets permissions to allow deployment to GitHub Pages
@@ -18,7 +25,7 @@ permissions:
 
 # Allow only one concurrent deployment
 concurrency:
-  group: "pages"
+  group: "pages-${{ github.event_name }}-${{ github.ref }}"
   cancel-in-progress: false
 
 env:
@@ -29,6 +36,8 @@ jobs:
     name: Build Documentation
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      REPO_NAME: ${{ github.event.repository.name }}
 
     steps:
       # Step 1: Get the code
@@ -318,6 +327,35 @@ jobs:
             fi
           done
 
+          # --- 🚀 ROBUST DYNAMIC PATH FIX ---
+          echo "🔧 Calculating paths..."
+
+          # 1. Determine BASE_PATH
+          if [[ "${REPO_NAME}" == *".github.io" ]]; then
+            echo "  - Mode: Root domain (e.g. user.github.io)"
+            BASE_PATH="/"
+          else
+            echo "  - Mode: Sub-path (e.g. user.github.io/repo)"
+            BASE_PATH="/${REPO_NAME}/"
+          fi
+
+          # 2. Define standard repo variables
+          FULL_REPO="${{ github.repository }}"
+          REPO_URL="https://github.com/${FULL_REPO}"
+
+          echo "  - Repo: ${FULL_REPO}"
+          echo "  - URL:  ${REPO_URL}"
+          echo "  - Base: ${BASE_PATH}"
+
+          # 3. Fix paths in all HTML files
+          find _site -name "*.html" -exec sed -i \
+            -e "s|/charon/|${BASE_PATH}|g" \
+            -e "s|https://github.com/Wikid82/charon|${REPO_URL}|g" \
+            -e "s|Wikid82/charon|${FULL_REPO}|g" \
+            {} +
+
+          echo "✅ Paths fixed successfully!"
+
           echo "✅ Documentation site built successfully!"
 
       # Step 4: Upload the built site
@@ -328,6 +366,7 @@ jobs:
 
   deploy:
     name: Deploy to GitHub Pages
+    if: github.ref == 'refs/heads/main'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

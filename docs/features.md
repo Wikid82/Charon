@@ -136,6 +136,18 @@ pre-commit run --hook-stage manual gorm-security-scan --all-files
 
 ---
 
+### ⚡ Optimized CI Pipelines
+
+Time is valuable. Charon's development workflows are tuned for efficiency, ensuring that security verifications only run when valid artifacts exist.
+
+- **Smart Triggers** — Supply chain checks wait for successful builds
+- **Zero Redundancy** — Eliminates wasted runs on push/PR events
+- **Stable Feedback** — Reduces false negatives for contributors
+
+→ [See Developer Guide](guides/supply-chain-security-developer-guide.md)
+
+---
+
 ## �🛡️ Security & Headers
 
 ### 🛡️ HTTP Security Headers

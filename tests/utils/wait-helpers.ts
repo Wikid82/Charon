@@ -15,7 +15,7 @@
  * ```
  */
 
-import { expect } from '@bgotink/playwright-coverage';
+import { expect } from '../fixtures/test';
 import type { Page, Locator, Response } from '@playwright/test';
 import { clickSwitch } from './ui-helpers';
 
@@ -52,7 +52,7 @@ export async function clickAndWaitForResponse(
   const role = await locator.getAttribute('role').catch(() => null);
   const isSwitch = role === 'switch' ||
     (await locator.getAttribute('type').catch(() => null) === 'checkbox' &&
-     await locator.getAttribute('aria-label').catch(() => '').then(label => label.includes('toggle')));
+     await locator.getAttribute('aria-label').then(l => (l || '').includes('toggle')).catch(() => false));
 
   if (isSwitch) {
     // Use clickSwitch helper for switch components
@@ -238,9 +238,20 @@ export async function waitForLoadingComplete(
   const { timeout = 10000 } = options;
 
   // Wait for any loading indicator to disappear
-  const loader = page.locator(
-    '[role="progressbar"], [aria-busy="true"], .loading-spinner, .loading, .spinner, [data-loading="true"]'
-  );
+  // Updated to be more specific and exclude pulsing UI badges
+  const loader = page.locator([
+    '[role="progressbar"]',
+    '[aria-busy="true"]',
+    '.loading-spinner',
+    '.loading',
+    '.spinner',
+    '[data-loading="true"]',
+    'div.animate-pulse', // Only divs upon animate-pulse (skeletons), excluding spans (badges)
+    '[role="status"][aria-label="Loading"]',
+    '[role="status"][aria-label="Authenticating"]',
+    '[role="status"][aria-label="Security Loading"]'
+  ].join(', '));
+
   await expect(loader).toHaveCount(0, { timeout });
 }
 
@@ -402,27 +413,33 @@ export async function waitForModal(
   const { timeout = 10000 } = options;
 
   // Try to find a modal dialog first, then fall back to a slide-out panel with matching heading
-  const dialogModal = page.locator('[role="dialog"], .modal');
-  const slideOutPanel = page.locator('h2, h3').filter({ hasText: titleText });
+  // Use .first() to avoid specific strict mode violations if multiple exist in DOM
+  const dialogModal = page
+    .locator('[role="dialog"], .modal')
+    .filter({ hasText: titleText })
+    .first();
+
+  const slideOutPanel = page
+    .locator('h2, h3')
+    .filter({ hasText: titleText })
+    .first();
 
   // Wait for either the dialog modal or the slide-out panel heading to be visible
   try {
-    await expect(dialogModal.or(slideOutPanel)).toBeVisible({ timeout });
-  } catch {
+    // FIX STRICT MODE VIOLATION:
+    // If we match both the dialog AND the heading inside it, .or() returns 2 elements.
+    // We strictly want to wait until *at least one* is visible.
+    // Using .first() on the combined locator prevents 'strict mode violation' when both match.
+    await expect(dialogModal.or(slideOutPanel).first()).toBeVisible({ timeout });
+  } catch (e) {
     // If neither is found, throw a more helpful error
     throw new Error(
-      `waitForModal: Could not find modal dialog or slide-out panel matching "${titleText}"`
+      `waitForModal: Could not find visible modal dialog or slide-out panel matching "${titleText}". Error: ${e instanceof Error ? e.message : String(e)}`
     );
   }
 
-  // If dialog modal is visible, verify its title
+  // If dialog modal is visible, use it
   if (await dialogModal.isVisible()) {
-    if (titleText) {
-      const titleLocator = dialogModal.locator(
-        '[role="heading"], .modal-title, .dialog-title, h1, h2, h3'
-      );
-      await expect(titleLocator).toContainText(titleText);
-    }
     return dialogModal;
   }
 
@@ -1063,6 +1080,8 @@ export interface DebounceOptions {
   indicatorSelector?: string;
   /** Maximum time to wait (default: 3000ms) */
   timeout?: number;
+  /** Optional delay for debounce settling (default: 300ms) */
+  delay?: number;
 }
 
 /**
@@ -1090,7 +1109,7 @@ export async function waitForDebounce(
   page: Page,
   options: DebounceOptions = {}
 ): Promise<void> {
-  const { indicatorSelector, timeout = 3000 } = options;
+  const { indicatorSelector, timeout = 3000, delay = 300 } = options;
 
   if (indicatorSelector) {
     // Wait for loading indicator to appear and disappear
@@ -1100,6 +1119,10 @@ export async function waitForDebounce(
     });
     await indicator.waitFor({ state: 'hidden', timeout });
   } else {
+    // Manually wait for the debounce delay to ensure subsequent requests are triggered
+    if (delay > 0) {
+      await page.waitForTimeout(delay);
+    }
     // Wait for network to be idle (default debounce strategy)
     await page.waitForLoadState('networkidle', { timeout });
   }
