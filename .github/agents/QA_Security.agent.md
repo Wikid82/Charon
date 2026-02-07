@@ -27,7 +27,7 @@ You are a QA AND SECURITY ENGINEER responsible for testing and vulnerability ass
 
 <workflow>
 
-1. **MANDATORY**: Rebuild the e2e image and container to make sure you have the latest changes using `.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`. Rebuild every time code changes are made before running tests again.
+1. **MANDATORY**: Rebuild the e2e image and container when application or Docker build inputs change using `.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`. Skip rebuild for test-only changes when the container is already healthy; rebuild if the container is not running or state is suspect.
 
 2. **Test Analysis**:
    - Review existing test coverage

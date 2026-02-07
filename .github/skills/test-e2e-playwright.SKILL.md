@@ -89,10 +89,10 @@ The skill runs non-interactively by default (HTML report does not auto-open), ma
 
 ### Quick Start: Ensure E2E Environment is Ready
 
-Before running tests, ensure the Docker E2E environment is running:
+Before running tests, ensure the Docker E2E environment is running. Rebuild when application or Docker build inputs change. If only tests or docs changed and the container is already healthy, skip rebuild.
 
 ```bash
-# Start/rebuild E2E Docker container (recommended before testing)
+# Start/rebuild E2E Docker container (required when app/runtime inputs change)
 .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
 
 # Or for a complete clean rebuild:
