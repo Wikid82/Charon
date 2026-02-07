@@ -104,7 +104,7 @@ Runs Playwright E2E tests in headed/debug mode for troubleshooting. This skill p
 
 - Node.js 18.0 or higher installed and in PATH
 - Playwright browsers installed (`npx playwright install chromium`)
-- Charon application running at localhost:8080 (use `docker-rebuild-e2e` skill)
+- Charon application running at localhost:8080 (use `docker-rebuild-e2e` when app/runtime inputs change or the container is not running)
 - Display available (X11 or Wayland on Linux, native on macOS)
 - Test files in `tests/` directory
 

@@ -127,10 +127,10 @@ fix: harden security suite integration test expectations
 The task is not complete until ALL of the following pass with zero issues:
 
 1. **Playwright E2E Tests (MANDATORY - Run First)**:
-    - **PREREQUISITE**: Rebuild E2E container before each test run:
-      ```bash
-      .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
-      ```
+        - **PREREQUISITE**: Rebuild the E2E container when application or Docker build inputs change; skip rebuild for test-only changes if the container is already healthy:
+            ```bash
+            .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+            ```
       This ensures the container has latest code and proper environment variables (emergency token, encryption key from `.env`).
     - **Run**: `npx playwright test --project=chromium --project=firefox --project=webkit` from project root
     - **No Truncation**: Never pipe output through `head`, `tail`, or other truncating commands. Playwright requires user input to quit when piped, causing hangs.

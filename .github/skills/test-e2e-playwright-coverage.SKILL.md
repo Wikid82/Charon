@@ -84,7 +84,7 @@ Runs Playwright end-to-end tests with code coverage collection using `@bgotink/p
 - Node.js 18.0 or higher installed and in PATH
 - Playwright browsers installed (`npx playwright install`)
 - `@bgotink/playwright-coverage` package installed
-- Charon application running (default: `http://localhost:8080`)
+- Charon application running (default: `http://localhost:8080`, use `docker-rebuild-e2e` when app/runtime inputs change or the container is not running)
 - Test files in `tests/` directory using coverage-enabled imports
 
 ## Usage
