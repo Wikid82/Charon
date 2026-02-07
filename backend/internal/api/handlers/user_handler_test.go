@@ -754,6 +754,43 @@ func TestUserHandler_UpdateUser_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestUserHandler_UpdateUser_PasswordReset(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	user := &models.User{UUID: uuid.NewString(), Email: "reset@example.com", Name: "Reset User", Role: "user"}
+	require.NoError(t, user.SetPassword("oldpassword123"))
+	lockUntil := time.Now().Add(10 * time.Minute)
+	user.FailedLoginAttempts = 4
+	user.LockedUntil = &lockUntil
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	body := map[string]any{
+		"password": "newpassword123",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("PUT", "/users/1", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var updated models.User
+	db.First(&updated, user.ID)
+	assert.True(t, updated.CheckPassword("newpassword123"))
+	assert.False(t, updated.CheckPassword("oldpassword123"))
+	assert.Equal(t, 0, updated.FailedLoginAttempts)
+	assert.Nil(t, updated.LockedUntil)
+}
+
 func TestUserHandler_DeleteUser_NonAdmin(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
 	gin.SetMode(gin.TestMode)

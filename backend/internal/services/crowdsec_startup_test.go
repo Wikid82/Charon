@@ -42,8 +42,8 @@ func (m *mockCrowdsecExecutor) Status(ctx context.Context, configDir string) (ru
 // mockCommandExecutor is a test mock for CommandExecutor interface
 type mockCommandExecutor struct {
 	executeCalls [][]string // Track command invocations
-	executeErr   error       // Error to return
-	executeOut   []byte      // Output to return
+	executeErr   error      // Error to return
+	executeOut   []byte     // Output to return
 }
 
 func (m *mockCommandExecutor) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
