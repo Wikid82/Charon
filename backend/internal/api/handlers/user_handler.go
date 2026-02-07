@@ -601,6 +601,7 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 type UpdateUserRequest struct {
 	Name    string `json:"name"`
 	Email   string `json:"email"`
+	Password *string `json:"password" binding:"omitempty,min=8"`
 	Role    string `json:"role"`
 	Enabled *bool  `json:"enabled"`
 }
@@ -651,6 +652,16 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 
 	if req.Role != "" {
 		updates["role"] = req.Role
+	}
+
+	if req.Password != nil {
+		if err := user.SetPassword(*req.Password); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+			return
+		}
+		updates["password_hash"] = user.PasswordHash
+		updates["failed_login_attempts"] = 0
+		updates["locked_until"] = nil
 	}
 
 	if req.Enabled != nil {

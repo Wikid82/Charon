@@ -125,12 +125,19 @@ func TestEmergencySecurityReset_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "disabled", crowdsecMode.Value)
 
+	// Verify admin whitelist is cleared
+	var adminWhitelist models.Setting
+	err = db.Where("key = ?", "security.admin_whitelist").First(&adminWhitelist).Error
+	require.NoError(t, err)
+	assert.Equal(t, "", adminWhitelist.Value)
+
 	// Verify SecurityConfig was updated
 	var updatedConfig models.SecurityConfig
 	err = db.Where("name = ?", "default").First(&updatedConfig).Error
 	require.NoError(t, err)
 	assert.False(t, updatedConfig.Enabled)
 	assert.Equal(t, "disabled", updatedConfig.WAFMode)
+	assert.Equal(t, "", updatedConfig.AdminWhitelist)
 
 	// Note: Audit logging is async via SecurityService channel, tested separately
 }
