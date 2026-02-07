@@ -258,7 +258,7 @@ SEC_CFG_PAYLOAD=$(cat <<EOF
     "rate_limit_requests": ${RATE_LIMIT_REQUESTS},
     "rate_limit_window_sec": ${RATE_LIMIT_WINDOW_SEC},
     "rate_limit_burst": ${RATE_LIMIT_BURST},
-    "admin_whitelist": "0.0.0.0/0"
+    "admin_whitelist": "127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 }
 EOF
 )

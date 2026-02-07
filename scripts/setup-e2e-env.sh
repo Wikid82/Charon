@@ -7,11 +7,15 @@
 # This script:
 #   1. Checks prerequisites (docker, node, npx)
 #   2. Installs npm dependencies
-#   3. Installs Playwright browsers (chromium only for speed)
+#   3. Installs Playwright browsers (firefox only for CI alignment)
 #   4. Creates .env.test if not exists
 #   5. Starts the Docker test environment
 #   6. Waits for health check
 #   7. Outputs success message with URLs
+#
+# Rebuild note:
+#   For CI-aligned E2E container rebuilds, prefer:
+#   .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
 
 set -euo pipefail
 
@@ -127,8 +131,8 @@ echo -e "${GREEN}✅ Dependencies installed${NC}"
 echo ""
 
 # Step 3: Install Playwright browsers
-echo -e "${BLUE}🎭 Step 3: Installing Playwright browsers (chromium only)...${NC}"
-npx playwright install chromium --with-deps
+echo -e "${BLUE}🎭 Step 3: Installing Playwright browsers (firefox only)...${NC}"
+npx playwright install firefox --with-deps
 echo -e "${GREEN}✅ Playwright browsers installed${NC}"
 echo ""
 
@@ -212,7 +216,7 @@ echo -e "  ${BLUE}📍 Health Check:${NC}    http://localhost:8080/api/v1/health
 echo ""
 echo -e "  ${BLUE}🧪 Run tests:${NC}"
 echo "     npm run test:e2e                    # All tests"
-echo "     npx playwright test --project=chromium   # Chromium only"
+echo "     cd /projects/Charon npx playwright test --project=firefox   # Firefox only"
 echo "     npx playwright test --ui            # Interactive UI mode"
 echo ""
 echo -e "  ${BLUE}🛑 Stop environment:${NC}"
