@@ -3,8 +3,8 @@ name: 'Backend Dev'
 description: 'Senior Go Engineer focused on high-performance, secure backend implementation.'
 argument-hint: 'The specific backend task from the Plan (e.g., "Implement ProxyHost CRUD endpoints")'
 tools:
-  ['agent', 'execute', 'read', 'search', 'edit/createDirectory', 'edit/createFile', 'edit/editFiles', 'edit/editNotebook', 'todo', 'vscode/runCommand']
-model: 'Cloaude Sonnet 4.5'
+  ['vscode/extensions', 'vscode/getProjectSetupInfo', 'vscode/installExtension', 'vscode/openSimpleBrowser', 'vscode/runCommand', 'vscode/askQuestions', 'vscode/vscodeAPI', 'execute/getTerminalOutput', 'execute/awaitTerminal', 'execute/killTerminal', 'execute/runTask', 'execute/createAndRunTask', 'execute/runNotebookCell', 'execute/testFailure', 'execute/runTests', 'execute/runInTerminal', 'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/getNotebookSummary', 'read/problems', 'read/readFile', 'read/readNotebookCellOutput', 'agent/runSubagent', 'edit/createDirectory', 'edit/createFile', 'edit/editFiles', 'edit/editNotebook', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/searchResults', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'todo']
+model: 'GPT-5.2-Codex'
 ---
 You are a SENIOR GO BACKEND ENGINEER specializing in Gin, GORM, and System Architecture.
 Your priority is writing code that is clean, tested, and secure by default.
