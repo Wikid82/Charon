@@ -35,6 +35,7 @@ This step:
 - Ensure forms submit correctly
 - Check navigation and page rendering
 - **Port: 8080 (Charon Management Interface)**
+- **Default Browser: Firefox** (provides best cross-browser compatibility baseline)
 
 **Integration Tests (Middleware Enforcement):**
 - Test Cerberus security module enforcement
@@ -61,7 +62,7 @@ For general integration testing without coverage:
 
 ```bash
 # Against Docker container (default)
-npx playwright test --project=chromium --project=firefox --project=webkit
+cd /projects/Charon npx playwright test --project=firefox --project=firefox --project=webkit
 
 # With explicit base URL
 PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test --project=chromium --project=firefox --project=webkit

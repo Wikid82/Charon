@@ -102,8 +102,8 @@ Run E2E tests with coverage collection:
 Run tests in a specific browser:
 
 ```bash
-# Chromium (default)
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage --project=chromium
+# Firefox (default)
+.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage --project=firefox
 
 # Firefox
 .github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage --project=firefox
@@ -131,7 +131,7 @@ For use in GitHub Actions or other CI/CD pipelines:
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| project   | string | No | chromium | Browser project: chromium, firefox, webkit |
+| project   | string | No | firefox | Browser project: chromium, firefox, webkit |
 
 ## Environment Variables
 

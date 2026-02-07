@@ -754,7 +754,7 @@ jobs:
           echo "✅ Container is healthy"
       - name: Run Integration Test
         timeout-minutes: 5
-        run: ./scripts/integration-test.sh
+        run: .github/skills/scripts/skill-runner.sh integration-test-all
 
       - name: Check container logs
         if: always()
