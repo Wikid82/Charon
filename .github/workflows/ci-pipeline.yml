@@ -30,7 +30,7 @@ on:
         type: boolean
 
 concurrency:
-  group: ci-manual-pipeline-${{ github.ref_name }}-${{ github.run_id }}
+  group: ci-manual-pipeline-${{ github.workflow }}-${{ github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -77,19 +77,34 @@ jobs:
           version: latest
           working-directory: backend
           args: --timeout=5m
-        continue-on-error: true
 
       - name: GORM Security Scanner
         run: |
           chmod +x scripts/scan-gorm-security.sh
           ./scripts/scan-gorm-security.sh --check
 
-      - name: Set up Node.js
+      - name: Check frontend lockfile
+        id: frontend-lockfile
+        run: |
+          if [ -f frontend/package-lock.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node.js (with cache)
+        if: steps.frontend-lockfile.outputs.present == 'true'
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up Node.js
+        if: steps.frontend-lockfile.outputs.present != 'true'
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -98,7 +113,6 @@ jobs:
       - name: Run frontend lint
         working-directory: frontend
         run: npm run lint
-        continue-on-error: true
 
   build-image:
     name: Build and Publish Image
