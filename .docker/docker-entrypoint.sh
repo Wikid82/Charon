@@ -18,6 +18,42 @@ run_as_charon() {
     fi
 }
 
+get_group_by_gid() {
+    if command -v getent >/dev/null 2>&1; then
+        getent group "$1" 2>/dev/null || true
+    else
+        awk -F: -v gid="$1" '$3==gid {print $0}' /etc/group 2>/dev/null || true
+    fi
+}
+
+create_group_with_gid() {
+    local gid="$1"
+    local name="$2"
+
+    if command -v addgroup >/dev/null 2>&1; then
+        addgroup -g "$gid" "$name" 2>/dev/null || true
+        return
+    fi
+
+    if command -v groupadd >/dev/null 2>&1; then
+        groupadd -g "$gid" "$name" 2>/dev/null || true
+    fi
+}
+
+add_user_to_group() {
+    local user="$1"
+    local group="$2"
+
+    if command -v addgroup >/dev/null 2>&1; then
+        addgroup "$user" "$group" 2>/dev/null || true
+        return
+    fi
+
+    if command -v usermod >/dev/null 2>&1; then
+        usermod -aG "$group" "$user" 2>/dev/null || true
+    fi
+}
+
 # ============================================================================
 # Volume Permission Handling for Non-Root User
 # ============================================================================
@@ -89,18 +125,19 @@ if [ -S "/var/run/docker.sock" ] && is_root; then
     DOCKER_SOCK_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "")
     if [ -n "$DOCKER_SOCK_GID" ] && [ "$DOCKER_SOCK_GID" != "0" ]; then
         # Check if a group with this GID exists
-        if ! getent group "$DOCKER_SOCK_GID" >/dev/null 2>&1; then
+        GROUP_ENTRY=$(get_group_by_gid "$DOCKER_SOCK_GID")
+        if [ -z "$GROUP_ENTRY" ]; then
             echo "Docker socket detected (gid=$DOCKER_SOCK_GID) - creating docker group and adding charon user..."
             # Create docker group with the socket's GID
-            groupadd -g "$DOCKER_SOCK_GID" docker 2>/dev/null || true
+            create_group_with_gid "$DOCKER_SOCK_GID" docker
             # Add charon user to the docker group
-            usermod -aG docker charon 2>/dev/null || true
+            add_user_to_group charon docker
             echo "Docker integration enabled for charon user"
         else
             # Group exists, just add charon to it
-            GROUP_NAME=$(getent group "$DOCKER_SOCK_GID" | cut -d: -f1)
+            GROUP_NAME=$(echo "$GROUP_ENTRY" | cut -d: -f1)
             echo "Docker socket detected (gid=$DOCKER_SOCK_GID, group=$GROUP_NAME) - adding charon user..."
-            usermod -aG "$GROUP_NAME" charon 2>/dev/null || true
+            add_user_to_group charon "$GROUP_NAME"
             echo "Docker integration enabled for charon user"
         fi
     fi
