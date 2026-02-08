@@ -545,7 +545,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - codecov-gate
-    if: inputs.run_security_scans != false && env.IS_FORK != 'true'
+    if: inputs.run_security_scans != false && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true)
     permissions:
       contents: read
       security-events: write
