@@ -10,6 +10,11 @@ on:
         description: 'PR number to scan (optional)'
         required: false
         type: string
+  workflow_run:
+    workflows:
+      - Docker Build, Publish & Test
+    types:
+      - completed
 
 concurrency:
   group: security-pr-${{ github.event.workflow_run.event || github.event_name }}-${{ github.event.workflow_run.head_branch || github.ref }}
