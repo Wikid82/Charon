@@ -289,17 +289,21 @@ jobs:
         id: outputs
         run: |
           DIGEST="${{ steps.build.outputs.digest }}"
-          if [ -z "${DIGEST}" ]; then
-            echo "image_ref_dockerhub=" >> "$GITHUB_OUTPUT"
-            echo "image_ref_ghcr=" >> "$GITHUB_OUTPUT"
-          else
+
+          # Try digest first; fall back to tags if digest unavailable
+          if [ -n "${DIGEST}" ]; then
             IMAGE_REF_DOCKERHUB="${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
             IMAGE_REF_GHCR="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
-            echo "image_ref_dockerhub=${IMAGE_REF_DOCKERHUB}" >> "$GITHUB_OUTPUT"
-            echo "image_ref_ghcr=${IMAGE_REF_GHCR}" >> "$GITHUB_OUTPUT"
-            echo "::add-mask::${IMAGE_REF_DOCKERHUB}"
-            echo "::add-mask::${IMAGE_REF_GHCR}"
+          else
+            # Extract Docker Hub and GHCR references from pushed tags
+            IMAGE_REF_DOCKERHUB=$(echo "${{ steps.tags.outputs.tags }}" | grep "^${{ env.DOCKERHUB_REGISTRY }}" | head -1)
+            IMAGE_REF_GHCR=$(echo "${{ steps.tags.outputs.tags }}" | grep "^${{ env.GHCR_REGISTRY }}" | head -1)
           fi
+
+          echo "image_ref_dockerhub=${IMAGE_REF_DOCKERHUB}" >> "$GITHUB_OUTPUT"
+          echo "image_ref_ghcr=${IMAGE_REF_GHCR}" >> "$GITHUB_OUTPUT"
+          echo "::add-mask::${IMAGE_REF_DOCKERHUB}"
+          echo "::add-mask::${IMAGE_REF_GHCR}"
           echo "image_tag=${{ steps.tags.outputs.image_tag }}" >> "$GITHUB_OUTPUT"
 
   integration-cerberus:
@@ -412,6 +416,7 @@ jobs:
       - integration-crowdsec
       - integration-waf
       - integration-ratelimit
+    if: always()
     steps:
       - name: Evaluate integration results
         run: |
@@ -530,6 +535,7 @@ jobs:
       - coverage-backend
       - coverage-frontend
       - e2e
+    if: always()
     steps:
       - name: Evaluate coverage results
         run: |
@@ -609,6 +615,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - codecov-upload
+    if: always()
     steps:
       - name: Evaluate Codecov upload results
         run: |
@@ -750,6 +757,7 @@ jobs:
       - security-codeql
       - security-trivy
       - security-supply-chain
+    if: always()
     steps:
       - name: Evaluate pipeline results
         run: |
