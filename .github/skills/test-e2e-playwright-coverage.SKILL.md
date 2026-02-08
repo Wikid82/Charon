@@ -84,7 +84,7 @@ Runs Playwright end-to-end tests with code coverage collection using `@bgotink/p
 - Node.js 18.0 or higher installed and in PATH
 - Playwright browsers installed (`npx playwright install`)
 - `@bgotink/playwright-coverage` package installed
-- Charon application running (default: `http://localhost:8080`)
+- Charon application running (default: `http://localhost:8080`, use `docker-rebuild-e2e` when app/runtime inputs change or the container is not running)
 - Test files in `tests/` directory using coverage-enabled imports
 
 ## Usage
@@ -102,8 +102,8 @@ Run E2E tests with coverage collection:
 Run tests in a specific browser:
 
 ```bash
-# Chromium (default)
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage --project=chromium
+# Firefox (default)
+.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage --project=firefox
 
 # Firefox
 .github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage --project=firefox
@@ -131,7 +131,7 @@ For use in GitHub Actions or other CI/CD pipelines:
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| project   | string | No | chromium | Browser project: chromium, firefox, webkit |
+| project   | string | No | firefox | Browser project: chromium, firefox, webkit |
 
 ## Environment Variables
 

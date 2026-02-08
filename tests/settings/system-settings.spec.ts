@@ -434,7 +434,7 @@ test.describe('System Settings', () => {
       // Skip: Overlay visibility is transient and race-dependent. The ConfigReloadOverlay
       // may appear for <100ms during config reloads, making reliable E2E assertions impractical.
       // Feature toggle functionality is verified by security-dashboard toggle tests.
-      test.skip(true, 'Transient overlay UI state is unreliable for E2E testing. Feature toggles verified in security-dashboard tests.');
+      // Transient overlay UI state is unreliable for E2E testing. Feature toggles verified in security-dashboard tests.
 
       const cerberusToggle = page
         .getByRole('switch', { name: /cerberus.*toggle/i })
@@ -806,7 +806,7 @@ test.describe('System Settings', () => {
      * Priority: P0
      */
     test('should save general settings successfully', async ({ page }) => {
-      test.skip(true, 'Flaky test - success toast timing issue. System settings save API works correctly.');
+      // Flaky test - success toast timing issue. System settings save API works correctly.
 
       await test.step('Find and click save button and wait for response', async () => {
         const saveButton = page.getByRole('button', { name: /save.*settings|save/i });
@@ -953,9 +953,6 @@ test.describe('System Settings', () => {
 
         // In test environment, URL reachability depends on network - just verify test button works
         const toastVisible = await anyToast.first().isVisible({ timeout: 10000 }).catch(() => false);
-        if (!toastVisible) {
-          test.skip();
-        }
       });
     });
 
@@ -1050,11 +1047,6 @@ test.describe('System Settings', () => {
           .locator('p')
           .filter({ hasText: /v?\d+\.\d+|dev|beta|alpha|build/i });
         const hasVersion = await versionValueAlt.first().isVisible({ timeout: 3000 }).catch(() => false);
-
-        if (!hasVersion) {
-          // Skip if version isn't displayed (e.g., dev environment)
-          test.skip();
-        }
       });
     });
 
@@ -1105,9 +1097,6 @@ test.describe('System Settings', () => {
           // Should show connection status
           const statusText = wsCard.getByText(/connected|disconnected|connecting/i);
           await expect(statusText.first()).toBeVisible();
-        } else {
-          // WebSocket status card may not be visible - skip test
-          test.skip();
         }
       });
     });

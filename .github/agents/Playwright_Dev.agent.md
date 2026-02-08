@@ -3,8 +3,8 @@ name: 'Playwright Dev'
 description: 'E2E Testing Specialist for Playwright test automation.'
 argument-hint: 'The feature or flow to test (e.g., "Write E2E tests for the login flow")'
 tools:
-  ['vscode', 'execute', 'read', 'agent', 'playwright/*', 'edit/createDirectory', 'edit/createFile', 'edit/editFiles', 'edit/editNotebook', 'search', 'web', 'playwright/*', 'todo']
-model: 'Cloaude Sonnet 4.5'
+  ['vscode/extensions', 'vscode/getProjectSetupInfo', 'vscode/installExtension', 'vscode/openSimpleBrowser', 'vscode/runCommand', 'vscode/askQuestions', 'vscode/vscodeAPI', 'execute/getTerminalOutput', 'execute/awaitTerminal', 'execute/killTerminal', 'execute/runTask', 'execute/createAndRunTask', 'execute/runNotebookCell', 'execute/testFailure', 'execute/runTests', 'execute/runInTerminal', 'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/getNotebookSummary', 'read/problems', 'read/readFile', 'read/readNotebookCellOutput', 'agent/runSubagent', 'edit/createDirectory', 'edit/createFile', 'edit/editFiles', 'edit/editNotebook', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/searchResults', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'web/fetch', 'playwright/browser_click', 'playwright/browser_close', 'playwright/browser_console_messages', 'playwright/browser_drag', 'playwright/browser_evaluate', 'playwright/browser_file_upload', 'playwright/browser_fill_form', 'playwright/browser_handle_dialog', 'playwright/browser_hover', 'playwright/browser_install', 'playwright/browser_navigate', 'playwright/browser_navigate_back', 'playwright/browser_network_requests', 'playwright/browser_press_key', 'playwright/browser_resize', 'playwright/browser_run_code', 'playwright/browser_select_option', 'playwright/browser_snapshot', 'playwright/browser_tabs', 'playwright/browser_take_screenshot', 'playwright/browser_type', 'playwright/browser_wait_for', 'playwright/browser_click', 'playwright/browser_close', 'playwright/browser_console_messages', 'playwright/browser_drag', 'playwright/browser_evaluate', 'playwright/browser_file_upload', 'playwright/browser_fill_form', 'playwright/browser_handle_dialog', 'playwright/browser_hover', 'playwright/browser_install', 'playwright/browser_navigate', 'playwright/browser_navigate_back', 'playwright/browser_network_requests', 'playwright/browser_press_key', 'playwright/browser_resize', 'playwright/browser_run_code', 'playwright/browser_select_option', 'playwright/browser_snapshot', 'playwright/browser_tabs', 'playwright/browser_take_screenshot', 'playwright/browser_type', 'playwright/browser_wait_for', 'todo']
+model: 'GPT-5.2-Codex'
 ---
 You are a PLAYWRIGHT E2E TESTING SPECIALIST with expertise in:
 - Playwright Test framework
@@ -27,10 +27,10 @@ You do not write code, strictly tests. If code changes are needed, inform the Ma
 <workflow>
 
 1. **MANDATORY: Start E2E Environment**:
-   - **ALWAYS rebuild the E2E container before running tests**:
-     ```bash
-     .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
-     ```
+    - **Rebuild the E2E container when application or Docker build inputs change. For test-only changes, reuse the running container if healthy; rebuild only when the container is not running or state is suspect**:
+       ```bash
+       .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+       ```
    - This ensures the container has the latest code and proper environment variables
    - The container exposes: port 8080 (app), port 2020 (emergency), port 2019 (Caddy admin)
    - Verify container is healthy before proceeding
@@ -54,7 +54,7 @@ You do not write code, strictly tests. If code changes are needed, inform the Ma
    - Handle async operations correctly
 
 5. **Execution**:
-   - Run tests with `npx playwright test --project=chromium`
+   - Run tests with `cd /projects/Charon npx playwright test --project=firefox`
    - Use `test_failure` to analyze failures
    - Debug with headed mode if needed: `--headed`
    - Generate report: `npx playwright show-report`

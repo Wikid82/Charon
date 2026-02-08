@@ -61,7 +61,9 @@ test.describe('Break Glass - Tier 2 (Emergency Server)', () => {
   test.beforeEach(async ({}, testInfo) => {
     const isHealthy = await ensureHealthChecked();
     if (!isHealthy) {
-      testInfo.skip(true, 'Emergency server not accessible from test environment');
+      console.log('⚠️ Emergency server not accessible from test environment - continuing test anyway');
+      // Changed from testInfo.skip() to allow test to run and identify root cause
+      // testInfo.skip(true, 'Emergency server not accessible from test environment');
     }
   });
 

@@ -26,6 +26,8 @@ const STORAGE_STATE = join(__dirname, 'playwright/.auth/user.json');
  * Only loaded when PLAYWRIGHT_COVERAGE=1
  */
 const enableCoverage = process.env.PLAYWRIGHT_COVERAGE === '1';
+const skipSecurityDeps = process.env.PLAYWRIGHT_SKIP_SECURITY_DEPS === '1';
+const browserDependencies = skipSecurityDeps ? ['setup'] : ['setup', 'security-tests'];
 
 const coverageReporterConfig = enableCoverage ? defineCoverageReporterConfig({
   sourceRoot: __dirname,
@@ -70,6 +72,51 @@ const coverageReporterConfig = enableCoverage ? defineCoverageReporterConfig({
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
+
+// Preflight: when the Playwright UI is requested on a headless Linux machine,
+// attempt to start an Xvfb instance automatically (developer convenience).
+// - If Xvfb is not available, fail with a clear, actionable message.
+// - In CI we avoid auto-starting; CI should either use the project's E2E Docker
+//   image or run tests in headless mode.
+if (process.argv.includes('--ui')) {
+  if (process.env.CI) {
+    // In CI, running the interactive UI is unsupported — provide guidance.
+    throw new Error(
+      "Playwright UI (--ui) is not supported in CI.\n" +
+      "Use the project's E2E Docker image or run tests headless: `npm run e2e`"
+    );
+  }
+
+  if (!process.env.DISPLAY) {
+    try {
+      // Use child_process to probe for Xvfb and start it if present.
+      const { spawnSync, spawn } = await import('child_process');
+      const probe = spawnSync('Xvfb', ['-version']);
+      if (probe.error) throw probe.error;
+
+      // Start Xvfb on :99 and detach so it survives after the spawn call.
+      const xvfb = spawn('Xvfb', [':99', '-screen', '0', '1280x720x24'], {
+        detached: true,
+        stdio: 'ignore',
+      });
+      xvfb.unref();
+      process.env.DISPLAY = ':99';
+      // eslint-disable-next-line no-console
+      console.log('Started Xvfb on :99 to support Playwright UI (auto-start).');
+    } catch (err) {
+      throw new Error(
+        'Playwright UI requires an X server but none was found.\n' +
+        "Options:\n" +
+        "  1) Install Xvfb and retry (Debian/Ubuntu: `sudo apt install xvfb`)\n" +
+        "  2) Run the UI under Xvfb: `xvfb-run --auto-servernum npx playwright test --ui`\n" +
+        "  3) Run headless tests: `npm run e2e`\n\n" +
+        "See docs/development/running-e2e.md for details.\n" +
+        `Underlying error: ${err && err.message ? err.message : err}`
+      );
+    }
+  }
+}
+
 export default defineConfig({
   testDir: './tests',
   testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**'],
@@ -105,7 +152,10 @@ export default defineConfig({
      *
      * E2E tests verify UI/UX on the Charon management interface (port 8080).
      * Middleware enforcement is tested separately via integration tests (backend/integration/).
-     * CI can override with PLAYWRIGHT_BASE_URL environment variable if needed.
+     *
+     * For remote SSH development, use PLAYWRIGHT_BASE_URL with your Tailscale IP:
+     *   export PLAYWRIGHT_BASE_URL=http://100.98.12.109:9323
+     *   npx playwright test --ui
      *
      * IMPORTANT: Using 127.0.0.1 (IPv4 loopback) instead of localhost to avoid
      * IPv6/IPv4 resolution issues where Node.js/Playwright might prefer ::1 (IPv6)
@@ -182,7 +232,8 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup'],
+      dependencies: browserDependencies,
+      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
     },
 
     {
@@ -191,7 +242,8 @@ export default defineConfig({
         ...devices['Desktop Firefox'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup', 'security-tests'],
+      dependencies: browserDependencies,
+      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
     },
 
     {
@@ -200,7 +252,8 @@ export default defineConfig({
         ...devices['Desktop Safari'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup', 'security-tests'],
+      dependencies: browserDependencies,
+      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
     },
 
     /* Test against mobile viewports. */

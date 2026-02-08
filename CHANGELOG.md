@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### CI/CD
+- **Supply Chain**: Optimized verification workflow to prevent redundant builds
+  - Change: Removed direct Push/PR triggers; now waits for 'Docker Build' via `workflow_run`
+
+### Security
+- **Supply Chain**: Enhanced PR verification workflow stability and accuracy
+  - **Vulnerability Reporting**: Eliminated false negatives ("0 vulnerabilities") by enforcing strict failure conditions
+  - **Tooling**: Switched to manual Grype installation ensuring usage of latest stable binary
+  - **Observability**: Improved debugging visibility for vulnerability scans and SARIF generation
+
 ### Performance
 - **E2E Tests**: Reduced feature flag API calls by 90% through conditional polling optimization (Phase 2)
   - Conditional skip: Exits immediately if flags already in expected state (~50% of cases)

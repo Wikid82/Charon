@@ -15,6 +15,7 @@
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForToast, waitForModal, waitForDialog, waitForDebounce } from '../utils/wait-helpers';
+import { waitForAPIHealth } from '../utils/api-helpers';
 import { clickSwitch } from '../utils/ui-helpers';
 import {
   allowOnlyAccessList,
@@ -29,6 +30,7 @@ import { generateUniqueId, generateIPAddress, generateCIDR } from '../fixtures/t
 
 test.describe('Access Lists - CRUD Operations', () => {
   test.beforeEach(async ({ page, adminUser }) => {
+    await waitForAPIHealth(page.request);
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page);
     // Navigate to access lists page - supports both routes
@@ -757,7 +759,10 @@ test.describe('Access Lists - CRUD Operations', () => {
             await expect(dialogTitle).toBeVisible();
 
             // Close dialog
-            await dialog.getByRole('button', { name: /close/i }).click();
+            await dialog
+              .getByRole('button', { name: /^close$/i })
+              .filter({ hasText: /^close$/i })
+              .click();
           }
         }
       });
@@ -783,7 +788,10 @@ test.describe('Access Lists - CRUD Operations', () => {
             await expect(testButton).toBeVisible();
 
             // Close dialog
-            await dialog.getByRole('button', { name: /close/i }).click();
+            await dialog
+              .getByRole('button', { name: /^close$/i })
+              .filter({ hasText: /^close$/i })
+              .click();
           }
         }
       });

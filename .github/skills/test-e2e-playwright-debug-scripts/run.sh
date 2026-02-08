@@ -25,7 +25,7 @@ FILE=""
 GREP=""
 SLOWMO=500
 INSPECTOR=false
-PROJECT="chromium"
+PROJECT="firefox"
 
 # Parse command-line arguments
 parse_arguments() {
@@ -91,7 +91,7 @@ Options:
     --grep=PATTERN      Filter tests by title pattern (regex)
     --slowmo=MS         Delay between actions in milliseconds (default: 500)
     --inspector         Open Playwright Inspector for step-by-step debugging
-    --project=PROJECT   Browser to use: chromium, firefox, webkit (default: chromium)
+    --project=PROJECT   Browser to use: chromium, firefox, webkit (default: firefox)
     -h, --help          Show this help message
 
 Environment Variables:
@@ -100,7 +100,7 @@ Environment Variables:
     DEBUG                   Verbose logging (e.g., 'pw:api')
 
 Examples:
-    run.sh                                  # Debug all tests in Chromium
+    run.sh                                  # Debug all tests in Firefox
     run.sh --file=login.spec.ts            # Debug specific file
     run.sh --grep="login"                  # Debug tests matching pattern
     run.sh --inspector                     # Open Playwright Inspector

@@ -1,92 +1,141 @@
-# Remediation Plan: Stability & E2E Regressions
 
-**Objective**: Restore system stability by fixing pre-commit failures, resolving E2E regressions in the frontend, and correcting CI workflow configurations.
+# Plan: Conditional E2E Rebuild Rules + Navigation Test Continuation
 
-## 1. Findings (Current State)
+## 1. Introduction
 
-| Issue | Location | Description | Severity |
-|-------|----------|-------------|----------|
-| **Syntax Error** | `frontend/src/pages/CrowdSecConfig.tsx` | Missing fragment closing tag (`</>`) at the end of the `showBanModal` conditional block. | **Critical** (Build Failure) |
-| **UX/E2E Regression** | `frontend/src/components/ProxyHostForm.tsx` | Manual `fixed z-50` overlay causes stacking context issues, preventing interaction with nested modals (e.g., "Add Proxy Host"). | **High** (E2E Failure) |
-| **CI Misconfiguration** | `.github/workflows/crowdsec-integration.yml` | Duplicate logic block for tag determination and mismatched step identifiers (`id: image` vs `steps.determine-tag`). | **Medium** (CI Failure) |
-| **Version Mismatch** | `.version` | File contains `v0.17.0`, but git tag is `v0.17.1`. | **Low** (Inconsistency) |
+This plan updates E2E testing instructions so the Docker rebuild runs only when application code changes, explicitly skips rebuilds for test-only changes, and then continues navigation E2E testing using the existing task. The intent is to reduce unnecessary rebuild time while keeping the environment reliable and consistent.
 
-## 2. Technical Specifications
+Objectives:
 
-### 2.1. Frontend: Proxy Host Form Refactor
-**Goal**: Replace manual overlay implementation with standardized Shadcn UI components to resolve stacking context issues.
+- Define clear, repeatable criteria for when an E2E container rebuild is required vs optional.
+- Update instruction and agent documents to use the same conditional rebuild guidance.
+- Preserve current E2E execution behavior and task surface, then proceed with navigation testing.
 
-- **Component**: `frontend/src/components/ProxyHostForm.tsx`
-- **Change**:
-  - Remove manual overlay logic:
-    ```tsx
-    <div className="fixed inset-0 bg-black/50 z-40" onClick={onCancel} />
-    <div className="fixed inset-0 flex items-center justify-center ... z-50">...</div>
-    ```
-  - Implement `Dialog` component (Shadcn UI):
-    ```tsx
-    <Dialog open={true} onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-dark-card border-gray-800 p-0 gap-0">
-        <DialogHeader className="p-6 border-b border-gray-800">
-          <DialogTitle className="text-2xl font-bold text-white">
-            {host ? 'Edit Proxy Host' : 'Add Proxy Host'}
-          </DialogTitle>
-        </DialogHeader>
-        {/* Form Content */}
-      </DialogContent>
-    </Dialog>
-    ```
-  - Ensure all form logic remains intact within the Dialog content.
+## 2. Research Findings
 
-### 2.2. Frontend: CrowdSec Config Fix
-**Goal**: Fix JSX syntax error.
+- The current testing protocol mandates rebuilding the E2E container before Playwright runs in [testing.instructions.md](.github/instructions/testing.instructions.md).
+- The Management and Playwright agent definitions require rebuilding the E2E container before each test run in [Management.agent.md](.github/agents/Management.agent.md) and [Playwright_Dev.agent.md](.github/agents/Playwright_Dev.agent.md).
+- QA Security also mandates rebuilds on every code change in [QA_Security.agent.md](.github/agents/QA_Security.agent.md).
+- The main E2E skill doc encourages rebuilds before testing in [test-e2e-playwright.SKILL.md](.github/skills/test-e2e-playwright.SKILL.md).
+- The rebuild skill itself is stable and already describes when it should be used in [docker-rebuild-e2e.SKILL.md](.github/skills/docker-rebuild-e2e.SKILL.md).
+- Navigation test tasks already exist in [tasks.json](.vscode/tasks.json), including “Test: E2E Playwright (FireFox) - Core: Navigation”.
+- CI E2E jobs rebuild via Docker image creation in [e2e-tests-split.yml](.github/workflows/e2e-tests-split.yml); no CI changes are required for this instruction-only update.
 
-- **Component**: `frontend/src/pages/CrowdSecConfig.tsx`
-- **Change**: Add missing `</>` tag to close the Fragment wrapping the Ban IP Modal.
-    ```tsx
-    {showBanModal && (
-        <>
-            {/* ... Modal Content ... */}
-        </> // <-- Add this
-    )}
-    ```
+## 3. Technical Specifications
 
-### 2.3. CI Workflow Cleanup
-**Goal**: Remove redundancy and fix references.
+### 3.1 Rebuild Decision Rules
 
-- **File**: `.github/workflows/crowdsec-integration.yml`
-- **Changes**:
-  - Rename step `id: image` to `id: determine-tag`.
-  - Update all references from `steps.image.outputs...` to `steps.determine-tag.outputs...`.
-  - Review file for duplicate "Determine image tag" logic blocks and remove the redundant one.
+Define explicit change categories to decide when to rebuild:
 
-### 2.4. Versioning
-**Goal**: Sync version file.
+- **Rebuild Required (application/runtime changes)**
+	- Application code or dependencies: backend/**, frontend/**, backend/go.mod, backend/go.sum, package.json, package-lock.json.
+	- Container build/runtime configuration: Dockerfile, .docker/**, .docker/compose/docker-compose.playwright-*.yml, .docker/docker-entrypoint.sh.
+	- Runtime behavior changes that affect container startup (e.g., config files baked into the image).
 
-- **File**: `.version`
-- **Change**: Update content to `v0.17.1`.
+- **Rebuild Optional (test-only changes)**
+	- Playwright tests and fixtures: tests/**.
+	- Playwright config and test runners: playwright.config.js, playwright.caddy-debug.config.js.
+	- Documentation or planning files: docs/**, requirements.md, design.md, tasks.md.
+	- CI/workflow changes that do not affect runtime images: .github/workflows/**.
 
-## 3. Implementation Plan
+Decision guidance:
 
-### Phase 1: Quick Fixes (Ops)
-- [ ] **Task 1.1**: Update `.version` to `v0.17.1`.
-- [ ] **Task 1.2**: Fix `.github/workflows/crowdsec-integration.yml` (Rename ID, remove duplicates).
+- If only test files or documentation change, reuse the existing E2E container if it is already healthy.
+- If the container is not running, start it with docker-rebuild-e2e even for test-only changes.
+- If there is uncertainty about whether a change affects the runtime image, default to rebuilding.
 
-### Phase 2: Frontend Syntax Repair
-- [ ] **Task 2.1**: Add missing `</>` to `frontend/src/pages/CrowdSecConfig.tsx`.
-- [ ] **Task 2.2**: Verify frontend build (`npm run build` in frontend) to ensure no other syntax errors.
+### 3.2 Instruction Targets and Proposed Wording
 
-### Phase 3: Frontend Component Refactor
-- [ ] **Task 3.1**: Verify `Dialog` components are available in codebase (`components/ui/dialog`).
-- [ ] **Task 3.2**: Refactor `ProxyHostForm.tsx` to use `Dialog`.
-- [ ] **Task 3.3**: Verify "Add Proxy Host" modal interactions manually or via E2E test.
+Update the following instruction and agent files to align with the conditional rebuild policy:
 
-### Phase 4: Verification
-- [ ] **Task 4.1**: Run Playwright E2E tests for Dashboard/Proxy Hosts.
-- [ ] **Task 4.2**: Run Lint/Pre-commit checks.
+- [testing.instructions.md](.github/instructions/testing.instructions.md)
+	- Replace the current “Always rebuild the E2E container before running Playwright tests” statement with:
+		- “Rebuild the E2E container when application or Docker build inputs change (backend, frontend, dependencies, Dockerfile, .docker/compose). If changes are test-only, reuse the existing container when it is already healthy; rebuild only if the container is not running or state is suspect.”
+	- Add a short file-scope checklist defining “rebuild required” vs “test-only.”
 
-## 4. Acceptance Criteria
-- [ ] `npm run lint` passes in `frontend/`.
-- [ ] `.github/workflows/crowdsec-integration.yml` parses correctly (no YAML errors).
-- [ ] E2E tests for Proxy Host management pass.
-- [ ] `.version` matches git tag.
+- [Management.agent.md](.github/agents/Management.agent.md)
+	- Update the “PREREQUISITE: Rebuild E2E container before each test run” bullet to:
+		- “PREREQUISITE: Rebuild the E2E container only when application or Docker build inputs change; skip rebuild for test-only changes if the container is already healthy.”
+
+- [Playwright_Dev.agent.md](.github/agents/Playwright_Dev.agent.md)
+	- Update “ALWAYS rebuild the E2E container before running tests” to:
+		- “Rebuild the E2E container when application or Docker build inputs change. For test-only changes, reuse the running container if healthy; rebuild only when the container is not running or state is suspect.”
+
+- [QA_Security.agent.md](.github/agents/QA_Security.agent.md)
+	- Update workflow step 1 to:
+		- “Rebuild the E2E image and container when application or Docker build inputs change. Skip rebuild for test-only changes if the container is already healthy.”
+
+- [test-e2e-playwright.SKILL.md](.github/skills/test-e2e-playwright.SKILL.md)
+	- Adjust “Quick Start” language to:
+		- “Run docker-rebuild-e2e when application or Docker build inputs change. If only tests changed and the container is already healthy, skip rebuild and run the tests.”
+
+- Optional alignment (if desired for consistency):
+	- [test-e2e-playwright-debug.SKILL.md](.github/skills/test-e2e-playwright-debug.SKILL.md)
+	- [test-e2e-playwright-coverage.SKILL.md](.github/skills/test-e2e-playwright-coverage.SKILL.md)
+	- Update prerequisite language in the same conditional format when referencing docker-rebuild-e2e.
+
+### 3.3 Data Flow and Component Impact
+
+- No API, database, or runtime component changes are introduced.
+- The change is documentation-only: it modifies decision guidance for when to rebuild the E2E container.
+- The E2E execution flow remains: optionally rebuild → run navigation test task → review Playwright report.
+
+### 3.4 Error Handling and Edge Cases
+
+- If the container is running but tests fail due to stale state, rebuild with docker-rebuild-e2e and re-run the navigation test.
+- If only tests changed but the container is stopped, rebuild to create a known-good environment.
+- If Dockerfile or .docker/compose changes occurred, rebuild is required even if tests are the only edited files in the last commit.
+
+## 4. Implementation Plan
+
+### Phase 1: Instruction Updates (Documentation-only)
+
+- Update conditional rebuild guidance in the instruction files listed in section 3.2.
+- Ensure the rebuild decision criteria are consistent and use the same file-scope examples across documents.
+
+### Phase 2: Supporting Artifacts
+
+- Update requirements.md with EARS requirements for conditional rebuild behavior.
+- Update design.md to document the decision rules and file-scope criteria.
+- Update tasks.md with a checklist that explicitly separates rebuild-required vs test-only scenarios.
+
+### Phase 3: Navigation Test Continuation
+
+- Determine change scope:
+	- If application/runtime files changed, run the Docker rebuild step first.
+	- If only tests or docs changed and the E2E container is already healthy, skip rebuild.
+- Run the existing navigation task: “Test: E2E Playwright (FireFox) - Core: Navigation” from [tasks.json](.vscode/tasks.json).
+- If the navigation test fails due to environment issues, rebuild and re-run.
+
+## 5. Acceptance Criteria
+
+- Instruction and agent files reflect the same conditional rebuild policy.
+- Rebuild-required vs test-only criteria are explicitly defined with file path examples.
+- Navigation tests can be run without a rebuild when only tests change and the container is healthy.
+- The navigation test task remains unchanged and is used for validation.
+- requirements.md, design.md, and tasks.md are updated to reflect the new rebuild rules.
+
+## 6. Testing Steps
+
+- If application/runtime files changed, run the E2E rebuild using docker-rebuild-e2e before testing.
+- If only tests changed and the container is healthy, skip rebuild.
+- Run the navigation test task: “Test: E2E Playwright (FireFox) - Core: Navigation”.
+- Review Playwright report and logs if failures occur; rebuild and re-run if the failure is environment-related.
+
+## 7. Config Hygiene Review (Requested Files)
+
+- .gitignore: No change required for this instruction update.
+- codecov.yml: No change required; E2E outputs are already ignored.
+- .dockerignore: No change required; tests/ and Playwright artifacts remain excluded from image build context.
+- Dockerfile: No change required.
+
+## 8. Risks and Mitigations
+
+- Risk: Tests may run against stale containers when changes are misclassified as test-only. Mitigation: Provide explicit file-scope criteria and default to rebuild when unsure.
+- Risk: Contributors interpret “test-only” too narrowly. Mitigation: include dependency files and Docker build inputs in rebuild-required list.
+
+## 9. Confidence Score
+
+Confidence: 88 percent
+
+Rationale: This is a documentation-only change with no runtime or CI impact, but it relies on consistent interpretation of file-scope criteria.

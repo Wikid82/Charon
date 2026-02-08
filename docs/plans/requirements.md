@@ -1,13 +1,20 @@
-# Requirements - Dependency Digest Tracking Plan
+## Requirements - Frontend Test Iteration
+
+Source: [docs/plans/current_spec.md](docs/plans/current_spec.md)
 
 ## EARS Requirements
 
-1. WHEN the nightly workflow executes, THE SYSTEM SHALL use container images pinned by digest for any external service images it runs.
-2. WHEN a Docker Compose file is used in CI contexts, THE SYSTEM SHALL pin all third-party images by digest or provide a checksum verification step.
-3. WHEN the Dockerfile downloads external artifacts, THE SYSTEM SHALL verify them with checksums.
-4. WHEN Go tools are installed in build stages or scripts, THE SYSTEM SHALL pin a specific semantic version instead of `@latest`.
-5. WHEN Renovate is configured, THE SYSTEM SHALL be able to update pinned digests and versioned tool installs without manual drift.
-6. IF a dependency cannot be pinned by digest, THEN THE SYSTEM SHALL document the exception and compensating controls.
-7. WHEN the Go toolchain shim is installed via `golang.org/dl/goX.Y.Z@latest`, THE SYSTEM SHALL allow this as an explicit exception and SHALL enforce compensating controls.
-8. WHEN CI builds a self-hosted image, THE SYSTEM SHALL capture the resulting digest and propagate it to downstream jobs and tests.
-9. WHEN CI starts the E2E compose stack, THE SYSTEM SHALL default to a digest-pinned image from workflow outputs while allowing a tag override for local runs.
+1. WHEN the frontend test iteration begins, THE SYSTEM SHALL rebuild the E2E environment only when application or Docker build inputs changed, and SHALL skip rebuild for test-only changes if the container is already healthy.
+2. WHEN Playwright tests are executed, THE SYSTEM SHALL run the setup project before browser projects and preserve storage state at tests/playwright/.auth/user.json.
+3. WHEN Playwright failures occur, THE SYSTEM SHALL capture the failing test file, failing step, and related helper or fixture in tests/utils or tests/fixtures.
+4. WHEN Vitest unit tests are executed, THE SYSTEM SHALL apply frontend/src/test/setup.ts and honor coverage thresholds from CHARON_MIN_COVERAGE or CPM_MIN_COVERAGE.
+5. WHEN coverage is enforced, THE SYSTEM SHALL meet 100 percent patch coverage and at least the configured frontend minimum coverage threshold.
+6. WHEN a failure indicates backend behavior (HTTP 4xx/5xx or missing API contract), THE SYSTEM SHALL open a backend triage path before modifying frontend tests.
+7. WHEN Phase 3, 4, or 5 test runs are executed, THE SYSTEM SHALL use the VS Code task labels defined in the plan and avoid ad hoc commands.
+8. WHEN the targeted Playwright rerun task is required, THE SYSTEM SHALL create the task in Phase 0 if it does not already exist.
+9. WHEN Phase 5 validation runs are executed, THE SYSTEM SHALL run Lint: TypeScript Check and record a zero-error result before completion.
+10. WHEN PoC/MVP success criteria are evaluated, THE SYSTEM SHALL require the top 3 failing suites to pass twice (baseline plus one rerun), allow one rerun per suite, and record that no new failures were introduced.
+11. WHEN a developer runs the Navigation Shard task, THE SYSTEM SHALL execute only tests/core/navigation.spec.ts using the Playwright Firefox project (firefox).
+12. WHEN the Navigation Shard task executes, THE SYSTEM SHALL apply --shard=1/1 to preserve CI-style shard semantics.
+13. WHEN the Navigation Shard task runs, THE SYSTEM SHALL keep Cerberus dependencies disabled by setting PLAYWRIGHT_SKIP_SECURITY_DEPS=1.
+14. WHEN the Navigation Shard task completes, THE SYSTEM SHALL produce standard Playwright outputs in playwright-report/ and test-results/.

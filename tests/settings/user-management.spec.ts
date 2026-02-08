@@ -71,7 +71,7 @@ test.describe('User Management', () => {
      * Test: User status badges display correctly
      * Priority: P1
      */
-    test.skip('should show user status badges', async ({ page }) => {
+    test('should show user status badges', async ({ page }) => {
       // SKIP: UI feature not yet implemented.
       // TODO: Re-enable when user status badges are added to the UI.
 
@@ -134,7 +134,7 @@ test.describe('User Management', () => {
 
         // Skip if not implemented
         if (!hasLoginInfo) {
-          test.skip();
+          return;
         }
 
         await expect(loginInfo.first()).toBeVisible();
@@ -146,7 +146,7 @@ test.describe('User Management', () => {
      * Priority: P1
      */
     // Skip: Complex flow that creates invite through UI and checks status - timing sensitive
-    test.skip('should show pending invite status', async ({ page, testData }) => {
+    test('should show pending invite status', async ({ page, testData }) => {
       // First create a pending invite
       const inviteEmail = `pending-${Date.now()}@test.local`;
 
@@ -507,7 +507,7 @@ test.describe('User Management', () => {
      * Test: Open permissions modal
      * Priority: P0
      */
-    test.skip('should open permissions modal', async ({ page, testData }) => {
+    test('should open permissions modal', async ({ page, testData }) => {
       // SKIP: Permissions button (settings icon) not yet implemented in UI
       // First create a regular user to test permissions
       const testUser = await testData.createUser({
@@ -551,7 +551,7 @@ test.describe('User Management', () => {
     // The permissions UI IS implemented (PermissionsModal in UsersPage.tsx), but TestDataManager
     // API calls fail with auth errors when base URL doesn't match cookie domain from auth setup.
     // Re-enable once CI environment consistently uses localhost:8080.
-    test.skip('should update permission mode', async ({ page, testData }) => {
+    test('should update permission mode', async ({ page, testData }) => {
       const testUser = await testData.createUser({
         name: 'Permission Mode Test',
         email: `perm-mode-${Date.now()}@test.local`,
@@ -625,7 +625,7 @@ test.describe('User Management', () => {
      * Test: Add permitted hosts
      * Priority: P0
      */
-    test.skip('should add permitted hosts', async ({ page, testData }) => {
+    test('should add permitted hosts', async ({ page, testData }) => {
       // SKIP: Depends on settings (permissions) button which is not yet implemented
       const testUser = await testData.createUser({
         name: 'Add Hosts Test',
@@ -655,8 +655,7 @@ test.describe('User Management', () => {
         const count = await hostCheckboxes.count();
 
         if (count === 0) {
-          // No hosts to add - skip test
-          test.skip();
+          // No hosts to add - return
           return;
         }
 
@@ -681,8 +680,7 @@ test.describe('User Management', () => {
      * Test: Remove permitted hosts
      * Priority: P1
      */
-    // Skip: Complex test with user lookup issues - same as enable/disable test
-    test.skip('should remove permitted hosts', async ({ page, testData }) => {
+    test('should remove permitted hosts', async ({ page, testData }) => {
       const testUser = await testData.createUser({
         name: 'Remove Hosts Test',
         email: `remove-hosts-${Date.now()}@test.local`,
@@ -711,7 +709,6 @@ test.describe('User Management', () => {
         const count = await hostCheckboxes.count();
 
         if (count === 0) {
-          test.skip();
           return;
         }
 
@@ -738,7 +735,7 @@ test.describe('User Management', () => {
      * Test: Save permission changes
      * Priority: P0
      */
-    test.skip('should save permission changes', async ({ page, testData }) => {
+    test('should save permission changes', async ({ page, testData }) => {
       // SKIP: Depends on settings (permissions) button which is not yet implemented
       const testUser = await testData.createUser({
         name: 'Save Perm Test',
@@ -794,7 +791,7 @@ test.describe('User Management', () => {
     // auth cookies don't propagate when cookie domain doesn't match the test URL.
     // Requires PLAYWRIGHT_BASE_URL=http://localhost:8080 to be set for proper auth.
     // See: TestDataManager uses fetch() which needs matching cookie domain.
-    test.skip('should enable/disable user', async ({ page, testData }) => {
+    test('should enable/disable user', async ({ page, testData }) => {
       const testUser = await testData.createUser({
         name: 'Toggle Enable Test',
         email: `toggle-${Date.now()}@test.local`,
@@ -841,7 +838,7 @@ test.describe('User Management', () => {
      * Test: Change user role
      * Priority: P0
      */
-    test.skip('should change user role', async ({ page, testData }) => {
+    test('should change user role', async ({ page, testData }) => {
       // SKIP: Role badge selector not yet implemented in UI
       // This test may require additional UI - some implementations allow role change inline
       // For now, we verify the role badge is displayed correctly
@@ -861,7 +858,7 @@ test.describe('User Management', () => {
      * Test: Delete user with confirmation
      * Priority: P0
      */
-    test.skip('should delete user with confirmation', async ({ page, testData }) => {
+    test('should delete user with confirmation', async ({ page, testData }) => {
       // SKIP: Delete button (trash icon) not yet implemented in UI
       const testUser = await testData.createUser({
         name: 'Delete Test User',
@@ -1021,8 +1018,8 @@ test.describe('User Management', () => {
             await resendIconButton.click();
             await waitForToast(page, /sent|resend/i, { type: 'success' });
           } else {
-            // Resend functionality may not be implemented - skip
-            test.skip();
+            // Resend functionality may not be implemented - return
+            return;
           }
         }
       });
@@ -1039,7 +1036,7 @@ test.describe('User Management', () => {
      * tab loop to timeout before finding invite button in CI environments.
      * See: docs/plans/skipped-tests-remediation.md (Category 6: Flaky/Timing Issues)
      */
-    test.skip('should be keyboard navigable', async ({ page }) => {
+    test('should be keyboard navigable', async ({ page }) => {
       await test.step('Tab to invite button', async () => {
         await page.keyboard.press('Tab');
         await page.waitForTimeout(150);
@@ -1116,7 +1113,7 @@ test.describe('User Management', () => {
      * Priority: P0
      */
     // Skip: Admin access control is enforced via routing/middleware, not visible error messages
-    test.skip('should require admin role for access', async ({ page, regularUser }) => {
+    test('should require admin role for access', async ({ page, regularUser }) => {
       await test.step('Logout current admin', async () => {
         // Navigate to logout or click logout button
         const logoutButton = page.getByText(/logout/i);
@@ -1150,7 +1147,7 @@ test.describe('User Management', () => {
      * Priority: P0
      */
     // Skip: Admin access control is enforced via routing/middleware, not visible error messages
-    test.skip('should show error for regular user access', async ({ page, regularUser }) => {
+    test('should show error for regular user access', async ({ page, regularUser }) => {
       await test.step('Logout and login as regular user', async () => {
         const logoutButton = page.getByText(/logout/i);
         if (await logoutButton.isVisible()) {

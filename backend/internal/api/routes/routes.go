@@ -130,6 +130,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 	// Emergency endpoint
 	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(db, caddyManager, cerb)
 	emergency := router.Group("/api/v1/emergency")
+	// Emergency endpoints must stay responsive and should not be rate limited.
 	emergency.POST("/security-reset", emergencyHandler.SecurityReset)
 
 	// Emergency token management (admin-only, protected by EmergencyBypass middleware)
@@ -146,7 +147,11 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 	authMiddleware := middleware.AuthMiddleware(authService)
 
 	api := router.Group("/api/v1")
+	// Rate Limiting (Emergency/Go-layer) MUST run before Auth to prevent 401 masking 429
+	api.Use(cerb.RateLimitMiddleware())
 	api.Use(middleware.OptionalAuth(authService))
+	// Cerberus middleware (ACL, WAF Stats, CrowdSec Tracking) runs after Auth
+	// because ACLs need to know if user is authenticated admin to apply whitelist bypass
 	api.Use(cerb.Middleware())
 
 	// Backup routes

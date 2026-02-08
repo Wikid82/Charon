@@ -7,78 +7,91 @@
  * Purpose:
  * - Break glass test disables Cerberus framework
  * - Browser UI tests need Cerberus ON to test toggles/navigation
- * - Setting admin_whitelist to 0.0.0.0/0 bypasses ALL security checks
+ * - Setting admin_whitelist to test-runner ranges bypasses security checks for E2E
  * - This allows UI tests to run with full security stack enabled but bypassed
  *
  * Execution Order:
  * 1. Global setup → emergency reset (disables Cerberus)
  * 2. Security enforcement tests (ACL, WAF, Rate Limit, etc.)
  * 3. emergency-reset.spec.ts → Break glass test (validates emergency reset)
- * 4. THIS TEST → Restore Cerberus + Universal bypass (0.0.0.0/0 whitelist)
+ * 4. THIS TEST → Restore Cerberus + test-runner whitelist bypass
  * 5. Browser tests → Run with Cerberus ON, ALL modules ON, but bypassed
  *
- * Why 0.0.0.0/0 is brilliant:
- * - Bypasses security for ANY IP (works in CI, local, Docker, anywhere)
- * - Tests the admin whitelist feature itself
- * - More realistic than selectively disabling modules
- * - Simpler state management than module-by-module control
+ * Why the test-runner whitelist is preferred:
+ * - Bypasses security for local/private test runners only
+ * - Keeps security enabled without opening global access
+ * - Still exercises the admin whitelist feature
+ * - Works in Docker, CI, and local environments
  *
  * @see /projects/Charon/docs/plans/e2e-test-triage-plan.md
  * @see POST /api/v1/emergency/security-reset
  * @see PATCH /api/v1/config (admin_whitelist)
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, request, APIRequestContext } from '@playwright/test';
+import { STORAGE_STATE } from '../constants';
+import { getSecurityStatus } from '../utils/security-helpers';
 
-test.describe.serial('Break Glass Recovery - Universal Bypass', () => {
+test.describe.serial('Break Glass Recovery - Test-Runner Whitelist', () => {
   const EMERGENCY_TOKEN = process.env.CHARON_EMERGENCY_TOKEN;
   const EMERGENCY_URL = 'http://localhost:2020';
-  const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
+  const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+  const ADMIN_WHITELIST = '127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
+  let apiContext: APIRequestContext;
 
-  test.beforeAll(() => {
+  test.beforeAll(async () => {
     if (!EMERGENCY_TOKEN) {
       throw new Error(
         'CHARON_EMERGENCY_TOKEN required for break glass recovery\n' +
         'Generate with: openssl rand -hex 32'
       );
     }
+
+    apiContext = await request.newContext({
+      baseURL: BASE_URL,
+      storageState: STORAGE_STATE,
+    });
   });
 
-  test('Step 1: Configure universal admin whitelist bypass (0.0.0.0/0)', async ({ request }) => {
-    console.log('\n🔧 Break Glass Recovery: Setting universal admin whitelist...');
+  test.afterAll(async () => {
+    if (apiContext) {
+      await apiContext.dispose();
+    }
+  });
 
-    await test.step('Set admin_whitelist to 0.0.0.0/0 (all IPs)', async () => {
-      // CIDR 0.0.0.0/0 matches ANY IPv4 address
-      // This allows ALL requests to bypass Cerberus security checks
-      const response = await request.patch(`${BASE_URL}/api/v1/config`, {
+  test('Step 1: Configure admin whitelist for test-runner ranges', async () => {
+    console.log('\n🔧 Break Glass Recovery: Setting admin whitelist for test runners...');
+
+    await test.step('Set admin_whitelist to test-runner CIDRs', async () => {
+      const response = await apiContext.patch('/api/v1/config', {
         data: {
           security: {
-            admin_whitelist: '0.0.0.0/0',
+            admin_whitelist: ADMIN_WHITELIST,
           },
         },
       });
 
       expect(response.ok()).toBeTruthy();
-      console.log('✅ Admin whitelist set to 0.0.0.0/0 (universal bypass)');
+      console.log('✅ Admin whitelist set to test-runner CIDRs');
     });
 
     await test.step('Verify whitelist configuration persisted', async () => {
       // Use /api/v1/security/config for reading (PATCH /api/v1/config has no GET)
-      const response = await request.get(`${BASE_URL}/api/v1/security/config`);
+      const response = await apiContext.get('/api/v1/security/config');
       expect(response).toBeOK();
 
       const body = await response.json();
-      expect(body.config?.admin_whitelist).toBe('0.0.0.0/0');
+      expect(body.config?.admin_whitelist).toBe(ADMIN_WHITELIST);
       console.log('✅ Whitelist configuration verified');
     });
   });
 
-  test('Step 2: Re-enable Cerberus framework', async ({ request }) => {
+  test('Step 2: Re-enable Cerberus framework', async () => {
     console.log('\n🔧 Break Glass Recovery: Re-enabling Cerberus framework...');
 
     await test.step('Enable feature.cerberus.enabled via settings API', async () => {
-      // Now that admin_whitelist=0.0.0.0/0, the settings API won't block us
-      const response = await request.patch(`${BASE_URL}/api/v1/settings`, {
+      // Now that admin_whitelist is set, the settings API won't block us
+      const response = await apiContext.patch('/api/v1/settings', {
         data: {
           key: 'feature.cerberus.enabled',
           value: 'true',
@@ -90,7 +103,7 @@ test.describe.serial('Break Glass Recovery - Universal Bypass', () => {
     });
 
     await test.step('Verify Cerberus is enabled', async () => {
-      const response = await request.get(`${BASE_URL}/api/v1/security/status`);
+      const response = await apiContext.get('/api/v1/security/status');
       expect(response.ok()).toBeTruthy();
 
       const body = await response.json();
@@ -99,12 +112,12 @@ test.describe.serial('Break Glass Recovery - Universal Bypass', () => {
     });
   });
 
-  test('Step 3: Enable all security modules (bypassed by whitelist)', async ({ request }) => {
+  test('Step 3: Enable all security modules (bypassed by whitelist)', async () => {
     console.log('\n🔧 Break Glass Recovery: Enabling all security modules...');
 
     // Enable ACL
     await test.step('Enable ACL module', async () => {
-      const response = await request.patch(`${BASE_URL}/api/v1/security/acl`, {
+      const response = await apiContext.patch('/api/v1/security/acl', {
         data: { enabled: true },
       });
       expect(response.ok()).toBeTruthy();
@@ -113,7 +126,7 @@ test.describe.serial('Break Glass Recovery - Universal Bypass', () => {
 
     // Enable WAF
     await test.step('Enable WAF module', async () => {
-      const response = await request.patch(`${BASE_URL}/api/v1/security/waf`, {
+      const response = await apiContext.patch('/api/v1/security/waf', {
         data: { enabled: true },
       });
       expect(response.ok()).toBeTruthy();
@@ -122,7 +135,7 @@ test.describe.serial('Break Glass Recovery - Universal Bypass', () => {
 
     // Enable Rate Limiting
     await test.step('Enable Rate Limiting module', async () => {
-      const response = await request.patch(`${BASE_URL}/api/v1/security/rate-limit`, {
+      const response = await apiContext.patch('/api/v1/security/rate-limit', {
         data: { enabled: true },
       });
       expect(response.ok()).toBeTruthy();
@@ -131,7 +144,7 @@ test.describe.serial('Break Glass Recovery - Universal Bypass', () => {
 
     // Enable CrowdSec (may not be running in E2E, but enable the setting)
     await test.step('Enable CrowdSec module', async () => {
-      const response = await request.patch(`${BASE_URL}/api/v1/security/crowdsec`, {
+      const response = await apiContext.patch('/api/v1/security/crowdsec', {
         data: { enabled: true },
       });
 
@@ -144,14 +157,11 @@ test.describe.serial('Break Glass Recovery - Universal Bypass', () => {
     });
   });
 
-  test('Step 4: Verify full security stack is enabled with universal bypass', async ({ request }) => {
+  test('Step 4: Verify full security stack is enabled with whitelist bypass', async () => {
     console.log('\n🔍 Break Glass Recovery: Verifying final state...');
 
     await test.step('Verify all security modules are enabled', async () => {
-      const response = await request.get(`${BASE_URL}/api/v1/security/status`);
-      expect(response.ok()).toBeTruthy();
-
-      const body = await response.json();
+      const body = await getSecurityStatus(apiContext);
 
       // Cerberus framework
       expect(body.cerberus.enabled).toBe(true);
@@ -169,28 +179,44 @@ test.describe.serial('Break Glass Recovery - Universal Bypass', () => {
       console.log(`   CrowdSec: ${body.crowdsec?.running ? '✅ RUNNING' : '⚠️  Not Available'}`);
     });
 
-    await test.step('Verify admin whitelist is set to 0.0.0.0/0', async () => {
-      const response = await request.get(`${BASE_URL}/api/v1/security/config`);
+    await test.step('Verify admin whitelist is set to test-runner CIDRs', async () => {
+      const maxRetries = 5;
+      const retryDelayMs = 1000;
+      let response = await apiContext.get('/api/v1/security/config');
+
+      for (let attempt = 0; attempt < maxRetries && response.status() === 429; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        response = await apiContext.get('/api/v1/security/config');
+      }
+
       expect(response.ok()).toBeTruthy();
 
       const body = await response.json();
       // API wraps config in a "config" key
-      expect(body.config?.admin_whitelist).toBe('0.0.0.0/0');
+      expect(body.config?.admin_whitelist).toBe(ADMIN_WHITELIST);
 
-      console.log('✅ Universal bypass confirmed: admin_whitelist = 0.0.0.0/0');
+      console.log('✅ Admin whitelist confirmed for test-runner CIDRs');
     });
 
     await test.step('Verify requests bypass security (whitelist working)', async () => {
       // Make a request that would normally be blocked by ACL
-      // Since our IP is in the 0.0.0.0/0 whitelist, it should succeed
-      const response = await request.get(`${BASE_URL}/api/v1/proxy-hosts`);
+      // Since our IP is in the test-runner whitelist, it should succeed
+      const maxRetries = 5;
+      const retryDelayMs = 1000;
+      let response = await apiContext.get('/api/v1/proxy-hosts');
+
+      for (let attempt = 0; attempt < maxRetries && !response.ok(); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        response = await apiContext.get('/api/v1/proxy-hosts');
+      }
+
       expect(response.ok()).toBeTruthy();
 
       console.log('✅ Request bypassed security via admin whitelist');
     });
 
     console.log('\n✅ Break Glass Recovery COMPLETE');
-    console.log('   State: Cerberus ON + All modules ON + Universal bypass (0.0.0.0/0)');
+    console.log('   State: Cerberus ON + All modules ON + test-runner whitelist bypass');
     console.log('   Ready: Browser UI tests can now test toggles/navigation safely');
   });
 });

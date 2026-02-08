@@ -237,6 +237,10 @@ export async function waitForLoadingComplete(
 ): Promise<void> {
   const { timeout = 10000 } = options;
 
+  if (page.isClosed()) {
+    return;
+  }
+
   // Wait for any loading indicator to disappear
   // Updated to be more specific and exclude pulsing UI badges
   const loader = page.locator([
@@ -252,7 +256,15 @@ export async function waitForLoadingComplete(
     '[role="status"][aria-label="Security Loading"]'
   ].join(', '));
 
-  await expect(loader).toHaveCount(0, { timeout });
+  try {
+    await expect(loader).toHaveCount(0, { timeout });
+  } catch (error) {
+    if (page.isClosed()) {
+      return;
+    }
+
+    throw error;
+  }
 }
 
 /**
@@ -413,27 +425,33 @@ export async function waitForModal(
   const { timeout = 10000 } = options;
 
   // Try to find a modal dialog first, then fall back to a slide-out panel with matching heading
-  const dialogModal = page.locator('[role="dialog"], .modal');
-  const slideOutPanel = page.locator('h2, h3').filter({ hasText: titleText });
+  // Use .first() to avoid specific strict mode violations if multiple exist in DOM
+  const dialogModal = page
+    .locator('[role="dialog"], .modal')
+    .filter({ hasText: titleText })
+    .first();
+
+  const slideOutPanel = page
+    .locator('h2, h3')
+    .filter({ hasText: titleText })
+    .first();
 
   // Wait for either the dialog modal or the slide-out panel heading to be visible
   try {
-    await expect(dialogModal.or(slideOutPanel)).toBeVisible({ timeout });
-  } catch {
+    // FIX STRICT MODE VIOLATION:
+    // If we match both the dialog AND the heading inside it, .or() returns 2 elements.
+    // We strictly want to wait until *at least one* is visible.
+    // Using .first() on the combined locator prevents 'strict mode violation' when both match.
+    await expect(dialogModal.or(slideOutPanel).first()).toBeVisible({ timeout });
+  } catch (e) {
     // If neither is found, throw a more helpful error
     throw new Error(
-      `waitForModal: Could not find modal dialog or slide-out panel matching "${titleText}"`
+      `waitForModal: Could not find visible modal dialog or slide-out panel matching "${titleText}". Error: ${e instanceof Error ? e.message : String(e)}`
     );
   }
 
-  // If dialog modal is visible, verify its title
+  // If dialog modal is visible, use it
   if (await dialogModal.isVisible()) {
-    if (titleText) {
-      const titleLocator = dialogModal.locator(
-        '[role="heading"], .modal-title, .dialog-title, h1, h2, h3'
-      );
-      await expect(titleLocator).toContainText(titleText);
-    }
     return dialogModal;
   }
 

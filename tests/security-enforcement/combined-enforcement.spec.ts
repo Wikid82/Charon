@@ -37,7 +37,7 @@ async function configureAdminWhitelist(requestContext: APIRequestContext) {
   const testWhitelist = '127.0.0.1/32,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8';
 
   const response = await requestContext.patch(
-    `${process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080'}/api/v1/config`,
+    `${process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080'}/api/v1/config`,
     {
       data: {
         security: {
@@ -60,7 +60,7 @@ test.describe('Combined Security Enforcement', () => {
 
   test.beforeAll(async () => {
     requestContext = await request.newContext({
-      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080',
+      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080',
       storageState: STORAGE_STATE,
     });
 
@@ -102,7 +102,7 @@ test.describe('Combined Security Enforcement', () => {
     await requestContext.dispose();
   });
 
-  test.skip('should enable all security modules simultaneously', async ({}, testInfo) => {
+  test('should enable all security modules simultaneously', async ({}, testInfo) => {
     // SKIP: Security module enforcement verified via Cerberus middleware (port 80).
     // See: backend/integration/cerberus_integration_test.go
   });
@@ -166,7 +166,7 @@ test.describe('Combined Security Enforcement', () => {
 
     // Create a new request context to simulate fresh session
     const freshContext = await request.newContext({
-      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080',
+      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080',
       storageState: STORAGE_STATE,
     });
 

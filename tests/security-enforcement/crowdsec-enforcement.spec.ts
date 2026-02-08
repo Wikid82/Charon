@@ -29,7 +29,7 @@ async function configureAdminWhitelist(requestContext: APIRequestContext) {
   const testWhitelist = '127.0.0.1/32,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8';
 
   const response = await requestContext.patch(
-    `${process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080'}/api/v1/config`,
+    `${process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080'}/api/v1/config`,
     {
       data: {
         security: {
@@ -52,7 +52,7 @@ test.describe('CrowdSec Enforcement', () => {
 
   test.beforeAll(async () => {
     requestContext = await request.newContext({
-      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080',
+      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080',
       storageState: STORAGE_STATE,
     });
 

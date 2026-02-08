@@ -89,10 +89,10 @@ The skill runs non-interactively by default (HTML report does not auto-open), ma
 
 ### Quick Start: Ensure E2E Environment is Ready
 
-Before running tests, ensure the Docker E2E environment is running:
+Before running tests, ensure the Docker E2E environment is running. Rebuild when application or Docker build inputs change. If only tests or docs changed and the container is already healthy, skip rebuild.
 
 ```bash
-# Start/rebuild E2E Docker container (recommended before testing)
+# Start/rebuild E2E Docker container (required when app/runtime inputs change)
 .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
 
 # Or for a complete clean rebuild:
@@ -103,7 +103,7 @@ Before running tests, ensure the Docker E2E environment is running:
 
 ### Basic Usage
 
-Run E2E tests with default settings (Chromium, headless):
+Run E2E tests with default settings (Firefox, headless):
 
 ```bash
 .github/skills/scripts/skill-runner.sh test-e2e-playwright
@@ -114,8 +114,8 @@ Run E2E tests with default settings (Chromium, headless):
 Run tests in a specific browser:
 
 ```bash
-# Chromium (default)
-.github/skills/scripts/skill-runner.sh test-e2e-playwright --project=chromium
+# Firefox (default)
+.github/skills/scripts/skill-runner.sh test-e2e-playwright --project=firefox
 
 # Firefox
 .github/skills/scripts/skill-runner.sh test-e2e-playwright --project=firefox
@@ -169,7 +169,7 @@ For use in GitHub Actions or other CI/CD pipelines:
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| project   | string | No | chromium | Browser project: chromium, firefox, webkit, all |
+| project   | string | No | firefox | Browser project: chromium, firefox, webkit, all |
 | headed    | boolean | No | false | Run with visible browser window |
 | grep      | string | No | "" | Filter tests by title pattern (regex) |
 

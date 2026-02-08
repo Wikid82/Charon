@@ -754,7 +754,8 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 	// Walk the DataDir and add files to the archive
 	err := filepath.Walk(h.DataDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			logger.Log().WithError(err).Warnf("failed to access path %s during export walk", path)
+			return nil // Skip files we cannot access
 		}
 		if info.IsDir() {
 			return nil
@@ -798,13 +799,18 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 
 // ListFiles returns a flat list of files under the CrowdSec DataDir.
 func (h *CrowdsecHandler) ListFiles(c *gin.Context) {
-	var files []string
+	files := []string{}
 	if _, err := os.Stat(h.DataDir); os.IsNotExist(err) {
 		c.JSON(http.StatusOK, gin.H{"files": files})
 		return
 	}
 	err := filepath.Walk(h.DataDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			// Permission errors (e.g. lost+found) should not abort the walk
+			if os.IsPermission(err) {
+				logger.Log().WithError(err).WithField("path", path).Debug("Skipping inaccessible path during list")
+				return filepath.SkipDir
+			}
 			return err
 		}
 		if !info.IsDir() {
@@ -1754,7 +1760,9 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 		// No key available
 		response.KeySource = "none"
 		response.Valid = false
-		response.Message = "No CrowdSec API key configured. Start CrowdSec to auto-generate one."
+		if response.Message == "" {
+			response.Message = "No CrowdSec API key configured. Start CrowdSec to auto-generate one."
+		}
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -2002,13 +2010,14 @@ func (h *CrowdsecHandler) GetBouncerInfo(c *gin.Context) {
 	fileKey := readKeyFromFile(bouncerKeyFile)
 
 	var fullKey string
-	if envKey != "" {
+	switch {
+	case envKey != "":
 		info.KeySource = "env_var"
 		fullKey = envKey
-	} else if fileKey != "" {
+	case fileKey != "":
 		info.KeySource = "file"
 		fullKey = fileKey
-	} else {
+	default:
 		info.KeySource = "none"
 	}
 
