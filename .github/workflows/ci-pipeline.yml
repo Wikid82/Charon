@@ -110,10 +110,31 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    outputs:
+      input_run_integration: ${{ steps.normalize.outputs.run_integration }}
+    steps:
+      - name: Normalize integration input
+        id: normalize
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ inputs.run_integration }}" = "false" ]; then
+              echo "run_integration=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "run_integration=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "run_integration=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build-image:
     name: Build and Publish Image
     runs-on: ubuntu-latest
-    needs: lint
+    needs:
+      - lint
+      - setup
     concurrency:
       group: ci-build-image-${{ github.workflow }}-${{ github.ref_name }}
       cancel-in-progress: true
@@ -121,12 +142,14 @@ jobs:
       contents: read
       packages: write
     outputs:
-      image_digest: ${{ steps.build.outputs.digest }}
+      image_digest: ${{ steps.push.outputs.digest }}
       image_ref: ${{ steps.outputs.outputs.image_ref_dockerhub }}
       image_ref_dockerhub: ${{ steps.outputs.outputs.image_ref_dockerhub }}
       image_ref_ghcr: ${{ steps.outputs.outputs.image_ref_ghcr }}
       image_tag: ${{ steps.outputs.outputs.image_tag }}
       push_image: ${{ steps.image-policy.outputs.push }}
+      image_pushed: ${{ steps.image-policy.outputs.push == 'true' && steps.push.outcome == 'success' }}
+      run_integration: ${{ needs.setup.outputs.input_run_integration == 'true' && steps.image-policy.outputs.push == 'true' && steps.push.outcome == 'success' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -273,7 +296,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push Docker image
-        id: build
+        id: push
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
         with:
           context: .
@@ -288,7 +311,7 @@ jobs:
       - name: Emit image outputs
         id: outputs
         run: |
-          DIGEST="${{ steps.build.outputs.digest }}"
+          DIGEST="${{ steps.push.outputs.digest }}"
 
           # Try digest first; fall back to tags if digest unavailable
           if [ -n "${DIGEST}" ]; then
@@ -310,7 +333,7 @@ jobs:
     name: Integration - Cerberus
     runs-on: ubuntu-latest
     needs: build-image
-    if: needs.build-image.result == 'success' && needs.build-image.outputs.image_ref_dockerhub != '' && (github.event_name != 'workflow_dispatch' || inputs.run_integration != false)
+    if: ${{ needs.build-image.outputs.run_integration == 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -335,7 +358,7 @@ jobs:
     name: Integration - CrowdSec
     runs-on: ubuntu-latest
     needs: build-image
-    if: needs.build-image.result == 'success' && needs.build-image.outputs.image_ref_dockerhub != '' && (github.event_name != 'workflow_dispatch' || inputs.run_integration != false)
+    if: ${{ needs.build-image.outputs.run_integration == 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -361,7 +384,7 @@ jobs:
     name: Integration - WAF
     runs-on: ubuntu-latest
     needs: build-image
-    if: needs.build-image.result == 'success' && needs.build-image.outputs.image_ref_dockerhub != '' && (github.event_name != 'workflow_dispatch' || inputs.run_integration != false)
+    if: ${{ needs.build-image.outputs.run_integration == 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -386,7 +409,7 @@ jobs:
     name: Integration - Rate Limit
     runs-on: ubuntu-latest
     needs: build-image
-    if: needs.build-image.result == 'success' && needs.build-image.outputs.image_ref_dockerhub != '' && (github.event_name != 'workflow_dispatch' || inputs.run_integration != false)
+    if: ${{ needs.build-image.outputs.run_integration == 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -416,30 +439,22 @@ jobs:
       - integration-crowdsec
       - integration-waf
       - integration-ratelimit
-    if: always()
+    if: ${{ needs.build-image.outputs.run_integration == 'true' }}
     steps:
-      - name: Evaluate integration results
+      - name: Verify integration results
         run: |
-          if [ "${{ inputs.run_integration }}" = "false" ]; then
-            echo "Integration stage skipped."
-            exit 0
-          fi
-
-          if [ "${{ needs.build-image.result }}" != "success" ] || [ "${{ needs.build-image.outputs.push_image }}" != "true" ]; then
-            echo "Integration stage skipped due to build-image state or push policy."
-            exit 0
-          fi
-
           RESULTS=(
-            "${{ needs.integration-cerberus.result }}"
-            "${{ needs.integration-crowdsec.result }}"
-            "${{ needs.integration-waf.result }}"
-            "${{ needs.integration-ratelimit.result }}"
+            "integration-cerberus:${{ needs.integration-cerberus.result }}"
+            "integration-crowdsec:${{ needs.integration-crowdsec.result }}"
+            "integration-waf:${{ needs.integration-waf.result }}"
+            "integration-ratelimit:${{ needs.integration-ratelimit.result }}"
           )
 
-          for RESULT in "${RESULTS[@]}"; do
-            if [ "$RESULT" = "failure" ] || [ "$RESULT" = "cancelled" ]; then
-              echo "Integration stage failed: $RESULT"
+          for ENTRY in "${RESULTS[@]}"; do
+            JOB_NAME="${ENTRY%%:*}"
+            RESULT="${ENTRY##*:}"
+            if [ "$RESULT" != "success" ]; then
+              echo "${JOB_NAME} failed: ${RESULT}"
               exit 1
             fi
           done
@@ -448,23 +463,35 @@ jobs:
     name: E2E Tests with Coverage
     needs:
       - build-image
-      - integration-gate
     if: (github.event_name != 'workflow_dispatch' || inputs.run_e2e != false) && needs.build-image.result == 'success'
     uses: ./.github/workflows/e2e-tests-split.yml
     with:
       browser: all
       test_category: all
-      image_ref: ${{ needs.build-image.outputs.image_ref_dockerhub }}
+      image_ref: ${{ needs.build-image.outputs.image_pushed == 'true' && needs.build-image.outputs.image_ref_dockerhub || '' }}
       image_tag: charon:e2e-test
       playwright_coverage: true
     secrets: inherit
+
+  e2e-gate:
+    name: E2E Gate
+    runs-on: ubuntu-latest
+    needs:
+      - e2e
+    if: github.event_name != 'workflow_dispatch' || inputs.run_e2e != false
+    steps:
+      - name: Verify E2E results
+        run: |
+          if [ "${{ needs.e2e.result }}" != "success" ]; then
+            echo "E2E tests failed: ${{ needs.e2e.result }}"
+            exit 1
+          fi
 
   coverage-backend:
     name: Coverage - Backend
     runs-on: ubuntu-latest
     needs:
       - build-image
-      - integration-gate
     if: github.event_name != 'workflow_dispatch' || inputs.run_coverage != false
     steps:
       - name: Checkout
@@ -497,7 +524,6 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - build-image
-      - integration-gate
     if: github.event_name != 'workflow_dispatch' || inputs.run_coverage != false
     steps:
       - name: Checkout
@@ -534,25 +560,20 @@ jobs:
     needs:
       - coverage-backend
       - coverage-frontend
-      - e2e
-    if: always()
+    if: github.event_name != 'workflow_dispatch' || inputs.run_coverage != false
     steps:
       - name: Evaluate coverage results
         run: |
-          if [ "${{ inputs.run_coverage }}" = "false" ]; then
-            echo "Coverage stage skipped."
-            exit 0
-          fi
-
           RESULTS=(
-            "${{ needs.coverage-backend.result }}"
-            "${{ needs.coverage-frontend.result }}"
-            "${{ needs.e2e.result }}"
+            "coverage-backend:${{ needs.coverage-backend.result }}"
+            "coverage-frontend:${{ needs.coverage-frontend.result }}"
           )
 
-          for RESULT in "${RESULTS[@]}"; do
-            if [ "$RESULT" = "failure" ] || [ "$RESULT" = "cancelled" ]; then
-              echo "Coverage stage failed: $RESULT"
+          for ENTRY in "${RESULTS[@]}"; do
+            JOB_NAME="${ENTRY%%:*}"
+            RESULT="${ENTRY##*:}"
+            if [ "$RESULT" != "success" ]; then
+              echo "${JOB_NAME} failed: ${RESULT}"
               exit 1
             fi
           done
@@ -562,6 +583,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - coverage-gate
+      - e2e
     if: github.event_name != 'workflow_dispatch' || inputs.run_coverage != false
     steps:
       - name: Checkout
@@ -580,6 +602,7 @@ jobs:
           path: frontend/coverage
 
       - name: Download E2E coverage artifact
+        if: needs.e2e.result != 'skipped'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: e2e-coverage-*
@@ -615,25 +638,26 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - codecov-upload
-    if: always()
+    if: (github.event_name != 'workflow_dispatch' || inputs.run_coverage != false) && needs.codecov-upload.result != 'skipped'
     steps:
       - name: Evaluate Codecov upload results
         run: |
-          if [ "${{ inputs.run_coverage }}" = "false" ]; then
-            echo "Codecov upload stage skipped."
-            exit 0
-          fi
+          RESULTS=(
+            "codecov-upload:${{ needs.codecov-upload.result }}"
+          )
 
-          if [ "${{ needs.codecov-upload.result }}" = "failure" ] || [ "${{ needs.codecov-upload.result }}" = "cancelled" ]; then
-            echo "Codecov upload failed: ${{ needs.codecov-upload.result }}"
-            exit 1
-          fi
+          for ENTRY in "${RESULTS[@]}"; do
+            JOB_NAME="${ENTRY%%:*}"
+            RESULT="${ENTRY##*:}"
+            if [ "$RESULT" != "success" ]; then
+              echo "${JOB_NAME} failed: ${RESULT}"
+              exit 1
+            fi
+          done
 
   security-codeql:
     name: Security - CodeQL
     runs-on: ubuntu-latest
-    needs:
-      - codecov-gate
     if: (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true)
     permissions:
       contents: read
@@ -674,8 +698,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - build-image
-      - codecov-gate
-    if: (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && needs.build-image.result == 'success'
+    if: (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true) && needs.build-image.result == 'success'
     permissions:
       contents: read
       security-events: write
@@ -718,8 +741,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - build-image
-      - codecov-gate
-    if: (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && needs.build-image.result == 'success'
+    if: (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true) && needs.build-image.result == 'success'
     permissions:
       contents: read
       security-events: write
@@ -745,6 +767,41 @@ jobs:
           fail-build: false
           output-format: json
 
+  security-gate:
+    name: Security Gate
+    runs-on: ubuntu-latest
+    needs:
+      - security-codeql
+      - security-trivy
+      - security-supply-chain
+    if: github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false
+    steps:
+      - name: Verify security results
+        run: |
+          require_success_if_ran() {
+            local name="$1"
+            local result="$2"
+            local enabled="$3"
+
+            if [ "$result" = "success" ]; then
+              return 0
+            fi
+
+            if [ "$result" = "skipped" ] && [ "$enabled" != "true" ]; then
+              return 0
+            fi
+
+            echo "${name} failed: ${result}"
+            exit 1
+          }
+
+          security_enabled="${{ github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork }}"
+          if [ "$security_enabled" = "true" ]; then
+            require_success_if_ran "security-codeql" "${{ needs.security-codeql.result }}" "true"
+            require_success_if_ran "security-trivy" "${{ needs.security-trivy.result }}" "true"
+            require_success_if_ran "security-supply-chain" "${{ needs.security-supply-chain.result }}" "true"
+          fi
+
   pipeline-gate:
     name: Pipeline Gate
     runs-on: ubuntu-latest
@@ -752,29 +809,80 @@ jobs:
       - lint
       - build-image
       - integration-gate
+      - e2e-gate
       - coverage-gate
       - codecov-gate
-      - security-codeql
-      - security-trivy
-      - security-supply-chain
+      - security-gate
     if: always()
     steps:
       - name: Evaluate pipeline results
         run: |
-          RESULTS=(
-            "${{ needs.lint.result }}"
-            "${{ needs.build-image.result }}"
-            "${{ needs.integration-gate.result }}"
-            "${{ needs.coverage-gate.result }}"
-            "${{ needs.codecov-gate.result }}"
-            "${{ needs.security-codeql.result }}"
-            "${{ needs.security-trivy.result }}"
-            "${{ needs.security-supply-chain.result }}"
-          )
+          require_success_if_ran() {
+            local name="$1"
+            local result="$2"
+            local enabled="$3"
 
-          for RESULT in "${RESULTS[@]}"; do
-            if [ "$RESULT" = "failure" ] || [ "$RESULT" = "cancelled" ]; then
-              echo "Pipeline failed: $RESULT"
-              exit 1
+            if [ "$result" = "success" ]; then
+              return 0
             fi
-          done
+
+            if [ "$result" = "skipped" ] && [ "$enabled" != "true" ]; then
+              return 0
+            fi
+
+            echo "${name} failed: ${result}"
+            exit 1
+          }
+
+          required_jobs_ran=0
+
+          require_success_if_ran "lint" "${{ needs.lint.result }}" "true"
+          if [ "${{ needs.lint.result }}" != "skipped" ]; then
+            required_jobs_ran=$((required_jobs_ran + 1))
+          fi
+
+          require_success_if_ran "build-image" "${{ needs.build-image.result }}" "true"
+          if [ "${{ needs.build-image.result }}" != "skipped" ]; then
+            required_jobs_ran=$((required_jobs_ran + 1))
+          fi
+
+          integration_enabled="${{ needs.build-image.outputs.run_integration == 'true' }}"
+          if [ "$integration_enabled" = "true" ]; then
+            require_success_if_ran "integration-gate" "${{ needs.integration-gate.result }}" "true"
+            if [ "${{ needs.integration-gate.result }}" != "skipped" ]; then
+              required_jobs_ran=$((required_jobs_ran + 1))
+            fi
+          fi
+
+          e2e_enabled="${{ github.event_name != 'workflow_dispatch' || inputs.run_e2e != false }}"
+          if [ "$e2e_enabled" = "true" ]; then
+            require_success_if_ran "e2e-gate" "${{ needs.e2e-gate.result }}" "true"
+            if [ "${{ needs.e2e-gate.result }}" != "skipped" ]; then
+              required_jobs_ran=$((required_jobs_ran + 1))
+            fi
+          fi
+
+          coverage_enabled="${{ github.event_name != 'workflow_dispatch' || inputs.run_coverage != false }}"
+          if [ "$coverage_enabled" = "true" ]; then
+            require_success_if_ran "coverage-gate" "${{ needs.coverage-gate.result }}" "true"
+            require_success_if_ran "codecov-gate" "${{ needs.codecov-gate.result }}" "true"
+            if [ "${{ needs.coverage-gate.result }}" != "skipped" ]; then
+              required_jobs_ran=$((required_jobs_ran + 1))
+            fi
+            if [ "${{ needs.codecov-gate.result }}" != "skipped" ]; then
+              required_jobs_ran=$((required_jobs_ran + 1))
+            fi
+          fi
+
+          security_enabled="${{ (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) }}"
+          if [ "$security_enabled" = "true" ]; then
+            require_success_if_ran "security-gate" "${{ needs.security-gate.result }}" "true"
+            if [ "${{ needs.security-gate.result }}" != "skipped" ]; then
+              required_jobs_ran=$((required_jobs_ran + 1))
+            fi
+          fi
+
+          if [ "$required_jobs_ran" -eq 0 ]; then
+            echo "No required stages were enabled; skipping pipeline gate."
+            exit 0
+          fi
