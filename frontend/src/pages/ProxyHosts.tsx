@@ -647,9 +647,16 @@ export default function ProxyHosts() {
             <DialogHeader>
               <DialogTitle>{t('proxyHosts.deleteConfirmTitle')}</DialogTitle>
               <DialogDescription>
-                {t('proxyHosts.deleteConfirmMessage', { name: hostToDelete?.name || hostToDelete?.domain_names }).split('<strong>').map((part, i) =>
-                  i === 0 ? part : <><strong key={i}>{part.split('</strong>')[0]}</strong>{part.split('</strong>')[1]}</>
-                )}
+                {t('proxyHosts.deleteConfirmMessage', { name: hostToDelete?.name || hostToDelete?.domain_names }).split('<strong>').map((part, i) => {
+                  if (i === 0) return part
+                  const [strongText, rest] = part.split('</strong>')
+                  return (
+                    <span key={i}>
+                      <strong>{strongText}</strong>
+                      {rest}
+                    </span>
+                  )
+                })}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
@@ -675,9 +682,16 @@ export default function ProxyHosts() {
             <DialogHeader>
               <DialogTitle>{t('proxyHosts.bulkApplyTitle')}</DialogTitle>
               <DialogDescription>
-                {t('proxyHosts.bulkApplyDescription', { count: selectedHosts.size }).split('<strong>').map((part, i) =>
-                  i === 0 ? part : <><strong key={i} className="text-brand-400">{part.split('</strong>')[0]}</strong>{part.split('</strong>')[1]}</>
-                )}
+                {t('proxyHosts.bulkApplyDescription', { count: selectedHosts.size }).split('<strong>').map((part, i) => {
+                  if (i === 0) return part
+                  const [strongText, rest] = part.split('</strong>')
+                  return (
+                    <span key={i}>
+                      <strong className="text-brand-400">{strongText}</strong>
+                      {rest}
+                    </span>
+                  )
+                })}
               </DialogDescription>
             </DialogHeader>
 
@@ -879,9 +893,16 @@ export default function ProxyHosts() {
             <DialogHeader>
               <DialogTitle>{t('proxyHosts.applyACLTitle')}</DialogTitle>
               <DialogDescription>
-                {t('proxyHosts.applyACLDescription', { count: selectedHosts.size }).split('<strong>').map((part, i) =>
-                  i === 0 ? part : <><strong key={i} className="text-brand-400">{part.split('</strong>')[0]}</strong>{part.split('</strong>')[1]}</>
-                )}
+                {t('proxyHosts.applyACLDescription', { count: selectedHosts.size }).split('<strong>').map((part, i) => {
+                  if (i === 0) return part
+                  const [strongText, rest] = part.split('</strong>')
+                  return (
+                    <span key={i}>
+                      <strong className="text-brand-400">{strongText}</strong>
+                      {rest}
+                    </span>
+                  )
+                })}
               </DialogDescription>
             </DialogHeader>
 

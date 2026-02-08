@@ -6,6 +6,17 @@ import * as smtpApi from '../../api/smtp'
 import { toast } from '../../utils/toast'
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
 
+const translations: Record<string, string> = {
+  'smtp.configured': 'SMTP Configured',
+  'smtp.notConfigured': 'SMTP Not Configured',
+  'smtp.saveSettings': 'Save Settings',
+  'smtp.testConnection': 'Test Connection',
+  'smtp.sendTestEmail': 'Send Test Email',
+  'smtp.sendTest': 'Send Test',
+}
+
+const t = (key: string) => translations[key] ?? key
+
 // Mock API
 vi.mock('../../api/smtp', () => ({
   getSMTPConfig: vi.fn(),
@@ -62,7 +73,7 @@ describe('SMTPSettings', () => {
     const portInput = screen.getByPlaceholderText('587') as HTMLInputElement
     expect(portInput.value).toBe('587')
 
-    expect(screen.getByText('SMTP Configured')).toBeTruthy()
+    expect(screen.getByText(t('smtp.configured'))).toBeTruthy()
   })
 
   it('shows not configured state when SMTP is not set up', async () => {
@@ -79,7 +90,7 @@ describe('SMTPSettings', () => {
     renderWithQueryClient(<SMTPSettings />)
 
     await waitFor(() => {
-      expect(screen.getByText('SMTP Not Configured')).toBeTruthy()
+      expect(screen.getByText(t('smtp.notConfigured'))).toBeTruthy()
     })
   })
 
@@ -110,7 +121,7 @@ describe('SMTPSettings', () => {
       'test@example.com'
     )
 
-    await user.click(screen.getByRole('button', { name: 'Save Settings' }))
+    await user.click(screen.getByRole('button', { name: t('smtp.saveSettings') }))
 
     await waitFor(() => {
       expect(smtpApi.updateSMTPConfig).toHaveBeenCalled()
@@ -134,12 +145,11 @@ describe('SMTPSettings', () => {
 
     renderWithQueryClient(<SMTPSettings />)
 
-    await waitFor(() => {
-      expect(screen.getByText('Test Connection')).toBeTruthy()
-    })
+    const testButton = await screen.findByRole('button', { name: t('smtp.testConnection') })
+    await waitFor(() => expect(testButton).toBeEnabled())
 
     const user = userEvent.setup()
-    await user.click(screen.getByText('Test Connection'))
+    await user.click(testButton)
 
     await waitFor(() => {
       expect(smtpApi.testSMTPConnection).toHaveBeenCalled()
@@ -160,7 +170,7 @@ describe('SMTPSettings', () => {
     renderWithQueryClient(<SMTPSettings />)
 
     await waitFor(() => {
-      expect(screen.getByText('Send Test Email')).toBeTruthy()
+      expect(screen.getByText(t('smtp.sendTestEmail'))).toBeTruthy()
     })
 
     expect(screen.getByPlaceholderText('recipient@example.com')).toBeTruthy()
@@ -184,7 +194,7 @@ describe('SMTPSettings', () => {
     renderWithQueryClient(<SMTPSettings />)
 
     await waitFor(() => {
-      expect(screen.getByText('Send Test Email')).toBeTruthy()
+      expect(screen.getByText(t('smtp.sendTestEmail'))).toBeTruthy()
     })
 
     const user = userEvent.setup()
@@ -192,7 +202,7 @@ describe('SMTPSettings', () => {
       screen.getByPlaceholderText('recipient@example.com'),
       'test@test.com'
     )
-    await user.click(screen.getByRole('button', { name: /Send Test/i }))
+    await user.click(screen.getByRole('button', { name: t('smtp.sendTest') }))
 
     await waitFor(() => {
       expect(smtpApi.sendTestEmail).toHaveBeenCalledWith({ to: 'test@test.com' })
@@ -218,7 +228,7 @@ describe('SMTPSettings', () => {
     await user.type(screen.getByPlaceholderText('smtp.gmail.com'), 'bad.host')
     await user.type(screen.getByPlaceholderText('Charon <no-reply@example.com>'), 'ops@example.com')
 
-    await user.click(screen.getByRole('button', { name: 'Save Settings' }))
+    await user.click(screen.getByRole('button', { name: t('smtp.saveSettings') }))
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith('invalid host')
@@ -240,15 +250,17 @@ describe('SMTPSettings', () => {
     renderWithQueryClient(<SMTPSettings />)
 
     const user = userEvent.setup()
-    await waitFor(() => expect(screen.getByText('Test Connection')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(t('smtp.testConnection'))).toBeInTheDocument())
 
     // Button should start disabled until host and from address are provided
-    expect(screen.getByRole('button', { name: 'Test Connection' })).toBeDisabled()
+    const testButton = screen.getByRole('button', { name: t('smtp.testConnection') })
+    expect(testButton).toBeDisabled()
 
     await user.type(screen.getByPlaceholderText('smtp.gmail.com'), 'smtp.acme.local')
     await user.type(screen.getByPlaceholderText('Charon <no-reply@example.com>'), 'from@acme.local')
 
-    await user.click(screen.getByRole('button', { name: 'Test Connection' }))
+    await waitFor(() => expect(testButton).toBeEnabled())
+    await user.click(testButton)
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith('cannot connect')
@@ -270,11 +282,11 @@ describe('SMTPSettings', () => {
     renderWithQueryClient(<SMTPSettings />)
 
     const user = userEvent.setup()
-    await waitFor(() => expect(screen.getByText('Send Test Email')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(t('smtp.sendTestEmail'))).toBeInTheDocument())
     const input = screen.getByPlaceholderText('recipient@example.com') as HTMLInputElement
     await user.type(input, 'keepme@example.com')
 
-    await user.click(screen.getByRole('button', { name: /Send Test/i }))
+    await user.click(screen.getByRole('button', { name: t('smtp.sendTest') }))
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith('smtp unreachable')

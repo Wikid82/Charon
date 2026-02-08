@@ -12,13 +12,18 @@ vi.mock('../client', () => ({
 }));
 
 describe('securityHeadersApi', () => {
+  const mockedGet = vi.mocked(client.get);
+  const mockedPost = vi.mocked(client.post);
+  const mockedPut = vi.mocked(client.put);
+  const mockedDelete = vi.mocked(client.delete);
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('listProfiles returns profiles', async () => {
     const mockProfiles = [{ id: 1, name: 'Profile 1' }];
-    (client.get as any).mockResolvedValue({ data: { profiles: mockProfiles } });
+    mockedGet.mockResolvedValue({ data: { profiles: mockProfiles } });
 
     const result = await securityHeadersApi.listProfiles();
     expect(client.get).toHaveBeenCalledWith('/security/headers/profiles');
@@ -27,7 +32,7 @@ describe('securityHeadersApi', () => {
 
   it('getProfile returns a profile', async () => {
     const mockProfile = { id: 1, name: 'Profile 1' };
-    (client.get as any).mockResolvedValue({ data: { profile: mockProfile } });
+    mockedGet.mockResolvedValue({ data: { profile: mockProfile } });
 
     const result = await securityHeadersApi.getProfile(1);
     expect(client.get).toHaveBeenCalledWith('/security/headers/profiles/1');
@@ -37,7 +42,7 @@ describe('securityHeadersApi', () => {
   it('createProfile creates a profile', async () => {
     const newProfile = { name: 'New Profile' };
     const mockResponse = { id: 1, ...newProfile };
-    (client.post as any).mockResolvedValue({ data: { profile: mockResponse } });
+    mockedPost.mockResolvedValue({ data: { profile: mockResponse } });
 
     const result = await securityHeadersApi.createProfile(newProfile);
     expect(client.post).toHaveBeenCalledWith('/security/headers/profiles', newProfile);
@@ -47,7 +52,7 @@ describe('securityHeadersApi', () => {
   it('updateProfile updates a profile', async () => {
     const updates = { name: 'Updated Profile' };
     const mockResponse = { id: 1, ...updates };
-    (client.put as any).mockResolvedValue({ data: { profile: mockResponse } });
+    mockedPut.mockResolvedValue({ data: { profile: mockResponse } });
 
     const result = await securityHeadersApi.updateProfile(1, updates);
     expect(client.put).toHaveBeenCalledWith('/security/headers/profiles/1', updates);
@@ -55,7 +60,7 @@ describe('securityHeadersApi', () => {
   });
 
   it('deleteProfile deletes a profile', async () => {
-    (client.delete as any).mockResolvedValue({});
+    mockedDelete.mockResolvedValue({});
 
     await securityHeadersApi.deleteProfile(1);
     expect(client.delete).toHaveBeenCalledWith('/security/headers/profiles/1');
@@ -63,7 +68,7 @@ describe('securityHeadersApi', () => {
 
   it('getPresets returns presets', async () => {
     const mockPresets = [{ name: 'Basic' }];
-    (client.get as any).mockResolvedValue({ data: { presets: mockPresets } });
+    mockedGet.mockResolvedValue({ data: { presets: mockPresets } });
 
     const result = await securityHeadersApi.getPresets();
     expect(client.get).toHaveBeenCalledWith('/security/headers/presets');
@@ -73,7 +78,7 @@ describe('securityHeadersApi', () => {
   it('applyPreset applies a preset', async () => {
     const request = { preset_type: 'basic', name: 'My Preset' };
     const mockResponse = { id: 1, ...request };
-    (client.post as any).mockResolvedValue({ data: { profile: mockResponse } });
+    mockedPost.mockResolvedValue({ data: { profile: mockResponse } });
 
     const result = await securityHeadersApi.applyPreset(request);
     expect(client.post).toHaveBeenCalledWith('/security/headers/presets/apply', request);
@@ -83,7 +88,7 @@ describe('securityHeadersApi', () => {
   it('calculateScore calculates score', async () => {
     const config = { hsts_enabled: true };
     const mockResponse = { score: 90 };
-    (client.post as any).mockResolvedValue({ data: mockResponse });
+    mockedPost.mockResolvedValue({ data: mockResponse });
 
     const result = await securityHeadersApi.calculateScore(config);
     expect(client.post).toHaveBeenCalledWith('/security/headers/score', config);
@@ -93,7 +98,7 @@ describe('securityHeadersApi', () => {
   it('validateCSP validates CSP', async () => {
       const csp = "default-src 'self'";
       const mockResponse = { valid: true, errors: [] };
-      (client.post as any).mockResolvedValue({ data: mockResponse });
+      mockedPost.mockResolvedValue({ data: mockResponse });
 
       const result = await securityHeadersApi.validateCSP(csp);
       expect(client.post).toHaveBeenCalledWith('/security/headers/csp/validate', { csp });
@@ -103,7 +108,7 @@ describe('securityHeadersApi', () => {
   it('buildCSP builds CSP', async () => {
       const directives = [{ directive: 'default-src', values: ["'self'"] }];
       const mockResponse = { csp: "default-src 'self'" };
-      (client.post as any).mockResolvedValue({ data: mockResponse });
+      mockedPost.mockResolvedValue({ data: mockResponse });
 
       const result = await securityHeadersApi.buildCSP(directives);
       expect(client.post).toHaveBeenCalledWith('/security/headers/csp/build', { directives });

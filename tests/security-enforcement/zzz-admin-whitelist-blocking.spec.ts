@@ -10,19 +10,26 @@
  * Recovery: Uses emergency reset in afterAll to unblock test IP.
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, request, APIRequestContext } from '@playwright/test';
+import { STORAGE_STATE } from '../constants';
 
 test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
   const EMERGENCY_TOKEN = process.env.CHARON_EMERGENCY_TOKEN;
   const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+  let apiContext: APIRequestContext;
 
-  test.beforeAll(() => {
+  test.beforeAll(async () => {
     if (!EMERGENCY_TOKEN) {
       throw new Error(
         'CHARON_EMERGENCY_TOKEN required for admin whitelist tests\n' +
         'Generate with: openssl rand -hex 32'
       );
     }
+
+    apiContext = await request.newContext({
+      baseURL: BASE_URL,
+      storageState: STORAGE_STATE,
+    });
   });
 
   test.afterAll(async ({ request }) => {
@@ -47,14 +54,18 @@ test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
     } catch (error) {
       console.error('Emergency reset error:', error);
     }
+
+    if (apiContext) {
+      await apiContext.dispose();
+    }
   });
 
-  test('Test 1: should block non-whitelisted IP when Cerberus enabled', async ({ request }) => {
+  test('Test 1: should block non-whitelisted IP when Cerberus enabled', async () => {
     // Use a fake whitelist IP that will never match the test runner
     const fakeWhitelist = '192.0.2.1/32'; // RFC 5737 TEST-NET-1 (documentation only)
 
     await test.step('Configure admin whitelist with non-matching IP', async () => {
-      const response = await request.patch(`${BASE_URL}/api/v1/security/acl`, {
+      const response = await apiContext.patch('/api/v1/security/acl', {
         data: {
           enabled: false, // Ensure disabled first
         },
@@ -62,7 +73,7 @@ test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
       expect(response.ok()).toBeTruthy();
 
       // Set the admin whitelist
-      const configResponse = await request.patch(`${BASE_URL}/api/v1/config`, {
+      const configResponse = await apiContext.patch('/api/v1/config', {
         data: {
           security: {
             admin_whitelist: fakeWhitelist,
@@ -73,7 +84,7 @@ test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
     });
 
     await test.step('Enable ACL - expect 403 because IP not in whitelist', async () => {
-      const response = await request.patch(`${BASE_URL}/api/v1/security/acl`, {
+      const response = await apiContext.patch('/api/v1/security/acl', {
         data: { enabled: true },
       });
 
@@ -85,13 +96,13 @@ test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
     });
   });
 
-  test('Test 2: should allow whitelisted IP to enable Cerberus', async ({ request }) => {
+  test('Test 2: should allow whitelisted IP to enable Cerberus', async () => {
     // Use localhost/Docker network IP that will match test runner
     // In Docker compose, Playwright runs from host connecting to localhost:8080
     const testWhitelist = '127.0.0.1/32,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8';
 
     await test.step('Configure admin whitelist with test IP ranges', async () => {
-      const response = await request.patch(`${BASE_URL}/api/v1/config`, {
+      const response = await apiContext.patch('/api/v1/config', {
         data: {
           security: {
             admin_whitelist: testWhitelist,
@@ -102,7 +113,7 @@ test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
     });
 
     await test.step('Enable ACL with whitelisted IP', async () => {
-      const response = await request.patch(`${BASE_URL}/api/v1/security/acl`, {
+      const response = await apiContext.patch('/api/v1/security/acl', {
         data: { enabled: true },
       });
       expect(response.ok()).toBeTruthy();
@@ -112,7 +123,7 @@ test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
     });
 
     await test.step('Verify ACL is enforcing', async () => {
-      const response = await request.get(`${BASE_URL}/api/v1/security/status`);
+      const response = await apiContext.get('/api/v1/security/status');
       expect(response.ok()).toBeTruthy();
 
       const body = await response.json();
@@ -131,7 +142,7 @@ test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
         data: { reason: 'Test setup - reset for emergency token test' },
       });
 
-      const response = await request.patch(`${BASE_URL}/api/v1/config`, {
+      const response = await apiContext.patch('/api/v1/config', {
         data: {
           security: {
             admin_whitelist: '192.0.2.1/32', // Fake IP
@@ -142,7 +153,7 @@ test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
     });
 
     await test.step('Enable ACL using emergency token despite IP mismatch', async () => {
-      const response = await request.patch(`${BASE_URL}/api/v1/security/acl`, {
+      const response = await apiContext.patch('/api/v1/security/acl', {
         data: { enabled: true },
         headers: {
           'X-Emergency-Token': EMERGENCY_TOKEN,

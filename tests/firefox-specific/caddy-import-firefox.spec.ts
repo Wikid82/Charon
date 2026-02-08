@@ -23,9 +23,10 @@ import { Page } from '@playwright/test';
 
 /**
  * Skip test if not running in Firefox
+ * REMOVED: Running all browser tests to identify true platform issues
  */
 function firefoxOnly(browserName: string) {
-  test.skip(browserName !== 'firefox', 'Firefox-specific test - skipping in other browsers');
+  // Previously called test.skip() - now disabled for full test suite execution
 }
 
 /**
@@ -98,7 +99,6 @@ test.describe('Caddy Import - Firefox-Specific @firefox-only', () => {
    * Ensures the Parse button has proper click handlers in Firefox
    */
   test('should have click handler attached to Parse button', async ({ page, adminUser, browserName }) => {
-    firefoxOnly(browserName);
 
     await test.step('Navigate to import page', async () => {
       await loginUser(page, adminUser);
@@ -145,7 +145,6 @@ test.describe('Caddy Import - Firefox-Specific @firefox-only', () => {
    * Firefox's event loop may expose race conditions in state updates
    */
   test('should handle rapid click and state updates', async ({ page, adminUser, browserName }) => {
-    firefoxOnly(browserName);
 
     await test.step('Navigate to import page', async () => {
       await loginUser(page, adminUser);
@@ -196,8 +195,6 @@ test.describe('Caddy Import - Firefox-Specific @firefox-only', () => {
    * Firefox has stricter CORS enforcement; verify no preflight issues
    */
   test('should handle CORS correctly (same-origin)', async ({ page, adminUser, browserName }) => {
-    firefoxOnly(browserName);
-
     await test.step('Navigate to import page', async () => {
       await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');
@@ -240,8 +237,6 @@ test.describe('Caddy Import - Firefox-Specific @firefox-only', () => {
    * Ensures Firefox sends auth cookies correctly with API requests
    */
   test('should send authentication cookies with requests', async ({ page, adminUser, browserName }) => {
-    firefoxOnly(browserName);
-
     await test.step('Navigate to import page', async () => {
       await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');
@@ -286,8 +281,6 @@ test.describe('Caddy Import - Firefox-Specific @firefox-only', () => {
    * Firefox must prevent duplicate API requests from rapid clicks
    */
   test('should prevent duplicate requests on double-click', async ({ page, adminUser, browserName }) => {
-    firefoxOnly(browserName);
-
     await test.step('Navigate to import page', async () => {
       await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');
@@ -334,8 +327,6 @@ test.describe('Caddy Import - Firefox-Specific @firefox-only', () => {
    * Verifies Firefox handles large Caddyfile uploads without lag or timeout
    */
   test('should handle large Caddyfile upload (10KB+)', async ({ page, adminUser, browserName }) => {
-    firefoxOnly(browserName);
-
     await test.step('Navigate to import page', async () => {
       await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');

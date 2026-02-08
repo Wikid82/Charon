@@ -26,6 +26,8 @@ const STORAGE_STATE = join(__dirname, 'playwright/.auth/user.json');
  * Only loaded when PLAYWRIGHT_COVERAGE=1
  */
 const enableCoverage = process.env.PLAYWRIGHT_COVERAGE === '1';
+const skipSecurityDeps = process.env.PLAYWRIGHT_SKIP_SECURITY_DEPS === '1';
+const browserDependencies = skipSecurityDeps ? ['setup'] : ['setup', 'security-tests'];
 
 const coverageReporterConfig = enableCoverage ? defineCoverageReporterConfig({
   sourceRoot: __dirname,
@@ -150,7 +152,10 @@ export default defineConfig({
      *
      * E2E tests verify UI/UX on the Charon management interface (port 8080).
      * Middleware enforcement is tested separately via integration tests (backend/integration/).
-     * CI can override with PLAYWRIGHT_BASE_URL environment variable if needed.
+     *
+     * For remote SSH development, use PLAYWRIGHT_BASE_URL with your Tailscale IP:
+     *   export PLAYWRIGHT_BASE_URL=http://100.98.12.109:9323
+     *   npx playwright test --ui
      *
      * IMPORTANT: Using 127.0.0.1 (IPv4 loopback) instead of localhost to avoid
      * IPv6/IPv4 resolution issues where Node.js/Playwright might prefer ::1 (IPv6)
@@ -227,7 +232,7 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup', 'security-tests'],
+      dependencies: browserDependencies,
       testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
     },
 
@@ -237,7 +242,7 @@ export default defineConfig({
         ...devices['Desktop Firefox'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup', 'security-tests'],
+      dependencies: browserDependencies,
       testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
     },
 
@@ -247,7 +252,7 @@ export default defineConfig({
         ...devices['Desktop Safari'],
         storageState: STORAGE_STATE,
       },
-      dependencies: ['setup', 'security-tests'],
+      dependencies: browserDependencies,
       testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
     },
 

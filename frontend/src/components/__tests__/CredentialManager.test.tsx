@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, type UseMutationResult } from '@tanstack/react-query'
 import CredentialManager from '../CredentialManager'
 import {
   useCredentials,
@@ -20,7 +20,7 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 import type { DNSProvider, DNSProviderTypeInfo } from '../../api/dnsProviders'
-import type { DNSProviderCredential } from '../../api/credentials'
+import type { CredentialRequest, CredentialTestResult, DNSProviderCredential } from '../../api/credentials'
 
 vi.mock('../../hooks/useCredentials')
 vi.mock('../../utils/toast', () => ({
@@ -87,6 +87,28 @@ const mockCredentials: DNSProviderCredential[] = [
   },
 ]
 
+const createCredentialsQueryResult = (
+  overrides: Record<string, unknown> = {}
+): ReturnType<typeof useCredentials> => ({
+  data: mockCredentials,
+  isLoading: false,
+  refetch: vi.fn(),
+  error: null,
+  isError: false,
+  isSuccess: true,
+  ...overrides,
+} as unknown as ReturnType<typeof useCredentials>)
+
+const createMutationResult = <TData, TVariables>(
+  mutateAsync: ReturnType<typeof vi.fn>,
+  overrides: Partial<UseMutationResult<TData, Error, TVariables, unknown>> = {}
+): UseMutationResult<TData, Error, TVariables, unknown> => ({
+  mutate: vi.fn() as UseMutationResult<TData, Error, TVariables, unknown>['mutate'],
+  mutateAsync: mutateAsync as UseMutationResult<TData, Error, TVariables, unknown>['mutateAsync'],
+  isPending: false,
+  ...overrides,
+} as UseMutationResult<TData, Error, TVariables, unknown>)
+
 const renderWithClient = (ui: React.ReactElement) => {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -99,7 +121,6 @@ const renderWithClient = (ui: React.ReactElement) => {
 
 describe('CredentialManager', () => {
   const mockOnOpenChange = vi.fn()
-  const mockRefetch = vi.fn()
   const mockCreateMutate = vi.fn()
   const mockUpdateMutate = vi.fn()
   const mockDeleteMutate = vi.fn()
@@ -108,34 +129,32 @@ describe('CredentialManager', () => {
   beforeEach(() => {
     vi.clearAllMocks()
 
-    vi.mocked(useCredentials).mockReturnValue({
-      data: mockCredentials,
-      isLoading: false,
-      refetch: mockRefetch,
-      error: null,
-      isError: false,
-      isSuccess: true,
-    } as any)
+    vi.mocked(useCredentials).mockReturnValue(createCredentialsQueryResult())
 
-    vi.mocked(useCreateCredential).mockReturnValue({
-      mutateAsync: mockCreateMutate,
-      isPending: false,
-    } as any)
+    vi.mocked(useCreateCredential).mockReturnValue(
+      createMutationResult<DNSProviderCredential, { providerId: number; data: CredentialRequest }>(
+        mockCreateMutate
+      )
+    )
 
-    vi.mocked(useUpdateCredential).mockReturnValue({
-      mutateAsync: mockUpdateMutate,
-      isPending: false,
-    } as any)
+    vi.mocked(useUpdateCredential).mockReturnValue(
+      createMutationResult<
+        DNSProviderCredential,
+        { providerId: number; credentialId: number; data: CredentialRequest }
+      >(mockUpdateMutate)
+    )
 
-    vi.mocked(useDeleteCredential).mockReturnValue({
-      mutateAsync: mockDeleteMutate,
-      isPending: false,
-    } as any)
+    vi.mocked(useDeleteCredential).mockReturnValue(
+      createMutationResult<void, { providerId: number; credentialId: number }>(
+        mockDeleteMutate
+      )
+    )
 
-    vi.mocked(useTestCredential).mockReturnValue({
-      mutateAsync: mockTestMutate,
-      isPending: false,
-    } as any)
+    vi.mocked(useTestCredential).mockReturnValue(
+      createMutationResult<CredentialTestResult, { providerId: number; credentialId: number }>(
+        mockTestMutate
+      )
+    )
   })
 
   // 1. Rendering Checks
@@ -350,14 +369,9 @@ describe('CredentialManager', () => {
 
   // 7. Empty Credential List Rendering
   it('renders empty state when no credentials exist', () => {
-    vi.mocked(useCredentials).mockReturnValue({
-      data: [],
-      isLoading: false,
-      refetch: mockRefetch,
-      error: null,
-      isError: false,
-      isSuccess: true,
-    } as any)
+    vi.mocked(useCredentials).mockReturnValue(
+      createCredentialsQueryResult({ data: [] })
+    )
 
     renderWithClient(
       <CredentialManager
@@ -375,14 +389,15 @@ describe('CredentialManager', () => {
 
   // 8. Loading State
   it('renders loading state while fetching credentials', () => {
-    vi.mocked(useCredentials).mockReturnValue({
-      data: [],
-      isLoading: true,
-      refetch: mockRefetch,
-      error: null,
-      isError: false,
-      isSuccess: false,
-    } as any)
+    vi.mocked(useCredentials).mockReturnValue(
+      createCredentialsQueryResult({
+        data: [],
+        isLoading: true,
+        isSuccess: false,
+        status: 'loading',
+        fetchStatus: 'fetching',
+      })
+    )
 
     renderWithClient(
       <CredentialManager
@@ -527,21 +542,16 @@ describe('CredentialManager', () => {
         key_version: 1,
         success_count: 5,
         failure_count: 2,
-        last_used_at: null,
-        last_error: null,
+        last_used_at: undefined,
+        last_error: undefined,
         created_at: '2025-01-02T00:00:00Z',
         updated_at: '2025-01-02T00:00:00Z',
       }
     ]
 
-    vi.mocked(useCredentials).mockReturnValue({
-      data: multipleCreds,
-      isLoading: false,
-      refetch: mockRefetch,
-      error: null,
-      isError: false,
-      isSuccess: true,
-    } as any)
+    vi.mocked(useCredentials).mockReturnValue(
+      createCredentialsQueryResult({ data: multipleCreds })
+    )
 
     renderWithClient(
       <CredentialManager
@@ -564,14 +574,9 @@ describe('CredentialManager', () => {
       enabled: false,
     }
 
-    vi.mocked(useCredentials).mockReturnValue({
-      data: [disabledCred],
-      isLoading: false,
-      refetch: mockRefetch,
-      error: null,
-      isError: false,
-      isSuccess: true,
-    } as any)
+    vi.mocked(useCredentials).mockReturnValue(
+      createCredentialsQueryResult({ data: [disabledCred] })
+    )
 
     renderWithClient(
       <CredentialManager
@@ -593,14 +598,9 @@ describe('CredentialManager', () => {
       last_error: 'API rate limit exceeded',
     }
 
-    vi.mocked(useCredentials).mockReturnValue({
-      data: [errorCred],
-      isLoading: false,
-      refetch: mockRefetch,
-      error: null,
-      isError: false,
-      isSuccess: true,
-    } as any)
+    vi.mocked(useCredentials).mockReturnValue(
+      createCredentialsQueryResult({ data: [errorCred] })
+    )
 
     renderWithClient(
       <CredentialManager

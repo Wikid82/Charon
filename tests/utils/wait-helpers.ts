@@ -237,6 +237,10 @@ export async function waitForLoadingComplete(
 ): Promise<void> {
   const { timeout = 10000 } = options;
 
+  if (page.isClosed()) {
+    return;
+  }
+
   // Wait for any loading indicator to disappear
   // Updated to be more specific and exclude pulsing UI badges
   const loader = page.locator([
@@ -252,7 +256,15 @@ export async function waitForLoadingComplete(
     '[role="status"][aria-label="Security Loading"]'
   ].join(', '));
 
-  await expect(loader).toHaveCount(0, { timeout });
+  try {
+    await expect(loader).toHaveCount(0, { timeout });
+  } catch (error) {
+    if (page.isClosed()) {
+      return;
+    }
+
+    throw error;
+  }
 }
 
 /**

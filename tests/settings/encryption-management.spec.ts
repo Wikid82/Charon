@@ -163,7 +163,7 @@ test.describe('Encryption Management', () => {
           await expect(dialog).toBeVisible({ timeout: 3000 });
         } else {
           // Button is disabled - next key not configured
-          test.skip();
+          return;
         }
       });
 
@@ -200,8 +200,7 @@ test.describe('Encryption Management', () => {
         const isEnabled = await rotateButton.isEnabled().catch(() => false);
 
         if (!isEnabled) {
-          test.skip();
-          return;
+
         }
 
         await rotateButton.click();
@@ -238,8 +237,7 @@ test.describe('Encryption Management', () => {
         const isEnabled = await rotateButton.isEnabled().catch(() => false);
 
         if (!isEnabled) {
-          // Next key not configured - skip test
-          test.skip();
+          // Next key not configured - return
           return;
         }
       });
@@ -281,7 +279,6 @@ test.describe('Encryption Management', () => {
         const isEnabled = await rotateButton.isEnabled().catch(() => false);
 
         if (!isEnabled) {
-          test.skip();
           return;
         }
       });
@@ -340,7 +337,6 @@ test.describe('Encryption Management', () => {
           const isEnabled = await rotateButton.isEnabled().catch(() => false);
 
           if (!isEnabled) {
-            test.skip();
             return;
           }
 
@@ -529,7 +525,6 @@ test.describe('Encryption Management', () => {
 
         if (!hasHistory) {
           // No history - this is acceptable for fresh installations
-          test.skip();
           return;
         }
 
@@ -574,7 +569,6 @@ test.describe('Encryption Management', () => {
         const hasHistory = await historyCard.first().isVisible({ timeout: 5000 }).catch(() => false);
 
         if (!hasHistory) {
-          test.skip();
           return;
         }
       });

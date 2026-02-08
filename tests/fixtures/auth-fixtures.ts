@@ -212,11 +212,40 @@ export async function loginUser(
   page: import('@playwright/test').Page,
   user: TestUser
 ): Promise<void> {
+  const loginPayload = { email: user.email, password: TEST_PASSWORD };
+  try {
+    const response = await page.request.post('/api/v1/auth/login', { data: loginPayload });
+    if (response.ok()) {
+      const storageState = await page.request.storageState();
+      if (storageState.cookies?.length) {
+        await page.context().addCookies(storageState.cookies);
+      }
+    }
+  } catch {
+  }
+
+  await page.goto('/');
+  if (!page.url().includes('/login')) {
+    await page.waitForLoadState('networkidle').catch(() => {});
+    return;
+  }
+
   await page.goto('/login');
   await page.locator('input[type="email"]').fill(user.email);
   await page.locator('input[type="password"]').fill(TEST_PASSWORD);
+
+  const loginResponsePromise = page.waitForResponse((response) =>
+    response.url().includes('/api/v1/auth/login')
+  );
   await page.getByRole('button', { name: /sign in/i }).click();
-  await page.waitForURL('/');
+
+  const loginResponse = await loginResponsePromise;
+  if (!loginResponse.ok()) {
+    const body = await loginResponse.text();
+    throw new Error(`Login failed: ${loginResponse.status()} - ${body}`);
+  }
+
+  await page.waitForURL(/\/(?:$|dashboard)/, { timeout: 15000 });
 }
 
 /**

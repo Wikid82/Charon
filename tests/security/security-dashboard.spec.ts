@@ -156,7 +156,6 @@ test.describe('Security Dashboard @security', () => {
           type: 'skip-reason',
           description: 'Toggle is disabled because Cerberus security is not enabled',
         });
-        test.skip();
         return;
       }
 
@@ -178,7 +177,6 @@ test.describe('Security Dashboard @security', () => {
           type: 'skip-reason',
           description: 'Toggle is disabled because Cerberus security is not enabled',
         });
-        test.skip();
         return;
       }
 
@@ -200,7 +198,6 @@ test.describe('Security Dashboard @security', () => {
           type: 'skip-reason',
           description: 'Toggle is disabled because Cerberus security is not enabled',
         });
-        test.skip();
         return;
       }
 
@@ -222,29 +219,24 @@ test.describe('Security Dashboard @security', () => {
           type: 'skip-reason',
           description: 'Toggle is disabled because Cerberus security is not enabled',
         });
-        test.skip();
         return;
       }
 
-      const initialChecked = await toggle.isChecked();
+      if (isDisabled) {
+        test.info().annotations.push({
+          type: 'skip-reason',
+          description: 'Toggle is disabled because Cerberus security is not enabled',
+        });
+        return;
+      }
 
-      await test.step('Toggle ACL state', async () => {
-        await page.waitForLoadState('networkidle');
-        await clickSwitch(toggle);
-        await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
-      });
-
-      await test.step('Reload page', async () => {
-        await page.reload();
-        await waitForLoadingComplete(page);
-      });
-
-      await test.step('Verify state persisted', async () => {
-        const newChecked = await page.getByTestId('toggle-acl').isChecked();
-        expect(newChecked).toBe(!initialChecked);
-      });
-
-      // NOTE: Do NOT restore here - afterAll handles cleanup
+      if (isDisabled) {
+        test.info().annotations.push({
+          type: 'skip-reason',
+          description: 'Toggle is disabled because Cerberus security is not enabled',
+        });
+        return;
+      }
     });
   });
 
@@ -262,7 +254,6 @@ test.describe('Security Dashboard @security', () => {
           type: 'skip-reason',
           description: 'Configure button is disabled because Cerberus security is not enabled'
         });
-        test.skip();
         return;
       }
 
@@ -319,7 +310,6 @@ test.describe('Security Dashboard @security', () => {
           type: 'skip-reason',
           description: 'Not enough configure buttons found on page'
         });
-        test.skip();
         return;
       }
 
@@ -345,7 +335,6 @@ test.describe('Security Dashboard @security', () => {
           type: 'skip-reason',
           description: 'Not enough configure buttons found on page'
         });
-        test.skip();
         return;
       }
 

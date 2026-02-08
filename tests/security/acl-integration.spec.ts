@@ -125,32 +125,20 @@ test.describe('Proxy + ACL Integration', () => {
       });
 
       await test.step('Select the ACL from dropdown', async () => {
-        // The ACL dropdown is a native select element. Find it by looking for Access Control label
-        // and then finding the adjacent combobox/select
-        const aclDropdown = page.locator(SELECTORS.aclSelectDropdown);
-        const aclCombobox = page.getByRole('combobox').filter({ hasText: /No Access Control|whitelist/i });
+        // Open the Radix UI Combobox
+        // Find the container div that has the label, then find the combobox within it
+        const aclTrigger = page.locator('[role="dialog"]').locator('div').filter({
+          has: page.getByText(/Access Control List|Access List/i)
+        }).locator('[role="combobox"]').first();
 
-        // Build the pattern to match the ACL name (which may have namespace prefix)
-        const aclNamePattern = aclConfig.name;
+        await expect(aclTrigger).toBeVisible();
+        await aclTrigger.click();
 
-        if (await aclDropdown.isVisible()) {
-          // Find option that contains the ACL name pattern
-          const option = aclDropdown.locator('option').filter({ hasText: aclNamePattern });
-          const optionValue = await option.getAttribute('value');
-          if (optionValue) {
-            await aclDropdown.selectOption({ value: optionValue });
-          }
-        } else if (await aclCombobox.first().isVisible()) {
-          // Find option that contains the ACL name pattern
-          const selectElement = aclCombobox.first();
-          const option = selectElement.locator('option').filter({ hasText: aclNamePattern });
-          const optionValue = await option.getAttribute('value');
-          if (optionValue) {
-            await selectElement.selectOption({ value: optionValue });
-          }
-        } else {
-          throw new Error('Could not find ACL dropdown');
-        }
+        // Select the specific ACL option
+        // We use filter({ hasText: ... }) to be robust against extra info in the option label
+        const aclOption = page.getByRole('option').filter({ hasText: aclConfig.name }).first();
+        await expect(aclOption).toBeVisible();
+        await aclOption.click();
       });
 
       await test.step('Save and verify success', async () => {
@@ -275,21 +263,18 @@ test.describe('Proxy + ACL Integration', () => {
       });
 
       await test.step('Clear ACL selection', async () => {
-        const aclDropdown = page.locator(SELECTORS.aclSelectDropdown);
-        const aclCombobox = page.getByRole('combobox').filter({ hasText: /No Access Control|whitelist/i });
+        // Open the Radix UI Combobox
+        const aclTrigger = page.locator('[role="dialog"]').locator('div').filter({
+          has: page.getByText(/Access Control List|Access List/i)
+        }).locator('[role="combobox"]').first();
 
-        if (await aclDropdown.isVisible()) {
-          await aclDropdown.selectOption({ value: '' });
-        } else if (await aclCombobox.first().isVisible()) {
-          // Select the "No Access Control (Public)" option (empty value)
-          await aclCombobox.first().selectOption({ index: 0 });
-        } else {
-          // Try clearing a combobox with a clear button
-          const clearButton = page.locator('[aria-label*="clear"], [data-testid="clear-acl"]');
-          if (await clearButton.isVisible()) {
-            await clearButton.click();
-          }
-        }
+        await expect(aclTrigger).toBeVisible();
+        await aclTrigger.click();
+
+        // Select the "No Access Control" option
+        const noAccessOption = page.getByRole('option').filter({ hasText: /No Access Control|Public/i }).first();
+        await expect(noAccessOption).toBeVisible();
+        await noAccessOption.click();
       });
 
       await test.step('Save changes', async () => {

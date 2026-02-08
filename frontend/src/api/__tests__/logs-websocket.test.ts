@@ -54,8 +54,7 @@ describe('logs API - connectLiveLogs', () => {
   beforeEach(() => {
     // Mock global WebSocket
     mockWebSocket = new MockWebSocket('');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (globalThis as any).WebSocket = class MockedWebSocket extends MockWebSocket {
+    (globalThis as typeof globalThis & { WebSocket: typeof WebSocket }).WebSocket = class MockedWebSocket extends MockWebSocket {
       constructor(url: string) {
         super(url);
         // eslint-disable-next-line @typescript-eslint/no-this-alias

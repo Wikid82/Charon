@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import userEvent from '@testing-library/user-event';
 import AccessListSelector from '../AccessListSelector';
 import * as useAccessListsHook from '../../hooks/useAccessLists';
 import type { AccessList } from '../../api/accessLists';
@@ -35,11 +36,12 @@ describe('AccessListSelector', () => {
       </Wrapper>
     );
 
-    expect(screen.getByRole('combobox')).toBeInTheDocument();
+    const trigger = screen.getByRole('combobox', { name: /Access Control List/i });
+    expect(trigger).toBeInTheDocument();
     expect(screen.getByText('No Access Control (Public)')).toBeInTheDocument();
   });
 
-  it('should render with access lists and show only enabled ones', () => {
+  it('should render with access lists and show only enabled ones', async () => {
     const mockLists: AccessList[] = [
       {
         id: 1,
@@ -75,6 +77,7 @@ describe('AccessListSelector', () => {
 
     const mockOnChange = vi.fn();
     const Wrapper = createWrapper();
+    const user = userEvent.setup();
 
     render(
       <Wrapper>
@@ -82,9 +85,11 @@ describe('AccessListSelector', () => {
       </Wrapper>
     );
 
-    expect(screen.getByRole('combobox')).toBeInTheDocument();
-    expect(screen.getByText('Test ACL 1 (whitelist)')).toBeInTheDocument();
-    expect(screen.queryByText('Test ACL 2 (blacklist)')).not.toBeInTheDocument();
+    const trigger = screen.getByRole('combobox', { name: /Access Control List/i });
+    await user.click(trigger);
+
+    expect(screen.getByRole('option', { name: 'Test ACL 1 (whitelist)' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Test ACL 2 (blacklist)' })).not.toBeInTheDocument();
   });
 
   it('should show selected ACL details', () => {

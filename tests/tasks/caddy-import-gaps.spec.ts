@@ -360,7 +360,7 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
   // Gap 4: Session Resume via Banner
   // =========================================================================
   test.describe('Session Resume via Banner', () => {
-    test.skip('4.1: should show pending session banner when returning to import page', async ({ page, testData }) => {
+    test('4.1: should show pending session banner when returning to import page', async ({ page, testData }) => {
       // SKIP: Browser-uploaded import sessions are transient (file-based only) and not persisted
       // to the database. The import-banner only appears for database-backed sessions or
       // Docker-mounted Caddyfiles. This tests an unimplemented feature for browser uploads.
@@ -409,7 +409,7 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       });
     });
 
-    test.skip('4.2: should restore review table with previous content when clicking Review Changes', async ({ page, testData }) => {
+    test('4.2: should restore review table with previous content when clicking Review Changes', async ({ page, testData }) => {
       // SKIP: Browser-uploaded import sessions are transient (file-based only) and not persisted
       // to the database. Session resume only works for Docker-mounted Caddyfiles.
       // See test 4.1 skip reason for details.

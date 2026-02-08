@@ -28,7 +28,7 @@
  * ```
  */
 
-import { APIRequestContext } from '@playwright/test';
+import { APIRequestContext, type APIResponse } from '@playwright/test';
 import * as crypto from 'crypto';
 
 /**
@@ -188,6 +188,67 @@ export class TestDataManager {
       .substring(0, 15);  // Keep short to avoid long domains
   }
 
+  private async postWithRetry(
+    url: string,
+    data: Record<string, unknown>,
+    options: {
+      maxAttempts?: number;
+      baseDelayMs?: number;
+      retryStatuses?: number[];
+    } = {}
+  ): Promise<APIResponse> {
+    const maxAttempts = options.maxAttempts ?? 4;
+    const baseDelayMs = options.baseDelayMs ?? 300;
+    const retryStatuses = options.retryStatuses ?? [429];
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const response = await this.request.post(url, { data });
+      if (!retryStatuses.includes(response.status()) || attempt === maxAttempts) {
+        return response;
+      }
+
+      const retryAfterHeader = response.headers()['retry-after'];
+      const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : Number.NaN;
+      const backoffMs = Number.isFinite(retryAfterSeconds)
+        ? retryAfterSeconds * 1000
+        : Math.round(baseDelayMs * Math.pow(2, attempt - 1));
+
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
+
+    return this.request.post(url, { data });
+  }
+
+  private async deleteWithRetry(
+    url: string,
+    options: {
+      maxAttempts?: number;
+      baseDelayMs?: number;
+      retryStatuses?: number[];
+    } = {}
+  ): Promise<APIResponse> {
+    const maxAttempts = options.maxAttempts ?? 4;
+    const baseDelayMs = options.baseDelayMs ?? 300;
+    const retryStatuses = options.retryStatuses ?? [429];
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const response = await this.request.delete(url);
+      if (!retryStatuses.includes(response.status()) || attempt === maxAttempts) {
+        return response;
+      }
+
+      const retryAfterHeader = response.headers()['retry-after'];
+      const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : Number.NaN;
+      const backoffMs = Number.isFinite(retryAfterSeconds)
+        ? retryAfterSeconds * 1000
+        : Math.round(baseDelayMs * Math.pow(2, attempt - 1));
+
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
+
+    return this.request.delete(url);
+  }
+
   /**
    * Create a proxy host with automatic cleanup tracking
    * @param data - Proxy host configuration
@@ -272,8 +333,10 @@ export class TestDataManager {
       payload.country_codes = data.countryCodes;
     }
 
-    const response = await this.request.post('/api/v1/access-lists', {
-      data: payload,
+    const response = await this.postWithRetry('/api/v1/access-lists', payload, {
+      maxAttempts: 4,
+      baseDelayMs: 300,
+      retryStatuses: [429],
     });
 
     if (!response.ok()) {
@@ -380,8 +443,12 @@ export class TestDataManager {
    * @param data - User configuration
    * @returns Created user details including auth token
    */
-  async createUser(data: UserData): Promise<UserResult> {
-    const namespacedEmail = `${this.namespace}+${data.email}`;
+  async createUser(
+    data: UserData,
+    options: { useNamespace?: boolean } = {}
+  ): Promise<UserResult> {
+    const useNamespace = options.useNamespace !== false;
+    const namespacedEmail = useNamespace ? `${this.namespace}+${data.email}` : data.email;
     const namespaced = {
       name: data.name,
       email: namespacedEmail,
@@ -389,8 +456,10 @@ export class TestDataManager {
       role: data.role,
     };
 
-    const response = await this.request.post('/api/v1/users', {
-      data: namespaced,
+    const response = await this.postWithRetry('/api/v1/users', namespaced, {
+      maxAttempts: 4,
+      baseDelayMs: 300,
+      retryStatuses: [429],
     });
 
     if (!response.ok()) {
@@ -462,7 +531,11 @@ export class TestDataManager {
     };
 
     const endpoint = endpoints[resource.type];
-    const response = await this.request.delete(endpoint);
+    const response = await this.deleteWithRetry(endpoint, {
+      maxAttempts: 4,
+      baseDelayMs: 300,
+      retryStatuses: [429],
+    });
 
     // 404 is acceptable - resource may have been deleted by another test
     if (!response.ok() && response.status() !== 404) {

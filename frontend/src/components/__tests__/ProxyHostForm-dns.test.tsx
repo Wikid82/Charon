@@ -81,6 +81,30 @@ vi.mock('../../hooks/useDNSProviders', () => ({
   })),
 }))
 
+vi.mock('../../hooks/useDNSDetection', () => ({
+  useDetectDNSProvider: vi.fn(() => ({
+    mutateAsync: vi.fn().mockResolvedValue({
+      domain: 'example.com',
+      detected: false,
+      nameservers: [],
+      confidence: 'none',
+    }),
+    isPending: false,
+    data: undefined,
+    reset: vi.fn(),
+  })),
+}))
+
+vi.mock('../../api/dnsDetection', () => ({
+  detectDNSProvider: vi.fn().mockResolvedValue({
+    domain: 'example.com',
+    detected: false,
+    nameservers: [],
+    confidence: 'none',
+  }),
+  getDetectionPatterns: vi.fn().mockResolvedValue([]),
+}))
+
 vi.mock('../../api/proxyHosts', () => ({
   testProxyHostConnection: vi.fn(),
 }))

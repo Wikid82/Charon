@@ -130,9 +130,10 @@ describe('api client', () => {
     expect(handler).toBeDefined()
 
     // Call handler with auth endpoint error to verify it skips the auth error handler
-    if (handler) {
-      await handler(error)
-    }
+    const resultPromise = handler ? handler(error) : Promise.reject(new Error('handler missing'))
+
+    await expect(resultPromise).rejects.toBe(error)
+    expect(onAuthError).not.toHaveBeenCalled()
 
     warnSpy.mockRestore()
   })

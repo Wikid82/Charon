@@ -923,7 +923,13 @@ export default function CrowdSecConfig() {
             </div>
           </div>
           <p className="text-sm text-gray-400">{t('crowdsecConfig.packages.description')}</p>
-          <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} data-testid="import-file" accept=".tar.gz,.zip" />
+          <input
+            type="file"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            data-testid="import-file"
+            accept=".tar.gz,.zip"
+            aria-label={t('crowdsecConfig.packages.selectFile') || "Select CrowdSec package"}
+          />
         </div>
       </Card>
 
@@ -940,6 +946,7 @@ export default function CrowdSecConfig() {
               <input
                 type="text"
                 placeholder={t('crowdsecConfig.presets.searchPlaceholder')}
+                aria-label={t('crowdsecConfig.presets.searchPlaceholder')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg pl-9 pr-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -947,6 +954,7 @@ export default function CrowdSecConfig() {
             </div>
             <select
               value={sortBy}
+              aria-label={t('crowdsecConfig.presets.sortBy') || "Sort presets"}
               onChange={(e) => setSortBy(e.target.value as 'alpha' | 'type' | 'source')}
               className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
             >
@@ -961,7 +969,16 @@ export default function CrowdSecConfig() {
                 <div
                   key={preset.slug}
                   onClick={() => setSelectedPresetSlug(preset.slug)}
-                  className={`p-3 cursor-pointer hover:bg-gray-800 border-b border-gray-800 last:border-0 ${
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setSelectedPresetSlug(preset.slug)
+                    }
+                  }}
+                  aria-pressed={selectedPresetSlug === preset.slug}
+                  className={`p-3 cursor-pointer hover:bg-gray-800 border-b border-gray-800 last:border-0 outline-none focus-visible:bg-gray-800 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${
                     selectedPresetSlug === preset.slug ? 'bg-blue-900/20 border-l-2 border-l-blue-500' : 'border-l-2 border-l-transparent'
                   }`}
                 >
@@ -1092,6 +1109,7 @@ export default function CrowdSecConfig() {
               value={selectedPath ?? ''}
               onChange={(e) => handleReadFile(e.target.value)}
               data-testid="crowdsec-file-select"
+              aria-label={t('crowdsecConfig.files.selectFile')}
             >
               <option value="">{t('crowdsecConfig.files.selectFile')}</option>
               {listMutation.data?.files?.map((f) => (
@@ -1100,7 +1118,13 @@ export default function CrowdSecConfig() {
             </select>
             <Button variant="secondary" onClick={() => listMutation.refetch()}>{t('crowdsecConfig.files.refresh')}</Button>
           </div>
-          <textarea value={fileContent ?? ''} onChange={(e) => setFileContent(e.target.value)} rows={12} className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-white" />
+          <textarea
+            value={fileContent ?? ''}
+            onChange={(e) => setFileContent(e.target.value)}
+            rows={12}
+            className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-white"
+            aria-label={t('crowdsecConfig.files.content') || "File content"}
+          />
           <div className="flex gap-2">
             <Button onClick={handleSaveFile} isLoading={writeMutation.isPending || backupMutation.isPending}>{t('common.save')}</Button>
             <Button variant="secondary" onClick={() => { setSelectedPath(null); setFileContent(null) }}>{t('common.close')}</Button>
@@ -1150,7 +1174,11 @@ export default function CrowdSecConfig() {
                 </thead>
                 <tbody>
                   {decisionsQuery.data.decisions.map((decision) => (
-                    <tr key={decision.id} className="border-b border-gray-800 hover:bg-gray-800/50">
+                    <tr
+                      key={decision.id}
+                      className="border-b border-gray-800 hover:bg-gray-800/50 focus:outline-none focus-visible:bg-gray-800 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+                      tabIndex={0}
+                    >
                       <td className="py-2 px-3 font-mono text-white">{decision.ip}</td>
                       <td className="py-2 px-3 text-gray-300">{decision.reason || '-'}</td>
                       <td className="py-2 px-3 text-gray-300">{decision.duration}</td>
@@ -1180,15 +1208,30 @@ export default function CrowdSecConfig() {
 
       {/* Ban IP Modal */}
       {showBanModal && (
-        <>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ban-modal-title"
+        >
           {/* Layer 1: Background overlay (z-40) */}
-          <div className="fixed inset-0 bg-black/60 z-40" onClick={() => setShowBanModal(false)} />
-          {/* Layer 2: Form container (z-50, pointer-events-none) */}
-          <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setShowBanModal(false)}
+            role="button"
+            tabIndex={-1}
+            aria-label={t('common.close')}
+          />
 
-            {/* Layer 3: Form content (pointer-events-auto) */}
-            <div className="bg-dark-card rounded-lg p-6 w-[480px] max-w-full pointer-events-auto">
-            <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+          {/* Layer 3: Form content (pointer-events-auto) */}
+          <div
+            className="relative bg-dark-card rounded-lg p-6 w-[480px] max-w-full shadow-xl"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setShowBanModal(false)
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) banMutation.mutate()
+            }}
+          >
+            <h3 id="ban-modal-title" className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
               <ShieldOff className="h-5 w-5 text-red-400" />
               {t('crowdsecConfig.banModal.title')}
             </h3>
@@ -1199,14 +1242,22 @@ export default function CrowdSecConfig() {
                 placeholder="192.168.1.100"
                 value={banForm.ip}
                 onChange={(e) => setBanForm({ ...banForm, ip: e.target.value })}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    if (banForm.ip.trim()) banMutation.mutate()
+                  }
+                }}
               />
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1.5" htmlFor="ban-duration">{t('crowdsecConfig.banModal.durationLabel')}</label>
                 <select
                   id="ban-duration"
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   value={banForm.duration}
                   onChange={(e) => setBanForm({ ...banForm, duration: e.target.value })}
+                  aria-label={t('crowdsecConfig.banModal.durationLabel')}
                 >
                   <option value="1h">{t('crowdsecConfig.banModal.duration1h')}</option>
                   <option value="4h">{t('crowdsecConfig.banModal.duration4h')}</option>
@@ -1225,6 +1276,13 @@ export default function CrowdSecConfig() {
                   rows={3}
                   value={banForm.reason}
                   onChange={(e) => setBanForm({ ...banForm, reason: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      if (banForm.ip.trim()) banMutation.mutate()
+                    }
+                  }}
+                  aria-label={t('crowdsecConfig.banModal.reasonLabel')}
                 />
               </div>
             </div>
@@ -1243,20 +1301,40 @@ export default function CrowdSecConfig() {
             </div>
           </div>
         </div>
-      </>
       )}
 
       {/* Unban Confirmation Modal */}
       {confirmUnban && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setConfirmUnban(null)} />
-          <div className="relative bg-dark-card rounded-lg p-6 w-[400px] max-w-full">
-            <h3 className="text-xl font-semibold text-white mb-4">{t('crowdsecConfig.unbanModal.title')}</h3>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="unban-modal-title"
+        >
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setConfirmUnban(null)}
+            role="button"
+            tabIndex={-1}
+            aria-label={t('common.close')}
+          />
+          <div
+            className="relative bg-dark-card rounded-lg p-6 w-[400px] max-w-full shadow-xl"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setConfirmUnban(null)
+              if (e.key === 'Enter') unbanMutation.mutate(confirmUnban.ip)
+            }}
+          >
+            <h3 id="unban-modal-title" className="text-xl font-semibold text-white mb-4">{t('crowdsecConfig.unbanModal.title')}</h3>
             <p className="text-gray-300 mb-6">
               {t('crowdsecConfig.unbanModal.confirm')} <span className="font-mono text-white">{confirmUnban.ip}</span>?
             </p>
             <div className="flex gap-3 justify-end">
-              <Button variant="secondary" onClick={() => setConfirmUnban(null)}>
+              <Button
+                variant="secondary"
+                onClick={() => setConfirmUnban(null)}
+                autoFocus
+              >
                 {t('common.cancel')}
               </Button>
               <Button

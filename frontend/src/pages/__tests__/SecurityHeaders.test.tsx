@@ -4,7 +4,11 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import SecurityHeaders from '../../pages/SecurityHeaders';
-import { securityHeadersApi, SecurityHeaderProfile } from '../../api/securityHeaders';
+import {
+  securityHeadersApi,
+  SecurityHeaderProfile,
+  type ScoreBreakdown,
+} from '../../api/securityHeaders';
 import { createBackup } from '../../api/backups';
 
 vi.mock('../../api/securityHeaders');
@@ -25,6 +29,48 @@ const createWrapper = () => {
     </QueryClientProvider>
   );
 };
+
+const createProfile = (
+  overrides: Partial<SecurityHeaderProfile> = {}
+): SecurityHeaderProfile => ({
+  id: 1,
+  uuid: 'profile-uuid-1',
+  name: 'Profile',
+  hsts_enabled: false,
+  hsts_max_age: 0,
+  hsts_include_subdomains: false,
+  hsts_preload: false,
+  csp_enabled: false,
+  csp_directives: '',
+  csp_report_only: false,
+  csp_report_uri: '',
+  x_frame_options: '',
+  x_content_type_options: false,
+  referrer_policy: '',
+  permissions_policy: '',
+  cross_origin_opener_policy: '',
+  cross_origin_resource_policy: '',
+  cross_origin_embedder_policy: '',
+  xss_protection: false,
+  cache_control_no_store: false,
+  security_score: 0,
+  is_preset: false,
+  preset_type: '',
+  description: '',
+  created_at: '2025-12-18T00:00:00Z',
+  updated_at: '2025-12-18T00:00:00Z',
+  ...overrides,
+});
+
+const createScoreBreakdown = (
+  overrides: Partial<ScoreBreakdown> = {}
+): ScoreBreakdown => ({
+  score: 50,
+  max_score: 100,
+  breakdown: {},
+  suggestions: [],
+  ...overrides,
+});
 
 describe('SecurityHeaders', () => {
   beforeEach(() => {
@@ -678,7 +724,15 @@ describe('SecurityHeaders', () => {
   it('should close create dialog on success', async () => {
     vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue([]);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
-    vi.mocked(securityHeadersApi.createProfile).mockResolvedValue({ id: 1, name: 'New Profile', security_score: 50, created_at: '', updated_at: '' } as any);
+    vi.mocked(securityHeadersApi.createProfile).mockResolvedValue(
+      createProfile({
+        id: 1,
+        name: 'New Profile',
+        security_score: 50,
+        created_at: '',
+        updated_at: '',
+      })
+    );
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
 
@@ -704,11 +758,19 @@ describe('SecurityHeaders', () => {
   });
 
   it('should close edit dialog on success', async () => {
-    const mockProfiles = [{ id: 1, name: 'Edit Me', is_preset: false, security_score: 50, updated_at: '2023-01-01' }];
-    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
+    const mockProfiles = [
+      createProfile({
+        id: 1,
+        name: 'Edit Me',
+        is_preset: false,
+        security_score: 50,
+        updated_at: '2023-01-01',
+      }),
+    ];
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
-    vi.mocked(securityHeadersApi.calculateScore).mockResolvedValue({ score: 50, max_score: 100, breakdown: {}, suggestions: [] } as any);
-    vi.mocked(securityHeadersApi.updateProfile).mockResolvedValue(mockProfiles[0] as any);
+    vi.mocked(securityHeadersApi.calculateScore).mockResolvedValue(createScoreBreakdown());
+    vi.mocked(securityHeadersApi.updateProfile).mockResolvedValue(mockProfiles[0]);
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
 
@@ -726,8 +788,16 @@ describe('SecurityHeaders', () => {
   });
 
   it('should handle delete failure', async () => {
-    const mockProfiles = [{ id: 1, name: 'Delete Me', is_preset: false, security_score: 50, updated_at: '2023-01-01' }];
-    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
+    const mockProfiles = [
+      createProfile({
+        id: 1,
+        name: 'Delete Me',
+        is_preset: false,
+        security_score: 50,
+        updated_at: '2023-01-01',
+      }),
+    ];
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
     vi.mocked(createBackup).mockResolvedValue({ filename: 'test-backup.tar.gz' });
     vi.mocked(securityHeadersApi.deleteProfile).mockRejectedValue(new Error('Delete failed'));
@@ -750,8 +820,16 @@ describe('SecurityHeaders', () => {
   });
 
   it('should handle backup failure during delete', async () => {
-    const mockProfiles = [{ id: 1, name: 'Delete Me', is_preset: false, security_score: 50, updated_at: '2023-01-01' }];
-    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
+    const mockProfiles = [
+      createProfile({
+        id: 1,
+        name: 'Delete Me',
+        is_preset: false,
+        security_score: 50,
+        updated_at: '2023-01-01',
+      }),
+    ];
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
     vi.mocked(createBackup).mockRejectedValue(new Error('Backup failed'));
 
@@ -773,8 +851,17 @@ describe('SecurityHeaders', () => {
   });
 
   it('should handle unknown preset types', async () => {
-    const mockProfiles = [{ id: 1, name: 'Weird Preset', is_preset: true, preset_type: 'unknown_type', security_score: 50, updated_at: '2023-01-01' }];
-    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
+    const mockProfiles = [
+      createProfile({
+        id: 1,
+        name: 'Weird Preset',
+        is_preset: true,
+        preset_type: 'unknown_type',
+        security_score: 50,
+        updated_at: '2023-01-01',
+      }),
+    ];
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
@@ -784,10 +871,20 @@ describe('SecurityHeaders', () => {
   });
 
   it('should handle cancel in edit dialog', async () => {
-    const mockProfiles = [{ id: 1, name: 'Edit Me', is_preset: false, security_score: 50, updated_at: '2023-01-01' }];
-    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
+    const mockProfiles = [
+      createProfile({
+        id: 1,
+        name: 'Edit Me',
+        is_preset: false,
+        security_score: 50,
+        updated_at: '2023-01-01',
+      }),
+    ];
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
-    vi.mocked(securityHeadersApi.calculateScore).mockResolvedValue({ score: 50 } as any);
+    vi.mocked(securityHeadersApi.calculateScore).mockResolvedValue(
+      createScoreBreakdown({ score: 50, max_score: 50 })
+    );
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
 
@@ -805,10 +902,20 @@ describe('SecurityHeaders', () => {
   });
 
   it('should handle delete from edit dialog', async () => {
-    const mockProfiles = [{ id: 1, name: 'Delete Me from Edit', is_preset: false, security_score: 50, updated_at: '2023-01-01' }];
-    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
+    const mockProfiles = [
+      createProfile({
+        id: 1,
+        name: 'Delete Me from Edit',
+        is_preset: false,
+        security_score: 50,
+        updated_at: '2023-01-01',
+      }),
+    ];
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
-    vi.mocked(securityHeadersApi.calculateScore).mockResolvedValue({ score: 50 } as any);
+    vi.mocked(securityHeadersApi.calculateScore).mockResolvedValue(
+      createScoreBreakdown({ score: 50, max_score: 50 })
+    );
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
 
