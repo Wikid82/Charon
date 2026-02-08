@@ -1,282 +1,302 @@
 ---
-title: "Migration to Alpine (Issue #631)"
+title: "CI Pipeline Consolidation"
 status: "draft"
-scope: "docker/alpine-migration"
-notes: This plan has yet to be finished. You may add to but,  ** DO NOT ** overwrite until completion of PR #666.
+scope: "ci/pipeline"
+notes: This plan replaces the current CI workflow chain with a single pipeline that supports PR triggers while keeping maintenance workflows scheduled.
 ---
 
 ## 1. Introduction
 
-This plan defines the migration of the Charon Docker image base from
-Debian Trixie Slim to Alpine Linux to address inherited glibc CVEs and
-reduce image size (Issue #631). The plan consolidates the prior Alpine
-migration research and translates it into a minimal-change, test-first
-implementation path aligned with current CI and container workflows.
+This plan consolidates the existing CI workflows into one pipeline
+workflow that can trigger on pull requests across branches (in addition
+to manual dispatch). The pipeline will run in a strict order defined by
+the user:
+lint, build, parallel integration prerequisites, E2E, parallel
+coverage, then security scans. All stages will consume the same built
+Docker image to ensure consistent test results.
+
+Maintenance workflows remain scheduled (nightly/weekly/Renovate/repo
+health) and are explicitly out of scope for trigger changes.
+
+Out of scope: Alpine migration. Any base-image migration work must be
+captured in a separate plan/spec.
 
 Objectives:
 
-- Replace Debian-based runtime with Alpine 3.23.x while maintaining
-  feature parity.
-- Eliminate Debian glibc HIGH CVEs in the runtime image.
-- Keep build stages compatible with multi-arch Buildx and existing
-  supply chain checks.
-- Validate DNS resolution, SQLite (CGO) behavior, and security suite
-  functionality under musl.
-- Review and update .gitignore, codecov.yml, .dockerignore, and
-  Dockerfile as needed.
+- Enable the pipeline to run on pull requests across branches in
+  addition to manual dispatch.
+- Create one pipeline workflow that sequences jobs in the requested
+  order with explicit dependencies.
+- Ensure all integration, E2E, coverage, and security checks use the
+  same image digest produced by the pipeline build job.
+- Push the pipeline image to Docker Hub and GHCR, but use Docker Hub as
+  the test image source.
+- Keep the E2E image tag unchanged from the current convention.
+- Align the pipeline with the current Definition of Done (DoD) by
+  mapping required checks into pipeline stages.
+- Preserve scheduled maintenance workflows and do not convert them to
+  manual-only triggers.
 
 ## 2. Research Findings
 
-### 2.1 Existing Plans and Security Context
+### 2.1 Current Workflow Topology
 
-- Alpine migration specification already exists and is comprehensive:
-  docs/plans/alpine_migration_spec.md.
-- Debian CVE acceptance is temporary and explicitly tied to Alpine
-  migration:
-  docs/security/VULNERABILITY_ACCEPTANCE.md.
-- Past Alpine-related issues and trade-offs are documented, including
-  musl DNS differences:
-  docs/analysis/crowdsec_integration_failure_analysis.md.
+The CI chain is currently split across multiple workflows linked by
+workflow_run triggers. The core files in scope are:
 
-### 2.2 Current Docker and CI Touchpoints
+- .github/workflows/docker-build.yml
+- .github/workflows/docker-lint.yml
+- .github/workflows/e2e-tests-split.yml
+- .github/workflows/quality-checks.yml
+- .github/workflows/codecov-upload.yml
+- .github/workflows/codeql.yml
+- .github/workflows/security-pr.yml
+- .github/workflows/supply-chain-pr.yml
+- .github/workflows/cerberus-integration.yml
+- .github/workflows/crowdsec-integration.yml
+- .github/workflows/waf-integration.yml
+- .github/workflows/rate-limit-integration.yml
+- .github/workflows/benchmark.yml
+- .github/workflows/supply-chain-verify.yml
 
-Primary files that must be considered for the migration:
+Several maintenance workflows also exist (nightly builds, weekly
+security rebuilds, repository health, Renovate automation). They are
+not part of the requested pipeline order and will remain scheduled
+with their existing triggers.
 
-- Dockerfile (multi-stage build with Debian runtime base).
-- .docker/docker-entrypoint.sh (uses user/group management and tools
-  that differ on Alpine).
-- .docker/compose/docker-compose.yml (image tag references).
-- .github/workflows/docker-build.yml (base image digest resolution and
-  build args).
-- .github/workflows/security-pr.yml and supply-chain-pr.yml (build and
-  scan behaviors depend on the container layout).
-- tools/dockerfile_check.sh (package manager validation).
+### 2.2 Current Image Tagging and Digest Sources
 
-### 2.3 Compatibility Summary (musl vs glibc)
+- docker-build.yml outputs a build digest from the buildx iidfile and
+  pushes images to GHCR and Docker Hub.
+- Tags currently include:
+  - pr-{number}-{short-sha} for PRs
+  - {sanitized-branch}-{short-sha} for feature branches
+  - latest/dev/nightly for main/development/nightly builds
+  - sha-{short-sha} for non-PR builds
+  - nightly branch tag (per user request) for nightly branch builds
 
-Based on alpine_migration_spec.md and current runtime behavior:
+### 2.3 Definition of Done (DoD) Alignment
 
-- Go services and Caddy/CrowdSec are Go binaries and compatible with
-  musl.
-- SQLite is CGO-backed; ensure CGO remains enabled and libsqlite3 is
-  available under musl, then validate runtime CRUD behavior.
-- DNS resolution differences are the primary operational risk;
-  mitigation is available via $GODEBUG=netdns=go.
-- Entrypoint uses Debian-specific user/group tools; Alpine requires
-  adduser/addgroup or the shadow package.
+The DoD requires E2E tests to run first, then security scans, pre-commit
+checks, static analysis, coverage gates, type checks, and build
+verification. The requested pipeline order differs by placing E2E after
+integration prerequisites and before coverage and security scans.
+
+Decision: the pipeline order is authoritative for CI. The DoD
+order remains guidance for local workflows, but CI ordering will follow
+the requested pipeline sequence and map required checks into stages.
 
 ## 3. Technical Specifications
 
-### 3.1 Target Base Image
+### 3.1 Workflow Trigger Strategy
 
-- Runtime base: alpine:3.23.x pinned by digest (Renovate-managed).
-- Build stages: switch to alpine-based golang/node images where required
-  to use apk/xx-apk consistently.
-- Build-stage images should be digest-pinned when feasible. If a digest
-  pin is not practical (e.g., multi-arch tag compatibility), document
-  the reason and keep the tag Renovate-managed.
+The new pipeline workflow will trigger on pull_request across branches
+and workflow_dispatch. Existing CI workflows listed in Section 2.1 will
+be converted to workflow_dispatch only (no PR triggers). Existing
+workflow_run triggers will be removed. Scheduled maintenance workflows
+will keep their schedules intact.
 
-### 3.2 Dockerfile Changes (Stage-by-Stage)
+### 3.2 New Pipeline Workflow
 
-Stages and expected changes (paths and stage names are current):
+Create a new workflow file that runs the entire pipeline in one run:
 
-1) gosu-builder (Dockerfile):
-   - Replace apt-get with apk.
-   - Replace xx-apt with xx-apk.
-   - Expected packages: git, clang, lld, gcc, musl-dev.
+- File: .github/workflows/ci-pipeline.yml
+- Trigger: workflow_dispatch and pull_request across branches
+- Inputs:
+  - image_tag_override (optional)
+  - run_coverage (boolean)
+  - run_security_scans (boolean)
+  - run_integration (boolean)
+  - run_e2e (boolean)
 
-2) frontend-builder (Dockerfile):
-   - Use node:24.x-alpine.
-   - Keep npm_config_rollup_skip_nodejs_native settings for cross-arch
-     builds.
+### 3.3 Job Order and Dependencies
 
-3) backend-builder (Dockerfile):
-   - Replace apt-get with apk.
-   - Replace xx-apt with xx-apk.
-   - Expected packages: clang, lld, gcc, musl-dev, sqlite-dev.
+The pipeline job graph will enforce the requested order.
 
-4) caddy-builder (Dockerfile):
-   - Replace apt-get with apk.
-   - Expected packages: git.
+Job dependency table:
 
-5) crowdsec-builder (Dockerfile):
-   - Replace apt-get with apk.
-   - Replace xx-apt with xx-apk.
-   - Expected packages: git, clang, lld, gcc, musl-dev.
+| Job | Purpose | Needs |
+| --- | --- | --- |
+| lint | Dockerfile lint, Go lint, frontend lint, repo health | none |
+| build-image | Build and push Docker image, emit digest | lint |
+| integration-cerberus | Cerberus integration tests | build-image |
+| integration-crowdsec | CrowdSec integration tests | build-image |
+| integration-waf | WAF integration tests | build-image |
+| integration-ratelimit | Rate limit integration tests | build-image |
+| e2e | Playwright E2E split workflow equivalent | integration-* |
+| coverage-backend | Go tests with coverage and Codecov upload | e2e |
+| coverage-frontend | Frontend tests with coverage and Codecov upload | e2e |
+| coverage-e2e | Optional E2E coverage job | e2e |
+| security-codeql | CodeQL Go and JS scans | coverage-* |
+| security-trivy | Trivy image scan | coverage-* |
+| security-supply-chain | SBOM generation and attestation | coverage-* |
 
-6) crowdsec-fallback (Dockerfile):
-   - Replace debian:trixie-slim with alpine:3.23.x.
-   - Use apk add curl ca-certificates (tar is provided by busybox).
+Integration jobs should run in parallel. Coverage and security jobs
+should run in parallel within their stages.
 
-7) final runtime stage (Dockerfile):
-   - Replace CADDY_IMAGE base from Debian to Alpine.
-   - Replace apt-get with apk add.
-   - Runtime packages: bash, ca-certificates, sqlite-libs, sqlite,
-     tzdata, curl, gettext, libcap, c-ares, binutils, libc-utils
-     (for getent), busybox-extras or coreutils (for timeout),
-     libcap-utils (for setcap).
-   - Add ENV GODEBUG=netdns=go to mitigate musl DNS edge cases.
+### 3.4 Shared Image Strategy
 
-### 3.3 Entrypoint Adjustments
+All downstream jobs must use the same image digest produced by the
+build-image job. The build-image job will output:
 
-File: .docker/docker-entrypoint.sh
+- image_digest: from docker/build-push-action or iidfile
+- image_ref: docker.io/wikid82/charon@sha256:...
+- image_ref_ghcr: ghcr.io/wikid82/charon@sha256:...
+- image_tag: pr-{number}-{short-sha} or sha-{short-sha}
 
-Functions and command usage that must be Alpine-safe:
+Downstream jobs will pull the image by digest to ensure immutability and
+retag it locally as charon:e2e-test for docker compose usage. For test
+stages, the image source registry must be Docker Hub even though GHCR is
+also pushed. The E2E image tag must remain unchanged from the current
+convention.
 
-- is_root(): no change.
-- run_as_charon(): no change.
-- Docker socket group handling:
-  - Replace groupadd/usermod with addgroup/adduser if shadow tools are
-    not installed.
-  - If using getent, ensure libc-utils is installed or implement a
-    /etc/group parsing fallback.
-- CrowdSec initialization:
-  - Ensure sed -i usage is compatible with busybox sed.
-  - Verify timeout is available (busybox provides timeout).
+### 3.5 Required File Updates
 
-### 3.4 CI and Workflow Updates
+Workflow updates to manual-only triggers:
 
-File: .github/workflows/docker-build.yml
+- .github/workflows/docker-build.yml
+- .github/workflows/docker-lint.yml
+- .github/workflows/e2e-tests-split.yml
+- .github/workflows/quality-checks.yml
+- .github/workflows/codecov-upload.yml
+- .github/workflows/codeql.yml
+- .github/workflows/security-pr.yml
+- .github/workflows/supply-chain-pr.yml
+- .github/workflows/cerberus-integration.yml
+- .github/workflows/crowdsec-integration.yml
+- .github/workflows/waf-integration.yml
+- .github/workflows/rate-limit-integration.yml
+- .github/workflows/benchmark.yml
+- .github/workflows/supply-chain-verify.yml
 
-- Replace "Resolve Debian base image digest" step to pull and resolve
-  alpine:3.23.x digest.
-- Update CADDY_IMAGE build-arg to use the Alpine digest.
-- Ensure buildx cache and tag logic remain unchanged.
+Workflow additions (PR + manual triggers):
 
-No changes are expected to security-pr.yml and supply-chain-pr.yml
-unless the container layout changes (paths used for binary extraction
-and SBOM remain consistent).
+- .github/workflows/ci-pipeline.yml
 
-### 3.5 Data Flow and Runtime Behavior
+Optional configuration updates if required for image reuse:
 
-```mermaid
-flowchart LR
-  A[Docker Build] --> B[Multi-stage build on Alpine]
-  B --> C[Runtime: alpine base + charon + caddy + crowdsec]
-  C --> D[Entrypoint initializes volumes, CrowdSec, Caddy]
-  D --> E[Charon API + UI]
-```
+- .docker/compose/docker-compose.playwright-ci.yml (use image ref or
+  tag via environment variable)
+- scripts/*.sh or .github/skills/scripts/skill-runner.sh, only if
+  necessary to accept image ref overrides
 
-### 3.6 Requirements (EARS Notation)
+### 3.6 Error Handling and Gates
 
-- WHEN the Docker image is built, THE SYSTEM SHALL use Alpine 3.23.x
-  as the runtime base image.
-- WHEN the container starts, THE SYSTEM SHALL create the charon user
-  and groups using Alpine-compatible tools.
-- WHEN DNS resolution is performed, THE SYSTEM SHALL use the Go DNS
-  resolver to avoid musl NSS limitations.
-- WHEN SQLite-backed operations run, THE SYSTEM SHALL read and write
-  data with CGO enabled and no schema errors under musl.
-- IF Alpine package CVEs reappear at HIGH or CRITICAL, THEN THE SYSTEM
-  SHALL fail the security gate and block release.
+- Fail fast in lint and build stages.
+- Integration, E2E, coverage, and security stages should fail the
+  pipeline if any job fails.
+- Preserve existing retry behavior for registry pushes and pulls.
 
-## 4. Implementation Plan (Minimal-Request Phases)
+### 3.7 Required Checks and Branch Protection
+
+- Add a pipeline summary job (e.g., pipeline-gate) that depends on all
+  pipeline jobs and fails if any required job fails.
+- Require the pipeline-gate status check in branch protection/rulesets
+  for main and release branches.
+- Pipeline workflows remain required by enforcing that the pipeline is
+  run against the merge commit or branch HEAD before merge.
+- Keep admin bypass disabled for protected branches unless explicitly
+  approved.
+
+### 3.7 Requirements (EARS Notation)
+
+- WHEN a user manually dispatches the pipeline or opens a pull request,
+  THE SYSTEM SHALL run the lint stage before any build or test jobs.
+- WHEN the build stage completes, THE SYSTEM SHALL publish a single
+  image digest that all later jobs consume.
+- WHEN any integration test fails, THE SYSTEM SHALL stop the pipeline
+  before E2E execution.
+- WHEN E2E completes, THE SYSTEM SHALL run coverage jobs in parallel.
+- WHEN coverage completes, THE SYSTEM SHALL run security scans in
+  parallel using the same image digest.
+- WHEN the pipeline pushes images, THE SYSTEM SHALL push to Docker Hub
+  and GHCR but use Docker Hub as the test image source.
+- WHEN E2E runs, THE SYSTEM SHALL keep the existing E2E image tag and
+  preserve the security shard as a separate shard with the current
+  timeout-safe layout.
+- IF any required DoD check fails, THEN THE SYSTEM SHALL fail the
+  pipeline and report the failing stage.
+
+## 4. Implementation Plan
 
 ### Phase 1: Playwright Tests (Behavior Baseline)
 
-- Rebuild the E2E container when Docker build inputs change, then run
-  E2E smoke tests before any unit or integration tests to establish the
-  UI baseline (tests/). Focus on login, proxy host CRUD, security
-  toggles.
-- Record baseline timings for key flows to compare after migration.
+- Validate the existing Playwright suites used by e2e-tests-split.yml
+  can run under the new pipeline using the shared image digest.
+- Confirm the E2E stage still honors security and non-security shards
+  and that Cerberus toggle logic is preserved.
 
-### Phase 2: Backend Implementation (Runtime and Container)
+### Phase 2: Backend and CI Workflow Refactor
 
-- Update Dockerfile stages to Alpine equivalents (see Section 3.2).
-- Update .docker/docker-entrypoint.sh for Alpine user/group commands and
-  tool availability (see Section 3.3).
-- Add ENV GODEBUG=netdns=go to Dockerfile runtime stage.
-- Update tools/dockerfile_check.sh to validate apk and xx-apk usage in
-  Alpine-based stages, replacing any Debian-specific checks.
-- Run tools/dockerfile_check.sh and capture results for apk/xx-apk
-  verification.
-- Validate crowdsec and caddy binaries remain in the same paths:
-  /usr/bin/caddy, /usr/local/bin/crowdsec, /usr/local/bin/cscli.
+- Add the new pipeline workflow file.
+- Modify existing CI workflows in Section 3.5 to use workflow_dispatch
+  only (no pull_request triggers).
+- Move the docker-build logic into the pipeline build-image job and
+  export digest and tag outputs.
+- Update integration job steps to consume the digest and retag locally
+  as needed for existing scripts.
 
-### Phase 3: Frontend Implementation
+### Phase 3: Frontend and E2E Workflow Refactor
 
-- No application-level frontend changes expected.
-- Ensure frontend build stage uses node:24.x-alpine in Dockerfile.
+- Update the E2E steps to pull the Docker Hub digest and retag to
+  charon:e2e-test before docker compose starts.
+- Ensure environment variables or compose overrides reference the
+  shared image and keep the E2E tag unchanged.
+- Preserve E2E sharding so the security shard remains separate and the
+  shard layout avoids timeouts.
 
-### Phase 4: Integration and Testing
+### Phase 4: Coverage and Security Stage Consolidation
 
-- Rebuild E2E container and run Playwright suite (Docker mode).
-- Run targeted integration tests:
-  - CrowdSec integration workflows.
-  - WAF and rate-limit workflows.
-- Validate DNS challenges for at least one provider (Cloudflare).
-- Validate SQLite CGO operations using health endpoints and basic CRUD.
-- Validate multi-arch Buildx output and supply-chain workflows for the
-  Docker image:
-  - .github/workflows/docker-build.yml
-  - .github/workflows/security-pr.yml
-  - .github/workflows/supply-chain-pr.yml
-- Run Trivy image scan and verify no HIGH/CRITICAL findings.
+- Replace codecov-upload.yml and codeql.yml with pipeline jobs that run
+  after E2E completion.
+- Ensure Codecov uploads and CodeQL scans run with the same code
+  checkout and digest metadata for traceability.
 
-### Phase 5: Documentation and Deployment
+### Phase 5: Documentation and DoD Alignment
 
-- Update ARCHITECTURE.md to reflect Alpine base image.
-- Update docs/security/VULNERABILITY_ACCEPTANCE.md to close the Debian
-  CVE acceptance and note Alpine status.
-- Update any Docker guidance in README or .docker/README.md if it
-  references Debian.
+- Update docs/plans/current_spec.md with the final pipeline plan.
+- Document the DoD ordering impact and confirm whether the DoD should
+  be updated to match the new pipeline order or the pipeline should
+  adapt to the DoD ordering.
 
-## 5. Config Hygiene Review (Requested Files)
+### Phase 6: Branch Protection Updates
 
-### 5.1 .gitignore
+- Update branch protection/rulesets to require the pipeline-gate check.
+- Document the manual pipeline run requirement for PR validation.
 
-- No new ignore patterns required for Alpine migration.
-- Verify no new build artifacts are introduced (apk cache is in-image
-  only).
+## 5. Acceptance Criteria
 
-### 5.2 .dockerignore
+- The pipeline workflow triggers via pull_request across branches and
+  workflow_dispatch.
+- All CI workflows listed in Section 3.5 trigger via
+  workflow_dispatch only and no longer use workflow_run or
+  pull_request.
+- Maintenance workflows (nightly/weekly/Renovate/repo health) retain
+  their scheduled triggers and are not changed to PR/manual-only.
+- The new pipeline workflow runs lint, build, integration, E2E,
+  coverage, and security stages in the requested order.
+- Integration, E2E, coverage, and security jobs consume the same image
+  digest produced by the build stage.
+- The pipeline exposes image_digest and image_ref outputs for audit
+  and debugging.
+- All DoD-required checks are represented in the pipeline and fail the
+  run when they do not pass.
+- The pipeline pushes images to Docker Hub and GHCR, and test stages
+  pull from Docker Hub.
+- E2E sharding keeps the security shard separate and retains the
+  timeout-safe shard layout.
+- The nightly branch tag remains part of the image tagging scheme.
+## 6. Risks and Mitigations
 
-- No changes required; keep excluding docs and CI artifacts to minimize
-  build context size.
+ - Risk: PR-triggered pipeline increases CI load and could cause noisy
+   failures on draft or experimental branches.
+  - Mitigation: keep legacy workflows manual-only, enforce the
+    pipeline-gate required check, and allow maintainers to re-run the
+    pipeline as needed.
 
-### 5.3 codecov.yml
+## 7. Confidence Score
 
-- No changes required; migration does not add new code paths that should
-  be excluded from coverage.
+Confidence: 86 percent
 
-### 5.4 Dockerfile (Required)
-
-- Update base images and package manager usage per Section 3.2.
-- Add GODEBUG=netdns=go in runtime stage.
-- Replace useradd/groupadd with adduser/addgroup or add shadow tools if
-  preferred.
-
-## 6. Acceptance Criteria
-
-- The Docker image builds on Alpine with no build-stage failures.
-- Runtime container starts with non-root user and no permission errors.
-- All Playwright E2E tests pass against the Alpine-based container.
-- Integration tests (CrowdSec, WAF, Rate Limit) pass without regressions.
-- Trivy image scan reports zero HIGH/CRITICAL CVEs in the runtime image.
-- tools/dockerfile_check.sh passes with apk and xx-apk checks for all
-  Alpine-based stages.
-- Multi-arch Buildx validation succeeds and supply-chain workflows
-  (docker-build.yml, security-pr.yml, supply-chain-pr.yml) complete with
-  no regressions.
-- ARCHITECTURE.md and security acceptance docs reflect Alpine as the
-  runtime base.
-
-## 7. Risks and Mitigations
-
-- Risk: musl DNS resolver differences cause ACME or webhook failures.
-  - Mitigation: set GODEBUG=netdns=go and run DNS provider tests.
-
-- Risk: Alpine user/group tooling mismatch breaks Docker socket handling.
-  - Mitigation: adjust entrypoint to use adduser/addgroup or install
-    shadow tools and libc-utils for getent.
-
-- Risk: SQLite CGO compatibility issues.
-  - Mitigation: run database integrity checks and CRUD tests.
-
-## 8. Confidence Score
-
-Confidence: 84 percent
-
-Rationale: Alpine migration has a detailed existing spec and low code
-surface change, but runtime differences (musl DNS, user/group tooling)
-require careful validation.
+Rationale: Manual pipeline consolidation is well scoped, but requires
+careful coordination with branch protection and required checks.

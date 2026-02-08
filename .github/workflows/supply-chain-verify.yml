@@ -1,26 +1,9 @@
 name: Supply Chain Verification
 
 on:
-  release:
-    types: [published]
-
-  # Triggered after docker-build workflow completes
-  # Note: workflow_run can only chain 3 levels deep; we're at level 2 (safe)
-  #
-  # IMPORTANT: No branches filter here by design
-  # GitHub Actions limitation: branches filter in workflow_run only matches the default branch.
-  # Without a filter, this workflow triggers for ALL branches where docker-build completes,
-  # providing proper supply chain verification coverage for feature branches and PRs.
-  # Security: The workflow file must exist on the branch to execute, preventing untrusted code.
-  workflow_run:
-    workflows: ["Docker Build, Publish & Test"]
-    types: [completed]
-
-  schedule:
-    # Run weekly on Mondays at 00:00 UTC
-    - cron: '0 0 * * 1'
-
   workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 1' # Mondays 00:00 UTC
 
 permissions:
   contents: read
@@ -39,8 +22,8 @@ jobs:
     if: |
       (github.event_name != 'schedule' || github.ref == 'refs/heads/main') &&
       (github.event_name != 'workflow_run' ||
-        (github.event.workflow_run.conclusion == 'success' &&
-         github.event.workflow_run.event != 'pull_request'))
+        (github.event.workflow_run.event != 'pull_request' &&
+         (github.event.workflow_run.status != 'completed' || github.event.workflow_run.conclusion == 'success')))
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2

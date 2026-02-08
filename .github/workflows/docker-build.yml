@@ -21,17 +21,7 @@ name: Docker Build, Publish & Test
 # See: docs/plans/current_spec.md (Section 4.1 - docker-build.yml changes)
 
 on:
-  workflow_run:
-    workflows: [Docker Lint]
-    types:
-      - completed
-    branches:
-      - main
-      - development
-      - 'feature/**'
-      - 'hotfix/**'
   workflow_dispatch:
-  workflow_call:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
