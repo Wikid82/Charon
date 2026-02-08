@@ -95,6 +95,8 @@ COPY --from=xx / /
 
 WORKDIR /app/backend
 
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
+
 # Install build dependencies
 # xx-apk installs packages for the TARGET architecture
 ARG TARGETPLATFORM
@@ -103,9 +105,27 @@ ARG TARGETARCH
 RUN apk add --no-cache clang lld
 # hadolint ignore=DL3059
 # hadolint ignore=DL3018
-# Install both musl-dev (headers) and musl (runtime library) for cross-compilation linker
-# The musl runtime library is required by the linker for the target architecture
+# Install musl (headers + runtime) and gcc for cross-compilation linker
+# The musl runtime library and gcc crt/libgcc are required by the linker
 RUN xx-apk add --no-cache gcc musl-dev musl sqlite-dev
+
+# Ensure the ARM64 musl loader exists for qemu-aarch64 cross-linking
+# Without this, the linker fails with: qemu-aarch64: Could not open '/lib/ld-musl-aarch64.so.1'
+RUN set -eux; \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        LOADER="/lib/ld-musl-aarch64.so.1"; \
+        LOADER_PATH="$LOADER"; \
+        if [ ! -e "$LOADER" ]; then \
+            FOUND="$(find / -path '*/ld-musl-aarch64.so.1' -type f 2>/dev/null | head -n 1)"; \
+            if [ -n "$FOUND" ]; then \
+                mkdir -p /lib; \
+                ln -sf "$FOUND" "$LOADER"; \
+                LOADER_PATH="$FOUND"; \
+            fi; \
+        fi; \
+        echo "Using musl loader at: $LOADER_PATH"; \
+        test -e "$LOADER"; \
+    fi
 
 # Install Delve (cross-compile for target)
 # Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
@@ -136,24 +156,32 @@ ARG BUILD_DEBUG=0
 # Build the Go binary with version information injected via ldflags
 # xx-go handles CGO and cross-compilation flags automatically
 # Note: Go 1.25 defaults to gold linker for ARM64, but clang doesn't support -fuse-ld=gold
-# We override with -extldflags=-fuse-ld=bfd to use the BFD linker for cross-compilation
+# Use lld for ARM64 cross-linking; keep bfd for amd64 to preserve prior behavior
+# PIE is required for arm64 cross-linking with lld to avoid relocation conflicts under
+# QEMU emulation and improves security posture.
 # When BUILD_DEBUG=1, we preserve debug symbols (no -s -w) and disable optimizations
 # for Delve debugging. Otherwise, strip symbols for smaller production binaries.
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
+    EXT_LD_FLAGS="-fuse-ld=bfd"; \
+    BUILD_MODE=""; \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        EXT_LD_FLAGS="-fuse-ld=lld"; \
+        BUILD_MODE="-buildmode=pie"; \
+    fi; \
     if [ "$BUILD_DEBUG" = "1" ]; then \
         echo "Building with debug symbols for Delve..."; \
-        CGO_ENABLED=1 xx-go build \
+        CGO_ENABLED=1 CC=xx-clang CXX=xx-clang++ xx-go build ${BUILD_MODE} \
             -gcflags="all=-N -l" \
-            -ldflags "-extldflags=-fuse-ld=bfd \
+            -ldflags "-extldflags=${EXT_LD_FLAGS} \
                       -X github.com/Wikid82/charon/backend/internal/version.Version=${VERSION} \
                       -X github.com/Wikid82/charon/backend/internal/version.GitCommit=${VCS_REF} \
                       -X github.com/Wikid82/charon/backend/internal/version.BuildTime=${BUILD_DATE}" \
             -o charon ./cmd/api; \
     else \
         echo "Building optimized production binary..."; \
-        CGO_ENABLED=1 xx-go build \
-            -ldflags "-s -w -extldflags=-fuse-ld=bfd \
+        CGO_ENABLED=1 CC=xx-clang CXX=xx-clang++ xx-go build ${BUILD_MODE} \
+            -ldflags "-s -w -extldflags=${EXT_LD_FLAGS} \
                       -X github.com/Wikid82/charon/backend/internal/version.Version=${VERSION} \
                       -X github.com/Wikid82/charon/backend/internal/version.GitCommit=${VCS_REF} \
                       -X github.com/Wikid82/charon/backend/internal/version.BuildTime=${BUILD_DATE}" \
