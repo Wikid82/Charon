@@ -45,8 +45,10 @@ ARG TARGETARCH
 # renovate: datasource=github-releases depName=tianon/gosu
 ARG GOSU_VERSION=1.17
 
+# hadolint ignore=DL3018
 RUN apk add --no-cache git clang lld
 # hadolint ignore=DL3059
+# hadolint ignore=DL3018
 RUN xx-apk add --no-cache gcc musl-dev
 
 # Clone and build gosu from source with modern Go
@@ -96,8 +98,10 @@ WORKDIR /app/backend
 # xx-apk installs packages for the TARGET architecture
 ARG TARGETPLATFORM
 ARG TARGETARCH
+# hadolint ignore=DL3018
 RUN apk add --no-cache clang lld
 # hadolint ignore=DL3059
+# hadolint ignore=DL3018
 RUN xx-apk add --no-cache gcc musl-dev sqlite-dev
 
 # Install Delve (cross-compile for target)
@@ -164,6 +168,7 @@ ARG CADDY_VERSION
 # renovate: datasource=go depName=github.com/caddyserver/xcaddy
 ARG XCADDY_VERSION=0.4.5
 
+# hadolint ignore=DL3018
 RUN apk add --no-cache git
 # hadolint ignore=DL3062
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -235,8 +240,10 @@ ARG CROWDSEC_VERSION=1.7.6
 # CrowdSec fallback tarball checksum (v${CROWDSEC_VERSION})
 ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
 
+# hadolint ignore=DL3018
 RUN apk add --no-cache git clang lld
 # hadolint ignore=DL3059
+# hadolint ignore=DL3018
 RUN xx-apk add --no-cache gcc musl-dev
 
 # Clone CrowdSec source
@@ -280,6 +287,8 @@ RUN mkdir -p /crowdsec-out/config && \
 # renovate: datasource=docker depName=alpine versioning=docker
 FROM alpine:3.23.3 AS crowdsec-fallback
 
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
+
 WORKDIR /tmp/crowdsec
 
 ARG TARGETARCH
@@ -288,6 +297,7 @@ ARG TARGETARCH
 ARG CROWDSEC_VERSION=1.7.6
 ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
 
+# hadolint ignore=DL3018
 RUN apk add --no-cache curl ca-certificates
 
 # Download static binaries as fallback (only available for amd64)
@@ -321,6 +331,7 @@ WORKDIR /app
 # Note: gosu is now built from source (see gosu-builder stage) to avoid CVEs from Debian's pre-compiled version
 # Explicitly upgrade packages to fix security vulnerabilities
 # binutils provides objdump for debug symbol detection in docker-entrypoint.sh
+# hadolint ignore=DL3018
 RUN apk add --no-cache \
     bash ca-certificates sqlite-libs sqlite tzdata curl gettext libcap libcap-utils \
     c-ares binutils libc-utils busybox-extras
@@ -334,26 +345,38 @@ RUN chmod +x /usr/sbin/gosu
 RUN addgroup -g 1000 -S charon && \
     adduser -u 1000 -S -G charon -h /app -s /sbin/nologin charon
 
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
+
 # Download MaxMind GeoLite2 Country database
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
 ARG GEOLITE2_COUNTRY_SHA256=62e263af0a2ee10d7ae6b8bf2515193ff496197ec99ff25279e5987e9bd67f39
 RUN mkdir -p /app/data/geoip && \
-    if [ -n "$CI" ]; then \
-      echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
-      curl -fSL -m 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-        -o /app/data/geoip/GeoLite2-Country.mmdb 2>/dev/null && \
-        echo "✅ GeoIP downloaded" || \
-        (echo "⚠️  GeoIP skipped" && touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder); \
-    else \
-      echo "Local - full download (30s timeout, 3 retries)"; \
-      curl -fSL -m 30 --retry 3 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-        -o /app/data/geoip/GeoLite2-Country.mmdb && \
-      (echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c - || \
-       (echo "⚠️  Checksum failed" && touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder)) || \
-      (echo "⚠️  Download failed" && touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder); \
-    fi
+        if [ -n "$CI" ]; then \
+            echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
+            if curl -fSL -m 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
+                -o /app/data/geoip/GeoLite2-Country.mmdb 2>/dev/null; then \
+                echo "✅ GeoIP downloaded"; \
+            else \
+                echo "⚠️  GeoIP skipped"; \
+                touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder; \
+            fi; \
+        else \
+            echo "Local - full download (30s timeout, 3 retries)"; \
+            if curl -fSL -m 30 --retry 3 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
+                -o /app/data/geoip/GeoLite2-Country.mmdb; then \
+                if echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c -; then \
+                    echo "✅ GeoIP checksum verified"; \
+                else \
+                    echo "⚠️  Checksum failed"; \
+                    touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder; \
+                fi; \
+            else \
+                echo "⚠️  Download failed"; \
+                touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder; \
+            fi; \
+        fi
 
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
