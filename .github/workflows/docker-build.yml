@@ -137,35 +137,45 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Phase 1: Compute sanitized feature branch tags with SHA suffix
-      # Implements tag sanitization per spec Section 3.2
-      # Format: {sanitized-branch-name}-{short-sha} (e.g., feature-dns-provider-abc1234)
-      - name: Compute feature branch tag
-        if: steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT != 'pull_request' && startsWith(env.TRIGGER_REF, 'refs/heads/feature/')
-        id: feature-tag
+      - name: Compute branch tags
+        if: steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT != 'pull_request'
+        id: branch-tags
         run: |
           BRANCH_NAME="${TRIGGER_REF#refs/heads/}"
           SHORT_SHA="$(echo ${{ env.TRIGGER_HEAD_SHA }} | cut -c1-7)"
 
-          # Sanitization algorithm per spec Section 3.2:
-          # 1. Convert to lowercase
-          # 2. Replace '/' with '-'
-          # 3. Replace special characters with '-'
-          # 4. Remove leading/trailing '-'
-          # 5. Collapse consecutive '-'
-          # 6. Truncate to 121 chars (leave room for -{sha})
-          # 7. Append '-{short-sha}' for uniqueness
-          SANITIZED=$(echo "${BRANCH_NAME}" | \
-            tr '[:upper:]' '[:lower:]' | \
-            tr '/' '-' | \
-            sed 's/[^a-z0-9._-]/-/g' | \
-            sed 's/^-//; s/-$//' | \
-            sed 's/--*/-/g' | \
-            cut -c1-121)
+          sanitize_tag() {
+            local raw="$1"
+            local max_len="$2"
 
-          FEATURE_TAG="${SANITIZED}-${SHORT_SHA}"
-          echo "tag=${FEATURE_TAG}" >> $GITHUB_OUTPUT
-          echo "📦 Computed feature branch tag: ${FEATURE_TAG}"
+            local sanitized
+            sanitized=$(echo "$raw" | tr '[:upper:]' '[:lower:]')
+            sanitized=$(echo "$sanitized" | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g')
+            sanitized=$(echo "$sanitized" | sed 's/^[^a-z0-9]*//' | sed 's/[^a-z0-9-]*$//')
+
+            if [ -z "$sanitized" ]; then
+              sanitized="branch"
+            fi
+
+            sanitized=$(echo "$sanitized" | cut -c1-"$max_len")
+            sanitized=$(echo "$sanitized" | sed 's/^[^a-z0-9]*//')
+            if [ -z "$sanitized" ]; then
+              sanitized="branch"
+            fi
+
+            echo "$sanitized"
+          }
+
+          SANITIZED_BRANCH=$(sanitize_tag "${BRANCH_NAME}" 128)
+          BASE_BRANCH=$(sanitize_tag "${BRANCH_NAME}" 120)
+          BRANCH_SHA_TAG="${BASE_BRANCH}-${SHORT_SHA}"
+
+          echo "branch_sha_tag=${BRANCH_SHA_TAG}" >> $GITHUB_OUTPUT
+
+          if [[ "$TRIGGER_REF" == refs/heads/feature/* ]]; then
+            echo "feature_branch_tag=${SANITIZED_BRANCH}" >> $GITHUB_OUTPUT
+            echo "feature_branch_sha_tag=${BRANCH_SHA_TAG}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Generate Docker metadata
         id: meta
@@ -178,18 +188,20 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ env.TRIGGER_REF == 'refs/heads/main' }}
             type=raw,value=dev,enable=${{ env.TRIGGER_REF == 'refs/heads/development' }}
-            type=raw,value=${{ steps.feature-tag.outputs.tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && startsWith(env.TRIGGER_REF, 'refs/heads/feature/') && steps.feature-tag.outputs.tag != '' }}
+            type=raw,value=nightly,enable=${{ env.TRIGGER_REF == 'refs/heads/nightly' }}
+            type=raw,value=${{ steps.branch-tags.outputs.feature_branch_tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && startsWith(env.TRIGGER_REF, 'refs/heads/feature/') && steps.branch-tags.outputs.feature_branch_tag != '' }}
+            type=raw,value=${{ steps.branch-tags.outputs.branch_sha_tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && steps.branch-tags.outputs.branch_sha_tag != '' }}
             type=raw,value=pr-${{ env.TRIGGER_PR_NUMBER }}-{{sha}},enable=${{ env.TRIGGER_EVENT == 'pull_request' }},prefix=,suffix=
-            type=sha,format=short,enable=${{ env.TRIGGER_EVENT != 'pull_request' }}
+            type=sha,format=short,prefix=,suffix=,enable=${{ env.TRIGGER_EVENT != 'pull_request' && (env.TRIGGER_REF == 'refs/heads/main' || env.TRIGGER_REF == 'refs/heads/development' || env.TRIGGER_REF == 'refs/heads/nightly') }}
           flavor: |
             latest=false
           labels: |
             org.opencontainers.image.revision=${{ env.TRIGGER_HEAD_SHA }}
             io.charon.pr.number=${{ env.TRIGGER_PR_NUMBER }}
             io.charon.build.timestamp=${{ github.event.repository.updated_at }}
-            io.charon.feature.branch=${{ steps.feature-tag.outputs.tag }}
+            io.charon.feature.branch=${{ steps.branch-tags.outputs.feature_branch_tag }}
       # Phase 1 Optimization: Build once, test many
       # - For PRs: Single-platform (amd64) + immutable tags (pr-{number}-{short-sha})
       # - For feature branches: Single-platform + sanitized tags ({branch}-{short-sha})

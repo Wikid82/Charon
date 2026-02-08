@@ -29,10 +29,6 @@ on:
         default: true
         type: boolean
 
-concurrency:
-  group: ci-manual-pipeline-${{ github.workflow }}-${{ github.ref_name }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
 
@@ -70,6 +66,19 @@ jobs:
           chmod +x scripts/scan-gorm-security.sh
           ./scripts/scan-gorm-security.sh --check
 
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      - name: Run golangci-lint (fast)
+        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+        with:
+          version: v1.64.5
+          working-directory: backend
+          args: --config=.golangci-fast.yml --timeout=2m
+
       - name: Check frontend lockfile
         id: frontend-lockfile
         run: |
@@ -105,6 +114,9 @@ jobs:
     name: Build and Publish Image
     runs-on: ubuntu-latest
     needs: lint
+    concurrency:
+      group: ci-build-image-${{ github.workflow }}-${{ github.ref_name }}
+      cancel-in-progress: true
     permissions:
       contents: read
       packages: write
@@ -150,9 +162,56 @@ jobs:
             fi
           fi
 
+          sanitize_tag() {
+            local raw="$1"
+            local max_len="$2"
+
+            local sanitized
+            sanitized=$(echo "$raw" | tr '[:upper:]' '[:lower:]')
+            sanitized=$(echo "$sanitized" | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g')
+            sanitized=$(echo "$sanitized" | sed 's/^[^a-z0-9]*//' | sed 's/[^a-z0-9-]*$//')
+
+            if [ -z "$sanitized" ]; then
+              sanitized="branch"
+            fi
+
+            sanitized=$(echo "$sanitized" | cut -c1-"$max_len")
+
+            sanitized=$(echo "$sanitized" | sed 's/^[^a-z0-9]*//')
+            if [ -z "$sanitized" ]; then
+              sanitized="branch"
+            fi
+
+            echo "$sanitized"
+          }
+
+          SANITIZED_BRANCH=$(sanitize_tag "${{ github.ref_name }}" 128)
+          BRANCH_TAG="${SANITIZED_BRANCH}"
+          BRANCH_SHA_TAG="${SANITIZED_BRANCH}-$(sanitize_tag "${SHORT_SHA}" 7)"
+          if [ "${#SANITIZED_BRANCH}" -gt 120 ]; then
+            SANITIZED_BRANCH=$(sanitize_tag "${{ github.ref_name }}" 120)
+            BRANCH_SHA_TAG="${SANITIZED_BRANCH}-${SHORT_SHA}"
+          fi
+
           TAGS=()
           TAGS+=("${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${DEFAULT_TAG}")
           TAGS+=("${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:${DEFAULT_TAG}")
+
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            TAGS+=("${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${BRANCH_SHA_TAG}")
+            TAGS+=("${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:${BRANCH_SHA_TAG}")
+
+            if [[ "${{ github.ref_name }}" == feature/* ]]; then
+              TAGS+=("${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${BRANCH_TAG}")
+              TAGS+=("${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:${BRANCH_TAG}")
+            fi
+          fi
+
+          if [ "${{ github.event_name }}" != "pull_request" ] && \
+             { [ "${{ github.ref_name }}" = "main" ] || [ "${{ github.ref_name }}" = "development" ] || [ "${{ github.ref_name }}" = "nightly" ]; }; then
+            TAGS+=("${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}")
+            TAGS+=("${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}")
+          fi
 
           if [ "${{ github.ref_name }}" = "main" ]; then
             TAGS+=("${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest")
@@ -229,7 +288,7 @@ jobs:
     name: Integration - Cerberus
     runs-on: ubuntu-latest
     needs: build-image
-    if: inputs.run_integration != false && needs.build-image.outputs.push_image == 'true'
+    if: needs.build-image.result == 'success' && needs.build-image.outputs.push_image == 'true' && needs.build-image.outputs.image_ref_dockerhub != '' && inputs.run_integration != false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -254,7 +313,7 @@ jobs:
     name: Integration - CrowdSec
     runs-on: ubuntu-latest
     needs: build-image
-    if: inputs.run_integration != false && needs.build-image.outputs.push_image == 'true'
+    if: needs.build-image.result == 'success' && needs.build-image.outputs.push_image == 'true' && needs.build-image.outputs.image_ref_dockerhub != '' && inputs.run_integration != false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -280,7 +339,7 @@ jobs:
     name: Integration - WAF
     runs-on: ubuntu-latest
     needs: build-image
-    if: inputs.run_integration != false && needs.build-image.outputs.push_image == 'true'
+    if: needs.build-image.result == 'success' && needs.build-image.outputs.push_image == 'true' && needs.build-image.outputs.image_ref_dockerhub != '' && inputs.run_integration != false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -305,7 +364,7 @@ jobs:
     name: Integration - Rate Limit
     runs-on: ubuntu-latest
     needs: build-image
-    if: inputs.run_integration != false && needs.build-image.outputs.push_image == 'true'
+    if: needs.build-image.result == 'success' && needs.build-image.outputs.push_image == 'true' && needs.build-image.outputs.image_ref_dockerhub != '' && inputs.run_integration != false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -330,6 +389,7 @@ jobs:
     name: Integration Gate
     runs-on: ubuntu-latest
     needs:
+      - build-image
       - integration-cerberus
       - integration-crowdsec
       - integration-waf
@@ -340,6 +400,11 @@ jobs:
         run: |
           if [ "${{ inputs.run_integration }}" = "false" ]; then
             echo "Integration stage skipped."
+            exit 0
+          fi
+
+          if [ "${{ needs.build-image.result }}" != "success" ] || [ "${{ needs.build-image.outputs.push_image }}" != "true" ]; then
+            echo "Integration stage skipped due to build-image state or push policy."
             exit 0
           fi
 

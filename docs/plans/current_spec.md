@@ -1,302 +1,335 @@
 ---
-title: "CI Pipeline Consolidation"
+title: "CI Pipeline Reliability and Docker Tagging"
 status: "draft"
-scope: "ci/pipeline"
-notes: This plan replaces the current CI workflow chain with a single pipeline that supports PR triggers while keeping maintenance workflows scheduled.
+scope: "ci/linting, ci/integration, docker/publishing"
+notes: Restore Go linting parity, prevent integration-stage cancellation after successful image builds, and correct Docker tag outputs across CI workflows.
 ---
 
 ## 1. Introduction
 
-This plan consolidates the existing CI workflows into one pipeline
-workflow that can trigger on pull requests across branches (in addition
-to manual dispatch). The pipeline will run in a strict order defined by
-the user:
-lint, build, parallel integration prerequisites, E2E, parallel
-coverage, then security scans. All stages will consume the same built
-Docker image to ensure consistent test results.
-
-Maintenance workflows remain scheduled (nightly/weekly/Renovate/repo
-health) and are explicitly out of scope for trigger changes.
-
-Out of scope: Alpine migration. Any base-image migration work must be
-captured in a separate plan/spec.
+This plan expands the CI scope to address three related gaps: missing Go
+lint enforcement, integration jobs being cancelled after a successful
+image build, and incomplete Docker tag outputs on Docker Hub. The
+intended outcome is a predictable pipeline where linting blocks early,
+integration and E2E gates complete reliably, and registries receive the
+full tag set required for traceability and stable consumption.
 
 Objectives:
 
-- Enable the pipeline to run on pull requests across branches in
-  addition to manual dispatch.
-- Create one pipeline workflow that sequences jobs in the requested
-  order with explicit dependencies.
-- Ensure all integration, E2E, coverage, and security checks use the
-  same image digest produced by the pipeline build job.
-- Push the pipeline image to Docker Hub and GHCR, but use Docker Hub as
-  the test image source.
-- Keep the E2E image tag unchanged from the current convention.
-- Align the pipeline with the current Definition of Done (DoD) by
-  mapping required checks into pipeline stages.
-- Preserve scheduled maintenance workflows and do not convert them to
-  manual-only triggers.
+- Reinstate golangci-lint in the pipeline lint stage.
+- Use the fast config that already blocks local commits.
+- Ensure golangci-lint config is valid for the version used in CI.
+- Remove CI-only leniency so lint failures block merges.
+- Prevent integration jobs from being cancelled when image builds have
+  already completed successfully.
+- Ensure Docker Hub and GHCR receive SHA-only and branch+SHA tags, plus
+  latest/dev/nightly tags for main/development/nightly branches.
+- Keep CI behavior consistent across pre-commit, Makefile, VS Code
+  tasks, and GitHub Actions workflows.
 
 ## 2. Research Findings
 
-### 2.1 Current Workflow Topology
+### 2.1 Current CI State (Linting)
 
-The CI chain is currently split across multiple workflows linked by
-workflow_run triggers. The core files in scope are:
+- The main pipeline is [ .github/workflows/ci-pipeline.yml ] and its
+  lint job runs repo health, Hadolint, GORM scanner, and frontend lint.
+  There is no Go lint step in this pipeline.
+- A separate manual workflow, [ .github/workflows/quality-checks.yml ],
+  runs golangci-lint with `continue-on-error: true`, which means CI does
+  not block on Go lint failures.
 
-- .github/workflows/docker-build.yml
-- .github/workflows/docker-lint.yml
-- .github/workflows/e2e-tests-split.yml
-- .github/workflows/quality-checks.yml
-- .github/workflows/codecov-upload.yml
-- .github/workflows/codeql.yml
-- .github/workflows/security-pr.yml
-- .github/workflows/supply-chain-pr.yml
-- .github/workflows/cerberus-integration.yml
-- .github/workflows/crowdsec-integration.yml
-- .github/workflows/waf-integration.yml
-- .github/workflows/rate-limit-integration.yml
-- .github/workflows/benchmark.yml
-- .github/workflows/supply-chain-verify.yml
+### 2.2 Integration Cancellation Symptoms
 
-Several maintenance workflows also exist (nightly builds, weekly
-security rebuilds, repository health, Renovate automation). They are
-not part of the requested pipeline order and will remain scheduled
-with their existing triggers.
+- [ .github/workflows/ci-pipeline.yml ] defines workflow-level
+  concurrency:
+  `group: ci-manual-pipeline-${{ github.workflow }}-${{ github.ref_name }}`
+  with `cancel-in-progress: true`.
+- Integration jobs depend on `build-image` and gate on
+  `inputs.run_integration != false` and
+  `needs.build-image.outputs.push_image == 'true'`.
+- Integration-gate fails if any dependent integration job reports
+  `failure` or `cancelled`, and runs with `if: always()`.
+- A workflow-level cancellation after the build-image job completes will
+  cancel downstream integration jobs even though the build succeeded.
 
-### 2.2 Current Image Tagging and Digest Sources
+### 2.3 Current Image Tag Outputs
 
-- docker-build.yml outputs a build digest from the buildx iidfile and
-  pushes images to GHCR and Docker Hub.
-- Tags currently include:
-  - pr-{number}-{short-sha} for PRs
-  - {sanitized-branch}-{short-sha} for feature branches
-  - latest/dev/nightly for main/development/nightly builds
-  - sha-{short-sha} for non-PR builds
-  - nightly branch tag (per user request) for nightly branch builds
-
-### 2.3 Definition of Done (DoD) Alignment
-
-The DoD requires E2E tests to run first, then security scans, pre-commit
-checks, static analysis, coverage gates, type checks, and build
-verification. The requested pipeline order differs by placing E2E after
-integration prerequisites and before coverage and security scans.
-
-Decision: the pipeline order is authoritative for CI. The DoD
-order remains guidance for local workflows, but CI ordering will follow
-the requested pipeline sequence and map required checks into stages.
+- In [ .github/workflows/ci-pipeline.yml ], the `Compute image tags`
+  step emits:
+  - `DEFAULT_TAG` (sha-<short> or pr-<number>-<short>)
+  - latest/dev/nightly tags based on `github.ref_name`
+- In [ .github/workflows/docker-build.yml ], `docker/metadata-action`
+  emits tags including:
+  - `type=raw,value=pr-${{ env.TRIGGER_PR_NUMBER }}-{{sha}}` for PRs
+  - `type=sha,format=short` for non-PRs
+  - feature branch tag via `steps.feature-tag.outputs.tag`
+  - `latest` only when `is_default_branch` is true
+  - `dev` only when `env.TRIGGER_REF == 'refs/heads/development'`
+- Docker Hub currently shows only PR and SHA-prefixed tags for some
+  builds; SHA-only and branch+SHA tags are not emitted consistently.
+- Nightly tagging exists in [ .github/workflows/nightly-build.yml ],
+  but the main Docker build workflow does not emit a `nightly` tag based
+  on branch detection.
 
 ## 3. Technical Specifications
 
-### 3.1 Workflow Trigger Strategy
+### 3.1 CI Lint Job (Pipeline)
 
-The new pipeline workflow will trigger on pull_request across branches
-and workflow_dispatch. Existing CI workflows listed in Section 2.1 will
-be converted to workflow_dispatch only (no PR triggers). Existing
-workflow_run triggers will be removed. Scheduled maintenance workflows
-will keep their schedules intact.
+Add a Go lint step to the lint job in
+[ .github/workflows/ci-pipeline.yml ]:
 
-### 3.2 New Pipeline Workflow
+- Tooling: `golangci/golangci-lint-action`.
+- Working directory: `backend`.
+- Config: `backend/.golangci-fast.yml`.
+- Timeout: match config intent (2m fast, or 5m if parity with other
+  pipeline steps is preferred).
+- Failures: do not allow `continue-on-error`.
 
-Create a new workflow file that runs the entire pipeline in one run:
+### 3.2 CI Lint Job (Manual Quality Checks)
 
-- File: .github/workflows/ci-pipeline.yml
-- Trigger: workflow_dispatch and pull_request across branches
-- Inputs:
-  - image_tag_override (optional)
-  - run_coverage (boolean)
-  - run_security_scans (boolean)
-  - run_integration (boolean)
-  - run_e2e (boolean)
+Update [ .github/workflows/quality-checks.yml ] to align with local
+blocking behavior:
 
-### 3.3 Job Order and Dependencies
+- Remove `continue-on-error: true` from the golangci-lint step.
+- Ensure the step points to `backend/.golangci-fast.yml` or runs in
+  `backend` so that the config is picked up deterministically.
+- Pin golangci-lint version to the same major used in CI pipeline to
+  avoid config drift.
 
-The pipeline job graph will enforce the requested order.
+### 3.3 Integration Cancellation Root Cause and Fix
 
-Job dependency table:
+Investigate and address workflow-level cancellation affecting
+integration jobs after `build-image` completes.
 
-| Job | Purpose | Needs |
-| --- | --- | --- |
-| lint | Dockerfile lint, Go lint, frontend lint, repo health | none |
-| build-image | Build and push Docker image, emit digest | lint |
-| integration-cerberus | Cerberus integration tests | build-image |
-| integration-crowdsec | CrowdSec integration tests | build-image |
-| integration-waf | WAF integration tests | build-image |
-| integration-ratelimit | Rate limit integration tests | build-image |
-| e2e | Playwright E2E split workflow equivalent | integration-* |
-| coverage-backend | Go tests with coverage and Codecov upload | e2e |
-| coverage-frontend | Frontend tests with coverage and Codecov upload | e2e |
-| coverage-e2e | Optional E2E coverage job | e2e |
-| security-codeql | CodeQL Go and JS scans | coverage-* |
-| security-trivy | Trivy image scan | coverage-* |
-| security-supply-chain | SBOM generation and attestation | coverage-* |
+Required investigation steps:
 
-Integration jobs should run in parallel. Coverage and security jobs
-should run in parallel within their stages.
+- Inspect recent CI runs for cancellation reasons in the Actions UI
+  (workflow-level cancellation vs job-level failure).
+- Confirm whether cancellations coincide with the workflow-level
+  concurrency group in [ .github/workflows/ci-pipeline.yml ].
+- Verify `inputs.run_integration` values are only populated on
+  `workflow_dispatch` events and evaluate the behavior on
+  `pull_request` events.
+- Verify `needs.build-image.outputs.push_image` and
+  `needs.build-image.outputs.image_ref_dockerhub` are set for non-fork
+  pull requests and branch pushes.
 
-### 3.4 Shared Image Strategy
+Proposed fix (preferred):
 
-All downstream jobs must use the same image digest produced by the
-build-image job. The build-image job will output:
+- Remove workflow-level concurrency from
+  [ .github/workflows/ci-pipeline.yml ] and instead apply job-level
+  concurrency to the build-image job only, keeping cancellation limited
+  to redundant builds while allowing downstream integration/E2E/coverage
+  jobs to finish.
+- Add explicit guards to integration jobs:
+  `if: needs.build-image.result == 'success' &&
+  needs.build-image.outputs.push_image == 'true' &&
+  needs.build-image.outputs.image_ref_dockerhub != '' &&
+  (inputs.run_integration != false)`.
+- Update the integration-gate logic to treat `skipped` jobs as
+  non-fatal and only fail on `failure` or `cancelled` when
+  `needs.build-image.result == 'success'` and `push_image == 'true'`.
 
-- image_digest: from docker/build-push-action or iidfile
-- image_ref: docker.io/wikid82/charon@sha256:...
-- image_ref_ghcr: ghcr.io/wikid82/charon@sha256:...
-- image_tag: pr-{number}-{short-sha} or sha-{short-sha}
+Alternative fix (not recommended; does not meet primary objective):
 
-Downstream jobs will pull the image by digest to ensure immutability and
-retag it locally as charon:e2e-test for docker compose usage. For test
-stages, the image source registry must be Docker Hub even though GHCR is
-also pushed. The E2E image tag must remain unchanged from the current
-convention.
+- Keep workflow-level concurrency but change to
+  `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` so
+  branch pushes and manual dispatches complete all downstream jobs.
+- This option still cancels PR runs after successful builds, which
+  conflicts with the primary objective of allowing integration gates
+  to complete reliably.
 
-### 3.5 Required File Updates
+### 3.4 Image Tag Outputs (CI Pipeline)
 
-Workflow updates to manual-only triggers:
+Update the `Compute image tags` step in
+[ .github/workflows/ci-pipeline.yml ] to emit additional tags.
 
-- .github/workflows/docker-build.yml
-- .github/workflows/docker-lint.yml
-- .github/workflows/e2e-tests-split.yml
-- .github/workflows/quality-checks.yml
-- .github/workflows/codecov-upload.yml
-- .github/workflows/codeql.yml
-- .github/workflows/security-pr.yml
-- .github/workflows/supply-chain-pr.yml
-- .github/workflows/cerberus-integration.yml
-- .github/workflows/crowdsec-integration.yml
-- .github/workflows/waf-integration.yml
-- .github/workflows/rate-limit-integration.yml
-- .github/workflows/benchmark.yml
-- .github/workflows/supply-chain-verify.yml
+Required additions:
 
-Workflow additions (PR + manual triggers):
+- SHA-only tag (short SHA, no prefix):
+  `${SHORT_SHA}` for both GHCR and Docker Hub.
+- Tag normalization rules for `SANITIZED_BRANCH`:
+  - Ensure the tag is non-empty after sanitization.
+  - Ensure the first character is `[a-z0-9]`; if it would start with
+    `-` or `.`, normalize by trimming leading `-` or `.` and recheck.
+  - Replace non-alphanumeric characters with `-` and collapse multiple
+    `-` characters into one.
+  - Limit the tag length to 128 characters after normalization.
+  - Fallback: if the sanitized result is empty or still invalid after
+    normalization, use `branch` as the fallback prefix.
+- Branch+SHA tag for non-PR events using a sanitized branch name derived
+  from `github.ref_name` (lowercase, `/` → `-`, non-alnum → `-`,
+  trimmed, collapsed). Example:
+  `${SANITIZED_BRANCH}-${SHORT_SHA}`.
+- Preserve existing `pr-${PR_NUMBER}-${SHORT_SHA}` for PRs.
+- Keep `latest`, `dev`, and `nightly` tags based on:
+  `github.ref_name == 'main' | 'development' | 'nightly'`.
 
-- .github/workflows/ci-pipeline.yml
+Decision point: SHA-only tags for PR builds
 
-Optional configuration updates if required for image reuse:
+- Option A (recommended): publish SHA-only tags only for trusted
+  branches (main/development/nightly and non-fork pushes). PR builds
+  continue to use `pr-${PR_NUMBER}-${SHORT_SHA}` without SHA-only tags.
+- Option B: publish SHA-only tags for PR builds when image push is
+  enabled for a non-fork authorized run (e.g., same-repo PRs), in
+  addition to PR-prefixed tags.
+- Assumption (default until decided): follow Option A to avoid
+  ambiguous SHA-only tags for untrusted PR contexts.
 
-- .docker/compose/docker-compose.playwright-ci.yml (use image ref or
-  tag via environment variable)
-- scripts/*.sh or .github/skills/scripts/skill-runner.sh, only if
-  necessary to accept image ref overrides
+Required step-level variables and expressions:
 
-### 3.6 Error Handling and Gates
+- Step: `Compute image tags` (id: `tags`).
+- Variables: `SHORT_SHA`, `DEFAULT_TAG`, `PR_NUMBER`, `SANITIZED_BRANCH`.
+- Expressions:
+  - `${{ github.event_name }}`
+  - `${{ github.ref_name }}`
+  - `${{ github.event.pull_request.number }}`
 
-- Fail fast in lint and build stages.
-- Integration, E2E, coverage, and security stages should fail the
-  pipeline if any job fails.
-- Preserve existing retry behavior for registry pushes and pulls.
+### 3.5 Image Tag Outputs (docker-build.yml)
 
-### 3.7 Required Checks and Branch Protection
+Update [ .github/workflows/docker-build.yml ] `Generate Docker metadata`
+tags to match the required outputs.
 
-- Add a pipeline summary job (e.g., pipeline-gate) that depends on all
-  pipeline jobs and fails if any required job fails.
-- Require the pipeline-gate status check in branch protection/rulesets
-  for main and release branches.
-- Pipeline workflows remain required by enforcing that the pipeline is
-  run against the merge commit or branch HEAD before merge.
-- Keep admin bypass disabled for protected branches unless explicitly
-  approved.
+Required additions:
 
-### 3.7 Requirements (EARS Notation)
+- Add SHA-only short tag for all events:
+  `type=sha,format=short,prefix=,suffix=`.
+- Add branch+SHA short tag for non-PR events using a sanitized branch
+  name derived from `env.TRIGGER_REF` or `env.TRIGGER_HEAD_BRANCH`.
+- Apply the same tag normalization rules as the CI pipeline
+  (`SANITIZED_BRANCH` non-empty, leading character normalized, length
+  <= 128, fallback to `branch`).
+- Add explicit branch tags for main/development/nightly based on
+  `env.TRIGGER_REF` (do not rely on `is_default_branch` for
+  workflow_run triggers):
+  - `type=raw,value=latest,enable=${{ env.TRIGGER_REF == 'refs/heads/main' }}`
+  - `type=raw,value=dev,enable=${{ env.TRIGGER_REF == 'refs/heads/development' }}`
+  - `type=raw,value=nightly,enable=${{ env.TRIGGER_REF == 'refs/heads/nightly' }}`
 
-- WHEN a user manually dispatches the pipeline or opens a pull request,
-  THE SYSTEM SHALL run the lint stage before any build or test jobs.
-- WHEN the build stage completes, THE SYSTEM SHALL publish a single
-  image digest that all later jobs consume.
-- WHEN any integration test fails, THE SYSTEM SHALL stop the pipeline
-  before E2E execution.
-- WHEN E2E completes, THE SYSTEM SHALL run coverage jobs in parallel.
-- WHEN coverage completes, THE SYSTEM SHALL run security scans in
-  parallel using the same image digest.
-- WHEN the pipeline pushes images, THE SYSTEM SHALL push to Docker Hub
-  and GHCR but use Docker Hub as the test image source.
-- WHEN E2E runs, THE SYSTEM SHALL keep the existing E2E image tag and
-  preserve the security shard as a separate shard with the current
-  timeout-safe layout.
-- IF any required DoD check fails, THEN THE SYSTEM SHALL fail the
-  pipeline and report the failing stage.
+Required step names and variables:
+
+- Step: `Compute feature branch tag` (id: `feature-tag`) remains for
+  `refs/heads/feature/*`.
+- New step: `Compute branch+sha tag` (id: `branch-tag`) for all
+  non-PR events using `TRIGGER_REF`.
+- Metadata step: `Generate Docker metadata` (id: `meta`).
+- Expressions:
+  - `${{ env.TRIGGER_EVENT }}`
+  - `${{ env.TRIGGER_REF }}`
+  - `${{ env.TRIGGER_HEAD_SHA }}`
+  - `${{ env.TRIGGER_PR_NUMBER }}`
+  - `${{ steps.branch-tag.outputs.tag }}`
+
+### 3.6 Repository Hygiene Review (Requested)
+
+- [ .gitignore ]: No change required for CI updates; no new artifacts
+  introduced by the tag changes.
+- [ codecov.yml ]: No change required; coverage configuration remains
+  correct.
+- [ .dockerignore ]: No change required; CI-only YAML edits are already
+  excluded from Docker build context.
+- [ Dockerfile ]: No change required; tagging logic is CI-only.
+- [ Branch tag normalization ]: No new files required; logic should be
+  implemented in existing CI steps only.
 
 ## 4. Implementation Plan
 
 ### Phase 1: Playwright Tests (Behavior Baseline)
 
-- Validate the existing Playwright suites used by e2e-tests-split.yml
-  can run under the new pipeline using the shared image digest.
-- Confirm the E2E stage still honors security and non-security shards
-  and that Cerberus toggle logic is preserved.
+- Confirm that no UI behavior is affected by CI-only changes.
+- Keep this phase as a verification note: E2E is unchanged and can be
+  re-run if CI changes surface unexpected side effects.
 
-### Phase 2: Backend and CI Workflow Refactor
+### Phase 2: Pipeline Lint Restoration
 
-- Add the new pipeline workflow file.
-- Modify existing CI workflows in Section 3.5 to use workflow_dispatch
-  only (no pull_request triggers).
-- Move the docker-build logic into the pipeline build-image job and
-  export digest and tag outputs.
-- Update integration job steps to consume the digest and retag locally
-  as needed for existing scripts.
+- Add a Go lint step to the lint job in
+  [ .github/workflows/ci-pipeline.yml ].
+- Use `backend/.golangci-fast.yml` and ensure the step blocks on
+  failure.
+- Keep the lint job dependency order intact (repo health → Hadolint →
+  GORM scan → Go lint → frontend lint).
 
-### Phase 3: Frontend and E2E Workflow Refactor
+### Phase 3: Integration Cancellation Fix
 
-- Update the E2E steps to pull the Docker Hub digest and retag to
-  charon:e2e-test before docker compose starts.
-- Ensure environment variables or compose overrides reference the
-  shared image and keep the E2E tag unchanged.
-- Preserve E2E sharding so the security shard remains separate and the
-  shard layout avoids timeouts.
+- Remove workflow-level concurrency from
+  [ .github/workflows/ci-pipeline.yml ] and add job-level concurrency
+  on `build-image` only.
+- Add explicit `if` guards to integration jobs based on
+  `needs.build-image.result`, `needs.build-image.outputs.push_image`,
+  and `needs.build-image.outputs.image_ref_dockerhub`.
+- Update `integration-gate` to ignore `skipped` results when integration
+  is not expected to run and only fail on `failure` or `cancelled` when
+  build-image succeeded and pushed an image.
 
-### Phase 4: Coverage and Security Stage Consolidation
+### Phase 4: Docker Tagging Updates
 
-- Replace codecov-upload.yml and codeql.yml with pipeline jobs that run
-  after E2E completion.
-- Ensure Codecov uploads and CodeQL scans run with the same code
-  checkout and digest metadata for traceability.
+- Update `Compute image tags` in
+  [ .github/workflows/ci-pipeline.yml ] to emit SHA-only and
+  branch+SHA tags in addition to the existing PR and branch tags.
+- Update `Generate Docker metadata` in
+  [ .github/workflows/docker-build.yml ] to emit SHA-only, branch+SHA,
+  and explicit latest/dev/nightly tags based on `env.TRIGGER_REF`.
+- Add tag normalization logic in both workflows to ensure valid Docker
+  tag prefixes (non-empty, valid leading character, <= 128 length,
+  fallback when sanitized branch is empty or invalid).
 
-### Phase 5: Documentation and DoD Alignment
+### Phase 5: Validation and Guardrails
 
-- Update docs/plans/current_spec.md with the final pipeline plan.
-- Document the DoD ordering impact and confirm whether the DoD should
-  be updated to match the new pipeline order or the pipeline should
-  adapt to the DoD ordering.
+- Verify CI logs show the golangci-lint version and config in use.
+- Confirm integration jobs are no longer cancelled after successful
+  builds when new runs are queued.
+- Validate that Docker Hub and GHCR tags include:
+  - SHA-only short tags
+  - Branch+SHA short tags
+  - latest/dev/nightly tags for main/development/nightly branches
 
-### Phase 6: Branch Protection Updates
+## 5. Acceptance Criteria (EARS)
 
-- Update branch protection/rulesets to require the pipeline-gate check.
-- Document the manual pipeline run requirement for PR validation.
+- WHEN a pull request or manual pipeline run executes, THE SYSTEM SHALL
+  run golangci-lint in the pipeline lint stage using
+  `backend/.golangci-fast.yml`.
+- WHEN golangci-lint finds violations, THE SYSTEM SHALL fail the
+  pipeline lint stage and block downstream jobs.
+- WHEN the manual quality workflow runs, THE SYSTEM SHALL enforce the
+  same blocking behavior and fast config as pre-commit.
+- WHEN a build-image job completes successfully and image push is
+  enabled for a non-fork authorized run, THE SYSTEM SHALL allow
+  integration jobs to run to completion without being cancelled by
+  workflow-level concurrency.
+- WHEN integration jobs are skipped by configuration while image push
+  is disabled or not authorized for the run, THE SYSTEM SHALL not mark
+  the integration gate as failed.
+- WHEN a non-PR build runs on main/development/nightly branches and
+  image push is enabled for a non-fork authorized run, THE SYSTEM SHALL
+  publish `latest`, `dev`, or `nightly` tags respectively to Docker Hub
+  and GHCR.
+- WHEN any image is built in CI and image push is enabled for a
+  non-fork authorized run, THE SYSTEM SHALL publish SHA-only and
+  branch+SHA tags in addition to existing PR or default tags.
 
-## 5. Acceptance Criteria
-
-- The pipeline workflow triggers via pull_request across branches and
-  workflow_dispatch.
-- All CI workflows listed in Section 3.5 trigger via
-  workflow_dispatch only and no longer use workflow_run or
-  pull_request.
-- Maintenance workflows (nightly/weekly/Renovate/repo health) retain
-  their scheduled triggers and are not changed to PR/manual-only.
-- The new pipeline workflow runs lint, build, integration, E2E,
-  coverage, and security stages in the requested order.
-- Integration, E2E, coverage, and security jobs consume the same image
-  digest produced by the build stage.
-- The pipeline exposes image_digest and image_ref outputs for audit
-  and debugging.
-- All DoD-required checks are represented in the pipeline and fail the
-  run when they do not pass.
-- The pipeline pushes images to Docker Hub and GHCR, and test stages
-  pull from Docker Hub.
-- E2E sharding keeps the security shard separate and retains the
-  timeout-safe shard layout.
-- The nightly branch tag remains part of the image tagging scheme.
 ## 6. Risks and Mitigations
 
- - Risk: PR-triggered pipeline increases CI load and could cause noisy
-   failures on draft or experimental branches.
-  - Mitigation: keep legacy workflows manual-only, enforce the
-    pipeline-gate required check, and allow maintainers to re-run the
-    pipeline as needed.
+- Risk: CI runtime increases due to added golangci-lint execution.
+  Mitigation: use the fast config and keep timeout tight (2m) with
+  caching enabled by the action.
+- Risk: Config incompatibility with CI golangci-lint version.
+  Mitigation: pin the version and log it in CI; validate config format.
+- Risk: Reduced cancellation leads to overlapping integration runs.
+  Mitigation: keep job-level concurrency on build-image; monitor queue
+  time and adjust if needed.
+- Risk: Tag proliferation complicates image selection for users.
+  Mitigation: document tag matrix in release notes or README once
+  verified in CI.
+- Risk: Sanitized branch names may collapse to empty or invalid tags.
+  Mitigation: enforce normalization rules with a safe fallback prefix
+  to keep tag generation deterministic.
 
 ## 7. Confidence Score
 
-Confidence: 86 percent
+Confidence: 84 percent
 
-Rationale: Manual pipeline consolidation is well scoped, but requires
-careful coordination with branch protection and required checks.
+Rationale: The linting changes are straightforward, but integration
+job cancellation behavior depends on workflow-level concurrency and may
+require validation in Actions history to select the most appropriate
+fix. Tagging changes are predictable once metadata-action inputs are
+aligned with branch detection.
