@@ -23,9 +23,9 @@ const STORAGE_STATE = join(__dirname, 'playwright/.auth/user.json');
 
 /**
  * Coverage reporter configuration for E2E tests
- * Only loaded when PLAYWRIGHT_COVERAGE=1
+ * Enabled by default, disable with PLAYWRIGHT_COVERAGE=0
  */
-const enableCoverage = process.env.PLAYWRIGHT_COVERAGE === '1';
+const enableCoverage = process.env.PLAYWRIGHT_COVERAGE !== '0';
 const skipSecurityDeps = process.env.PLAYWRIGHT_SKIP_SECURITY_DEPS === '1';
 const browserDependencies = skipSecurityDeps ? ['setup'] : ['setup', 'security-tests'];
 
@@ -146,22 +146,28 @@ export default defineConfig({
   use: {
     /* Base URL Configuration
      *
+     * Coverage mode (enableCoverage=true):
+     *   - Vite dev server automatically started via webServer block
+     *   - Uses http://localhost:5173 (source maps for V8 coverage)
+     *   - PLAYWRIGHT_BASE_URL override still respected
+     *
+     * Non-coverage mode (enableCoverage=false):
+     *   - Tests run against Docker container (faster, no coverage)
+     *   - Uses http://127.0.0.1:8080 (IPv4 loopback avoids IPv6 issues)
+     *   - PLAYWRIGHT_BASE_URL override still respected
+     *
      * CRITICAL: Authentication cookies are domain-scoped. The auth.setup.ts
      * stores cookies for the domain in this baseURL. TestDataManager and
      * browser tests must use the SAME domain for cookies to be sent.
      *
-     * E2E tests verify UI/UX on the Charon management interface (port 8080).
+     * E2E tests verify UI/UX on the Charon management interface.
      * Middleware enforcement is tested separately via integration tests (backend/integration/).
      *
      * For remote SSH development, use PLAYWRIGHT_BASE_URL with your Tailscale IP:
      *   export PLAYWRIGHT_BASE_URL=http://100.98.12.109:9323
      *   npx playwright test --ui
-     *
-     * IMPORTANT: Using 127.0.0.1 (IPv4 loopback) instead of localhost to avoid
-     * IPv6/IPv4 resolution issues where Node.js/Playwright might prefer ::1 (IPv6)
-     * but the Docker container binds to 0.0.0.0 (IPv4).
      */
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080',
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || (enableCoverage ? 'http://localhost:5173' : 'http://127.0.0.1:8080'),
 
     /* Traces: Capture execution traces for debugging
      *
@@ -191,6 +197,16 @@ export default defineConfig({
      */
     screenshot: 'only-on-failure',
   },
+
+  /* Run your local dev server before starting the tests */
+  webServer: enableCoverage ? {
+    command: 'cd frontend && npm run dev',
+    url: 'http://localhost:5173',
+    reuseExistingServer: !process.env.CI,
+    timeout: 120000,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  } : undefined,
 
   /* Configure projects for major browsers */
   projects: [
