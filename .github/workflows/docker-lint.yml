@@ -3,12 +3,8 @@ name: Docker Lint
 on:
   push:
     branches: [ main, development, 'feature/**', 'hotfix/**' ]
-    paths:
-      - 'Dockerfile'
   pull_request:
     branches: [ main, development, 'feature/**', 'hotfix/**' ]
-    paths:
-      - 'Dockerfile'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}

@@ -1,13 +1,13 @@
 name: Propagate Changes Between Branches
 
 on:
-  push:
-    branches:
-      - main
-      - development
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types: [completed]
+    branches: [ main, development ]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: false
 
 env:
@@ -22,7 +22,10 @@ jobs:
   propagate:
     name: Create PR to synchronize branches
     runs-on: ubuntu-latest
-    if: github.actor != 'github-actions[bot]' && github.event.pusher != null
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'development')
     steps:
       - name: Set up Node (for github-script)
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -31,24 +34,27 @@ jobs:
 
       - name: Propagate Changes
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          CURRENT_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          CURRENT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         with:
           script: |
-            const currentBranch = context.ref.replace('refs/heads/', '');
+            const currentBranch = process.env.CURRENT_BRANCH || context.ref.replace('refs/heads/', '');
             let excludedBranch = null;
 
             // Loop Prevention: Identify if this commit is from a merged PR
             try {
-              const associatedPRs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                const associatedPRs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                commit_sha: context.sha,
+                  commit_sha: process.env.CURRENT_SHA || context.sha,
               });
 
               // If the commit comes from a PR, we identify the source branch
               // so we don't try to merge changes back into it immediately.
               if (associatedPRs.data.length > 0) {
                 excludedBranch = associatedPRs.data[0].head.ref;
-                core.info(`Commit ${context.sha} is associated with PR #${associatedPRs.data[0].number} coming from '${excludedBranch}'. This branch will be excluded from propagation to prevent loops.`);
+                core.info(`Commit ${process.env.CURRENT_SHA || context.sha} is associated with PR #${associatedPRs.data[0].number} coming from '${excludedBranch}'. This branch will be excluded from propagation to prevent loops.`);
               }
             } catch (err) {
               core.warning(`Failed to check associated PRs: ${err.message}`);
@@ -197,6 +203,6 @@ jobs:
                 await createPR('development', targetBranch);
               }
             }
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
+            env:
+              GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}

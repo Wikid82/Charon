@@ -1,23 +1,14 @@
 name: CodeQL - Analyze
 
 on:
-  push:
-    branches:
-      - main
-      - development
-      - 'feature/**'
-      - 'hotfix/**'
-  pull_request:
-    branches:
-      - main
-      - development
-      - 'feature/**'
-      - 'hotfix/**'
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types: [completed]
   schedule:
     - cron: '0 3 * * 1'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
@@ -35,7 +26,8 @@ jobs:
     name: CodeQL analysis (${{ matrix.language }})
     runs-on: ubuntu-latest
     # Skip forked PRs where CHARON_TOKEN lacks security-events permissions
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    if: >-
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     permissions:
       contents: read
       security-events: write
@@ -48,6 +40,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@45cbd0c69e560cd9e7cd7f8c32362050c9b7ded2 # v4

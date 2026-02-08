@@ -1,21 +1,12 @@
-name: Upload Coverage to Codecov (Push only)
+name: Upload Coverage to Codecov
 
 on:
-  push:
-    branches:
-      - main
-      - development
-      - 'feature/**'
-      - 'hotfix/**'
-  pull_request:
-    branches:
-      - main
-      - development
-      - 'feature/**'
-      - 'hotfix/**'
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types: [completed]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
@@ -31,11 +22,13 @@ jobs:
     name: Backend Codecov Upload
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
@@ -63,11 +56,13 @@ jobs:
     name: Frontend Codecov Upload
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6

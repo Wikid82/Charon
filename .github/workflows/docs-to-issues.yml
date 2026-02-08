@@ -1,16 +1,9 @@
 name: Convert Docs to Issues
 
 on:
-  push:
-    branches:
-      - main
-      - development
-      - feature/**
-    paths:
-      - 'docs/issues/**/*.md'
-      - '!docs/issues/created/**'
-      - '!docs/issues/_TEMPLATE.md'
-      - '!docs/issues/README.md'
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types: [completed]
 
   # Allow manual trigger
   workflow_dispatch:
@@ -26,7 +19,7 @@ on:
         type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: false
 
 env:
@@ -41,13 +34,14 @@ jobs:
   convert-docs:
     name: Convert Markdown to Issues
     runs-on: ubuntu-latest
-    if: github.actor != 'github-actions[bot]'
+    if: github.actor != 'github-actions[bot]' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 2
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -60,10 +54,13 @@ jobs:
       - name: Detect changed files
         id: changes
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          COMMIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         with:
           script: |
             const fs = require('fs');
             const path = require('path');
+            const commitSha = process.env.COMMIT_SHA || context.sha;
 
             // Manual file specification
             const manualFile = '${{ github.event.inputs.file_path }}';
@@ -81,7 +78,7 @@ jobs:
             const { data: commit } = await github.rest.repos.getCommit({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              ref: context.sha
+              ref: commitSha
             });
 
             const changedFiles = (commit.files || [])

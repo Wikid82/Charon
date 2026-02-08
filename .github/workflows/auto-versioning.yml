@@ -8,11 +8,13 @@ name: Auto Versioning and Release
 # ⚠️  Major version bumps are intentionally disabled in automation to prevent accidents.
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types: [completed]
     branches: [ main ]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: false  # Don't cancel in-progress releases
 
 permissions:
@@ -21,11 +23,13 @@ permissions:
 jobs:
   version:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Calculate Semantic Version
         id: semver
