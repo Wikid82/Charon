@@ -1,31 +1,24 @@
 name: History Rewrite Tests
 
 on:
-  push:
-    branches:
-      - main
-      - development
-      - 'feature/**'
-      - 'hotfix/**'
-  pull_request:
-    branches:
-      - main
-      - development
-      - 'feature/**'
-      - 'hotfix/**'
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types: [completed]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Checkout with full history
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Install dependencies
         run: |

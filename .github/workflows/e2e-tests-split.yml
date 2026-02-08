@@ -16,23 +16,6 @@ on:
   workflow_run:
    workflows: ["Docker Build, Publish & Test"]
    types: [completed]
-  push:
-
-    branches: [main, development, 'feature/**', 'hotfix/**']
-    paths:
-      - 'frontend/**'
-      - 'backend/**'
-      - 'tests/**'
-      - 'playwright.config.js'
-      - '.github/workflows/e2e-tests-split.yml'
-  pull_request:
-    branches: [main, development, 'feature/**', 'hotfix/**']
-    paths:
-      - 'frontend/**'
-      - 'backend/**'
-      - 'tests/**'
-      - 'playwright.config.js'
-      - '.github/workflows/e2e-tests-split.yml'
   workflow_dispatch:
     inputs:
       browser:
@@ -67,7 +50,7 @@ env:
   CI_LOG_LEVEL: 'verbose'
 
 concurrency:
-  group: e2e-split-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: e2e-split-${{ github.workflow }}-${{ github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number || github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -75,11 +58,14 @@ jobs:
   build:
     name: Build Application
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     outputs:
       image_digest: ${{ steps.build-image.outputs.digest }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
@@ -154,6 +140,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -312,6 +300,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -478,6 +468,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -656,6 +648,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -811,6 +805,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -974,6 +970,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
