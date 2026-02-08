@@ -376,8 +376,8 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		dockerHandler.RegisterRoutes(protected)
 
 		// Uptime Service
-		uptimeService := services.NewUptimeService(db, notificationService)
-		uptimeHandler := handlers.NewUptimeHandler(uptimeService)
+		uptimeSvc := services.NewUptimeService(db, notificationService)
+		uptimeHandler := handlers.NewUptimeHandler(uptimeSvc)
 		protected.GET("/uptime/monitors", uptimeHandler.List)
 		protected.POST("/uptime/monitors", uptimeHandler.Create)
 		protected.GET("/uptime/monitors/:id/history", uptimeHandler.GetHistory)
@@ -551,8 +551,8 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		if _, err := os.Stat(accessLogPath); os.IsNotExist(err) {
 			// #nosec G304 -- Creating access log file, path is application-controlled
 			if f, err := os.Create(accessLogPath); err == nil {
-				if err := f.Close(); err != nil {
-					logger.Log().WithError(err).Warn("Failed to close log file")
+				if closeErr := f.Close(); closeErr != nil {
+					logger.Log().WithError(closeErr).Warn("Failed to close log file")
 				}
 				logger.Log().WithError(err).WithField("path", accessLogPath).Warn("Failed to create log file for LogWatcher")
 			}

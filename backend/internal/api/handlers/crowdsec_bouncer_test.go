@@ -76,8 +76,8 @@ func TestSaveAndReadKeyFromFile(t *testing.T) {
 	testKey := "test-api-key-789"
 
 	// Test saveKeyToFile creates directories and saves key
-	if err := saveKeyToFile(keyFile, testKey); err != nil {
-		t.Fatalf("saveKeyToFile() error = %v", err)
+	if saveErr := saveKeyToFile(keyFile, testKey); saveErr != nil {
+		t.Fatalf("saveKeyToFile() error = %v", saveErr)
 	}
 
 	// Verify file was created

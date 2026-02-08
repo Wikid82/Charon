@@ -175,8 +175,8 @@ func (s *SecurityService) GenerateBreakGlassToken(name string) (string, error) {
 	if err := s.db.Where("name = ?", name).First(&cfg).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			cfg = models.SecurityConfig{Name: name, BreakGlassHash: string(hash)}
-			if err := s.db.Create(&cfg).Error; err != nil {
-				return "", err
+			if createErr := s.db.Create(&cfg).Error; createErr != nil {
+				return "", createErr
 			}
 			return token, nil
 		}

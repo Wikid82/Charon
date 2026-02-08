@@ -94,7 +94,7 @@ func TestCertificateService_GetCertificateInfo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}); err != nil {
 		t.Fatalf("Failed to migrate database: %v", err)
 	}
 

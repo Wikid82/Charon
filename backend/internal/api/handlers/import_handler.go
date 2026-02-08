@@ -94,17 +94,17 @@ func (h *ImportHandler) GetStatus(c *gin.Context) {
 	if err == gorm.ErrRecordNotFound {
 		// No pending/reviewing session, check if there's a mounted Caddyfile available for transient preview
 		if h.mountPath != "" {
-			if fileInfo, err := os.Stat(h.mountPath); err == nil {
+			if fileInfo, statErr := os.Stat(h.mountPath); statErr == nil {
 				// Check if this mount has already been committed recently
 				var committedSession models.ImportSession
-				err := h.db.Where("source_file = ? AND status = ?", h.mountPath, "committed").
+				committedErr := h.db.Where("source_file = ? AND status = ?", h.mountPath, "committed").
 					Order("committed_at DESC").
 					First(&committedSession).Error
 
 				// Allow re-import if:
 				// 1. Never committed before (err == gorm.ErrRecordNotFound), OR
 				// 2. File was modified after last commit
-				allowImport := err == gorm.ErrRecordNotFound
+				allowImport := committedErr == gorm.ErrRecordNotFound
 				if !allowImport && committedSession.CommittedAt != nil {
 					fileMod := fileInfo.ModTime()
 					commitTime := *committedSession.CommittedAt
@@ -192,7 +192,7 @@ func (h *ImportHandler) GetPreview(c *gin.Context) {
 
 	// No DB session found or failed to parse session. Try transient preview from mountPath.
 	if h.mountPath != "" {
-		if fileInfo, err := os.Stat(h.mountPath); err == nil {
+		if fileInfo, statErr := os.Stat(h.mountPath); statErr == nil {
 			// Check if this mount has already been committed recently
 			var committedSession models.ImportSession
 			err := h.db.Where("source_file = ? AND status = ?", h.mountPath, "committed").
@@ -310,7 +310,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		return
 	}
 	// #nosec G301 -- Import uploads directory needs group readability for processing
-	if err := os.MkdirAll(uploadsDir, 0o755); err != nil {
+	if mkdirErr := os.MkdirAll(uploadsDir, 0o755); mkdirErr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create uploads directory"})
 		return
 	}
@@ -320,8 +320,8 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		return
 	}
 	// #nosec G306 -- Caddyfile uploads need group readability for Caddy validation
-	if err := os.WriteFile(tempPath, []byte(normalizedContent), 0o644); err != nil {
-		middleware.GetRequestLogger(c).WithField("tempPath", util.SanitizeForLog(filepath.Base(tempPath))).WithError(err).Error("Import Upload: failed to write temp file")
+	if writeErr := os.WriteFile(tempPath, []byte(normalizedContent), 0o644); writeErr != nil {
+		middleware.GetRequestLogger(c).WithField("tempPath", util.SanitizeForLog(filepath.Base(tempPath))).WithError(writeErr).Error("Import Upload: failed to write temp file")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write upload"})
 		return
 	}
@@ -492,7 +492,7 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 		return
 	}
 	// #nosec G301 -- Session directory with standard permissions for import processing
-	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+	if mkdirErr := os.MkdirAll(sessionDir, 0o755); mkdirErr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session directory"})
 		return
 	}
@@ -507,8 +507,8 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 
 		// Clean filename and create subdirectories if needed
 		cleanName := filepath.Clean(f.Filename)
-		targetPath, err := safeJoin(sessionDir, cleanName)
-		if err != nil {
+		targetPath, joinErr := safeJoin(sessionDir, cleanName)
+		if joinErr != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid filename: %s", f.Filename)})
 			return
 		}
@@ -516,14 +516,14 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 		// Create parent directory if file is in a subdirectory
 		if dir := filepath.Dir(targetPath); dir != sessionDir {
 			// #nosec G301 -- Subdirectory within validated session directory
-			if err := os.MkdirAll(dir, 0o755); err != nil {
+			if mkdirErr := os.MkdirAll(dir, 0o755); mkdirErr != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to create directory for %s", f.Filename)})
 				return
 			}
 		}
 
 		// #nosec G306 -- Imported Caddyfile needs to be readable for processing
-		if err := os.WriteFile(targetPath, []byte(f.Content), 0o644); err != nil {
+		if writeErr := os.WriteFile(targetPath, []byte(f.Content), 0o644); writeErr != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to write file %s", f.Filename)})
 			return
 		}

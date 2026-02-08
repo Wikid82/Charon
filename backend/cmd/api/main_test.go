@@ -31,14 +31,14 @@ func TestResetPasswordCommand_Succeeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.User{}); err != nil {
+	if err = db.AutoMigrate(&models.User{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
 
 	email := "user@example.com"
 	user := models.User{UUID: "u-1", Email: email, Name: "User", Role: "admin", Enabled: true}
 	user.PasswordHash = "$2a$10$example_hashed_password"
-	if err := db.Create(&user).Error; err != nil {
+	if err = db.Create(&user).Error; err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 
@@ -80,7 +80,7 @@ func TestMigrateCommand_Succeeds(t *testing.T) {
 		t.Fatalf("connect db: %v", err)
 	}
 	// Only migrate User table to simulate old database
-	if err := db.AutoMigrate(&models.User{}); err != nil {
+	if err = db.AutoMigrate(&models.User{}); err != nil {
 		t.Fatalf("automigrate user: %v", err)
 	}
 
@@ -138,7 +138,7 @@ func TestStartupVerification_MissingTables(t *testing.T) {
 		t.Fatalf("connect db: %v", err)
 	}
 	// Only migrate User table to simulate old database
-	if err := db.AutoMigrate(&models.User{}); err != nil {
+	if err = db.AutoMigrate(&models.User{}); err != nil {
 		t.Fatalf("automigrate user: %v", err)
 	}
 

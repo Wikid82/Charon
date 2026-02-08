@@ -451,23 +451,23 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 	}
 
 	err = h.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&user).Error; err != nil {
-			return err
+		if txErr := tx.Create(&user).Error; txErr != nil {
+			return txErr
 		}
 
 		// Explicitly disable user (bypass GORM's default:true)
-		if err := tx.Model(&user).Update("enabled", false).Error; err != nil {
-			return err
+		if txErr := tx.Model(&user).Update("enabled", false).Error; txErr != nil {
+			return txErr
 		}
 
 		// Add permitted hosts if specified
 		if len(req.PermittedHosts) > 0 {
 			var hosts []models.ProxyHost
-			if err := tx.Where("id IN ?", req.PermittedHosts).Find(&hosts).Error; err != nil {
-				return err
+			if findErr := tx.Where("id IN ?", req.PermittedHosts).Find(&hosts).Error; findErr != nil {
+				return findErr
 			}
-			if err := tx.Model(&user).Association("PermittedHosts").Replace(hosts); err != nil {
-				return err
+			if assocErr := tx.Model(&user).Association("PermittedHosts").Replace(hosts); assocErr != nil {
+				return assocErr
 			}
 		}
 
@@ -622,7 +622,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	}
 
 	var user models.User
-	if err := h.DB.First(&user, id).Error; err != nil {
+	if findErr := h.DB.First(&user, id).Error; findErr != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
@@ -702,7 +702,7 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 	}
 
 	var user models.User
-	if err := h.DB.First(&user, id).Error; err != nil {
+	if findErr := h.DB.First(&user, id).Error; findErr != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
@@ -743,7 +743,7 @@ func (h *UserHandler) ResendInvite(c *gin.Context) {
 	}
 
 	var user models.User
-	if err := h.DB.First(&user, id).Error; err != nil {
+	if findErr := h.DB.First(&user, id).Error; findErr != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
@@ -812,33 +812,33 @@ func (h *UserHandler) UpdateUserPermissions(c *gin.Context) {
 	}
 
 	var user models.User
-	if err := h.DB.First(&user, id).Error; err != nil {
+	if findErr := h.DB.First(&user, id).Error; findErr != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 
 	var req UpdateUserPermissionsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
 
 	err = h.DB.Transaction(func(tx *gorm.DB) error {
 		// Update permission mode
-		if err := tx.Model(&user).Update("permission_mode", req.PermissionMode).Error; err != nil {
-			return err
+		if txErr := tx.Model(&user).Update("permission_mode", req.PermissionMode).Error; txErr != nil {
+			return txErr
 		}
 
 		// Update permitted hosts
 		var hosts []models.ProxyHost
 		if len(req.PermittedHosts) > 0 {
-			if err := tx.Where("id IN ?", req.PermittedHosts).Find(&hosts).Error; err != nil {
-				return err
+			if findErr := tx.Where("id IN ?", req.PermittedHosts).Find(&hosts).Error; findErr != nil {
+				return findErr
 			}
 		}
 
-		if err := tx.Model(&user).Association("PermittedHosts").Replace(hosts); err != nil {
-			return err
+		if assocErr := tx.Model(&user).Association("PermittedHosts").Replace(hosts); assocErr != nil {
+			return assocErr
 		}
 
 		return nil

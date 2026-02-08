@@ -90,7 +90,7 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 			// Check if user has already enabled CrowdSec via Settings table (from toggle or legacy config)
 			var settingOverride struct{ Value string }
 			crowdSecEnabledInSettings := false
-			if err := db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&settingOverride).Error; err == nil && settingOverride.Value != "" {
+			if rawErr := db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&settingOverride).Error; rawErr == nil && settingOverride.Value != "" {
 				crowdSecEnabledInSettings = strings.EqualFold(settingOverride.Value, "true")
 				logger.Log().WithFields(map[string]any{
 					"setting_value": settingOverride.Value,
@@ -117,8 +117,8 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 				RateLimitWindowSec: 60,
 			}
 
-			if err := db.Create(&defaultCfg).Error; err != nil {
-				logger.Log().WithError(err).Error("CrowdSec reconciliation: failed to create default SecurityConfig")
+			if createErr := db.Create(&defaultCfg).Error; createErr != nil {
+				logger.Log().WithError(createErr).Error("CrowdSec reconciliation: failed to create default SecurityConfig")
 				return
 			}
 

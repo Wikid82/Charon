@@ -51,13 +51,13 @@ func TestDeleteCertificate_InUse(t *testing.T) {
 	}
 
 	// Migrate minimal models
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
 	// Create certificate
 	cert := models.SSLCertificate{UUID: "test-cert", Name: "example-cert", Provider: "custom", Domains: "example.com"}
-	if err := db.Create(&cert).Error; err != nil {
+	if err = db.Create(&cert).Error; err != nil {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
@@ -90,13 +90,13 @@ func TestDeleteCertificate_CreatesBackup(t *testing.T) {
 		t.Fatalf("failed to open db: %v", err)
 	}
 
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
 	// Create certificate
 	cert := models.SSLCertificate{UUID: "test-cert-backup-success", Name: "deletable-cert", Provider: "custom", Domains: "delete.example.com"}
-	if err := db.Create(&cert).Error; err != nil {
+	if err = db.Create(&cert).Error; err != nil {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
@@ -144,13 +144,13 @@ func TestDeleteCertificate_BackupFailure(t *testing.T) {
 		t.Fatalf("failed to open db: %v", err)
 	}
 
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
 	// Create certificate
 	cert := models.SSLCertificate{UUID: "test-cert-backup-fails", Name: "deletable-cert", Provider: "custom", Domains: "delete-fail.example.com"}
-	if err := db.Create(&cert).Error; err != nil {
+	if err = db.Create(&cert).Error; err != nil {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
@@ -192,13 +192,13 @@ func TestDeleteCertificate_InUse_NoBackup(t *testing.T) {
 		t.Fatalf("failed to open db: %v", err)
 	}
 
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
 	// Create certificate
 	cert := models.SSLCertificate{UUID: "test-cert-in-use-no-backup", Name: "in-use-cert", Provider: "custom", Domains: "inuse.example.com"}
-	if err := db.Create(&cert).Error; err != nil {
+	if err = db.Create(&cert).Error; err != nil {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
@@ -282,7 +282,7 @@ func TestCertificateHandler_List(t *testing.T) {
 		t.Fatalf("failed to open db: %v", err)
 	}
 
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -310,7 +310,7 @@ func TestCertificateHandler_Upload_MissingName(t *testing.T) {
 		t.Fatalf("failed to open db: %v", err)
 	}
 
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -338,7 +338,7 @@ func TestCertificateHandler_Upload_MissingCertFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -369,7 +369,7 @@ func TestCertificateHandler_Upload_MissingKeyFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -397,7 +397,7 @@ func TestCertificateHandler_Upload_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -475,7 +475,7 @@ func TestDeleteCertificate_InvalidID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -501,7 +501,7 @@ func TestDeleteCertificate_ZeroID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -527,7 +527,7 @@ func TestDeleteCertificate_LowDiskSpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -567,7 +567,7 @@ func TestDeleteCertificate_DiskSpaceCheckError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -613,7 +613,7 @@ func TestDeleteCertificate_UsageCheckError(t *testing.T) {
 	}
 
 	// Only migrate SSLCertificate, not ProxyHost - this will cause usage check to fail
-	if err := db.AutoMigrate(&models.SSLCertificate{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -647,7 +647,7 @@ func TestDeleteCertificate_NotificationRateLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.NotificationProvider{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.NotificationProvider{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
