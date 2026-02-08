@@ -169,6 +169,8 @@ The task is not complete until ALL of the following pass with zero issues:
 
 6. **Linting**: All language-specific linters must pass
 
+7: **Provide Detailed Commit Message**: Write a comprehensive commit message following the format and rules outlined in `.github/instructions/commit-message.instructions.md`. The message must be meaningful without viewing the diff and should explain the behavior changes, reasons for the change, and any important side effects or considerations.
+
 **Your Role**: You delegate implementation to subagents, but YOU are responsible for verifying they completed the Definition of Done. Do not accept "DONE" from a subagent until you have confirmed they ran coverage tests, type checks, and security scans explicitly.
 
 **Critical Note**: Leaving this unfinished prevents commit, push, and leaves users open to security concerns. All issues must be fixed regardless of whether they are unrelated to the original task. This rule must never be skipped. It is non-negotiable anytime any bit of code is added or changed.
