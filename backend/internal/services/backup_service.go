@@ -262,8 +262,8 @@ func (s *BackupService) addToZip(w *zip.Writer, srcPath, zipPath string) error {
 		return err
 	}
 	defer func() {
-		if err := file.Close(); err != nil {
-			logger.Log().WithError(err).Warn("failed to close file after adding to zip")
+		if closeErr := file.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Warn("failed to close file after adding to zip")
 		}
 	}()
 
@@ -365,8 +365,8 @@ func (s *BackupService) unzip(src, dest string) error {
 		}
 
 		// Use 0700 for parent directories
-		if err := os.MkdirAll(filepath.Dir(fpath), 0o700); err != nil {
-			return err
+		if mkdirErr := os.MkdirAll(filepath.Dir(fpath), 0o700); mkdirErr != nil {
+			return mkdirErr
 		}
 
 		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode()) // #nosec G304 -- File path from validated backup
@@ -376,8 +376,8 @@ func (s *BackupService) unzip(src, dest string) error {
 
 		rc, err := f.Open()
 		if err != nil {
-			if err := outFile.Close(); err != nil {
-				logger.Log().WithError(err).Warn("failed to close temporary output file after f.Open() error")
+			if closeErr := outFile.Close(); closeErr != nil {
+				logger.Log().WithError(closeErr).Warn("failed to close temporary output file after f.Open() error")
 			}
 			return err
 		}
@@ -396,8 +396,8 @@ func (s *BackupService) unzip(src, dest string) error {
 		if closeErr := outFile.Close(); closeErr != nil && err == nil {
 			err = closeErr
 		}
-		if err := rc.Close(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to close reader")
+		if closeErr := rc.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Warn("Failed to close reader")
 		}
 
 		if err != nil {

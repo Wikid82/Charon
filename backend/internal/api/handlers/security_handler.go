@@ -688,8 +688,8 @@ func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
 	// Parse existing exclusions
 	var exclusions []WAFExclusion
 	if cfg.WAFExclusions != "" {
-		if err := json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions); err != nil {
-			log.WithError(err).Warn("Failed to parse existing WAF exclusions")
+		if unmarshalErr := json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions); unmarshalErr != nil {
+			log.WithError(unmarshalErr).Warn("Failed to parse existing WAF exclusions")
 			exclusions = []WAFExclusion{}
 		}
 	}
@@ -770,7 +770,7 @@ func (h *SecurityHandler) DeleteWAFExclusion(c *gin.Context) {
 	// Parse existing exclusions
 	var exclusions []WAFExclusion
 	if cfg.WAFExclusions != "" {
-		if err := json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions); err != nil {
+		if unmarshalErr := json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions); unmarshalErr != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse exclusions"})
 			return
 		}

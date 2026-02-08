@@ -118,16 +118,16 @@ func (s *SecurityHeadersService) EnsurePresetsExist() error {
 		switch {
 		case err == gorm.ErrRecordNotFound:
 			// Create preset with a fresh UUID for the ID field
-			if err := s.db.Create(&preset).Error; err != nil {
-				return fmt.Errorf("failed to create preset %s: %w", preset.Name, err)
+			if createErr := s.db.Create(&preset).Error; createErr != nil {
+				return fmt.Errorf("failed to create preset %s: %w", preset.Name, createErr)
 			}
 		case err != nil:
 			return fmt.Errorf("failed to check preset %s: %w", preset.Name, err)
 		default:
 			// Update existing preset to ensure it has latest values
 			preset.ID = existing.ID // Keep the existing ID
-			if err := s.db.Save(&preset).Error; err != nil {
-				return fmt.Errorf("failed to update preset %s: %w", preset.Name, err)
+			if saveErr := s.db.Save(&preset).Error; saveErr != nil {
+				return fmt.Errorf("failed to update preset %s: %w", preset.Name, saveErr)
 			}
 		}
 	}

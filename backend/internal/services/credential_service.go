@@ -230,8 +230,8 @@ func (s *credentialService) Update(ctx context.Context, providerID, credentialID
 
 	// Fetch provider for validation and audit logging
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
-		return nil, err
+	if findErr := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; findErr != nil {
+		return nil, findErr
 	}
 
 	// Track changed fields for audit log
@@ -389,8 +389,8 @@ func (s *credentialService) Test(ctx context.Context, providerID, credentialID u
 	}
 
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
-		return nil, err
+	if findErr := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; findErr != nil {
+		return nil, findErr
 	}
 
 	// Decrypt credentials

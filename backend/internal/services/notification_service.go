@@ -235,9 +235,9 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 	}()
 
 	select {
-	case err := <-execDone:
-		if err != nil {
-			return fmt.Errorf("failed to execute webhook template: %w", err)
+	case execErr := <-execDone:
+		if execErr != nil {
+			return fmt.Errorf("failed to execute webhook template: %w", execErr)
 		}
 	case <-time.After(5 * time.Second):
 		return fmt.Errorf("template execution timeout after 5 seconds")
@@ -245,8 +245,8 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 
 	// Service-specific JSON validation
 	var jsonPayload map[string]any
-	if err := json.Unmarshal(body.Bytes(), &jsonPayload); err != nil {
-		return fmt.Errorf("invalid JSON payload: %w", err)
+	if unmarshalErr := json.Unmarshal(body.Bytes(), &jsonPayload); unmarshalErr != nil {
+		return fmt.Errorf("invalid JSON payload: %w", unmarshalErr)
 	}
 
 	// Validate service-specific requirements

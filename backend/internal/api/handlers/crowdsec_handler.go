@@ -404,8 +404,8 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 				Enabled:      true,
 				CrowdSecMode: "local",
 			}
-			if err := h.DB.Create(&cfg).Error; err != nil {
-				logger.Log().WithError(err).Error("Failed to create SecurityConfig")
+			if createErr := h.DB.Create(&cfg).Error; createErr != nil {
+				logger.Log().WithError(createErr).Error("Failed to create SecurityConfig")
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
 				return
 			}
@@ -1124,11 +1124,11 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		if cached, err := h.Hub.Cache.Load(ctx, slug); err == nil {
 			logger.Log().WithField("slug", util.SanitizeForLog(slug)).WithField("cache_key", cached.CacheKey).WithField("archive_path", cached.ArchivePath).WithField("preview_path", cached.PreviewPath).Info("preset found in cache")
 			// Verify files still exist
-			if _, err := os.Stat(cached.ArchivePath); err != nil {
-				logger.Log().WithError(err).WithField("archive_path", cached.ArchivePath).Error("cached archive file missing")
+			if _, statErr := os.Stat(cached.ArchivePath); statErr != nil {
+				logger.Log().WithError(statErr).WithField("archive_path", cached.ArchivePath).Error("cached archive file missing")
 			}
-			if _, err := os.Stat(cached.PreviewPath); err != nil {
-				logger.Log().WithError(err).WithField("preview_path", cached.PreviewPath).Error("cached preview file missing")
+			if _, statErr := os.Stat(cached.PreviewPath); statErr != nil {
+				logger.Log().WithError(statErr).WithField("preview_path", cached.PreviewPath).Error("cached preview file missing")
 			}
 		} else {
 			logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(slug)).Warn("preset not found in cache before apply")
@@ -1460,8 +1460,8 @@ func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 		return
 	}
 	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to close response body")
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Warn("Failed to close response body")
 		}
 	}()
 

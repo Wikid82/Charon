@@ -449,8 +449,8 @@ func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (
 		return HubIndex{}, fmt.Errorf("fetch hub index: %w", err)
 	}
 	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to close response body")
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Warn("Failed to close response body")
 		}
 	}()
 	if resp.StatusCode != http.StatusOK {
@@ -550,11 +550,11 @@ func (s *HubService) Pull(ctx context.Context, slug string) (PullResult, error) 
 			Mode: 0o644,
 			Size: int64(len(archiveBytes)),
 		}
-		if err := tw.WriteHeader(hdr); err != nil {
-			return PullResult{}, fmt.Errorf("create tar header: %w", err)
+		if writeHeaderErr := tw.WriteHeader(hdr); writeHeaderErr != nil {
+			return PullResult{}, fmt.Errorf("create tar header: %w", writeHeaderErr)
 		}
-		if _, err := tw.Write(archiveBytes); err != nil {
-			return PullResult{}, fmt.Errorf("write tar content: %w", err)
+		if _, writeErr := tw.Write(archiveBytes); writeErr != nil {
+			return PullResult{}, fmt.Errorf("write tar content: %w", writeErr)
 		}
 		_ = tw.Close()
 		_ = gw.Close()
@@ -748,8 +748,8 @@ func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string) ([]b
 		return nil, fmt.Errorf("request %s: %w", url, err)
 	}
 	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to close response body")
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Warn("Failed to close response body")
 		}
 	}()
 	if resp.StatusCode != http.StatusOK {
@@ -938,8 +938,8 @@ func emptyDir(dir string) error {
 		return err
 	}
 	defer func() {
-		if err := d.Close(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to close directory")
+		if closeErr := d.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Warn("Failed to close directory")
 		}
 	}()
 	names, err := d.Readdirnames(-1)
@@ -1000,14 +1000,14 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 		}
 
 		if hdr.FileInfo().IsDir() {
-			if err := os.MkdirAll(destPath, hdr.FileInfo().Mode()); err != nil {
-				return fmt.Errorf("mkdir %s: %w", destPath, err)
+			if mkdirErr := os.MkdirAll(destPath, hdr.FileInfo().Mode()); mkdirErr != nil {
+				return fmt.Errorf("mkdir %s: %w", destPath, mkdirErr)
 			}
 			continue
 		}
 
-		if err := os.MkdirAll(filepath.Dir(destPath), 0o700); err != nil {
-			return fmt.Errorf("mkdir parent: %w", err)
+		if mkdirErr := os.MkdirAll(filepath.Dir(destPath), 0o700); mkdirErr != nil {
+			return fmt.Errorf("mkdir parent: %w", mkdirErr)
 		}
 		f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, hdr.FileInfo().Mode()) // #nosec G304 -- Dest path from tar archive extraction // #nosec G304 -- Dest path from tar archive extraction
 		if err != nil {
@@ -1075,8 +1075,8 @@ func copyFile(src, dst string) error {
 		return fmt.Errorf("open src: %w", err)
 	}
 	defer func() {
-		if err := srcFile.Close(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to close source file")
+		if closeErr := srcFile.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Warn("Failed to close source file")
 		}
 	}()
 

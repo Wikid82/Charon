@@ -35,8 +35,8 @@ func startTestSMTPServer(t *testing.T) (host string, port int) {
 	go func() {
 		defer close(acceptDone)
 		for {
-			conn, err := ln.Accept()
-			if err != nil {
+			conn, acceptErr := ln.Accept()
+			if acceptErr != nil {
 				return
 			}
 			wg.Add(1)
