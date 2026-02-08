@@ -112,20 +112,24 @@ jobs:
           IMAGE_REF="${{ inputs.image_ref }}"
           IMAGE_TAG="${{ inputs.image_tag || 'charon:e2e-test' }}"
           if [ -n "$IMAGE_REF" ]; then
-            echo "image_source=registry" >> "$GITHUB_OUTPUT"
-            echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
-            echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
-            if [[ "$IMAGE_REF" == *@* ]]; then
-              echo "image_digest=${IMAGE_REF#*@}" >> "$GITHUB_OUTPUT"
-            else
-              echo "image_digest=" >> "$GITHUB_OUTPUT"
-            fi
+            {
+              echo "image_source=registry"
+              echo "image_ref=$IMAGE_REF"
+              echo "image_tag=$IMAGE_TAG"
+              if [[ "$IMAGE_REF" == *@* ]]; then
+                echo "image_digest=${IMAGE_REF#*@}"
+              else
+                echo "image_digest="
+              fi
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "image_source=build" >> "$GITHUB_OUTPUT"
-          echo "image_ref=" >> "$GITHUB_OUTPUT"
-          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
-          echo "image_digest=" >> "$GITHUB_OUTPUT"
+          {
+            echo "image_source=build"
+            echo "image_ref="
+            echo "image_tag=$IMAGE_TAG"
+            echo "image_digest="
+          } >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
         if: steps.resolve-image.outputs.image_source == 'build'
@@ -183,7 +187,7 @@ jobs:
 
       - name: Upload Docker image artifact
         if: steps.resolve-image.outputs.image_source == 'build'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: docker-image
           path: charon-e2e-image.tar
@@ -251,7 +255,7 @@ jobs:
             exit 1
           fi
           TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
-          if [ $TOKEN_LENGTH -lt 64 ]; then
+          if [ "$TOKEN_LENGTH" -lt 64 ]; then
             echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
             exit 1
           fi
@@ -267,7 +271,7 @@ jobs:
           docker images | grep charon
 
       - name: Generate ephemeral encryption key
-        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> $GITHUB_ENV
+        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
 
       - name: Start test environment (Security Tests Profile)
         run: |
@@ -302,7 +306,7 @@ jobs:
           npx playwright install --with-deps chromium
           EXIT_CODE=$?
           echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit $EXIT_CODE
+          exit "$EXIT_CODE"
 
       - name: Run Chromium Security Enforcement Tests
         run: |
@@ -314,7 +318,7 @@ jobs:
           echo "════════════════════════════════════════════"
 
           SHARD_START=$(date +%s)
-          echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
+          echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
 
           npx playwright test \
             --project=chromium \
@@ -322,7 +326,7 @@ jobs:
             tests/security/
 
           SHARD_END=$(date +%s)
-          echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
+          echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
           SHARD_DURATION=$((SHARD_END - SHARD_START))
           echo "════════════════════════════════════════════"
           echo "Chromium Security Complete | Duration: ${SHARD_DURATION}s"
@@ -333,7 +337,7 @@ jobs:
 
       - name: Upload HTML report (Chromium Security)
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: playwright-report-chromium-security
           path: playwright-report/
@@ -341,7 +345,7 @@ jobs:
 
       - name: Upload Chromium Security coverage (if enabled)
         if: always() && env.PLAYWRIGHT_COVERAGE == '1'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: e2e-coverage-chromium-security
           path: coverage/e2e/
@@ -349,7 +353,7 @@ jobs:
 
       - name: Upload test traces on failure
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: traces-chromium-security
           path: test-results/**/*.zip
@@ -362,7 +366,7 @@ jobs:
 
       - name: Upload Docker logs on failure
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: docker-logs-chromium-security
           path: docker-logs-chromium-security.txt
@@ -427,7 +431,7 @@ jobs:
             exit 1
           fi
           TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
-          if [ $TOKEN_LENGTH -lt 64 ]; then
+          if [ "$TOKEN_LENGTH" -lt 64 ]; then
             echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
             exit 1
           fi
@@ -443,7 +447,7 @@ jobs:
           docker images | grep charon
 
       - name: Generate ephemeral encryption key
-        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> $GITHUB_ENV
+        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
 
       - name: Start test environment (Security Tests Profile)
         run: |
@@ -478,7 +482,7 @@ jobs:
           npx playwright install --with-deps chromium
           EXIT_CODE=$?
           echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit $EXIT_CODE
+          exit "$EXIT_CODE"
 
       - name: Install Playwright Firefox
         run: |
@@ -486,7 +490,7 @@ jobs:
           npx playwright install --with-deps firefox
           EXIT_CODE=$?
           echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit $EXIT_CODE
+          exit "$EXIT_CODE"
 
       - name: Run Firefox Security Enforcement Tests
         run: |
@@ -498,7 +502,7 @@ jobs:
           echo "════════════════════════════════════════════"
 
           SHARD_START=$(date +%s)
-          echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
+          echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
 
           npx playwright test \
             --project=firefox \
@@ -506,7 +510,7 @@ jobs:
             tests/security/
 
           SHARD_END=$(date +%s)
-          echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
+          echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
           SHARD_DURATION=$((SHARD_END - SHARD_START))
           echo "════════════════════════════════════════════"
           echo "Firefox Security Complete | Duration: ${SHARD_DURATION}s"
@@ -517,7 +521,7 @@ jobs:
 
       - name: Upload HTML report (Firefox Security)
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: playwright-report-firefox-security
           path: playwright-report/
@@ -525,7 +529,7 @@ jobs:
 
       - name: Upload Firefox Security coverage (if enabled)
         if: always() && env.PLAYWRIGHT_COVERAGE == '1'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: e2e-coverage-firefox-security
           path: coverage/e2e/
@@ -533,7 +537,7 @@ jobs:
 
       - name: Upload test traces on failure
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: traces-firefox-security
           path: test-results/**/*.zip
@@ -546,7 +550,7 @@ jobs:
 
       - name: Upload Docker logs on failure
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: docker-logs-firefox-security
           path: docker-logs-firefox-security.txt
@@ -611,7 +615,7 @@ jobs:
             exit 1
           fi
           TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
-          if [ $TOKEN_LENGTH -lt 64 ]; then
+          if [ "$TOKEN_LENGTH" -lt 64 ]; then
             echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
             exit 1
           fi
@@ -627,7 +631,7 @@ jobs:
           docker images | grep charon
 
       - name: Generate ephemeral encryption key
-        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> $GITHUB_ENV
+        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
 
       - name: Start test environment (Security Tests Profile)
         run: |
@@ -662,7 +666,7 @@ jobs:
           npx playwright install --with-deps chromium
           EXIT_CODE=$?
           echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit $EXIT_CODE
+          exit "$EXIT_CODE"
 
       - name: Install Playwright WebKit
         run: |
@@ -670,7 +674,7 @@ jobs:
           npx playwright install --with-deps webkit
           EXIT_CODE=$?
           echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit $EXIT_CODE
+          exit "$EXIT_CODE"
 
       - name: Run WebKit Security Enforcement Tests
         run: |
@@ -682,7 +686,7 @@ jobs:
           echo "════════════════════════════════════════════"
 
           SHARD_START=$(date +%s)
-          echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
+          echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
 
           npx playwright test \
             --project=webkit \
@@ -690,7 +694,7 @@ jobs:
             tests/security/
 
           SHARD_END=$(date +%s)
-          echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
+          echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
           SHARD_DURATION=$((SHARD_END - SHARD_START))
           echo "════════════════════════════════════════════"
           echo "WebKit Security Complete | Duration: ${SHARD_DURATION}s"
@@ -701,7 +705,7 @@ jobs:
 
       - name: Upload HTML report (WebKit Security)
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: playwright-report-webkit-security
           path: playwright-report/
@@ -709,7 +713,7 @@ jobs:
 
       - name: Upload WebKit Security coverage (if enabled)
         if: always() && env.PLAYWRIGHT_COVERAGE == '1'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: e2e-coverage-webkit-security
           path: coverage/e2e/
@@ -717,7 +721,7 @@ jobs:
 
       - name: Upload test traces on failure
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: traces-webkit-security
           path: test-results/**/*.zip
@@ -730,7 +734,7 @@ jobs:
 
       - name: Upload Docker logs on failure
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: docker-logs-webkit-security
           path: docker-logs-webkit-security.txt
@@ -806,7 +810,7 @@ jobs:
           docker images | grep charon
 
       - name: Generate ephemeral encryption key
-        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> $GITHUB_ENV
+        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
 
       - name: Start test environment (Non-Security Profile)
         run: |
@@ -841,7 +845,7 @@ jobs:
           npx playwright install --with-deps chromium
           EXIT_CODE=$?
           echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit $EXIT_CODE
+          exit "$EXIT_CODE"
 
       - name: Run Chromium Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -853,7 +857,7 @@ jobs:
           echo "════════════════════════════════════════════"
 
           SHARD_START=$(date +%s)
-          echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
+          echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
 
           npx playwright test \
             --project=chromium \
@@ -869,7 +873,7 @@ jobs:
             tests/tasks
 
           SHARD_END=$(date +%s)
-          echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
+          echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
           SHARD_DURATION=$((SHARD_END - SHARD_START))
           echo "════════════════════════════════════════════"
           echo "Chromium Shard ${{ matrix.shard }} Complete | Duration: ${SHARD_DURATION}s"
@@ -881,7 +885,7 @@ jobs:
 
       - name: Upload HTML report (Chromium shard ${{ matrix.shard }})
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: playwright-report-chromium-shard-${{ matrix.shard }}
           path: playwright-report/
@@ -889,7 +893,7 @@ jobs:
 
       - name: Upload Chromium coverage (if enabled)
         if: always() && env.PLAYWRIGHT_COVERAGE == '1'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: e2e-coverage-chromium-shard-${{ matrix.shard }}
           path: coverage/e2e/
@@ -897,7 +901,7 @@ jobs:
 
       - name: Upload test traces on failure
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: traces-chromium-shard-${{ matrix.shard }}
           path: test-results/**/*.zip
@@ -910,7 +914,7 @@ jobs:
 
       - name: Upload Docker logs on failure
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: docker-logs-chromium-shard-${{ matrix.shard }}
           path: docker-logs-chromium-shard-${{ matrix.shard }}.txt
@@ -979,7 +983,7 @@ jobs:
           docker images | grep charon
 
       - name: Generate ephemeral encryption key
-        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> $GITHUB_ENV
+        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
 
       - name: Start test environment (Non-Security Profile)
         run: |
@@ -1014,7 +1018,7 @@ jobs:
           npx playwright install --with-deps chromium
           EXIT_CODE=$?
           echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit $EXIT_CODE
+          exit "$EXIT_CODE"
 
       - name: Install Playwright Firefox
         run: |
@@ -1022,7 +1026,7 @@ jobs:
           npx playwright install --with-deps firefox
           EXIT_CODE=$?
           echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit $EXIT_CODE
+          exit "$EXIT_CODE"
 
       - name: Run Firefox Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -1034,7 +1038,7 @@ jobs:
           echo "════════════════════════════════════════════"
 
           SHARD_START=$(date +%s)
-          echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
+          echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
 
           npx playwright test \
             --project=firefox \
@@ -1050,7 +1054,7 @@ jobs:
             tests/tasks
 
           SHARD_END=$(date +%s)
-          echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
+          echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
           SHARD_DURATION=$((SHARD_END - SHARD_START))
           echo "════════════════════════════════════════════"
           echo "Firefox Shard ${{ matrix.shard }} Complete | Duration: ${SHARD_DURATION}s"
@@ -1062,7 +1066,7 @@ jobs:
 
       - name: Upload HTML report (Firefox shard ${{ matrix.shard }})
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: playwright-report-firefox-shard-${{ matrix.shard }}
           path: playwright-report/
@@ -1070,7 +1074,7 @@ jobs:
 
       - name: Upload Firefox coverage (if enabled)
         if: always() && env.PLAYWRIGHT_COVERAGE == '1'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: e2e-coverage-firefox-shard-${{ matrix.shard }}
           path: coverage/e2e/
@@ -1078,7 +1082,7 @@ jobs:
 
       - name: Upload test traces on failure
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: traces-firefox-shard-${{ matrix.shard }}
           path: test-results/**/*.zip
@@ -1091,7 +1095,7 @@ jobs:
 
       - name: Upload Docker logs on failure
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: docker-logs-firefox-shard-${{ matrix.shard }}
           path: docker-logs-firefox-shard-${{ matrix.shard }}.txt
@@ -1160,7 +1164,7 @@ jobs:
           docker images | grep charon
 
       - name: Generate ephemeral encryption key
-        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> $GITHUB_ENV
+        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
 
       - name: Start test environment (Non-Security Profile)
         run: |
@@ -1195,7 +1199,7 @@ jobs:
           npx playwright install --with-deps chromium
           EXIT_CODE=$?
           echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit $EXIT_CODE
+          exit "$EXIT_CODE"
 
       - name: Install Playwright WebKit
         run: |
@@ -1203,7 +1207,7 @@ jobs:
           npx playwright install --with-deps webkit
           EXIT_CODE=$?
           echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit $EXIT_CODE
+          exit "$EXIT_CODE"
 
       - name: Run WebKit Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -1215,7 +1219,7 @@ jobs:
           echo "════════════════════════════════════════════"
 
           SHARD_START=$(date +%s)
-          echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
+          echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
 
           npx playwright test \
             --project=webkit \
@@ -1231,7 +1235,7 @@ jobs:
             tests/tasks
 
           SHARD_END=$(date +%s)
-          echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
+          echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
           SHARD_DURATION=$((SHARD_END - SHARD_START))
           echo "════════════════════════════════════════════"
           echo "WebKit Shard ${{ matrix.shard }} Complete | Duration: ${SHARD_DURATION}s"
@@ -1292,30 +1296,32 @@ jobs:
     steps:
       - name: Generate job summary
         run: |
-          echo "## 📊 E2E Test Results (Split: Security + Sharded)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Architecture: 15 Total Jobs" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### Security Enforcement (3 jobs)" >> $GITHUB_STEP_SUMMARY
-          echo "| Browser | Status | Shards | Timeout | Cerberus |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|--------|--------|---------|----------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Chromium | ${{ needs.e2e-chromium-security.result }} | 1 | 30min | ON |" >> $GITHUB_STEP_SUMMARY
-          echo "| Firefox | ${{ needs.e2e-firefox-security.result }} | 1 | 30min | ON |" >> $GITHUB_STEP_SUMMARY
-          echo "| WebKit | ${{ needs.e2e-webkit-security.result }} | 1 | 30min | ON |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### Non-Security Tests (12 jobs)" >> $GITHUB_STEP_SUMMARY
-          echo "| Browser | Status | Shards | Timeout | Cerberus |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|--------|--------|---------|----------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Chromium | ${{ needs.e2e-chromium.result }} | 4 | 20min | OFF |" >> $GITHUB_STEP_SUMMARY
-          echo "| Firefox | ${{ needs.e2e-firefox.result }} | 4 | 20min | OFF |" >> $GITHUB_STEP_SUMMARY
-          echo "| WebKit | ${{ needs.e2e-webkit.result }} | 4 | 20min | OFF |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Benefits" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Isolation:** Security tests run independently without ACL/rate limit interference" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Performance:** Non-security tests sharded 4-way for faster execution" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Reliability:** Cerberus OFF by default prevents cross-shard contamination" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Clarity:** Separate artifacts for security vs non-security test results" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 📊 E2E Test Results (Split: Security + Sharded)"
+            echo ""
+            echo "### Architecture: 15 Total Jobs"
+            echo ""
+            echo "#### Security Enforcement (3 jobs)"
+            echo "| Browser | Status | Shards | Timeout | Cerberus |"
+            echo "|---------|--------|--------|---------|----------|"
+            echo "| Chromium | ${{ needs.e2e-chromium-security.result }} | 1 | 30min | ON |"
+            echo "| Firefox | ${{ needs.e2e-firefox-security.result }} | 1 | 30min | ON |"
+            echo "| WebKit | ${{ needs.e2e-webkit-security.result }} | 1 | 30min | ON |"
+            echo ""
+            echo "#### Non-Security Tests (12 jobs)"
+            echo "| Browser | Status | Shards | Timeout | Cerberus |"
+            echo "|---------|--------|--------|---------|----------|"
+            echo "| Chromium | ${{ needs.e2e-chromium.result }} | 4 | 20min | OFF |"
+            echo "| Firefox | ${{ needs.e2e-firefox.result }} | 4 | 20min | OFF |"
+            echo "| WebKit | ${{ needs.e2e-webkit.result }} | 4 | 20min | OFF |"
+            echo ""
+            echo "### Benefits"
+            echo ""
+            echo "- ✅ **Isolation:** Security tests run independently without ACL/rate limit interference"
+            echo "- ✅ **Performance:** Non-security tests sharded 4-way for faster execution"
+            echo "- ✅ **Reliability:** Cerberus OFF by default prevents cross-shard contamination"
+            echo "- ✅ **Clarity:** Separate artifacts for security vs non-security test results"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # Final status check
   e2e-results:

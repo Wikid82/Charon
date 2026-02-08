@@ -134,7 +134,7 @@ jobs:
       - name: Normalize image name
         run: |
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
-          echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
+          echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
 
       - name: Determine image push policy
         id: image-policy
@@ -168,8 +168,12 @@ jobs:
 
             local sanitized
             sanitized=$(echo "$raw" | tr '[:upper:]' '[:lower:]')
-            sanitized=$(echo "$sanitized" | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g')
-            sanitized=$(echo "$sanitized" | sed 's/^[^a-z0-9]*//' | sed 's/[^a-z0-9-]*$//')
+            sanitized=${sanitized//[^a-z0-9-]/-}
+            while [[ "$sanitized" == *"--"* ]]; do
+              sanitized=${sanitized//--/-}
+            done
+            sanitized=${sanitized##[^a-z0-9]*}
+            sanitized=${sanitized%%[^a-z0-9-]*}
 
             if [ -z "$sanitized" ]; then
               sanitized="branch"
@@ -177,7 +181,7 @@ jobs:
 
             sanitized=$(echo "$sanitized" | cut -c1-"$max_len")
 
-            sanitized=$(echo "$sanitized" | sed 's/^[^a-z0-9]*//')
+            sanitized=${sanitized##[^a-z0-9]*}
             if [ -z "$sanitized" ]; then
               sanitized="branch"
             fi
@@ -201,10 +205,12 @@ jobs:
             TAGS+=("${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${BRANCH_SHA_TAG}")
             TAGS+=("${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:${BRANCH_SHA_TAG}")
 
-            if [[ "${{ github.ref_name }}" == feature/* ]]; then
-              TAGS+=("${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${BRANCH_TAG}")
-              TAGS+=("${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:${BRANCH_TAG}")
-            fi
+            case "${{ github.ref_name }}" in
+              feature/*)
+                TAGS+=("${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${BRANCH_TAG}")
+                TAGS+=("${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:${BRANCH_TAG}")
+                ;;
+            esac
           fi
 
           if [ "${{ github.event_name }}" != "pull_request" ] && \
@@ -274,15 +280,15 @@ jobs:
         run: |
           DIGEST="${{ steps.build.outputs.digest }}"
           if [ -z "${DIGEST}" ]; then
-            echo "image_ref_dockerhub=" >> $GITHUB_OUTPUT
-            echo "image_ref_ghcr=" >> $GITHUB_OUTPUT
+            echo "image_ref_dockerhub=" >> "$GITHUB_OUTPUT"
+            echo "image_ref_ghcr=" >> "$GITHUB_OUTPUT"
           else
             IMAGE_REF_DOCKERHUB="${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
             IMAGE_REF_GHCR="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
-            echo "image_ref_dockerhub=${IMAGE_REF_DOCKERHUB}" >> $GITHUB_OUTPUT
-            echo "image_ref_ghcr=${IMAGE_REF_GHCR}" >> $GITHUB_OUTPUT
+            echo "image_ref_dockerhub=${IMAGE_REF_DOCKERHUB}" >> "$GITHUB_OUTPUT"
+            echo "image_ref_ghcr=${IMAGE_REF_GHCR}" >> "$GITHUB_OUTPUT"
           fi
-          echo "image_tag=${{ steps.tags.outputs.image_tag }}" >> $GITHUB_OUTPUT
+          echo "image_tag=${{ steps.tags.outputs.image_tag }}" >> "$GITHUB_OUTPUT"
 
   integration-cerberus:
     name: Integration - Cerberus
@@ -461,10 +467,10 @@ jobs:
           CGO_ENABLED: 1
         run: |
           bash scripts/go-test-coverage.sh 2>&1 | tee backend/test-output.txt
-          exit ${PIPESTATUS[0]}
+          exit "${PIPESTATUS[0]}"
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: backend-coverage
           path: backend/coverage.txt
@@ -497,10 +503,10 @@ jobs:
       - name: Run frontend tests and coverage
         run: |
           bash scripts/frontend-test-coverage.sh 2>&1 | tee frontend/test-output.txt
-          exit ${PIPESTATUS[0]}
+          exit "${PIPESTATUS[0]}"
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: frontend-coverage
           path: frontend/coverage
@@ -564,7 +570,7 @@ jobs:
           path: coverage/e2e
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@7f9fc5e3cf521e84e0c9a667b0f6c6ad08c94b82 # v5.1.3
+        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: backend
@@ -572,7 +578,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload frontend coverage to Codecov
-        uses: codecov/codecov-action@7f9fc5e3cf521e84e0c9a667b0f6c6ad08c94b82 # v5.1.3
+        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: frontend
@@ -580,7 +586,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload E2E coverage to Codecov
-        uses: codecov/codecov-action@7f9fc5e3cf521e84e0c9a667b0f6c6ad08c94b82 # v5.1.3
+        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: e2e

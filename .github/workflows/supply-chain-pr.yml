@@ -177,9 +177,11 @@ jobs:
             exit 0
           fi
 
-          echo "artifact_found=true" >> "$GITHUB_OUTPUT"
-          echo "artifact_id=${ARTIFACT_ID}" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
+          {
+            echo "artifact_found=true"
+            echo "artifact_id=${ARTIFACT_ID}"
+            echo "artifact_name=${ARTIFACT_NAME}"
+          } >> "$GITHUB_OUTPUT"
           echo "✅ Found artifact: ${ARTIFACT_NAME} (ID: ${ARTIFACT_ID})"
 
       - name: Skip if no artifact
@@ -317,11 +319,13 @@ jobs:
           LOW_COUNT=$(jq '[.matches[] | select(.vulnerability.severity == "Low")] | length' grype-results.json 2>/dev/null || echo "0")
           TOTAL_COUNT=$(jq '.matches | length' grype-results.json 2>/dev/null || echo "0")
 
-          echo "critical_count=${CRITICAL_COUNT}" >> "$GITHUB_OUTPUT"
-          echo "high_count=${HIGH_COUNT}" >> "$GITHUB_OUTPUT"
-          echo "medium_count=${MEDIUM_COUNT}" >> "$GITHUB_OUTPUT"
-          echo "low_count=${LOW_COUNT}" >> "$GITHUB_OUTPUT"
-          echo "total_count=${TOTAL_COUNT}" >> "$GITHUB_OUTPUT"
+          {
+            echo "critical_count=${CRITICAL_COUNT}"
+            echo "high_count=${HIGH_COUNT}"
+            echo "medium_count=${MEDIUM_COUNT}"
+            echo "low_count=${LOW_COUNT}"
+            echo "total_count=${TOTAL_COUNT}"
+          } >> "$GITHUB_OUTPUT"
 
           echo "📊 Vulnerability Summary:"
           echo "  Critical: ${CRITICAL_COUNT}"
