@@ -223,7 +223,7 @@ jobs:
           cache: 'npm'
 
       - name: Log in to Docker Hub
-        if: needs.build.outputs.image_source == 'registry' && secrets.DOCKERHUB_TOKEN != ''
+        if: needs.build.outputs.image_source == 'registry'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.DOCKERHUB_REGISTRY }}
@@ -399,7 +399,7 @@ jobs:
           cache: 'npm'
 
       - name: Log in to Docker Hub
-        if: needs.build.outputs.image_source == 'registry' && secrets.DOCKERHUB_TOKEN != ''
+        if: needs.build.outputs.image_source == 'registry'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.DOCKERHUB_REGISTRY }}
@@ -583,7 +583,7 @@ jobs:
           cache: 'npm'
 
       - name: Log in to Docker Hub
-        if: needs.build.outputs.image_source == 'registry' && secrets.DOCKERHUB_TOKEN != ''
+        if: needs.build.outputs.image_source == 'registry'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.DOCKERHUB_REGISTRY }}
@@ -779,7 +779,7 @@ jobs:
           cache: 'npm'
 
       - name: Log in to Docker Hub
-        if: needs.build.outputs.image_source == 'registry' && secrets.DOCKERHUB_TOKEN != ''
+        if: needs.build.outputs.image_source == 'registry'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.DOCKERHUB_REGISTRY }}
@@ -952,7 +952,7 @@ jobs:
           cache: 'npm'
 
       - name: Log in to Docker Hub
-        if: needs.build.outputs.image_source == 'registry' && secrets.DOCKERHUB_TOKEN != ''
+        if: needs.build.outputs.image_source == 'registry'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.DOCKERHUB_REGISTRY }}
@@ -1133,7 +1133,7 @@ jobs:
           cache: 'npm'
 
       - name: Log in to Docker Hub
-        if: needs.build.outputs.image_source == 'registry' && secrets.DOCKERHUB_TOKEN != ''
+        if: needs.build.outputs.image_source == 'registry'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.DOCKERHUB_REGISTRY }}
