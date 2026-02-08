@@ -49,7 +49,8 @@ ARG GOSU_VERSION=1.17
 RUN apk add --no-cache git clang lld
 # hadolint ignore=DL3059
 # hadolint ignore=DL3018
-RUN xx-apk add --no-cache gcc musl-dev
+# Install both musl-dev (headers) and musl (runtime library) for cross-compilation linker
+RUN xx-apk add --no-cache gcc musl-dev musl
 
 # Clone and build gosu from source with modern Go
 RUN git clone --depth 1 --branch "${GOSU_VERSION}" https://github.com/tianon/gosu.git .
@@ -102,7 +103,9 @@ ARG TARGETARCH
 RUN apk add --no-cache clang lld
 # hadolint ignore=DL3059
 # hadolint ignore=DL3018
-RUN xx-apk add --no-cache gcc musl-dev sqlite-dev
+# Install both musl-dev (headers) and musl (runtime library) for cross-compilation linker
+# The musl runtime library is required by the linker for the target architecture
+RUN xx-apk add --no-cache gcc musl-dev musl sqlite-dev
 
 # Install Delve (cross-compile for target)
 # Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
@@ -244,7 +247,8 @@ ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0b
 RUN apk add --no-cache git clang lld
 # hadolint ignore=DL3059
 # hadolint ignore=DL3018
-RUN xx-apk add --no-cache gcc musl-dev
+# Install both musl-dev (headers) and musl (runtime library) for cross-compilation linker
+RUN xx-apk add --no-cache gcc musl-dev musl
 
 # Clone CrowdSec source
 RUN git clone --depth 1 --branch "v${CROWDSEC_VERSION}" https://github.com/crowdsecurity/crowdsec.git .
