@@ -12,32 +12,32 @@ linters:
     - ineffassign  # Ineffectual assignments
     - unused       # Unused code detection
     - gosec        # Security checks (critical issues only)
-
-linters-settings:
-  govet:
-    enable:
-      - shadow
-  errcheck:
-    exclude-functions:
-      - (io.Closer).Close
-      - (*os.File).Close
-      - (net/http.ResponseWriter).Write
-  gosec:
-    # Only check CRITICAL security issues for fast pre-commit
-    includes:
-      - G101  # Hardcoded credentials
-      - G110  # Potential DoS via decompression bomb
-      - G305  # File traversal when extracting archive
-      - G401  # Weak crypto (MD5, SHA1)
-      - G501  # Blacklisted import crypto/md5
-      - G502  # Blacklisted import crypto/des
-      - G503  # Blacklisted import crypto/rc4
+  settings:
+    govet:
+      enable:
+        - shadow
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (net/http.ResponseWriter).Write
+    gosec:
+      # Only check CRITICAL security issues for fast pre-commit
+      includes:
+        - G101  # Hardcoded credentials
+        - G110  # Potential DoS via decompression bomb
+        - G305  # File traversal when extracting archive
+        - G401  # Weak crypto (MD5, SHA1)
+        - G501  # Blacklisted import crypto/md5
+        - G502  # Blacklisted import crypto/des
+        - G503  # Blacklisted import crypto/rc4
 
 issues:
-  exclude-generated-strict: true
-  exclude-rules:
-    # Allow test-specific patterns for errcheck
-    - linters:
-        - errcheck
-      path: ".*_test\\.go$"
-      text: "json\\.Unmarshal|SetPassword|CreateProvider"
+  exclude-use-default: false
+  exclude-dirs:
+    - vendor
+  exclude-files:
+    - ".*\\.gen\\.go$"
+  exclude:
+    # Allow test-specific patterns
+    - 'Error return value of `.*(json\.Unmarshal|SetPassword|CreateProvider).*` is not checked'

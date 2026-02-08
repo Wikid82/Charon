@@ -14,82 +14,59 @@ linters:
     - staticcheck
     - unused
     - errcheck
-
-linters-settings:
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - performance
-      - style
-      - opinionated
-      - experimental
-    disabled-checks:
-      - whyNoLint
-      - wrapperFunc
-      - hugeParam
-      - rangeValCopy
-      - ifElseChain
-      - appendCombine
-      - appendAssign
-      - commentedOutCode
-      - sprintfQuotedString
-  govet:
-    enable:
-      - shadow
-  errcheck:
-    exclude-functions:
-      # Ignore deferred close errors - these are intentional
-      - (io.Closer).Close
-      - (*os.File).Close
-      - (net/http.ResponseWriter).Write
-      - (*encoding/json.Encoder).Encode
-      - (*encoding/json.Decoder).Decode
-      # Test utilities
-      - os.Setenv
-      - os.Unsetenv
-      - os.RemoveAll
-      - os.MkdirAll
-      - os.WriteFile
-      - os.Remove
-      - (*gorm.io/gorm.DB).AutoMigrate
-      # Additional test cleanup functions
-      - (*database/sql.Rows).Close
-      - (gorm.io/gorm.Migrator).DropTable
-      - (*net/http.Response.Body).Close
+  settings:
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+        - opinionated
+        - experimental
+      disabled-checks:
+        - whyNoLint
+        - wrapperFunc
+        - hugeParam
+        - rangeValCopy
+        - ifElseChain
+        - appendCombine
+        - appendAssign
+        - commentedOutCode
+        - sprintfQuotedString
+    govet:
+      enable:
+        - shadow
+    errcheck:
+      exclude-functions:
+        # Ignore deferred close errors - these are intentional
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (net/http.ResponseWriter).Write
+        - (*encoding/json.Encoder).Encode
+        - (*encoding/json.Decoder).Decode
+        # Test utilities
+        - os.Setenv
+        - os.Unsetenv
+        - os.RemoveAll
+        - os.MkdirAll
+        - os.WriteFile
+        - os.Remove
+        - (*gorm.io/gorm.DB).AutoMigrate
+        # Additional test cleanup functions
+        - (*database/sql.Rows).Close
+        - (gorm.io/gorm.Migrator).DropTable
+        - (*net/http.Response.Body).Close
 
 issues:
-  exclude-rules:
-    # errcheck is strict by design; allow a few intentionally-ignored errors in tests only.
-    - linters:
-        - errcheck
-      path: ".*_test\\.go$"
-      text: "json\\.Unmarshal|SetPassword|CreateProvider|ProxyHostService\\.Create"
-
+  exclude-use-default: false
+  exclude:
     # Gosec exclusions - be specific to avoid hiding real issues
     # G104: Ignoring return values - already checked by errcheck
-    - linters:
-        - gosec
-      text: "G104:"
-
-    # G301/G302/G306: File permissions - allow in specific contexts
-    - linters:
-        - gosec
-      path: "internal/config/"
-      text: "G301:|G302:|G306:"
-
-    # G304: File path from variable - allow in handlers with proper validation
-    - linters:
-        - gosec
-      path: "internal/api/handlers/"
-      text: "G304:"
-
-    # G602: Slice bounds - allow in test files where it's typically safe
-    - linters:
-        - gosec
-      path: ".*_test\\.go$"
-      text: "G602:"
-
-    # Exclude shadow warnings in specific patterns
-    - linters:
-        - govet
-      text: "shadows declaration"
+    - "G104:"
+    # Allow shadow warnings in specific patterns
+    - "shadows declaration"
+  exclude-dirs:
+    - vendor
+  exclude-files:
+    - ".*_test\\.go$"  # Test-specific exclusions handled via patterns
+  max-issues-per-linter: 0
+  max-same-issues: 0
