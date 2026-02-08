@@ -3,8 +3,6 @@ name: Auto-add issues and PRs to Project
 on:
   issues:
     types: [opened, reopened]
-  pull_request:
-    types: [opened, reopened]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.issue.number || github.event.pull_request.number }}

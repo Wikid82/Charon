@@ -4,8 +4,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '0 3 * * *'   # daily at 03:00 UTC
-  pull_request:
-    types: [closed]      # also run when any PR is closed (makes pruning near-real-time)
 
 permissions:
   contents: write       # required to delete branch refs

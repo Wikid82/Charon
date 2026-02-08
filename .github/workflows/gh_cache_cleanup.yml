@@ -1,8 +1,11 @@
 name: Cleanup github runner caches on closed pull requests
 on:
-  pull_request:
-    types:
-      - closed
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to clean caches for'
+        required: true
+        type: string
 
 jobs:
   cleanup:
@@ -25,4 +28,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          BRANCH: refs/pull/${{ github.event.pull_request.number }}/merge
+          BRANCH: refs/pull/${{ inputs.pr_number }}/merge

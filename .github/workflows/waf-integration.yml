@@ -3,9 +3,6 @@ name: WAF integration
 # Phase 2-3: Build Once, Test Many - Use registry image instead of building
 # This workflow now waits for docker-build.yml to complete and pulls the built image
 on:
-  workflow_run:
-    workflows: ["Docker Build, Publish & Test"]
-    types: [completed]
   workflow_dispatch:
     inputs:
       image_tag:

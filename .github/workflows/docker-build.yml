@@ -22,8 +22,6 @@ name: Docker Build, Publish & Test
 
 on:
   workflow_dispatch:
-  pull_request:
-  push:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}

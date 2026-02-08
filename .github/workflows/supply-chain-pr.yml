@@ -9,11 +9,6 @@ on:
         description: "PR number to verify (optional, will auto-detect from workflow_run)"
         required: false
         type: string
-  workflow_run:
-    workflows:
-      - Docker Build, Publish & Test
-    types:
-      - completed
 
 concurrency:
   group: supply-chain-pr-${{ github.event.workflow_run.event || github.event_name }}-${{ github.event.workflow_run.head_branch || github.ref }}
