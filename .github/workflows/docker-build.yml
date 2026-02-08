@@ -21,33 +21,31 @@ name: Docker Build, Publish & Test
 # See: docs/plans/current_spec.md (Section 4.1 - docker-build.yml changes)
 
 on:
-  push:
-    branches:
-      - main
-      - development
-      - 'feature/**'
-      - 'hotfix/**'
-    # Note: Tags are handled by release-goreleaser.yml to avoid duplicate builds
-  pull_request:
-    branches:
-      - main
-      - development
-      - 'feature/**'
-      - 'hotfix/**'
+  workflow_run:
+    workflows: ["Docker Lint"]
+    types: [completed]
   workflow_dispatch:
   workflow_call:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: wikid82/charon
+  TRIGGER_EVENT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event || github.event_name }}
+  TRIGGER_HEAD_BRANCH: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
+  TRIGGER_HEAD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+  TRIGGER_REF: ${{ github.event_name == 'workflow_run' && format('refs/heads/{0}', github.event.workflow_run.head_branch) || github.ref }}
+  TRIGGER_HEAD_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.head_ref }}
+  TRIGGER_PR_NUMBER: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }}
+  TRIGGER_ACTOR: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.actor.login || github.actor }}
 
 jobs:
   build-and-push:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     env:
       HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
     runs-on: ubuntu-latest
@@ -66,7 +64,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
+        with:
+          ref: ${{ env.TRIGGER_HEAD_SHA }}
       - name: Normalize image name
         run: |
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
@@ -74,27 +73,33 @@ jobs:
       - name: Determine skip condition
         id: skip
         env:
-          ACTOR: ${{ github.actor }}
-          EVENT: ${{ github.event_name }}
-          HEAD_MSG: ${{ github.event.head_commit.message }}
-          REF: ${{ github.ref }}
-          HEAD_REF: ${{ github.head_ref }}
+          ACTOR: ${{ env.TRIGGER_ACTOR }}
+          EVENT: ${{ env.TRIGGER_EVENT }}
+          REF: ${{ env.TRIGGER_REF }}
+          HEAD_REF: ${{ env.TRIGGER_HEAD_REF }}
+          PR_NUMBER: ${{ env.TRIGGER_PR_NUMBER }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           should_skip=false
           pr_title=""
-          if [ "$EVENT" = "pull_request" ]; then
-            pr_title=$(jq -r '.pull_request.title' "$GITHUB_EVENT_PATH" 2>/dev/null || echo '')
+          head_msg=$(git log -1 --pretty=%s)
+          if [ "$EVENT" = "pull_request" ] && [ -n "$PR_NUMBER" ]; then
+            pr_title=$(curl -sS \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}" | jq -r '.title // empty')
           fi
           if [ "$ACTOR" = "renovate[bot]" ]; then should_skip=true; fi
-          if echo "$HEAD_MSG" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
-          if echo "$HEAD_MSG" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
+          if echo "$head_msg" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
+          if echo "$head_msg" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
           # Always build on feature branches to ensure artifacts for testing
-          # For PRs: github.ref is refs/pull/N/merge, so check github.head_ref instead
-          # For pushes: github.ref is refs/heads/branch-name
+          # For PRs: use HEAD_REF (actual source branch)
+          # For pushes: use REF (refs/heads/branch-name)
           is_feature_push=false
-          if [[ "$REF" == refs/heads/feature/* ]]; then
+          if [[ "$EVENT" != "pull_request" && "$REF" == refs/heads/feature/* ]]; then
             should_skip=false
             is_feature_push=true
             echo "Force building on feature branch (push)"
@@ -140,11 +145,11 @@ jobs:
       # Implements tag sanitization per spec Section 3.2
       # Format: {sanitized-branch-name}-{short-sha} (e.g., feature-dns-provider-abc1234)
       - name: Compute feature branch tag
-        if: steps.skip.outputs.skip_build != 'true' && startsWith(github.ref, 'refs/heads/feature/')
+        if: steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT != 'pull_request' && startsWith(env.TRIGGER_REF, 'refs/heads/feature/')
         id: feature-tag
         run: |
-          BRANCH_NAME="${GITHUB_REF#refs/heads/}"
-          SHORT_SHA="$(echo ${{ github.sha }} | cut -c1-7)"
+          BRANCH_NAME="${TRIGGER_REF#refs/heads/}"
+          SHORT_SHA="$(echo ${{ env.TRIGGER_HEAD_SHA }} | cut -c1-7)"
 
           # Sanitization algorithm per spec Section 3.2:
           # 1. Convert to lowercase
@@ -178,15 +183,15 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/development' }}
-            type=raw,value=${{ steps.feature-tag.outputs.tag }},enable=${{ startsWith(github.ref, 'refs/heads/feature/') && steps.feature-tag.outputs.tag != '' }}
-            type=raw,value=pr-${{ github.event.pull_request.number }}-{{sha}},enable=${{ github.event_name == 'pull_request' }},prefix=,suffix=
-            type=sha,format=short,enable=${{ github.event_name != 'pull_request' }}
+            type=raw,value=dev,enable=${{ env.TRIGGER_REF == 'refs/heads/development' }}
+            type=raw,value=${{ steps.feature-tag.outputs.tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && startsWith(env.TRIGGER_REF, 'refs/heads/feature/') && steps.feature-tag.outputs.tag != '' }}
+            type=raw,value=pr-${{ env.TRIGGER_PR_NUMBER }}-{{sha}},enable=${{ env.TRIGGER_EVENT == 'pull_request' }},prefix=,suffix=
+            type=sha,format=short,enable=${{ env.TRIGGER_EVENT != 'pull_request' }}
           flavor: |
             latest=false
           labels: |
-            org.opencontainers.image.revision=${{ github.sha }}
-            io.charon.pr.number=${{ github.event.pull_request.number }}
+            org.opencontainers.image.revision=${{ env.TRIGGER_HEAD_SHA }}
+            io.charon.pr.number=${{ env.TRIGGER_PR_NUMBER }}
             io.charon.build.timestamp=${{ github.event.repository.updated_at }}
             io.charon.feature.branch=${{ steps.feature-tag.outputs.tag }}
       # Phase 1 Optimization: Build once, test many
@@ -210,7 +215,7 @@ jobs:
             set -euo pipefail
 
             echo "🔨 Building Docker image with retry logic..."
-            echo "Platform: ${{ (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true') && 'linux/amd64' || 'linux/amd64,linux/arm64' }}"
+            echo "Platform: ${{ (env.TRIGGER_EVENT == 'pull_request' || steps.skip.outputs.is_feature_push == 'true') && 'linux/amd64' || 'linux/amd64,linux/arm64' }}"
 
             # Build tag arguments array from metadata output (properly quoted)
             TAG_ARGS_ARRAY=()
@@ -227,7 +232,7 @@ jobs:
             # Build the complete command as an array (handles spaces in label values correctly)
             BUILD_CMD=(
               docker buildx build
-              --platform "${{ (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true') && 'linux/amd64' || 'linux/amd64,linux/arm64' }}"
+              --platform "${{ (env.TRIGGER_EVENT == 'pull_request' || steps.skip.outputs.is_feature_push == 'true') && 'linux/amd64' || 'linux/amd64,linux/arm64' }}"
               --push
               "${TAG_ARGS_ARRAY[@]}"
               "${LABEL_ARGS_ARRAY[@]}"
@@ -235,7 +240,7 @@ jobs:
               --pull
               --build-arg "VERSION=${{ steps.meta.outputs.version }}"
               --build-arg "BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}"
-              --build-arg "VCS_REF=${{ github.sha }}"
+              --build-arg "VCS_REF=${{ env.TRIGGER_HEAD_SHA }}"
               --build-arg "CADDY_IMAGE=${{ steps.caddy.outputs.image }}"
               --iidfile /tmp/image-digest.txt
               .
@@ -252,7 +257,7 @@ jobs:
 
             # For PRs and feature branches, pull the image back locally for artifact creation
             # This enables backward compatibility with workflows that use artifacts
-            if [[ "${{ github.event_name }}" == "pull_request" ]] || [[ "${{ steps.skip.outputs.is_feature_push }}" == "true" ]]; then
+            if [[ "${{ env.TRIGGER_EVENT }}" == "pull_request" ]] || [[ "${{ steps.skip.outputs.is_feature_push }}" == "true" ]]; then
               echo "📥 Pulling image back for artifact creation..."
               FIRST_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
               docker pull "${FIRST_TAG}"
@@ -275,7 +280,7 @@ jobs:
       # 2. Image doesn't exist locally after build
       # 3. Artifact creation fails
       - name: Save Docker Image as Artifact
-        if: success() && steps.skip.outputs.skip_build != 'true' && (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true')
+        if: success() && steps.skip.outputs.skip_build != 'true' && (env.TRIGGER_EVENT == 'pull_request' || steps.skip.outputs.is_feature_push == 'true')
         run: |
           # Extract the first tag from metadata action (PR tag)
           IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
@@ -306,10 +311,10 @@ jobs:
           ls -lh /tmp/charon-pr-image.tar
 
       - name: Upload Image Artifact
-        if: success() && steps.skip.outputs.skip_build != 'true' && (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true')
+        if: success() && steps.skip.outputs.skip_build != 'true' && (env.TRIGGER_EVENT == 'pull_request' || steps.skip.outputs.is_feature_push == 'true')
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: ${{ github.event_name == 'pull_request' && format('pr-image-{0}', github.event.pull_request.number) || 'push-image' }}
+          name: ${{ env.TRIGGER_EVENT == 'pull_request' && format('pr-image-{0}', env.TRIGGER_PR_NUMBER) || 'push-image' }}
           path: /tmp/charon-pr-image.tar
           retention-days: 1  # Only needed for workflow duration
 
@@ -322,8 +327,8 @@ jobs:
           echo ""
 
           # Determine the image reference based on event type
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            PR_NUM="${{ github.event.pull_request.number }}"
+          if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
+            PR_NUM="${{ env.TRIGGER_PR_NUMBER }}"
             if [ -z "${PR_NUM}" ]; then
               echo "❌ ERROR: Pull request number is empty"
               exit 1
@@ -350,8 +355,8 @@ jobs:
           docker rm ${CONTAINER_ID}
 
           # Determine the image reference based on event type
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            PR_NUM="${{ github.event.pull_request.number }}"
+          if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
+            PR_NUM="${{ env.TRIGGER_PR_NUMBER }}"
             if [ -z "${PR_NUM}" ]; then
               echo "❌ ERROR: Pull request number is empty"
               exit 1
@@ -418,8 +423,8 @@ jobs:
           echo ""
 
           # Determine the image reference based on event type
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            PR_NUM="${{ github.event.pull_request.number }}"
+          if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
+            PR_NUM="${{ env.TRIGGER_PR_NUMBER }}"
             if [ -z "${PR_NUM}" ]; then
               echo "❌ ERROR: Pull request number is empty"
               exit 1
@@ -494,7 +499,7 @@ jobs:
           echo "==> CrowdSec verification complete"
 
       - name: Run Trivy scan (table output)
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
         with:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
@@ -504,7 +509,7 @@ jobs:
         continue-on-error: true
 
       - name: Run Trivy vulnerability scanner (SARIF)
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         id: trivy
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
         with:
@@ -515,7 +520,7 @@ jobs:
         continue-on-error: true
 
       - name: Check Trivy SARIF exists
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         id: trivy-check
         run: |
           if [ -f trivy-results.sarif ]; then
@@ -525,7 +530,7 @@ jobs:
           fi
 
       - name: Upload Trivy results
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
         uses: github/codeql-action/upload-sarif@45cbd0c69e560cd9e7cd7f8c32362050c9b7ded2 # v4.32.2
         with:
           sarif_file: 'trivy-results.sarif'
@@ -535,7 +540,7 @@ jobs:
       # Only for production builds (main/development) - feature branches use downstream supply-chain-pr.yml
       - name: Generate SBOM
         uses: anchore/sbom-action@28d71544de8eaf1b958d335707167c5f783590ad # v0.22.2
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         with:
           image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: cyclonedx-json
@@ -544,7 +549,7 @@ jobs:
       # Create verifiable attestation for the SBOM
       - name: Attest SBOM
         uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3.0.0
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         with:
           subject-name: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.build-and-push.outputs.digest }}
@@ -553,12 +558,12 @@ jobs:
 
       # Install Cosign for keyless signing
       - name: Install Cosign
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
 
       # Sign GHCR image with keyless signing (Sigstore/Fulcio)
       - name: Sign GHCR Image
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         run: |
           echo "Signing GHCR image with keyless signing..."
           cosign sign --yes ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
@@ -566,7 +571,7 @@ jobs:
 
       # Sign Docker Hub image with keyless signing (Sigstore/Fulcio)
       - name: Sign Docker Hub Image
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Signing Docker Hub image with keyless signing..."
           cosign sign --yes ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
@@ -574,7 +579,7 @@ jobs:
 
       # Attach SBOM to Docker Hub image
       - name: Attach SBOM to Docker Hub
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Attaching SBOM to Docker Hub image..."
           cosign attach sbom --sbom sbom.cyclonedx.json ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
@@ -596,7 +601,7 @@ jobs:
   scan-pr-image:
     name: Security Scan PR Image
     needs: build-and-push
-    if: needs.build-and-push.outputs.skip_build != 'true' && github.event_name == 'pull_request'
+    if: needs.build-and-push.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -612,8 +617,8 @@ jobs:
       - name: Determine PR image tag
         id: pr-image
         run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          PR_TAG="pr-${{ github.event.pull_request.number }}-${SHORT_SHA}"
+          SHORT_SHA=$(echo "${{ env.TRIGGER_HEAD_SHA }}" | cut -c1-7)
+          PR_TAG="pr-${{ env.TRIGGER_PR_NUMBER }}-${SHORT_SHA}"
           echo "tag=${PR_TAG}" >> $GITHUB_OUTPUT
           echo "image_ref=${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${PR_TAG}" >> $GITHUB_OUTPUT
 
@@ -626,8 +631,8 @@ jobs:
 
       - name: Validate image freshness
         run: |
-          echo "🔍 Validating image freshness for PR #${{ github.event.pull_request.number }}..."
-          echo "Expected SHA: ${{ github.sha }}"
+          echo "🔍 Validating image freshness for PR #${{ env.TRIGGER_PR_NUMBER }}..."
+          echo "Expected SHA: ${{ env.TRIGGER_HEAD_SHA }}"
           echo "Image: ${{ steps.pr-image.outputs.image_ref }}"
 
           # Pull image to inspect
@@ -639,9 +644,9 @@ jobs:
 
           echo "Image label SHA: ${LABEL_SHA}"
 
-          if [[ "${LABEL_SHA}" != "${{ github.sha }}" ]]; then
+          if [[ "${LABEL_SHA}" != "${{ env.TRIGGER_HEAD_SHA }}" ]]; then
             echo "⚠️ WARNING: Image SHA mismatch!"
-            echo "  Expected: ${{ github.sha }}"
+            echo "  Expected: ${{ env.TRIGGER_HEAD_SHA }}"
             echo "  Got:      ${LABEL_SHA}"
             echo "Image may be stale. Resuming for triage (Bypassing failure)."
             # exit 1
@@ -681,15 +686,15 @@ jobs:
           echo "## 🔒 PR Image Security Scan" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Image**: ${{ steps.pr-image.outputs.image_ref }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **PR**: #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **PR**: #${{ env.TRIGGER_PR_NUMBER }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ env.TRIGGER_HEAD_SHA }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Scan Status**: ${{ steps.trivy-scan.outcome == 'success' && '✅ No critical vulnerabilities' || '❌ Vulnerabilities detected' }}" >> $GITHUB_STEP_SUMMARY
 
   test-image:
     name: Test Docker Image
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: needs.build-and-push.outputs.skip_build != 'true' && github.event_name != 'pull_request'
+    if: needs.build-and-push.outputs.skip_build != 'true' && env.TRIGGER_EVENT != 'pull_request'
     env:
       # Required for security teardown in integration tests
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
@@ -705,14 +710,14 @@ jobs:
       - name: Determine image tag
         id: tag
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          if [[ "${{ env.TRIGGER_REF }}" == "refs/heads/main" ]]; then
             echo "tag=latest" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == "refs/heads/development" ]]; then
+          elif [[ "${{ env.TRIGGER_REF }}" == "refs/heads/development" ]]; then
             echo "tag=dev" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            echo "tag=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          elif [[ "${{ env.TRIGGER_REF }}" == refs/tags/v* ]]; then
+            echo "tag=${TRIGGER_REF#refs/tags/v}" >> $GITHUB_OUTPUT
           else
-            echo "tag=sha-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+            echo "tag=sha-$(echo ${{ env.TRIGGER_HEAD_SHA }} | cut -c1-7)" >> $GITHUB_OUTPUT
           fi
 
       - name: Log in to GitHub Container Registry

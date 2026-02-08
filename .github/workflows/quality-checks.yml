@@ -1,6 +1,9 @@
 name: Quality Checks
 
 on:
+  workflow_run:
+   workflows: ["Docker Build, Publish & Test"]
+   types: [completed]
   push:
     branches:
       - main
