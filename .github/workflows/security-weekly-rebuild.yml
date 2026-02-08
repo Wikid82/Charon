@@ -39,7 +39,7 @@ jobs:
 
       - name: Normalize image name
         run: |
-          echo "IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          echo "IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
@@ -52,7 +52,7 @@ jobs:
         run: |
           docker pull debian:trixie-slim
           DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' debian:trixie-slim)
-          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
           echo "Base image digest: $DIGEST"
 
       - name: Log in to Container Registry
@@ -127,28 +127,32 @@ jobs:
 
       - name: Check Debian package versions
         run: |
-          echo "## 📦 Installed Package Versions" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Checking key security packages:" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          docker run --rm --entrypoint "" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }} \
-            sh -c "dpkg -l | grep -E 'libc-ares|curl|libcurl|openssl|libssl' || echo 'No matching packages found'" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 📦 Installed Package Versions"
+            echo ""
+            echo "Checking key security packages:"
+            echo '```'
+            docker run --rm --entrypoint "" "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}" \
+              sh -c "dpkg -l | grep -E 'libc-ares|curl|libcurl|openssl|libssl' || echo 'No matching packages found'"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create security scan summary
         if: always()
         run: |
-          echo "## 🔒 Weekly Security Rebuild Complete" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Build Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image:** ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Cache Used:** No (forced fresh build)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Trivy Scan:** Completed (see Security tab for details)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
-          echo "1. Review Security tab for new vulnerabilities" >> $GITHUB_STEP_SUMMARY
-          echo "2. Check Trivy JSON artifact for detailed package info" >> $GITHUB_STEP_SUMMARY
-          echo "3. If critical CVEs found, trigger production rebuild" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 🔒 Weekly Security Rebuild Complete"
+            echo ""
+            echo "- **Build Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+            echo "- **Image:** ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+            echo "- **Cache Used:** No (forced fresh build)"
+            echo "- **Trivy Scan:** Completed (see Security tab for details)"
+            echo ""
+            echo "### Next Steps:"
+            echo "1. Review Security tab for new vulnerabilities"
+            echo "2. Check Trivy JSON artifact for detailed package info"
+            echo "3. If critical CVEs found, trigger production rebuild"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Notify on security issues (optional)
         if: failure()

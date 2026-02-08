@@ -306,23 +306,25 @@ jobs:
       - name: Create job summary
         if: always() && (steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request')
         run: |
-          if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
-            echo "## 🔒 Security Scan Results - Branch: ${{ github.event.workflow_run.head_branch }}" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "## 🔒 Security Scan Results - PR #${{ steps.pr-info.outputs.pr_number }}" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Scan Type**: Trivy Filesystem Scan" >> $GITHUB_STEP_SUMMARY
-          echo "**Target**: \`/app/charon\` binary" >> $GITHUB_STEP_SUMMARY
-          echo "**Severity Filter**: CRITICAL, HIGH" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [[ "${{ job.status }}" == "success" ]]; then
-            echo "✅ **PASSED**: No CRITICAL or HIGH vulnerabilities found" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **FAILED**: CRITICAL or HIGH vulnerabilities detected" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Please review the Trivy scan output and address the vulnerabilities." >> $GITHUB_STEP_SUMMARY
-          fi
+          {
+            if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
+              echo "## 🔒 Security Scan Results - Branch: ${{ github.event.workflow_run.head_branch }}"
+            else
+              echo "## 🔒 Security Scan Results - PR #${{ steps.pr-info.outputs.pr_number }}"
+            fi
+            echo ""
+            echo "**Scan Type**: Trivy Filesystem Scan"
+            echo "**Target**: \`/app/charon\` binary"
+            echo "**Severity Filter**: CRITICAL, HIGH"
+            echo ""
+            if [[ "${{ job.status }}" == "success" ]]; then
+              echo "✅ **PASSED**: No CRITICAL or HIGH vulnerabilities found"
+            else
+              echo "❌ **FAILED**: CRITICAL or HIGH vulnerabilities detected"
+              echo ""
+              echo "Please review the Trivy scan output and address the vulnerabilities."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cleanup
         if: always() && steps.check-artifact.outputs.artifact_exists == 'true'

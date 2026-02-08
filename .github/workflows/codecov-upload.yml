@@ -51,7 +51,7 @@ jobs:
           CGO_ENABLED: 1
         run: |
           bash scripts/go-test-coverage.sh 2>&1 | tee backend/test-output.txt
-          exit ${PIPESTATUS[0]}
+          exit "${PIPESTATUS[0]}"
 
       - name: Upload backend coverage to Codecov
         uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
@@ -88,7 +88,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
           bash scripts/frontend-test-coverage.sh 2>&1 | tee frontend/test-output.txt
-          exit ${PIPESTATUS[0]}
+          exit "${PIPESTATUS[0]}"
 
       - name: Upload frontend coverage to Codecov
         uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5

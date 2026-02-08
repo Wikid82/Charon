@@ -68,49 +68,54 @@ jobs:
       - name: Check CodeQL Results
         if: always()
         run: |
-          echo "## 🔒 CodeQL Security Analysis Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Language:** ${{ matrix.language }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Query Suite:** security-and-quality" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
           # Find SARIF file (CodeQL action creates it in various locations)
-          SARIF_FILE=$(find ${{ runner.temp }} -name "*${{ matrix.language }}*.sarif" -type f 2>/dev/null | head -1)
+          SARIF_FILE=$(find "${{ runner.temp }}" -name "*${{ matrix.language }}*.sarif" -type f 2>/dev/null | head -1)
+
+          {
+            echo "## 🔒 CodeQL Security Analysis Results"
+            echo ""
+            echo "**Language:** ${{ matrix.language }}"
+            echo "**Query Suite:** security-and-quality"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
 
           if [ -f "$SARIF_FILE" ]; then
             echo "Found SARIF file: $SARIF_FILE"
-            RESULT_COUNT=$(jq '.runs[].results | length' "$SARIF_FILE" 2>/dev/null || echo 0)
             ERROR_COUNT=$(jq '[.runs[].results[] | select(.level == "error")] | length' "$SARIF_FILE" 2>/dev/null || echo 0)
             WARNING_COUNT=$(jq '[.runs[].results[] | select(.level == "warning")] | length' "$SARIF_FILE" 2>/dev/null || echo 0)
             NOTE_COUNT=$(jq '[.runs[].results[] | select(.level == "note")] | length' "$SARIF_FILE" 2>/dev/null || echo 0)
 
-            echo "**Findings:**" >> $GITHUB_STEP_SUMMARY
-            echo "- 🔴 Errors: $ERROR_COUNT" >> $GITHUB_STEP_SUMMARY
-            echo "- 🟡 Warnings: $WARNING_COUNT" >> $GITHUB_STEP_SUMMARY
-            echo "- 🔵 Notes: $NOTE_COUNT" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
+            {
+              echo "**Findings:**"
+              echo "- 🔴 Errors: $ERROR_COUNT"
+              echo "- 🟡 Warnings: $WARNING_COUNT"
+              echo "- 🔵 Notes: $NOTE_COUNT"
+              echo ""
 
-            if [ "$ERROR_COUNT" -gt 0 ]; then
-              echo "❌ **CRITICAL:** High-severity security issues found!" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "### Top Issues:" >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-              jq -r '.runs[].results[] | select(.level == "error") | "\(.ruleId): \(.message.text)"' "$SARIF_FILE" 2>/dev/null | head -5 >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-            else
-              echo "✅ No high-severity issues found" >> $GITHUB_STEP_SUMMARY
-            fi
+              if [ "$ERROR_COUNT" -gt 0 ]; then
+                echo "❌ **CRITICAL:** High-severity security issues found!"
+                echo ""
+                echo "### Top Issues:"
+                echo '```'
+                jq -r '.runs[].results[] | select(.level == "error") | "\(.ruleId): \(.message.text)"' "$SARIF_FILE" 2>/dev/null | head -5
+                echo '```'
+              else
+                echo "✅ No high-severity issues found"
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "⚠️ SARIF file not found - check analysis logs" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ SARIF file not found - check analysis logs" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "View full results in the [Security tab](https://github.com/${{ github.repository }}/security/code-scanning)" >> $GITHUB_STEP_SUMMARY
+          {
+            echo ""
+            echo "View full results in the [Security tab](https://github.com/${{ github.repository }}/security/code-scanning)"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fail on High-Severity Findings
         if: always()
         run: |
-          SARIF_FILE=$(find ${{ runner.temp }} -name "*${{ matrix.language }}*.sarif" -type f 2>/dev/null | head -1)
+          SARIF_FILE=$(find "${{ runner.temp }}" -name "*${{ matrix.language }}*.sarif" -type f 2>/dev/null | head -1)
 
           if [ -f "$SARIF_FILE" ]; then
             ERROR_COUNT=$(jq '[.runs[].results[] | select(.level == "error")] | length' "$SARIF_FILE" 2>/dev/null || echo 0)

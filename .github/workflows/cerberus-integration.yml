@@ -3,6 +3,11 @@ name: Cerberus Integration
 # Phase 2-3: Build Once, Test Many - Use registry image instead of building
 # This workflow now waits for docker-build.yml to complete and pulls the built image
 on:
+  workflow_run:
+    workflows:
+      - Docker Build, Publish & Test
+    types:
+      - completed
   workflow_dispatch:
     inputs:
       image_tag:
@@ -40,12 +45,12 @@ jobs:
           # Manual trigger uses provided tag
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             if [[ -n "$MANUAL_TAG" ]]; then
-              echo "tag=${MANUAL_TAG}" >> $GITHUB_OUTPUT
+              echo "tag=${MANUAL_TAG}" >> "$GITHUB_OUTPUT"
             else
               # Default to latest if no tag provided
-              echo "tag=latest" >> $GITHUB_OUTPUT
+              echo "tag=latest" >> "$GITHUB_OUTPUT"
             fi
-            echo "source_type=manual" >> $GITHUB_OUTPUT
+            echo "source_type=manual" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -72,16 +77,16 @@ jobs:
             fi
 
             # Immutable tag with SHA suffix prevents race conditions
-            echo "tag=pr-${PR_NUM}-${SHORT_SHA}" >> $GITHUB_OUTPUT
-            echo "source_type=pr" >> $GITHUB_OUTPUT
+            echo "tag=pr-${PR_NUM}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "source_type=pr" >> "$GITHUB_OUTPUT"
           else
             # Non-PR workflow_run uses short SHA tag (matches docker-build.yml)
-            echo "tag=sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
-            echo "source_type=sha" >> $GITHUB_OUTPUT
+            echo "tag=sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "source_type=sha" >> "$GITHUB_OUTPUT"
           fi
 
-          echo "sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "Determined image tag: $(cat $GITHUB_OUTPUT | grep tag=)"
+          echo "sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Determined image tag: $(grep tag= "$GITHUB_OUTPUT")"
 
       # Pull image from Docker Hub with retry logic
       - name: Pull Docker image from registry
@@ -119,63 +124,66 @@ jobs:
         run: |
           chmod +x scripts/cerberus_integration.sh
           scripts/cerberus_integration.sh 2>&1 | tee cerberus-test-output.txt
-          exit ${PIPESTATUS[0]}
+          exit "${PIPESTATUS[0]}"
 
       - name: Dump Debug Info on Failure
         if: failure()
         run: |
-          echo "## 🔍 Debug Information" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 🔍 Debug Information"
+            echo ""
 
-          echo "### Container Status" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          docker ps -a --filter "name=charon" --filter "name=cerberus" --filter "name=backend" >> $GITHUB_STEP_SUMMARY 2>&1 || true
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Container Status"
+            echo '```'
+            docker ps -a --filter "name=charon" --filter "name=cerberus" --filter "name=backend" 2>&1 || true
+            echo '```'
+            echo ""
 
-          echo "### Security Status API" >> $GITHUB_STEP_SUMMARY
-          echo '```json' >> $GITHUB_STEP_SUMMARY
-          curl -s http://localhost:8480/api/v1/security/status 2>/dev/null | head -100 >> $GITHUB_STEP_SUMMARY || echo "Could not retrieve security status" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Security Status API"
+            echo '```json'
+            curl -s http://localhost:8480/api/v1/security/status 2>/dev/null | head -100 || echo "Could not retrieve security status"
+            echo '```'
+            echo ""
 
-          echo "### Caddy Admin Config" >> $GITHUB_STEP_SUMMARY
-          echo '```json' >> $GITHUB_STEP_SUMMARY
-          curl -s http://localhost:2319/config 2>/dev/null | head -200 >> $GITHUB_STEP_SUMMARY || echo "Could not retrieve Caddy config" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Caddy Admin Config"
+            echo '```json'
+            curl -s http://localhost:2319/config 2>/dev/null | head -200 || echo "Could not retrieve Caddy config"
+            echo '```'
+            echo ""
 
-          echo "### Charon Container Logs (last 100 lines)" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          docker logs charon-cerberus-test 2>&1 | tail -100 >> $GITHUB_STEP_SUMMARY || echo "No container logs available" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "### Charon Container Logs (last 100 lines)"
+            echo '```'
+            docker logs charon-cerberus-test 2>&1 | tail -100 || echo "No container logs available"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cerberus Integration Summary
         if: always()
         run: |
-          echo "## 🔱 Cerberus Integration Test Results" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ steps.cerberus-test.outcome }}" == "success" ]; then
-            echo "✅ **All Cerberus tests passed**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Test Results:" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            grep -E "✓|PASS|TC-[0-9]|=== ALL" cerberus-test-output.txt || echo "See logs for details"
-            grep -E "✓|PASS|TC-[0-9]|=== ALL" cerberus-test-output.txt >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Features Tested:" >> $GITHUB_STEP_SUMMARY
-            echo "- WAF (Coraza) payload inspection" >> $GITHUB_STEP_SUMMARY
-            echo "- Rate limiting enforcement" >> $GITHUB_STEP_SUMMARY
-            echo "- Security handler ordering" >> $GITHUB_STEP_SUMMARY
-            echo "- Legitimate traffic flow" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Cerberus tests failed**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Failure Details:" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            grep -E "✗|FAIL|Error|failed" cerberus-test-output.txt | head -30 >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
+          {
+            echo "## 🔱 Cerberus Integration Test Results"
+            if [ "${{ steps.cerberus-test.outcome }}" == "success" ]; then
+              echo "✅ **All Cerberus tests passed**"
+              echo ""
+              echo "### Test Results:"
+              echo '```'
+              grep -E "✓|PASS|TC-[0-9]|=== ALL" cerberus-test-output.txt || echo "See logs for details"
+              echo '```'
+              echo ""
+              echo "### Features Tested:"
+              echo "- WAF (Coraza) payload inspection"
+              echo "- Rate limiting enforcement"
+              echo "- Security handler ordering"
+              echo "- Legitimate traffic flow"
+            else
+              echo "❌ **Cerberus tests failed**"
+              echo ""
+              echo "### Failure Details:"
+              echo '```'
+              grep -E "✗|FAIL|Error|failed" cerberus-test-output.txt | head -30 || echo "See logs for details"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cleanup
         if: always()

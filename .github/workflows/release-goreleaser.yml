@@ -47,7 +47,7 @@ jobs:
         run: |
           # Inject version into frontend build from tag (if present)
           VERSION=${GITHUB_REF#refs/tags/}
-          echo "VITE_APP_VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "VITE_APP_VERSION=${VERSION}" >> "$GITHUB_ENV"
           npm ci
           npm run build
 

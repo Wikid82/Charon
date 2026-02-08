@@ -31,8 +31,8 @@ jobs:
               break
             else
               echo "❌ Download failed on attempt $i"
-              if [ $i -eq 3 ]; then
-                echo "error=download_failed" >> $GITHUB_OUTPUT
+              if [ "$i" -eq 3 ]; then
+                echo "error=download_failed" >> "$GITHUB_OUTPUT"
                 exit 1
               fi
               sleep 5
@@ -45,7 +45,7 @@ jobs:
           # Validate checksum format (64 hex characters)
           if ! [[ "$CURRENT" =~ ^[a-f0-9]{64}$ ]]; then
             echo "❌ Invalid checksum format: $CURRENT"
-            echo "error=invalid_checksum_format" >> $GITHUB_OUTPUT
+            echo "error=invalid_checksum_format" >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
@@ -55,7 +55,7 @@ jobs:
           # Validate old checksum format
           if ! [[ "$OLD" =~ ^[a-f0-9]{64}$ ]]; then
             echo "❌ Invalid old checksum format in Dockerfile: $OLD"
-            echo "error=invalid_dockerfile_checksum" >> $GITHUB_OUTPUT
+            echo "error=invalid_dockerfile_checksum" >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
@@ -63,14 +63,14 @@ jobs:
           echo "   Current (Dockerfile): $OLD"
           echo "   Latest (Downloaded):  $CURRENT"
 
-          echo "current=$CURRENT" >> $GITHUB_OUTPUT
-          echo "old=$OLD" >> $GITHUB_OUTPUT
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "old=$OLD" >> "$GITHUB_OUTPUT"
 
           if [ "$CURRENT" != "$OLD" ]; then
-            echo "needs_update=true" >> $GITHUB_OUTPUT
+            echo "needs_update=true" >> "$GITHUB_OUTPUT"
             echo "⚠️  Checksum mismatch detected - update required"
           else
-            echo "needs_update=false" >> $GITHUB_OUTPUT
+            echo "needs_update=false" >> "$GITHUB_OUTPUT"
             echo "✅ Checksum matches - no update needed"
           fi
 
