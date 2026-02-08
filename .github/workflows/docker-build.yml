@@ -22,7 +22,7 @@ name: Docker Build, Publish & Test
 
 on:
   workflow_run:
-    workflows: ["Docker Lint"]
+    workflows: [Docker Lint]
     types: [completed]
   workflow_dispatch:
   workflow_call:
