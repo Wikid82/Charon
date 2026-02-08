@@ -464,7 +464,7 @@ jobs:
           exit ${PIPESTATUS[0]}
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@ea165f2524e81b1a7f1f18e1bdb77f0840c18dd9 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: backend-coverage
           path: backend/coverage.txt
@@ -500,7 +500,7 @@ jobs:
           exit ${PIPESTATUS[0]}
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@ea165f2524e81b1a7f1f18e1bdb77f0840c18dd9 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: frontend-coverage
           path: frontend/coverage
