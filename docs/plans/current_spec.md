@@ -1,141 +1,326 @@
-
-# Plan: Conditional E2E Rebuild Rules + Navigation Test Continuation
+---
+title: "CI Docker Build and Scanning Blocker (PR #666)"
+status: "draft"
+scope: "ci/docker-build-scan"
+---
 
 ## 1. Introduction
 
-This plan updates E2E testing instructions so the Docker rebuild runs only when application code changes, explicitly skips rebuilds for test-only changes, and then continues navigation E2E testing using the existing task. The intent is to reduce unnecessary rebuild time while keeping the environment reliable and consistent.
+This plan addresses the CI failure that blocks Docker build and scanning
+for PR #666. The goal is to restore a clean, deterministic pipeline
+where the image builds once, scans consistently, and security artifacts
+align across workflows. The approach is minimal and evidence-driven:
+collect logs, map the path, isolate the blocker, and apply the smallest
+effective fix.
 
 Objectives:
 
-- Define clear, repeatable criteria for when an E2E container rebuild is required vs optional.
-- Update instruction and agent documents to use the same conditional rebuild guidance.
-- Preserve current E2E execution behavior and task surface, then proceed with navigation testing.
+- Identify the exact failing step in the build/scan chain.
+- Trace the failure to a reproducible root cause.
+- Propose minimal workflow/Dockerfile changes to restore green CI.
+- Ensure all scan workflows resolve the same PR image.
+- Review .gitignore, codecov.yml, .dockerignore, and Dockerfile if
+  needed for artifact hygiene.
 
 ## 2. Research Findings
 
-- The current testing protocol mandates rebuilding the E2E container before Playwright runs in [testing.instructions.md](.github/instructions/testing.instructions.md).
-- The Management and Playwright agent definitions require rebuilding the E2E container before each test run in [Management.agent.md](.github/agents/Management.agent.md) and [Playwright_Dev.agent.md](.github/agents/Playwright_Dev.agent.md).
-- QA Security also mandates rebuilds on every code change in [QA_Security.agent.md](.github/agents/QA_Security.agent.md).
-- The main E2E skill doc encourages rebuilds before testing in [test-e2e-playwright.SKILL.md](.github/skills/test-e2e-playwright.SKILL.md).
-- The rebuild skill itself is stable and already describes when it should be used in [docker-rebuild-e2e.SKILL.md](.github/skills/docker-rebuild-e2e.SKILL.md).
-- Navigation test tasks already exist in [tasks.json](.vscode/tasks.json), including “Test: E2E Playwright (FireFox) - Core: Navigation”.
-- CI E2E jobs rebuild via Docker image creation in [e2e-tests-split.yml](.github/workflows/e2e-tests-split.yml); no CI changes are required for this instruction-only update.
+CI workflow and build context (already reviewed):
+
+- Docker build orchestration: .github/workflows/docker-build.yml
+- Security scan for PR artifacts: .github/workflows/security-pr.yml
+- Supply-chain verification for PRs: .github/workflows/supply-chain-pr.yml
+- SBOM verification for non-PR builds: .github/workflows/supply-chain-verify.yml
+- Dockerfile linting: .github/workflows/docker-lint.yml and
+  .hadolint.yaml
+- Weekly rebuild and scan: .github/workflows/security-weekly-rebuild.yml
+- Quality checks (non-Docker): .github/workflows/quality-checks.yml
+- Build context filters: .dockerignore
+- Runtime Docker build instructions: Dockerfile
+- Ignored artifacts: .gitignore
+- Coverage configuration: codecov.yml
+
+Observed from the public workflow summary (PR #666):
+
+- Job build-and-push failed in the Docker Build, Publish & Test workflow.
+- Logs require GitHub authentication; obtained via gh CLI after auth.
+- Evidence status: confirmed via gh CLI logs (see Results).
+
+Root cause captured from CI logs (authenticated gh CLI):
+
+- npm ci failed with ERESOLVE due to eslint@10 conflicting with the
+  @typescript-eslint peer dependency range.
+
+Secondary/unconfirmed mismatch to verify only if remediation fails:
+
+- PR tags are generated as pr-{number}-{short-sha} in docker-build.yml.
+- Several steps reference pr-{number} (no short SHA) and use
+  --pull=never.
+- This can cause image-not-found errors after Buildx pushes without
+  --load.
 
 ## 3. Technical Specifications
 
-### 3.1 Rebuild Decision Rules
+### 3.1 CI Flow Map (Build -> Scan -> Verify)
 
-Define explicit change categories to decide when to rebuild:
+```mermaid
+flowchart LR
+  A[PR Push] --> B[docker-build.yml: build-and-push]
+  B --> C[docker-build.yml: scan-pr-image]
+  B --> D[security-pr.yml: Trivy binary scan]
+  B --> E[supply-chain-pr.yml: SBOM + Grype]
+  B --> F[supply-chain-verify.yml: SBOM verify (non-PR)]
+```
 
-- **Rebuild Required (application/runtime changes)**
-	- Application code or dependencies: backend/**, frontend/**, backend/go.mod, backend/go.sum, package.json, package-lock.json.
-	- Container build/runtime configuration: Dockerfile, .docker/**, .docker/compose/docker-compose.playwright-*.yml, .docker/docker-entrypoint.sh.
-	- Runtime behavior changes that affect container startup (e.g., config files baked into the image).
+### 3.2 Primary Failure Hypotheses (Ordered)
 
-- **Rebuild Optional (test-only changes)**
-	- Playwright tests and fixtures: tests/**.
-	- Playwright config and test runners: playwright.config.js, playwright.caddy-debug.config.js.
-	- Documentation or planning files: docs/**, requirements.md, design.md, tasks.md.
-	- CI/workflow changes that do not affect runtime images: .github/workflows/**.
+1) Eslint peer dependency conflict (confirmed root cause)
 
-Decision guidance:
+- npm ci failed with ERESOLVE due to eslint@10 conflicting with the
+  @typescript-eslint peer dependency range.
 
-- If only test files or documentation change, reuse the existing E2E container if it is already healthy.
-- If the container is not running, start it with docker-rebuild-e2e even for test-only changes.
-- If there is uncertainty about whether a change affects the runtime image, default to rebuilding.
+2) Tag mismatch between build output and verification steps
 
-### 3.2 Instruction Targets and Proposed Wording
+- Build tags for PRs are pr-{number}-{short-sha} (metadata action).
+- Verification steps reference pr-{number} (no SHA) and do not pull.
+- This is consistent with image-not-found errors.
+  Status: unconfirmed secondary hypothesis.
 
-Update the following instruction and agent files to align with the conditional rebuild policy:
+3) Buildx push without local image for verification steps
 
-- [testing.instructions.md](.github/instructions/testing.instructions.md)
-	- Replace the current “Always rebuild the E2E container before running Playwright tests” statement with:
-		- “Rebuild the E2E container when application or Docker build inputs change (backend, frontend, dependencies, Dockerfile, .docker/compose). If changes are test-only, reuse the existing container when it is already healthy; rebuild only if the container is not running or state is suspect.”
-	- Add a short file-scope checklist defining “rebuild required” vs “test-only.”
+- Build uses docker buildx build --push without --load.
+- Verification steps use docker run --pull=never with local tags.
+- Buildx does not allow --load with multi-arch builds; --load only
+  produces a single-platform image. For multi-arch, prioritize pull by
+  digest or publish a single-platform build output for local checks.
+- If the tag is not local and not pulled, verification fails.
 
-- [Management.agent.md](.github/agents/Management.agent.md)
-	- Update the “PREREQUISITE: Rebuild E2E container before each test run” bullet to:
-		- “PREREQUISITE: Rebuild the E2E container only when application or Docker build inputs change; skip rebuild for test-only changes if the container is already healthy.”
+4) Dockerfile stage failure during network-heavy steps
 
-- [Playwright_Dev.agent.md](.github/agents/Playwright_Dev.agent.md)
-	- Update “ALWAYS rebuild the E2E container before running tests” to:
-		- “Rebuild the E2E container when application or Docker build inputs change. For test-only changes, reuse the running container if healthy; rebuild only when the container is not running or state is suspect.”
+- gosu-builder: git clone and Go build
+- frontend-builder: npm ci / npm run build
+- backend-builder: go mod download / xx-go build
+- caddy-builder: xcaddy build and Go dependency patching
+- crowdsec-builder: git clone + go get + sed patch
+- GeoLite2 download and checksum verification
 
-- [QA_Security.agent.md](.github/agents/QA_Security.agent.md)
-	- Update workflow step 1 to:
-		- “Rebuild the E2E image and container when application or Docker build inputs change. Skip rebuild for test-only changes if the container is already healthy.”
+Any of these can fail with network timeouts or dependency resolution
+errors in CI. The eslint peer dependency conflict is confirmed; other
+hypotheses remain unconfirmed.
 
-- [test-e2e-playwright.SKILL.md](.github/skills/test-e2e-playwright.SKILL.md)
-	- Adjust “Quick Start” language to:
-		- “Run docker-rebuild-e2e when application or Docker build inputs change. If only tests changed and the container is already healthy, skip rebuild and run the tests.”
+### 3.3 Evidence Required (Single-Request Capture)
 
-- Optional alignment (if desired for consistency):
-	- [test-e2e-playwright-debug.SKILL.md](.github/skills/test-e2e-playwright-debug.SKILL.md)
-	- [test-e2e-playwright-coverage.SKILL.md](.github/skills/test-e2e-playwright-coverage.SKILL.md)
-	- Update prerequisite language in the same conditional format when referencing docker-rebuild-e2e.
+Evidence capture completed in a single session. The following items
+were captured:
 
-### 3.3 Data Flow and Component Impact
+- Full logs for the failing docker-build.yml build-and-push job
+- Failing step name and exit code
+- Buildx command line as executed
+- Metadata tags produced by docker/metadata-action
+- Dockerfile stage that failed (if build failure)
 
-- No API, database, or runtime component changes are introduced.
-- The change is documentation-only: it modifies decision guidance for when to rebuild the E2E container.
-- The E2E execution flow remains: optionally rebuild → run navigation test task → review Playwright report.
+If accessible, also capture downstream scan job logs to confirm the image
+reference used.
 
-### 3.4 Error Handling and Edge Cases
+### 3.4 Specific Files and Components to Investigate
 
-- If the container is running but tests fail due to stale state, rebuild with docker-rebuild-e2e and re-run the navigation test.
-- If only tests changed but the container is stopped, rebuild to create a known-good environment.
-- If Dockerfile or .docker/compose changes occurred, rebuild is required even if tests are the only edited files in the last commit.
+Docker build and tagging:
 
-## 4. Implementation Plan
+- .github/workflows/docker-build.yml
+  - Generate Docker metadata (tag formatting)
+  - Build and push Docker image (with retry)
+  - Verify Caddy Security Patches
+  - Verify CrowdSec Security Patches
+  - Job: scan-pr-image
 
-### Phase 1: Instruction Updates (Documentation-only)
+Security scanning:
 
-- Update conditional rebuild guidance in the instruction files listed in section 3.2.
-- Ensure the rebuild decision criteria are consistent and use the same file-scope examples across documents.
+- .github/workflows/security-pr.yml
+  - Extract PR number from workflow_run
+  - Extract charon binary from container (image reference)
+  - Trivy scans (fs, SARIF, blocking table)
 
-### Phase 2: Supporting Artifacts
+Supply-chain verification:
 
-- Update requirements.md with EARS requirements for conditional rebuild behavior.
-- Update design.md to document the decision rules and file-scope criteria.
-- Update tasks.md with a checklist that explicitly separates rebuild-required vs test-only scenarios.
+- .github/workflows/supply-chain-pr.yml
+  - Check for PR image artifact
+  - Load Docker image (artifact)
+  - Build Docker image (Local)
 
-### Phase 3: Navigation Test Continuation
+Dockerfile stages and critical components:
 
-- Determine change scope:
-	- If application/runtime files changed, run the Docker rebuild step first.
-	- If only tests or docs changed and the E2E container is already healthy, skip rebuild.
-- Run the existing navigation task: “Test: E2E Playwright (FireFox) - Core: Navigation” from [tasks.json](.vscode/tasks.json).
-- If the navigation test fails due to environment issues, rebuild and re-run.
+- gosu-builder: /tmp/gosu build
+- frontend-builder: /app/frontend build
+- backend-builder: /app/backend build
+- caddy-builder: xcaddy build and Go dependency patching
+- crowdsec-builder: Go build and sed patch in
+  pkg/exprhelpers/debugger.go
+- Final runtime stage: GeoLite2 download and checksum
 
-## 5. Acceptance Criteria
+### 3.5 Tag and Digest Source-of-Truth Propagation
 
-- Instruction and agent files reflect the same conditional rebuild policy.
-- Rebuild-required vs test-only criteria are explicitly defined with file path examples.
-- Navigation tests can be run without a rebuild when only tests change and the container is healthy.
-- The navigation test task remains unchanged and is used for validation.
-- requirements.md, design.md, and tasks.md are updated to reflect the new rebuild rules.
+Source of truth for the PR image reference is the output of the metadata
+and build steps in docker-build.yml. Downstream workflows must consume a
+single canonical reference, defined as:
 
-## 6. Testing Steps
+- primary: digest from buildx outputs (immutable)
+- secondary: pr-{number}-{short-sha} tag (human-friendly)
 
-- If application/runtime files changed, run the E2E rebuild using docker-rebuild-e2e before testing.
-- If only tests changed and the container is healthy, skip rebuild.
-- Run the navigation test task: “Test: E2E Playwright (FireFox) - Core: Navigation”.
-- Review Playwright report and logs if failures occur; rebuild and re-run if the failure is environment-related.
+Propagation rules:
 
-## 7. Config Hygiene Review (Requested Files)
+- docker-build.yml SHALL publish the digest and tag as job outputs.
+- docker-build.yml SHALL write digest and tag to a small artifact
+  (e.g., pr-image-ref.txt) for downstream workflow_run consumers.
+- security-pr.yml and supply-chain-pr.yml SHALL prefer the digest from
+  outputs or artifact, and only fall back to tag if digest is absent.
+- Any step that runs a local container SHALL ensure the referenced image
+  is available by either --load (local) or explicit pull by digest.
 
-- .gitignore: No change required for this instruction update.
-- codecov.yml: No change required; E2E outputs are already ignored.
-- .dockerignore: No change required; tests/ and Playwright artifacts remain excluded from image build context.
-- Dockerfile: No change required.
+### 3.6 Required Outcome (EARS Requirements)
 
-## 8. Risks and Mitigations
+- WHEN a pull request triggers docker-build.yml, THE SYSTEM SHALL build a
+  PR image tagged as pr-{number}-{short-sha} and emit its digest.
+- WHEN verification steps run in docker-build.yml, THE SYSTEM SHALL
+  reference the same digest or tag emitted by the build step.
+- WHEN security-pr.yml runs for a workflow_run, THE SYSTEM SHALL resolve
+  the PR image using the digest or the emitted tag.
+- WHEN supply-chain-pr.yml runs, THE SYSTEM SHALL load the exact PR image
+  by digest or by the emitted tag without ambiguity.
+- IF the image reference cannot be resolved, THEN THE SYSTEM SHALL fail
+  fast with a clear message that includes the expected digest and tag.
 
-- Risk: Tests may run against stale containers when changes are misclassified as test-only. Mitigation: Provide explicit file-scope criteria and default to rebuild when unsure.
-- Risk: Contributors interpret “test-only” too narrowly. Mitigation: include dependency files and Docker build inputs in rebuild-required list.
+### 3.7 Config Hygiene Review (Requested Files)
 
-## 9. Confidence Score
+.gitignore:
+
+- Ensure CI scan artifacts are ignored locally, including any new names
+  introduced by fixes (e.g., trivy-pr-results.sarif,
+  trivy-binary-results.sarif, grype-results.json,
+  sbom.cyclonedx.json).
+
+codecov.yml:
+
+- Confirm CI-generated security artifacts are excluded from coverage.
+- Add any new artifact names if introduced by fixes.
+
+.dockerignore:
+
+- Verify required frontend/backend sources and manifests are included.
+
+Dockerfile:
+
+- Review GeoLite2 download behavior for CI reliability.
+- Confirm CADDY_IMAGE build-arg naming consistency across workflows.
+
+## 4. Implementation Plan (Minimal-Request Phases)
+
+### Phase 0: Evidence Capture (Single Request)
+
+Status: completed. Evidence captured and root cause confirmed.
+
+- Retrieve full logs for the failing docker-build.yml build-and-push job.
+- Capture the exact failing step, error output, and emitted tags/digest.
+- Record the buildx command output as executed.
+- Capture downstream scan logs if accessible to confirm image reference.
+
+### Phase 1: Reproducibility Pass (Single Local Build)
+
+- Run a local docker buildx build using the same arguments as
+  docker-build.yml.
+- Capture any stage failures and map them to Dockerfile stages.
+- Confirm whether Buildx produces local images or only remote tags.
+
+### Phase 2: Root Cause Isolation
+
+Status: completed. Root cause identified as the eslint peer dependency
+conflict in the frontend build stage.
+
+- If failure is tag mismatch, trace tag references across docker-build.yml,
+  security-pr.yml, and supply-chain-pr.yml.
+- If failure is a Dockerfile stage, isolate to specific step (gosu,
+  frontend, backend, caddy, crowdsec, GeoLite2).
+- If failure is network-related, document retries/timeout behavior and
+  any missing mirrors.
+
+### Phase 3: Targeted Remediation Plan
+
+Focus on validating the eslint remediation. Revisit secondary
+hypotheses only if the remediation does not resolve CI.
+
+Conditional options (fallbacks, unconfirmed):
+
+Option A (Tag alignment):
+
+- Update verification steps to use pr-{number}-{short-sha} tag.
+- Or add a secondary tag pr-{number} for compatibility.
+
+Option B (Local image availability):
+
+- Add --load for PR builds so verification can run locally.
+- Or explicitly pull by digest/tag before verification and remove
+  --pull=never.
+
+Option C (Workflow scan alignment):
+
+- Update security-pr.yml and supply-chain-pr.yml to consume the digest
+  or emitted tag from docker-build.yml outputs/artifact.
+- Add fallback order: digest artifact -> emitted tag -> local build.
+
+## 5. Results (Evidence)
+
+Evidence status: confirmed via gh CLI logs after authentication.
+
+Root cause (confirmed):
+
+- Align eslint with the @typescript-eslint peer range to resolve npm ci
+  ERESOLVE in the frontend build stage.
+
+### Phase 4: Validation (Minimal Jobs)
+
+- Rerun docker-build.yml for the PR (or workflow_dispatch).
+- Confirm build-and-push succeeds and verification steps resolve the
+  exact digest or tag.
+- Confirm security-pr.yml and supply-chain-pr.yml resolve the same
+  digest or tag and complete scans.
+- Deterministic check: use docker buildx imagetools inspect on the
+  emitted tag and compare the reported digest to the recorded build
+  digest, or pull by digest and verify the digest of the local image
+  matches the build output.
+
+### Phase 5: Documentation and Hygiene
+
+- Document the final tag/digest propagation in this plan.
+- Update .gitignore / .dockerignore / codecov.yml if new artifacts are
+  produced.
+
+## 6. Acceptance Criteria
+
+- docker-build.yml build-and-push succeeds for PR #666.
+- Verification steps resolve the same digest or tag emitted by build.
+- security-pr.yml and supply-chain-pr.yml consume the same digest or tag
+  published by docker-build.yml.
+- A validation check confirms tag-to-digest alignment across workflows
+  (digest matches tag for the PR image), using buildx imagetools inspect
+  or an equivalent digest comparison.
+- No new CI artifacts are committed to the repository.
+- Root cause is documented with logs and mapped to specific steps.
+
+## 7. Risks and Mitigations
+
+- Risk: CI logs are inaccessible without login, delaying diagnosis.
+  - Mitigation: request logs or export them once, then reproduce locally.
+
+- Risk: Multiple workflows use divergent tag formats.
+  - Mitigation: define a single source of truth for PR tags and digest
+    propagation.
+
+- Risk: Buildx produces only remote tags, breaking local verification.
+  - Mitigation: add --load for PR builds or pull by digest before
+    verification.
+
+## 8. Confidence Score
 
 Confidence: 88 percent
 
-Rationale: This is a documentation-only change with no runtime or CI impact, but it relies on consistent interpretation of file-scope criteria.
+Rationale: The eslint peer dependency conflict is confirmed as the
+frontend build failure. Secondary tag mismatch hypotheses remain
+unconfirmed and are now conditional fallbacks only.

@@ -135,6 +135,7 @@ main:
    - Look for error messages
    - Check timing (timeout vs crash)
    - Environment variables set correctly?
+    - If MCP web fetch lacks auth, pull workflow logs with `gh` CLI
 
 3. **Verify environment configuration**
    ```bash
