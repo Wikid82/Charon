@@ -297,6 +297,8 @@ jobs:
             IMAGE_REF_GHCR="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
             echo "image_ref_dockerhub=${IMAGE_REF_DOCKERHUB}" >> "$GITHUB_OUTPUT"
             echo "image_ref_ghcr=${IMAGE_REF_GHCR}" >> "$GITHUB_OUTPUT"
+            echo "::add-mask::${IMAGE_REF_DOCKERHUB}"
+            echo "::add-mask::${IMAGE_REF_GHCR}"
           fi
           echo "image_tag=${{ steps.tags.outputs.image_tag }}" >> "$GITHUB_OUTPUT"
 
@@ -304,7 +306,7 @@ jobs:
     name: Integration - Cerberus
     runs-on: ubuntu-latest
     needs: build-image
-    if: needs.build-image.result == 'success' && needs.build-image.outputs.push_image == 'true' && needs.build-image.outputs.image_ref_dockerhub != '' && (github.event_name != 'workflow_dispatch' || inputs.run_integration != false)
+    if: needs.build-image.result == 'success' && needs.build-image.outputs.image_ref_dockerhub != '' && (github.event_name != 'workflow_dispatch' || inputs.run_integration != false)
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -329,7 +331,7 @@ jobs:
     name: Integration - CrowdSec
     runs-on: ubuntu-latest
     needs: build-image
-    if: needs.build-image.result == 'success' && needs.build-image.outputs.push_image == 'true' && needs.build-image.outputs.image_ref_dockerhub != '' && (github.event_name != 'workflow_dispatch' || inputs.run_integration != false)
+    if: needs.build-image.result == 'success' && needs.build-image.outputs.image_ref_dockerhub != '' && (github.event_name != 'workflow_dispatch' || inputs.run_integration != false)
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -355,7 +357,7 @@ jobs:
     name: Integration - WAF
     runs-on: ubuntu-latest
     needs: build-image
-    if: needs.build-image.result == 'success' && needs.build-image.outputs.push_image == 'true' && needs.build-image.outputs.image_ref_dockerhub != '' && (github.event_name != 'workflow_dispatch' || inputs.run_integration != false)
+    if: needs.build-image.result == 'success' && needs.build-image.outputs.image_ref_dockerhub != '' && (github.event_name != 'workflow_dispatch' || inputs.run_integration != false)
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -380,7 +382,7 @@ jobs:
     name: Integration - Rate Limit
     runs-on: ubuntu-latest
     needs: build-image
-    if: needs.build-image.result == 'success' && needs.build-image.outputs.push_image == 'true' && needs.build-image.outputs.image_ref_dockerhub != '' && (github.event_name != 'workflow_dispatch' || inputs.run_integration != false)
+    if: needs.build-image.result == 'success' && needs.build-image.outputs.image_ref_dockerhub != '' && (github.event_name != 'workflow_dispatch' || inputs.run_integration != false)
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -442,7 +444,7 @@ jobs:
     needs:
       - build-image
       - integration-gate
-    if: (github.event_name != 'workflow_dispatch' || inputs.run_e2e != false) && needs.build-image.outputs.push_image == 'true'
+    if: (github.event_name != 'workflow_dispatch' || inputs.run_e2e != false) && needs.build-image.result == 'success'
     uses: ./.github/workflows/e2e-tests-split.yml
     with:
       browser: all
@@ -666,7 +668,7 @@ jobs:
     needs:
       - build-image
       - codecov-gate
-    if: (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && needs.build-image.outputs.push_image == 'true'
+    if: (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && needs.build-image.result == 'success'
     permissions:
       contents: read
       security-events: write
@@ -710,7 +712,7 @@ jobs:
     needs:
       - build-image
       - codecov-gate
-    if: (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && needs.build-image.outputs.push_image == 'true'
+    if: (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && needs.build-image.result == 'success'
     permissions:
       contents: read
       security-events: write
