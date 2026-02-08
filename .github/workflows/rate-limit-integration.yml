@@ -7,10 +7,6 @@ on:
     workflows: ["Docker Build, Publish & Test"]
     types: [completed]
     branches: [main, development, 'feature/**', 'hotfix/**']
-  push:
-    branches: [main, development, 'feature/**', 'hotfix/**']
-  pull_request:
-    branches: [main, development, 'feature/**', 'hotfix/**']
   # Allow manual trigger for debugging
   workflow_dispatch:
     inputs:
@@ -30,14 +26,14 @@ jobs:
     name: Rate Limiting Integration
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Only run if docker-build.yml succeeded, or if manually triggered, OR on direct push/PR
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request' }}
+    # Only run if docker-build.yml succeeded, or if manually triggered
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       # Determine the correct image tag based on trigger context
-      # For PRs: pr-{number}-{sha}, For branches: {sanitized-branch}-{sha}
+      # For PRs: pr-{number}-{short-sha}, For non-PR: sha-{short-sha}
       - name: Determine image tag
         id: determine-tag
         env:
@@ -83,80 +79,28 @@ jobs:
             echo "tag=pr-${PR_NUM}-${SHORT_SHA}" >> $GITHUB_OUTPUT
             echo "source_type=pr" >> $GITHUB_OUTPUT
           else
-            # Branch push: sanitize branch name and append SHA
-            # Sanitization: lowercase, replace / with -, remove special chars
-            SANITIZED=$(echo "$REF" | \
-              tr '[:upper:]' '[:lower:]' | \
-              tr '/' '-' | \
-              sed 's/[^a-z0-9-._]/-/g' | \
-              sed 's/^-//; s/-$//' | \
-              sed 's/--*/-/g' | \
-              cut -c1-121)  # Leave room for -SHORT_SHA (7 chars)
-
-            echo "tag=${SANITIZED}-${SHORT_SHA}" >> $GITHUB_OUTPUT
-            echo "source_type=branch" >> $GITHUB_OUTPUT
+            # Non-PR workflow_run uses short SHA tag (matches docker-build.yml)
+            echo "tag=sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "source_type=sha" >> $GITHUB_OUTPUT
           fi
 
           echo "sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "Determined image tag: $(cat $GITHUB_OUTPUT | grep tag=)"
 
-      # Build image locally for Push/PR events to ensure immediate feedback
-      - name: Build Docker image (Local)
-        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
-        run: |
-          echo "Building image locally for integration test..."
-          docker build -t charon:local .
-          echo "✅ Successfully built charon:local"
-
-      # Pull image from registry with retry logic (dual-source strategy)
-      # Try registry first (fast), fallback to artifact if registry fails
+      # Pull image from Docker Hub with retry logic
       - name: Pull Docker image from registry
         id: pull_image
-        if: ${{ github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch' }}
         uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
         with:
           timeout_minutes: 5
           max_attempts: 3
           retry_wait_seconds: 10
           command: |
-            IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/charon:${{ steps.determine-tag.outputs.tag }}"
+            IMAGE_NAME="docker.io/wikid82/charon:${{ steps.determine-tag.outputs.tag }}"
             echo "Pulling image: $IMAGE_NAME"
             docker pull "$IMAGE_NAME"
             docker tag "$IMAGE_NAME" charon:local
             echo "✅ Successfully pulled from registry"
-        continue-on-error: true
-
-      # Fallback: Download artifact if registry pull failed
-      # Only runs if pull_image failed AND we are in a workflow_run context
-      - name: Fallback to artifact download
-        if: steps.pull_image.outcome == 'failure' && github.event_name == 'workflow_run'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHA: ${{ steps.determine-tag.outputs.sha }}
-        run: |
-          echo "⚠️ Registry pull failed, falling back to artifact..."
-
-          # Determine artifact name based on source type
-          if [[ "${{ steps.determine-tag.outputs.source_type }}" == "pr" ]]; then
-            PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number')
-            ARTIFACT_NAME="pr-image-${PR_NUM}"
-          else
-            ARTIFACT_NAME="push-image"
-          fi
-
-          echo "Downloading artifact: $ARTIFACT_NAME"
-          gh run download ${{ github.event.workflow_run.id }} \
-            --name "$ARTIFACT_NAME" \
-            --dir /tmp/docker-image || {
-            echo "❌ ERROR: Artifact download failed!"
-            echo "Available artifacts:"
-            gh run view ${{ github.event.workflow_run.id }} --json artifacts --jq '.artifacts[].name'
-            exit 1
-          }
-
-          docker load < /tmp/docker-image/charon-image.tar
-          docker tag $(docker images --format "{{.Repository}}:{{.Tag}}" | head -1) charon:local
-          echo "✅ Successfully loaded from artifact"
 
       # Validate image freshness by checking SHA label
       - name: Validate image SHA
