@@ -17,13 +17,12 @@ ARG BUILD_DEBUG=0
 ## If the requested tag isn't available, fall back to a known-good v2.11.0-beta.2 build.
 ARG CADDY_VERSION=2.11.0-beta.2
 ## When an official caddy image tag isn't available on the host, use a
-## plain Debian slim base image and overwrite its caddy binary with our
+## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
 ## upstream caddy image tags while still shipping a pinned caddy binary.
-## Using trixie (Debian 13 testing) for faster security updates - bookworm
-## packages marked "wont-fix" are actively maintained in trixie.
-# renovate: datasource=docker depName=debian versioning=docker
-ARG CADDY_IMAGE=debian:trixie-slim@sha256:f6e2cfac5cf956ea044b4bd75e6397b4372ad88fe00908045e9a0d21712ae3ba
+## Alpine 3.23 base to reduce glibc CVE exposure and image size.
+# renovate: datasource=docker depName=alpine versioning=docker
+ARG CADDY_IMAGE=alpine:3.23.3
 
 # ---- Cross-Compilation Helpers ----
 # renovate: datasource=docker depName=tonistiigi/xx
@@ -35,7 +34,7 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f9
 # CVEs fixed: CVE-2023-24531, CVE-2023-24540, CVE-2023-29402, CVE-2023-29404,
 #             CVE-2023-29405, CVE-2024-24790, CVE-2025-22871, and 15 more
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:f6a22bdb1d575b3f71c3d11b6ab09aef8f8ca3b0f1324ad944d80c14cc3fbe96 AS gosu-builder
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS gosu-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/gosu
@@ -46,11 +45,9 @@ ARG TARGETARCH
 # renovate: datasource=github-releases depName=tianon/gosu
 ARG GOSU_VERSION=1.17
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git clang lld \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache git clang lld
 # hadolint ignore=DL3059
-RUN xx-apt install -y gcc libc6-dev
+RUN xx-apk add --no-cache gcc musl-dev
 
 # Clone and build gosu from source with modern Go
 RUN git clone --depth 1 --branch "${GOSU_VERSION}" https://github.com/tianon/gosu.git .
@@ -65,7 +62,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.13.0-slim@sha256:4660b1ca8b28d6d1906fd644abe34b2ed81d15434d26d845ef0aced307cf4b6f AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.13.0-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -89,21 +86,19 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
 
 # ---- Backend Builder ----
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:f6a22bdb1d575b3f71c3d11b6ab09aef8f8ca3b0f1324ad944d80c14cc3fbe96 AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
 WORKDIR /app/backend
 
 # Install build dependencies
-# xx-apt installs packages for the TARGET architecture
+# xx-apk installs packages for the TARGET architecture
 ARG TARGETPLATFORM
 ARG TARGETARCH
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    clang lld \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache clang lld
 # hadolint ignore=DL3059
-RUN xx-apt install -y gcc libc6-dev libsqlite3-dev
+RUN xx-apk add --no-cache gcc musl-dev sqlite-dev
 
 # Install Delve (cross-compile for target)
 # Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
@@ -162,15 +157,14 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Build Caddy from source to ensure we use the latest Go version and dependencies
 # This fixes vulnerabilities found in the pre-built Caddy images (e.g. CVE-2025-59530, stdlib issues)
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:f6a22bdb1d575b3f71c3d11b6ab09aef8f8ca3b0f1324ad944d80c14cc3fbe96 AS caddy-builder
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS caddy-builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
 # renovate: datasource=go depName=github.com/caddyserver/xcaddy
 ARG XCADDY_VERSION=0.4.5
 
-RUN apt-get update && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache git
 # hadolint ignore=DL3062
 RUN --mount=type=cache,target=/go/pkg/mod \
     go install github.com/caddyserver/xcaddy/cmd/xcaddy@v${XCADDY_VERSION}
@@ -227,7 +221,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Build CrowdSec from source to ensure we use Go 1.25.5+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
 # renovate: datasource=docker depName=golang versioning=docker
-FROM --platform=$BUILDPLATFORM golang:1.25.7-trixie@sha256:86d4bd34f4ca0536082637663aa6959c562ceb0161b289dc7592112228735272 AS crowdsec-builder
+FROM --platform=$BUILDPLATFORM golang:1.25.7-alpine AS crowdsec-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
@@ -241,11 +235,9 @@ ARG CROWDSEC_VERSION=1.7.6
 # CrowdSec fallback tarball checksum (v${CROWDSEC_VERSION})
 ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git clang lld \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache git clang lld
 # hadolint ignore=DL3059
-RUN xx-apt install -y gcc libc6-dev
+RUN xx-apk add --no-cache gcc musl-dev
 
 # Clone CrowdSec source
 RUN git clone --depth 1 --branch "v${CROWDSEC_VERSION}" https://github.com/crowdsecurity/crowdsec.git .
@@ -285,8 +277,8 @@ RUN mkdir -p /crowdsec-out/config && \
     cp -r config/* /crowdsec-out/config/ || true
 
 # ---- CrowdSec Fallback (for architectures where build fails) ----
-# renovate: datasource=docker depName=debian
-FROM debian:trixie-slim@sha256:f6e2cfac5cf956ea044b4bd75e6397b4372ad88fe00908045e9a0d21712ae3ba AS crowdsec-fallback
+# renovate: datasource=docker depName=alpine versioning=docker
+FROM alpine:3.23.3 AS crowdsec-fallback
 
 WORKDIR /tmp/crowdsec
 
@@ -296,10 +288,7 @@ ARG TARGETARCH
 ARG CROWDSEC_VERSION=1.7.6
 ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
 
-# Note: Debian slim does NOT include tar by default - must be explicitly installed
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates tar \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache curl ca-certificates
 
 # Download static binaries as fallback (only available for amd64)
 # For other architectures, create empty placeholder files so COPY doesn't fail
@@ -332,10 +321,9 @@ WORKDIR /app
 # Note: gosu is now built from source (see gosu-builder stage) to avoid CVEs from Debian's pre-compiled version
 # Explicitly upgrade packages to fix security vulnerabilities
 # binutils provides objdump for debug symbol detection in docker-entrypoint.sh
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash ca-certificates libsqlite3-0 sqlite3 tzdata curl gettext-base libcap2-bin libc-ares2 binutils \
-    && apt-get upgrade -y \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache \
+    bash ca-certificates sqlite-libs sqlite tzdata curl gettext libcap libcap-utils \
+    c-ares binutils libc-utils busybox-extras
 
 # Copy gosu binary from gosu-builder (built with Go 1.25+ to avoid stdlib CVEs)
 COPY --from=gosu-builder /gosu-out/gosu /usr/sbin/gosu
@@ -343,8 +331,8 @@ RUN chmod +x /usr/sbin/gosu
 
 # Security: Create non-root user and group for running the application
 # This follows the principle of least privilege (CIS Docker Benchmark 4.1)
-RUN groupadd -g 1000 charon && \
-    useradd -u 1000 -g charon -d /app -s /usr/sbin/nologin -M charon
+RUN addgroup -g 1000 -S charon && \
+    adduser -u 1000 -S -G charon -h /app -s /sbin/nologin charon
 
 # Download MaxMind GeoLite2 Country database
 # Note: In production, users should provide their own MaxMind license key
@@ -428,7 +416,8 @@ COPY scripts/ /app/scripts/
 RUN chmod +x /app/scripts/db-recovery.sh
 
 # Set default environment variables
-ENV CHARON_ENV=production \
+ENV GODEBUG=netdns=go \
+    CHARON_ENV=production \
     CHARON_DB_PATH=/app/data/charon.db \
     CHARON_FRONTEND_DIR=/app/frontend/dist \
     CHARON_CADDY_ADMIN_API=http://localhost:2019 \
