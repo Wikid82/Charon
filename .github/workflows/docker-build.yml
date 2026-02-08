@@ -22,6 +22,8 @@ name: Docker Build, Publish & Test
 
 on:
   workflow_dispatch:
+  pull_request:
+  push:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
@@ -138,10 +140,14 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Compute branch tags
-        if: steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT != 'pull_request'
+        if: steps.skip.outputs.skip_build != 'true'
         id: branch-tags
         run: |
-          BRANCH_NAME="${TRIGGER_REF#refs/heads/}"
+          if [[ "$TRIGGER_EVENT" == "pull_request" ]]; then
+            BRANCH_NAME="${TRIGGER_HEAD_REF}"
+          else
+            BRANCH_NAME="${TRIGGER_REF#refs/heads/}"
+          fi
           SHORT_SHA="$(echo "${{ env.TRIGGER_HEAD_SHA }}" | cut -c1-7)"
 
           sanitize_tag() {
@@ -174,11 +180,17 @@ jobs:
           BASE_BRANCH=$(sanitize_tag "${BRANCH_NAME}" 120)
           BRANCH_SHA_TAG="${BASE_BRANCH}-${SHORT_SHA}"
 
-          echo "branch_sha_tag=${BRANCH_SHA_TAG}" >> "$GITHUB_OUTPUT"
+          if [[ "$TRIGGER_EVENT" == "pull_request" ]]; then
+            if [[ "$BRANCH_NAME" == feature/* ]]; then
+              echo "pr_feature_branch_sha_tag=${BRANCH_SHA_TAG}" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "branch_sha_tag=${BRANCH_SHA_TAG}" >> "$GITHUB_OUTPUT"
 
-          if [[ "$TRIGGER_REF" == refs/heads/feature/* ]]; then
-            echo "feature_branch_tag=${SANITIZED_BRANCH}" >> "$GITHUB_OUTPUT"
-            echo "feature_branch_sha_tag=${BRANCH_SHA_TAG}" >> "$GITHUB_OUTPUT"
+            if [[ "$TRIGGER_REF" == refs/heads/feature/* ]]; then
+              echo "feature_branch_tag=${SANITIZED_BRANCH}" >> "$GITHUB_OUTPUT"
+              echo "feature_branch_sha_tag=${BRANCH_SHA_TAG}" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
       - name: Generate Docker metadata
@@ -195,6 +207,7 @@ jobs:
             type=raw,value=latest,enable=${{ env.TRIGGER_REF == 'refs/heads/main' }}
             type=raw,value=dev,enable=${{ env.TRIGGER_REF == 'refs/heads/development' }}
             type=raw,value=nightly,enable=${{ env.TRIGGER_REF == 'refs/heads/nightly' }}
+            type=raw,value=${{ steps.branch-tags.outputs.pr_feature_branch_sha_tag }},enable=${{ env.TRIGGER_EVENT == 'pull_request' && steps.branch-tags.outputs.pr_feature_branch_sha_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.feature_branch_tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && startsWith(env.TRIGGER_REF, 'refs/heads/feature/') && steps.branch-tags.outputs.feature_branch_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.branch_sha_tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && steps.branch-tags.outputs.branch_sha_tag != '' }}
             type=raw,value=pr-${{ env.TRIGGER_PR_NUMBER }}-{{sha}},enable=${{ env.TRIGGER_EVENT == 'pull_request' }},prefix=,suffix=
@@ -207,7 +220,7 @@ jobs:
             io.charon.build.timestamp=${{ github.event.repository.updated_at }}
             io.charon.feature.branch=${{ steps.branch-tags.outputs.feature_branch_tag }}
       # Phase 1 Optimization: Build once, test many
-      # - For PRs: Single-platform (amd64) + immutable tags (pr-{number}-{short-sha})
+      # - For PRs: Multi-platform (amd64, arm64) + immutable tags (pr-{number}-{short-sha})
       # - For feature branches: Multi-platform (amd64, arm64) + sanitized tags ({branch}-{short-sha})
       # - For main/dev: Multi-platform (amd64, arm64) for production
       # - Always push to registry (enables downstream workflow consumption)
@@ -227,7 +240,8 @@ jobs:
             set -euo pipefail
 
             echo "🔨 Building Docker image with retry logic..."
-            echo "Platform: ${{ env.TRIGGER_EVENT == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}"
+            PLATFORMS="linux/amd64,linux/arm64"
+            echo "Platform: ${PLATFORMS}"
 
             # Build tag arguments array from metadata output (properly quoted)
             TAG_ARGS_ARRAY=()
@@ -244,7 +258,7 @@ jobs:
             # Build the complete command as an array (handles spaces in label values correctly)
             BUILD_CMD=(
               docker buildx build
-              --platform "${{ env.TRIGGER_EVENT == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}"
+              --platform "${PLATFORMS}"
               --push
               "${TAG_ARGS_ARRAY[@]}"
               "${LABEL_ARGS_ARRAY[@]}"
