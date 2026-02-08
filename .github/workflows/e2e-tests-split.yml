@@ -187,7 +187,7 @@ jobs:
 
       - name: Upload Docker image artifact
         if: steps.resolve-image.outputs.image_source == 'build'
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: docker-image
           path: charon-e2e-image.tar
@@ -337,7 +337,7 @@ jobs:
 
       - name: Upload HTML report (Chromium Security)
         if: always()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: playwright-report-chromium-security
           path: playwright-report/
@@ -345,7 +345,7 @@ jobs:
 
       - name: Upload Chromium Security coverage (if enabled)
         if: always() && env.PLAYWRIGHT_COVERAGE == '1'
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: e2e-coverage-chromium-security
           path: coverage/e2e/
@@ -353,7 +353,7 @@ jobs:
 
       - name: Upload test traces on failure
         if: failure()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: traces-chromium-security
           path: test-results/**/*.zip
@@ -366,7 +366,7 @@ jobs:
 
       - name: Upload Docker logs on failure
         if: failure()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: docker-logs-chromium-security
           path: docker-logs-chromium-security.txt
@@ -521,7 +521,7 @@ jobs:
 
       - name: Upload HTML report (Firefox Security)
         if: always()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: playwright-report-firefox-security
           path: playwright-report/
@@ -529,7 +529,7 @@ jobs:
 
       - name: Upload Firefox Security coverage (if enabled)
         if: always() && env.PLAYWRIGHT_COVERAGE == '1'
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: e2e-coverage-firefox-security
           path: coverage/e2e/
@@ -537,7 +537,7 @@ jobs:
 
       - name: Upload test traces on failure
         if: failure()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: traces-firefox-security
           path: test-results/**/*.zip
@@ -550,7 +550,7 @@ jobs:
 
       - name: Upload Docker logs on failure
         if: failure()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: docker-logs-firefox-security
           path: docker-logs-firefox-security.txt
@@ -705,7 +705,7 @@ jobs:
 
       - name: Upload HTML report (WebKit Security)
         if: always()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: playwright-report-webkit-security
           path: playwright-report/
@@ -713,7 +713,7 @@ jobs:
 
       - name: Upload WebKit Security coverage (if enabled)
         if: always() && env.PLAYWRIGHT_COVERAGE == '1'
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: e2e-coverage-webkit-security
           path: coverage/e2e/
@@ -721,7 +721,7 @@ jobs:
 
       - name: Upload test traces on failure
         if: failure()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: traces-webkit-security
           path: test-results/**/*.zip
@@ -734,7 +734,7 @@ jobs:
 
       - name: Upload Docker logs on failure
         if: failure()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: docker-logs-webkit-security
           path: docker-logs-webkit-security.txt
@@ -885,7 +885,7 @@ jobs:
 
       - name: Upload HTML report (Chromium shard ${{ matrix.shard }})
         if: always()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: playwright-report-chromium-shard-${{ matrix.shard }}
           path: playwright-report/
@@ -893,7 +893,7 @@ jobs:
 
       - name: Upload Chromium coverage (if enabled)
         if: always() && env.PLAYWRIGHT_COVERAGE == '1'
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: e2e-coverage-chromium-shard-${{ matrix.shard }}
           path: coverage/e2e/
@@ -901,7 +901,7 @@ jobs:
 
       - name: Upload test traces on failure
         if: failure()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: traces-chromium-shard-${{ matrix.shard }}
           path: test-results/**/*.zip
@@ -914,7 +914,7 @@ jobs:
 
       - name: Upload Docker logs on failure
         if: failure()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: docker-logs-chromium-shard-${{ matrix.shard }}
           path: docker-logs-chromium-shard-${{ matrix.shard }}.txt
@@ -1066,7 +1066,7 @@ jobs:
 
       - name: Upload HTML report (Firefox shard ${{ matrix.shard }})
         if: always()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: playwright-report-firefox-shard-${{ matrix.shard }}
           path: playwright-report/
@@ -1074,7 +1074,7 @@ jobs:
 
       - name: Upload Firefox coverage (if enabled)
         if: always() && env.PLAYWRIGHT_COVERAGE == '1'
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: e2e-coverage-firefox-shard-${{ matrix.shard }}
           path: coverage/e2e/
@@ -1082,7 +1082,7 @@ jobs:
 
       - name: Upload test traces on failure
         if: failure()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: traces-firefox-shard-${{ matrix.shard }}
           path: test-results/**/*.zip
@@ -1095,7 +1095,7 @@ jobs:
 
       - name: Upload Docker logs on failure
         if: failure()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: docker-logs-firefox-shard-${{ matrix.shard }}
           path: docker-logs-firefox-shard-${{ matrix.shard }}.txt
