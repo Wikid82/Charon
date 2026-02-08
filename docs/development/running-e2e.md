@@ -37,6 +37,10 @@ This document explains how to run Playwright tests using a real browser (headed)
    ```bash
    .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
    ```
+  If you need a clean rebuild after integration alignment changes:
+  ```bash
+  .github/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean --no-cache
+  ```
 2. Run the UI against the container (you still need an X server on your host):
    ```bash
    PLAYWRIGHT_BASE_URL=http://localhost:8080 npm run e2e:ui:headless-server

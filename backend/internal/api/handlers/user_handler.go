@@ -599,11 +599,11 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 
 // UpdateUserRequest represents the request body for updating a user.
 type UpdateUserRequest struct {
-	Name    string `json:"name"`
-	Email   string `json:"email"`
+	Name     string  `json:"name"`
+	Email    string  `json:"email"`
 	Password *string `json:"password" binding:"omitempty,min=8"`
-	Role    string `json:"role"`
-	Enabled *bool  `json:"enabled"`
+	Role     string  `json:"role"`
+	Enabled  *bool   `json:"enabled"`
 }
 
 // UpdateUser updates an existing user (admin only).
