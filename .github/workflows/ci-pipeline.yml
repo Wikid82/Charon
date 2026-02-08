@@ -1,0 +1,697 @@
+name: CI Pipeline
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      image_tag_override:
+        description: 'Optional image tag to use for build outputs'
+        required: false
+        type: string
+      run_coverage:
+        description: 'Run backend/frontend coverage jobs'
+        required: false
+        default: true
+        type: boolean
+      run_security_scans:
+        description: 'Run CodeQL, Trivy, and supply-chain checks'
+        required: false
+        default: true
+        type: boolean
+      run_integration:
+        description: 'Run integration test jobs'
+        required: false
+        default: true
+        type: boolean
+      run_e2e:
+        description: 'Run Playwright E2E tests'
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: ci-manual-pipeline-${{ github.ref_name }}-${{ github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: '1.25.7'
+  NODE_VERSION: '24.12.0'
+  GOTOOLCHAIN: auto
+  GHCR_REGISTRY: ghcr.io
+  DOCKERHUB_REGISTRY: docker.io
+  IMAGE_NAME: wikid82/charon
+  IS_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true && github.repository != github.event.pull_request.head.repo.full_name }}
+
+jobs:
+  lint:
+    name: Lint and Repo Health
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Repo health check
+        run: bash scripts/repo_health_check.sh
+
+      - name: Run Hadolint
+        uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
+        with:
+          dockerfile: Dockerfile
+          config: .hadolint.yaml
+          failure-threshold: warning
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+        with:
+          version: latest
+          working-directory: backend
+          args: --timeout=5m
+        continue-on-error: true
+
+      - name: GORM Security Scanner
+        run: |
+          chmod +x scripts/scan-gorm-security.sh
+          ./scripts/scan-gorm-security.sh --check
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend lint
+        working-directory: frontend
+        run: npm run lint
+        continue-on-error: true
+
+  build-image:
+    name: Build and Publish Image
+    runs-on: ubuntu-latest
+    needs: lint
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_digest: ${{ steps.build.outputs.digest }}
+      image_ref: ${{ steps.outputs.outputs.image_ref_dockerhub }}
+      image_ref_dockerhub: ${{ steps.outputs.outputs.image_ref_dockerhub }}
+      image_ref_ghcr: ${{ steps.outputs.outputs.image_ref_ghcr }}
+      image_tag: ${{ steps.outputs.outputs.image_tag }}
+      push_image: ${{ steps.image-policy.outputs.push }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Normalize image name
+        run: |
+          IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
+
+      - name: Determine image push policy
+        id: image-policy
+        run: |
+          PUSH_IMAGE=true
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if [ "${{ github.event.pull_request.head.repo.fork }}" = "true" ] && \
+               [ "${{ github.repository }}" != "${{ github.event.pull_request.head.repo.full_name }}" ]; then
+              PUSH_IMAGE=false
+            fi
+          fi
+          echo "push=${PUSH_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          DEFAULT_TAG="sha-${SHORT_SHA}"
+          if [ -n "${{ inputs.image_tag_override }}" ]; then
+            DEFAULT_TAG="${{ inputs.image_tag_override }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            if [ -n "${PR_NUMBER}" ]; then
+              DEFAULT_TAG="pr-${PR_NUMBER}-${SHORT_SHA}"
+            fi
+          fi
+
+          TAGS=()
+          TAGS+=("${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${DEFAULT_TAG}")
+          TAGS+=("${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:${DEFAULT_TAG}")
+
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            TAGS+=("${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest")
+            TAGS+=("${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:latest")
+          fi
+
+          if [ "${{ github.ref_name }}" = "development" ]; then
+            TAGS+=("${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:dev")
+            TAGS+=("${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:dev")
+          fi
+
+          if [ "${{ github.ref_name }}" = "nightly" ]; then
+            TAGS+=("${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly")
+            TAGS+=("${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly")
+          fi
+
+          {
+            echo "tags<<EOF"
+            printf '%s\n' "${TAGS[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "image_tag=${DEFAULT_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Log in to GitHub Container Registry
+        if: ${{ steps.image-policy.outputs.push == 'true' }}
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: ${{ steps.image-policy.outputs.push == 'true' && secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: ${{ steps.image-policy.outputs.push == 'true' }}
+          load: ${{ steps.image-policy.outputs.push != 'true' }}
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Emit image outputs
+        id: outputs
+        run: |
+          DIGEST="${{ steps.build.outputs.digest }}"
+          if [ -z "${DIGEST}" ]; then
+            echo "image_ref_dockerhub=" >> $GITHUB_OUTPUT
+            echo "image_ref_ghcr=" >> $GITHUB_OUTPUT
+          else
+            IMAGE_REF_DOCKERHUB="${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
+            IMAGE_REF_GHCR="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
+            echo "image_ref_dockerhub=${IMAGE_REF_DOCKERHUB}" >> $GITHUB_OUTPUT
+            echo "image_ref_ghcr=${IMAGE_REF_GHCR}" >> $GITHUB_OUTPUT
+          fi
+          echo "image_tag=${{ steps.tags.outputs.image_tag }}" >> $GITHUB_OUTPUT
+
+  integration-cerberus:
+    name: Integration - Cerberus
+    runs-on: ubuntu-latest
+    needs: build-image
+    if: inputs.run_integration != false && needs.build-image.outputs.push_image == 'true'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull shared image
+        run: |
+          docker pull "${{ needs.build-image.outputs.image_ref_dockerhub }}"
+          docker tag "${{ needs.build-image.outputs.image_ref_dockerhub }}" charon:local
+
+      - name: Run Cerberus integration tests
+        run: |
+          chmod +x scripts/cerberus_integration.sh
+          scripts/cerberus_integration.sh
+
+  integration-crowdsec:
+    name: Integration - CrowdSec
+    runs-on: ubuntu-latest
+    needs: build-image
+    if: inputs.run_integration != false && needs.build-image.outputs.push_image == 'true'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull shared image
+        run: |
+          docker pull "${{ needs.build-image.outputs.image_ref_dockerhub }}"
+          docker tag "${{ needs.build-image.outputs.image_ref_dockerhub }}" charon:local
+
+      - name: Run CrowdSec integration tests
+        run: |
+          chmod +x .github/skills/scripts/skill-runner.sh
+          .github/skills/scripts/skill-runner.sh integration-test-crowdsec
+          .github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
+
+  integration-waf:
+    name: Integration - WAF
+    runs-on: ubuntu-latest
+    needs: build-image
+    if: inputs.run_integration != false && needs.build-image.outputs.push_image == 'true'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull shared image
+        run: |
+          docker pull "${{ needs.build-image.outputs.image_ref_dockerhub }}"
+          docker tag "${{ needs.build-image.outputs.image_ref_dockerhub }}" charon:local
+
+      - name: Run WAF integration tests
+        run: |
+          chmod +x scripts/coraza_integration.sh
+          scripts/coraza_integration.sh
+
+  integration-ratelimit:
+    name: Integration - Rate Limit
+    runs-on: ubuntu-latest
+    needs: build-image
+    if: inputs.run_integration != false && needs.build-image.outputs.push_image == 'true'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull shared image
+        run: |
+          docker pull "${{ needs.build-image.outputs.image_ref_dockerhub }}"
+          docker tag "${{ needs.build-image.outputs.image_ref_dockerhub }}" charon:local
+
+      - name: Run rate limit integration tests
+        run: |
+          chmod +x scripts/rate_limit_integration.sh
+          scripts/rate_limit_integration.sh
+
+  integration-gate:
+    name: Integration Gate
+    runs-on: ubuntu-latest
+    needs:
+      - integration-cerberus
+      - integration-crowdsec
+      - integration-waf
+      - integration-ratelimit
+    if: always()
+    steps:
+      - name: Evaluate integration results
+        run: |
+          if [ "${{ inputs.run_integration }}" = "false" ]; then
+            echo "Integration stage skipped."
+            exit 0
+          fi
+
+          RESULTS=(
+            "${{ needs.integration-cerberus.result }}"
+            "${{ needs.integration-crowdsec.result }}"
+            "${{ needs.integration-waf.result }}"
+            "${{ needs.integration-ratelimit.result }}"
+          )
+
+          for RESULT in "${RESULTS[@]}"; do
+            if [ "$RESULT" = "failure" ] || [ "$RESULT" = "cancelled" ]; then
+              echo "Integration stage failed: $RESULT"
+              exit 1
+            fi
+          done
+
+  e2e:
+    name: E2E Tests with Coverage
+    needs:
+      - build-image
+      - integration-gate
+    if: inputs.run_e2e != false && needs.build-image.outputs.push_image == 'true'
+    uses: ./.github/workflows/e2e-tests-split.yml
+    with:
+      browser: all
+      test_category: all
+      image_ref: ${{ needs.build-image.outputs.image_ref_dockerhub }}
+      image_tag: charon:e2e-test
+      playwright_coverage: true
+    secrets: inherit
+
+  coverage-backend:
+    name: Coverage - Backend
+    runs-on: ubuntu-latest
+    needs:
+      - build-image
+      - integration-gate
+    if: inputs.run_coverage != false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      - name: Run Go tests with coverage
+        env:
+          CGO_ENABLED: 1
+        run: |
+          bash scripts/go-test-coverage.sh 2>&1 | tee backend/test-output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@ea165f2524e81b1a7f1f18e1bdb77f0840c18dd9 # v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.txt
+          retention-days: 1
+
+  coverage-frontend:
+    name: Coverage - Frontend
+    runs-on: ubuntu-latest
+    needs:
+      - build-image
+      - integration-gate
+    if: inputs.run_coverage != false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend tests and coverage
+        run: |
+          bash scripts/frontend-test-coverage.sh 2>&1 | tee frontend/test-output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@ea165f2524e81b1a7f1f18e1bdb77f0840c18dd9 # v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+          retention-days: 1
+
+  coverage-gate:
+    name: Coverage Gate
+    runs-on: ubuntu-latest
+    needs:
+      - coverage-backend
+      - coverage-frontend
+      - e2e
+    if: always()
+    steps:
+      - name: Evaluate coverage results
+        run: |
+          if [ "${{ inputs.run_coverage }}" = "false" ]; then
+            echo "Coverage stage skipped."
+            exit 0
+          fi
+
+          RESULTS=(
+            "${{ needs.coverage-backend.result }}"
+            "${{ needs.coverage-frontend.result }}"
+            "${{ needs.e2e.result }}"
+          )
+
+          for RESULT in "${RESULTS[@]}"; do
+            if [ "$RESULT" = "failure" ] || [ "$RESULT" = "cancelled" ]; then
+              echo "Coverage stage failed: $RESULT"
+              exit 1
+            fi
+          done
+
+  codecov-upload:
+    name: Codecov Upload
+    runs-on: ubuntu-latest
+    needs:
+      - coverage-gate
+    if: inputs.run_coverage != false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Download backend coverage artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4
+        with:
+          name: backend-coverage
+          path: backend/
+
+      - name: Download frontend coverage artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+
+      - name: Download E2E coverage artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4
+        with:
+          name: e2e-coverage
+          path: coverage/e2e
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@7f9fc5e3cf521e84e0c9a667b0f6c6ad08c94b82 # v5.1.3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: backend
+          files: backend/coverage.txt
+          fail_ci_if_error: false
+
+      - name: Upload frontend coverage to Codecov
+        uses: codecov/codecov-action@7f9fc5e3cf521e84e0c9a667b0f6c6ad08c94b82 # v5.1.3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: frontend
+          files: frontend/coverage/lcov.info
+          fail_ci_if_error: false
+
+      - name: Upload E2E coverage to Codecov
+        uses: codecov/codecov-action@7f9fc5e3cf521e84e0c9a667b0f6c6ad08c94b82 # v5.1.3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: e2e
+          files: coverage/e2e/lcov.info
+          fail_ci_if_error: false
+
+  codecov-gate:
+    name: Codecov Gate
+    runs-on: ubuntu-latest
+    needs:
+      - codecov-upload
+    if: always()
+    steps:
+      - name: Evaluate Codecov upload results
+        run: |
+          if [ "${{ inputs.run_coverage }}" = "false" ]; then
+            echo "Codecov upload stage skipped."
+            exit 0
+          fi
+
+          if [ "${{ needs.codecov-upload.result }}" = "failure" ] || [ "${{ needs.codecov-upload.result }}" = "cancelled" ]; then
+            echo "Codecov upload failed: ${{ needs.codecov-upload.result }}"
+            exit 1
+          fi
+
+  security-codeql:
+    name: Security - CodeQL
+    runs-on: ubuntu-latest
+    needs:
+      - codecov-gate
+    if: inputs.run_security_scans != false && env.IS_FORK != 'true'
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+      pull-requests: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['go', 'javascript-typescript']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@45cbd0c69e560cd9e7cd7f8c32362050c9b7ded2 # v4
+        with:
+          languages: ${{ matrix.language }}
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - name: Setup Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@45cbd0c69e560cd9e7cd7f8c32362050c9b7ded2 # v4
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@45cbd0c69e560cd9e7cd7f8c32362050c9b7ded2 # v4
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  security-trivy:
+    name: Security - Trivy Image Scan
+    runs-on: ubuntu-latest
+    needs:
+      - build-image
+      - codecov-gate
+    if: inputs.run_security_scans != false && needs.build-image.outputs.push_image == 'true'
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Run Trivy image scan (SARIF)
+        uses: aquasecurity/trivy-action@22438a435773de8c97dc0958cc0b823c45b064ac
+        with:
+          scan-type: image
+          image-ref: ${{ needs.build-image.outputs.image_ref_dockerhub }}
+          format: sarif
+          output: trivy-image-results.sarif
+          severity: 'CRITICAL,HIGH,MEDIUM'
+        continue-on-error: true
+
+      - name: Upload Trivy SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@b13d724d35ff0a814e21683638ed68ed34cf53d1
+        with:
+          sarif_file: trivy-image-results.sarif
+          category: trivy-image
+        continue-on-error: true
+
+      - name: Run Trivy image scan (fail on CRITICAL/HIGH)
+        uses: aquasecurity/trivy-action@22438a435773de8c97dc0958cc0b823c45b064ac
+        with:
+          scan-type: image
+          image-ref: ${{ needs.build-image.outputs.image_ref_dockerhub }}
+          format: table
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+  security-supply-chain:
+    name: Security - Supply Chain
+    runs-on: ubuntu-latest
+    needs:
+      - build-image
+      - codecov-gate
+    if: inputs.run_security_scans != false && needs.build-image.outputs.push_image == 'true'
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@28d71544de8eaf1b958d335707167c5f783590ad # v0.22.2
+        with:
+          image: ${{ needs.build-image.outputs.image_ref_dockerhub }}
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+
+      - name: Scan SBOM for vulnerabilities
+        uses: anchore/scan-action@7037fa011853d5a11690026fb85feee79f4c946c # v7.3.2
+        with:
+          sbom: sbom.cyclonedx.json
+          fail-build: false
+          output-format: json
+
+  pipeline-gate:
+    name: Pipeline Gate
+    runs-on: ubuntu-latest
+    needs:
+      - lint
+      - build-image
+      - integration-gate
+      - coverage-gate
+      - codecov-gate
+      - security-codeql
+      - security-trivy
+      - security-supply-chain
+    if: always()
+    steps:
+      - name: Evaluate pipeline results
+        run: |
+          RESULTS=(
+            "${{ needs.lint.result }}"
+            "${{ needs.build-image.result }}"
+            "${{ needs.integration-gate.result }}"
+            "${{ needs.coverage-gate.result }}"
+            "${{ needs.codecov-gate.result }}"
+            "${{ needs.security-codeql.result }}"
+            "${{ needs.security-trivy.result }}"
+            "${{ needs.security-supply-chain.result }}"
+          )
+
+          for RESULT in "${RESULTS[@]}"; do
+            if [ "$RESULT" = "failure" ] || [ "$RESULT" = "cancelled" ]; then
+              echo "Pipeline failed: $RESULT"
+              exit 1
+            fi
+          done

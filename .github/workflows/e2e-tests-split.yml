@@ -13,9 +13,38 @@
 name: 'E2E Tests'
 
 on:
-  workflow_run:
-   workflows: ["Docker Build, Publish & Test"]
-   types: [completed]
+  workflow_call:
+    inputs:
+      browser:
+        description: 'Browser to test'
+        required: false
+        default: 'all'
+        type: string
+      test_category:
+        description: 'Test category'
+        required: false
+        default: 'all'
+        type: string
+      image_ref:
+        description: 'Image reference (digest) to test, e.g. docker.io/wikid82/charon@sha256:...'
+        required: false
+        type: string
+      image_tag:
+        description: 'Local image tag for compose usage (default: charon:e2e-test)'
+        required: false
+        type: string
+      playwright_coverage:
+        description: 'Enable Playwright coverage (V8)'
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      CHARON_EMERGENCY_TOKEN:
+        required: false
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
   workflow_dispatch:
     inputs:
       browser:
@@ -37,37 +66,75 @@ on:
           - all
           - security
           - non-security
+      image_ref:
+        description: 'Image reference (digest) to test, e.g. docker.io/wikid82/charon@sha256:...'
+        required: false
+        type: string
+      image_tag:
+        description: 'Local image tag for compose usage (default: charon:e2e-test)'
+        required: false
+        type: string
+      playwright_coverage:
+        description: 'Enable Playwright coverage (V8)'
+        required: false
+        default: false
+        type: boolean
 
 env:
   NODE_VERSION: '20'
   GO_VERSION: '1.25.7'
   GOTOOLCHAIN: auto
-  REGISTRY: ghcr.io
+  DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: ${{ github.repository_owner }}/charon
-  PLAYWRIGHT_COVERAGE: ${{ vars.PLAYWRIGHT_COVERAGE || '0' }}
+  PLAYWRIGHT_COVERAGE: ${{ (inputs.playwright_coverage && '1') || (vars.PLAYWRIGHT_COVERAGE || '0') }}
   DEBUG: 'charon:*,charon-test:*'
   PLAYWRIGHT_DEBUG: '1'
   CI_LOG_LEVEL: 'verbose'
 
 concurrency:
-  group: e2e-split-${{ github.workflow }}-${{ github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number || github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
+  group: e2e-split-${{ github.workflow }}-${{ github.ref_name }}-${{ github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  # Build application once, share across all browser jobs
+  # Prepare application image once, share across all browser jobs
   build:
-    name: Build Application
+    name: Prepare Application Image
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     outputs:
-      image_digest: ${{ steps.build-image.outputs.digest }}
+      image_source: ${{ steps.resolve-image.outputs.image_source }}
+      image_ref: ${{ steps.resolve-image.outputs.image_ref }}
+      image_tag: ${{ steps.resolve-image.outputs.image_tag }}
+      image_digest: ${{ steps.resolve-image.outputs.image_digest != '' && steps.resolve-image.outputs.image_digest || steps.build-image.outputs.digest }}
     steps:
+      - name: Resolve image inputs
+        id: resolve-image
+        run: |
+          IMAGE_REF="${{ inputs.image_ref }}"
+          IMAGE_TAG="${{ inputs.image_tag || 'charon:e2e-test' }}"
+          if [ -n "$IMAGE_REF" ]; then
+            echo "image_source=registry" >> "$GITHUB_OUTPUT"
+            echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
+            echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+            if [[ "$IMAGE_REF" == *@* ]]; then
+              echo "image_digest=${IMAGE_REF#*@}" >> "$GITHUB_OUTPUT"
+            else
+              echo "image_digest=" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+          echo "image_source=build" >> "$GITHUB_OUTPUT"
+          echo "image_ref=" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "image_digest=" >> "$GITHUB_OUTPUT"
+
       - name: Checkout repository
+        if: steps.resolve-image.outputs.image_source == 'build'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Set up Go
+        if: steps.resolve-image.outputs.image_source == 'build'
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -75,12 +142,14 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - name: Set up Node.js
+        if: steps.resolve-image.outputs.image_source == 'build'
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
       - name: Cache npm dependencies
+        if: steps.resolve-image.outputs.image_source == 'build'
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         with:
           path: ~/.npm
@@ -88,27 +157,32 @@ jobs:
           restore-keys: npm-
 
       - name: Install dependencies
+        if: steps.resolve-image.outputs.image_source == 'build'
         run: npm ci
 
       - name: Set up Docker Buildx
+        if: steps.resolve-image.outputs.image_source == 'build'
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build Docker image
         id: build-image
+        if: steps.resolve-image.outputs.image_source == 'build'
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
         with:
           context: .
           file: ./Dockerfile
           push: false
           load: true
-          tags: charon:e2e-test
+          tags: ${{ steps.resolve-image.outputs.image_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Save Docker image
-        run: docker save charon:e2e-test -o charon-e2e-image.tar
+        if: steps.resolve-image.outputs.image_source == 'build'
+        run: docker save ${{ steps.resolve-image.outputs.image_tag }} -o charon-e2e-image.tar
 
       - name: Upload Docker image artifact
+        if: steps.resolve-image.outputs.image_source == 'build'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: docker-image
@@ -127,21 +201,20 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
-      (github.event_name != 'workflow_dispatch') ||
-      (github.event.inputs.browser == 'chromium' || github.event.inputs.browser == 'all') &&
-      (github.event.inputs.test_category == 'security' || github.event.inputs.test_category == 'all')
+      (inputs.browser == 'chromium' || inputs.browser == 'all') &&
+      (inputs.test_category == 'security' || inputs.test_category == 'all')
     timeout-minutes: 30
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "true"  # Cerberus ON for enforcement tests
-      CHARON_E2E_IMAGE_TAG: charon:e2e-test
+      CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -149,7 +222,23 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Download Docker image
+      - name: Log in to Docker Hub
+        if: needs.build.outputs.image_source == 'registry' && secrets.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull shared Docker image
+        if: needs.build.outputs.image_source == 'registry'
+        run: |
+          docker pull "${{ needs.build.outputs.image_ref }}"
+          docker tag "${{ needs.build.outputs.image_ref }}" "${{ needs.build.outputs.image_tag }}"
+          docker images | grep charon
+
+      - name: Download Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: docker-image
@@ -171,7 +260,8 @@ jobs:
         env:
           CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
 
-      - name: Load Docker image
+      - name: Load Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         run: |
           docker load -i charon-e2e-image.tar
           docker images | grep charon
@@ -287,21 +377,20 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
-      (github.event_name != 'workflow_dispatch') ||
-      (github.event.inputs.browser == 'firefox' || github.event.inputs.browser == 'all') &&
-      (github.event.inputs.test_category == 'security' || github.event.inputs.test_category == 'all')
+      (inputs.browser == 'firefox' || inputs.browser == 'all') &&
+      (inputs.test_category == 'security' || inputs.test_category == 'all')
     timeout-minutes: 30
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "true"  # Cerberus ON for enforcement tests
-      CHARON_E2E_IMAGE_TAG: charon:e2e-test
+      CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -309,7 +398,23 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Download Docker image
+      - name: Log in to Docker Hub
+        if: needs.build.outputs.image_source == 'registry' && secrets.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull shared Docker image
+        if: needs.build.outputs.image_source == 'registry'
+        run: |
+          docker pull "${{ needs.build.outputs.image_ref }}"
+          docker tag "${{ needs.build.outputs.image_ref }}" "${{ needs.build.outputs.image_tag }}"
+          docker images | grep charon
+
+      - name: Download Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: docker-image
@@ -331,7 +436,8 @@ jobs:
         env:
           CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
 
-      - name: Load Docker image
+      - name: Load Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         run: |
           docker load -i charon-e2e-image.tar
           docker images | grep charon
@@ -455,21 +561,20 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
-      (github.event_name != 'workflow_dispatch') ||
-      (github.event.inputs.browser == 'webkit' || github.event.inputs.browser == 'all') &&
-      (github.event.inputs.test_category == 'security' || github.event.inputs.test_category == 'all')
+      (inputs.browser == 'webkit' || inputs.browser == 'all') &&
+      (inputs.test_category == 'security' || inputs.test_category == 'all')
     timeout-minutes: 30
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "true"  # Cerberus ON for enforcement tests
-      CHARON_E2E_IMAGE_TAG: charon:e2e-test
+      CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -477,7 +582,23 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Download Docker image
+      - name: Log in to Docker Hub
+        if: needs.build.outputs.image_source == 'registry' && secrets.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull shared Docker image
+        if: needs.build.outputs.image_source == 'registry'
+        run: |
+          docker pull "${{ needs.build.outputs.image_ref }}"
+          docker tag "${{ needs.build.outputs.image_ref }}" "${{ needs.build.outputs.image_tag }}"
+          docker images | grep charon
+
+      - name: Download Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: docker-image
@@ -499,7 +620,8 @@ jobs:
         env:
           CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
 
-      - name: Load Docker image
+      - name: Load Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         run: |
           docker load -i charon-e2e-image.tar
           docker images | grep charon
@@ -630,15 +752,14 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
-      (github.event_name != 'workflow_dispatch') ||
-      (github.event.inputs.browser == 'chromium' || github.event.inputs.browser == 'all') &&
-      (github.event.inputs.test_category == 'non-security' || github.event.inputs.test_category == 'all')
+      (inputs.browser == 'chromium' || inputs.browser == 'all') &&
+      (inputs.test_category == 'non-security' || inputs.test_category == 'all')
     timeout-minutes: 20
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "false"  # Cerberus OFF for non-security tests
-      CHARON_E2E_IMAGE_TAG: charon:e2e-test
+      CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
     strategy:
       fail-fast: false
       matrix:
@@ -649,7 +770,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -657,12 +778,29 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Download Docker image
+      - name: Log in to Docker Hub
+        if: needs.build.outputs.image_source == 'registry' && secrets.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull shared Docker image
+        if: needs.build.outputs.image_source == 'registry'
+        run: |
+          docker pull "${{ needs.build.outputs.image_ref }}"
+          docker tag "${{ needs.build.outputs.image_ref }}" "${{ needs.build.outputs.image_tag }}"
+          docker images | grep charon
+
+      - name: Download Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: docker-image
 
-      - name: Load Docker image
+      - name: Load Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         run: |
           docker load -i charon-e2e-image.tar
           docker images | grep charon
@@ -787,15 +925,14 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
-      (github.event_name != 'workflow_dispatch') ||
-      (github.event.inputs.browser == 'firefox' || github.event.inputs.browser == 'all') &&
-      (github.event.inputs.test_category == 'non-security' || github.event.inputs.test_category == 'all')
+      (inputs.browser == 'firefox' || inputs.browser == 'all') &&
+      (inputs.test_category == 'non-security' || inputs.test_category == 'all')
     timeout-minutes: 20
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "false"  # Cerberus OFF for non-security tests
-      CHARON_E2E_IMAGE_TAG: charon:e2e-test
+      CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
     strategy:
       fail-fast: false
       matrix:
@@ -806,7 +943,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -814,12 +951,29 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Download Docker image
+      - name: Log in to Docker Hub
+        if: needs.build.outputs.image_source == 'registry' && secrets.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull shared Docker image
+        if: needs.build.outputs.image_source == 'registry'
+        run: |
+          docker pull "${{ needs.build.outputs.image_ref }}"
+          docker tag "${{ needs.build.outputs.image_ref }}" "${{ needs.build.outputs.image_tag }}"
+          docker images | grep charon
+
+      - name: Download Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: docker-image
 
-      - name: Load Docker image
+      - name: Load Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         run: |
           docker load -i charon-e2e-image.tar
           docker images | grep charon
@@ -952,15 +1106,14 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
-      (github.event_name != 'workflow_dispatch') ||
-      (github.event.inputs.browser == 'webkit' || github.event.inputs.browser == 'all') &&
-      (github.event.inputs.test_category == 'non-security' || github.event.inputs.test_category == 'all')
+      (inputs.browser == 'webkit' || inputs.browser == 'all') &&
+      (inputs.test_category == 'non-security' || inputs.test_category == 'all')
     timeout-minutes: 20
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "false"  # Cerberus OFF for non-security tests
-      CHARON_E2E_IMAGE_TAG: charon:e2e-test
+      CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
     strategy:
       fail-fast: false
       matrix:
@@ -971,7 +1124,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -979,12 +1132,29 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Download Docker image
+      - name: Log in to Docker Hub
+        if: needs.build.outputs.image_source == 'registry' && secrets.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull shared Docker image
+        if: needs.build.outputs.image_source == 'registry'
+        run: |
+          docker pull "${{ needs.build.outputs.image_ref }}"
+          docker tag "${{ needs.build.outputs.image_ref }}" "${{ needs.build.outputs.image_tag }}"
+          docker images | grep charon
+
+      - name: Download Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: docker-image
 
-      - name: Load Docker image
+      - name: Load Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         run: |
           docker load -i charon-e2e-image.tar
           docker images | grep charon

@@ -1,11 +1,9 @@
 name: CodeQL - Analyze
 
 on:
-  workflow_run:
-    workflows: ["Docker Build, Publish & Test"]
-    types: [completed]
+  workflow_dispatch:
   schedule:
-    - cron: '0 3 * * 1'
+    - cron: '0 3 * * 1' # Mondays 03:00 UTC
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
@@ -27,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     # Skip forked PRs where CHARON_TOKEN lacks security-events permissions
     if: >-
-      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+      (github.event_name != 'workflow_run' || github.event.workflow_run.status != 'completed' || github.event.workflow_run.conclusion == 'success')
     permissions:
       contents: read
       security-events: write

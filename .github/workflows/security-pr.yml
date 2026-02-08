@@ -4,12 +4,6 @@
 name: Security Scan (PR)
 
 on:
-  workflow_run:
-    workflows: ["Docker Build, Publish & Test"]
-    types:
-      - completed
-    branches: [main, development, 'feature/**', 'hotfix/**']
-
   workflow_dispatch:
     inputs:
       pr_number:
@@ -29,8 +23,8 @@ jobs:
     # Run for: manual dispatch, PR builds, or any push builds from docker-build
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      ((github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'push') &&
-       github.event.workflow_run.conclusion == 'success')
+      ((github.event.workflow_run.event == 'push' || github.event.workflow_run.pull_requests[0].number != null) &&
+       (github.event.workflow_run.status != 'completed' || github.event.workflow_run.conclusion == 'success'))
 
     permissions:
       contents: read
@@ -82,7 +76,7 @@ jobs:
           fi
 
           # Check if this is a push event (not a PR)
-          if [[ "${{ github.event.workflow_run.event }}" == "push" || "${{ github.event_name }}" == "push" ]]; then
+          if [[ "${{ github.event_name }}" == "push" || "${{ github.event.workflow_run.event }}" == "push" || -z "${PR_NUMBER}" ]]; then
             HEAD_BRANCH="${{ github.event.workflow_run.head_branch || github.ref_name }}"
             echo "is_push=true" >> "$GITHUB_OUTPUT"
             echo "✅ Detected push build from branch: ${HEAD_BRANCH}"

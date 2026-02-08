@@ -3,11 +3,6 @@ name: Rate Limit integration
 # Phase 2-3: Build Once, Test Many - Use registry image instead of building
 # This workflow now waits for docker-build.yml to complete and pulls the built image
 on:
-  workflow_run:
-    workflows: ["Docker Build, Publish & Test"]
-    types: [completed]
-    branches: [main, development, 'feature/**', 'hotfix/**']
-  # Allow manual trigger for debugging
   workflow_dispatch:
     inputs:
       image_tag:
@@ -27,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Only run if docker-build.yml succeeded, or if manually triggered
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && (github.event.workflow_run.status != 'completed' || github.event.workflow_run.conclusion == 'success')) }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -57,9 +52,10 @@ jobs:
           # Extract 7-character short SHA
           SHORT_SHA=$(echo "$SHA" | cut -c1-7)
 
-          if [[ "$EVENT" == "pull_request" ]]; then
-            # Use native pull_requests array (no API calls needed)
-            PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number')
+           # Use native pull_requests array (no API calls needed)
+           PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number // empty')
+
+           if [[ "$EVENT" == "pull_request" || -n "$PR_NUM" ]]; then
 
             # Fallback for direct PR trigger
             if [[ -z "$PR_NUM" || "$PR_NUM" == "null" ]]; then
