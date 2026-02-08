@@ -601,7 +601,7 @@ jobs:
   scan-pr-image:
     name: Security Scan PR Image
     needs: build-and-push
-    if: needs.build-and-push.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
+    if: needs.build-and-push.outputs.skip_build != 'true' && (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -694,7 +694,7 @@ jobs:
     name: Test Docker Image
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: needs.build-and-push.outputs.skip_build != 'true' && env.TRIGGER_EVENT != 'pull_request'
+    if: needs.build-and-push.outputs.skip_build != 'true' && (github.event_name != 'workflow_run' || github.event.workflow_run.event != 'pull_request')
     env:
       # Required for security teardown in integration tests
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
