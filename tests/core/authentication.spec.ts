@@ -279,7 +279,9 @@ test.describe('Authentication Flows', () => {
 
       await test.step('Navigate to different pages', async () => {
         // Navigate to proxy hosts
-        const proxyHostsLink = page.getByRole('link', { name: /proxy.*hosts?/i });
+        const proxyHostsLink = page
+          .getByRole('navigation')
+          .getByRole('link', { name: /proxy.*hosts?/i });
         if (await proxyHostsLink.isVisible()) {
           await proxyHostsLink.click();
           await waitForLoadingComplete(page);

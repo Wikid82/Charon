@@ -232,12 +232,8 @@ describe('AccessListForm', () => {
     await user.selectOptions(typeSelect, 'whitelist');
 
     // Toggle local network only
-    const localNetworkSwitch = screen.getByLabelText(/Local Network Only/i)
-      .querySelector('input[type="checkbox"]');
-
-    if (localNetworkSwitch) {
-      await user.click(localNetworkSwitch);
-    }
+    const localNetworkSwitch = screen.getByRole('checkbox', { name: /Local Network Only/i });
+    await user.click(localNetworkSwitch);
 
     // IP inputs should be hidden
     expect(screen.queryByPlaceholderText(/192.168.1.0\/24/i)).not.toBeInTheDocument();
@@ -260,7 +256,7 @@ describe('AccessListForm', () => {
       />
     );
 
-    const submitBtn = screen.getByRole('button', { name: /Create/i });
+    const submitBtn = screen.getByRole('button', { name: /Saving.../i });
     expect(submitBtn).toBeDisabled();
 
     const cancelBtn = screen.getByRole('button', { name: /Cancel/i });
@@ -278,7 +274,7 @@ describe('AccessListForm', () => {
       />
     );
 
-    const deleteBtn = screen.getByRole('button', { name: /Delete/i });
+    const deleteBtn = screen.getByRole('button', { name: /Deleting.../i });
     expect(deleteBtn).toBeDisabled();
   });
 
@@ -401,17 +397,17 @@ describe('AccessListForm', () => {
       />
     );
 
-    const deleteBtn = screen.getByRole('button', { name: /Delete/i });
+    const deleteBtn = screen.getByRole('button', { name: /Deleting.../i });
     expect(deleteBtn).toBeDisabled();
   });
 
-  it('applies security preset for blacklist', async () => {
+  it('applies security preset for geo blacklist', async () => {
     render(<AccessListForm onSubmit={mockSubmit} onCancel={mockCancel} />);
 
     await user.type(screen.getByLabelText(/Name/i), 'Preset Test');
 
     const typeSelect = screen.getByLabelText(/Type/i);
-    await user.selectOptions(typeSelect, 'blacklist');
+    await user.selectOptions(typeSelect, 'geo_blacklist');
 
     const showBtn = screen.getByRole('button', { name: /Show Presets/i });
     await user.click(showBtn);
@@ -449,12 +445,8 @@ describe('AccessListForm', () => {
 
     await user.type(screen.getByLabelText(/Name/i), 'Switch Test');
 
-    const enabledSwitch = screen.getByLabelText(/^Enabled$/)
-      .querySelector('input[type="checkbox"]');
-
-    if (enabledSwitch) {
-      await user.click(enabledSwitch);
-    }
+    const enabledSwitch = screen.getByRole('checkbox', { name: /^Enabled$/i });
+    await user.click(enabledSwitch);
 
     await user.click(screen.getByRole('button', { name: /Create/i }));
 
@@ -565,7 +557,7 @@ describe('AccessListForm', () => {
     const typeSelect = screen.getByLabelText(/Type/i);
     await user.selectOptions(typeSelect, 'blacklist');
 
-    expect(screen.getByText(/Recommended: Block lists are safer/i)).toBeInTheDocument();
+    expect(screen.getByText(/Block lists are safer/i)).toBeInTheDocument();
   });
 
   it('renders best practices link', () => {

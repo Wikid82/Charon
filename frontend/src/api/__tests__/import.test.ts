@@ -10,6 +10,9 @@ vi.mock('../client', () => ({
 }));
 
 describe('import API', () => {
+  const mockedGet = vi.mocked(client.get);
+  const mockedPost = vi.mocked(client.post);
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -17,7 +20,7 @@ describe('import API', () => {
   it('uploadCaddyfile posts content', async () => {
     const content = 'example.com';
     const mockResponse = { preview: { hosts: [] } };
-    (client.post as any).mockResolvedValue({ data: mockResponse });
+    mockedPost.mockResolvedValue({ data: mockResponse });
 
     const result = await uploadCaddyfile(content);
     expect(client.post).toHaveBeenCalledWith('/import/upload', { content });
@@ -27,7 +30,7 @@ describe('import API', () => {
   it('uploadCaddyfilesMulti posts files', async () => {
     const files = [{ filename: 'Caddyfile', content: 'foo.com' }];
     const mockResponse = { preview: { hosts: [] } };
-    (client.post as any).mockResolvedValue({ data: mockResponse });
+    mockedPost.mockResolvedValue({ data: mockResponse });
 
     const result = await uploadCaddyfilesMulti(files);
     expect(client.post).toHaveBeenCalledWith('/import/upload-multi', { files });
@@ -36,7 +39,7 @@ describe('import API', () => {
 
   it('getImportPreview gets preview', async () => {
     const mockResponse = { preview: { hosts: [] } };
-    (client.get as any).mockResolvedValue({ data: mockResponse });
+    mockedGet.mockResolvedValue({ data: mockResponse });
 
     const result = await getImportPreview();
     expect(client.get).toHaveBeenCalledWith('/import/preview');
@@ -49,7 +52,7 @@ describe('import API', () => {
     const names = { 'foo.com': 'My Site' };
     const mockResponse = { created: 1, updated: 0, skipped: 0, errors: [] };
 
-    (client.post as any).mockResolvedValue({ data: mockResponse });
+    mockedPost.mockResolvedValue({ data: mockResponse });
 
     const result = await commitImport(sessionUUID, resolutions, names);
     expect(client.post).toHaveBeenCalledWith('/import/commit', {
@@ -61,7 +64,7 @@ describe('import API', () => {
   });
 
   it('cancelImport posts cancel', async () => {
-    (client.post as any).mockResolvedValue({});
+    mockedPost.mockResolvedValue({});
 
     await cancelImport();
     expect(client.post).toHaveBeenCalledWith('/import/cancel');
@@ -69,7 +72,7 @@ describe('import API', () => {
 
   it('getImportStatus gets status', async () => {
     const mockResponse = { has_pending: true };
-    (client.get as any).mockResolvedValue({ data: mockResponse });
+    mockedGet.mockResolvedValue({ data: mockResponse });
 
     const result = await getImportStatus();
     expect(client.get).toHaveBeenCalledWith('/import/status');
@@ -77,7 +80,7 @@ describe('import API', () => {
   });
 
   it('getImportStatus handles error', async () => {
-    (client.get as any).mockRejectedValue(new Error('Failed'));
+    mockedGet.mockRejectedValue(new Error('Failed'));
 
     const result = await getImportStatus();
     expect(result).toEqual({ has_pending: false });

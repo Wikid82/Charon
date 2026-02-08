@@ -22,9 +22,10 @@ import { Page } from '@playwright/test';
 
 /**
  * Skip test if not running in WebKit
+ * REMOVED: Running all browser tests to identify true platform issues
  */
 function webkitOnly(browserName: string) {
-  test.skip(browserName !== 'webkit', 'WebKit-specific test - skipping in other browsers');
+  // Previously called test.skip() - now disabled for full test suite execution
 }
 
 /**
@@ -97,8 +98,6 @@ test.describe('Caddy Import - WebKit-Specific @webkit-only', () => {
    * Safari/WebKit may handle React event delegation differently
    */
   test('should have click handler attached to Parse button', async ({ page, adminUser, browserName }) => {
-    webkitOnly(browserName);
-
     await test.step('Navigate to import page', async () => {
       await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');
@@ -140,8 +139,6 @@ test.describe('Caddy Import - WebKit-Specific @webkit-only', () => {
    * WebKit's JavaScript engine (JavaScriptCore) may have different timing
    */
   test('should handle async state updates correctly', async ({ page, adminUser, browserName }) => {
-    webkitOnly(browserName);
-
     await test.step('Navigate to import page', async () => {
       await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');
@@ -189,8 +186,6 @@ test.describe('Caddy Import - WebKit-Specific @webkit-only', () => {
    * Safari may treat button clicks inside forms differently
    */
   test('should handle button click without form submission', async ({ page, adminUser, browserName }) => {
-    webkitOnly(browserName);
-
     await test.step('Navigate to import page', async () => {
       await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');
@@ -232,8 +227,6 @@ test.describe('Caddy Import - WebKit-Specific @webkit-only', () => {
    * WebKit's cookie/storage behavior may differ from Chromium
    */
   test('should maintain session state and send cookies', async ({ page, adminUser, browserName }) => {
-    webkitOnly(browserName);
-
     await test.step('Navigate to import page', async () => {
       await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');
@@ -274,8 +267,6 @@ test.describe('Caddy Import - WebKit-Specific @webkit-only', () => {
    * Safari may handle rapid state updates differently
    */
   test('should handle button state changes correctly', async ({ page, adminUser, browserName }) => {
-    webkitOnly(browserName);
-
     await test.step('Navigate to import page', async () => {
       await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');
@@ -321,8 +312,6 @@ test.describe('Caddy Import - WebKit-Specific @webkit-only', () => {
    * WebKit memory management may differ from Chromium/Firefox
    */
   test('should handle large Caddyfile upload without memory issues', async ({ page, adminUser, browserName }) => {
-    webkitOnly(browserName);
-
     await test.step('Navigate to import page', async () => {
       await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');

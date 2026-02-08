@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
@@ -157,16 +157,13 @@ describe('CrowdSecConfig', () => {
     await user.click(screen.getByTestId('ban-ip-trigger'))
 
     // Modal opens
-    await waitFor(() => screen.getByText('Ban IP Address'))
+    const dialog = await screen.findByRole('dialog', { name: 'Ban IP Address' })
 
     // Fill form
-    await user.type(screen.getByLabelText(/IP Address/i), '5.6.7.8')
-    await user.type(screen.getByPlaceholderText(/Reason for ban/i), 'manual ban')
+    await user.type(within(dialog).getByLabelText(/IP Address/i), '5.6.7.8')
+    await user.type(within(dialog).getByPlaceholderText(/Reason for ban/i), 'manual ban')
 
-    // Submit - Target the last button with name "Ban IP" (modal button)
-    const buttons = screen.getAllByRole('button', { name: 'Ban IP' })
-    const submitBtn = buttons[buttons.length - 1]
-    await user.click(submitBtn)
+    await user.click(within(dialog).getByRole('button', { name: 'Ban IP' }))
 
     await waitFor(() => {
         expect(crowdsecApi.banIP).toHaveBeenCalledWith('5.6.7.8', '24h', 'manual ban')

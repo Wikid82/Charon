@@ -1,5 +1,12 @@
 import { useAccessLists } from '../hooks/useAccessLists';
 import { ExternalLink } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/Select';
 
 interface AccessListSelectorProps {
   value: number | null;
@@ -13,25 +20,28 @@ export default function AccessListSelector({ value, onChange }: AccessListSelect
 
   return (
     <div>
-      <label htmlFor="access-list-select" className="block text-sm font-medium text-gray-300 mb-2">
+      <label className="block text-sm font-medium text-gray-300 mb-2">
         Access Control List
         <span className="text-gray-500 font-normal ml-2">(Optional)</span>
       </label>
-      <select
-        id="access-list-select"
-        value={value || 0}
-        onChange={(e) => onChange(parseInt(e.target.value) || null)}
-        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+      <Select
+        value={String(value || 0)}
+        onValueChange={(val) => onChange(parseInt(val) || null)}
       >
-        <option value={0}>No Access Control (Public)</option>
-        {accessLists
-          ?.filter((acl) => acl.enabled)
-          .map((acl) => (
-            <option key={acl.id} value={acl.id}>
-              {acl.name} ({acl.type.replace('_', ' ')})
-            </option>
-          ))}
-      </select>
+        <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Access Control List">
+          <SelectValue placeholder="Select an ACL" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="0">No Access Control (Public)</SelectItem>
+          {accessLists
+            ?.filter((acl) => acl.enabled)
+            .map((acl) => (
+              <SelectItem key={acl.id} value={String(acl.id)}>
+                {acl.name} ({acl.type.replace('_', ' ')})
+              </SelectItem>
+            ))}
+        </SelectContent>
+      </Select>
 
       {selectedACL && (
         <div className="mt-2 p-3 bg-gray-800 border border-gray-700 rounded-lg">

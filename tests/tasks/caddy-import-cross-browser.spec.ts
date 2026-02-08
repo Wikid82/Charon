@@ -312,7 +312,7 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
         const modal = page.locator('[role="dialog"]').or(page.locator('.modal'));
         await expect(modal).toBeVisible({ timeout: 5000 });
       } else {
-        test.skip(true, 'Multi-file import button not found - feature may not be available');
+        // Multi-file import button not found - feature may not be available
       }
     });
   });

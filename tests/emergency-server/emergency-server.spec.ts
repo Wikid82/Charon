@@ -64,7 +64,9 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
   test.beforeEach(async ({}, testInfo) => {
     const isHealthy = await ensureHealthChecked();
     if (!isHealthy) {
-      testInfo.skip(true, 'Emergency server not accessible from test environment');
+      console.log('⚠️ Emergency server not accessible from test environment - continuing test anyway');
+      // Changed from testInfo.skip() to allow test to run and identify root cause
+      // testInfo.skip(true, 'Emergency server not accessible from test environment');
     }
   });
 
@@ -155,7 +157,7 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
   // E2E tests hit port 8080 directly, bypassing Caddy security middleware.
   // This test requires full Caddy+Security integration environment.
   // See: docs/plans/e2e_failure_investigation.md
-  test.skip('Test 3: Emergency server bypasses main app security', async ({ request }) => {
+  test('Test 3: Emergency server bypasses main app security', async ({ request }) => {
     console.log('🧪 Testing emergency server security bypass...');
 
     const testData = new TestDataManager(request, 'emergency-server-bypass');
@@ -224,7 +226,7 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
     }
   });
 
-  test.skip('Test 4: Emergency server security reset works', async ({ request }) => {
+  test('Test 4: Emergency server security reset works', async ({ request }) => {
     // SKIP: Security module activation requires Caddy middleware integration.
     // E2E tests hit the Go backend directly (port 8080), bypassing Caddy.
     // The security modules appear enabled in settings but don't actually activate

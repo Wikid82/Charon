@@ -137,7 +137,7 @@ describe('Tabs', () => {
     const tab1 = screen.getByRole('tab', { name: 'Tab 1' })
     const tab2 = screen.getByRole('tab', { name: 'Tab 2' })
 
-    tab1.focus()
+    await user.click(tab1)
     expect(tab1).toHaveFocus()
 
     // Arrow right should move focus and activate tab2

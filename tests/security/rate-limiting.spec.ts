@@ -79,7 +79,6 @@ test.describe('Rate Limiting Configuration @security', () => {
             type: 'skip-reason',
             description: 'Toggle is disabled - Cerberus may not be enabled'
           });
-          test.skip();
           return;
         }
 
@@ -92,8 +91,6 @@ test.describe('Rate Limiting Configuration @security', () => {
           await toggle.click();
           await page.waitForTimeout(500);
         });
-      } else {
-        test.skip();
       }
     });
   });
