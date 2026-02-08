@@ -204,7 +204,7 @@ jobs:
             io.charon.feature.branch=${{ steps.branch-tags.outputs.feature_branch_tag }}
       # Phase 1 Optimization: Build once, test many
       # - For PRs: Single-platform (amd64) + immutable tags (pr-{number}-{short-sha})
-      # - For feature branches: Single-platform + sanitized tags ({branch}-{short-sha})
+      # - For feature branches: Multi-platform (amd64, arm64) + sanitized tags ({branch}-{short-sha})
       # - For main/dev: Multi-platform (amd64, arm64) for production
       # - Always push to registry (enables downstream workflow consumption)
       # - Retry logic handles transient registry failures (3 attempts, 10s wait)
@@ -223,7 +223,7 @@ jobs:
             set -euo pipefail
 
             echo "🔨 Building Docker image with retry logic..."
-            echo "Platform: ${{ (env.TRIGGER_EVENT == 'pull_request' || steps.skip.outputs.is_feature_push == 'true') && 'linux/amd64' || 'linux/amd64,linux/arm64' }}"
+            echo "Platform: ${{ env.TRIGGER_EVENT == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}"
 
             # Build tag arguments array from metadata output (properly quoted)
             TAG_ARGS_ARRAY=()
@@ -240,7 +240,7 @@ jobs:
             # Build the complete command as an array (handles spaces in label values correctly)
             BUILD_CMD=(
               docker buildx build
-              --platform "${{ (env.TRIGGER_EVENT == 'pull_request' || steps.skip.outputs.is_feature_push == 'true') && 'linux/amd64' || 'linux/amd64,linux/arm64' }}"
+              --platform "${{ env.TRIGGER_EVENT == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}"
               --push
               "${TAG_ARGS_ARRAY[@]}"
               "${LABEL_ARGS_ARRAY[@]}"
@@ -263,9 +263,10 @@ jobs:
             echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
             echo "✅ Build complete. Digest: ${DIGEST}"
 
-            # For PRs and feature branches, pull the image back locally for artifact creation
+            # For PRs only, pull the image back locally for artifact creation
+            # Feature branches now build multi-platform and cannot be loaded locally
             # This enables backward compatibility with workflows that use artifacts
-            if [[ "${{ env.TRIGGER_EVENT }}" == "pull_request" ]] || [[ "${{ steps.skip.outputs.is_feature_push }}" == "true" ]]; then
+            if [[ "${{ env.TRIGGER_EVENT }}" == "pull_request" ]]; then
               echo "📥 Pulling image back for artifact creation..."
               FIRST_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
               docker pull "${FIRST_TAG}"
@@ -288,7 +289,7 @@ jobs:
       # 2. Image doesn't exist locally after build
       # 3. Artifact creation fails
       - name: Save Docker Image as Artifact
-        if: success() && steps.skip.outputs.skip_build != 'true' && (env.TRIGGER_EVENT == 'pull_request' || steps.skip.outputs.is_feature_push == 'true')
+        if: success() && steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
         run: |
           # Extract the first tag from metadata action (PR tag)
           IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
@@ -319,7 +320,7 @@ jobs:
           ls -lh /tmp/charon-pr-image.tar
 
       - name: Upload Image Artifact
-        if: success() && steps.skip.outputs.skip_build != 'true' && (env.TRIGGER_EVENT == 'pull_request' || steps.skip.outputs.is_feature_push == 'true')
+        if: success() && steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ${{ env.TRIGGER_EVENT == 'pull_request' && format('pr-image-{0}', env.TRIGGER_PR_NUMBER) || 'push-image' }}
