@@ -1,254 +1,141 @@
-# QA Remediation Plan: Frontend Coverage, Type-Check, and Threshold Alignment
 
-**Objective**: Complete the QA remediation for frontend test coverage and TypeScript type-checking, while aligning local vs CI coverage thresholds and auditing coverage configuration hygiene.
-
-**Scope**: Frontend test suite, coverage thresholds, CI checks, and related config files.
-
-**Status (Feb 2026)**: Draft plan pending approval.
-
----
+# Plan: Conditional E2E Rebuild Rules + Navigation Test Continuation
 
 ## 1. Introduction
 
-This plan focuses on removing the friction points flagged in [docs/reports/qa_report.md](docs/reports/qa_report.md): a narrow frontend coverage gap, TypeScript test type errors, and inconsistent local vs CI coverage thresholds. The goal is to make the QA bar feel like a single, well-lit runway: every local run should match what CI expects, and coverage should be earned through tests that describe behavior, not through fragile exclusions.
+This plan updates E2E testing instructions so the Docker rebuild runs only when application code changes, explicitly skips rebuilds for test-only changes, and then continues navigation E2E testing using the existing task. The intent is to reduce unnecessary rebuild time while keeping the environment reliable and consistent.
 
----
+Objectives:
+
+- Define clear, repeatable criteria for when an E2E container rebuild is required vs optional.
+- Update instruction and agent documents to use the same conditional rebuild guidance.
+- Preserve current E2E execution behavior and task surface, then proceed with navigation testing.
 
 ## 2. Research Findings
 
-### 2.1. Coverage and Thresholds
-- Local/CI thresholds diverge in [frontend/vitest.config.ts](frontend/vitest.config.ts): `coverageThreshold` is 87.5 locally but 85 when `CI=true`.
-- The frontend coverage script [scripts/frontend-test-coverage.sh](scripts/frontend-test-coverage.sh) enforces `MIN_COVERAGE` with a default of 85 (from `CHARON_MIN_COVERAGE` or `CPM_MIN_COVERAGE`).
-- Codecov thresholds are currently permissive: [codecov.yml](codecov.yml) uses patch target 85 and project target auto + 1% threshold.
-- Coverage gaps cited in QA report: [frontend/src/api/client.ts](frontend/src/api/client.ts), [frontend/src/components/CrowdSecKeyWarning.tsx](frontend/src/components/CrowdSecKeyWarning.tsx), and [frontend/src/locales](frontend/src/locales).
+- The current testing protocol mandates rebuilding the E2E container before Playwright runs in [testing.instructions.md](.github/instructions/testing.instructions.md).
+- The Management and Playwright agent definitions require rebuilding the E2E container before each test run in [Management.agent.md](.github/agents/Management.agent.md) and [Playwright_Dev.agent.md](.github/agents/Playwright_Dev.agent.md).
+- QA Security also mandates rebuilds on every code change in [QA_Security.agent.md](.github/agents/QA_Security.agent.md).
+- The main E2E skill doc encourages rebuilds before testing in [test-e2e-playwright.SKILL.md](.github/skills/test-e2e-playwright.SKILL.md).
+- The rebuild skill itself is stable and already describes when it should be used in [docker-rebuild-e2e.SKILL.md](.github/skills/docker-rebuild-e2e.SKILL.md).
+- Navigation test tasks already exist in [tasks.json](.vscode/tasks.json), including “Test: E2E Playwright (FireFox) - Core: Navigation”.
+- CI E2E jobs rebuild via Docker image creation in [e2e-tests-split.yml](.github/workflows/e2e-tests-split.yml); no CI changes are required for this instruction-only update.
 
-### 2.2. Type-Check Failures (Tests)
-- `npm run type-check` uses `tsc --noEmit` with [frontend/tsconfig.json](frontend/tsconfig.json) including tests.
-- QA report lists errors in test mocks and unused imports. Likely candidates include:
-  - [frontend/src/components/__tests__/AccessListForm.test.tsx](frontend/src/components/__tests__/AccessListForm.test.tsx)
-  - [frontend/src/components/__tests__/DNSProviderForm.test.tsx](frontend/src/components/__tests__/DNSProviderForm.test.tsx)
-  - [frontend/src/pages/__tests__/CrowdSecConfig.test.tsx](frontend/src/pages/__tests__/CrowdSecConfig.test.tsx)
-  - Potentially other tests referenced by the type-check output.
+## 3. Technical Specifications
 
-### 2.3. API Types Driving Test Mocks
-- Access list types: [frontend/src/api/accessLists.ts](frontend/src/api/accessLists.ts).
-- DNS provider types: [frontend/src/api/dnsProviders.ts](frontend/src/api/dnsProviders.ts) and hooks in [frontend/src/hooks/useDNSProviders.ts](frontend/src/hooks/useDNSProviders.ts).
-- CrowdSec decisions: [frontend/src/api/crowdsec.ts](frontend/src/api/crowdsec.ts).
-- Proxy host types: [frontend/src/api/proxyHosts.ts](frontend/src/api/proxyHosts.ts).
+### 3.1 Rebuild Decision Rules
 
-### 2.4. CI Enforcement Points
-- Coverage run in CI: [scripts/frontend-test-coverage.sh](scripts/frontend-test-coverage.sh) called from [quality-checks.yml](.github/workflows/quality-checks.yml) and [codecov-upload.yml](.github/workflows/codecov-upload.yml).
-- Playwright coverage is optional and gated by `PLAYWRIGHT_COVERAGE` in [e2e-tests-split.yml](.github/workflows/e2e-tests-split.yml).
+Define explicit change categories to decide when to rebuild:
 
-### 2.5. Config Hygiene Review (Requested Files)
-- [codecov.yml](codecov.yml): patch threshold is 85; project threshold is auto + 1%.
-- [.gitignore](.gitignore): already ignores `playwright/.auth/` and `playwright-report/`.
-- [.dockerignore](.dockerignore): excludes Playwright and test artifacts.
-- [Dockerfile](Dockerfile): unrelated to coverage/type-check; no changes expected.
+- **Rebuild Required (application/runtime changes)**
+	- Application code or dependencies: backend/**, frontend/**, backend/go.mod, backend/go.sum, package.json, package-lock.json.
+	- Container build/runtime configuration: Dockerfile, .docker/**, .docker/compose/docker-compose.playwright-*.yml, .docker/docker-entrypoint.sh.
+	- Runtime behavior changes that affect container startup (e.g., config files baked into the image).
 
----
+- **Rebuild Optional (test-only changes)**
+	- Playwright tests and fixtures: tests/**.
+	- Playwright config and test runners: playwright.config.js, playwright.caddy-debug.config.js.
+	- Documentation or planning files: docs/**, requirements.md, design.md, tasks.md.
+	- CI/workflow changes that do not affect runtime images: .github/workflows/**.
 
-## 3. Requirements (EARS Notation)
+Decision guidance:
 
-- WHEN coverage is collected for frontend or backend tests, THE SYSTEM SHALL use the skill runner as the primary path and treat direct scripts as a legacy fallback only.
-- WHEN the frontend test suite runs locally, THE SYSTEM SHALL enforce the same coverage threshold logic as CI to avoid threshold drift.
-- WHEN TypeScript type-check runs against test files, THE SYSTEM SHALL report zero type errors and zero unused symbol violations.
-- WHEN coverage reports are generated, THE SYSTEM SHALL include meaningful tests for API client and UI warning paths instead of relying on exclusions.
-- WHEN Codecov evaluates patch coverage, THE SYSTEM SHALL require 100% patch coverage for modified lines.
-- WHEN Playwright artifacts are generated, THE SYSTEM SHALL prevent secrets (e.g., `playwright/.auth`) from being tracked or uploaded inadvertently.
-- WHEN any test or coverage run is executed, THE SYSTEM SHALL execute E2E tests first to validate UI/UX stability before unit or integration tests.
+- If only test files or documentation change, reuse the existing E2E container if it is already healthy.
+- If the container is not running, start it with docker-rebuild-e2e even for test-only changes.
+- If there is uncertainty about whether a change affects the runtime image, default to rebuilding.
 
----
+### 3.2 Instruction Targets and Proposed Wording
 
-## 4. Technical Specifications
+Update the following instruction and agent files to align with the conditional rebuild policy:
 
-### 4.1. Frontend Coverage Targets
+- [testing.instructions.md](.github/instructions/testing.instructions.md)
+	- Replace the current “Always rebuild the E2E container before running Playwright tests” statement with:
+		- “Rebuild the E2E container when application or Docker build inputs change (backend, frontend, dependencies, Dockerfile, .docker/compose). If changes are test-only, reuse the existing container when it is already healthy; rebuild only if the container is not running or state is suspect.”
+	- Add a short file-scope checklist defining “rebuild required” vs “test-only.”
 
-**Target**: Restore frontend statements coverage to >= 87.5% (or align both local and CI to a single value, based on decision below).
+- [Management.agent.md](.github/agents/Management.agent.md)
+	- Update the “PREREQUISITE: Rebuild E2E container before each test run” bullet to:
+		- “PREREQUISITE: Rebuild the E2E container only when application or Docker build inputs change; skip rebuild for test-only changes if the container is already healthy.”
 
-**Key files to cover**:
-- [frontend/src/api/client.ts](frontend/src/api/client.ts)
-  - Functions: `setAuthToken`, `setAuthErrorHandler`, and Axios response interceptor behavior.
-- [frontend/src/components/CrowdSecKeyWarning.tsx](frontend/src/components/CrowdSecKeyWarning.tsx)
-  - Behaviors: dismiss logic (localStorage), copy action, show/hide key, and banner gating.
-- [frontend/src/locales](frontend/src/locales)
-  - Decide whether to exclude translation JSON files from coverage or add a small locale health test.
+- [Playwright_Dev.agent.md](.github/agents/Playwright_Dev.agent.md)
+	- Update “ALWAYS rebuild the E2E container before running tests” to:
+		- “Rebuild the E2E container when application or Docker build inputs change. For test-only changes, reuse the running container if healthy; rebuild only when the container is not running or state is suspect.”
 
-### 4.2. Type-Check Corrections
+- [QA_Security.agent.md](.github/agents/QA_Security.agent.md)
+	- Update workflow step 1 to:
+		- “Rebuild the E2E image and container when application or Docker build inputs change. Skip rebuild for test-only changes if the container is already healthy.”
 
-**Goal**: Align test mocks to current domain types and remove unused imports.
+- [test-e2e-playwright.SKILL.md](.github/skills/test-e2e-playwright.SKILL.md)
+	- Adjust “Quick Start” language to:
+		- “Run docker-rebuild-e2e when application or Docker build inputs change. If only tests changed and the container is already healthy, skip rebuild and run the tests.”
 
-**Primary target files**:
-- [frontend/src/components/__tests__/AccessListForm.test.tsx](frontend/src/components/__tests__/AccessListForm.test.tsx)
-  - Ensure `initialData` matches `AccessList` fields; add missing fields if type errors persist.
-- [frontend/src/components/__tests__/DNSProviderForm.test.tsx](frontend/src/components/__tests__/DNSProviderForm.test.tsx)
-  - Confirm mock provider uses the exact `DNSProvider` shape (remove extra fields or extend type if backend returns them).
-- [frontend/src/pages/__tests__/CrowdSecConfig.test.tsx](frontend/src/pages/__tests__/CrowdSecConfig.test.tsx)
-  - Confirm `CrowdSecDecision.id` is a string per [frontend/src/api/crowdsec.ts](frontend/src/api/crowdsec.ts).
+- Optional alignment (if desired for consistency):
+	- [test-e2e-playwright-debug.SKILL.md](.github/skills/test-e2e-playwright-debug.SKILL.md)
+	- [test-e2e-playwright-coverage.SKILL.md](.github/skills/test-e2e-playwright-coverage.SKILL.md)
+	- Update prerequisite language in the same conditional format when referencing docker-rebuild-e2e.
 
-### 4.3. Threshold Alignment Strategy
+### 3.3 Data Flow and Component Impact
 
-**Decision needed**: unify local and CI thresholds.
+- No API, database, or runtime component changes are introduced.
+- The change is documentation-only: it modifies decision guidance for when to rebuild the E2E container.
+- The E2E execution flow remains: optionally rebuild → run navigation test task → review Playwright report.
 
-Options:
-1. **Single Threshold Everywhere (Recommended)**
-    - Use one value (e.g., 87.5) via env-driven config.
-    - Update [frontend/vitest.config.ts](frontend/vitest.config.ts) to read from `CHARON_MIN_COVERAGE` or a new `VITE_COVERAGE_THRESHOLD`.
-    - Update [scripts/frontend-test-coverage.sh](scripts/frontend-test-coverage.sh) to default to the same value.
-2. **Explicit Local/CI Split (Documented)**
-    - Keep 87.5 local, 85 CI, but document it clearly and reflect it in QA expectations.
-    - Add a README or QA policy note to avoid confusion.
+### 3.4 Error Handling and Edge Cases
 
-### 4.4. Codecov Configuration Alignment
+- If the container is running but tests fail due to stale state, rebuild with docker-rebuild-e2e and re-run the navigation test.
+- If only tests changed but the container is stopped, rebuild to create a known-good environment.
+- If Dockerfile or .docker/compose changes occurred, rebuild is required even if tests are the only edited files in the last commit.
 
-- Set patch target in [codecov.yml](codecov.yml) to 100% and treat it as mandatory for every PR.
-- Maintain project thresholds consistent with the chosen coverage target.
+## 4. Implementation Plan
 
-### 4.5. Coverage Execution Priority
+### Phase 1: Instruction Updates (Documentation-only)
 
-- Primary: use the skill runner for coverage collection (Playwright coverage and test coverage scripts).
-- Legacy fallback: allow direct script invocation only when the skill runner cannot be used; record the reason.
+- Update conditional rebuild guidance in the instruction files listed in section 3.2.
+- Ensure the rebuild decision criteria are consistent and use the same file-scope examples across documents.
 
-### 4.6. Locale Coverage Consistency
+### Phase 2: Supporting Artifacts
 
-Decision required: keep locale coverage consistent with Codecov by explicitly excluding locale resources.
+- Update requirements.md with EARS requirements for conditional rebuild behavior.
+- Update design.md to document the decision rules and file-scope criteria.
+- Update tasks.md with a checklist that explicitly separates rebuild-required vs test-only scenarios.
 
-Options:
-1. **Exclude locale resources (Recommended)**
-  - Add `frontend/src/locales/**` to coverage exclude in [frontend/vitest.config.ts](frontend/vitest.config.ts).
-  - Add a matching Codecov ignore entry for `frontend/src/locales/**` to keep reports consistent.
-2. **Test locale resources**
-  - Add a small health test that imports locale JSON and validates required keys.
-  - Keep Codecov ignore list unchanged.
+### Phase 3: Navigation Test Continuation
 
-### 4.5. Config Hygiene Review
+- Determine change scope:
+	- If application/runtime files changed, run the Docker rebuild step first.
+	- If only tests or docs changed and the E2E container is already healthy, skip rebuild.
+- Run the existing navigation task: “Test: E2E Playwright (FireFox) - Core: Navigation” from [tasks.json](.vscode/tasks.json).
+- If the navigation test fails due to environment issues, rebuild and re-run.
 
-- [.gitignore](.gitignore): verify `playwright/.auth/` is present (it is) and keep it.
-- [.dockerignore](.dockerignore): no updates required; Playwright and test outputs are excluded.
-- [Dockerfile](Dockerfile): no updates required for this QA-focused task.
+## 5. Acceptance Criteria
 
----
+- Instruction and agent files reflect the same conditional rebuild policy.
+- Rebuild-required vs test-only criteria are explicitly defined with file path examples.
+- Navigation tests can be run without a rebuild when only tests change and the container is healthy.
+- The navigation test task remains unchanged and is used for validation.
+- requirements.md, design.md, and tasks.md are updated to reflect the new rebuild rules.
 
-## 5. Implementation Plan
+## 6. Testing Steps
 
-### Phase 1: QA Baseline and Threshold Decision (Least Requests)
+- If application/runtime files changed, run the E2E rebuild using docker-rebuild-e2e before testing.
+- If only tests changed and the container is healthy, skip rebuild.
+- Run the navigation test task: “Test: E2E Playwright (FireFox) - Core: Navigation”.
+- Review Playwright report and logs if failures occur; rebuild and re-run if the failure is environment-related.
 
-1. **Run baseline type-check**
-    - Execute `npm run type-check` in [frontend/package.json](frontend/package.json) to capture actual errors.
-    - Record exact failing files and error messages; use these as the source of truth (not the report).
+## 7. Config Hygiene Review (Requested Files)
 
-2. **Capture current coverage totals**
-    - Run `npm run test:coverage` to confirm statement totals and verify failing files.
-    - Cross-check with [scripts/frontend-test-coverage.sh](scripts/frontend-test-coverage.sh) output.
+- .gitignore: No change required for this instruction update.
+- codecov.yml: No change required; E2E outputs are already ignored.
+- .dockerignore: No change required; tests/ and Playwright artifacts remain excluded from image build context.
+- Dockerfile: No change required.
 
-3. **Decide coverage alignment approach**
-    - Choose between “single threshold everywhere” vs “documented split.”
-    - Record decision in this plan and align tooling accordingly.
+## 8. Risks and Mitigations
 
-4. **Confirm E2E-first execution**
-  - Use the skill runner for E2E coverage and validate the required E2E-first order.
-  - Capture rationale: UI/UX breakage invalidates downstream unit coverage signals.
+- Risk: Tests may run against stale containers when changes are misclassified as test-only. Mitigation: Provide explicit file-scope criteria and default to rebuild when unsure.
+- Risk: Contributors interpret “test-only” too narrowly. Mitigation: include dependency files and Docker build inputs in rebuild-required list.
 
-### Phase 2: Type-Check Fixes (Test Mocks and Imports)
+## 9. Confidence Score
 
-1. **Repair mocks against current types**
-    - Update test mocks to match [frontend/src/api/accessLists.ts](frontend/src/api/accessLists.ts), [frontend/src/api/dnsProviders.ts](frontend/src/api/dnsProviders.ts), and [frontend/src/api/crowdsec.ts](frontend/src/api/crowdsec.ts).
-    - If backend payloads include fields missing from frontend types (e.g., `use_multi_credentials`, `credential_count`), decide whether to extend the frontend types or remove those fields from test mocks.
+Confidence: 88 percent
 
-2. **Remove unused symbols**
-    - Remove unused imports and variables flagged by `tsc` (e.g., `fireEvent`, `within`, or unused mocks).
-
-3. **Confirm clean type-check**
-    - Re-run `npm run type-check` until zero errors remain.
-
-### Phase 3: Coverage Restoration and Threshold Alignment
-
-**PIVOT: Focus on Form Component Branch Coverage (High ROI)**
-
-Current branch coverage is **79.89%**, requiring **+7.61 percentage points** to reach **87.5%** threshold. Form components have the lowest branch coverage and represent the highest ROI for closing this gap.
-
-1. **Expand AccessListForm.tsx coverage** (`frontend/src/components/__tests__/AccessListForm.test.tsx`)
-    - Current branch coverage: 76.28%
-    - Add tests for:
-      - Form submission with invalid data (validation error paths).
-      - Conditional rendering of optional fields (role selection, description toggles).
-      - Error state handling and recovery.
-      - Edit vs create modes (branching logic).
-
-2. **Expand CredentialManager.tsx coverage** (`frontend/src/components/__tests__/CredentialManager.test.tsx`)
-    - Current branch coverage: 64.04% (lowest)
-    - Add tests for:
-      - Credential selection/deselection logic (branching).
-      - Add/edit/delete credential modal flows.
-      - Form field validation conditional branches.
-      - Error state rendering and user feedback paths.
-
-3. **Expand FileUploadSection.tsx coverage** (`frontend/src/components/__tests__/FileUploadSection.test.tsx`)
-    - Current branch coverage: 70.58%
-    - Add tests for:
-      - File type validation branches (accept/reject logic).
-      - Drag-and-drop vs click upload paths.
-      - Error handling (file too large, unsupported type).
-      - Progress and completion state branches.
-
-4. **Expand ProxyHostForm.tsx coverage** (`frontend/src/components/__tests__/ProxyHostForm.test.tsx`)
-    - Current branch coverage: 74.84%
-    - Add tests for:
-      - Conditional field rendering based on proxy type selection.
-      - Form submission with various configurations.
-      - Validation error paths (required fields, format validation).
-      - Edit vs create mode branching.
-
-5. **Address locale coverage**
-    - Decide on exclusion vs minimal test:
-      - **Exclude**: add `src/locales/**` to `coverage.exclude` in [frontend/vitest.config.ts](frontend/vitest.config.ts).
-      - **Test**: add a small test that imports and validates the locale JSON structure.
-    - If exclusion is chosen, add a matching ignore entry to [codecov.yml](codecov.yml) to keep local and Codecov coverage aligned.
-
-6. **Align thresholds**
-    - Update [frontend/vitest.config.ts](frontend/vitest.config.ts) and [scripts/frontend-test-coverage.sh](scripts/frontend-test-coverage.sh) per the decision in Phase 1.
-    - Ensure [codecov.yml](codecov.yml) enforces 100% patch coverage.
-
-7. **Coverage execution path**
-    - Use the coverage skill runner as the default path for E2E coverage and document the legacy fallback.
-
-### Phase 4: Integration and Verification
-
-1. **Run coverage + type-check**
-    - `npm run test:coverage`
-    - `npm run type-check`
-
-2. **CI parity check**
-    - Validate that [quality-checks.yml](.github/workflows/quality-checks.yml) and [codecov-upload.yml](.github/workflows/codecov-upload.yml) reflect the same coverage threshold logic.
-
-3. **Document outcome in QA report**
-    - Update [docs/reports/qa_report.md](docs/reports/qa_report.md) with new status and metrics after verification.
-
----
-
-## 6. Acceptance Criteria
-
-- **Branch coverage** reaches 87.5%+ (up from current 79.89%) through form component test expansion.
-- **Overall frontend coverage** meets or exceeds 87.5% threshold across all metrics.
-- Form components (AccessListForm, CredentialManager, FileUploadSection, ProxyHostForm) achieve branch coverage reflective of test expansion scope.
-- `npm run type-check` completes with zero errors and zero unused symbol violations.
-- Codecov patch coverage policy is mandatory at 100% for modified lines.
-- QA report reflects the new status and explicitly notes any intentionally excluded paths (locales).
-- E2E tests run first and pass before unit/integration coverage is collected.
-
----
-
-## 7. Risks and Mitigations
-
-- **Risk**: Branch coverage tests require deep understanding of form validation and state management logic.
-  - **Mitigation**: Analyze existing form test patterns and prioritize high-branch-count first (CredentialManager at 64% will yield largest gains).
-- **Risk**: Raising patch coverage in Codecov could fail legacy PRs.
-  - **Mitigation**: Gate the change to the remediation branch and notify reviewers in PR summary.
-
----
-
-## 8. Confidence Score
-
-**Confidence: 85%**
-
-Rationale: The form components are known, their branch coverage gaps are quantified (79.89% → 87.5%+), and branch coverage is directly testable through input validation paths, conditional rendering, and error state handling. The scope is well-defined and high-ROI.
+Rationale: This is a documentation-only change with no runtime or CI impact, but it relies on consistent interpretation of file-scope criteria.
