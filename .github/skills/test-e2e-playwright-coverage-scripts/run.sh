@@ -26,7 +26,7 @@ source "${SKILLS_SCRIPTS_DIR}/_environment_helpers.sh"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 # Default parameter values
-PROJECT="chromium"
+PROJECT="firefox"
 VITE_PID=""
 VITE_PORT="${VITE_PORT:-5173}"  # Default Vite port (avoids conflicts with common ports)
 BACKEND_URL="http://localhost:8080"
@@ -52,7 +52,7 @@ parse_arguments() {
                 shift
                 ;;
             --project)
-                PROJECT="${2:-chromium}"
+                PROJECT="${2:-firefox}"
                 shift 2
                 ;;
             --skip-vite)
@@ -84,7 +84,7 @@ API calls to the Docker backend at localhost:8080.
 
 Options:
     --project=PROJECT   Browser project to run (chromium, firefox, webkit)
-                        Default: chromium
+                        Default: firefox
     --skip-vite         Skip starting Vite dev server (use existing server)
     -h, --help          Show this help message
 

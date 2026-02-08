@@ -77,6 +77,7 @@ export default function Certificates() {
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4 py-4">
             <Input
+              id="certificate-name"
               label={t('certificates.friendlyName')}
               value={name}
               onChange={(e) => setName(e.target.value)}

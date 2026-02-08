@@ -2,7 +2,7 @@
 # agentskills.io specification v1.0
 name: "integration-test-all"
 version: "1.0.0"
-description: "Run all integration tests including WAF, CrowdSec, Cerberus, and rate limiting"
+description: "Run the canonical integration tests aligned with CI workflows, covering Cerberus, Coraza WAF, CrowdSec bouncer/decisions/startup, and rate limiting. Use when you need local parity with CI integration runs."
 author: "Charon Project"
 license: "MIT"
 tags:
@@ -56,7 +56,7 @@ metadata:
 
 ## Overview
 
-Executes the complete integration test suite for the Charon project. This skill runs all integration tests including WAF functionality (Coraza), CrowdSec bouncer integration, Cerberus backend protection, and rate limiting. It validates the entire security stack in a containerized environment.
+Executes the integration test suite for the Charon project aligned with CI workflows. This skill runs Cerberus full-stack, Coraza WAF, CrowdSec bouncer/decisions/startup, and rate limiting integration tests. It validates the core security stack in a containerized environment.
 
 This is the comprehensive test suite that ensures all components work together correctly before deployment.
 
@@ -127,10 +127,11 @@ For use in GitHub Actions workflows:
 Example output:
 ```
 === Running Integration Test Suite ===
+✓ Cerberus Integration Tests
 ✓ Coraza WAF Integration Tests
 ✓ CrowdSec Bouncer Integration Tests
-✓ CrowdSec Decision API Tests
-✓ Cerberus Authentication Tests
+✓ CrowdSec Decision Tests
+✓ CrowdSec Startup Tests
 ✓ Rate Limiting Tests
 
 All integration tests passed!
@@ -167,11 +168,12 @@ DOCKER_BUILDKIT=1 .github/skills/scripts/skill-runner.sh integration-test-all
 
 This skill executes the following test suites:
 
-1. **Coraza WAF Tests**: SQL injection, XSS, path traversal detection
-2. **CrowdSec Bouncer Tests**: IP blocking, decision synchronization
-3. **CrowdSec Decision Tests**: Decision creation, removal, persistence
-4. **Cerberus Tests**: Authentication, authorization, token management
-5. **Rate Limit Tests**: Request throttling, burst handling
+1. **Cerberus Tests**: WAF + rate limit + handler order checks
+2. **Coraza WAF Tests**: SQL injection, XSS, path traversal detection
+3. **CrowdSec Bouncer Tests**: IP blocking, decision synchronization
+4. **CrowdSec Decision Tests**: Decision API lifecycle
+5. **CrowdSec Startup Tests**: LAPI and bouncer startup validation
+6. **Rate Limit Tests**: Request throttling, burst handling
 
 ## Error Handling
 
@@ -197,11 +199,12 @@ This skill executes the following test suites:
 
 ## Related Skills
 
+- [integration-test-cerberus](./integration-test-cerberus.SKILL.md) - Cerberus full stack tests
 - [integration-test-coraza](./integration-test-coraza.SKILL.md) - Coraza WAF tests only
 - [integration-test-crowdsec](./integration-test-crowdsec.SKILL.md) - CrowdSec tests only
 - [integration-test-crowdsec-decisions](./integration-test-crowdsec-decisions.SKILL.md) - Decision API tests
 - [integration-test-crowdsec-startup](./integration-test-crowdsec-startup.SKILL.md) - Startup tests
-- [docker-verify-crowdsec-config](./docker-verify-crowdsec-config.SKILL.md) - Config validation
+- [integration-test-rate-limit](./integration-test-rate-limit.SKILL.md) - Rate limit tests
 
 ## Notes
 
@@ -215,6 +218,6 @@ This skill executes the following test suites:
 
 ---
 
-**Last Updated**: 2025-12-20
+**Last Updated**: 2026-02-07
 **Maintained by**: Charon Project Team
-**Source**: `scripts/integration-test.sh`
+**Source**: `scripts/integration-test-all.sh`

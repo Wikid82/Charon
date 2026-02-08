@@ -39,22 +39,34 @@ async function configureAdminWhitelist(requestContext: APIRequestContext) {
   // Configure whitelist to allow test runner IPs (localhost, Docker networks)
   const testWhitelist = '127.0.0.1/32,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8';
 
-  const response = await requestContext.patch(
-    `${process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080'}/api/v1/config`,
-    {
-      data: {
-        security: {
-          admin_whitelist: testWhitelist,
-        },
-      },
-    }
-  );
+  const maxRetries = 5;
+  const retryDelayMs = 1000;
 
-  if (!response.ok()) {
-    throw new Error(`Failed to configure admin whitelist: ${response.status()}`);
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    const response = await requestContext.patch(
+      `${process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080'}/api/v1/config`,
+      {
+        data: {
+          security: {
+            admin_whitelist: testWhitelist,
+          },
+        },
+      }
+    );
+
+    if (response.ok()) {
+      console.log('✅ Admin whitelist configured for test IP ranges');
+      return;
+    }
+
+    if (response.status() !== 429 || attempt === maxRetries) {
+      throw new Error(`Failed to configure admin whitelist: ${response.status()}`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
   }
 
-  console.log('✅ Admin whitelist configured for test IP ranges');
+  throw new Error('Failed to configure admin whitelist after retries');
 }
 
 test.describe('WAF Enforcement', () => {
@@ -63,7 +75,7 @@ test.describe('WAF Enforcement', () => {
 
   test.beforeAll(async () => {
     requestContext = await request.newContext({
-      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080',
+      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080',
       storageState: STORAGE_STATE,
     });
 
@@ -131,7 +143,7 @@ test.describe('WAF Enforcement', () => {
   });
 
   test('should verify WAF is enabled', async () => {
-    test.skip(true, 'WAF enforcement verified in integration tests (backend/integration/coraza_integration_test.go). E2E tests UI only.');
+    // WAF enforcement verified in integration tests (backend/integration/coraza_integration_test.go). E2E tests UI only.
 
     // Use polling pattern to wait for WAF status propagation
     let status = await getSecurityStatus(requestContext);
@@ -157,12 +169,12 @@ test.describe('WAF Enforcement', () => {
     expect(typeof status.waf.enabled).toBe('boolean');
   });
 
-  test.skip('should detect SQL injection patterns in request validation', async () => {
+  test('should detect SQL injection patterns in request validation', async () => {
     // SKIP: WAF blocking enforced via Coraza middleware (port 80).
     // See: backend/integration/coraza_integration_test.go
   });
 
-  test.skip('should document XSS blocking behavior', async () => {
+  test('should document XSS blocking behavior', async () => {
     // SKIP: XSS blocking enforced via Coraza middleware (port 80).
     // See: backend/integration/coraza_integration_test.go
   });

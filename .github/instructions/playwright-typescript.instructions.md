@@ -70,7 +70,7 @@ test.describe('Movie Search Feature', () => {
 
 ## Test Execution Strategy
 
-1. **Initial Run**: Execute tests with `npx playwright test --project=chromium`
+1. **Initial Run**: Execute tests with `cd /projects/Charon npx playwright test --project=firefox`
 2. **Debug Failures**: Analyze test failures and identify root causes
 3. **Iterate**: Refine locators, assertions, or test logic as needed
 4. **Validate**: Ensure tests pass consistently and cover the intended functionality

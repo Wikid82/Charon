@@ -25,14 +25,13 @@ import {
 import {
   letsEncryptCertificate,
   customCertificateMock,
-  selfSignedTestCert,
   expiredCertificate,
   expiringCertificate,
   invalidCertificates,
   generateCertificate,
   type CertificateConfig,
 } from '../fixtures/certificates';
-import { generateUniqueId, generateDomain } from '../fixtures/test-data';
+import { generateUniqueId } from '../fixtures/test-data';
 
 test.describe('SSL Certificates - CRUD Operations', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -455,62 +454,76 @@ test.describe('SSL Certificates - CRUD Operations', () => {
   });
 
   test.describe('Certificate Details', () => {
+    const findDataRow = async (page: import('@playwright/test').Page) => {
+      const rows = page.locator('tbody tr');
+      const rowCount = await rows.count();
+
+      for (let i = 0; i < rowCount; i += 1) {
+        const row = rows.nth(i);
+        const cellCount = await row.locator('td').count();
+        if (cellCount >= 4) {
+          return row;
+        }
+      }
+
+      return null;
+    };
+
+    const getDataRowOrEmpty = async (page: import('@playwright/test').Page) => {
+      const emptyState = page.getByText(/no.*certificates.*found/i);
+      if (await emptyState.isVisible().catch(() => false)) {
+        return null;
+      }
+      return findDataRow(page);
+    };
+
     test('should display certificate domain in table', async ({ page }) => {
       await test.step('Check for domain column', async () => {
-        const table = page.getByRole('table');
-        const hasTable = await table.isVisible().catch(() => false);
+        const firstRow = await getDataRowOrEmpty(page);
 
-        if (hasTable) {
-          const rows = page.locator('tbody tr');
-          const rowCount = await rows.count();
-
-          if (rowCount > 0) {
-            // Domain should be visible in the row
-            const firstRow = rows.first();
-            const domainCell = firstRow.locator('td').nth(1); // Domain is second column
-            await expect(domainCell).toBeVisible();
-          }
+        if (!firstRow) {
+          const emptyState = page.getByText(/no.*certificates.*found/i);
+          await expect(emptyState).toBeVisible();
+          return;
         }
+
+        // Domain should be visible in the row
+        const domainCell = firstRow.locator('td').nth(1); // Domain is second column
+        await expect(domainCell).toBeVisible();
       });
     });
 
     test('should display certificate issuer', async ({ page }) => {
       await test.step('Check for issuer column', async () => {
-        const table = page.getByRole('table');
-        const hasTable = await table.isVisible().catch(() => false);
+        const firstRow = await getDataRowOrEmpty(page);
 
-        if (hasTable) {
-          const rows = page.locator('tbody tr');
-          const rowCount = await rows.count();
-
-          if (rowCount > 0) {
-            const firstRow = rows.first();
-            const issuerCell = firstRow.locator('td').nth(2); // Issuer is third column
-            await expect(issuerCell).toBeVisible();
-          }
+        if (!firstRow) {
+          const emptyState = page.getByText(/no.*certificates.*found/i);
+          await expect(emptyState).toBeVisible();
+          return;
         }
+
+        const issuerCell = firstRow.locator('td').nth(2); // Issuer is third column
+        await expect(issuerCell).toBeVisible();
       });
     });
 
     test('should display expiry date', async ({ page }) => {
       await test.step('Check for expiry column', async () => {
-        const table = page.getByRole('table');
-        const hasTable = await table.isVisible().catch(() => false);
+        const firstRow = await getDataRowOrEmpty(page);
 
-        if (hasTable) {
-          const rows = page.locator('tbody tr');
-          const rowCount = await rows.count();
-
-          if (rowCount > 0) {
-            const firstRow = rows.first();
-            const expiryCell = firstRow.locator('td').nth(3); // Expires is fourth column
-            await expect(expiryCell).toBeVisible();
-
-            // Should contain a date format
-            const expiryText = await expiryCell.textContent();
-            expect(expiryText).toBeTruthy();
-          }
+        if (!firstRow) {
+          const emptyState = page.getByText(/no.*certificates.*found/i);
+          await expect(emptyState).toBeVisible();
+          return;
         }
+
+        const expiryCell = firstRow.locator('td').nth(3); // Expires is fourth column
+        await expect(expiryCell).toBeVisible();
+
+        // Should contain a date format
+        const expiryText = await expiryCell.textContent();
+        expect(expiryText).toBeTruthy();
       });
     });
 

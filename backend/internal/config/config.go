@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -29,14 +30,17 @@ type Config struct {
 
 // SecurityConfig holds configuration for optional security services.
 type SecurityConfig struct {
-	CrowdSecMode      string
-	CrowdSecAPIURL    string
-	CrowdSecAPIKey    string
-	CrowdSecConfigDir string
-	WAFMode           string
-	RateLimitMode     string
-	ACLMode           string
-	CerberusEnabled   bool
+	CrowdSecMode       string
+	CrowdSecAPIURL     string
+	CrowdSecAPIKey     string
+	CrowdSecConfigDir  string
+	WAFMode            string
+	RateLimitMode      string
+	RateLimitRequests  int
+	RateLimitWindowSec int
+	RateLimitBurst     int
+	ACLMode            string
+	CerberusEnabled    bool
 	// ManagementCIDRs defines IP ranges allowed to use emergency break glass token
 	// Default: RFC1918 private networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8)
 	ManagementCIDRs []string
@@ -110,14 +114,17 @@ func Load() (Config, error) {
 // loadSecurityConfig loads the security configuration with proper parsing of array fields
 func loadSecurityConfig() SecurityConfig {
 	cfg := SecurityConfig{
-		CrowdSecMode:      getEnvAny("disabled", "CERBERUS_SECURITY_CROWDSEC_MODE", "CHARON_SECURITY_CROWDSEC_MODE", "CPM_SECURITY_CROWDSEC_MODE"),
-		CrowdSecAPIURL:    getEnvAny("", "CERBERUS_SECURITY_CROWDSEC_API_URL", "CHARON_SECURITY_CROWDSEC_API_URL", "CPM_SECURITY_CROWDSEC_API_URL"),
-		CrowdSecAPIKey:    getEnvAny("", "CERBERUS_SECURITY_CROWDSEC_API_KEY", "CHARON_SECURITY_CROWDSEC_API_KEY", "CPM_SECURITY_CROWDSEC_API_KEY"),
-		CrowdSecConfigDir: getEnvAny(filepath.Join("data", "crowdsec"), "CHARON_CROWDSEC_CONFIG_DIR", "CPM_CROWDSEC_CONFIG_DIR"),
-		WAFMode:           getEnvAny("disabled", "CERBERUS_SECURITY_WAF_MODE", "CHARON_SECURITY_WAF_MODE", "CPM_SECURITY_WAF_MODE"),
-		RateLimitMode:     getEnvAny("disabled", "CERBERUS_SECURITY_RATELIMIT_MODE", "CHARON_SECURITY_RATELIMIT_MODE", "CPM_SECURITY_RATELIMIT_MODE"),
-		ACLMode:           getEnvAny("disabled", "CERBERUS_SECURITY_ACL_MODE", "CHARON_SECURITY_ACL_MODE", "CPM_SECURITY_ACL_MODE"),
-		CerberusEnabled:   getEnvAny("true", "CERBERUS_SECURITY_CERBERUS_ENABLED", "CHARON_SECURITY_CERBERUS_ENABLED", "CPM_SECURITY_CERBERUS_ENABLED") != "false",
+		CrowdSecMode:       getEnvAny("disabled", "CERBERUS_SECURITY_CROWDSEC_MODE", "CHARON_SECURITY_CROWDSEC_MODE", "CPM_SECURITY_CROWDSEC_MODE"),
+		CrowdSecAPIURL:     getEnvAny("", "CERBERUS_SECURITY_CROWDSEC_API_URL", "CHARON_SECURITY_CROWDSEC_API_URL", "CPM_SECURITY_CROWDSEC_API_URL"),
+		CrowdSecAPIKey:     getEnvAny("", "CERBERUS_SECURITY_CROWDSEC_API_KEY", "CHARON_SECURITY_CROWDSEC_API_KEY", "CPM_SECURITY_CROWDSEC_API_KEY"),
+		CrowdSecConfigDir:  getEnvAny(filepath.Join("data", "crowdsec"), "CHARON_CROWDSEC_CONFIG_DIR", "CPM_CROWDSEC_CONFIG_DIR"),
+		WAFMode:            getEnvAny("disabled", "CERBERUS_SECURITY_WAF_MODE", "CHARON_SECURITY_WAF_MODE", "CPM_SECURITY_WAF_MODE"),
+		RateLimitMode:      getEnvAny("disabled", "CERBERUS_SECURITY_RATELIMIT_MODE", "CHARON_SECURITY_RATELIMIT_MODE", "CPM_SECURITY_RATELIMIT_MODE"),
+		RateLimitRequests:  getEnvIntAny(100, "CERBERUS_SECURITY_RATELIMIT_REQUESTS", "CHARON_SECURITY_RATELIMIT_REQUESTS"),
+		RateLimitWindowSec: getEnvIntAny(60, "CERBERUS_SECURITY_RATELIMIT_WINDOW", "CHARON_SECURITY_RATELIMIT_WINDOW"),
+		RateLimitBurst:     getEnvIntAny(20, "CERBERUS_SECURITY_RATELIMIT_BURST", "CHARON_SECURITY_RATELIMIT_BURST"),
+		ACLMode:            getEnvAny("disabled", "CERBERUS_SECURITY_ACL_MODE", "CHARON_SECURITY_ACL_MODE", "CPM_SECURITY_ACL_MODE"),
+		CerberusEnabled:    getEnvAny("true", "CERBERUS_SECURITY_CERBERUS_ENABLED", "CHARON_SECURITY_CERBERUS_ENABLED", "CPM_SECURITY_CERBERUS_ENABLED") != "false",
 	}
 
 	// Parse management CIDRs (comma-separated list)
@@ -170,6 +177,19 @@ func getEnvAny(fallback string, keys ...string) string {
 		if val := os.Getenv(key); val != "" {
 			return val
 		}
+	}
+	return fallback
+}
+
+// getEnvIntAny checks a list of environment variable names, attempts to parse as int.
+// Returns first successfully parsed value. Returns fallback if none found or parsing failed.
+func getEnvIntAny(fallback int, keys ...string) int {
+	valStr := getEnvAny("", keys...)
+	if valStr == "" {
+		return fallback
+	}
+	if val, err := strconv.Atoi(valStr); err == nil {
+		return val
 	}
 	return fallback
 }

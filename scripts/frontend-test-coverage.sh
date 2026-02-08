@@ -12,7 +12,7 @@ sleep 1
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND_DIR="$ROOT_DIR/frontend"
-MIN_COVERAGE="${CHARON_MIN_COVERAGE:-${CPM_MIN_COVERAGE:-85}}"
+MIN_COVERAGE="${CHARON_MIN_COVERAGE:-${CPM_MIN_COVERAGE:-87.5}}"
 
 cd "$FRONTEND_DIR"
 
@@ -34,20 +34,32 @@ if [ ! -f "$SUMMARY_FILE" ]; then
     exit 1
 fi
 
-# Extract total statements percentage using python
-TOTAL_PERCENT=$(python3 -c "import json; print(json.load(open('$SUMMARY_FILE'))['total']['statements']['pct'])")
+# Extract and print total coverage summary using python
+LINES_PERCENT=$(python3 - <<'PY'
+import json
+summary = json.load(open('coverage/coverage-summary.json'))['total']
+def fmt(metric):
+    return f"{metric['pct']}% ({metric['covered']}/{metric['total']})"
 
-echo "Computed frontend coverage: ${TOTAL_PERCENT}% (minimum required ${MIN_COVERAGE}%)"
+print("Frontend coverage summary:")
+print(f"  Statements: {fmt(summary['statements'])}")
+print(f"  Branches:   {fmt(summary['branches'])}")
+print(f"  Functions:  {fmt(summary['functions'])}")
+print(f"  Lines:      {fmt(summary['lines'])}")
+
+print(summary['lines']['pct'])
+PY
+)
 
 python3 - <<PY
-import os, sys
+import sys
 from decimal import Decimal
 
-total = Decimal('$TOTAL_PERCENT')
+total = Decimal('$LINES_PERCENT')
 minimum = Decimal('$MIN_COVERAGE')
+status = "PASS" if total >= minimum else "FAIL"
+print(f"Coverage gate: {status} (lines {total}% vs minimum {minimum}%)")
 if total < minimum:
     print(f"Frontend coverage {total}% is below required {minimum}% (set CHARON_MIN_COVERAGE or CPM_MIN_COVERAGE to override)", file=sys.stderr)
     sys.exit(1)
 PY
-
-echo "Frontend coverage requirement met"

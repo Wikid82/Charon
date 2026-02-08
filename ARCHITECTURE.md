@@ -122,7 +122,7 @@ graph TB
 
 | Component | Technology | Version | Purpose |
 |-----------|-----------|---------|---------|
-| **Language** | Go | 1.25.6 | Primary backend language |
+| **Language** | Go | 1.25.7 | Primary backend language |
 | **HTTP Framework** | Gin | Latest | Routing, middleware, HTTP handling |
 | **Database** | SQLite | 3.x | Embedded database |
 | **ORM** | GORM | Latest | Database abstraction layer |

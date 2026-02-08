@@ -2,18 +2,26 @@ name: CodeQL - Analyze
 
 on:
   push:
-    branches: [ main, development, 'feature/**' ]
+    branches:
+      - main
+      - development
+      - 'feature/**'
+      - 'hotfix/**'
   pull_request:
-    branches: [ main, development ]
+    branches:
+      - main
+      - development
+      - 'feature/**'
+      - 'hotfix/**'
   schedule:
     - cron: '0 3 * * 1'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.25.6'
+  GO_VERSION: '1.25.7'
   GOTOOLCHAIN: auto
 
 permissions:
@@ -42,7 +50,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@6bc82e05fd0ea64601dd4b465378bbcf57de0314 # v4
+        uses: github/codeql-action/init@45cbd0c69e560cd9e7cd7f8c32362050c9b7ded2 # v4
         with:
           languages: ${{ matrix.language }}
           # Use CodeQL config to exclude documented false positives
@@ -58,10 +66,10 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@6bc82e05fd0ea64601dd4b465378bbcf57de0314 # v4
+        uses: github/codeql-action/autobuild@45cbd0c69e560cd9e7cd7f8c32362050c9b7ded2 # v4
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@6bc82e05fd0ea64601dd4b465378bbcf57de0314 # v4
+        uses: github/codeql-action/analyze@45cbd0c69e560cd9e7cd7f8c32362050c9b7ded2 # v4
         with:
           category: "/language:${{ matrix.language }}"
 

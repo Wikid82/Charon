@@ -307,7 +307,7 @@ test.describe('Notification Providers', () => {
      * Priority: P0
      * Note: Skip - Provider form test IDs may not match implementation
      */
-    test.skip('should edit existing provider', async ({ page }) => {
+    test('should edit existing provider', async ({ page }) => {
       await test.step('Mock existing provider', async () => {
         await page.route('**/api/v1/notifications/providers', async (route, request) => {
           if (request.method() === 'GET') {
@@ -510,7 +510,7 @@ test.describe('Notification Providers', () => {
      * Priority: P1
      * Note: Skip - URL validation behavior differs from expected
      */
-    test.skip('should validate provider URL', async ({ page }) => {
+    test('should validate provider URL', async ({ page }) => {
       await test.step('Click Add Provider button', async () => {
         const addButton = page.getByRole('button', { name: /add.*provider/i });
         await addButton.click();
@@ -649,7 +649,7 @@ test.describe('Notification Providers', () => {
      * Priority: P1
      * Note: Skip - Template management UI not fully implemented with expected test IDs
      */
-    test.skip('should create custom template', async ({ page }) => {
+    test('should create custom template', async ({ page }) => {
       const templateName = generateTemplateName('custom');
 
       await test.step('Navigate to template management', async () => {
@@ -683,7 +683,7 @@ test.describe('Notification Providers', () => {
      * Priority: P1
      * Note: Skip - Template management UI not fully implemented with expected test IDs
      */
-    test.skip('should preview template with sample data', async ({ page }) => {
+    test('should preview template with sample data', async ({ page }) => {
       await test.step('Navigate to template management', async () => {
         const manageButton = page.getByRole('button', { name: /manage.*templates|new.*template/i });
         await manageButton.first().click();
@@ -729,7 +729,7 @@ test.describe('Notification Providers', () => {
      * Priority: P2
      * Note: Skip - Template management UI not fully implemented with expected test IDs
      */
-    test.skip('should edit external template', async ({ page }) => {
+    test('should edit external template', async ({ page }) => {
       await test.step('Mock external templates', async () => {
         await page.route('**/api/v1/notifications/external-templates', async (route, request) => {
           if (request.method() === 'GET') {
@@ -789,7 +789,7 @@ test.describe('Notification Providers', () => {
      * Priority: P2
      * Note: Skip - Template management UI not fully implemented
      */
-    test.skip('should delete external template', async ({ page }) => {
+    test('should delete external template', async ({ page }) => {
       await test.step('Mock external templates', async () => {
         await page.route('**/api/v1/notifications/external-templates', async (route, request) => {
           if (request.method() === 'GET') {
@@ -958,7 +958,7 @@ test.describe('Notification Providers', () => {
      * Priority: P1
      * Note: Skip - Test IDs for provider form may not match implementation
      */
-    test.skip('should preview notification content', async ({ page }) => {
+    test('should preview notification content', async ({ page }) => {
       await test.step('Click Add Provider button', async () => {
         const addButton = page.getByRole('button', { name: /add.*provider/i });
         await addButton.click();
@@ -1060,7 +1060,7 @@ test.describe('Notification Providers', () => {
      * Priority: P1
      * Note: Skip - This test times out due to form element testid mismatches
      */
-    test.skip('should persist event selections', async ({ page }) => {
+    test('should persist event selections', async ({ page }) => {
       const providerName = generateProviderName('events-test');
 
       await test.step('Click Add Provider button', async () => {
@@ -1307,7 +1307,7 @@ test.describe('Notification Providers', () => {
      * Priority: P2
      * Note: Skip - Test IDs for provider form may not match implementation
      */
-    test.skip('should show preview error for invalid template', async ({ page }) => {
+    test('should show preview error for invalid template', async ({ page }) => {
       await test.step('Open provider form', async () => {
         const addButton = page.getByRole('button', { name: /add.*provider/i });
         await addButton.click();

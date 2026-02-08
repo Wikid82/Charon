@@ -128,7 +128,7 @@ Before proposing ANY code change or fix, you must build a mental map of the feat
 Before marking an implementation task as complete, perform the following in order:
 
 1. **Playwright E2E Tests** (MANDATORY - Run First):
-    - **Run**: `npx playwright test --project=chromium` from project root
+    - **Run**: `cd /projects/Charon npx playwright test --project=firefox` from project root
     - **Why First**: If the app is broken at E2E level, unit tests may need updates. Catch integration issues early.
     - **Scope**: Run tests relevant to modified features (e.g., `tests/manual-dns-provider.spec.ts`)
     - **On Failure**: Trace root cause through frontend → backend flow before proceeding

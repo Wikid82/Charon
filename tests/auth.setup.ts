@@ -1,7 +1,8 @@
 import { test as setup } from './fixtures/test';
-import type { APIRequestContext } from '@playwright/test';
+import { request as playwrightRequest } from '@playwright/test';
 import { STORAGE_STATE } from './constants';
 import { readFileSync } from 'fs';
+import { TestDataManager } from './utils/TestDataManager';
 
 /**
  * Authentication Setup for E2E Tests
@@ -21,16 +22,89 @@ const TEST_EMAIL = process.env.E2E_TEST_EMAIL || 'e2e-test@example.com';
 const TEST_PASSWORD = process.env.E2E_TEST_PASSWORD || 'TestPassword123!';
 const TEST_NAME = process.env.E2E_TEST_NAME || 'E2E Test User';
 
+const EMERGENCY_TOKEN = process.env.CHARON_EMERGENCY_TOKEN;
+
 // Re-export STORAGE_STATE for backwards compatibility with playwright.config.js
 export { STORAGE_STATE };
 
 /**
  * Performs login and stores auth state
  */
+async function resetAdminCredentials(baseURL: string | undefined): Promise<boolean> {
+  if (!baseURL || !EMERGENCY_TOKEN) {
+    return false;
+  }
+
+  const recoveryContext = await playwrightRequest.newContext({
+    baseURL,
+    extraHTTPHeaders: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-Emergency-Token': EMERGENCY_TOKEN,
+    },
+  });
+
+  try {
+    const usersResponse = await recoveryContext.get('/api/v1/users');
+    if (!usersResponse.ok()) {
+      return false;
+    }
+
+    const users = await usersResponse.json();
+    const normalizedEmail = TEST_EMAIL.toLowerCase();
+    const existingUser = users.find((user: { email?: string }) =>
+      (user.email || '').toLowerCase() === normalizedEmail
+    );
+
+    if (!existingUser) {
+      const manager = new TestDataManager(recoveryContext, 'auth-credentials');
+      await manager.createUser(
+        {
+          name: TEST_NAME,
+          email: TEST_EMAIL,
+          password: TEST_PASSWORD,
+          role: 'admin',
+        },
+        { useNamespace: false }
+      );
+      return true;
+    }
+
+    const updates: Record<string, unknown> = {
+      password: TEST_PASSWORD,
+    };
+
+    if (existingUser.enabled === false) {
+      updates.enabled = true;
+    }
+
+    if (existingUser.role && existingUser.role !== 'admin') {
+      updates.role = 'admin';
+    }
+
+    const updateResponse = await recoveryContext.put(`/api/v1/users/${existingUser.id}`, {
+      data: updates,
+    });
+
+    if (!updateResponse.ok()) {
+      const errorBody = await updateResponse.text();
+      throw new Error(`Credential reset failed: ${updateResponse.status()} - ${errorBody}`);
+    }
+
+    return true;
+  } catch (err) {
+    console.warn('⚠️ Admin credential reset failed:', err instanceof Error ? err.message : err);
+    return false;
+  } finally {
+    await recoveryContext.dispose();
+  }
+}
+
 async function performLoginAndSaveState(
   request: APIRequestContext,
   setupRequired: boolean,
-  baseURL: string | undefined
+  baseURL: string | undefined,
+  retryAttempted = false
 ): Promise<void> {
   console.log('Logging in as test user...');
   const loginResponse = await request.post('/api/v1/auth/login', {
@@ -41,15 +115,24 @@ async function performLoginAndSaveState(
   });
 
   if (!loginResponse.ok()) {
+    const status = loginResponse.status();
     const errorBody = await loginResponse.text();
-    console.log(`Login failed: ${loginResponse.status()} - ${errorBody}`);
+    console.log(`Login failed: ${status} - ${errorBody}`);
+
+    if (status === 401 && !retryAttempted) {
+      const recovered = await resetAdminCredentials(baseURL);
+      if (recovered) {
+        console.log('Admin recovery completed, retrying login...');
+        return performLoginAndSaveState(request, setupRequired, baseURL, true);
+      }
+    }
 
     if (!setupRequired) {
       console.log('Login failed - existing user may have different credentials.');
       console.log('Please set E2E_TEST_EMAIL and E2E_TEST_PASSWORD environment variables');
       console.log('to match an existing user, or clear the database for fresh setup.');
     }
-    throw new Error(`Login failed: ${loginResponse.status()} - ${errorBody}`);
+    throw new Error(`Login failed: ${status} - ${errorBody}`);
   }
 
   console.log('Login successful');

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
@@ -46,9 +47,79 @@ func (s *ProxyHostService) ValidateUniqueDomain(domainNames string, excludeID ui
 	return nil
 }
 
+// ValidateHostname checks if the provided string is a valid hostname or IP address.
+func (s *ProxyHostService) ValidateHostname(host string) error {
+	// Trim protocol if present
+	if len(host) > 8 && host[:8] == "https://" {
+		host = host[8:]
+	} else if len(host) > 7 && host[:7] == "http://" {
+		host = host[7:]
+	}
+
+	// Remove port if present
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		host = parsedHost
+	}
+
+	// Basic check: is it an IP?
+	if net.ParseIP(host) != nil {
+		return nil
+	}
+
+	// Is it a valid hostname/domain?
+	// Regex for hostname validation (RFC 1123 mostly)
+	// Simple version: alphanumeric, dots, dashes.
+	// Allow underscores? Technically usually not in hostnames, but internal docker ones yes.
+	for _, r := range host {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '.' && r != '-' && r != '_' {
+			// Allow ":" for IPv6 literals if not parsed by ParseIP? ParseIP handles IPv6.
+			return errors.New("invalid hostname format")
+		}
+	}
+	return nil
+}
+
+func (s *ProxyHostService) validateProxyHost(host *models.ProxyHost) error {
+	if host.ForwardHost == "" {
+		return errors.New("forward host is required")
+	}
+
+	// Basic hostname/IP validation
+	target := host.ForwardHost
+	// Strip protocol if user accidentally typed http://10.0.0.1
+	target = strings.TrimPrefix(target, "http://")
+	target = strings.TrimPrefix(target, "https://")
+	// Strip port if present
+	if h, _, err := net.SplitHostPort(target); err == nil {
+		target = h
+	}
+
+	// Validate target
+	if net.ParseIP(target) == nil {
+		// Not a valid IP, check hostname rules
+		// Allow: a-z, 0-9, -, ., _ (for docker service names)
+		validHostname := true
+		for _, r := range target {
+			if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '.' && r != '-' && r != '_' {
+				validHostname = false
+				break
+			}
+		}
+		if !validHostname {
+			return errors.New("forward host must be a valid IP address or hostname")
+		}
+	}
+
+	return nil
+}
+
 // Create validates and creates a new proxy host.
 func (s *ProxyHostService) Create(host *models.ProxyHost) error {
 	if err := s.ValidateUniqueDomain(host.DomainNames, 0); err != nil {
+		return err
+	}
+
+	if err := s.validateProxyHost(host); err != nil {
 		return err
 	}
 
@@ -72,6 +143,10 @@ func (s *ProxyHostService) Create(host *models.ProxyHost) error {
 // Update validates and updates an existing proxy host.
 func (s *ProxyHostService) Update(host *models.ProxyHost) error {
 	if err := s.ValidateUniqueDomain(host.DomainNames, host.ID); err != nil {
+		return err
+	}
+
+	if err := s.validateProxyHost(host); err != nil {
 		return err
 	}
 

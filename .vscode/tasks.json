@@ -84,14 +84,49 @@
             "problemMatcher": []
         },
         {
+            "label": "Test: Frontend Unit (Vitest)",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh test-frontend-unit",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: Frontend Unit (Vitest) - AccessListForm",
+            "type": "shell",
+            "command": "cd frontend && npx vitest run src/components/__tests__/AccessListForm.test.tsx --reporter=json --outputFile /projects/Charon/test-results/vitest-accesslist.json",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: Frontend Unit (Vitest) - ProxyHostForm",
+            "type": "shell",
+            "command": "cd frontend && npx vitest run src/components/__tests__/ProxyHostForm.test.tsx --reporter=json --outputFile /projects/Charon/test-results/vitest-proxyhost.json",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: Frontend Unit (Vitest) - ProxyHostForm DNS",
+            "type": "shell",
+            "command": "cd frontend && npx vitest run src/components/__tests__/ProxyHostForm-dns.test.tsx --reporter=json --outputFile /projects/Charon/test-results/vitest-proxyhost-dns.json",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
             "label": "Test: Frontend with Coverage",
+            "type": "shell",
+            "command": "bash scripts/frontend-test-coverage.sh",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: Frontend Coverage (Vitest)",
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh test-frontend-coverage",
             "group": "test",
             "problemMatcher": []
         },
         {
-            "label": "Test: E2E Playwright (Chromium)",
+            "label": "Test: E2E Playwright (FireFox)",
             "type": "shell",
             "command": "npm run e2e",
             "group": "test",
@@ -103,9 +138,9 @@
             }
         },
         {
-            "label": "Test: E2E Playwright (Chromium) - Cerberus: Real-Time Logs",
+            "label": "Test: E2E Playwright (FireFox) - Cerberus: Real-Time Logs",
             "type": "shell",
-            "command": "PLAYWRIGHT_HTML_OPEN=never npx playwright test --project=chromium tests/monitoring/real-time-logs.spec.ts",
+            "command": "cd /projects/Charon && PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox tests/monitoring/real-time-logs.spec.ts",
             "group": "test",
             "problemMatcher": [],
             "presentation": {
@@ -115,9 +150,9 @@
             }
         },
         {
-            "label": "Test: E2E Playwright (Chromium) - Cerberus: Security Dashboard",
+            "label": "Test: E2E Playwright (FireFox) - Cerberus: Security Dashboard",
             "type": "shell",
-            "command": "PLAYWRIGHT_HTML_OPEN=never npx playwright test --project=chromium tests/security/security-dashboard.spec.ts",
+            "command": "cd /projects/Charon && PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox tests/security/security-dashboard.spec.ts",
             "group": "test",
             "problemMatcher": [],
             "presentation": {
@@ -127,9 +162,9 @@
             }
         },
         {
-            "label": "Test: E2E Playwright (Chromium) - Cerberus: Rate Limiting",
+            "label": "Test: E2E Playwright (FireFox) - Cerberus: Rate Limiting",
             "type": "shell",
-            "command": "PLAYWRIGHT_HTML_OPEN=never npx playwright test --project=chromium tests/security/rate-limiting.spec.ts",
+            "command": "cd /projects/Charon && PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox tests/security/rate-limiting.spec.ts",
             "group": "test",
             "problemMatcher": [],
             "presentation": {
@@ -146,6 +181,78 @@
             "problemMatcher": []
         },
         {
+            "label": "Test: E2E Playwright (FireFox) - Core: Access Lists",
+            "type": "shell",
+            "command": "cd /projects/Charon && PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox tests/core/access-lists-crud.spec.ts",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (FireFox) - Core: Authentication",
+            "type": "shell",
+            "command": "cd /projects/Charon && PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox tests/core/authentication.spec.ts",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (FireFox) - Core: Certificates",
+            "type": "shell",
+            "command": "cd /projects/Charon && PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox tests/core/certificates.spec.ts",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (FireFox) - Core: Dashboard",
+            "type": "shell",
+            "command": "cd /projects/Charon && PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox tests/core/dashboard.spec.ts",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (FireFox) - Core: Navigation",
+            "type": "shell",
+            "command": "cd /projects/Charon && PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox tests/core/navigation.spec.ts",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (FireFox) - Core: Navigation Shard",
+            "type": "shell",
+            "command": "cd /projects/Charon && PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox --shard=1/1 tests/core/navigation.spec.ts",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
             "label": "Test: E2E Playwright (Headed)",
             "type": "shell",
             "command": "npm run e2e:headed",
@@ -154,6 +261,18 @@
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (UI - Headless Server)",
+            "type": "shell",
+            "command": "npm run e2e:ui:headless-server",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
             }
         },
         {
@@ -358,9 +477,30 @@
             "problemMatcher": []
         },
         {
+            "label": "Integration: Cerberus",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh integration-test-cerberus",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Integration: Cerberus Security Stack",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh integration-test-cerberus",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
             "label": "Integration: Coraza WAF",
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh integration-test-coraza",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Integration: WAF (Legacy)",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh integration-test-waf",
             "group": "test",
             "problemMatcher": []
         },
@@ -382,6 +522,20 @@
             "label": "Integration: CrowdSec Startup",
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Integration: Rate Limit",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh integration-test-rate-limit",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Integration: Rate Limiting",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh integration-test-rate-limit",
             "group": "test",
             "problemMatcher": []
         },
@@ -451,6 +605,18 @@
             "label": "Test: E2E Playwright (Skill)",
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh test-e2e-playwright",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (Targeted Suite)",
+            "type": "shell",
+            "command": "cd /projects/Charon && PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox ${input:playwrightSuitePath}",
             "group": "test",
             "problemMatcher": [],
             "presentation": {
@@ -568,6 +734,12 @@
 
     ],
     "inputs": [
+        {
+            "id": "playwrightSuitePath",
+            "type": "promptString",
+            "description": "Target Playwright suite or test path",
+            "default": "tests/"
+        },
         {
             "id": "dockerImage",
             "type": "promptString",

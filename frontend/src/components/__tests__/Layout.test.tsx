@@ -77,23 +77,40 @@ describe('Layout', () => {
   })
 
   it('renders all navigation items', async () => {
+    const user = userEvent.setup()
     renderWithProviders(
       <Layout>
         <div>Test Content</div>
       </Layout>
     )
 
-    expect(screen.getByText('Dashboard')).toBeInTheDocument()
-    expect(screen.getByText('Proxy Hosts')).toBeInTheDocument()
-    expect(screen.getByText('Remote Servers')).toBeInTheDocument()
-    expect(screen.getByText('Certificates')).toBeInTheDocument()
+    expect(await screen.findByText('Dashboard')).toBeInTheDocument()
+    expect(await screen.findByText('Proxy Hosts')).toBeInTheDocument()
+    expect(await screen.findByText('Remote Servers')).toBeInTheDocument()
+    expect(await screen.findByText('Domains')).toBeInTheDocument()
+    expect(await screen.findByText('Certificates')).toBeInTheDocument()
+    expect(await screen.findByText('DNS')).toBeInTheDocument()
+    expect(await screen.findByText('Settings')).toBeInTheDocument()
+
+    // Expand DNS to see nested items
+    await user.click(await screen.findByRole('button', { name: /dns/i }))
+    expect(await screen.findByText('DNS Providers')).toBeInTheDocument()
+    expect(await screen.findByText('Plugins')).toBeInTheDocument()
+
+    // Expand Security to see nested items
+    await user.click(await screen.findByRole('button', { name: /security/i }))
+    expect(await screen.findByText('Access Lists')).toBeInTheDocument()
+    expect(await screen.findByText('Rate Limiting')).toBeInTheDocument()
+
     // Expand Tasks and Import to see nested items
-    await userEvent.click(screen.getByText('Tasks'))
-    expect(screen.getByText('Import')).toBeInTheDocument()
-    await userEvent.click(screen.getByText('Import'))
-    expect(screen.getByText('Caddyfile')).toBeInTheDocument()
-    expect(screen.getByText('CrowdSec')).toBeInTheDocument()
-    expect(screen.getByText('Settings')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: /tasks/i }))
+    expect(await screen.findByText('Import')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: /import/i }))
+    expect(await screen.findByText('Caddyfile')).toBeInTheDocument()
+    const crowdSecLinks = await screen.findAllByRole('link', { name: 'CrowdSec' })
+    expect(crowdSecLinks.some(link => link.getAttribute('href') === '/tasks/import/crowdsec')).toBe(true)
+    expect(await screen.findByText('Import NPM')).toBeInTheDocument()
+    expect(await screen.findByText('Import JSON')).toBeInTheDocument()
   })
 
   it('renders children content', () => {
@@ -281,8 +298,7 @@ describe('Layout', () => {
     })
 
     it('defaults to showing Security and Uptime when feature flags are loading', async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({} as any)
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({})
 
       renderWithProviders(
         <Layout>

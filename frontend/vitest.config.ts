@@ -1,6 +1,12 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
+// Dynamic coverage threshold (align local and CI)
+const coverageThresholdValue =
+  process.env.CHARON_MIN_COVERAGE ?? process.env.CPM_MIN_COVERAGE ?? '87.5'
+const coverageThreshold = Number.parseFloat(coverageThresholdValue)
+const resolvedCoverageThreshold = Number.isNaN(coverageThreshold) ? 87.5 : coverageThreshold
+
 export default defineConfig({
   plugins: [react()],
   test: {
@@ -20,9 +26,10 @@ export default defineConfig({
     ],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text', 'json', 'html', 'lcov', 'json-summary'],
       exclude: [
         'node_modules/',
+        'src/locales/**',
         'src/test/',
         '**/*.d.ts',
         '**/*.config.*',
@@ -30,6 +37,12 @@ export default defineConfig({
         'dist/',
         'e2e/',
       ],
+      thresholds: {
+        lines: resolvedCoverageThreshold,
+        functions: resolvedCoverageThreshold,
+        branches: resolvedCoverageThreshold,
+        statements: resolvedCoverageThreshold,
+      },
     },
   },
 })

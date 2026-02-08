@@ -10,7 +10,20 @@ description: 'Strict protocols for test execution, debugging, and coverage valid
 
 ### PREREQUISITE: Start E2E Environment
 
-**CRITICAL**: Always rebuild the E2E container before running Playwright tests:
+**CRITICAL**: Rebuild the E2E container when application or Docker build inputs change. If changes are test-only and the container is already healthy, reuse it. If the container is not running or state is suspect, rebuild.
+
+**Rebuild required (application/runtime changes):**
+- Application code or dependencies: backend/**, frontend/**, backend/go.mod, backend/go.sum, package.json, package-lock.json.
+- Container build/runtime configuration: Dockerfile, .docker/**, .docker/compose/docker-compose.playwright-*.yml, .docker/docker-entrypoint.sh.
+- Runtime behavior changes baked into the image.
+
+**Rebuild optional (test-only changes):**
+- Playwright tests and fixtures: tests/**.
+- Playwright config and runners: playwright.config.js, playwright.caddy-debug.config.js.
+- Documentation or planning files: docs/**, requirements.md, design.md, tasks.md.
+- CI/workflow changes that do not affect runtime images: .github/workflows/**.
+
+When a rebuild is required (or the container is not running), use:
 
 ```bash
 .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
@@ -35,6 +48,7 @@ This step:
 - Ensure forms submit correctly
 - Check navigation and page rendering
 - **Port: 8080 (Charon Management Interface)**
+- **Default Browser: Firefox** (provides best cross-browser compatibility baseline)
 
 **Integration Tests (Middleware Enforcement):**
 - Test Cerberus security module enforcement
@@ -61,7 +75,7 @@ For general integration testing without coverage:
 
 ```bash
 # Against Docker container (default)
-npx playwright test --project=chromium --project=firefox --project=webkit
+cd /projects/Charon npx playwright test --project=firefox --project=firefox --project=webkit
 
 # With explicit base URL
 PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test --project=chromium --project=firefox --project=webkit

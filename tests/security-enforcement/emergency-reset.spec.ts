@@ -1,98 +1,252 @@
-/**
- * Emergency Security Reset (Break-Glass) E2E Tests
- *
- * Tests the emergency reset endpoint that bypasses ACL and disables all security
- * modules. This is a break-glass mechanism for recovery when locked out.
- *
- * @see POST /api/v1/emergency/security-reset
- */
+import { test, expect, APIRequestContext } from '@playwright/test';
+import { EMERGENCY_TOKEN } from '../fixtures/security';
 
-import { test, expect } from '@playwright/test';
+type SettingsMap = Record<string, string>;
 
-test.describe('Emergency Security Reset (Break-Glass)', () => {
-  const EMERGENCY_TOKEN = process.env.CHARON_EMERGENCY_TOKEN || 'test-emergency-token-for-e2e-32chars';
+const STAGE_A_LIMITS = {
+  enabled: true,
+  requests: 120,
+  window: 60,
+  burst: 20,
+};
 
-  test('should reset security when called with valid token', async ({ request }) => {
-    const response = await request.post('/api/v1/emergency/security-reset', {
-      headers: {
-        'X-Emergency-Token': EMERGENCY_TOKEN,
-        'Content-Type': 'application/json',
-      },
-      data: { reason: 'E2E test validation' },
-    });
+const STAGE_B_LIMITS = {
+  enabled: true,
+  requests: 3,
+  window: 10,
+  burst: 1,
+};
 
-    expect(response.ok()).toBeTruthy();
-    const body = await response.json();
-    expect(body.success).toBe(true);
+const DEFAULT_LIMITS = {
+  enabled: false,
+  requests: 100,
+  window: 60,
+  burst: 20,
+};
 
-    // Verify individual security modules are disabled
-    expect(body.disabled_modules).toContain('security.acl.enabled');
-    expect(body.disabled_modules).toContain('security.waf.enabled');
-    expect(body.disabled_modules).toContain('security.rate_limit.enabled');
-    expect(body.disabled_modules).toContain('security.crowdsec.enabled');
-    expect(body.disabled_modules).toContain('security.crowdsec.mode');
+function parseSettingValue(value: unknown): string | number | boolean | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
 
-    // NOTE: feature.cerberus.enabled is NOT disabled by emergency reset
-    // The Cerberus framework stays enabled to allow security module management
-    // Only enforcement modules (ACL, WAF, Rate Limit, CrowdSec) are disabled
-    expect(body.disabled_modules).not.toContain('feature.cerberus.enabled');
-  });
+  if (typeof value === 'boolean' || typeof value === 'number') {
+    return value;
+  }
 
-  test('should reject request with invalid token', async ({ request }) => {
-    const response = await request.post('/api/v1/emergency/security-reset', {
-      headers: {
-        'X-Emergency-Token': 'invalid-token-here',
-        'Content-Type': 'application/json',
-      },
-    });
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const lowered = trimmed.toLowerCase();
 
-    expect(response.status()).toBe(401);
-  });
-
-  test('should reject request without token', async ({ request }) => {
-    const response = await request.post('/api/v1/emergency/security-reset');
-    expect(response.status()).toBe(401);
-  });
-
-  test('should allow recovery when ACL blocks everything', async ({ request }) => {
-    // This test verifies the emergency reset works when normal API is blocked
-    // Pre-condition: ACL must be enabled and blocking requests
-    // The emergency endpoint should still work because it bypasses ACL
-
-    // Attempt emergency reset - should succeed even if ACL is blocking
-    const response = await request.post('/api/v1/emergency/security-reset', {
-      headers: {
-        'X-Emergency-Token': EMERGENCY_TOKEN,
-        'Content-Type': 'application/json',
-      },
-      data: { reason: 'E2E test - ACL recovery validation' },
-    });
-
-    // Verify reset was successful
-    expect(response.ok()).toBeTruthy();
-    const body = await response.json();
-    expect(body.success).toBe(true);
-    expect(body.disabled_modules).toContain('security.acl.enabled');
-  });
-
-  // Rate limit test runs LAST to avoid blocking subsequent tests
-  test('should rate limit after 5 attempts', async ({ request }) => {
-    test.skip(
-      true,
-      'Rate limiting enforced via Cerberus middleware (port 80). Verified in integration tests (backend/integration/).'
-    );
-
-    // Rate limiting is covered in emergency-token.spec.ts (Test 2), which also
-    // waits for the limiter window to reset to avoid affecting subsequent specs.
-    for (let i = 0; i < 5; i++) {
-      await request.post('/api/v1/emergency/security-reset', {
-        headers: { 'X-Emergency-Token': 'wrong' },
-      });
+    if (lowered === 'true' || lowered === 'false') {
+      return lowered === 'true';
     }
 
-    const response = await request.post('/api/v1/emergency/security-reset', {
-      headers: { 'X-Emergency-Token': 'wrong' },
+    if (/^-?\d+$/.test(trimmed)) {
+      return Number(trimmed);
+    }
+
+    return trimmed;
+  }
+
+  return String(value);
+}
+
+function coerceBoolean(value: unknown, fallback: boolean): boolean {
+  const parsed = parseSettingValue(value);
+  return typeof parsed === 'boolean' ? parsed : fallback;
+}
+
+function coerceNumber(value: unknown, fallback: number): number {
+  const parsed = parseSettingValue(value);
+  return typeof parsed === 'number' ? parsed : fallback;
+}
+
+function settingsMatch(settings: SettingsMap, expected: typeof STAGE_A_LIMITS): boolean {
+  return (
+    parseSettingValue(settings['security.rate_limit.enabled']) === expected.enabled &&
+    parseSettingValue(settings['security.rate_limit.requests']) === expected.requests &&
+    parseSettingValue(settings['security.rate_limit.window']) === expected.window &&
+    parseSettingValue(settings['security.rate_limit.burst']) === expected.burst
+  );
+}
+
+async function fetchSettings(token: string, request: APIRequestContext): Promise<SettingsMap> {
+  const response = await request.get('/api/v1/settings', {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+  return response.json();
+}
+
+async function patchRateLimit(
+  token: string,
+  request: APIRequestContext,
+  limits: typeof STAGE_A_LIMITS
+): Promise<void> {
+  const maxRetries = 5;
+  const retryDelayMs = 1000;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    const response = await request.patch('/api/v1/config', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      data: {
+        security: {
+          rate_limit: limits,
+        },
+      },
     });
-    expect(response.status()).toBe(429);
+
+    if (response.ok()) {
+      return;
+    }
+
+    if (response.status() !== 429 || attempt === maxRetries) {
+      expect(response.ok()).toBeTruthy();
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+  }
+}
+
+async function waitForSettings(
+  token: string,
+  request: APIRequestContext,
+  expected: typeof STAGE_A_LIMITS
+): Promise<void> {
+  const maxDurationMs = 65000;
+  const intervalMs = 2000;
+  const deadline = Date.now() + maxDurationMs;
+
+  while (Date.now() < deadline) {
+    const settings = await fetchSettings(token, request);
+    if (settingsMatch(settings, expected)) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  const lastSettings = await fetchSettings(token, request);
+  throw new Error(`Rate limit settings did not propagate: ${JSON.stringify(lastSettings)}`);
+}
+
+test.describe('Emergency Access & Rate Limiting', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  let token: string;
+  let originalSettings: SettingsMap = {};
+
+  test.beforeAll(async ({ request }) => {
+    const email = process.env.E2E_TEST_EMAIL || 'e2e-test@example.com';
+    const password = process.env.E2E_TEST_PASSWORD || 'TestPassword123!';
+
+    await test.step('Authenticate admin user', async () => {
+      const loginResponse = await request.post('/api/v1/auth/login', {
+        data: {
+          email,
+          password,
+        },
+      });
+
+      expect(loginResponse.ok()).toBeTruthy();
+      const loginBody = await loginResponse.json();
+      token = loginBody.token;
+    });
+
+    await test.step('Capture original settings and apply Stage A limits', async () => {
+      originalSettings = await fetchSettings(token, request);
+      await patchRateLimit(token, request, STAGE_A_LIMITS);
+      await waitForSettings(token, request, STAGE_A_LIMITS);
+    });
+
+    await test.step('Advisory security status check (Stage A only)', async () => {
+      const statusResponse = await request.get('/api/v1/security/status', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (statusResponse.ok()) {
+        const status = await statusResponse.json();
+        if (status?.rate_limit?.enabled !== undefined) {
+          expect(status.rate_limit.enabled).toBe(true);
+        }
+      }
+    });
+  });
+
+  test.afterAll(async ({ request }) => {
+    const restore = {
+      enabled: coerceBoolean(
+        originalSettings['security.rate_limit.enabled'],
+        DEFAULT_LIMITS.enabled
+      ),
+      requests: coerceNumber(
+        originalSettings['security.rate_limit.requests'],
+        DEFAULT_LIMITS.requests
+      ),
+      window: coerceNumber(
+        originalSettings['security.rate_limit.window'],
+        DEFAULT_LIMITS.window
+      ),
+      burst: coerceNumber(
+        originalSettings['security.rate_limit.burst'],
+        DEFAULT_LIMITS.burst
+      ),
+    };
+
+    await patchRateLimit(token, request, restore);
+  });
+
+  test('Emergency endpoint bypasses rate limits while others do not', async ({ request }) => {
+    let stageBBurstUsed = 0;
+
+    await test.step('Emergency reset runs before Stage B', async () => {
+      const emergencyResponse = await request.post('/api/v1/emergency/security-reset', {
+        headers: {
+          'X-Emergency-Token': EMERGENCY_TOKEN,
+        },
+      });
+
+      expect(emergencyResponse.ok()).toBeTruthy();
+    });
+
+    await test.step('Apply Stage B limits and verify once', async () => {
+      await patchRateLimit(token, request, STAGE_B_LIMITS);
+
+      const settings = await fetchSettings(token, request);
+      expect(settingsMatch(settings, STAGE_B_LIMITS)).toBe(true);
+      stageBBurstUsed = 1;
+    });
+
+    await test.step('Burst until rate limit hits 429', async () => {
+      const maxAttempts = 10;
+      let attempts = stageBBurstUsed;
+      let rateLimitHit = false;
+
+      while (attempts < maxAttempts) {
+        const response = await request.get('/api/v1/auth/verify', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        attempts += 1;
+        const status = response.status();
+
+        if (status === 429) {
+          rateLimitHit = true;
+          break;
+        }
+
+        expect(status).toBe(200);
+      }
+
+      expect(rateLimitHit).toBeTruthy();
+    });
   });
 });

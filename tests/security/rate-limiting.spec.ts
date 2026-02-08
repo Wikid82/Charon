@@ -13,7 +13,7 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForToast } from '../utils/wait-helpers';
 
-test.describe('Rate Limiting Configuration', () => {
+test.describe('Rate Limiting Configuration @security', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page);
@@ -79,7 +79,6 @@ test.describe('Rate Limiting Configuration', () => {
             type: 'skip-reason',
             description: 'Toggle is disabled - Cerberus may not be enabled'
           });
-          test.skip();
           return;
         }
 
@@ -92,8 +91,6 @@ test.describe('Rate Limiting Configuration', () => {
           await toggle.click();
           await page.waitForTimeout(500);
         });
-      } else {
-        test.skip();
       }
     });
   });
