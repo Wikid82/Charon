@@ -463,7 +463,8 @@ jobs:
     name: E2E Tests with Coverage
     needs:
       - build-image
-    if: (github.event_name != 'workflow_dispatch' || inputs.run_e2e != false) && needs.build-image.result == 'success'
+      - integration-gate
+    if: always() && (github.event_name != 'workflow_dispatch' || inputs.run_e2e != false) && needs.build-image.result == 'success' && (needs.integration-gate.result == 'success' || needs.integration-gate.result == 'skipped')
     uses: ./.github/workflows/e2e-tests-split.yml
     with:
       browser: all
@@ -478,7 +479,8 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - e2e
-    if: github.event_name != 'workflow_dispatch' || inputs.run_e2e != false
+      - integration-gate
+    if: always() && (github.event_name != 'workflow_dispatch' || inputs.run_e2e != false) && (needs.integration-gate.result == 'success' || needs.integration-gate.result == 'skipped')
     steps:
       - name: Verify E2E results
         run: |
@@ -491,8 +493,8 @@ jobs:
     name: Coverage - Backend
     runs-on: ubuntu-latest
     needs:
-      - build-image
-    if: github.event_name != 'workflow_dispatch' || inputs.run_coverage != false
+      - integration-gate
+    if: always() && (github.event_name != 'workflow_dispatch' || inputs.run_coverage != false) && (needs.integration-gate.result == 'success' || needs.integration-gate.result == 'skipped')
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -523,8 +525,8 @@ jobs:
     name: Coverage - Frontend
     runs-on: ubuntu-latest
     needs:
-      - build-image
-    if: github.event_name != 'workflow_dispatch' || inputs.run_coverage != false
+      - integration-gate
+    if: always() && (github.event_name != 'workflow_dispatch' || inputs.run_coverage != false) && (needs.integration-gate.result == 'success' || needs.integration-gate.result == 'skipped')
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -560,7 +562,8 @@ jobs:
     needs:
       - coverage-backend
       - coverage-frontend
-    if: github.event_name != 'workflow_dispatch' || inputs.run_coverage != false
+      - integration-gate
+    if: always() && (github.event_name != 'workflow_dispatch' || inputs.run_coverage != false) && (needs.integration-gate.result == 'success' || needs.integration-gate.result == 'skipped')
     steps:
       - name: Evaluate coverage results
         run: |
@@ -584,7 +587,8 @@ jobs:
     needs:
       - coverage-gate
       - e2e
-    if: github.event_name != 'workflow_dispatch' || inputs.run_coverage != false
+      - integration-gate
+    if: always() && (github.event_name != 'workflow_dispatch' || inputs.run_coverage != false) && (needs.integration-gate.result == 'success' || needs.integration-gate.result == 'skipped')
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -638,7 +642,8 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - codecov-upload
-    if: (github.event_name != 'workflow_dispatch' || inputs.run_coverage != false) && needs.codecov-upload.result != 'skipped'
+      - integration-gate
+    if: always() && (github.event_name != 'workflow_dispatch' || inputs.run_coverage != false) && (needs.integration-gate.result == 'success' || needs.integration-gate.result == 'skipped') && needs.codecov-upload.result != 'skipped'
     steps:
       - name: Evaluate Codecov upload results
         run: |
@@ -658,7 +663,9 @@ jobs:
   security-codeql:
     name: Security - CodeQL
     runs-on: ubuntu-latest
-    if: (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true)
+    needs:
+      - integration-gate
+    if: always() && (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true) && (needs.integration-gate.result == 'success' || needs.integration-gate.result == 'skipped')
     permissions:
       contents: read
       security-events: write
@@ -698,7 +705,8 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - build-image
-    if: (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true) && needs.build-image.result == 'success'
+      - integration-gate
+    if: always() && (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true) && needs.build-image.result == 'success' && (needs.integration-gate.result == 'success' || needs.integration-gate.result == 'skipped')
     permissions:
       contents: read
       security-events: write
@@ -741,7 +749,8 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - build-image
-    if: (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true) && needs.build-image.result == 'success'
+      - integration-gate
+    if: always() && (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true) && needs.build-image.result == 'success' && (needs.integration-gate.result == 'success' || needs.integration-gate.result == 'skipped')
     permissions:
       contents: read
       security-events: write
@@ -774,7 +783,8 @@ jobs:
       - security-codeql
       - security-trivy
       - security-supply-chain
-    if: github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false
+      - integration-gate
+    if: always() && (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && (needs.integration-gate.result == 'success' || needs.integration-gate.result == 'skipped')
     steps:
       - name: Verify security results
         run: |
@@ -854,7 +864,7 @@ jobs:
             fi
           fi
 
-          e2e_enabled="${{ github.event_name != 'workflow_dispatch' || inputs.run_e2e != false }}"
+          e2e_enabled="${{ (github.event_name != 'workflow_dispatch' || inputs.run_e2e != false) && (needs.integration-gate.result == 'success' || needs.integration-gate.result == 'skipped') }}"
           if [ "$e2e_enabled" = "true" ]; then
             require_success_if_ran "e2e-gate" "${{ needs.e2e-gate.result }}" "true"
             if [ "${{ needs.e2e-gate.result }}" != "skipped" ]; then
@@ -862,7 +872,7 @@ jobs:
             fi
           fi
 
-          coverage_enabled="${{ github.event_name != 'workflow_dispatch' || inputs.run_coverage != false }}"
+          coverage_enabled="${{ (github.event_name != 'workflow_dispatch' || inputs.run_coverage != false) && (needs.integration-gate.result == 'success' || needs.integration-gate.result == 'skipped') }}"
           if [ "$coverage_enabled" = "true" ]; then
             require_success_if_ran "coverage-gate" "${{ needs.coverage-gate.result }}" "true"
             require_success_if_ran "codecov-gate" "${{ needs.codecov-gate.result }}" "true"
@@ -874,7 +884,7 @@ jobs:
             fi
           fi
 
-          security_enabled="${{ (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) }}"
+          security_enabled="${{ (github.event_name != 'workflow_dispatch' || inputs.run_security_scans != false) && (needs.integration-gate.result == 'success' || needs.integration-gate.result == 'skipped') && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) }}"
           if [ "$security_enabled" = "true" ]; then
             require_success_if_ran "security-gate" "${{ needs.security-gate.result }}" "true"
             if [ "${{ needs.security-gate.result }}" != "skipped" ]; then
