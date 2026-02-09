@@ -1,0 +1,57 @@
+# golangci-lint configuration
+version: 2
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - bodyclose
+    - gocritic
+    - gosec
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - errcheck
+  settings:
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+        - opinionated
+        - experimental
+      disabled-checks:
+        - whyNoLint
+        - wrapperFunc
+        - hugeParam
+        - rangeValCopy
+        - ifElseChain
+        - appendCombine
+        - appendAssign
+        - commentedOutCode
+        - sprintfQuotedString
+    govet:
+      enable:
+        - shadow
+    errcheck:
+      exclude-functions:
+        # Ignore deferred close errors - these are intentional
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (net/http.ResponseWriter).Write
+        - (*encoding/json.Encoder).Encode
+        - (*encoding/json.Decoder).Decode
+        # Test utilities
+        - os.Setenv
+        - os.Unsetenv
+        - os.RemoveAll
+        - os.MkdirAll
+        - os.WriteFile
+        - os.Remove
+        - (*gorm.io/gorm.DB).AutoMigrate
+        # Additional test cleanup functions
+        - (*database/sql.Rows).Close
+        - (gorm.io/gorm.Migrator).DropTable
+        - (*net/http.Response.Body).Close

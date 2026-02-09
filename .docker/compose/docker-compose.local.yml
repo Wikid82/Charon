@@ -1,0 +1,64 @@
+services:
+  charon:
+    image: charon:local
+    container_name: charon
+    restart: unless-stopped
+    ports:
+      - "80:80"        # HTTP (Caddy proxy)
+      - "443:443"      # HTTPS (Caddy proxy)
+      - "443:443/udp"  # HTTP/3 (Caddy proxy)
+      - "8080:8080"    # Management UI (Charon)
+      - "2345:2345"    # Delve Debugger
+    environment:
+      - CHARON_ENV=development
+      - CHARON_DEBUG=1
+      - TZ=America/New_York
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
+      - CHARON_HTTP_PORT=8080
+      - CHARON_DB_PATH=/app/data/charon.db
+      - CHARON_FRONTEND_DIR=/app/frontend/dist
+      - CHARON_CADDY_ADMIN_API=http://localhost:2019
+      - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
+      - CHARON_CADDY_BINARY=caddy
+      - CHARON_IMPORT_CADDYFILE=/import/Caddyfile
+      - CHARON_IMPORT_DIR=/app/data/imports
+      - CHARON_ACME_STAGING=false
+      - FEATURE_CERBERUS_ENABLED=true
+      # Emergency "break-glass" token for security reset when ACL blocks access
+      - CHARON_EMERGENCY_TOKEN=03e4682c1164f0c1cb8e17c99bd1a2d9156b59824dde41af3bb67c513e5c5e92
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+    volumes:
+      - charon_data:/app/data
+      - caddy_data:/data
+      - caddy_config:/config
+      - crowdsec_data:/app/data/crowdsec
+      - plugins_data:/app/plugins # Read-write for development/hot-loading
+      - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
+      - ./backend:/app/backend:ro # Mount source for debugging
+      # Mount your existing Caddyfile for automatic import (optional)
+#      - <PATH_TO_YOUR_CADDYFILE>:/import/Caddyfile:ro
+#      - <PATH_TO_YOUR_SITES_DIR>:/import/sites:ro # If your Caddyfile imports other files
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/v1/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  charon_data:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+  crowdsec_data:
+    driver: local
+  plugins_data:
+    driver: local

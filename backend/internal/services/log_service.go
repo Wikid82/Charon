@@ -1,0 +1,256 @@
+package services
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/models"
+)
+
+type LogService struct {
+	LogDir string
+}
+
+func NewLogService(cfg *config.Config) *LogService {
+	// Assuming logs are in data/logs relative to app root
+	logDir := filepath.Join(filepath.Dir(cfg.DatabasePath), "logs")
+	return &LogService{LogDir: logDir}
+}
+
+func (s *LogService) logDirs() []string {
+	seen := make(map[string]bool)
+	var dirs []string
+
+	addDir := func(dir string) {
+		clean := filepath.Clean(dir)
+		if clean == "." || clean == "" {
+			return
+		}
+		if !seen[clean] {
+			seen[clean] = true
+			dirs = append(dirs, clean)
+		}
+	}
+
+	addDir(s.LogDir)
+
+	if accessLogPath := os.Getenv("CHARON_CADDY_ACCESS_LOG"); accessLogPath != "" {
+		addDir(filepath.Dir(accessLogPath))
+	}
+
+	if _, err := os.Stat("/var/log/caddy"); err == nil {
+		addDir("/var/log/caddy")
+	}
+
+	return dirs
+}
+
+type LogFile struct {
+	Name    string `json:"name"`
+	Size    int64  `json:"size"`
+	ModTime string `json:"mod_time"`
+}
+
+func (s *LogService) ListLogs() ([]LogFile, error) {
+	var logs []LogFile
+	seen := make(map[string]bool)
+	for _, dir := range s.logDirs() {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+
+		for _, entry := range entries {
+			hasLogExtension := strings.HasSuffix(entry.Name(), ".log") || strings.Contains(entry.Name(), ".log.")
+			if entry.IsDir() || !hasLogExtension {
+				continue
+			}
+
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			// Handle symlinks + deduplicate files (e.g., charon.log and cpmp.log (legacy name) pointing to same file)
+			entryPath := filepath.Join(dir, entry.Name())
+			resolved, err := filepath.EvalSymlinks(entryPath)
+			if err == nil {
+				if seen[resolved] {
+					continue
+				}
+				seen[resolved] = true
+			}
+			logs = append(logs, LogFile{
+				Name:    entry.Name(),
+				Size:    info.Size(),
+				ModTime: info.ModTime().Format(time.RFC3339),
+			})
+		}
+	}
+
+	return logs, nil
+}
+
+// GetLogPath returns the absolute path to a log file if it exists and is valid
+func (s *LogService) GetLogPath(filename string) (string, error) {
+	cleanName := filepath.Base(filename)
+	if filename != cleanName {
+		return "", fmt.Errorf("invalid filename: path traversal attempt detected")
+	}
+
+	for _, dir := range s.logDirs() {
+		baseDir := filepath.Clean(dir)
+		path := filepath.Join(baseDir, cleanName)
+		if !strings.HasPrefix(path, baseDir+string(os.PathSeparator)) {
+			continue
+		}
+
+		// Verify file exists
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+
+	return "", os.ErrNotExist
+}
+
+// QueryLogs parses and filters logs from a specific file
+func (s *LogService) QueryLogs(filename string, filter models.LogFilter) ([]models.CaddyAccessLog, int64, error) {
+	path, err := s.GetLogPath(filename)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// #nosec G304 -- path is validated by GetLogPath to be within logDir
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close log file after reading")
+		}
+	}()
+
+	var logs []models.CaddyAccessLog
+	var totalMatches int64
+
+	// Read file line by line
+	// TODO: For large files, reading from end or indexing would be better
+	// Current implementation reads all lines, filters, then paginates
+	// This is acceptable for rotated logs (max 10MB)
+	scanner := bufio.NewScanner(file)
+
+	// We'll store all matching logs first, then slice for pagination
+	// This is memory intensive for very large matches but ensures correct sorting/filtering
+	// Since we want latest first, we'll prepend or reverse later.
+	// Actually, appending and then reversing is better.
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		var entry models.CaddyAccessLog
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			// Handle non-JSON logs (like cpmp.log, legacy name for Charon)
+			// Try to parse standard Go log format: "2006/01/02 15:04:05 msg"
+			parts := strings.SplitN(line, " ", 3)
+			entry.Msg = line
+			entry.Level = "INFO" // Default level for plain logs
+			if len(parts) >= 3 {
+				// Try parsing date/time; if parsing fails, keep the original line as the Msg
+				if ts, perr := time.Parse("2006/01/02 15:04:05", parts[0]+" "+parts[1]); perr == nil {
+					entry.Ts = float64(ts.Unix())
+					entry.Msg = parts[2]
+				}
+			}
+		}
+
+		if s.matchesFilter(entry, filter) {
+			logs = append(logs, entry)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	// Reverse logs to show newest first (default) unless sort is asc
+	if filter.Sort != "asc" {
+		for i, j := 0, len(logs)-1; i < j; i, j = i+1, j-1 {
+			logs[i], logs[j] = logs[j], logs[i]
+		}
+	}
+
+	totalMatches = int64(len(logs))
+
+	// Apply pagination
+	start := filter.Offset
+	end := start + filter.Limit
+
+	if start >= len(logs) {
+		return []models.CaddyAccessLog{}, totalMatches, nil
+	}
+	if end > len(logs) {
+		end = len(logs)
+	}
+
+	return logs[start:end], totalMatches, nil
+}
+
+func (s *LogService) matchesFilter(entry models.CaddyAccessLog, filter models.LogFilter) bool {
+	// Status Filter
+	if filter.Status != "" {
+		statusStr := strconv.Itoa(entry.Status)
+		if strings.HasSuffix(filter.Status, "xx") {
+			// Handle 2xx, 4xx, 5xx
+			prefix := filter.Status[:1]
+			if !strings.HasPrefix(statusStr, prefix) {
+				return false
+			}
+		} else if statusStr != filter.Status {
+			return false
+		}
+	}
+
+	// Level Filter
+	if filter.Level != "" {
+		if !strings.EqualFold(entry.Level, filter.Level) {
+			return false
+		}
+	}
+
+	// Host Filter
+	if filter.Host != "" {
+		if !strings.Contains(strings.ToLower(entry.Request.Host), strings.ToLower(filter.Host)) {
+			return false
+		}
+	}
+
+	// Search Filter (generic text search)
+	if filter.Search != "" {
+		term := strings.ToLower(filter.Search)
+		// Search in common fields
+		if !strings.Contains(strings.ToLower(entry.Request.URI), term) &&
+			!strings.Contains(strings.ToLower(entry.Request.Method), term) &&
+			!strings.Contains(strings.ToLower(entry.Request.RemoteIP), term) &&
+			!strings.Contains(strings.ToLower(entry.Msg), term) {
+			return false
+		}
+	}
+
+	return true
+}

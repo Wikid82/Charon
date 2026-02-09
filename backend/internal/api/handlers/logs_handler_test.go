@@ -1,0 +1,161 @@
+package handlers
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/services"
+)
+
+func setupLogsTest(t *testing.T) (*gin.Engine, *services.LogService, string) {
+	t.Helper()
+
+	// Create temp directories
+	tmpDir, err := os.MkdirTemp("", "cpm-logs-test")
+	require.NoError(t, err)
+
+	// LogService expects LogDir to be .../data/logs
+	// It derives it from cfg.DatabasePath
+
+	dataDir := filepath.Join(tmpDir, "data")
+	err = os.MkdirAll(dataDir, 0o750) // #nosec G301 -- test directory
+	require.NoError(t, err)
+
+	dbPath := filepath.Join(dataDir, "charon.db")
+
+	// Create logs dir
+	logsDir := filepath.Join(dataDir, "logs")
+	err = os.MkdirAll(logsDir, 0o750) // #nosec G301 -- test directory
+	require.NoError(t, err)
+
+	// Create dummy log files with JSON content
+	log1 := `{"level":"info","ts":1600000000,"msg":"request handled","request":{"method":"GET","host":"example.com","uri":"/","remote_ip":"1.2.3.4"},"status":200}`
+	log2 := `{"level":"error","ts":1600000060,"msg":"error handled","request":{"method":"POST","host":"api.example.com","uri":"/submit","remote_ip":"5.6.7.8"},"status":500}`
+
+	err = os.WriteFile(filepath.Join(logsDir, "access.log"), []byte(log1+"\n"+log2+"\n"), 0o600) // #nosec G306 -- test fixture
+	require.NoError(t, err)
+	// Write a charon.log and create a cpmp.log symlink to it for backward compatibility (cpmp is legacy)
+	err = os.WriteFile(filepath.Join(logsDir, "charon.log"), []byte("app log line 1\napp log line 2"), 0o600) // #nosec G306 -- test fixture
+	require.NoError(t, err)
+	// Create legacy cpmp log symlink (cpmp is a legacy name for Charon)
+	_ = os.Symlink(filepath.Join(logsDir, "charon.log"), filepath.Join(logsDir, "cpmp.log"))
+	require.NoError(t, err)
+
+	cfg := &config.Config{
+		DatabasePath: dbPath,
+	}
+
+	svc := services.NewLogService(cfg)
+	h := NewLogsHandler(svc)
+
+	r := gin.New()
+	api := r.Group("/api/v1")
+
+	logs := api.Group("/logs")
+	logs.GET("", h.List)
+	logs.GET("/:filename", h.Read)
+	logs.GET("/:filename/download", h.Download)
+
+	return r, svc, tmpDir
+}
+
+func TestLogsLifecycle(t *testing.T) {
+	router, _, tmpDir := setupLogsTest(t)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	// 1. List logs
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/logs", http.NoBody)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var logs []services.LogFile
+	err := json.Unmarshal(resp.Body.Bytes(), &logs)
+	require.NoError(t, err)
+	require.Len(t, logs, 2) // access.log and cpmp.log
+
+	// Verify content of one log file
+	found := false
+	for _, l := range logs {
+		if l.Name == "access.log" {
+			found = true
+			require.Greater(t, l.Size, int64(0))
+		}
+	}
+	require.True(t, found)
+
+	// 2. Read log
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log?limit=2", http.NoBody)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var content struct {
+		Filename string `json:"filename"`
+		Logs     []any  `json:"logs"`
+		Total    int    `json:"total"`
+	}
+	err = json.Unmarshal(resp.Body.Bytes(), &content)
+	require.NoError(t, err)
+	require.Len(t, content.Logs, 2)
+
+	// 3. Download log
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log/download", http.NoBody)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+	require.Contains(t, resp.Body.String(), "request handled")
+
+	// 4. Read non-existent log
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/missing.log", http.NoBody)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusNotFound, resp.Code)
+
+	// 5. Download non-existent log
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/missing.log/download", http.NoBody)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusNotFound, resp.Code)
+
+	// 6. List logs error (delete directory)
+	_ = os.RemoveAll(filepath.Join(tmpDir, "data", "logs"))
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs", http.NoBody)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	// ListLogs returns empty list if dir doesn't exist, so it should be 200 OK with empty list
+	require.Equal(t, http.StatusOK, resp.Code)
+	var emptyLogs []services.LogFile
+	err = json.Unmarshal(resp.Body.Bytes(), &emptyLogs)
+	require.NoError(t, err)
+	require.Empty(t, emptyLogs)
+}
+
+func TestLogsHandler_PathTraversal(t *testing.T) {
+	_, _, tmpDir := setupLogsTest(t)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	// Manually invoke handler to bypass Gin router cleaning
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "filename", Value: "../access.log"}}
+
+	cfg := &config.Config{
+		DatabasePath: filepath.Join(tmpDir, "data", "charon.db"),
+	}
+	svc := services.NewLogService(cfg)
+	h := NewLogsHandler(svc)
+
+	h.Download(c)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "invalid filename")
+}

@@ -1,0 +1,133 @@
+name: CrowdSec Integration
+
+# Phase 2-3: Build Once, Test Many - Use registry image instead of building
+# This workflow now waits for docker-build.yml to complete and pulls the built image
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Docker image tag to test (e.g., pr-123-abc1234, latest)'
+        required: false
+        type: string
+  pull_request:
+
+# Prevent race conditions when PR is updated mid-test
+# Cancels old test runs when new build completes with different SHA
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.event || github.event_name }}-${{ github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  crowdsec-integration:
+    name: CrowdSec Bouncer Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Build Docker image (Local)
+        run: |
+          echo "Building image locally for integration tests..."
+          docker build -t charon:local .
+          echo "✅ Successfully built charon:local"
+
+      - name: Run CrowdSec integration tests
+        id: crowdsec-test
+        run: |
+          chmod +x .github/skills/scripts/skill-runner.sh
+          .github/skills/scripts/skill-runner.sh integration-test-crowdsec 2>&1 | tee crowdsec-test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Run CrowdSec Startup and LAPI Tests
+        id: lapi-test
+        run: |
+          chmod +x .github/skills/scripts/skill-runner.sh
+          .github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup 2>&1 | tee lapi-test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Dump Debug Info on Failure
+        if: failure()
+        run: |
+          {
+            echo "## 🔍 Debug Information"
+            echo ""
+
+            echo "### Container Status"
+            echo '```'
+            docker ps -a --filter "name=charon" --filter "name=crowdsec" 2>&1 || true
+            echo '```'
+            echo ""
+
+            # Check which test container exists and dump its logs
+            if docker ps -a --filter "name=charon-crowdsec-startup-test" --format "{{.Names}}" | grep -q "charon-crowdsec-startup-test"; then
+              echo "### Charon Startup Test Container Logs (last 100 lines)"
+              echo '```'
+              docker logs charon-crowdsec-startup-test 2>&1 | tail -100 || echo "No container logs available"
+              echo '```'
+            elif docker ps -a --filter "name=charon-debug" --format "{{.Names}}" | grep -q "charon-debug"; then
+              echo "### Charon Container Logs (last 100 lines)"
+              echo '```'
+              docker logs charon-debug 2>&1 | tail -100 || echo "No container logs available"
+              echo '```'
+            fi
+            echo ""
+
+            # Check for CrowdSec specific logs if LAPI test ran
+            if [ -f "lapi-test-output.txt" ]; then
+              echo "### CrowdSec LAPI Test Failures"
+              echo '```'
+              grep -E "✗ FAIL|✗ CRITICAL|CROWDSEC.*BROKEN" lapi-test-output.txt 2>&1 || echo "No critical failures found in LAPI test"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: CrowdSec Integration Summary
+        if: always()
+        run: |
+          {
+            echo "## 🛡️ CrowdSec Integration Test Results"
+
+          # CrowdSec Preset Integration Tests
+          if [ "${{ steps.crowdsec-test.outcome }}" == "success" ]; then
+            echo "✅ **CrowdSec Hub Presets: Passed**"
+            echo ""
+            echo "### Preset Test Results:"
+            echo '```'
+            grep -E "^✓|^===|^Pull|^Apply" crowdsec-test-output.txt || echo "See logs for details"
+            echo '```'
+          else
+            echo "❌ **CrowdSec Hub Presets: Failed**"
+            echo ""
+            echo "### Preset Failure Details:"
+            echo '```'
+            grep -E "^✗|Unexpected|Error|failed|FAIL" crowdsec-test-output.txt | head -20 || echo "See logs for details"
+            echo '```'
+          fi
+
+            echo ""
+
+          # CrowdSec Startup and LAPI Tests
+          if [ "${{ steps.lapi-test.outcome }}" == "success" ]; then
+            echo "✅ **CrowdSec Startup & LAPI: Passed**"
+            echo ""
+            echo "### LAPI Test Results:"
+            echo '```'
+            grep -E "^\[TEST\]|✓ PASS|Check [0-9]|CrowdSec LAPI" lapi-test-output.txt || echo "See logs for details"
+            echo '```'
+          else
+            echo "❌ **CrowdSec Startup & LAPI: Failed**"
+            echo ""
+            echo "### LAPI Failure Details:"
+            echo '```'
+            grep -E "✗ FAIL|✗ CRITICAL|Error|failed" lapi-test-output.txt | head -20 || echo "See logs for details"
+            echo '```'
+          fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f charon-debug || true
+          docker rm -f charon-crowdsec-startup-test || true
+          docker rm -f crowdsec || true
+          docker network rm containers_default || true

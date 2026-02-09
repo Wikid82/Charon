@@ -1,0 +1,16 @@
+## Propagation Config
+# Central list of sensitive paths that should not be auto-propagated.
+# The workflow reads this file and will skip automatic propagation if any
+# changed files match these paths. Only a simple YAML list under `sensitive_paths:` is parsed.
+
+sensitive_paths:
+  - scripts/history-rewrite/
+  - data/backups
+  - docs/plans/
+  - .github/agents/
+  - .github/instructions/
+  - .github/prompts/
+  - .github/skills/
+  - .vscode/
+  - scripts/history-rewrite/preview_removals.sh
+  - scripts/history-rewrite/clean_history.sh
