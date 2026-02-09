@@ -4,12 +4,35 @@
 coverage:
   status:
     project:
-      default:
+      # Backend: Lines coverage only (85% minimum)
+      backend:
         target: 85%
         threshold: 1%
+        flags:
+          - backend
+        only:
+          - lines
+      # Frontend: Lines coverage only (85% minimum)
+      frontend:
+        target: 85%
+        threshold: 1%
+        flags:
+          - frontend
+        only:
+          - lines
+      # E2E: Lines coverage only (85% minimum)
+      e2e:
+        target: 85%
+        threshold: 1%
+        flags:
+          - e2e
+        only:
+          - lines
     patch:
       default:
         target: 100%
+        only:
+          - lines
 
 # Exclude test artifacts and non-production code from coverage
 ignore:
