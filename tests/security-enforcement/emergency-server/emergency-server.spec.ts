@@ -14,8 +14,8 @@
  */
 
 import { test, expect, request as playwrightRequest } from '@playwright/test';
-import { EMERGENCY_TOKEN, EMERGENCY_SERVER, enableSecurity } from '../fixtures/security';
-import { TestDataManager } from '../utils/TestDataManager';
+import { EMERGENCY_TOKEN, EMERGENCY_SERVER, enableSecurity } from '../../fixtures/security';
+import { TestDataManager } from '../../utils/TestDataManager';
 
 // CI-specific timeout multiplier: CI environments have higher I/O latency
 const CI_TIMEOUT_MULTIPLIER = process.env.CI ? 3 : 1;

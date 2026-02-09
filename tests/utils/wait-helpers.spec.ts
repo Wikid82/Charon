@@ -142,10 +142,10 @@ test.describe('wait-helpers - Phase 2.1 Semantic Wait Functions', () => {
       `);
 
       await page.click('#enable-field');
-      await waitForFormFields(page, '#test-field', { shouldBeEnabled: true });
+      await waitForFormFields(page, '#test-field', { shouldBeEnabled: true, timeout: 2000 });
 
       const field = page.locator('#test-field');
-      await expect(field).toBeEnabled();
+      await expect(field).toBeEnabled({ timeout: 2000 });
     });
 
     test('should handle disabled fields when shouldBeEnabled is false', async ({ page }) => {

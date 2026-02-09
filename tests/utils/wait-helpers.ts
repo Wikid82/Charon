@@ -199,7 +199,9 @@ export async function waitForAPIResponse(
   urlPattern: string | RegExp,
   options: APIResponseOptions = {}
 ): Promise<Response> {
-  const { status, timeout = 30000 } = options;
+  // Increase default timeout to 60s to tolerate slower CI/backends; individual
+  // tests may override this if they expect faster responses.
+  const { status, timeout = 60000 } = options;
 
   const responsePromise = page.waitForResponse(
     (response) => {

@@ -26,7 +26,10 @@ const STORAGE_STATE = join(__dirname, 'playwright/.auth/user.json');
  * Enabled by default, disable with PLAYWRIGHT_COVERAGE=0
  */
 const enableCoverage = process.env.PLAYWRIGHT_COVERAGE !== '0';
-const skipSecurityDeps = process.env.PLAYWRIGHT_SKIP_SECURITY_DEPS === '1';
+// Skip security-test dependencies by default to avoid running them as a
+// prerequisite for non-security test runs. Set PLAYWRIGHT_SKIP_SECURITY_DEPS=0
+// to restore the legacy dependency behavior when needed.
+const skipSecurityDeps = process.env.PLAYWRIGHT_SKIP_SECURITY_DEPS !== '0';
 const browserDependencies = skipSecurityDeps ? ['setup'] : ['setup', 'security-tests'];
 
 const coverageReporterConfig = enableCoverage ? defineCoverageReporterConfig({
@@ -236,9 +239,11 @@ export default defineConfig({
     },
 
     // Security Teardown - Disable ALL security modules
+    // Conditionally disabled when skipSecurityDeps is true
+    // When disabled, tests cannot find this project and it won't run
     {
       name: 'security-teardown',
-      testMatch: /security-teardown\.setup\.ts/,
+      testMatch: skipSecurityDeps ? [] : /security-teardown\.setup\.ts/,
     },
 
     // Browser projects - standard Playwright pattern

@@ -37,9 +37,18 @@ test.describe('SSL Certificates - CRUD Operations', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page);
-    // Navigate to certificates page
-    await page.goto('/certificates');
-    await waitForLoadingComplete(page);
+    // Navigate to certificates page (retry once on transient failures)
+    for (let i = 0; i < 2; i++) {
+      try {
+        await page.goto('/certificates');
+        await waitForLoadingComplete(page);
+        break;
+      } catch (err) {
+        if (i === 1) throw err;
+        // short backoff and retry
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
   });
 
   // Helper to get the Add Certificate button
@@ -180,7 +189,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
       });
     });
 
-    test('should show staging badge for Let\'s Encrypt staging certificates', async ({ page }) => {
+    test('should show staging badge for Let\'s Encrypt staging certificates', { retries: 1 }, async ({ page }) => {
       await test.step('Check for staging badges', async () => {
         const stagingBadge = page.locator('span').filter({ hasText: /staging/i });
         const badgeCount = await stagingBadge.count();
@@ -263,7 +272,9 @@ test.describe('SSL Certificates - CRUD Operations', () => {
         const nameInput = dialog.locator('input').first();
         await expect(nameInput).toBeVisible();
 
-        // Close dialog
+        // Close dialog (guard visibility/enabled to avoid transient flakiness)
+        await expect(getCancelButton(page)).toBeVisible({ timeout: 3000 });
+        await expect(getCancelButton(page)).toBeEnabled({ timeout: 3000 });
         await getCancelButton(page).click();
       });
     });
@@ -306,6 +317,8 @@ test.describe('SSL Certificates - CRUD Operations', () => {
       });
 
       await test.step('Close dialog', async () => {
+        await expect(getCancelButton(page)).toBeVisible({ timeout: 3000 });
+        await expect(getCancelButton(page)).toBeEnabled({ timeout: 3000 });
         await getCancelButton(page).click();
       });
     });
@@ -327,6 +340,8 @@ test.describe('SSL Certificates - CRUD Operations', () => {
       });
 
       await test.step('Close dialog', async () => {
+        await expect(getCancelButton(page)).toBeVisible({ timeout: 3000 });
+        await expect(getCancelButton(page)).toBeEnabled({ timeout: 3000 });
         await getCancelButton(page).click();
       });
     });

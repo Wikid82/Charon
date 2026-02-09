@@ -13,8 +13,8 @@
  * - Performance (2 tests): high volume logs, buffer limits
  */
 
-import { test, expect, loginUser } from '../fixtures/auth-fixtures';
-import { waitForToast, waitForLoadingComplete } from '../utils/wait-helpers';
+import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
+import { waitForToast, waitForLoadingComplete } from '../../utils/wait-helpers';
 
 /**
  * TypeScript interfaces matching the API

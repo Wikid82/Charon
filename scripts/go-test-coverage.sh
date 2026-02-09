@@ -27,11 +27,8 @@ cd "$BACKEND_DIR"
 EXCLUDE_PACKAGES=(
     "github.com/Wikid82/charon/backend/cmd/api"
     "github.com/Wikid82/charon/backend/cmd/seed"
-    "github.com/Wikid82/charon/backend/internal/logger"
-    "github.com/Wikid82/charon/backend/internal/metrics"
     "github.com/Wikid82/charon/backend/internal/trace"
     "github.com/Wikid82/charon/backend/integration"
-    "github.com/Wikid82/charon/backend/pkg/dnsprovider/builtin"
 )
 
 # Try to run tests to produce coverage file; some toolchains may return a non-zero

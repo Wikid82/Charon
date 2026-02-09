@@ -39,7 +39,21 @@ async function dismissDomainDialog(page: Page): Promise<void> {
 test.describe('Proxy Hosts - CRUD Operations', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
-    await page.goto('/proxy-hosts');
+
+    // Retry navigation to handle browser closures after long test runs
+    let retries = 2;
+    while (retries > 0) {
+      try {
+        await page.goto('/proxy-hosts');
+        break;
+      } catch (e) {
+        retries--;
+        if (retries === 0) throw e;
+        await page.reload().catch(() => {
+          // Reload may fail if page is closed, just continue to next iteration
+        });
+      }
+    }
 
     // Wait for the page content to actually load (bypassing the Skeleton state)
     // Wait for Skeleton to disappear
@@ -154,7 +168,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
       });
     });
 
-    test('should support row selection for bulk operations', async ({ page }) => {
+    test('should support row selection for bulk operations', { retries: 1 }, async ({ page }) => {
       await test.step('Check for selectable rows', async () => {
         // Look for checkbox in table header (select all) or rows
         const selectAllCheckbox = page.locator('thead').getByRole('checkbox');

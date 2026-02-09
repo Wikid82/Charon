@@ -102,11 +102,13 @@ func (s *AccessListService) Create(acl *models.AccessList) error {
 // GetByID retrieves an access list by ID
 func (s *AccessListService) GetByID(id uint) (*models.AccessList, error) {
 	var acl models.AccessList
-	if err := s.db.Where("id = ?", id).First(&acl).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrAccessListNotFound
-		}
-		return nil, err
+	// Use Find to avoid GORM 'record not found' log noise
+	result := s.db.Where("id = ?", id).Limit(1).Find(&acl)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, ErrAccessListNotFound
 	}
 	return &acl, nil
 }
@@ -114,11 +116,13 @@ func (s *AccessListService) GetByID(id uint) (*models.AccessList, error) {
 // GetByUUID retrieves an access list by UUID
 func (s *AccessListService) GetByUUID(uuidStr string) (*models.AccessList, error) {
 	var acl models.AccessList
-	if err := s.db.Where("uuid = ?", uuidStr).First(&acl).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrAccessListNotFound
-		}
-		return nil, err
+	// Use Find to avoid GORM 'record not found' log noise
+	result := s.db.Where("uuid = ?", uuidStr).Limit(1).Find(&acl)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, ErrAccessListNotFound
 	}
 	return &acl, nil
 }

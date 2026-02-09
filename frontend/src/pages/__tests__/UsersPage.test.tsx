@@ -1,4 +1,5 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within, fireEvent } from '@testing-library/react'
+import { act } from 'react'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import UsersPage from '../UsersPage'
@@ -361,6 +362,10 @@ describe('UsersPage', () => {
   })
 
   describe('URL Preview in InviteModal', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
     it('shows URL preview when valid email is entered', async () => {
       vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
       vi.mocked(client.post).mockResolvedValue({
@@ -405,21 +410,30 @@ describe('UsersPage', () => {
       })
 
       renderWithQueryClient(<UsersPage />)
-
       const user = userEvent.setup()
+
       await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
+      await waitFor(() => expect(screen.getByPlaceholderText('user@example.com')).toBeInTheDocument())
 
-      const emailInput = screen.getByPlaceholderText('user@example.com')
-      await user.type(emailInput, 'test@example.com')
+      vi.useFakeTimers()
 
-      // Wait 600ms to ensure debounce has completed
-      await new Promise(resolve => setTimeout(resolve, 600))
+      try {
+        const emailInput = screen.getByPlaceholderText('user@example.com')
+        fireEvent.change(emailInput, { target: { value: 'test@example.com' } })
 
-      await waitFor(() => {
+        // Verify not called immediately
+        expect(client.post).not.toHaveBeenCalled()
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(550)
+        })
+
         expect(client.post).toHaveBeenCalledTimes(1)
         expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })
-      }, { timeout: 1000 })
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('replaces sample token with ellipsis in preview', async () => {
@@ -491,7 +505,9 @@ describe('UsersPage', () => {
       const emailInput = screen.getByPlaceholderText('user@example.com')
       await user.type(emailInput, 'invalid')
 
-      await new Promise(resolve => setTimeout(resolve, 600))
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 600))
+      })
 
       // Preview should not be fetched or displayed
       expect(client.post).not.toHaveBeenCalled()
@@ -511,7 +527,9 @@ describe('UsersPage', () => {
       await user.type(emailInput, 'test@example.com')
 
       // Wait for debounce
-      await new Promise(resolve => setTimeout(resolve, 600))
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 600))
+      })
 
       await waitFor(() => {
         expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })

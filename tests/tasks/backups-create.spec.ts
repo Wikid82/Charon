@@ -70,9 +70,13 @@ test.describe('Backups Page - Creation and List', () => {
       await page.goto('/tasks/backups');
       await waitForLoadingComplete(page);
 
+      // Sanity check: verify UI reflects the logged-in guest identity before asserting
+      const userIndicator = page.getByRole('button', { name: new RegExp(guestUser.email.split('@')[0], 'i') }).first();
+      await expect(userIndicator).toBeVisible({ timeout: 5000 });
+
       // Guest users should not see any Create Backup button
       const createButton = page.locator(SELECTORS.createBackupButton);
-      await expect(createButton).toHaveCount(0);
+      await expect(createButton).toHaveCount(0, { timeout: 5000 });
     });
   });
 

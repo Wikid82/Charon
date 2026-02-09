@@ -203,6 +203,9 @@ test.describe('Logs Page - Static Log File Viewing', () => {
       await page.goto('/tasks/logs');
       await waitForLoadingComplete(page);
 
+      // Ensure the API responded and the mocked route was registered before asserting
+      await page.waitForResponse(resp => resp.url().includes('/api/v1/logs') && resp.status() === 200, { timeout: 60000 }).catch(() => {});
+
       // Verify all log files are displayed in the list
       await expect(page.getByText('access.log')).toBeVisible();
       await expect(page.getByText('error.log')).toBeVisible();

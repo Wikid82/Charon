@@ -1,335 +1,314 @@
 ---
-title: "CI Pipeline Reliability and Docker Tagging"
-status: "draft"
-scope: "ci/linting, ci/integration, docker/publishing"
-notes: Restore Go linting parity, prevent integration-stage cancellation after successful image builds, and correct Docker tag outputs across CI workflows.
+post_title: "E2E Test Remediation Plan"
+author1: "Charon Team"
+post_slug: "e2e-test-remediation-plan"
+microsoft_alias: "charon-team"
+featured_image: "https://wikid82.github.io/charon/assets/images/featured/charon.png"
+categories: ["testing"]
+tags: ["playwright", "e2e", "remediation", "security"]
+ai_note: "true"
+summary: "Phased remediation plan for Charon Playwright E2E tests, covering
+   inventory, dependencies, runtime estimates, and quick start commands."
+post_date: "2026-01-28"
 ---
 
 ## 1. Introduction
 
-This plan expands the CI scope to address three related gaps: missing Go
-lint enforcement, integration jobs being cancelled after a successful
-image build, and incomplete Docker tag outputs on Docker Hub. The
-intended outcome is a predictable pipeline where linting blocks early,
-integration and E2E gates complete reliably, and registries receive the
-full tag set required for traceability and stable consumption.
-
-Objectives:
-
-- Reinstate golangci-lint in the pipeline lint stage.
-- Use the fast config that already blocks local commits.
-- Ensure golangci-lint config is valid for the version used in CI.
-- Remove CI-only leniency so lint failures block merges.
-- Prevent integration jobs from being cancelled when image builds have
-  already completed successfully.
-- Ensure Docker Hub and GHCR receive SHA-only and branch+SHA tags, plus
-  latest/dev/nightly tags for main/development/nightly branches.
-- Keep CI behavior consistent across pre-commit, Makefile, VS Code
-  tasks, and GitHub Actions workflows.
+This plan replaces the current spec with a comprehensive, phased remediation
+strategy for the Playwright E2E test suite under [tests](tests). The goal is to
+stabilize execution, align dependencies, and sequence remediation work so that
+core management flows, security controls, and integration workflows become
+reliable in Docker-based E2E runs.
 
 ## 2. Research Findings
 
-### 2.1 Current CI State (Linting)
+### 2.1 Test Harness and Global Dependencies
 
-- The main pipeline is [ .github/workflows/ci-pipeline.yml ] and its
-  lint job runs repo health, Hadolint, GORM scanner, and frontend lint.
-  There is no Go lint step in this pipeline.
-- A separate manual workflow, [ .github/workflows/quality-checks.yml ],
-  runs golangci-lint with `continue-on-error: true`, which means CI does
-  not block on Go lint failures.
+- Global setup and teardown are enforced by
+   [tests/global-setup.ts](tests/global-setup.ts),
+   [tests/auth.setup.ts](tests/auth.setup.ts), and
+   [tests/security-teardown.setup.ts](tests/security-teardown.setup.ts).
+- Global setup validates the emergency token, checks health endpoints, and
+   resets security settings, which impacts all security-enforcement suites.
+- Multiple suites depend on the emergency server (port 2020) and Cerberus
+   modules with explicit admin whitelist configuration.
 
-### 2.2 Integration Cancellation Symptoms
+### 2.2 Test Inventory and Feature Areas
 
-- [ .github/workflows/ci-pipeline.yml ] defines workflow-level
-  concurrency:
-  `group: ci-manual-pipeline-${{ github.workflow }}-${{ github.ref_name }}`
-  with `cancel-in-progress: true`.
-- Integration jobs depend on `build-image` and gate on
-  `inputs.run_integration != false` and
-  `needs.build-image.outputs.push_image == 'true'`.
-- Integration-gate fails if any dependent integration job reports
-  `failure` or `cancelled`, and runs with `if: always()`.
-- A workflow-level cancellation after the build-image job completes will
-  cancel downstream integration jobs even though the build succeeded.
+- Core management flows: authentication, navigation, dashboard, proxy hosts,
+   certificates, access lists in [tests/core](tests/core).
+- DNS providers and ACME workflows: [tests/dns-provider-crud.spec.ts]
+   (tests/dns-provider-crud.spec.ts),
+   [tests/dns-provider-types.spec.ts](tests/dns-provider-types.spec.ts),
+   [tests/manual-dns-provider.spec.ts](tests/manual-dns-provider.spec.ts).
+- Monitoring: uptime and log streaming in
+   [tests/monitoring](tests/monitoring).
+- Settings: system, account, SMTP, notifications, encryption, user management
+   in [tests/settings](tests/settings).
+- Tasks and imports: backups, Caddyfile import flows, CrowdSec import, and log
+   viewing in [tests/tasks](tests/tasks).
+- Security UI: dashboard, WAF, CrowdSec, headers, rate limiting, and audit logs
+   in [tests/security](tests/security).
+- Security enforcement: ACL, WAF, rate limits, CrowdSec, emergency token, and
+   break-glass recovery in [tests/security-enforcement](tests/security-enforcement).
+- Integration workflows: cross-feature scenarios in
+   [tests/integration](tests/integration).
+- Browser-specific regressions for import flows in
+   [tests/webkit-specific](tests/webkit-specific) and
+   [tests/firefox-specific](tests/firefox-specific).
+- Debug and diagnostics: certificates and Caddy import debug coverage in
+   [tests/debug/certificates-debug.spec.ts](tests/debug/certificates-debug.spec.ts),
+   [tests/tasks/caddy-import-gaps.spec.ts](tests/tasks/caddy-import-gaps.spec.ts),
+   [tests/tasks/caddy-import-cross-browser.spec.ts](tests/tasks/caddy-import-cross-browser.spec.ts),
+   and [tests/debug](tests/debug).
+- UI triage and regression coverage: dropdown/modal coverage in
+   [tests/modal-dropdown-triage.spec.ts](tests/modal-dropdown-triage.spec.ts) and
+   [tests/proxy-host-dropdown-fix.spec.ts](tests/proxy-host-dropdown-fix.spec.ts).
+- Shared utilities validation: wait helpers in
+   [tests/utils/wait-helpers.spec.ts](tests/utils/wait-helpers.spec.ts).
 
-### 2.3 Current Image Tag Outputs
+### 2.3 Dependency and Ordering Constraints
 
-- In [ .github/workflows/ci-pipeline.yml ], the `Compute image tags`
-  step emits:
-  - `DEFAULT_TAG` (sha-<short> or pr-<number>-<short>)
-  - latest/dev/nightly tags based on `github.ref_name`
-- In [ .github/workflows/docker-build.yml ], `docker/metadata-action`
-  emits tags including:
-  - `type=raw,value=pr-${{ env.TRIGGER_PR_NUMBER }}-{{sha}}` for PRs
-  - `type=sha,format=short` for non-PRs
-  - feature branch tag via `steps.feature-tag.outputs.tag`
-  - `latest` only when `is_default_branch` is true
-  - `dev` only when `env.TRIGGER_REF == 'refs/heads/development'`
-- Docker Hub currently shows only PR and SHA-prefixed tags for some
-  builds; SHA-only and branch+SHA tags are not emitted consistently.
-- Nightly tagging exists in [ .github/workflows/nightly-build.yml ],
-  but the main Docker build workflow does not emit a `nightly` tag based
-  on branch detection.
+- The security-enforcement suite assumes Cerberus can be toggled on, and its
+   final tests intentionally restore admin whitelist state
+   (see [tests/security-enforcement/zzzz-break-glass-recovery.spec.ts]
+   (tests/security-enforcement/zzzz-break-glass-recovery.spec.ts)).
+- Admin whitelist blocking is designed to run last using a zzz prefix
+   (see [tests/security-enforcement/zzz-admin-whitelist-blocking.spec.ts]
+   (tests/security-enforcement/zzz-admin-whitelist-blocking.spec.ts)).
+- Emergency server tests depend on port 2020 availability
+   (see [tests/security-enforcement/emergency-server](tests/security-enforcement/emergency-server)).
+- Some import suites use real APIs and TestDataManager cleanup; others mock
+   requests. Remediation must avoid mixing mocked and real flows in a single
+   phase without clear isolation.
+
+### 2.4 Runtime and Flake Hotspots
+
+- Security-enforcement suites include extended retries, network propagation
+   delays, and rate limit loops.
+- Import debug and gap-coverage suites perform real uploads, data creation, and
+   commit flows, making them sensitive to backend state and Caddy reload timing.
+- Monitoring WebSocket tests require stable log streaming state.
 
 ## 3. Technical Specifications
 
-### 3.1 CI Lint Job (Pipeline)
+### 3.1 Test Grouping and Shards
 
-Add a Go lint step to the lint job in
-[ .github/workflows/ci-pipeline.yml ]:
+- **Foundation:** global setup, auth storage state, security teardown.
+- **Core UI:** authentication, navigation, dashboard, proxy hosts, certificates,
+   access lists.
+- **Settings:** system, account, SMTP, notifications, encryption, users.
+- **Tasks:** backups, logs, Caddyfile import, CrowdSec import.
+- **Monitoring:** uptime monitoring and real-time logs.
+- **Security UI:** Cerberus dashboard, WAF config, headers, rate limiting,
+   CrowdSec config, audit logs.
+- **Security Enforcement:** ACL/WAF/CrowdSec/rate limit enforcement, emergency
+   token and break-glass recovery, admin whitelist blocking.
+- **Integration:** proxy + cert, proxy + DNS, backup restore, import workflows,
+   multi-feature workflows.
+- **Browser-specific:** WebKit and Firefox import regressions.
+- **Debug/POC:** diagnostics and investigation suites (Caddy import debug).
 
-- Tooling: `golangci/golangci-lint-action`.
-- Working directory: `backend`.
-- Config: `backend/.golangci-fast.yml`.
-- Timeout: match config intent (2m fast, or 5m if parity with other
-  pipeline steps is preferred).
-- Failures: do not allow `continue-on-error`.
+### 3.2 Dependency Graph (High-Level)
 
-### 3.2 CI Lint Job (Manual Quality Checks)
+```mermaid
+flowchart TD
+   A[global-setup + auth.setup] --> B[Core UI + Settings]
+   A --> C[Tasks + Monitoring]
+   A --> D[Security UI]
+   D --> E[Security Enforcement]
+   E --> F[Break-Glass Recovery]
+   B --> G[Integration Workflows]
+   C --> G
+   G --> H[Browser-specific Suites]
+```
 
-Update [ .github/workflows/quality-checks.yml ] to align with local
-blocking behavior:
+### 3.3 Runtime Estimates (Docker Mode)
 
-- Remove `continue-on-error: true` from the golangci-lint step.
-- Ensure the step points to `backend/.golangci-fast.yml` or runs in
-  `backend` so that the config is picked up deterministically.
-- Pin golangci-lint version to the same major used in CI pipeline to
-  avoid config drift.
+| Group | Suite Examples | Expected Runtime | Prerequisites |
+| --- | --- | --- | --- |
+| Foundation | global setup + auth | 1-2 min | Docker E2E container, emergency token |
+| Core UI | core specs | 6-10 min | Auth storage state, clean data |
+| Settings | settings specs | 6-10 min | Auth storage state |
+| Tasks | backups/import/logs | 10-16 min | Auth storage state, API mocks and real flows |
+| Monitoring | monitoring specs | 5-8 min | WebSocket stability |
+| Security UI | security specs | 10-14 min | Cerberus enabled, admin whitelist |
+| Security Enforcement | enforcement specs | 15-25 min | Emergency token, port 2020, admin whitelist |
+| Integration | integration specs | 12-20 min | Stable core + settings + tasks |
+| Browser-specific | firefox/webkit | 8-12 min | Import baseline stable |
+| Debug/POC | caddy import debug | 4-6 min | Docker logs available |
 
-### 3.3 Integration Cancellation Root Cause and Fix
+Assumed worker count: 4 (default) except security-enforcement which requires
+`--workers=1`. Serial execution increases runtime for enforcement suites.
 
-Investigate and address workflow-level cancellation affecting
-integration jobs after `build-image` completes.
+### 3.4 Environment Preconditions
 
-Required investigation steps:
+- E2E container built and healthy via
+   `.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`.
+- Ports 8080 (UI/API) and 2020 (emergency server) reachable.
+- `CHARON_EMERGENCY_TOKEN` configured and valid.
+- Admin whitelist includes test runner ranges when Cerberus is enabled.
+- Caddy admin health endpoints reachable for import workflows.
 
-- Inspect recent CI runs for cancellation reasons in the Actions UI
-  (workflow-level cancellation vs job-level failure).
-- Confirm whether cancellations coincide with the workflow-level
-  concurrency group in [ .github/workflows/ci-pipeline.yml ].
-- Verify `inputs.run_integration` values are only populated on
-  `workflow_dispatch` events and evaluate the behavior on
-  `pull_request` events.
-- Verify `needs.build-image.outputs.push_image` and
-  `needs.build-image.outputs.image_ref_dockerhub` are set for non-fork
-  pull requests and branch pushes.
+### 3.5 Emergency Server and Security Prerequisites
 
-Proposed fix (preferred):
-
-- Remove workflow-level concurrency from
-  [ .github/workflows/ci-pipeline.yml ] and instead apply job-level
-  concurrency to the build-image job only, keeping cancellation limited
-  to redundant builds while allowing downstream integration/E2E/coverage
-  jobs to finish.
-- Add explicit guards to integration jobs:
-  `if: needs.build-image.result == 'success' &&
-  needs.build-image.outputs.push_image == 'true' &&
-  needs.build-image.outputs.image_ref_dockerhub != '' &&
-  (inputs.run_integration != false)`.
-- Update the integration-gate logic to treat `skipped` jobs as
-  non-fatal and only fail on `failure` or `cancelled` when
-  `needs.build-image.result == 'success'` and `push_image == 'true'`.
-
-Alternative fix (not recommended; does not meet primary objective):
-
-- Keep workflow-level concurrency but change to
-  `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` so
-  branch pushes and manual dispatches complete all downstream jobs.
-- This option still cancels PR runs after successful builds, which
-  conflicts with the primary objective of allowing integration gates
-  to complete reliably.
-
-### 3.4 Image Tag Outputs (CI Pipeline)
-
-Update the `Compute image tags` step in
-[ .github/workflows/ci-pipeline.yml ] to emit additional tags.
-
-Required additions:
-
-- SHA-only tag (short SHA, no prefix):
-  `${SHORT_SHA}` for both GHCR and Docker Hub.
-- Tag normalization rules for `SANITIZED_BRANCH`:
-  - Ensure the tag is non-empty after sanitization.
-  - Ensure the first character is `[a-z0-9]`; if it would start with
-    `-` or `.`, normalize by trimming leading `-` or `.` and recheck.
-  - Replace non-alphanumeric characters with `-` and collapse multiple
-    `-` characters into one.
-  - Limit the tag length to 128 characters after normalization.
-  - Fallback: if the sanitized result is empty or still invalid after
-    normalization, use `branch` as the fallback prefix.
-- Branch+SHA tag for non-PR events using a sanitized branch name derived
-  from `github.ref_name` (lowercase, `/` → `-`, non-alnum → `-`,
-  trimmed, collapsed). Example:
-  `${SANITIZED_BRANCH}-${SHORT_SHA}`.
-- Preserve existing `pr-${PR_NUMBER}-${SHORT_SHA}` for PRs.
-- Keep `latest`, `dev`, and `nightly` tags based on:
-  `github.ref_name == 'main' | 'development' | 'nightly'`.
-
-Decision point: SHA-only tags for PR builds
-
-- Option A (recommended): publish SHA-only tags only for trusted
-  branches (main/development/nightly and non-fork pushes). PR builds
-  continue to use `pr-${PR_NUMBER}-${SHORT_SHA}` without SHA-only tags.
-- Option B: publish SHA-only tags for PR builds when image push is
-  enabled for a non-fork authorized run (e.g., same-repo PRs), in
-  addition to PR-prefixed tags.
-- Assumption (default until decided): follow Option A to avoid
-  ambiguous SHA-only tags for untrusted PR contexts.
-
-Required step-level variables and expressions:
-
-- Step: `Compute image tags` (id: `tags`).
-- Variables: `SHORT_SHA`, `DEFAULT_TAG`, `PR_NUMBER`, `SANITIZED_BRANCH`.
-- Expressions:
-  - `${{ github.event_name }}`
-  - `${{ github.ref_name }}`
-  - `${{ github.event.pull_request.number }}`
-
-### 3.5 Image Tag Outputs (docker-build.yml)
-
-Update [ .github/workflows/docker-build.yml ] `Generate Docker metadata`
-tags to match the required outputs.
-
-Required additions:
-
-- Add SHA-only short tag for all events:
-  `type=sha,format=short,prefix=,suffix=`.
-- Add branch+SHA short tag for non-PR events using a sanitized branch
-  name derived from `env.TRIGGER_REF` or `env.TRIGGER_HEAD_BRANCH`.
-- Apply the same tag normalization rules as the CI pipeline
-  (`SANITIZED_BRANCH` non-empty, leading character normalized, length
-  <= 128, fallback to `branch`).
-- Add explicit branch tags for main/development/nightly based on
-  `env.TRIGGER_REF` (do not rely on `is_default_branch` for
-  workflow_run triggers):
-  - `type=raw,value=latest,enable=${{ env.TRIGGER_REF == 'refs/heads/main' }}`
-  - `type=raw,value=dev,enable=${{ env.TRIGGER_REF == 'refs/heads/development' }}`
-  - `type=raw,value=nightly,enable=${{ env.TRIGGER_REF == 'refs/heads/nightly' }}`
-
-Required step names and variables:
-
-- Step: `Compute feature branch tag` (id: `feature-tag`) remains for
-  `refs/heads/feature/*`.
-- New step: `Compute branch+sha tag` (id: `branch-tag`) for all
-  non-PR events using `TRIGGER_REF`.
-- Metadata step: `Generate Docker metadata` (id: `meta`).
-- Expressions:
-  - `${{ env.TRIGGER_EVENT }}`
-  - `${{ env.TRIGGER_REF }}`
-  - `${{ env.TRIGGER_HEAD_SHA }}`
-  - `${{ env.TRIGGER_PR_NUMBER }}`
-  - `${{ steps.branch-tag.outputs.tag }}`
-
-### 3.6 Repository Hygiene Review (Requested)
-
-- [ .gitignore ]: No change required for CI updates; no new artifacts
-  introduced by the tag changes.
-- [ codecov.yml ]: No change required; coverage configuration remains
-  correct.
-- [ .dockerignore ]: No change required; CI-only YAML edits are already
-  excluded from Docker build context.
-- [ Dockerfile ]: No change required; tagging logic is CI-only.
-- [ Branch tag normalization ]: No new files required; logic should be
-  implemented in existing CI steps only.
+- Port 2020 (emergency server) available and reachable for
+   [tests/security-enforcement/emergency-server](tests/security-enforcement/emergency-server).
+- Port 2019 is reserved for the Caddy admin API; use 2020 for emergency server
+   tests to avoid conflicts.
+- Basic Auth credentials required for emergency server tests. Defaults in test
+   fixtures are `admin` / `changeme` and should match the E2E compose config.
+- Admin whitelist bypass must be configured before enforcement tests that
+   toggle Cerberus settings.
 
 ## 4. Implementation Plan
 
-### Phase 1: Playwright Tests (Behavior Baseline)
+### Phase 1: Foundation and Test Harness Reliability
 
-- Confirm that no UI behavior is affected by CI-only changes.
-- Keep this phase as a verification note: E2E is unchanged and can be
-  re-run if CI changes surface unexpected side effects.
+Objective: Ensure the shared test harness is stable before touching feature
+flows.
 
-### Phase 2: Pipeline Lint Restoration
+- Validate global setup and storage state creation
+   (see [tests/global-setup.ts](tests/global-setup.ts) and
+   [tests/auth.setup.ts](tests/auth.setup.ts)).
+- Confirm emergency server availability and credentials for break-glass suites.
+- Establish baseline run for core login/navigation suites.
 
-- Add a Go lint step to the lint job in
-  [ .github/workflows/ci-pipeline.yml ].
-- Use `backend/.golangci-fast.yml` and ensure the step blocks on
-  failure.
-- Keep the lint job dependency order intact (repo health → Hadolint →
-  GORM scan → Go lint → frontend lint).
+Estimated runtime: 2-4 minutes
 
-### Phase 3: Integration Cancellation Fix
+Success criteria:
 
-- Remove workflow-level concurrency from
-  [ .github/workflows/ci-pipeline.yml ] and add job-level concurrency
-  on `build-image` only.
-- Add explicit `if` guards to integration jobs based on
-  `needs.build-image.result`, `needs.build-image.outputs.push_image`,
-  and `needs.build-image.outputs.image_ref_dockerhub`.
-- Update `integration-gate` to ignore `skipped` results when integration
-  is not expected to run and only fail on `failure` or `cancelled` when
-  build-image succeeded and pushed an image.
+- Storage state created once and reused without re-auth flake.
+- Emergency token validation passes and security reset executes.
 
-### Phase 4: Docker Tagging Updates
+### Phase 2: Core UI, Settings, Monitoring, and Task Flows
 
-- Update `Compute image tags` in
-  [ .github/workflows/ci-pipeline.yml ] to emit SHA-only and
-  branch+SHA tags in addition to the existing PR and branch tags.
-- Update `Generate Docker metadata` in
-  [ .github/workflows/docker-build.yml ] to emit SHA-only, branch+SHA,
-  and explicit latest/dev/nightly tags based on `env.TRIGGER_REF`.
-- Add tag normalization logic in both workflows to ensure valid Docker
-  tag prefixes (non-empty, valid leading character, <= 128 length,
-  fallback when sanitized branch is empty or invalid).
+Objective: Remediate the highest-traffic user journeys and tasks.
 
-### Phase 5: Validation and Guardrails
+- Core UI: authentication, navigation, dashboard, proxy hosts, certificates,
+   access lists (core CRUD and navigation).
+- Settings: system, account, SMTP, notifications, encryption, users.
+- Monitoring: uptime and real-time logs.
+- Tasks: backups, logs viewing, and base Caddyfile import flows.
+- Include modal/dropdown triage coverage and wait helpers validation.
 
-- Verify CI logs show the golangci-lint version and config in use.
-- Confirm integration jobs are no longer cancelled after successful
-  builds when new runs are queued.
-- Validate that Docker Hub and GHCR tags include:
-  - SHA-only short tags
-  - Branch+SHA short tags
-  - latest/dev/nightly tags for main/development/nightly branches
+Estimated runtime: 25-40 minutes
+
+Success criteria:
+
+- Core CRUD and navigation pass without retries.
+- Monitoring WebSocket tests pass without timeouts.
+- Backups and log viewing flows pass with mocks and deterministic waits.
+
+### Phase 3: Security UI and Enforcement
+
+Objective: Stabilize Cerberus UI configuration and enforcement workflows.
+
+- Security dashboard and configuration pages.
+- WAF, headers, rate limiting, CrowdSec, audit logs.
+- Enforcement suites, including emergency token and whitelist blocking order.
+
+Estimated runtime: 30-45 minutes
+
+Success criteria:
+
+- Security UI toggles and pages load without state leakage.
+- Enforcement suites pass with Cerberus enabled and whitelist configured.
+- Break-glass recovery restores bypass state for subsequent suites.
+
+### Phase 4: Integration, Browser-Specific, and Debug Suites
+
+Objective: Close cross-feature and browser-specific regressions.
+
+- Integration workflows: proxy + cert, proxy + DNS, backup restore, import to
+   production, multi-feature workflows.
+- Browser-specific Caddy import regressions (Firefox/WebKit).
+- Debug/POC suites (Caddy import debug, diagnostics) run as opt-in,
+   including caddy-import-gaps and cross-browser import coverage.
+
+Estimated runtime: 25-40 minutes
+
+Success criteria:
+
+- Integration workflows pass with stable TestDataManager cleanup.
+- Browser-specific import tests show consistent API request handling.
+- Debug suites remain optional and do not block core pipelines.
 
 ## 5. Acceptance Criteria (EARS)
 
-- WHEN a pull request or manual pipeline run executes, THE SYSTEM SHALL
-  run golangci-lint in the pipeline lint stage using
-  `backend/.golangci-fast.yml`.
-- WHEN golangci-lint finds violations, THE SYSTEM SHALL fail the
-  pipeline lint stage and block downstream jobs.
-- WHEN the manual quality workflow runs, THE SYSTEM SHALL enforce the
-  same blocking behavior and fast config as pre-commit.
-- WHEN a build-image job completes successfully and image push is
-  enabled for a non-fork authorized run, THE SYSTEM SHALL allow
-  integration jobs to run to completion without being cancelled by
-  workflow-level concurrency.
-- WHEN integration jobs are skipped by configuration while image push
-  is disabled or not authorized for the run, THE SYSTEM SHALL not mark
-  the integration gate as failed.
-- WHEN a non-PR build runs on main/development/nightly branches and
-  image push is enabled for a non-fork authorized run, THE SYSTEM SHALL
-  publish `latest`, `dev`, or `nightly` tags respectively to Docker Hub
-  and GHCR.
-- WHEN any image is built in CI and image push is enabled for a
-  non-fork authorized run, THE SYSTEM SHALL publish SHA-only and
-  branch+SHA tags in addition to existing PR or default tags.
+- WHEN the E2E harness initializes, THE SYSTEM SHALL validate emergency token
+   and create a reusable auth state without flake.
+- WHEN core management tests execute, THE SYSTEM SHALL complete CRUD flows
+   without manual retries or timeouts.
+- WHEN security enforcement suites execute, THE SYSTEM SHALL apply Cerberus
+   settings with admin whitelist bypass and SHALL restore security state after
+   completion.
+- WHEN integration workflows execute, THE SYSTEM SHALL complete cross-feature
+   journeys without data collisions or residual state.
 
-## 6. Risks and Mitigations
+## 6. Quick Start Commands
 
-- Risk: CI runtime increases due to added golangci-lint execution.
-  Mitigation: use the fast config and keep timeout tight (2m) with
-  caching enabled by the action.
-- Risk: Config incompatibility with CI golangci-lint version.
-  Mitigation: pin the version and log it in CI; validate config format.
-- Risk: Reduced cancellation leads to overlapping integration runs.
-  Mitigation: keep job-level concurrency on build-image; monitor queue
-  time and adjust if needed.
-- Risk: Tag proliferation complicates image selection for users.
-  Mitigation: document tag matrix in release notes or README once
-  verified in CI.
-- Risk: Sanitized branch names may collapse to empty or invalid tags.
-  Mitigation: enforce normalization rules with a safe fallback prefix
-  to keep tag generation deterministic.
+```bash
+# Rebuild and start E2E container
+.github/skills/scripts/skill-runner.sh docker-rebuild-e2e
 
-## 7. Confidence Score
+# PHASE 1: Foundation
+cd /projects/Charon
+npx playwright test tests/global-setup.ts tests/auth.setup.ts --project=firefox
 
-Confidence: 84 percent
+# PHASE 2: Core UI, Settings, Tasks, Monitoring
+# NOTE: PLAYWRIGHT_SKIP_SECURITY_DEPS=1 is automatically set in E2E scripts
+# Security suites will NOT execute as dependencies
+npx playwright test tests/core --project=firefox
+npx playwright test tests/settings --project=firefox
+npx playwright test tests/tasks --project=firefox
+npx playwright test tests/monitoring --project=firefox
 
-Rationale: The linting changes are straightforward, but integration
-job cancellation behavior depends on workflow-level concurrency and may
-require validation in Actions history to select the most appropriate
-fix. Tagging changes are predictable once metadata-action inputs are
-aligned with branch detection.
+# PHASE 3: Security UI and Enforcement (SERIAL)
+npx playwright test tests/security --project=firefox
+npx playwright test tests/security-enforcement --project=firefox --workers=1
+
+# PHASE 4: Integration, Browser-Specific, Debug (Optional)
+npx playwright test tests/integration --project=firefox
+npx playwright test tests/firefox-specific --project=firefox
+npx playwright test tests/webkit-specific --project=webkit
+npx playwright test tests/debug --project=firefox
+npx playwright test tests/tasks/caddy-import-gaps.spec.ts --project=firefox
+```
+
+## 7. Risks and Mitigations
+
+- Risk: Security suite state leaks across tests. Mitigation: enforce admin
+   whitelist reset and break-glass recovery ordering.
+- Risk: File-name ordering (zzz-) not enforced without `--workers=1`.
+   Mitigation: document `--workers=1` requirement and make it mandatory in
+   CI and quick-start commands.
+- Risk: Emergency server unavailable. Mitigation: gate enforcement suites on
+   health checks and document port 2020 requirements.
+- Risk: Import suites combine mocked and real flows. Mitigation: isolate by
+   phase and keep debug suites opt-in.
+- Risk: Missing test suites hide regressions. Mitigation: inventory now
+   includes all suites and maps them to phases.
+
+## 8. Dependencies and Impacted Files
+
+- Harness: [tests/global-setup.ts](tests/global-setup.ts),
+   [tests/auth.setup.ts](tests/auth.setup.ts),
+   [tests/security-teardown.setup.ts](tests/security-teardown.setup.ts).
+- Core UI: [tests/core](tests/core).
+- Settings: [tests/settings](tests/settings).
+- Tasks: [tests/tasks](tests/tasks).
+- Monitoring: [tests/monitoring](tests/monitoring).
+- Security UI: [tests/security](tests/security).
+- Security enforcement: [tests/security-enforcement](tests/security-enforcement).
+- Integration: [tests/integration](tests/integration).
+- Browser-specific: [tests/firefox-specific](tests/firefox-specific),
+   [tests/webkit-specific](tests/webkit-specific).
+
+## 9. Confidence Score
+
+Confidence: 79 percent
+
+Rationale: The suite inventory and dependencies are well understood. The main
+unknowns are timing-sensitive security propagation and emergency server
+availability in varied environments.
