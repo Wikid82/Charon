@@ -21,6 +21,14 @@ name: Docker Build, Publish & Test
 # See: docs/plans/current_spec.md (Section 4.1 - docker-build.yml changes)
 
 on:
+  push:
+    branches:
+      - main
+      - development
+  pull_request:
+    branches:
+      - main
+      - development
   workflow_dispatch:
 
 concurrency:

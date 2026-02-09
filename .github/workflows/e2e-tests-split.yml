@@ -79,6 +79,10 @@ on:
         required: false
         default: false
         type: boolean
+  pull_request:
+    branches:
+      - main
+      - development
 
 env:
   NODE_VERSION: '20'
@@ -86,6 +90,8 @@ env:
   GOTOOLCHAIN: auto
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: ${{ github.repository_owner }}/charon
+  E2E_BROWSER: ${{ inputs.browser || 'all' }}
+  E2E_TEST_CATEGORY: ${{ inputs.test_category || 'all' }}
   PLAYWRIGHT_COVERAGE: ${{ (inputs.playwright_coverage && '1') || (vars.PLAYWRIGHT_COVERAGE || '0') }}
   DEBUG: 'charon:*,charon-test:*'
   PLAYWRIGHT_DEBUG: '1'
@@ -205,8 +211,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
-      (inputs.browser == 'chromium' || inputs.browser == 'all') &&
-      (inputs.test_category == 'security' || inputs.test_category == 'all')
+      ((inputs.browser || 'all') == 'chromium' || (inputs.browser || 'all') == 'all') &&
+      ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 30
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
@@ -344,7 +350,7 @@ jobs:
           retention-days: 14
 
       - name: Upload Chromium Security coverage (if enabled)
-        if: always() && env.PLAYWRIGHT_COVERAGE == '1'
+        if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: e2e-coverage-chromium-security
@@ -381,8 +387,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
-      (inputs.browser == 'firefox' || inputs.browser == 'all') &&
-      (inputs.test_category == 'security' || inputs.test_category == 'all')
+      ((inputs.browser || 'all') == 'firefox' || (inputs.browser || 'all') == 'all') &&
+      ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 30
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
@@ -528,7 +534,7 @@ jobs:
           retention-days: 14
 
       - name: Upload Firefox Security coverage (if enabled)
-        if: always() && env.PLAYWRIGHT_COVERAGE == '1'
+        if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: e2e-coverage-firefox-security
@@ -565,8 +571,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
-      (inputs.browser == 'webkit' || inputs.browser == 'all') &&
-      (inputs.test_category == 'security' || inputs.test_category == 'all')
+      ((inputs.browser || 'all') == 'webkit' || (inputs.browser || 'all') == 'all') &&
+      ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 30
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
@@ -712,7 +718,7 @@ jobs:
           retention-days: 14
 
       - name: Upload WebKit Security coverage (if enabled)
-        if: always() && env.PLAYWRIGHT_COVERAGE == '1'
+        if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: e2e-coverage-webkit-security
@@ -756,8 +762,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
-      (inputs.browser == 'chromium' || inputs.browser == 'all') &&
-      (inputs.test_category == 'non-security' || inputs.test_category == 'all')
+      ((inputs.browser || 'all') == 'chromium' || (inputs.browser || 'all') == 'all') &&
+      ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 20
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
@@ -892,7 +898,7 @@ jobs:
           retention-days: 14
 
       - name: Upload Chromium coverage (if enabled)
-        if: always() && env.PLAYWRIGHT_COVERAGE == '1'
+        if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: e2e-coverage-chromium-shard-${{ matrix.shard }}
@@ -929,8 +935,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
-      (inputs.browser == 'firefox' || inputs.browser == 'all') &&
-      (inputs.test_category == 'non-security' || inputs.test_category == 'all')
+      ((inputs.browser || 'all') == 'firefox' || (inputs.browser || 'all') == 'all') &&
+      ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 20
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
@@ -1073,7 +1079,7 @@ jobs:
           retention-days: 14
 
       - name: Upload Firefox coverage (if enabled)
-        if: always() && env.PLAYWRIGHT_COVERAGE == '1'
+        if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: e2e-coverage-firefox-shard-${{ matrix.shard }}
@@ -1110,8 +1116,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
-      (inputs.browser == 'webkit' || inputs.browser == 'all') &&
-      (inputs.test_category == 'non-security' || inputs.test_category == 'all')
+      ((inputs.browser || 'all') == 'webkit' || (inputs.browser || 'all') == 'all') &&
+      ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 20
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
@@ -1254,7 +1260,7 @@ jobs:
           retention-days: 14
 
       - name: Upload WebKit coverage (if enabled)
-        if: always() && env.PLAYWRIGHT_COVERAGE == '1'
+        if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: e2e-coverage-webkit-shard-${{ matrix.shard }}
