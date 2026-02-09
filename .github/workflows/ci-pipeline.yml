@@ -330,6 +330,10 @@ jobs:
       - name: Echo generated tags
         run: printf '%s\n' "${{ steps.tags.outputs.tags }}"
 
+      - name: Debug tags context
+        run: |
+          echo "Tags: [${{ steps.tags.outputs.tags }}]"
+
       - name: Build and push Docker image
         id: push
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
@@ -345,23 +349,34 @@ jobs:
 
       - name: Emit image outputs
         id: outputs
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          TAGS_RAW: ${{ steps.tags.outputs.tags }}
+          DEFAULT_TAG: ${{ steps.tags.outputs.image_tag }}
+          PUSH_IMAGE: ${{ steps.image-policy.outputs.push }}
+          PUSH_OUTCOME: ${{ steps.push.outcome }}
         run: |
-          DIGEST="${{ steps.push.outputs.digest }}"
+          set -x
+          # sanitize digest
           DIGEST=$(echo "$DIGEST" | xargs)
-          TAGS_RAW='${{ steps.tags.outputs.tags }}'
-          DEFAULT_TAG='${{ steps.tags.outputs.image_tag }}'
-          PUSH_IMAGE="${{ steps.image-policy.outputs.push }}"
-          PUSH_OUTCOME="${{ steps.push.outcome }}"
+
+          echo "Debug: Input Digest: '$DIGEST'"
+          echo "Debug: Default Tag: '$DEFAULT_TAG'"
+          echo "Debug: Push Enabled: '$PUSH_IMAGE'"
+          echo "Debug: Push Outcome: '$PUSH_OUTCOME'"
 
           IMAGE_REF_DOCKERHUB=""
           IMAGE_REF_GHCR=""
 
           if [ -n "$DIGEST" ]; then
             echo "Digest available; using immutable refs."
-            IMAGE_REF_DOCKERHUB="${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
-            IMAGE_REF_GHCR="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
+            IMAGE_REF_DOCKERHUB="${{ env.DOCKERHUB_REGISTRY }}/${IMAGE_NAME}@${DIGEST}"
+            IMAGE_REF_GHCR="${{ env.GHCR_REGISTRY }}/${IMAGE_NAME}@${DIGEST}"
           else
-            echo "Digest empty; scanning tag list."
+            echo "Digest empty or whitespace; scanning tag list."
+            echo "Debug: Tags Raw content:"
+            echo "$TAGS_RAW"
+
             DOCKERHUB_MATCH=""
             GHCR_MATCH=""
 
@@ -370,13 +385,15 @@ jobs:
               if [ -z "$line" ]; then
                 continue
               fi
+              # trim whitespace
+              line=$(echo "$line" | xargs)
 
-              if [ -z "$DOCKERHUB_MATCH" ] && [[ "$line" == "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:${DEFAULT_TAG}" ]]; then
+              if [ -z "$DOCKERHUB_MATCH" ] && [[ "$line" == "${{ env.DOCKERHUB_REGISTRY }}/${IMAGE_NAME}:${DEFAULT_TAG}" ]]; then
                 DOCKERHUB_MATCH="$line"
                 echo "Selected Docker Hub tag matching DEFAULT_TAG: $DOCKERHUB_MATCH"
               fi
 
-              if [ -z "$GHCR_MATCH" ] && [[ "$line" == "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${DEFAULT_TAG}" ]]; then
+              if [ -z "$GHCR_MATCH" ] && [[ "$line" == "${{ env.GHCR_REGISTRY }}/${IMAGE_NAME}:${DEFAULT_TAG}" ]]; then
                 GHCR_MATCH="$line"
                 echo "Selected GHCR tag matching DEFAULT_TAG: $GHCR_MATCH"
               fi
@@ -393,12 +410,12 @@ jobs:
             done <<< "$TAGS_RAW"
 
             if [ -z "$DOCKERHUB_MATCH" ] && [ -n "$DEFAULT_TAG" ]; then
-              DOCKERHUB_MATCH="${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:${DEFAULT_TAG}"
+              DOCKERHUB_MATCH="${{ env.DOCKERHUB_REGISTRY }}/${IMAGE_NAME}:${DEFAULT_TAG}"
               echo "No Docker Hub tag found; using computed DEFAULT_TAG fallback: $DOCKERHUB_MATCH"
             fi
 
             if [ -z "$GHCR_MATCH" ] && [ -n "$DEFAULT_TAG" ]; then
-              GHCR_MATCH="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${DEFAULT_TAG}"
+              GHCR_MATCH="${{ env.GHCR_REGISTRY }}/${IMAGE_NAME}:${DEFAULT_TAG}"
               echo "No GHCR tag found; using computed DEFAULT_TAG fallback: $GHCR_MATCH"
             fi
 
@@ -406,13 +423,20 @@ jobs:
             IMAGE_REF_GHCR="$GHCR_MATCH"
           fi
 
+          IMAGE_REF_DOCKERHUB=$(echo "$IMAGE_REF_DOCKERHUB" | xargs)
+          IMAGE_REF_GHCR=$(echo "$IMAGE_REF_GHCR" | xargs)
+
           if [ -z "$IMAGE_REF_DOCKERHUB" ] && [ "$PUSH_IMAGE" = "true" ] && [ "$PUSH_OUTCOME" = "success" ]; then
             echo "::error::Failed to resolve Docker Hub image ref after push. Digest='${DIGEST}', default_tag='${DEFAULT_TAG}', tags_present='${TAGS_RAW:+yes}'"
             exit 1
           fi
 
           if [ "$PUSH_IMAGE" = "true" ] && [ "$PUSH_OUTCOME" = "success" ]; then
-            echo "Validating Docker Hub image ref: ${IMAGE_REF_DOCKERHUB}"
+            echo "Validating Docker Hub image ref: '${IMAGE_REF_DOCKERHUB}'"
+            if [ -z "$IMAGE_REF_DOCKERHUB" ]; then
+                 echo "::error::Validated ref is empty!"
+                 exit 1
+            fi
             docker manifest inspect "${IMAGE_REF_DOCKERHUB}"
           fi
 
