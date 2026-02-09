@@ -186,7 +186,6 @@ jobs:
           fi
 
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          DEFAULT_TAG="sha-${SHORT_SHA}"
           BRANCH_NAME="${{ github.ref_name }}"
           if [[ "$BRANCH_NAME" == refs/heads/* ]]; then
             BRANCH_NAME="${BRANCH_NAME#refs/heads/}"
@@ -197,13 +196,37 @@ jobs:
               BRANCH_NAME="${BRANCH_NAME#refs/heads/}"
             fi
           fi
+
+          sanitize_tag() {
+            local raw="$1"
+            local max_len="$2"
+            local fallback="$3"
+            local sanitized
+
+            sanitized=$(printf '%s' "$raw" | sed -E 's/[^A-Za-z0-9_.-]/-/g')
+            sanitized=$(printf '%s' "$sanitized" | sed -E 's/-+/-/g')
+            sanitized=$(printf '%s' "$sanitized" | sed -E 's/^[.-]+//')
+            sanitized=$(printf '%s' "$sanitized" | cut -c1-"$max_len")
+
+            if [ -z "$sanitized" ]; then
+              sanitized="$fallback"
+            fi
+
+            printf '%s' "$sanitized"
+          }
+
+          DEFAULT_TAG="sha-${SHORT_SHA}"
           if [ -n "${{ inputs.image_tag_override }}" ]; then
-            DEFAULT_TAG="${{ inputs.image_tag_override }}"
+            DEFAULT_TAG=$(sanitize_tag "${{ inputs.image_tag_override }}" 128 "sha-${SHORT_SHA}")
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
             PR_NUMBER="${{ github.event.pull_request.number }}"
             if [ -n "${PR_NUMBER}" ]; then
-              DEFAULT_TAG="pr-${PR_NUMBER}-${SHORT_SHA}"
+              DEFAULT_TAG=$(sanitize_tag "pr-${PR_NUMBER}-${SHORT_SHA}" 128 "sha-${SHORT_SHA}")
+            else
+              DEFAULT_TAG=$(sanitize_tag "sha-${SHORT_SHA}" 128 "sha-${SHORT_SHA}")
             fi
+          else
+            DEFAULT_TAG=$(sanitize_tag "${DEFAULT_TAG}" 128 "sha-${SHORT_SHA}")
           fi
 
           if [ -z "$DEFAULT_TAG" ]; then
@@ -211,30 +234,12 @@ jobs:
             exit 1
           fi
 
-          sanitize_tag() {
-            local raw="$1"
-            local max_len="$2"
-
-            local sanitized
-            sanitized=$(echo "$raw" | sed -E 's/[^A-Za-z0-9_.-]/-/g')
-            sanitized=$(echo "$sanitized" | sed -E 's/-+/-/g')
-            sanitized=$(echo "$sanitized" | sed -E 's/^[.-]+//')
-            sanitized=$(echo "$sanitized" | cut -c1-"$max_len")
-
-            if [ -z "$sanitized" ]; then
-              sanitized="sha-${SHORT_SHA}"
-            fi
-
-            echo "$sanitized"
-          }
-
-          DEFAULT_TAG=$(sanitize_tag "${DEFAULT_TAG}" 128)
-          SANITIZED_BRANCH=$(sanitize_tag "${BRANCH_NAME}" 128)
-          SANITIZED_SHORT_SHA=$(sanitize_tag "${SHORT_SHA}" 7)
+          SANITIZED_BRANCH=$(sanitize_tag "${BRANCH_NAME}" 128 "branch")
+          SANITIZED_SHORT_SHA=$(sanitize_tag "${SHORT_SHA}" 7 "sha")
           BRANCH_TAG="${SANITIZED_BRANCH}"
           BRANCH_SHA_TAG="${SANITIZED_BRANCH}-${SANITIZED_SHORT_SHA}"
           if [ "${#SANITIZED_BRANCH}" -gt 120 ]; then
-            SANITIZED_BRANCH=$(sanitize_tag "${BRANCH_NAME}" 120)
+            SANITIZED_BRANCH=$(sanitize_tag "${BRANCH_NAME}" 120 "branch")
             BRANCH_SHA_TAG="${SANITIZED_BRANCH}-${SANITIZED_SHORT_SHA}"
           fi
 
