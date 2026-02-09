@@ -362,6 +362,10 @@ describe('UsersPage', () => {
   })
 
   describe('URL Preview in InviteModal', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
     it('shows URL preview when valid email is entered', async () => {
       vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
       vi.mocked(client.post).mockResolvedValue({
@@ -406,19 +410,23 @@ describe('UsersPage', () => {
       })
 
       renderWithQueryClient(<UsersPage />)
+      const user = userEvent.setup()
 
       await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+      await user.click(screen.getByRole('button', { name: /Invite User/i }))
+      await waitFor(() => expect(screen.getByPlaceholderText('user@example.com')).toBeInTheDocument())
 
       vi.useFakeTimers()
-      const openUser = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      await openUser.click(screen.getByRole('button', { name: /Invite User/i }))
 
       try {
         const emailInput = screen.getByPlaceholderText('user@example.com')
         fireEvent.change(emailInput, { target: { value: 'test@example.com' } })
 
+        // Verify not called immediately
+        expect(client.post).not.toHaveBeenCalled()
+
         await act(async () => {
-          await vi.advanceTimersByTimeAsync(500)
+          await vi.advanceTimersByTimeAsync(550)
         })
 
         expect(client.post).toHaveBeenCalledTimes(1)

@@ -13,6 +13,11 @@ export default defineConfig({
     pool: 'threads',
     globals: true,
     environment: 'jsdom',
+    environmentOptions: {
+      jsdom: {
+        url: 'http://localhost',
+      },
+    },
     setupFiles: './src/test/setup.ts',
     // TypeScript types for test globals - these are automatically available in test files
     typecheck: {
