@@ -257,6 +257,8 @@ cd /projects/Charon
 npx playwright test tests/global-setup.ts tests/auth.setup.ts --project=firefox
 
 # PHASE 2: Core UI, Settings, Tasks, Monitoring
+# NOTE: PLAYWRIGHT_SKIP_SECURITY_DEPS=1 is automatically set in E2E scripts
+# Security suites will NOT execute as dependencies
 npx playwright test tests/core --project=firefox
 npx playwright test tests/settings --project=firefox
 npx playwright test tests/tasks --project=firefox

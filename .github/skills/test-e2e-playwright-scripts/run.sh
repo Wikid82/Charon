@@ -147,6 +147,9 @@ main() {
 
     # Set environment variables for non-interactive execution
     export PLAYWRIGHT_HTML_OPEN="${PLAYWRIGHT_HTML_OPEN:-never}"
+    export PLAYWRIGHT_SKIP_SECURITY_DEPS="${PLAYWRIGHT_SKIP_SECURITY_DEPS:-1}"
+    # Ensure non-coverage runs do NOT start the Vite dev server (use Docker in CI/local non-coverage)
+    export PLAYWRIGHT_COVERAGE="${PLAYWRIGHT_COVERAGE:-0}"
     set_default_env "PLAYWRIGHT_BASE_URL" "http://localhost:8080"
 
     # Log configuration
