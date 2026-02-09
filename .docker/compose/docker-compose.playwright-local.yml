@@ -1,0 +1,57 @@
+# Docker Compose for Local E2E Testing
+#
+# This configuration runs Charon with a fresh, isolated database specifically for
+# Playwright E2E tests during local development. Uses .env file for credentials.
+#
+# Usage:
+#   docker compose -f .docker/compose/docker-compose.playwright-local.yml up -d
+#
+# Prerequisites:
+#   - Create .env file in project root with CHARON_ENCRYPTION_KEY and CHARON_EMERGENCY_TOKEN
+#   - Build image: docker build -t charon:local .
+#
+# The setup API will be available since no users exist in the fresh database.
+# The auth.setup.ts fixture will create a test admin user automatically.
+
+services:
+  charon-e2e:
+    image: charon:local
+    container_name: charon-e2e
+    restart: "no"
+    env_file:
+      - ../../.env
+    ports:
+      - "8080:8080"             # Management UI (Charon) - E2E tests verify UI/UX here
+      - "127.0.0.1:2019:2019"  # Caddy admin API (read-only status; keep loopback only)
+      - "[::1]:2019:2019"      # Caddy admin API (IPv6 loopback)
+      - "2020:2020"            # Emergency tier-2 API (all interfaces for E2E tests)
+      # Port 80/443: NOT exposed - middleware testing done via integration tests
+    environment:
+      - CHARON_ENV=e2e  # Enable lenient rate limiting (50 attempts/min) for E2E tests
+      - CHARON_DEBUG=0
+      - TZ=UTC
+      # Encryption key and emergency token loaded from env_file (../../.env)
+      # DO NOT add them here - env_file takes precedence and explicit entries override with empty values
+      # Emergency server (Tier 2 break glass) - separate port bypassing all security
+      - CHARON_EMERGENCY_SERVER_ENABLED=true
+      - CHARON_EMERGENCY_BIND=0.0.0.0:2020  # Bind to all interfaces in container (avoid Caddy's 2019)
+      - CHARON_EMERGENCY_USERNAME=admin
+      - CHARON_EMERGENCY_PASSWORD=${CHARON_EMERGENCY_PASSWORD:-changeme}
+      - CHARON_HTTP_PORT=8080
+      - CHARON_DB_PATH=/app/data/charon.db
+      - CHARON_FRONTEND_DIR=/app/frontend/dist
+      - CHARON_CADDY_ADMIN_API=http://localhost:2019
+      - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
+      - CHARON_CADDY_BINARY=caddy
+      - CHARON_ACME_STAGING=true
+      # FEATURE_CERBERUS_ENABLED deprecated - Cerberus enabled by default
+    tmpfs:
+      # True tmpfs for E2E test data - fresh on every run, in-memory only
+      # mode=1777 allows any user to write (container runs as non-root)
+      - /app/data:size=100M,mode=1777
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/v1/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s

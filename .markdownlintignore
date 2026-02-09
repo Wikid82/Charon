@@ -1,0 +1,10 @@
+# Ignore auto-generated or legacy documentation
+docs/reports/
+docs/implementation/
+docs/issues/
+docs/plans/archive/
+backend/
+CODEQL_*.md
+COVERAGE_*.md
+SECURITY_REMEDIATION_COMPLETE.md
+ISSUE_*.md

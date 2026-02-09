@@ -1,0 +1,97 @@
+name: ⚙️ General Feature
+description: Create a feature request for any milestone
+title: "[FEATURE] "
+labels: ["feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Feature Request
+        Request a new feature or enhancement for CaddyProxyManager+
+
+  - type: dropdown
+    id: milestone
+    attributes:
+      label: Target Milestone
+      description: Which release should this be part of?
+      options:
+        - Alpha (Core foundation)
+        - Beta (Advanced features)
+        - Post-Beta (Future enhancements)
+        - Unsure (Help me decide)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature?
+      options:
+        - Critical
+        - High
+        - Medium
+        - Low
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this feature solve?
+      placeholder: Describe the use case or pain point
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How should this feature work?
+      placeholder: Describe your ideal implementation
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other approaches could solve this?
+      placeholder: List alternative solutions you've thought about
+    validations:
+      required: false
+
+  - type: textarea
+    id: user_story
+    attributes:
+      label: User Story
+      description: Describe this from a user's perspective
+      placeholder: "As a [user type], I want to [action] so that [benefit]"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: categories
+    attributes:
+      label: Feature Categories
+      description: Select all that apply
+      options:
+        - label: Authentication/Authorization
+        - label: Security
+        - label: SSL/TLS
+        - label: Monitoring/Logging
+        - label: UI/UX
+        - label: Performance
+        - label: Documentation
+        - label: API
+        - label: Plus Feature (Premium)
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other information, screenshots, or examples?
+      placeholder: Add links, mockups, or references
+    validations:
+      required: false

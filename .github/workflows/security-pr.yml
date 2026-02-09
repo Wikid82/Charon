@@ -1,0 +1,336 @@
+# Security Scan for Pull Requests
+# Runs Trivy security scanning on PR Docker images after the build workflow completes
+# This workflow extracts the charon binary from the container and performs filesystem scanning
+name: Security Scan (PR)
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to scan (optional)'
+        required: false
+        type: string
+  pull_request:
+
+concurrency:
+  group: security-pr-${{ github.event.workflow_run.event || github.event_name }}-${{ github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-scan:
+    name: Trivy Binary Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Run for: manual dispatch, PR builds, or any push builds from docker-build
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
+      ((github.event.workflow_run.event == 'push' || github.event.workflow_run.pull_requests[0].number != null) &&
+       (github.event.workflow_run.status != 'completed' || github.event.workflow_run.conclusion == 'success'))
+
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        # actions/checkout v4.2.2
+        uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Extract PR number from workflow_run
+        id: pr-info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # Manual dispatch - use input or fail gracefully
+            if [[ -n "${{ inputs.pr_number }}" ]]; then
+              echo "pr_number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+              echo "✅ Using manually provided PR number: ${{ inputs.pr_number }}"
+            else
+              echo "⚠️ No PR number provided for manual dispatch"
+              echo "pr_number=" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          # Extract PR number from context
+          HEAD_SHA="${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}"
+          echo "🔍 Looking for PR with head SHA: ${HEAD_SHA}"
+
+          # Query GitHub API for PR associated with this commit
+          PR_NUMBER=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${{ github.repository }}/commits/${HEAD_SHA}/pulls" \
+            --jq '.[0].number // empty' 2>/dev/null || echo "")
+
+          if [[ -n "${PR_NUMBER}" ]]; then
+            echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "✅ Found PR number: ${PR_NUMBER}"
+          else
+            echo "⚠️ Could not find PR number for SHA: ${HEAD_SHA}"
+            echo "pr_number=" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Check if this is a push event (not a PR)
+          if [[ "${{ github.event_name }}" == "push" || "${{ github.event.workflow_run.event }}" == "push" || -z "${PR_NUMBER}" ]]; then
+            HEAD_BRANCH="${{ github.event.workflow_run.head_branch || github.ref_name }}"
+            echo "is_push=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Detected push build from branch: ${HEAD_BRANCH}"
+          else
+            echo "is_push=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Docker image (Local)
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: |
+          echo "Building image locally for security scan..."
+          docker build -t charon:local .
+          echo "✅ Successfully built charon:local"
+
+      - name: Check for PR image artifact
+        id: check-artifact
+        if: (steps.pr-info.outputs.pr_number != '' || steps.pr-info.outputs.is_push == 'true') && github.event_name != 'push' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Determine artifact name based on event type
+          if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
+            ARTIFACT_NAME="push-image"
+          else
+            PR_NUMBER="${{ steps.pr-info.outputs.pr_number }}"
+            ARTIFACT_NAME="pr-image-${PR_NUMBER}"
+          fi
+          RUN_ID="${{ github.event.workflow_run.id }}"
+
+          echo "🔍 Checking for artifact: ${ARTIFACT_NAME}"
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # For manual dispatch, find the most recent workflow run with this artifact
+            RUN_ID=$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "/repos/${{ github.repository }}/actions/workflows/docker-build.yml/runs?status=success&per_page=10" \
+              --jq '.workflow_runs[0].id // empty' 2>/dev/null || echo "")
+
+            if [[ -z "${RUN_ID}" ]]; then
+              echo "⚠️ No successful workflow runs found"
+              echo "artifact_exists=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          elif [[ -z "${RUN_ID}" ]]; then
+            # If triggered by push/pull_request, RUN_ID is empty. Find recent run for this commit.
+            HEAD_SHA="${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}"
+            echo "🔍 Searching for workflow run for SHA: ${HEAD_SHA}"
+            # Retry a few times as the run might be just starting or finishing
+            for i in {1..3}; do
+              RUN_ID=$(gh api \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "/repos/${{ github.repository }}/actions/workflows/docker-build.yml/runs?head_sha=${HEAD_SHA}&status=success&per_page=1" \
+                --jq '.workflow_runs[0].id // empty' 2>/dev/null || echo "")
+              if [[ -n "${RUN_ID}" ]]; then break; fi
+              echo "⏳ Waiting for workflow run to appear/complete... ($i/3)"
+              sleep 5
+            done
+          fi
+
+          echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
+
+          # Check if the artifact exists in the workflow run
+          ARTIFACT_ID=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" \
+            --jq ".artifacts[] | select(.name == \"${ARTIFACT_NAME}\") | .id" 2>/dev/null || echo "")
+
+          if [[ -n "${ARTIFACT_ID}" ]]; then
+            echo "artifact_exists=true" >> "$GITHUB_OUTPUT"
+            echo "artifact_id=${ARTIFACT_ID}" >> "$GITHUB_OUTPUT"
+            echo "✅ Found artifact: ${ARTIFACT_NAME} (ID: ${ARTIFACT_ID})"
+          else
+            echo "artifact_exists=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️ Artifact not found: ${ARTIFACT_NAME}"
+            echo "ℹ️ This is expected for non-PR builds or if the image was not uploaded"
+          fi
+
+      - name: Skip if no artifact
+        if: ((steps.pr-info.outputs.pr_number == '' && steps.pr-info.outputs.is_push != 'true') || steps.check-artifact.outputs.artifact_exists != 'true') && github.event_name != 'push' && github.event_name != 'pull_request'
+        run: |
+          echo "ℹ️ Skipping security scan - no PR image artifact available"
+          echo "This is expected for:"
+          echo "  - Pushes to main/release branches"
+          echo "  - PRs where Docker build failed"
+          echo "  - Manual dispatch without PR number"
+          exit 0
+
+      - name: Download PR image artifact
+        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        # actions/download-artifact v4.1.8
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: ${{ steps.pr-info.outputs.is_push == 'true' && 'push-image' || format('pr-image-{0}', steps.pr-info.outputs.pr_number) }}
+          run-id: ${{ steps.check-artifact.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Load Docker image
+        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        run: |
+          echo "📦 Loading Docker image..."
+          docker load < charon-pr-image.tar
+          echo "✅ Docker image loaded"
+          docker images | grep charon
+
+      - name: Extract charon binary from container
+        if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
+        id: extract
+        run: |
+          # Use local image for Push/PR events
+          if [[ "${{ github.event_name }}" == "push" || "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "Using local image: charon:local"
+            CONTAINER_ID=$(docker create "charon:local")
+            echo "container_id=${CONTAINER_ID}" >> "$GITHUB_OUTPUT"
+
+            # Extract the charon binary
+            mkdir -p ./scan-target
+            docker cp "${CONTAINER_ID}:/app/charon" ./scan-target/charon
+            docker rm "${CONTAINER_ID}"
+
+            if [[ -f "./scan-target/charon" ]]; then
+              echo "✅ Binary extracted successfully"
+              ls -lh ./scan-target/charon
+              echo "binary_path=./scan-target" >> "$GITHUB_OUTPUT"
+            else
+              echo "❌ Failed to extract binary"
+              exit 1
+            fi
+            exit 0
+          fi
+
+          # Normalize image name for reference
+          IMAGE_NAME=$(echo "${{ github.repository_owner }}/charon" | tr '[:upper:]' '[:lower:]')
+          if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
+            BRANCH_NAME="${{ github.event.workflow_run.head_branch }}"
+            if [[ -z "${BRANCH_NAME}" ]]; then
+              echo "❌ ERROR: Branch name is empty for push build"
+              exit 1
+            fi
+            # Normalize branch name for Docker tag (replace / and other special chars with -)
+            # This matches docker/metadata-action behavior: type=ref,event=branch
+            TAG_SAFE_BRANCH="${BRANCH_NAME//\//-}"
+            IMAGE_REF="ghcr.io/${IMAGE_NAME}:${TAG_SAFE_BRANCH}"
+          elif [[ -n "${{ steps.pr-info.outputs.pr_number }}" ]]; then
+            IMAGE_REF="ghcr.io/${IMAGE_NAME}:pr-${{ steps.pr-info.outputs.pr_number }}"
+          else
+            echo "❌ ERROR: Cannot determine image reference"
+            echo "  - is_push: ${{ steps.pr-info.outputs.is_push }}"
+            echo "  - pr_number: ${{ steps.pr-info.outputs.pr_number }}"
+            echo "  - branch: ${{ github.event.workflow_run.head_branch }}"
+            exit 1
+          fi
+
+          # Validate the image reference format
+          if [[ ! "${IMAGE_REF}" =~ ^ghcr\.io/[a-z0-9_-]+/[a-z0-9_-]+:[a-zA-Z0-9._-]+$ ]]; then
+            echo "❌ ERROR: Invalid image reference format: ${IMAGE_REF}"
+            exit 1
+          fi
+
+          echo "🔍 Extracting binary from: ${IMAGE_REF}"
+
+          # Create container without starting it
+          CONTAINER_ID=$(docker create "${IMAGE_REF}")
+          echo "container_id=${CONTAINER_ID}" >> "$GITHUB_OUTPUT"
+
+          # Extract the charon binary
+          mkdir -p ./scan-target
+          docker cp "${CONTAINER_ID}:/app/charon" ./scan-target/charon
+
+          # Cleanup container
+          docker rm "${CONTAINER_ID}"
+
+          # Verify extraction
+          if [[ -f "./scan-target/charon" ]]; then
+            echo "✅ Binary extracted successfully"
+            ls -lh ./scan-target/charon
+            echo "binary_path=./scan-target" >> "$GITHUB_OUTPUT"
+          else
+            echo "❌ Failed to extract binary"
+            exit 1
+          fi
+
+      - name: Run Trivy filesystem scan (SARIF output)
+        if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
+        # aquasecurity/trivy-action v0.33.1
+        uses: aquasecurity/trivy-action@22438a435773de8c97dc0958cc0b823c45b064ac
+        with:
+          scan-type: 'fs'
+          scan-ref: ${{ steps.extract.outputs.binary_path }}
+          format: 'sarif'
+          output: 'trivy-binary-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+        continue-on-error: true
+
+      - name: Upload Trivy SARIF to GitHub Security
+        if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
+        # github/codeql-action v4
+        uses: github/codeql-action/upload-sarif@b13d724d35ff0a814e21683638ed68ed34cf53d1
+        with:
+          sarif_file: 'trivy-binary-results.sarif'
+          category: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event.workflow_run.head_branch) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
+        continue-on-error: true
+
+      - name: Run Trivy filesystem scan (fail on CRITICAL/HIGH)
+        if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
+        # aquasecurity/trivy-action v0.33.1
+        uses: aquasecurity/trivy-action@22438a435773de8c97dc0958cc0b823c45b064ac
+        with:
+          scan-type: 'fs'
+          scan-ref: ${{ steps.extract.outputs.binary_path }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Upload scan artifacts
+        if: always() && (steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request')
+        # actions/upload-artifact v4.4.3
+        uses: actions/upload-artifact@47309c993abb98030a35d55ef7ff34b7fa1074b5
+        with:
+          name: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event.workflow_run.head_branch) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
+          path: |
+            trivy-binary-results.sarif
+          retention-days: 14
+
+      - name: Create job summary
+        if: always() && (steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request')
+        run: |
+          {
+            if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
+              echo "## 🔒 Security Scan Results - Branch: ${{ github.event.workflow_run.head_branch }}"
+            else
+              echo "## 🔒 Security Scan Results - PR #${{ steps.pr-info.outputs.pr_number }}"
+            fi
+            echo ""
+            echo "**Scan Type**: Trivy Filesystem Scan"
+            echo "**Target**: \`/app/charon\` binary"
+            echo "**Severity Filter**: CRITICAL, HIGH"
+            echo ""
+            if [[ "${{ job.status }}" == "success" ]]; then
+              echo "✅ **PASSED**: No CRITICAL or HIGH vulnerabilities found"
+            else
+              echo "❌ **FAILED**: CRITICAL or HIGH vulnerabilities detected"
+              echo ""
+              echo "Please review the Trivy scan output and address the vulnerabilities."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup
+        if: always() && steps.check-artifact.outputs.artifact_exists == 'true'
+        run: |
+          echo "🧹 Cleaning up..."
+          rm -rf ./scan-target
+          echo "✅ Cleanup complete"

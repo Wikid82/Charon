@@ -1,0 +1,112 @@
+name: Rate Limit integration
+
+# Phase 2-3: Build Once, Test Many - Use registry image instead of building
+# This workflow now waits for docker-build.yml to complete and pulls the built image
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Docker image tag to test (e.g., pr-123-abc1234, latest)'
+        required: false
+        type: string
+  pull_request:
+
+# Prevent race conditions when PR is updated mid-test
+# Cancels old test runs when new build completes with different SHA
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.event || github.event_name }}-${{ github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rate-limit-integration:
+    name: Rate Limiting Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Build Docker image (Local)
+        run: |
+          echo "Building image locally for integration tests..."
+          docker build -t charon:local .
+          echo "✅ Successfully built charon:local"
+
+      - name: Run rate limit integration tests
+        id: ratelimit-test
+        run: |
+          chmod +x scripts/rate_limit_integration.sh
+          scripts/rate_limit_integration.sh 2>&1 | tee ratelimit-test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Dump Debug Info on Failure
+        if: failure()
+        run: |
+          {
+            echo "## 🔍 Debug Information"
+            echo ""
+
+            echo "### Container Status"
+            echo '```'
+            docker ps -a --filter "name=charon" --filter "name=ratelimit" --filter "name=backend" 2>&1 || true
+            echo '```'
+            echo ""
+
+            echo "### Security Config API"
+            echo '```json'
+            curl -s http://localhost:8280/api/v1/security/config 2>/dev/null | head -100 || echo "Could not retrieve security config"
+            echo '```'
+            echo ""
+
+            echo "### Security Status API"
+            echo '```json'
+            curl -s http://localhost:8280/api/v1/security/status 2>/dev/null | head -100 || echo "Could not retrieve security status"
+            echo '```'
+            echo ""
+
+            echo "### Caddy Admin Config (rate_limit handlers)"
+            echo '```json'
+            curl -s http://localhost:2119/config 2>/dev/null | grep -A 20 '"handler":"rate_limit"' | head -30 || echo "Could not retrieve Caddy config"
+            echo '```'
+            echo ""
+
+            echo "### Charon Container Logs (last 100 lines)"
+            echo '```'
+            docker logs charon-ratelimit-test 2>&1 | tail -100 || echo "No container logs available"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Rate Limit Integration Summary
+        if: always()
+        run: |
+          {
+            echo "## ⏱️ Rate Limit Integration Test Results"
+            if [ "${{ steps.ratelimit-test.outcome }}" == "success" ]; then
+              echo "✅ **All rate limit tests passed**"
+              echo ""
+              echo "### Test Results:"
+              echo '```'
+              grep -E "✓|=== ALL|HTTP 429|HTTP 200" ratelimit-test-output.txt | head -30 || echo "See logs for details"
+              echo '```'
+              echo ""
+              echo "### Verified Behaviors:"
+              echo "- Requests within limit return HTTP 200"
+              echo "- Requests exceeding limit return HTTP 429"
+              echo "- Retry-After header present on blocked responses"
+              echo "- Rate limit window resets correctly"
+            else
+              echo "❌ **Rate limit tests failed**"
+              echo ""
+              echo "### Failure Details:"
+              echo '```'
+              grep -E "✗|FAIL|Error|failed|expected" ratelimit-test-output.txt | head -30 || echo "See logs for details"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f charon-ratelimit-test || true
+          docker rm -f ratelimit-backend || true
+          docker volume rm charon_ratelimit_data caddy_ratelimit_data caddy_ratelimit_config 2>/dev/null || true
+          docker network rm containers_default || true
