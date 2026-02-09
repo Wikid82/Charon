@@ -54,11 +54,11 @@
  * @see /projects/Charon/docs/plans/phase4-settings-plan.md
  */
 
-import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
 import {
   waitForLoadingComplete,
-} from '../utils/wait-helpers';
-import { getToastLocator } from '../utils/ui-helpers';
+} from '../../utils/wait-helpers';
+import { getToastLocator } from '../../utils/ui-helpers';
 
 test.describe('System Settings', () => {
   test.beforeEach(async ({ page, adminUser }) => {

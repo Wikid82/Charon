@@ -14,8 +14,8 @@
  * @see /projects/Charon/docs/plans/phase4-settings-plan.md Section 3.5
  */
 
-import { test, expect, loginUser } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForToast } from '../utils/wait-helpers';
+import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
+import { waitForLoadingComplete, waitForToast } from '../../utils/wait-helpers';
 
 test.describe('Encryption Management', () => {
   test.beforeEach(async ({ page, adminUser }) => {

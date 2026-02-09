@@ -13,10 +13,10 @@
  * @see /projects/Charon/docs/plans/current_spec.md - Phase 2
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForToast, waitForModal, waitForDialog, waitForDebounce } from '../utils/wait-helpers';
-import { waitForAPIHealth } from '../utils/api-helpers';
-import { clickSwitch } from '../utils/ui-helpers';
+import { test, expect, loginUser, TEST_PASSWORD } from '../../fixtures/auth-fixtures';
+import { waitForLoadingComplete, waitForToast, waitForModal, waitForDialog, waitForDebounce } from '../../utils/wait-helpers';
+import { waitForAPIHealth } from '../../utils/api-helpers';
+import { clickSwitch } from '../../utils/ui-helpers';
 import {
   allowOnlyAccessList,
   denyOnlyAccessList,
@@ -25,8 +25,8 @@ import {
   generateAccessList,
   invalidACLConfigs,
   type AccessListConfig,
-} from '../fixtures/access-lists';
-import { generateUniqueId, generateIPAddress, generateCIDR } from '../fixtures/test-data';
+} from '../../fixtures/access-lists';
+import { generateUniqueId, generateIPAddress, generateCIDR } from '../../fixtures/test-data';
 
 test.describe('Access Lists - CRUD Operations', () => {
   test.beforeEach(async ({ page, adminUser }) => {

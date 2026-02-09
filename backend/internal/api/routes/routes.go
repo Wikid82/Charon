@@ -209,13 +209,12 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		protected.POST("/backups/:filename/restore", backupHandler.Restore)
 
 		// Logs
-		protected.GET("/logs", logsHandler.List)
-		protected.GET("/logs/:filename", logsHandler.Read)
-		protected.GET("/logs/:filename/download", logsHandler.Download)
-
 		// WebSocket endpoints
 		logsWSHandler := handlers.NewLogsWSHandler(wsTracker)
 		protected.GET("/logs/live", logsWSHandler.HandleWebSocket)
+		protected.GET("/logs", logsHandler.List)
+		protected.GET("/logs/:filename", logsHandler.Read)
+		protected.GET("/logs/:filename/download", logsHandler.Download)
 
 		// WebSocket status monitoring
 		protected.GET("/websocket/connections", wsStatusHandler.GetConnections)

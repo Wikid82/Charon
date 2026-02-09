@@ -10,8 +10,8 @@
  * - Import Execution (3 tests): import success, error handling, already exists
  */
 
-import { test, expect, loginUser } from '../fixtures/auth-fixtures';
-import { waitForToast, waitForLoadingComplete, waitForAPIResponse } from '../utils/wait-helpers';
+import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
+import { waitForToast, waitForLoadingComplete, waitForAPIResponse } from '../../utils/wait-helpers';
 
 /**
  * Selectors for the Import CrowdSec page

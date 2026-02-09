@@ -426,6 +426,17 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		}
 	}
 
+	session := models.ImportSession{
+		UUID:           sid,
+		SourceFile:     tempPath,
+		Status:         "pending",
+		ParsedData:     string(mustMarshal(result)),
+		ConflictReport: string(mustMarshal(result.Conflicts)),
+	}
+	if err := h.db.Create(&session).Error; err != nil {
+		middleware.GetRequestLogger(c).WithError(err).Warn("Import Upload: failed to persist session")
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"session":          gin.H{"id": sid, "state": "transient", "source_file": tempPath},
 		"conflict_details": conflictDetails,
@@ -641,6 +652,17 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 		if existingDomains[ph.DomainNames] {
 			result.Conflicts = append(result.Conflicts, ph.DomainNames)
 		}
+	}
+
+	session := models.ImportSession{
+		UUID:           sid,
+		SourceFile:     mainCaddyfile,
+		Status:         "pending",
+		ParsedData:     string(mustMarshal(result)),
+		ConflictReport: string(mustMarshal(result.Conflicts)),
+	}
+	if err := h.db.Create(&session).Error; err != nil {
+		middleware.GetRequestLogger(c).WithError(err).Warn("Import UploadMulti: failed to persist session")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
