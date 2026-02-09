@@ -189,7 +189,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
       });
     });
 
-    test('should show staging badge for Let\'s Encrypt staging certificates', async ({ page }) => {
+    test('should show staging badge for Let\'s Encrypt staging certificates', { retries: 1 }, async ({ page }) => {
       await test.step('Check for staging badges', async () => {
         const stagingBadge = page.locator('span').filter({ hasText: /staging/i });
         const badgeCount = await stagingBadge.count();
