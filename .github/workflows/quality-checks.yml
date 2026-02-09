@@ -8,6 +8,7 @@ on:
         required: false
         default: true
         type: boolean
+  pull_request:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.run_id }}
@@ -21,6 +22,7 @@ env:
   GO_VERSION: '1.25.7'
   NODE_VERSION: '24.12.0'
   GOTOOLCHAIN: auto
+  CHARON_MIN_COVERAGE: '85.0'
 
 jobs:
   backend-quality:

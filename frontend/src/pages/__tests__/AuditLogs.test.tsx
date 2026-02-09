@@ -325,6 +325,7 @@ describe('<AuditLogs />', () => {
     )
 
     const toastErrorSpy = vi.spyOn(toast, 'error')
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     renderWithProviders(<AuditLogs />)
 
@@ -335,9 +336,14 @@ describe('<AuditLogs />', () => {
     const exportButton = screen.getByRole('button', { name: /Export CSV/i })
     fireEvent.click(exportButton)
 
-    await waitFor(() => {
-      expect(toastErrorSpy).toHaveBeenCalledWith('Failed to export audit logs')
-    })
+    try {
+      await waitFor(() => {
+        expect(toastErrorSpy).toHaveBeenCalledWith('Failed to export audit logs')
+        expect(consoleErrorSpy).toHaveBeenCalled()
+      })
+    } finally {
+      consoleErrorSpy.mockRestore()
+    }
   })
 
   it('displays parsed JSON details in modal', async () => {
