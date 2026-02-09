@@ -871,7 +871,6 @@ jobs:
             tests/core \
             tests/dns-provider-crud.spec.ts \
             tests/dns-provider-types.spec.ts \
-            tests/emergency-server \
             tests/integration \
             tests/manual-dns-provider.spec.ts \
             tests/monitoring \
@@ -1052,7 +1051,6 @@ jobs:
             tests/core \
             tests/dns-provider-crud.spec.ts \
             tests/dns-provider-types.spec.ts \
-            tests/emergency-server \
             tests/integration \
             tests/manual-dns-provider.spec.ts \
             tests/monitoring \
@@ -1233,7 +1231,6 @@ jobs:
             tests/core \
             tests/dns-provider-crud.spec.ts \
             tests/dns-provider-types.spec.ts \
-            tests/emergency-server \
             tests/integration \
             tests/manual-dns-provider.spec.ts \
             tests/monitoring \
