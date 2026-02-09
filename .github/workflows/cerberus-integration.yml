@@ -9,6 +9,7 @@ on:
         description: 'Docker image tag to test (e.g., pr-123-abc1234, latest)'
         required: false
         type: string
+  pull_request:
 
 # Prevent race conditions when PR is updated mid-test
 # Cancels old test runs when new build completes with different SHA
@@ -21,98 +22,14 @@ jobs:
     name: Cerberus Security Stack Integration
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Only run if docker-build.yml succeeded, or if manually triggered
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && (github.event.workflow_run.status != 'completed' || github.event.workflow_run.conclusion == 'success')) }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      # Determine the correct image tag based on trigger context
-      # For PRs: pr-{number}-{short-sha}, For non-PR: sha-{short-sha}
-      - name: Determine image tag
-        id: determine-tag
-        env:
-          EVENT: ${{ github.event.workflow_run.event || github.event_name }}
-          REF: ${{ github.event.workflow_run.head_branch || github.ref_name }}
-          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
-          MANUAL_TAG: ${{ inputs.image_tag }}
+      - name: Build Docker image (Local)
         run: |
-          # Manual trigger uses provided tag
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            if [[ -n "$MANUAL_TAG" ]]; then
-              echo "tag=${MANUAL_TAG}" >> "$GITHUB_OUTPUT"
-            else
-              # Default to latest if no tag provided
-              echo "tag=latest" >> "$GITHUB_OUTPUT"
-            fi
-            echo "source_type=manual" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Extract 7-character short SHA
-          SHORT_SHA=$(echo "$SHA" | cut -c1-7)
-
-           # Use native pull_requests array (no API calls needed)
-           PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number // empty')
-
-           if [[ "$EVENT" == "pull_request" || -n "$PR_NUM" ]]; then
-
-            # Fallback for direct PR trigger
-            if [[ -z "$PR_NUM" || "$PR_NUM" == "null" ]]; then
-               PR_NUM="${{ github.event.number }}"
-            fi
-
-            if [[ -z "$PR_NUM" || "$PR_NUM" == "null" ]]; then
-              echo "❌ ERROR: Could not determine PR number"
-              echo "Event: $EVENT"
-              echo "Ref: $REF"
-              echo "SHA: $SHA"
-              echo "Pull Requests JSON: ${{ toJson(github.event.workflow_run.pull_requests) }}"
-              exit 1
-            fi
-
-            # Immutable tag with SHA suffix prevents race conditions
-            echo "tag=pr-${PR_NUM}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-            echo "source_type=pr" >> "$GITHUB_OUTPUT"
-          else
-            # Non-PR workflow_run uses short SHA tag (matches docker-build.yml)
-            echo "tag=sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-            echo "source_type=sha" >> "$GITHUB_OUTPUT"
-          fi
-
-          echo "sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-          echo "Determined image tag: $(grep tag= "$GITHUB_OUTPUT")"
-
-      # Pull image from Docker Hub with retry logic
-      - name: Pull Docker image from registry
-        id: pull_image
-        uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
-        with:
-          timeout_minutes: 5
-          max_attempts: 3
-          retry_wait_seconds: 10
-          command: |
-            IMAGE_NAME="docker.io/wikid82/charon:${{ steps.determine-tag.outputs.tag }}"
-            echo "Pulling image: $IMAGE_NAME"
-            docker pull "$IMAGE_NAME"
-            docker tag "$IMAGE_NAME" charon:local
-            echo "✅ Successfully pulled from registry"
-
-      # Validate image freshness by checking SHA label
-      - name: Validate image SHA
-        env:
-          SHA: ${{ steps.determine-tag.outputs.sha }}
-        run: |
-          LABEL_SHA=$(docker inspect charon:local --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' | cut -c1-7)
-          echo "Expected SHA: $SHA"
-          echo "Image SHA:    $LABEL_SHA"
-
-          if [[ "$LABEL_SHA" != "$SHA" ]]; then
-            echo "⚠️ WARNING: Image SHA mismatch!"
-            echo "Image may be stale. Proceeding with caution..."
-          else
-            echo "✅ Image SHA matches expected commit"
-          fi
+          echo "Building image locally for integration tests..."
+          docker build -t charon:local .
+          echo "✅ Successfully built charon:local"
 
       - name: Run Cerberus integration tests
         id: cerberus-test
