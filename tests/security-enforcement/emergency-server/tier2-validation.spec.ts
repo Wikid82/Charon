@@ -1,5 +1,5 @@
 import { test, expect, request as playwrightRequest } from '@playwright/test';
-import { EMERGENCY_TOKEN, EMERGENCY_SERVER } from '../fixtures/security';
+import { EMERGENCY_TOKEN, EMERGENCY_SERVER } from '../../fixtures/security';
 
 /**
  * Break Glass - Tier 2 (Emergency Server) Validation Tests
