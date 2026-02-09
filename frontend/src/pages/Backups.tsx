@@ -5,6 +5,7 @@ import { toast } from '../utils/toast'
 import { getBackups, createBackup, restoreBackup, deleteBackup, BackupFile } from '../api/backups'
 import { getSettings, updateSetting } from '../api/settings'
 import { Download, RotateCcw, Plus, Archive, Trash2, Save } from 'lucide-react'
+import { useAuth } from '../hooks/useAuth'
 import { PageShell } from '../components/layout/PageShell'
 import {
   Button,
@@ -33,6 +34,7 @@ const formatSize = (bytes: number): string => {
 
 export default function Backups() {
   const { t } = useTranslation()
+  const { user } = useAuth()
   const queryClient = useQueryClient()
   const [interval, setInterval] = useState('7')
   const [retention, setRetention] = useState('30')
@@ -191,13 +193,13 @@ export default function Backups() {
     },
   ]
 
-  // Header actions
-  const headerActions = (
+  // Header actions (visible only to admin users)
+  const headerActions = user?.role === 'admin' ? (
     <Button onClick={() => createMutation.mutate()} isLoading={createMutation.isPending}>
       <Plus className="w-4 h-4 mr-2" />
       {t('backups.createBackup')}
     </Button>
-  )
+  ) : null
 
   return (
     <PageShell
