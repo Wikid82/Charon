@@ -597,7 +597,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 Source
               </label>
               <Select value={connectionSource} onValueChange={setConnectionSource}>
-                <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Source">
+                <SelectTrigger id="connection-source" className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Source">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -624,7 +624,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 value=""
                 onValueChange={e => e && handleContainerSelect(e)}
               >
-                <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white disabled:opacity-50" disabled={dockerLoading || connectionSource === 'custom'} aria-label="Containers">
+                <SelectTrigger id="quick-select-docker" className="w-full bg-gray-900 border-gray-700 text-white disabled:opacity-50" disabled={dockerLoading || connectionSource === 'custom'} aria-label="Containers">
                   <SelectValue placeholder={connectionSource === 'custom'
                     ? 'Select a source to view containers'
                     : (dockerLoading ? 'Loading containers...' : 'Select a container')}
