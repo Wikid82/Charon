@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents timeout errors in Firefox/WebKit caused by strict label matching
 
 ### Fixed
+- **CI**: Fixed Docker image reference output so integration jobs never pull an empty image ref
 - **E2E Test Reliability**: Resolved test timeout issues affecting CI/CD pipeline stability
   - Fixed config reload overlay blocking test interactions
   - Improved feature flag propagation with extended timeouts
