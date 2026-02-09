@@ -1,188 +1,246 @@
 ---
-title: "E2E Security Test Isolation"
-status: "draft"
-scope: "e2e/ci, tests/playwright"
-notes: Separate security-toggling Playwright tests from non-security shards to prevent ACL, WAF, and rate-limit contamination.
+title: "CI Workflow Reliability Fixes"
+status: "docs_complete"
+scope: "ci/workflows"
+notes: Finalize E2E split workflow execution and aggregation logic, prevent security tests from leaking into non-security shards, align Docker build and Codecov defaults, and ensure workflows run only on pull_request or workflow_dispatch.
 ---
 
 ## 1. Introduction
 
-This plan addresses E2E test contamination where security-focused tests are executed in non-security shards. The goal is to isolate tests that toggle Cerberus, ACL, WAF, CrowdSec, or rate limiting so non-security shards remain stable and do not hit global security state changes. The scope includes Playwright test organization and the E2E workflow split.
+This plan finalizes CI workflow specifications based on Supervisor feedback and deeper analysis. The scope covers three workflows:
+
+- E2E split workflow reliability and accurate results aggregation.
+- Docker build workflow trigger logic for PRs and manual dispatches.
+- Codecov upload workflow default behavior on non-dispatch events.
 
 Objectives:
 
-- Identify which Playwright tests in non-security shards toggle or reset security modules.
-- Separate security-toggling tests into security-only execution paths.
-- Keep non-security shards stable by preventing global security state changes within those shards.
-- Preserve current coverage of security behaviors while avoiding cross-shard interference.
+- Ensure Playwright jobs fail deterministically when tests fail and do not get masked by aggregation.
+- Ensure results aggregation reflects expected runs based on `inputs.browser` and `inputs.test_category`.
+- Ensure non-security jobs do not run security test suites.
+- Preserve intended Docker build scan/test job triggers for pull_request and workflow_dispatch only.
+- Preserve Codecov default behavior on non-dispatch events.
+- Enforce policy that no push events trigger CI run jobs.
 
 ## 2. Research Findings
 
-### 2.1 Non-Security Shard Inputs
+### 2.1 E2E Split Workflow Execution and Aggregation
 
-The non-security shards in the E2E workflow run a fixed set of directories and files in [ .github/workflows/e2e-tests-split.yml ](../../.github/workflows/e2e-tests-split.yml). The inputs include tests/settings, tests/integration, and tests/emergency-server, which contain security-toggling behavior.
+[.github/workflows/e2e-tests-split.yml](../../.github/workflows/e2e-tests-split.yml) currently:
 
-### 2.2 Security-Toggling Tests in Settings
+- Executes Playwright in multiple jobs without a consistent exit-code capture pattern.
+- Aggregates results in `e2e-results` by converting any `skipped` job into `success` regardless of whether it should have run.
 
-[ tests/settings/system-settings.spec.ts ](../../tests/settings/system-settings.spec.ts) toggles Cerberus and CrowdSec feature flags via the feature flags API and resets those flags after each test. These tests change global security state and can affect unrelated shards running in parallel.
+This can hide failures and unexpected skips when inputs or secrets are misconfigured.
 
-### 2.3 Emergency Server Tests
+### 2.2 Security Test Leakage into Non-Security Shards
 
-[ tests/emergency-server/tier2-validation.spec.ts ](../../tests/emergency-server/tier2-validation.spec.ts) calls the emergency security reset endpoint and validates rate limiting behavior on the emergency server. This directly disables security modules during execution and should be treated as security enforcement coverage.
+Non-security jobs call Playwright with explicit paths including `tests/integration` and other folders. Security-only jobs explicitly run:
 
-### 2.4 Global Security Reset in Test Setup
+- `tests/security-enforcement/`
+- `tests/security/`
 
-[ tests/global-setup.ts ](../../tests/global-setup.ts) performs an emergency security reset and verifies that ACL and rate limiting are disabled before tests run. This is intended for cleanup, but it reinforces that global security state is shared across shards and is sensitive to security toggles.
+If `tests/integration` contains security-sensitive tests, those could execute in non-security shards. This violates the isolation goal of the split workflow.
 
-Observed behavior in [ tests/global-setup.ts ](../../tests/global-setup.ts):
+### 2.3 Docker Build Workflow Trigger Logic
 
-- Always validates `CHARON_EMERGENCY_TOKEN` and fails fast if missing or invalid.
-- Executes pre-auth and authenticated `emergencySecurityReset()`.
-- Runs `verifySecurityDisabled()` after the authenticated reset.
+[.github/workflows/docker-build.yml](../../.github/workflows/docker-build.yml) is intended to:
 
-This means non-security shards still perform a global security reset even when `CHARON_SECURITY_TESTS_ENABLED` is set to `false` in the workflow.
+- Run `scan-pr-image` for pull requests.
+- Run `test-image` for pull_request and workflow_dispatch.
 
-### 2.5 Security Test Suites Already Isolated
+The workflow also currently triggers on `push`. The user requirement is that no push events trigger CI run jobs, so all push triggers must be removed and job logic updated accordingly.
 
-The workflow already routes tests/security and tests/security-enforcement into dedicated security jobs. These suites include explicit security module enablement and enforcement checks, such as rate-limit enforcement in [ tests/security-enforcement/rate-limit-enforcement.spec.ts ](../../tests/security-enforcement/rate-limit-enforcement.spec.ts) and dashboard toggles in [ tests/security/security-dashboard.spec.ts ](../../tests/security/security-dashboard.spec.ts).
+### 2.4 Codecov Default Behavior on Non-Dispatch Events
 
-### 2.6 Integration Tests Touch Security Domains
-
-Some integration tests create access lists and navigate to security pages, for example [ tests/integration/multi-feature-workflows.spec.ts ](../../tests/integration/multi-feature-workflows.spec.ts). These do not explicitly toggle security modules, but they use security-domain resources that may depend on Cerberus state and should be reviewed for compatibility with Cerberus being disabled.
+[.github/workflows/codecov-upload.yml](../../.github/workflows/codecov-upload.yml) uses `inputs.run_backend` and `inputs.run_frontend`. On `pull_request`, `inputs` is undefined, leading to unintended skips. The intended behavior is to run by default on non-dispatch events and honor inputs only on `workflow_dispatch`. The workflow must not be triggered by `push`.
 
 ## 3. Technical Specifications
 
-### 3.1 Security Test Classification Rules
+### 3.1 E2E Workflow Execution Hardening
 
-Classify a test as security-affecting if it does any of the following:
+Workflow: [.github/workflows/e2e-tests-split.yml](../../.github/workflows/e2e-tests-split.yml)
 
-- Calls the emergency security reset endpoint.
-- Sets or toggles feature flags related to Cerberus, ACL, WAF, CrowdSec, or rate limiting.
-- Enables or disables security modules via settings or admin controls.
-- Depends on rate limiting behavior or ACL/WAF enforcement for assertions.
+Requirements:
 
-### 3.2 Isolation Strategy Options
+- Apply a robust execution pattern in every Playwright run step (security and non-security jobs) to capture exit codes and fail the job consistently.
+- Keep timing logs but do not allow Playwright failures to be hidden by a non-zero exit path.
 
-Option A (preferred): Move security-affecting tests into dedicated security folders
+Required run-step pattern:
 
-- Move or split tests from tests/settings/system-settings.spec.ts into a new security-focused file under tests/security or tests/security-enforcement.
-- Move tests/emergency-server to tests/security-enforcement or tests/security, depending on whether they validate enforcement behavior or emergency pathways.
-- Keep non-security shards limited to tests that do not mutate security state.
+```bash
+set -euo pipefail
+STATUS=0
+npx playwright test ... || STATUS=$?
+echo "PLAYWRIGHT_STATUS=$STATUS" >> "$GITHUB_ENV"
+exit "$STATUS"
+```
 
-Option B: Use Playwright tags and workflow filters
+### 3.2 E2E Results Aggregation with Expected-Run Logic
 
-- Tag security-affecting tests with a consistent tag such as @security-affecting.
-- Update security jobs to run tagged tests and non-security jobs to exclude them using grep or grep-invert.
+Workflow: [.github/workflows/e2e-tests-split.yml](../../.github/workflows/e2e-tests-split.yml)
 
-Option C: Update non-security job inputs to explicitly exclude security-affecting files
+Requirements:
 
-- Remove tests/settings/system-settings.spec.ts and tests/emergency-server from non-security shard inputs.
-- Add those tests to the security job inputs.
+- Replicate the same input filtering logic used in the job `if` clauses to determine if each job should have run.
+- `e2e-results` MUST declare `needs: [shard-jobs...]` covering every shard job so the aggregation evaluates actual results.
+- Treat `skipped`, `failure`, or `cancelled` as failure outcomes when a job should have run.
+- Ignore `skipped` when a job should not have run.
 
-Decision: Prefer Option A with a fallback to Option B if the team wants to keep files in their current directories. Option C is acceptable as a short-term mitigation but is less maintainable long-term.
+Expected-run logic (derived from inputs and defaults):
 
-### 3.3 Workflow Separation Rules
+- `effective_browser = inputs.browser || 'all'`
+- `effective_category = inputs.test_category || 'all'`
 
-Update [ .github/workflows/e2e-tests-split.yml ](../../.github/workflows/e2e-tests-split.yml) so:
+For each job:
 
-- Security jobs explicitly include all security-affecting tests, including those moved from settings and emergency-server.
-- Non-security jobs do not include any files or directories that toggle or reset security modules.
-- If tags are used, security jobs should run only tagged tests and non-security jobs should invert the tag.
+- Security jobs should run when `effective_browser` matches the browser (or `all`) AND `effective_category` is `security` or `all`.
+- Non-security jobs should run when `effective_browser` matches the browser (or `all`) AND `effective_category` is `non-security` or `all`.
 
-### 3.4 Test Organization Changes
+Aggregation behavior:
 
-Planned file moves and splits:
+- If a job should run and result is `skipped`, `failure`, or `cancelled`, the aggregation fails.
+- If a job should not run and result is `skipped`, ignore it.
+- Only return success when all expected jobs are successful.
 
-- Split tests/settings/system-settings.spec.ts so security-affecting tests move to a dedicated security-focused test file under tests/security.
-- Move tests/emergency-server into a security-enforcement folder.
-- Review integration tests for dependencies on security module state and move or tag as needed.
+### 3.3 Security Isolation for Non-Security Shards
 
-Concrete list of tests to move from [ tests/settings/system-settings.spec.ts ](../../tests/settings/system-settings.spec.ts) into a new file [ tests/security/system-settings-feature-toggles.spec.ts ](../../tests/security/system-settings-feature-toggles.spec.ts):
+Workflow: [.github/workflows/e2e-tests-split.yml](../../.github/workflows/e2e-tests-split.yml)
 
-- Feature Toggles:
-	- "should toggle Cerberus security feature"
-	- "should toggle CrowdSec console enrollment"
-	- "should toggle uptime monitoring"
-	- "should persist feature toggle changes"
-	- "should show overlay during feature update"
-- Feature Toggles - Advanced Scenarios (Phase 4):
-	- "should handle concurrent toggle operations"
-	- "should retry on 500 Internal Server Error"
-	- "should fail gracefully after max retries exceeded"
-	- "should verify initial feature flag state before tests"
+Requirements:
 
-Note: The `test.afterEach` feature flag reset and `test.afterAll` API metrics reporting currently tied to toggles should move with the toggle suite into [ tests/security/system-settings-feature-toggles.spec.ts ](../../tests/security/system-settings-feature-toggles.spec.ts) to keep state cleanup scoped to the security job.
+- Ensure non-security jobs do not execute any tests from `tests/security-enforcement/` or `tests/security/`.
+- Validate whether `tests/integration` includes security tests. If it does, split those tests into the security suites or exclude them explicitly from non-security runs.
+- Maintain explicit path lists for non-security jobs to avoid accidental inclusion via globbing.
 
-Concrete emergency server file moves:
+### 3.4 Docker Build Workflow Conditions (Preserve Intended Behavior)
 
-- Move [ tests/emergency-server/emergency-server.spec.ts ](../../tests/emergency-server/emergency-server.spec.ts) to [ tests/security-enforcement/emergency-server/emergency-server.spec.ts ](../../tests/security-enforcement/emergency-server/emergency-server.spec.ts).
-- Move [ tests/emergency-server/tier2-validation.spec.ts ](../../tests/emergency-server/tier2-validation.spec.ts) to [ tests/security-enforcement/emergency-server/tier2-validation.spec.ts ](../../tests/security-enforcement/emergency-server/tier2-validation.spec.ts).
+Workflow: [.github/workflows/docker-build.yml](../../.github/workflows/docker-build.yml)
 
-### 3.5 Error Handling and Edge Cases
+Requirements:
 
-- Parallel shards must not toggle global security state at the same time.
-- Tests that require Cerberus enabled must run only in security jobs where Cerberus is enabled by environment or explicit setup.
-- If global setup performs a security reset, security jobs must re-enable required modules before assertions.
+- Remove `push` triggers from the workflow `on:` block.
+- Keep `scan-pr-image` for `pull_request` only.
+- Keep `test-image` for `pull_request` and `workflow_dispatch` only.
+- Preserve `skip_build` gating.
+- Remove any job-level checks for `github.event_name == 'push'`.
 
-### 3.6 Global Setup Conditioning (Critical)
+Expected `on:` block:
 
-Global setup must not reset security in non-security shards. Add a guard in [ tests/global-setup.ts ](../../tests/global-setup.ts):
+```yaml
+on:
+	pull_request:
+		branches:
+			- main
+			- development
+	workflow_dispatch:
+```
 
-- Only validate `CHARON_EMERGENCY_TOKEN`, call `emergencySecurityReset()`, and run `verifySecurityDisabled()` when `CHARON_SECURITY_TESTS_ENABLED === 'true'`.
-- For non-security shards (`CHARON_SECURITY_TESTS_ENABLED !== 'true'`), skip all security reset logic and continue with health checks and test data cleanup only.
-- Preserve existing behavior for security shards so enforcement tests still run against a deterministic baseline.
+Expected `if` conditions:
+
+- `scan-pr-image`: `needs.build-and-push.outputs.skip_build != 'true' && needs.build-and-push.result == 'success' && github.event_name == 'pull_request'`
+- `test-image`: `needs.build-and-push.outputs.skip_build != 'true' && needs.build-and-push.result == 'success' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')`
+
+### 3.5 Codecov Default Behavior on Non-Dispatch Events
+
+Workflow: [.github/workflows/codecov-upload.yml](../../.github/workflows/codecov-upload.yml)
+
+Requirements:
+
+- Remove `push` triggers from the workflow `on:` block.
+- Keep default coverage uploads on non-dispatch events.
+- Only honor `inputs.run_backend` and `inputs.run_frontend` for `workflow_dispatch`.
+- Remove any job-level checks for `github.event_name == 'push'`.
+
+Expected `on:` block:
+
+```yaml
+on:
+	pull_request:
+		branches:
+			- main
+			- development
+	workflow_dispatch:
+```
+
+Expected job conditions:
+
+- `backend-codecov`: `${{ github.event_name != 'workflow_dispatch' || inputs.run_backend != 'false' }}`
+- `frontend-codecov`: `${{ github.event_name != 'workflow_dispatch' || inputs.run_frontend != 'false' }}`
+
+### 3.6 Trigger Policy: No Push CI Runs
+
+Workflows: [.github/workflows/e2e-tests-split.yml](../../.github/workflows/e2e-tests-split.yml),
+[.github/workflows/docker-build.yml](../../.github/workflows/docker-build.yml),
+[.github/workflows/codecov-upload.yml](../../.github/workflows/codecov-upload.yml)
+
+Requirements:
+
+- Remove `push` from the `on:` block in each workflow.
+- Ensure only `pull_request` and `workflow_dispatch` events trigger runs.
+- Remove any job-level `if` clauses that include `github.event_name == 'push'`.
+
+Expected `on:` blocks:
+
+```yaml
+on:
+	pull_request:
+		branches:
+			- main
+			- development
+	workflow_dispatch:
+```
 
 ## 4. Implementation Plan
 
-### Phase 1: Playwright Tests (Behavior Baseline)
+### Phase 1: Playwright Tests (Behavior Definition)
 
-- Confirm the current security toggle behavior in system settings and emergency server tests.
-- Define expected outcomes for toggling Cerberus and CrowdSec so that moved tests retain coverage.
+- No new Playwright tests are required; this change focuses on CI execution and aggregation.
+- Confirm current Playwright suites already cover security enforcement and non-security coverage across browsers.
 
-### Phase 2: Security-Affecting Test Identification
+### Phase 2: Backend Implementation
 
-- Inventory tests in tests/settings, tests/emergency-server, and tests/integration against the security-affecting rules.
-- Create a list of files to move, split, or tag.
+- Not applicable. No backend code changes are required.
 
-### Phase 3: Test Restructuring
+### Phase 3: Frontend Implementation
 
-- Split tests/settings/system-settings.spec.ts to isolate security toggles into [ tests/security/system-settings-feature-toggles.spec.ts ](../../tests/security/system-settings-feature-toggles.spec.ts) using the concrete list above.
-- Move emergency server tests into [ tests/security-enforcement/emergency-server/ ](../../tests/security-enforcement/emergency-server/) using the concrete list above.
-- If integration tests require security modules enabled, relocate or tag them.
+- Not applicable. No frontend code changes are required.
 
-### Phase 4: Workflow Updates
+### Phase 4: Integration and Testing
 
-- Update non-security shard inputs in [ .github/workflows/e2e-tests-split.yml ](../../.github/workflows/e2e-tests-split.yml):
-	- Remove `tests/emergency-server` from non-security job inputs.
-	- Keep `tests/settings` but ensure the moved security toggle suite lives under `tests/security` so it is not picked up.
-- Update security job inputs to include the relocated emergency server folder:
-	- Ensure `tests/security-enforcement/emergency-server` is included (already covered by `tests/security-enforcement/` once moved).
-	- Security jobs already include `tests/security/`, which will pick up `tests/security/system-settings-feature-toggles.spec.ts`.
-- If tags are adopted, add grep filters to the security and non-security job commands.
+- Update all Playwright run steps in the split workflow to use the robust execution pattern.
+- Update `e2e-results` to compute expected-run logic and fail on unexpected skips.
+- Audit non-security test path lists to ensure security tests are not executed outside security jobs.
+- Update Docker workflow `on:` triggers and job conditions to remove `push` and align with `pull_request` and `workflow_dispatch` only.
+- Update Codecov workflow `on:` triggers and job conditions to default on non-dispatch events (no push triggers).
+- Update E2E split workflow `on:` triggers to remove `push` and align with `pull_request` and `workflow_dispatch` only.
 
-### Phase 5: Validation and Guardrails
+### Phase 5: Documentation and Deployment
 
-- Run the security jobs and non-security jobs separately and confirm no security-related tests execute in non-security shards.
-- Confirm rate limit and ACL enforcement tests only run under security jobs with Cerberus enabled.
-- Capture and review Playwright reports for cross-shard contamination indicators.
+- Update this plan with final specs and ensure it matches workflow behavior.
+- No deployment or release changes are required.
 
 ## 5. Acceptance Criteria (EARS)
 
-- WHEN a non-security E2E shard runs, THE SYSTEM SHALL exclude all tests that toggle or reset Cerberus, ACL, WAF, CrowdSec, or rate limiting.
-- WHEN a non-security E2E shard runs, THE SYSTEM SHALL skip the global security reset in [ tests/global-setup.ts ](../../tests/global-setup.ts) unless `CHARON_SECURITY_TESTS_ENABLED` is `true`.
-- WHEN a security E2E shard runs, THE SYSTEM SHALL include all tests that toggle or reset security modules and all enforcement tests.
-- WHEN security-affecting tests run, THE SYSTEM SHALL execute them only in workflows where Cerberus is enabled.
-- WHEN tests are reorganized, THE SYSTEM SHALL preserve existing security coverage without introducing new cross-shard dependencies.
-- WHEN integration tests require security modules enabled, THE SYSTEM SHALL route them to security shards or explicitly enable security in their setup.
+- WHEN a Playwright job runs, THE SYSTEM SHALL record the Playwright exit status and exit the step with that status.
+- WHEN a job should have run based on `inputs.browser` and `inputs.test_category`, THE SYSTEM SHALL fail aggregation if the job result is `skipped`, `failure`, or `cancelled`.
+- WHEN a job should not have run based on `inputs.browser` and `inputs.test_category`, THE SYSTEM SHALL ignore its `skipped` result.
+- WHEN non-security shards run, THE SYSTEM SHALL NOT execute tests from `tests/security-enforcement/` or `tests/security/`.
+- WHEN the Docker build workflow runs on a pull request, THE SYSTEM SHALL execute `scan-pr-image`.
+- WHEN the Docker build workflow runs on a workflow dispatch, THE SYSTEM SHALL execute `test-image`.
+- WHEN the Docker build workflow runs on a pull request, THE SYSTEM SHALL execute `test-image`.
+- WHEN the Codecov workflow runs on a non-dispatch event, THE SYSTEM SHALL execute backend and frontend coverage jobs by default.
+- WHEN the Codecov workflow is manually dispatched and inputs disable a job, THE SYSTEM SHALL skip the disabled job.
+- WHEN any of the target workflows are triggered, THE SYSTEM SHALL only allow `pull_request` and `workflow_dispatch` events and SHALL NOT run for `push` events.
 
 ## 6. Risks and Mitigations
 
-- Risk: Moving tests breaks historical references or documentation links. Mitigation: update any references in test comments and plan docs after moves.
-- Risk: Tag-based filtering is inconsistent across local and CI runs. Mitigation: document the tag usage in Playwright config and ensure local scripts align with CI filters.
-- Risk: Integration tests implicitly rely on Cerberus being enabled. Mitigation: audit integration tests and either enable Cerberus in test setup or move them to security shards.
+- Risk: Aggregation logic becomes too strict for selective runs. Mitigation: derive expected-run logic from inputs with the same defaults used in the workflow.
+- Risk: Security tests remain in `tests/integration` and leak into non-security shards. Mitigation: audit `tests/integration` and relocate or exclude security tests explicitly.
+- Risk: Removing push triggers reduces CI coverage for direct branch pushes. Mitigation: enforce pull_request-based checks and require manual dispatch for emergency validations.
 
 ## 7. Confidence Score
 
-Confidence: 78 percent
+Confidence: 86 percent
 
-Rationale: The security-toggling tests are identifiable and the workflow split is clear, but integration test dependencies on security state require additional verification before final routing.
+Rationale: Required changes are localized to workflow triggers, job conditions, and test path selection. The main remaining uncertainty is whether any security tests reside in `tests/integration`, which must be verified before finalizing non-security path lists.
