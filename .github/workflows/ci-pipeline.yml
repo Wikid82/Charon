@@ -188,8 +188,14 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           DEFAULT_TAG="sha-${SHORT_SHA}"
           BRANCH_NAME="${{ github.ref_name }}"
+          if [[ "$BRANCH_NAME" == refs/heads/* ]]; then
+            BRANCH_NAME="${BRANCH_NAME#refs/heads/}"
+          fi
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             BRANCH_NAME="${PR_HEAD_REF}"
+            if [[ "$BRANCH_NAME" == refs/heads/* ]]; then
+              BRANCH_NAME="${BRANCH_NAME#refs/heads/}"
+            fi
           fi
           if [ -n "${{ inputs.image_tag_override }}" ]; then
             DEFAULT_TAG="${{ inputs.image_tag_override }}"
@@ -210,34 +216,26 @@ jobs:
             local max_len="$2"
 
             local sanitized
-            sanitized=$(echo "$raw" | tr '[:upper:]' '[:lower:]')
-            sanitized=${sanitized//[^a-z0-9-]/-}
-            while [[ "$sanitized" == *"--"* ]]; do
-              sanitized=${sanitized//--/-}
-            done
-            sanitized=${sanitized##[^a-z0-9]*}
-            sanitized=${sanitized%%[^a-z0-9-]*}
-
-            if [ -z "$sanitized" ]; then
-              sanitized="branch"
-            fi
-
+            sanitized=$(echo "$raw" | sed -E 's/[^A-Za-z0-9_.-]/-/g')
+            sanitized=$(echo "$sanitized" | sed -E 's/-+/-/g')
+            sanitized=$(echo "$sanitized" | sed -E 's/^[.-]+//')
             sanitized=$(echo "$sanitized" | cut -c1-"$max_len")
 
-            sanitized=${sanitized##[^a-z0-9]*}
             if [ -z "$sanitized" ]; then
-              sanitized="branch"
+              sanitized="sha-${SHORT_SHA}"
             fi
 
             echo "$sanitized"
           }
 
+          DEFAULT_TAG=$(sanitize_tag "${DEFAULT_TAG}" 128)
           SANITIZED_BRANCH=$(sanitize_tag "${BRANCH_NAME}" 128)
+          SANITIZED_SHORT_SHA=$(sanitize_tag "${SHORT_SHA}" 7)
           BRANCH_TAG="${SANITIZED_BRANCH}"
-          BRANCH_SHA_TAG="${SANITIZED_BRANCH}-$(sanitize_tag "${SHORT_SHA}" 7)"
+          BRANCH_SHA_TAG="${SANITIZED_BRANCH}-${SANITIZED_SHORT_SHA}"
           if [ "${#SANITIZED_BRANCH}" -gt 120 ]; then
             SANITIZED_BRANCH=$(sanitize_tag "${BRANCH_NAME}" 120)
-            BRANCH_SHA_TAG="${SANITIZED_BRANCH}-${SHORT_SHA}"
+            BRANCH_SHA_TAG="${SANITIZED_BRANCH}-${SANITIZED_SHORT_SHA}"
           fi
 
           TAGS=()
@@ -261,8 +259,8 @@ jobs:
 
           if [ "${{ github.event_name }}" != "pull_request" ] && \
              { [ "${{ github.ref_name }}" = "main" ] || [ "${{ github.ref_name }}" = "development" ] || [ "${{ github.ref_name }}" = "nightly" ]; }; then
-            TAGS+=("${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}")
-            TAGS+=("${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}")
+            TAGS+=("${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${SANITIZED_SHORT_SHA}")
+            TAGS+=("${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:${SANITIZED_SHORT_SHA}")
           fi
 
           if [ "${{ github.ref_name }}" = "main" ]; then
