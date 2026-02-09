@@ -149,7 +149,7 @@ jobs:
       image_tag: ${{ steps.outputs.outputs.image_tag }}
       push_image: ${{ steps.image-policy.outputs.push }}
       image_pushed: ${{ steps.image-policy.outputs.push == 'true' && steps.push.outcome == 'success' }}
-      run_integration: ${{ needs.setup.outputs.input_run_integration == 'true' && steps.image-policy.outputs.push == 'true' && steps.push.outcome == 'success' }}
+      run_integration: ${{ needs.setup.outputs.input_run_integration == 'true' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -347,8 +347,27 @@ jobs:
           push: ${{ steps.image-policy.outputs.push == 'true' }}
           load: ${{ steps.image-policy.outputs.push != 'true' }}
           tags: ${{ steps.tags.outputs.tags }}
+          cache-to: type=gha,mode=max
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build image for integration tests
+        id: export-image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          outputs: type=docker,dest=/tmp/charon.tar
+          tags: charon:local
+          cache-from: type=gha
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: /tmp/charon.tar
+          retention-days: 1
 
       - name: Emit image outputs
         id: outputs
@@ -457,17 +476,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
         with:
-          registry: ${{ env.DOCKERHUB_REGISTRY }}
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          name: docker-image
+          path: /tmp
 
-      - name: Pull shared image
-        run: |
-          docker pull "${{ needs.build-image.outputs.image_ref_dockerhub }}"
-          docker tag "${{ needs.build-image.outputs.image_ref_dockerhub }}" charon:local
+      - name: Load Docker image
+        run: docker load -i /tmp/charon.tar
+
+      - name: Verify local image
+        run: docker image inspect charon:local
 
       - name: Run Cerberus integration tests
         run: |
@@ -482,17 +501,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
         with:
-          registry: ${{ env.DOCKERHUB_REGISTRY }}
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          name: docker-image
+          path: /tmp
 
-      - name: Pull shared image
-        run: |
-          docker pull "${{ needs.build-image.outputs.image_ref_dockerhub }}"
-          docker tag "${{ needs.build-image.outputs.image_ref_dockerhub }}" charon:local
+      - name: Load Docker image
+        run: docker load -i /tmp/charon.tar
+
+      - name: Verify local image
+        run: docker image inspect charon:local
 
       - name: Run CrowdSec integration tests
         run: |
@@ -508,17 +527,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
         with:
-          registry: ${{ env.DOCKERHUB_REGISTRY }}
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          name: docker-image
+          path: /tmp
 
-      - name: Pull shared image
-        run: |
-          docker pull "${{ needs.build-image.outputs.image_ref_dockerhub }}"
-          docker tag "${{ needs.build-image.outputs.image_ref_dockerhub }}" charon:local
+      - name: Load Docker image
+        run: docker load -i /tmp/charon.tar
+
+      - name: Verify local image
+        run: docker image inspect charon:local
 
       - name: Run WAF integration tests
         run: |
@@ -533,17 +552,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
         with:
-          registry: ${{ env.DOCKERHUB_REGISTRY }}
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          name: docker-image
+          path: /tmp
 
-      - name: Pull shared image
-        run: |
-          docker pull "${{ needs.build-image.outputs.image_ref_dockerhub }}"
-          docker tag "${{ needs.build-image.outputs.image_ref_dockerhub }}" charon:local
+      - name: Load Docker image
+        run: docker load -i /tmp/charon.tar
+
+      - name: Verify local image
+        run: docker image inspect charon:local
 
       - name: Run rate limit integration tests
         run: |
