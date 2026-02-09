@@ -328,7 +328,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Echo generated tags
-        run: echo "${{ steps.tags.outputs.tags }}"
+        run: printf '%s\n' "${{ steps.tags.outputs.tags }}"
 
       - name: Build and push Docker image
         id: push
@@ -347,6 +347,7 @@ jobs:
         id: outputs
         run: |
           DIGEST="${{ steps.push.outputs.digest }}"
+          DIGEST=$(echo "$DIGEST" | xargs)
           TAGS_RAW='${{ steps.tags.outputs.tags }}'
           DEFAULT_TAG='${{ steps.tags.outputs.image_tag }}'
           PUSH_IMAGE="${{ steps.image-policy.outputs.push }}"
@@ -410,11 +411,16 @@ jobs:
             exit 1
           fi
 
-          echo "image_ref_dockerhub=${IMAGE_REF_DOCKERHUB}" >> "$GITHUB_OUTPUT"
-          echo "image_ref_ghcr=${IMAGE_REF_GHCR}" >> "$GITHUB_OUTPUT"
-          echo "::add-mask::${IMAGE_REF_DOCKERHUB}"
-          echo "::add-mask::${IMAGE_REF_GHCR}"
-          echo "image_tag=${DEFAULT_TAG}" >> "$GITHUB_OUTPUT"
+          if [ "$PUSH_IMAGE" = "true" ] && [ "$PUSH_OUTCOME" = "success" ]; then
+            echo "Validating Docker Hub image ref: ${IMAGE_REF_DOCKERHUB}"
+            docker manifest inspect "${IMAGE_REF_DOCKERHUB}"
+          fi
+
+          {
+            echo "image_ref_dockerhub=${IMAGE_REF_DOCKERHUB}"
+            echo "image_ref_ghcr=${IMAGE_REF_GHCR}"
+            echo "image_tag=${DEFAULT_TAG}"
+          } >> "$GITHUB_OUTPUT"
 
   integration-cerberus:
     name: Integration - Cerberus
