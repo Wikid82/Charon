@@ -3,9 +3,9 @@ import react from '@vitejs/plugin-react'
 
 // Dynamic coverage threshold (align local and CI)
 const coverageThresholdValue =
-  process.env.CHARON_MIN_COVERAGE ?? process.env.CPM_MIN_COVERAGE ?? '87.5'
+  process.env.CHARON_MIN_COVERAGE ?? process.env.CPM_MIN_COVERAGE ?? '88.0'
 const coverageThreshold = Number.parseFloat(coverageThresholdValue)
-const resolvedCoverageThreshold = Number.isNaN(coverageThreshold) ? 87.5 : coverageThreshold
+const resolvedCoverageThreshold = Number.isNaN(coverageThreshold) ? 88.0 : coverageThreshold
 
 export default defineConfig({
   plugins: [react()],

@@ -1,246 +1,126 @@
 ---
-title: "CI Workflow Reliability Fixes"
-status: "docs_complete"
-scope: "ci/workflows"
-notes: Finalize E2E split workflow execution and aggregation logic, prevent security tests from leaking into non-security shards, align Docker build and Codecov defaults, and ensure workflows run only on pull_request or workflow_dispatch.
+title: "Fix Noisy Frontend Tests and Clean Coverage Output"
+status: "planning"
+scope: "frontend/tests"
+notes: Address console noise in AuditLogs tests, act() warnings in UsersPage tests, and confirm coverage outputs stay clean without introducing new artifacts.
 ---
 
 ## 1. Introduction
 
-This plan finalizes CI workflow specifications based on Supervisor feedback and deeper analysis. The scope covers three workflows:
+This plan targets two noisy frontend test suites and their downstream coverage output. The immediate goals are to:
 
-- E2E split workflow reliability and accurate results aggregation.
-- Docker build workflow trigger logic for PRs and manual dispatches.
-- Codecov upload workflow default behavior on non-dispatch events.
-
-Objectives:
-
-- Ensure Playwright jobs fail deterministically when tests fail and do not get masked by aggregation.
-- Ensure results aggregation reflects expected runs based on `inputs.browser` and `inputs.test_category`.
-- Ensure non-security jobs do not run security test suites.
-- Preserve intended Docker build scan/test job triggers for pull_request and workflow_dispatch only.
-- Preserve Codecov default behavior on non-dispatch events.
-- Enforce policy that no push events trigger CI run jobs.
+- Silence expected console errors in AuditLogs tests without hiding real failures.
+- Eliminate act() warnings in UsersPage tests by synchronizing timer-driven updates.
+- Keep coverage output clean and stable across local runs and CI.
 
 ## 2. Research Findings
 
-### 2.1 E2E Split Workflow Execution and Aggregation
+### 2.1 AuditLogs test noise
 
-[.github/workflows/e2e-tests-split.yml](../../.github/workflows/e2e-tests-split.yml) currently:
+The AuditLogs page logs export failures with `console.error` in the export handler, which is triggered in the export error test. This produces expected console output in [frontend/src/pages/AuditLogs.tsx](frontend/src/pages/AuditLogs.tsx) and [frontend/src/pages/__tests__/AuditLogs.test.tsx](frontend/src/pages/__tests__/AuditLogs.test.tsx).
 
-- Executes Playwright in multiple jobs without a consistent exit-code capture pattern.
-- Aggregates results in `e2e-results` by converting any `skipped` job into `success` regardless of whether it should have run.
+### 2.2 UsersPage act() warnings
 
-This can hide failures and unexpected skips when inputs or secrets are misconfigured.
+UsersPage uses a debounced effect for invite URL preview (500ms timeout). Tests in [frontend/src/pages/__tests__/UsersPage.test.tsx](frontend/src/pages/__tests__/UsersPage.test.tsx) trigger this effect but do not consistently advance timers or await the debounce path, which can surface act() warnings in the Vitest environment configured in [frontend/vitest.config.ts](frontend/vitest.config.ts) and [frontend/src/test/setup.ts](frontend/src/test/setup.ts).
 
-### 2.2 Security Test Leakage into Non-Security Shards
+### 2.3 Test utilities and configuration
 
-Non-security jobs call Playwright with explicit paths including `tests/integration` and other folders. Security-only jobs explicitly run:
+- Test setup already sets `globalThis.IS_REACT_ACT_ENVIRONMENT = true` and filters specific console errors in [frontend/src/test/setup.ts](frontend/src/test/setup.ts).
+- Query client test helper is centralized in [frontend/src/test-utils/renderWithQueryClient.tsx](frontend/src/test-utils/renderWithQueryClient.tsx).
+- Coverage reporting is configured in [frontend/vitest.config.ts](frontend/vitest.config.ts) with output under `frontend/coverage/` and global ignore rules in [codecov.yml](codecov.yml).
 
-- `tests/security-enforcement/`
-- `tests/security/`
+### 2.4 Ignore and packaging rules review
 
-If `tests/integration` contains security-sensitive tests, those could execute in non-security shards. This violates the isolation goal of the split workflow.
-
-### 2.3 Docker Build Workflow Trigger Logic
-
-[.github/workflows/docker-build.yml](../../.github/workflows/docker-build.yml) is intended to:
-
-- Run `scan-pr-image` for pull requests.
-- Run `test-image` for pull_request and workflow_dispatch.
-
-The workflow also currently triggers on `push`. The user requirement is that no push events trigger CI run jobs, so all push triggers must be removed and job logic updated accordingly.
-
-### 2.4 Codecov Default Behavior on Non-Dispatch Events
-
-[.github/workflows/codecov-upload.yml](../../.github/workflows/codecov-upload.yml) uses `inputs.run_backend` and `inputs.run_frontend`. On `pull_request`, `inputs` is undefined, leading to unintended skips. The intended behavior is to run by default on non-dispatch events and honor inputs only on `workflow_dispatch`. The workflow must not be triggered by `push`.
+- `.gitignore` already ignores frontend coverage, test results, and Playwright artifacts; no new artifact paths are currently introduced by the target tests. See [.gitignore](.gitignore).
+- `.dockerignore` excludes frontend test and coverage artifacts, and the entire tests directory, so no changes are needed for this task. See [.dockerignore](.dockerignore).
+- `codecov.yml` already ignores frontend test utilities and setup files, and enforces 100% patch coverage. See [codecov.yml](codecov.yml).
+- `Dockerfile` is unrelated to test runtime and coverage artifacts for this scope. See [Dockerfile](Dockerfile).
 
 ## 3. Technical Specifications
 
-### 3.1 E2E Workflow Execution Hardening
+### 3.1 AuditLogs console noise control
 
-Workflow: [.github/workflows/e2e-tests-split.yml](../../.github/workflows/e2e-tests-split.yml)
+Objective: Prevent expected export errors from leaking into console output while preserving real console errors.
 
-Requirements:
+Plan:
 
-- Apply a robust execution pattern in every Playwright run step (security and non-security jobs) to capture exit codes and fail the job consistently.
-- Keep timing logs but do not allow Playwright failures to be hidden by a non-zero exit path.
+- In [frontend/src/pages/__tests__/AuditLogs.test.tsx](frontend/src/pages/__tests__/AuditLogs.test.tsx), use `vi.spyOn(console, 'error').mockImplementation(() => {})` inside the specific export error test to prevent noise.
+- Assert with resilient matchers (e.g., `expect(consoleErrorSpy).toHaveBeenCalled()` and `toHaveBeenCalledWith(expect.stringContaining(...), expect.anything())` as appropriate to the test).
+- Always restore the spy in the same test scope (e.g., `consoleErrorSpy.mockRestore()` in `finally` or after assertions) so other console errors remain visible.
 
-Required run-step pattern:
+### 3.2 UsersPage act() warning elimination
 
-```bash
-set -euo pipefail
-STATUS=0
-npx playwright test ... || STATUS=$?
-echo "PLAYWRIGHT_STATUS=$STATUS" >> "$GITHUB_ENV"
-exit "$STATUS"
-```
+Objective: Make timer-driven state updates explicit in tests that trigger the invite URL preview debounce.
 
-### 3.2 E2E Results Aggregation with Expected-Run Logic
+Plan:
 
-Workflow: [.github/workflows/e2e-tests-split.yml](../../.github/workflows/e2e-tests-split.yml)
+- In [frontend/src/pages/__tests__/UsersPage.test.tsx](frontend/src/pages/__tests__/UsersPage.test.tsx), call `vi.useFakeTimers()` before `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })` in tests that cover the invite URL preview debounce.
+- Advance timers by 500ms inside `act(() => { vi.advanceTimersByTime(500); })`, then await `waitFor` assertions.
+- Ensure each test restores real timers to avoid cross-test contamination.
 
-Requirements:
+### 3.3 Coverage output cleanliness
 
-- Replicate the same input filtering logic used in the job `if` clauses to determine if each job should have run.
-- `e2e-results` MUST declare `needs: [shard-jobs...]` covering every shard job so the aggregation evaluates actual results.
-- Treat `skipped`, `failure`, or `cancelled` as failure outcomes when a job should have run.
-- Ignore `skipped` when a job should not have run.
+Objective: Keep coverage output and Codecov patch status clean after test stabilization.
 
-Expected-run logic (derived from inputs and defaults):
+Plan:
 
-- `effective_browser = inputs.browser || 'all'`
-- `effective_category = inputs.test_category || 'all'`
-
-For each job:
-
-- Security jobs should run when `effective_browser` matches the browser (or `all`) AND `effective_category` is `security` or `all`.
-- Non-security jobs should run when `effective_browser` matches the browser (or `all`) AND `effective_category` is `non-security` or `all`.
-
-Aggregation behavior:
-
-- If a job should run and result is `skipped`, `failure`, or `cancelled`, the aggregation fails.
-- If a job should not run and result is `skipped`, ignore it.
-- Only return success when all expected jobs are successful.
-
-### 3.3 Security Isolation for Non-Security Shards
-
-Workflow: [.github/workflows/e2e-tests-split.yml](../../.github/workflows/e2e-tests-split.yml)
-
-Requirements:
-
-- Ensure non-security jobs do not execute any tests from `tests/security-enforcement/` or `tests/security/`.
-- Validate whether `tests/integration` includes security tests. If it does, split those tests into the security suites or exclude them explicitly from non-security runs.
-- Maintain explicit path lists for non-security jobs to avoid accidental inclusion via globbing.
-
-### 3.4 Docker Build Workflow Conditions (Preserve Intended Behavior)
-
-Workflow: [.github/workflows/docker-build.yml](../../.github/workflows/docker-build.yml)
-
-Requirements:
-
-- Remove `push` triggers from the workflow `on:` block.
-- Keep `scan-pr-image` for `pull_request` only.
-- Keep `test-image` for `pull_request` and `workflow_dispatch` only.
-- Preserve `skip_build` gating.
-- Remove any job-level checks for `github.event_name == 'push'`.
-
-Expected `on:` block:
-
-```yaml
-on:
-	pull_request:
-		branches:
-			- main
-			- development
-	workflow_dispatch:
-```
-
-Expected `if` conditions:
-
-- `scan-pr-image`: `needs.build-and-push.outputs.skip_build != 'true' && needs.build-and-push.result == 'success' && github.event_name == 'pull_request'`
-- `test-image`: `needs.build-and-push.outputs.skip_build != 'true' && needs.build-and-push.result == 'success' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')`
-
-### 3.5 Codecov Default Behavior on Non-Dispatch Events
-
-Workflow: [.github/workflows/codecov-upload.yml](../../.github/workflows/codecov-upload.yml)
-
-Requirements:
-
-- Remove `push` triggers from the workflow `on:` block.
-- Keep default coverage uploads on non-dispatch events.
-- Only honor `inputs.run_backend` and `inputs.run_frontend` for `workflow_dispatch`.
-- Remove any job-level checks for `github.event_name == 'push'`.
-
-Expected `on:` block:
-
-```yaml
-on:
-	pull_request:
-		branches:
-			- main
-			- development
-	workflow_dispatch:
-```
-
-Expected job conditions:
-
-- `backend-codecov`: `${{ github.event_name != 'workflow_dispatch' || inputs.run_backend != 'false' }}`
-- `frontend-codecov`: `${{ github.event_name != 'workflow_dispatch' || inputs.run_frontend != 'false' }}`
-
-### 3.6 Trigger Policy: No Push CI Runs
-
-Workflows: [.github/workflows/e2e-tests-split.yml](../../.github/workflows/e2e-tests-split.yml),
-[.github/workflows/docker-build.yml](../../.github/workflows/docker-build.yml),
-[.github/workflows/codecov-upload.yml](../../.github/workflows/codecov-upload.yml)
-
-Requirements:
-
-- Remove `push` from the `on:` block in each workflow.
-- Ensure only `pull_request` and `workflow_dispatch` events trigger runs.
-- Remove any job-level `if` clauses that include `github.event_name == 'push'`.
-
-Expected `on:` blocks:
-
-```yaml
-on:
-	pull_request:
-		branches:
-			- main
-			- development
-	workflow_dispatch:
-```
+- Confirm coverage output remains under `frontend/coverage/` with no new artifacts.
+- Ensure no new files or paths are added that require ignore updates in [.gitignore](.gitignore) or [codecov.yml](codecov.yml).
+- If the test updates add new helper files, ensure they are in existing ignored paths (e.g., `frontend/src/test-utils/**`), otherwise update ignore lists.
 
 ## 4. Implementation Plan
 
 ### Phase 1: Playwright Tests (Behavior Definition)
 
-- No new Playwright tests are required; this change focuses on CI execution and aggregation.
-- Confirm current Playwright suites already cover security enforcement and non-security coverage across browsers.
+- No Playwright changes required; the issues are limited to unit tests and their console/timer behavior.
+- Confirm no E2E coverage changes are needed for this task.
 
 ### Phase 2: Backend Implementation
 
-- Not applicable. No backend code changes are required.
+- Not applicable.
 
 ### Phase 3: Frontend Implementation
 
-- Not applicable. No frontend code changes are required.
+1. Update AuditLogs test to spy on and assert `console.error` for the export error path.
+2. Update UsersPage invite URL preview tests to use fake timers and act-wrapped timer advancement.
+3. Ensure any test-specific helpers remain in existing test utility paths.
 
 ### Phase 4: Integration and Testing
 
-- Update all Playwright run steps in the split workflow to use the robust execution pattern.
-- Update `e2e-results` to compute expected-run logic and fail on unexpected skips.
-- Audit non-security test path lists to ensure security tests are not executed outside security jobs.
-- Update Docker workflow `on:` triggers and job conditions to remove `push` and align with `pull_request` and `workflow_dispatch` only.
-- Update Codecov workflow `on:` triggers and job conditions to default on non-dispatch events (no push triggers).
-- Update E2E split workflow `on:` triggers to remove `push` and align with `pull_request` and `workflow_dispatch` only.
+1. Run Playwright E2E tests first (before unit tests), per the mandatory E2E-first policy.
+2. Run targeted Vitest suites for:
+   - [frontend/src/pages/__tests__/AuditLogs.test.tsx](frontend/src/pages/__tests__/AuditLogs.test.tsx)
+   - [frontend/src/pages/__tests__/UsersPage.test.tsx](frontend/src/pages/__tests__/UsersPage.test.tsx)
+3. Run frontend coverage locally using the existing script in `scripts/frontend-test-coverage.sh` (no changes planned).
+4. Verify coverage artifacts remain in ignored paths and Codecov patch coverage stays at 100%.
 
 ### Phase 5: Documentation and Deployment
 
-- Update this plan with final specs and ensure it matches workflow behavior.
-- No deployment or release changes are required.
+- Update this plan to reflect any deviations discovered during implementation.
+- No deployment changes required.
 
 ## 5. Acceptance Criteria (EARS)
 
-- WHEN a Playwright job runs, THE SYSTEM SHALL record the Playwright exit status and exit the step with that status.
-- WHEN a job should have run based on `inputs.browser` and `inputs.test_category`, THE SYSTEM SHALL fail aggregation if the job result is `skipped`, `failure`, or `cancelled`.
-- WHEN a job should not have run based on `inputs.browser` and `inputs.test_category`, THE SYSTEM SHALL ignore its `skipped` result.
-- WHEN non-security shards run, THE SYSTEM SHALL NOT execute tests from `tests/security-enforcement/` or `tests/security/`.
-- WHEN the Docker build workflow runs on a pull request, THE SYSTEM SHALL execute `scan-pr-image`.
-- WHEN the Docker build workflow runs on a workflow dispatch, THE SYSTEM SHALL execute `test-image`.
-- WHEN the Docker build workflow runs on a pull request, THE SYSTEM SHALL execute `test-image`.
-- WHEN the Codecov workflow runs on a non-dispatch event, THE SYSTEM SHALL execute backend and frontend coverage jobs by default.
-- WHEN the Codecov workflow is manually dispatched and inputs disable a job, THE SYSTEM SHALL skip the disabled job.
-- WHEN any of the target workflows are triggered, THE SYSTEM SHALL only allow `pull_request` and `workflow_dispatch` events and SHALL NOT run for `push` events.
+- WHEN AuditLogs export fails during tests, THE SYSTEM SHALL capture the error via a test-local `console.error` spy and SHALL NOT emit unhandled console output.
+- WHEN UsersPage invite preview debounce logic runs in tests, THE SYSTEM SHALL advance timers within `act()` and SHALL NOT emit act() warnings.
+- WHEN frontend coverage is generated, THE SYSTEM SHALL write outputs only under existing ignored paths and SHALL NOT introduce new unignored artifacts.
+- WHEN Codecov evaluates patch coverage, THE SYSTEM SHALL report 100% coverage for modified lines.
 
 ## 6. Risks and Mitigations
 
-- Risk: Aggregation logic becomes too strict for selective runs. Mitigation: derive expected-run logic from inputs with the same defaults used in the workflow.
-- Risk: Security tests remain in `tests/integration` and leak into non-security shards. Mitigation: audit `tests/integration` and relocate or exclude security tests explicitly.
-- Risk: Removing push triggers reduces CI coverage for direct branch pushes. Mitigation: enforce pull_request-based checks and require manual dispatch for emergency validations.
+- Risk: Over-suppression of console errors hides real regressions. Mitigation: limit console spying to the single export error test and assert expected payloads.
+- Risk: Fake timers leak across tests. Mitigation: ensure timers are restored in `afterEach` or per-test cleanup in UsersPage tests.
+- Risk: Timer advancement out of sync with user-event. Mitigation: use `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })` while fake timers are enabled.
 
-## 7. Confidence Score
+## 7. Dependencies and Impacted Files
 
-Confidence: 86 percent
+- Tests: [frontend/src/pages/__tests__/AuditLogs.test.tsx](frontend/src/pages/__tests__/AuditLogs.test.tsx), [frontend/src/pages/__tests__/UsersPage.test.tsx](frontend/src/pages/__tests__/UsersPage.test.tsx)
+- Test setup: [frontend/src/test/setup.ts](frontend/src/test/setup.ts)
+- Coverage config: [frontend/vitest.config.ts](frontend/vitest.config.ts), [codecov.yml](codecov.yml)
+- Ignore files review: [.gitignore](.gitignore), [.dockerignore](.dockerignore)
 
-Rationale: Required changes are localized to workflow triggers, job conditions, and test path selection. The main remaining uncertainty is whether any security tests reside in `tests/integration`, which must be verified before finalizing non-security path lists.
+## 8. Confidence Score
+
+Confidence: 84 percent
+
+Rationale: The issues are scoped to two test files with known sources (console error logging and debounced timers). Minor uncertainty remains around timer behavior in user-event sequences across different Vitest versions.
