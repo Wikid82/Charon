@@ -885,9 +885,6 @@ jobs:
           npx playwright test \
             --project=chromium \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
-            --ignore tests/security-enforcement/ \
-            --ignore tests/security/ \
-            --ignore tests/integration/multi-feature-workflows.spec.ts \
             tests/core \
             tests/dns-provider-crud.spec.ts \
             tests/dns-provider-types.spec.ts \
@@ -1072,9 +1069,6 @@ jobs:
           npx playwright test \
             --project=firefox \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
-            --ignore tests/security-enforcement/ \
-            --ignore tests/security/ \
-            --ignore tests/integration/multi-feature-workflows.spec.ts \
             tests/core \
             tests/dns-provider-crud.spec.ts \
             tests/dns-provider-types.spec.ts \
@@ -1259,9 +1253,6 @@ jobs:
           npx playwright test \
             --project=webkit \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
-            --ignore tests/security-enforcement/ \
-            --ignore tests/security/ \
-            --ignore tests/integration/multi-feature-workflows.spec.ts \
             tests/core \
             tests/dns-provider-crud.spec.ts \
             tests/dns-provider-types.spec.ts \
