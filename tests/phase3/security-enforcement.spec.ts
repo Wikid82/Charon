@@ -1,20 +1,40 @@
-/**
- * Phase 3 - Security Enforcement Tests
- *
- * Core security middleware validation:
- * - Invalid/Expired/Malformed JWT handling
- * - CSRF token validation
- * - Request timeout handling
- * - Authentication middleware load order
- *
- * Total Tests: 28
- * Expected Duration: ~10 minutes
- */
-
 import { test, expect } from '@playwright/test';
-import { request as playwrightRequest } from '@playwright/test';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
+
+// Helper: Create logs directory
+function ensureLogDir() {
+  const logDir = path.join(process.cwd(), 'logs');
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
+  return logDir;
+}
+
+// Helper: Extract token expiry from JWT
+function getTokenExpiry(token: string): string {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return 'invalid';
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+    if (payload.exp) {
+      return new Date(payload.exp * 1000).toISOString();
+    }
+  } catch (e) {
+    return 'parse_error';
+  }
+  return 'unknown';
+}
+
+// Helper: Log heartbeat for 60-minute session test
+function logHeartbeat(heartbeatNum: number, minuteElapsed: number, context: string, tokenExpiry: string) {
+  const logDir = ensureLogDir();
+  const heartbeatMsg = `✓ [Heartbeat ${heartbeatNum}] Min ${minuteElapsed}: ${context}. Token expires: ${tokenExpiry}`;
+  fs.appendFileSync(path.join(logDir, 'session-heartbeat.log'), heartbeatMsg + '\n');
+  console.log(heartbeatMsg);
+}
 
 test.describe('Phase 3: Security Enforcement', () => {
   let baseContext: any;
