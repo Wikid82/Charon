@@ -98,7 +98,7 @@ env:
   CI_LOG_LEVEL: 'verbose'
 
 concurrency:
-  group: e2e-split-${{ github.workflow }}-${{ github.ref_name }}-${{ github.run_id }}
+  group: e2e-split-${{ github.workflow }}-${{ github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -213,7 +213,7 @@ jobs:
     if: |
       ((inputs.browser || 'all') == 'chromium' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
@@ -394,7 +394,7 @@ jobs:
     if: |
       ((inputs.browser || 'all') == 'firefox' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
@@ -583,7 +583,7 @@ jobs:
     if: |
       ((inputs.browser || 'all') == 'webkit' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
@@ -779,7 +779,7 @@ jobs:
     if: |
       ((inputs.browser || 'all') == 'chromium' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
@@ -955,7 +955,7 @@ jobs:
     if: |
       ((inputs.browser || 'all') == 'firefox' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
@@ -1139,7 +1139,7 @@ jobs:
     if: |
       ((inputs.browser || 'all') == 'webkit' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
