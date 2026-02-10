@@ -106,7 +106,7 @@ action_delete_ghcr() {
           manifest=$(curl -sS -H "Accept: application/vnd.docker.distribution.manifest.v2+json" -H "Authorization: Bearer $GITHUB_TOKEN" "$manifest_url" || true)
           if [[ -n "$manifest" ]]; then
             bytes=$(echo "$manifest" | jq -r '.layers // [] | map(.size) | add // 0')
-            if [[ "$bytes" != "null" && "$bytes" -gt 0 2>/dev/null ]]; then
+            if [[ "$bytes" != "null" ]] && (( bytes > 0 )) 2>/dev/null; then
               candidate_bytes=$((candidate_bytes + bytes))
             fi
           fi
