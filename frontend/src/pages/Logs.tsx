@@ -87,6 +87,7 @@ const Logs: FC = () => {
                       setSelectedLog(log.name);
                       setPage(0);
                     }}
+                    data-testid={`log-file-${log.name}`}
                     className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center ${
                       selectedLog === log.name
                         ? 'bg-brand-500/10 text-brand-500 border border-brand-500/30'
@@ -173,6 +174,8 @@ const Logs: FC = () => {
                           size="sm"
                           onClick={() => setPage((p) => Math.max(0, p - 1))}
                           disabled={page === 0 || isLoadingContent}
+                          data-testid="prev-page-button"
+                          aria-label="Previous page"
                         >
                           <ChevronLeft className="w-4 h-4" />
                         </Button>
@@ -181,6 +184,8 @@ const Logs: FC = () => {
                           size="sm"
                           onClick={() => setPage((p) => p + 1)}
                           disabled={page >= totalPages - 1 || isLoadingContent}
+                          data-testid="next-page-button"
+                          aria-label="Next page"
                         >
                           <ChevronRight className="w-4 h-4" />
                         </Button>

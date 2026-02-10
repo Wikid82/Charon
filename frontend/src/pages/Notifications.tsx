@@ -281,29 +281,29 @@ const TemplateForm: FC<{
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('common.name')}</label>
-        <input {...register('name', { required: true })} className="mt-1 block w-full rounded-md" />
+        <label htmlFor="template-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('common.name')}</label>
+        <input id="template-name" data-testid="template-name" {...register('name', { required: true })} className="mt-1 block w-full rounded-md" />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('common.description')}</label>
-        <input {...register('description')} className="mt-1 block w-full rounded-md" />
+        <label htmlFor="template-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('common.description')}</label>
+        <input id="template-description" data-testid="template-description" {...register('description')} className="mt-1 block w-full rounded-md" />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.templateType')}</label>
-        <select {...register('template')} className="mt-1 block w-full rounded-md">
+        <label htmlFor="template-type" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.templateType')}</label>
+        <select id="template-type" data-testid="template-type" {...register('template')} className="mt-1 block w-full rounded-md">
           <option value="minimal">{t('notificationProviders.minimal')}</option>
           <option value="detailed">{t('notificationProviders.detailed')}</option>
           <option value="custom">{t('notificationProviders.custom')}</option>
         </select>
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.configJson')}</label>
-        <textarea {...register('config')} rows={6} className="mt-1 block w-full font-mono text-xs rounded-md" />
+        <label htmlFor="template-config" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.configJson')}</label>
+        <textarea id="template-config" data-testid="template-config" {...register('config')} rows={6} className="mt-1 block w-full font-mono text-xs rounded-md" />
       </div>
       <div className="flex justify-end gap-2">
-        <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
-        <Button type="button" variant="secondary" onClick={handlePreview}>{t('notificationProviders.preview')}</Button>
-        <Button type="submit">{t('common.save')}</Button>
+        <Button variant="secondary" onClick={onClose} data-testid="template-cancel-btn">{t('common.cancel')}</Button>
+        <Button type="button" variant="secondary" onClick={handlePreview} data-testid="template-preview-btn">{t('notificationProviders.preview')}</Button>
+        <Button type="submit" data-testid="template-save-btn">{t('common.save')}</Button>
       </div>
       {previewErr && <div className="text-sm text-red-600">{previewErr}</div>}
       {preview && (

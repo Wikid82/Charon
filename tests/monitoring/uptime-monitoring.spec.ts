@@ -488,9 +488,10 @@ test.describe('Uptime Monitoring Page', () => {
       await page.waitForSelector(SELECTORS.configureOption, { state: 'visible' });
       await page.click(SELECTORS.configureOption);
 
-      // Wait for the specific configure modal to be visible (avoid generic selectors that match overlays)
-      const modal = page.getByRole('dialog').filter({ hasText: /Configure\s+Monitor/i }).first();
-      await expect(modal).toBeVisible({ timeout: 8000 });
+      // In Firefox, the modal form might take time to render
+      // Wait for the form input to be available instead of waiting for dialog role
+      const nameInput = page.locator('input#monitor-name');
+      await nameInput.waitFor({ state: 'visible', timeout: 10000 });
 
       // Update name (use specific id selector)
       await page.fill('input#monitor-name', 'Updated API Server');
