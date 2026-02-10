@@ -863,7 +863,30 @@ jobs:
 
       - name: Check container logs
         if: always()
-        run: docker logs test-container
+        run: |
+          echo "=== Charon Container Logs ==="
+          docker logs test-container || echo "ERROR: Could not retrieve container logs"
+
+          echo ""
+          echo "=== Docker Container Status ==="
+          docker inspect test-container --format='Status: {{.State.Status}}, Exit Code: {{.State.ExitCode}}' || echo "Container not found"
+
+          echo ""
+          echo "=== CrowdSec Configuration Verification ==="
+          echo "Checking if /etc/crowdsec/config.yaml is accessible in container:"
+          docker exec test-container test -f /etc/crowdsec/config.yaml && echo "✓ config.yaml found" || echo "✗ config.yaml NOT found"
+
+          echo ""
+          echo "Checking CrowdSec symlink:"
+          docker exec test-container ls -la /etc/ | grep crowdsec || echo "No crowdsec entry in /etc"
+
+          echo ""
+          echo "Checking /app/data/crowdsec/config/ contents:"
+          docker exec test-container ls -la /app/data/crowdsec/config/ 2>/dev/null | head -20 || echo "Directory not found or empty"
+
+          echo ""
+          echo "Checking /etc/crowdsec.dist/ contents:"
+          docker exec test-container ls -la /etc/crowdsec.dist/ 2>/dev/null | head -20 || echo "Directory not found or empty"
 
       - name: Stop container
         if: always()

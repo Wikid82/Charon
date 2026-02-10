@@ -420,13 +420,25 @@ RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
 # This ensures we don't have stdlib vulnerabilities from older Go versions
 COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec
 COPY --from=crowdsec-builder /crowdsec-out/cscli /usr/local/bin/cscli
+# Copy CrowdSec configuration files to .dist directory (will be used at runtime)
 COPY --from=crowdsec-builder /crowdsec-out/config /etc/crowdsec.dist
+# Verify config files were copied successfully
+RUN if [ ! -f /etc/crowdsec.dist/config.yaml ]; then \
+        echo "WARNING: config.yaml not found in /etc/crowdsec.dist"; \
+        echo "Available files in /etc/crowdsec.dist:"; \
+        ls -la /etc/crowdsec.dist/ 2>/dev/null || echo "Directory empty or missing"; \
+    else \
+        echo "✓ config.yaml found in /etc/crowdsec.dist"; \
+    fi
 
-# Verify CrowdSec binaries
+# Verify CrowdSec binaries and configuration
 RUN chmod +x /usr/local/bin/crowdsec /usr/local/bin/cscli 2>/dev/null || true; \
     if [ -x /usr/local/bin/cscli ]; then \
         echo "CrowdSec installed (built from source with Go 1.25):"; \
         cscli version || echo "CrowdSec version check failed"; \
+        echo ""; \
+        echo "Configuration source: /etc/crowdsec.dist"; \
+        ls -la /etc/crowdsec.dist/ | head -10 || echo "ERROR: /etc/crowdsec.dist directory not found"; \
     else \
         echo "CrowdSec not available for this architecture"; \
     fi
@@ -438,11 +450,14 @@ RUN mkdir -p /var/lib/crowdsec/data /var/log/crowdsec /var/log/caddy \
     chown -R charon:charon /var/lib/crowdsec /var/log/crowdsec \
                            /app/data/crowdsec
 
-# Generate CrowdSec default configs to .dist directory
-RUN if command -v cscli >/dev/null; then \
-        mkdir -p /etc/crowdsec.dist && \
-        cscli config restore /etc/crowdsec.dist/ || \
-        cp -r /etc/crowdsec/* /etc/crowdsec.dist/ 2>/dev/null || true; \
+# Ensure config.yaml exists in .dist (required for runtime)
+# Skip cscli config restore at build time (no valid /etc/crowdsec at this stage)
+# The runtime entrypoint will handle config initialization from .dist
+RUN if [ ! -f /etc/crowdsec.dist/config.yaml ]; then \
+        echo "⚠️  WARNING: config.yaml not in /etc/crowdsec.dist after builder COPY"; \
+        echo "   This file is critical for CrowdSec initialization at runtime"; \
+    else \
+        echo "✓ /etc/crowdsec.dist/config.yaml verified"; \
     fi
 
 # Copy CrowdSec configuration templates from source

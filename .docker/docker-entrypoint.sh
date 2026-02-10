@@ -189,22 +189,42 @@ if command -v cscli >/dev/null; then
     # Initialize persistent config if key files are missing
     if [ ! -f "$CS_CONFIG_DIR/config.yaml" ]; then
         echo "Initializing persistent CrowdSec configuration..."
+
+        # Check if .dist has content
         if [ -d "/etc/crowdsec.dist" ] && [ -n "$(ls -A /etc/crowdsec.dist 2>/dev/null)" ]; then
-            cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/" || {
+            echo "Copying config from /etc/crowdsec.dist..."
+            if ! cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/"; then
                 echo "ERROR: Failed to copy config from /etc/crowdsec.dist"
+                echo "DEBUG: Contents of /etc/crowdsec.dist:"
+                ls -la /etc/crowdsec.dist/
                 exit 1
-            }
-            echo "Successfully initialized config from .dist directory"
+            fi
+
+            # Verify critical files were copied
+            if [ ! -f "$CS_CONFIG_DIR/config.yaml" ]; then
+                echo "ERROR: config.yaml was not copied to $CS_CONFIG_DIR"
+                echo "DEBUG: Contents of $CS_CONFIG_DIR after copy:"
+                ls -la "$CS_CONFIG_DIR/"
+                exit 1
+            fi
+            echo "✓ Successfully initialized config from .dist directory"
         elif [ -d "/etc/crowdsec" ] && [ ! -L "/etc/crowdsec" ] && [ -n "$(ls -A /etc/crowdsec 2>/dev/null)" ]; then
-            cp -r /etc/crowdsec/* "$CS_CONFIG_DIR/" || {
-                echo "ERROR: Failed to copy config from /etc/crowdsec"
+            echo "Copying config from /etc/crowdsec (fallback)..."
+            if ! cp -r /etc/crowdsec/* "$CS_CONFIG_DIR/"; then
+                echo "ERROR: Failed to copy config from /etc/crowdsec (fallback)"
                 exit 1
-            }
-            echo "Successfully initialized config from /etc/crowdsec"
+            fi
+            echo "✓ Successfully initialized config from /etc/crowdsec"
         else
-            echo "ERROR: No config source found (neither .dist nor /etc/crowdsec available)"
+            echo "ERROR: No config source found!"
+            echo "DEBUG: /etc/crowdsec.dist contents:"
+            ls -la /etc/crowdsec.dist/ 2>/dev/null || echo "  (directory not found or empty)"
+            echo "DEBUG: /etc/crowdsec contents:"
+            ls -la /etc/crowdsec 2>/dev/null || echo "  (directory not found or empty)"
             exit 1
         fi
+    else
+        echo "✓ Persistent config already exists: $CS_CONFIG_DIR/config.yaml"
     fi
 
     # Verify symlink exists (created at build time)
@@ -212,10 +232,24 @@ if command -v cscli >/dev/null; then
     # Non-root users cannot create symlinks in /etc, so this must be done at build time
     if [ -L "/etc/crowdsec" ]; then
         echo "CrowdSec config symlink verified: /etc/crowdsec -> $CS_CONFIG_DIR"
+
+        # Verify the symlink target is accessible and has config.yaml
+        if [ ! -f "/etc/crowdsec/config.yaml" ]; then
+            echo "ERROR: /etc/crowdsec/config.yaml is not accessible via symlink"
+            echo "DEBUG: Symlink target verification:"
+            ls -la /etc/crowdsec 2>/dev/null || echo "  (symlink broken or missing)"
+            echo "DEBUG: Directory contents:"
+            ls -la "$CS_CONFIG_DIR/" 2>/dev/null | head -10 || echo "  (directory not found)"
+            exit 1
+        fi
+        echo "✓ /etc/crowdsec/config.yaml is accessible via symlink"
     else
-        echo "WARNING: /etc/crowdsec symlink not found. This may indicate a build issue."
+        echo "ERROR: /etc/crowdsec symlink not found"
         echo "Expected: /etc/crowdsec -> /app/data/crowdsec/config"
-        # Try to continue anyway - config may still work if CrowdSec uses CFG env var
+        echo "This indicates a critical build-time issue. Symlink must be created at build time as root."
+        echo "DEBUG: Directory check:"
+        ls -la /etc/ | grep crowdsec || echo "  (no crowdsec entry found)"
+        exit 1
     fi
 
     # Create/update acquisition config for Caddy logs
