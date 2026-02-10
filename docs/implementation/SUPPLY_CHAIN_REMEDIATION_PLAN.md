@@ -28,7 +28,7 @@ CI supply chain scans detected 4 HIGH-severity vulnerabilities in CrowdSec binar
 
 **Root Cause**: CrowdSec v1.6.5 compiled with Go 1.25.1 (vulnerable)
 
-**Resolution**: Upgrade to CrowdSec v1.6.6+ (compiled with Go 1.25.2+)
+**Resolution**: Upgrade to CrowdSec v1.6.6+ (compiled with Go 1.26.0+)
 
 ## Action Items
 
@@ -56,7 +56,7 @@ docker run --rm charon:local /usr/local/bin/crowdsec version
 docker run --rm charon:local /usr/local/bin/cscli version
 ```
 
-**Expected Output**: Should show Go 1.25.2 or later
+**Expected Output**: Should show Go 1.26.0 or later
 
 **Assignee**: @qa-team
 **Effort**: 10 minutes

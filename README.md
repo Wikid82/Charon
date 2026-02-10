@@ -282,7 +282,7 @@ docker run -d \
 
 **Requirements:**
 
-- **go 1.25.7+** — Download from [go.dev/dl](https://go.dev/dl/)
+- **go 1.26.0+** — Download from [go.dev/dl](https://go.dev/dl/)
 - **Node.js 20+** and npm
 - Docker 20.10+
 
@@ -302,7 +302,7 @@ See [GORM Security Scanner Documentation](docs/implementation/gorm_security_scan
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for complete development environment setup.
 
-**Note:** GitHub Actions CI uses `GOTOOLCHAIN: auto` to automatically download and use go 1.25.7, even if your system has an older version installed. For local development, ensure you have go 1.25.7+ installed.
+**Note:** GitHub Actions CI uses `GOTOOLCHAIN: auto` to automatically download and use go 1.26.0, even if your system has an older version installed. For local development, ensure you have go 1.26.0+ installed.
 
 ### Environment Configuration
 

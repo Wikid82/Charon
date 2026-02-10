@@ -26,7 +26,7 @@ This project follows a Code of Conduct that all contributors are expected to adh
 
 -### Prerequisites
 
-- **go 1.25.7+** for backend development
+- **go 1.26.0+** for backend development
 - **Node.js 20+** and npm for frontend development
 - Git for version control
 - A GitHub account
@@ -63,9 +63,9 @@ golangci-lint --version
 
 ### CI/CD Go Version Management
 
-GitHub Actions workflows automatically use go 1.25.7 via `GOTOOLCHAIN: auto`, which allows the `setup-go` action to download and use the correct Go version even if the CI environment has an older version installed. This ensures consistent builds across all workflows.
+GitHub Actions workflows automatically use go 1.26.0 via `GOTOOLCHAIN: auto`, which allows the `setup-go` action to download and use the correct Go version even if the CI environment has an older version installed. This ensures consistent builds across all workflows.
 
-For local development, install go 1.25.7+ from [go.dev/dl](https://go.dev/dl/).
+For local development, install go 1.26.0+ from [go.dev/dl](https://go.dev/dl/).
 
 ### Fork and Clone
 
