@@ -1,15 +1,15 @@
 # Phase 2.2 - User Management Discovery & Root Cause Analysis
 
-**Status:** Discovery Complete - Root Cause Identified  
-**Date Started:** 2026-02-09  
+**Status:** Discovery Complete - Root Cause Identified
+**Date Started:** 2026-02-09
 **Objective:** Identify root causes of 6 failing user management tests
 
 ## Root Cause: Synchronous Email Blocking in InviteUser
 
 ### CRITICAL FINDING
 
-**Code Location:** `/projects/Charon/backend/internal/api/handlers/user_handler.go` (lines 400-470)  
-**Problem Method:** `InviteUser` handler  
+**Code Location:** `/projects/Charon/backend/internal/api/handlers/user_handler.go` (lines 400-470)
+**Problem Method:** `InviteUser` handler
 **Issue:** Email sending **blocks HTTP response** - entire request hangs until SMTP completes or times out
 
 ### Why Tests Timeout (Test #248)
@@ -18,7 +18,7 @@ Request flow in `InviteUser`:
 ```
 1. Check admin role                          ✅ <1ms
 2. Parse request JSON                        ✅ <1ms
-3. Check email exists                        ✅ Database query  
+3. Check email exists                        ✅ Database query
 4. Generate invite token                     ✅ <1ms
 5. Create user in database (transaction)     ✅ Database write
 6. ❌ BLOCKS: Call h.MailService.SendInvite() - SYNCHRONOUS SMTP
@@ -29,7 +29,7 @@ Request flow in `InviteUser`:
 7. Return JSON response (if email succeeds)
 ```
 
-**The Problem:**  
+**The Problem:**
 Lines 462-469:
 ```go
 // Try to send invite email
@@ -49,7 +49,7 @@ This code **blocks the HTTP request** until `SendInvite()` returns.
 
 ### MailService Architecture
 
-**File:** `/projects/Charon/backend/internal/services/mail_service.go`  
+**File:** `/projects/Charon/backend/internal/services/mail_service.go`
 **Method:** `SendEmail()` at line 255
 
 The `SendEmail()` method:
@@ -59,16 +59,16 @@ The `SendEmail()` method:
 - **No async queue, no goroutines, no background workers**
 
 **Example:** If SMTP server takes 5 seconds to respond (or 30s timeout):
-→ HTTP request blocks for 5-30+ seconds  
+→ HTTP request blocks for 5-30+ seconds
 → Playwright test times out after 60s
 
 ### Why Test #248 Fails
 
-Test expectation: "Invite user, get response, user appears in list"  
+Test expectation: "Invite user, get response, user appears in list"
 Actual behavior: "Invite user → blocks on SMTP → no response → test timeout"
 
-**Test File:** `/projects/Charon/tests/monitoring/uptime-monitoring.spec.ts` (for reference)  
-**When SMTP is configured:** Request hangs indefinitely  
+**Test File:** `/projects/Charon/tests/monitoring/uptime-monitoring.spec.ts` (for reference)
+**When SMTP is configured:** Request hangs indefinitely
 **When SMTP is NOT configured:** Request completes quickly (MailService.IsConfigured() = false)
 
 ## Other Test Failures (Tests #258, #260, #262, #269-270)
@@ -76,7 +76,7 @@ Actual behavior: "Invite user → blocks on SMTP → no response → test timeou
 ### Status: Likely Unrelated to Email Blocking
 
 These tests involve:
-- **#258:** Update permission mode             
+- **#258:** Update permission mode
 - **#260:** Remove permitted hosts
 - **#262:** Enable/disable user toggle
 - **#269:** Update user role to admin
@@ -84,7 +84,7 @@ These tests involve:
 
 **Reason:** These endpoints (PUT /users/:id/permissions, PUT /users/:id) do NOT send emails
 
-**Hypothesis for other timeouts:**  
+**Hypothesis for other timeouts:**
 - Possible slow database queries (missing indexes?)
 - Possible missing database preloading (N+1 queries?)
 - Frontend mocking/test infrastructure issue (not handler code)
@@ -102,15 +102,15 @@ These tests involve:
 3. → Send email asynchronously (goroutine/queue)
 4. → If email fails, log error, user still created
 
-**Before:**  
+**Before:**
 ```go
 // User creation + email (both must succeed to return)
-tx.Create(&user)      // ✅ 
+tx.Create(&user)      // ✅
 SendEmail(...)         // ❌ BLOCKS - no timeout
 return JSON(user)      // Only if above completes
 ```
 
-**After:**  
+**After:**
 ```go
 // User creation (fast) + async email (non-blocking)
 tx.Create(&user)       // ✅ <100ms
@@ -120,11 +120,11 @@ return JSON(user)      // ✅ Immediate response (~150ms total)
 
 ## Manual Testing Findings
 
-**SMTP Configuration Status:** NOT configured in test database  
-**Result:** Invite endpoint returns immediately (emailSent=false skip)  
+**SMTP Configuration Status:** NOT configured in test database
+**Result:** Invite endpoint returns immediately (emailSent=false skip)
 **Test Environment:** Application accessible at http://localhost:8080
 
-**Code Verification:** 
+**Code Verification:**
 - ✅ `POST /users/invite` endpoint EXISTS and is properly registered
 - ✅ `PUT /users/:id/permissions` endpoint EXISTS and is properly registered
 - ✅ `GET /users` endpoint EXISTS (for list display)
@@ -148,7 +148,7 @@ return JSON(user)      // ✅ Immediate response (~150ms total)
    - Send email in background goroutine
    - Endpoint: <100ms response time
 
-2. **Add timeout to SMTP calls**  
+2. **Add timeout to SMTP calls**
    - If email takes >5s, fail gracefully
    - Never block HTTP response >1s
 
@@ -172,7 +172,7 @@ return JSON(user)      // ✅ Immediate response (~150ms total)
 
 **Endpoints verified working:**
 - POST /api/v1/users/invite - EXISTS, properly registered
-- PUT /api/v1/users/:id/permissions - EXISTS, properly registered  
+- PUT /api/v1/users/:id/permissions - EXISTS, properly registered
 - GET /api/v1/users - EXISTS (all users endpoint)
 
 **Test Database State:**
@@ -188,4 +188,3 @@ return JSON(user)      // ✅ Immediate response (~150ms total)
 3. → Test with E2E suite
 4. → Document performance improvements
 5. → Investigate remaining test failures if needed
-
