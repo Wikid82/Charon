@@ -101,10 +101,46 @@ COVERAGE_OUTPUT=$(timeout 180 go tool cover -func="$COVERAGE_FILE" 2>&1) || {
 
 # Extract and display the summary line (total coverage)
 TOTAL_LINE=$(echo "$COVERAGE_OUTPUT" | awk '/^total:/ {line=$0} END {print line}')
+
+if [ -z "$TOTAL_LINE" ]; then
+    echo "Error: Coverage report missing 'total:' line"
+    echo "Coverage output:"
+    echo "$COVERAGE_OUTPUT"
+    exit 1
+fi
+
 echo "$TOTAL_LINE"
 
-# Extract total coverage percentage
-TOTAL_PERCENT=$(echo "$TOTAL_LINE" | awk '{print substr($3, 1, length($3)-1)}')
+# Extract total coverage percentage (format: "total: (statements)% (branches)% (functions)% (lines)% XX.X%")
+# Field $3 is the third space-separated token (line count %)
+# We need to remove trailing '%' character
+TOTAL_PERCENT=$(echo "$TOTAL_LINE" | awk '{
+    if (NF < 3) {
+        print "ERROR: Invalid coverage line format" > "/dev/stderr"
+        exit 1
+    }
+    # Extract last field and remove trailing %
+    last_field = $NF
+    if (last_field !~ /^[0-9]+(\.[0-9]+)?%$/) {
+        printf "ERROR: Last field is not a valid percentage: %s\n", last_field > "/dev/stderr"
+        exit 1
+    }
+    # Remove trailing %
+    gsub(/%$/, "", last_field)
+    print last_field
+}')
+
+if [ -z "$TOTAL_PERCENT" ] || [ "$TOTAL_PERCENT" = "ERROR" ]; then
+    echo "Error: Could not extract coverage percentage from: $TOTAL_LINE"
+    exit 1
+fi
+
+# Validate that extracted value is numeric (allows decimals and integers)
+if ! echo "$TOTAL_PERCENT" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
+    echo "Error: Extracted coverage value is not numeric: '$TOTAL_PERCENT'"
+    echo "Source line: $TOTAL_LINE"
+    exit 1
+fi
 
 echo "Computed coverage: ${TOTAL_PERCENT}% (minimum required ${MIN_COVERAGE}%)"
 
@@ -112,11 +148,28 @@ export TOTAL_PERCENT
 export MIN_COVERAGE
 
 python3 - <<'PY'
-import os, sys
-from decimal import Decimal
+import os
+import sys
+from decimal import Decimal, InvalidOperation
 
-total = Decimal(os.environ['TOTAL_PERCENT'])
-minimum = Decimal(os.environ['MIN_COVERAGE'])
+try:
+    total = Decimal(os.environ['TOTAL_PERCENT'])
+except InvalidOperation as e:
+    print(f"Error: TOTAL_PERCENT is not numeric: '{os.environ['TOTAL_PERCENT']}' ({e})", file=sys.stderr)
+    sys.exit(1)
+except KeyError:
+    print("Error: TOTAL_PERCENT environment variable not set", file=sys.stderr)
+    sys.exit(1)
+
+try:
+    minimum = Decimal(os.environ['MIN_COVERAGE'])
+except InvalidOperation as e:
+    print(f"Error: MIN_COVERAGE is not numeric: '{os.environ['MIN_COVERAGE']}' ({e})", file=sys.stderr)
+    sys.exit(1)
+except KeyError:
+    print("Error: MIN_COVERAGE environment variable not set", file=sys.stderr)
+    sys.exit(1)
+
 if total < minimum:
     print(f"Coverage {total}% is below required {minimum}% (set CHARON_MIN_COVERAGE or CPM_MIN_COVERAGE to override)", file=sys.stderr)
     sys.exit(1)
