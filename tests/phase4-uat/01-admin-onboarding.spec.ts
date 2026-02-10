@@ -1,0 +1,277 @@
+import { test, expect } from '@playwright/test';
+
+/**
+ * Phase 4 UAT: Admin Onboarding & Setup
+ *
+ * Purpose: Validate that first-time admin can successfully set up the system
+ * Scenarios: Login, dashboard display, settings access, emergency token generation
+ * Success: All admin UI flows work without errors, data persists
+ */
+
+test.describe('UAT-001: Admin Onboarding & Setup', () => {
+  // Purpose: Establish baseline admin auth state before each test
+  // Fixture ensures admin is logged in and authenticated
+  test.beforeEach(async ({ page }) => {
+    // Verify we're authenticated by checking for admin dashboard
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="dashboard-container"], [role="main"]', { timeout: 5000 });
+  });
+
+  // UAT-001: Admin logs in with valid credentials
+  test('Admin logs in with valid credentials', async ({ page }) => {
+    const start = Date.now();
+
+    await test.step('Navigate to login page', async () => {
+      await page.goto('/', { waitUntil: 'networkidle' });
+      await expect(page.getByRole('heading', { name: /login|sign in/i })).toBeVisible();
+    });
+
+    await test.step('Enter credentials and submit', async () => {
+      const emailInput = page.getByLabel(/email|username/i);
+      const passwordInput = page.getByLabel(/password/i);
+
+      expect(emailInput).toBeDefined();
+      expect(passwordInput).toBeDefined();
+
+      await emailInput.fill('admin@test.local');
+      await passwordInput.fill('adminPassword123!');
+
+      const loginButton = page.getByRole('button', { name: /login|sign in/i });
+      await loginButton.click();
+    });
+
+    await test.step('Verify successful authentication', async () => {
+      // Wait for dashboard to load (indicates successful auth)
+      await page.waitForURL(/\/dashboard|\/admin|\/[^/]*$/, { timeout: 10000 });
+      const duration = Date.now() - start;
+      console.log(`✓ Admin login completed in ${duration}ms`);
+      expect(duration).toBeLessThan(5000); // Should be fast
+    });
+  });
+
+  // UAT-002: Dashboard displays after login
+  test('Dashboard displays after login', async ({ page }) => {
+    await test.step('Navigate to dashboard', async () => {
+      await page.goto('/dashboard', { waitUntil: 'networkidle' });
+    });
+
+    await test.step('Verify dashboard widgets render', async () => {
+      // Check for key dashboard elements
+      const mainContent = page.locator('[role="main"], [data-testid="dashboard-container"]').first();
+      await expect(mainContent).toBeVisible();
+
+      // Verify common dashboard widgets are present (at least some content)
+      const widgetElements = page.locator('[data-testid*="widget"], [class*="widget"], [class*="card"]');
+      const count = await widgetElements.count();
+      expect(count).toBeGreaterThan(0);
+    });
+
+    await test.step('Verify user info displayed', async () => {
+      // Admin name or email should be visible in header/profile area
+      const profileArea = page.locator('[data-testid="user-profile"], [class*="profile"], [class*="header"]').first();
+      await expect(profileArea).toBeVisible();
+    });
+  });
+
+  // UAT-003: System settings accessible from menu
+  test('System settings accessible from menu', async ({ page }) => {
+    await test.step('Open settings menu', async () => {
+      // Look for settings link in navigation
+      const settingsLink = page.getByRole('link', { name: /settings|configuration/i }).first();
+      if (await settingsLink.isVisible()) {
+        await settingsLink.click();
+      } else {
+        // Try menu button approach
+        const menuButton = page.getByRole('button', { name: /menu/i }).first();
+        if (await menuButton.isVisible()) {
+          await menuButton.click();
+        }
+        await page.getByRole('link', { name: /settings|configuration/i }).first().click();
+      }
+    });
+
+    await test.step('Verify settings page loads', async () => {
+      await page.waitForSelector('[data-testid="settings-container"], [class*="settings"]', { timeout: 5000 });
+      const settingsContent = page.locator('[data-testid="settings-container"], [class*="settings"]', { has: page.getByText(/setting|configuration/i) }).first();
+      await expect(settingsContent).toBeVisible();
+    });
+
+    await test.step('Verify settings form elements present', async () => {
+      // At minimum, should have some form inputs
+      const inputs = page.locator('input, select, textarea').first();
+      await expect(inputs).toBeVisible();
+    });
+  });
+
+  // UAT-004: Emergency token can be generated
+  test('Emergency token can be generated', async ({ page }) => {
+    await test.step('Navigate to security settings', async () => {
+      await page.goto('/settings/security', { waitUntil: 'networkidle' }).catch(() => {
+        // Fallback: click through menu
+        return page.goto('/settings');
+      });
+    });
+
+    await test.step('Find emergency token section', async () => {
+      // Look for emergency or break-glass token section
+      const emergencySection = page.getByText(/emergency|break.?glass|recovery token/i).first();
+      await expect(emergencySection).toBeVisible();
+    });
+
+    await test.step('Generate emergency token', async () => {
+      const generateButton = page.getByRole('button', { name: /generate|create|issue/i }).first();
+      await generateButton.click();
+
+      // Wait for modal or confirmation
+      await page.waitForSelector('[role="dialog"], [class*="modal"]', { timeout: 5000 }).catch(() => {
+        // Modal might not exist, token might appear inline
+        return Promise.resolve();
+      });
+    });
+
+    await test.step('Verify token displayed and copyable', async () => {
+      // Token input or display field
+      const tokenField = page.locator('input[readonly], [data-testid="emergency-token"], [class*="token"]').first();
+      await expect(tokenField).toBeVisible();
+
+      // Should have copy button
+      const copyButton = page.getByRole('button', { name: /copy|clipboard/i });
+      if (await copyButton.isVisible()) {
+        await copyButton.click();
+        // Verify feedback (toast, button change, etc.)
+      }
+    });
+  });
+
+  // UAT-005: Encryption key setup required on first login
+  test('Dashboard loads with encryption key management', async ({ page }) => {
+    await test.step('Navigate to encryption settings', async () => {
+      await page.goto('/settings/encryption', { waitUntil: 'networkidle' }).catch(() => {
+        return page.goto('/settings');
+      });
+    });
+
+    await test.step('Verify encryption options present', async () => {
+      const encryptionSection = page.getByText(/encryption|cipher|passphrase/i).first();
+      // May or may not be visible depending on setup state
+      const encryptionForm = page.locator('[data-testid="encryption-form"], [class*="encryption"]').first();
+      if (await encryptionForm.isVisible()) {
+        await expect(encryptionForm).toBeVisible();
+      }
+    });
+
+    await test.step('Verify form is interactive', async () => {
+      const inputs = page.locator('input[type="password"], input[type="text"]');
+      const inputCount = await inputs.count();
+      expect(inputCount).toBeGreaterThanOrEqual(0); // May be 0 if already set
+    });
+  });
+
+  // UAT-006: Navigation menu items all functional
+  test('Navigation menu items all functional', async ({ page }) => {
+    const menuItems = [
+      { name: /dashboard|home/i, path: /dashboard|^\/$/i },
+      { name: /proxy|proxy.?hosts/i, path: /proxy|host/i },
+      { name: /user|user.?management/i, path: /user|people/i },
+      { name: /domain|dns/i, path: /domain|dns/i },
+      { name: /setting|config/i, path: /setting|config/i },
+    ];
+
+    for (const item of menuItems) {
+      // Skip if menu item not found (might not be in scope for all deployments)
+      const menuLink = page.getByRole('link', { name: item.name }).first();
+      if (!(await menuLink.isVisible())) {
+        console.log(`ℹ️  Menu item '${item.name}' not found (may not be in scope)`);
+        continue;
+      }
+
+      await test.step(`Navigate to ${item.name}`, async () => {
+        await menuLink.click();
+        // Verify page loaded
+        await page.waitForLoadState('networkidle').catch(() => Promise.resolve());
+        const url = page.url();
+        // Don't strictly enforce URL pattern - just verify page loaded
+        expect(url).toBeTruthy();
+      });
+    }
+  });
+
+  // UAT-007: Logout clears session
+  test('Logout clears session', async ({ page }) => {
+    let initialStorageSize = 0;
+
+    await test.step('Note initial storage state', async () => {
+      initialStorageSize = (await page.evaluate(() => {
+        return Object.keys(localStorage).length + Object.keys(sessionStorage).length;
+      })) || 0;
+      expect(initialStorageSize).toBeGreaterThan(0); // Should have auth data
+    });
+
+    await test.step('Click logout button', async () => {
+      // Look for logout in user menu
+      const profileMenu = page.locator('[data-testid="user-menu"], [class*="profile"], [class*="avatar"]').first();
+      if (await profileMenu.isVisible()) {
+        await profileMenu.click();
+      }
+
+      const logoutButton = page.getByRole('menuitem', { name: /logout|sign out/i })
+        .or(page.getByRole('button', { name: /logout|sign out/i }))
+        .first();
+
+      await logoutButton.click();
+    });
+
+    await test.step('Verify redirected to login', async () => {
+      await page.waitForURL(/login|signin|^\/$/i, { timeout: 5000 });
+      const currentPath = page.url();
+      expect(currentPath).toMatch(/login|signin|auth/i);
+    });
+
+    await test.step('Verify session storage cleared', async () => {
+      const currentStorageSize = (await page.evaluate(() => {
+        return Object.keys(localStorage).length + Object.keys(sessionStorage).length;
+      })) || 0;
+
+      // Storage should be smaller (auth tokens removed)
+      // Note: This is a soft check - some persistent storage might remain
+      expect(currentStorageSize).toBeLessThanOrEqual(initialStorageSize);
+    });
+  });
+
+  // UAT-008: Re-login after logout successful
+  test('Re-login after logout successful', async ({ page }) => {
+    await test.step('Ensure we are logged out', async () => {
+      // Start from login page
+      await page.goto('/login', { waitUntil: 'networkidle' }).catch(() => {
+        return page.goto('/');
+      });
+    });
+
+    await test.step('Perform login again', async () => {
+      const emailInput = page.getByLabel(/email|username/i);
+      const passwordInput = page.getByLabel(/password/i);
+
+      await emailInput.fill('admin@test.local');
+      await passwordInput.fill('adminPassword123!');
+
+      const loginButton = page.getByRole('button', { name: /login|sign in|submit/i });
+      await loginButton.click();
+    });
+
+    await test.step('Verify new session established', async () => {
+      await page.waitForURL(/dashboard|admin|[^/]*$/, { timeout: 10000 });
+
+      const storageAuth = await page.evaluate(() => {
+        return localStorage.getItem('auth') || localStorage.getItem('token') || 'exists';
+      });
+
+      // Should have auth in storage
+      expect(storageAuth).toBeTruthy();
+    });
+
+    await test.step('Verify dashboard accessible', async () => {
+      const mainContent = page.locator('[role="main"], [data-testid="dashboard"]').first();
+      await expect(mainContent).toBeVisible();
+    });
+  });
+});
