@@ -490,7 +490,7 @@ Charon maintains transparency about security issues and their resolution. Below 
 
 ### Third-Party Dependencies
 
-**CrowdSec Binaries**: As of December 2025, CrowdSec binaries shipped with Charon contain 4 HIGH-severity CVEs in Go stdlib (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729). These are upstream issues in Go 1.25.1 and will be resolved when CrowdSec releases binaries built with go 1.25.7+.
+**CrowdSec Binaries**: As of December 2025, CrowdSec binaries shipped with Charon contain 4 HIGH-severity CVEs in Go stdlib (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729). These are upstream issues in Go 1.25.1 and will be resolved when CrowdSec releases binaries built with go 1.26.0+.
 
 **Impact**: Low. These vulnerabilities are in CrowdSec's third-party binaries, not in Charon's application code. They affect HTTP/2, TLS certificate handling, and archive parsing—areas not directly exposed to attackers through Charon's interface.
 

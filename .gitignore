@@ -306,3 +306,4 @@ docs/plans/design.md
 docs/plans/tasks.md
 frontend/coverage_output.txt
 frontend/temp**
+playwright-output/**

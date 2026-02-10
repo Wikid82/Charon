@@ -34,7 +34,7 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f9
 # CVEs fixed: CVE-2023-24531, CVE-2023-24540, CVE-2023-29402, CVE-2023-29404,
 #             CVE-2023-29405, CVE-2024-24790, CVE-2025-22871, and 15 more
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS gosu-builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS gosu-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/gosu
@@ -89,7 +89,7 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
 
 # ---- Backend Builder ----
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
@@ -155,7 +155,7 @@ ARG BUILD_DEBUG=0
 
 # Build the Go binary with version information injected via ldflags
 # xx-go handles CGO and cross-compilation flags automatically
-# Note: Go 1.25 defaults to gold linker for ARM64, but clang doesn't support -fuse-ld=gold
+# Note: Go 1.26 defaults to gold linker for ARM64, but clang doesn't support -fuse-ld=gold
 # Use lld for ARM64 cross-linking; keep bfd for amd64 to preserve prior behavior
 # PIE is required for arm64 cross-linking with lld to avoid relocation conflicts under
 # QEMU emulation and improves security posture.
@@ -192,7 +192,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Build Caddy from source to ensure we use the latest Go version and dependencies
 # This fixes vulnerabilities found in the pre-built Caddy images (e.g. CVE-2025-59530, stdlib issues)
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS caddy-builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS caddy-builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -254,10 +254,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         rm -rf /tmp/buildenv_* /tmp/caddy-initial'
 
 # ---- CrowdSec Builder ----
-# Build CrowdSec from source to ensure we use Go 1.25.5+ and avoid stdlib vulnerabilities
+# Build CrowdSec from source to ensure we use Go 1.26.0+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
 # renovate: datasource=docker depName=golang versioning=docker
-FROM --platform=$BUILDPLATFORM golang:1.25.7-alpine AS crowdsec-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.0-alpine AS crowdsec-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
@@ -368,7 +368,7 @@ RUN apk add --no-cache \
     bash ca-certificates sqlite-libs sqlite tzdata curl gettext libcap libcap-utils \
     c-ares binutils libc-utils busybox-extras
 
-# Copy gosu binary from gosu-builder (built with Go 1.25+ to avoid stdlib CVEs)
+# Copy gosu binary from gosu-builder (built with Go 1.26+ to avoid stdlib CVEs)
 COPY --from=gosu-builder /gosu-out/gosu /usr/sbin/gosu
 RUN chmod +x /usr/sbin/gosu
 
@@ -416,7 +416,7 @@ COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 # Allow non-root to bind privileged ports (80/443) securely
 RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
 
-# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.25.5+)
+# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.0+)
 # This ensures we don't have stdlib vulnerabilities from older Go versions
 COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec
 COPY --from=crowdsec-builder /crowdsec-out/cscli /usr/local/bin/cscli
@@ -434,7 +434,7 @@ RUN if [ ! -f /etc/crowdsec.dist/config.yaml ]; then \
 # Verify CrowdSec binaries and configuration
 RUN chmod +x /usr/local/bin/crowdsec /usr/local/bin/cscli 2>/dev/null || true; \
     if [ -x /usr/local/bin/cscli ]; then \
-        echo "CrowdSec installed (built from source with Go 1.25):"; \
+        echo "CrowdSec installed (built from source with Go 1.26):"; \
         cscli version || echo "CrowdSec version check failed"; \
         echo ""; \
         echo "Configuration source: /etc/crowdsec.dist"; \

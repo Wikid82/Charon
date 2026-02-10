@@ -173,7 +173,7 @@ If the secret is missing or invalid, the workflow will fail with a clear error m
 
 **Prerequisites:**
 
-- go 1.25.7+ (automatically managed via `GOTOOLCHAIN: auto` in CI)
+- go 1.26.0+ (automatically managed via `GOTOOLCHAIN: auto` in CI)
 - Node.js 20+ for frontend builds
 
 **Triggers when:**
