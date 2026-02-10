@@ -90,7 +90,7 @@ import sys
 from decimal import Decimal, InvalidOperation
 
 if not '$LINES_PERCENT':
-    print("Error: Failed to extract coverage percentage from test output", file=sys.stderr)
+    print("Error: Failed to extract coverage percentage from coverage-summary.json", file=sys.stderr)
     sys.exit(1)
 
 try:
@@ -99,7 +99,12 @@ except InvalidOperation as e:
     print(f"Error: Coverage value is not numeric: '$LINES_PERCENT' ({e})", file=sys.stderr)
     sys.exit(1)
 
-minimum = Decimal('$MIN_COVERAGE')
+try:
+    minimum = Decimal('$MIN_COVERAGE')
+except InvalidOperation as e:
+    print(f"Error: Minimum coverage value is not numeric: '$MIN_COVERAGE' ({e})", file=sys.stderr)
+    print("       Set CHARON_MIN_COVERAGE or CPM_MIN_COVERAGE to a numeric percentage value.", file=sys.stderr)
+    sys.exit(1)
 status = "PASS" if total >= minimum else "FAIL"
 print(f"Coverage gate: {status} (lines {total}% vs minimum {minimum}%)")
 if total < minimum:
