@@ -34,22 +34,18 @@ if [ ! -f "$SUMMARY_FILE" ]; then
     exit 1
 fi
 
-# Extract and print total coverage summary using python
-python3 - <<'PY'
+# Extract coverage metrics and validate
+LINES_PERCENT=$(python3 - <<'PY'
 import json
 import sys
 
 try:
     with open('coverage/coverage-summary.json') as f:
         summary = json.load(f)
-except json.JSONDecodeError as e:
-    print(f"Error: Invalid JSON in coverage-summary.json: {e}", file=sys.stderr)
-    sys.exit(1)
-except KeyError as e:
-    print(f"Error: Missing key in coverage-summary.json: {e}", file=sys.stderr)
+except (json.JSONDecodeError, KeyError, FileNotFoundError) as e:
+    print(f"Error: Failed to read coverage-summary.json: {e}", file=sys.stderr)
     sys.exit(1)
 
-# Validate structure
 if 'total' not in summary:
     print("Error: 'total' key not found in coverage-summary.json", file=sys.stderr)
     sys.exit(1)
@@ -67,7 +63,7 @@ for metric in metrics:
 def fmt(metric):
     return f"{metric['pct']}% ({metric['covered']}/{metric['total']})"
 
-# Print coverage summary to stderr to avoid capturing in LINES_PERCENT variable
+# Print summary to stderr (won't be captured as LINES_PERCENT)
 print("Frontend coverage summary:", file=sys.stderr)
 print(f"  Statements: {fmt(total['statements'])}", file=sys.stderr)
 print(f"  Branches:   {fmt(total['branches'])}", file=sys.stderr)
@@ -75,43 +71,16 @@ print(f"  Functions:  {fmt(total['functions'])}", file=sys.stderr)
 print(f"  Lines:      {fmt(total['lines'])}", file=sys.stderr)
 
 lines_pct = total['lines']['pct']
-
-# Validate that lines pct is numeric
-if not isinstance(lines_pct, (int, float)):
-    print(f"Error: Coverage percentage is not numeric: {lines_pct} ({type(lines_pct).__name__})", file=sys.stderr)
-    sys.exit(1)
-
-# Print just the numeric value to stdout (this will be captured in LINES_PERCENT)
-print(lines_pct)
-PY
-
-# Capture the numeric value output
-LINES_PERCENT=$(python3 - <<'PY'
-import json
-import sys
-
-try:
-    with open('coverage/coverage-summary.json') as f:
-        summary = json.load(f)
-except (json.JSONDecodeError, KeyError, FileNotFoundError) as e:
-    print(f"Error: Failed to read coverage-summary.json: {e}", file=sys.stderr)
-    sys.exit(1)
-
-if 'total' not in summary or 'lines' not in summary['total']:
-    print("Error: Missing lines coverage in summary", file=sys.stderr)
-    sys.exit(1)
-
-lines_pct = summary['total']['lines']['pct']
 if not isinstance(lines_pct, (int, float)):
     print(f"Error: Coverage percentage is not numeric: {lines_pct}", file=sys.stderr)
     sys.exit(1)
 
-# Only print the numeric value
+# Print only the numeric value to stdout (captured into LINES_PERCENT)
 print(lines_pct)
 PY
 )
 
-python3 - <<'PY'
+python3 - <<PY
 import sys
 from decimal import Decimal, InvalidOperation
 
