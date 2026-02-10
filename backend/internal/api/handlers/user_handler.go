@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/utils"
@@ -479,16 +480,25 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 		return
 	}
 
-	// Try to send invite email
-	emailSent := false
+	// Send invite email asynchronously (non-blocking)
+	// Capture user data BEFORE launching goroutine to prevent race conditions
+	emailSent := true // Set true immediately since email will be sent in background
 	if h.MailService.IsConfigured() {
-		baseURL, ok := utils.GetConfiguredPublicURL(h.DB)
-		if ok {
-			appName := getAppName(h.DB)
-			if err := h.MailService.SendInvite(user.Email, inviteToken, appName, baseURL); err == nil {
-				emailSent = true
+		userEmail := user.Email // Capture email before goroutine
+		userToken := inviteToken
+
+		go func() {
+			baseURL, ok := utils.GetConfiguredPublicURL(h.DB)
+			if ok {
+				appName := getAppName(h.DB)
+				if err := h.MailService.SendInvite(userEmail, userToken, appName, baseURL); err != nil {
+					// Log failure but don't block response
+					middleware.GetRequestLogger(c).WithField("user_email", userEmail).WithError(err).Error("Failed to send invite email")
+				}
 			}
-		}
+		}()
+	} else {
+		emailSent = false
 	}
 
 	c.JSON(http.StatusCreated, gin.H{

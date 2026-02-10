@@ -74,10 +74,10 @@ func TestUptimeMonitorInitialStatePending(t *testing.T) {
 		router.POST("/api/v1/uptime/monitors", handler.Create)
 
 		requestData := map[string]interface{}{
-			"name":       "API Health Check",
-			"url":        "https://api.test.com/health",
-			"type":       "http",
-			"interval":   60,
+			"name":        "API Health Check",
+			"url":         "https://api.test.com/health",
+			"type":        "http",
+			"interval":    60,
 			"max_retries": 3,
 		}
 		body, _ := json.Marshal(requestData)

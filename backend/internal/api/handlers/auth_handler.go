@@ -130,6 +130,34 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Logged out"})
 }
 
+// Refresh creates a new token for the authenticated user.
+// Must be called with a valid existing token.
+// Supports long-running test sessions by allowing token refresh before expiry.
+func (h *AuthHandler) Refresh(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	user, err := h.authService.GetUserByID(userID.(uint))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	token, err := h.authService.GenerateToken(user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
+
+	// Set secure cookie and return new token
+	setSecureCookie(c, "auth_token", token, 3600*24)
+
+	c.JSON(http.StatusOK, gin.H{"token": token})
+}
+
 func (h *AuthHandler) Me(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	role, _ := c.Get("role")
