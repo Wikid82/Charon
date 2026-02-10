@@ -198,6 +198,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 	protected.Use(authMiddleware)
 	{
 		protected.POST("/auth/logout", authHandler.Logout)
+		protected.POST("/auth/refresh", authHandler.Refresh)
 		protected.GET("/auth/me", authHandler.Me)
 		protected.POST("/auth/change-password", authHandler.ChangePassword)
 

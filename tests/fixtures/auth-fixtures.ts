@@ -5,6 +5,7 @@
  * - TestDataManager with automatic cleanup
  * - Per-test user creation (admin, regular, guest roles)
  * - Isolated authentication state per test
+ * - Automatic JWT token refresh for long-running sessions (60+ minutes)
  *
  * @example
  * ```typescript
@@ -25,6 +26,9 @@
 import { test as base, expect } from './test';
 import { request as playwrightRequest } from '@playwright/test';
 import { existsSync, readFileSync } from 'fs';
+import { promises as fsAsync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import { TestDataManager } from '../utils/TestDataManager';
 import { STORAGE_STATE } from '../constants';
 
@@ -40,6 +44,14 @@ export interface TestUser {
   token: string;
   /** User's role */
   role: 'admin' | 'user' | 'guest';
+}
+
+/**
+ * Token cache with TTL tracking for long-running test sessions
+ */
+interface TokenCache {
+  token: string;
+  expiresAt: number; // Unix timestamp (ms)
 }
 
 /**
@@ -63,6 +75,220 @@ interface AuthFixtures {
  * Strong password that meets typical validation requirements
  */
 const TEST_PASSWORD = 'TestPass123!';
+
+/**
+ * Token cache configuration
+ */
+const TOKEN_CACHE_DIR = join(tmpdir(), 'charon-test-token-cache');
+const TOKEN_CACHE_FILE = join(TOKEN_CACHE_DIR, 'token.json');
+const TOKEN_LOCK_FILE = join(TOKEN_CACHE_DIR, 'token.lock');
+const TOKEN_REFRESH_THRESHOLD = 5 * 60 * 1000; // Refresh 5 min before expiry
+const LOCK_TIMEOUT = 5000; // 5 seconds to acquire lock
+
+/**
+ * Ensure token cache directory exists
+ */
+async function ensureCacheDir(): Promise<void> {
+  try {
+    await fsAsync.mkdir(TOKEN_CACHE_DIR, { recursive: true });
+  } catch (e) {
+    // Directory might already exist, ignore
+  }
+}
+
+/**
+ * Acquire a file lock with timeout
+ */
+async function acquireLock(): Promise<() => Promise<void>> {
+  const startTime = Date.now();
+  while (true) {
+    try {
+      // Atomic operation: only succeeds if file doesn't exist
+      await fsAsync.writeFile(TOKEN_LOCK_FILE, process.pid.toString(), {
+        flag: 'wx', // Write exclusive (fail if exists)
+      });
+      // Lock acquired
+      return async () => {
+        try {
+          await fsAsync.unlink(TOKEN_LOCK_FILE);
+        } catch (e) {
+          // Already deleted or doesn't exist
+        }
+      };
+    } catch (e) {
+      // File already exists (locked by another process)
+      if (Date.now() - startTime > LOCK_TIMEOUT) {
+        // Timeout: break lock (assume previous process crashed)
+        try {
+          await fsAsync.unlink(TOKEN_LOCK_FILE);
+        } catch {
+          // Ignore deletion errors
+        }
+        // Try one more time
+        try {
+          await fsAsync.writeFile(TOKEN_LOCK_FILE, process.pid.toString(), {
+            flag: 'wx',
+          });
+          return async () => {
+            try {
+              await fsAsync.unlink(TOKEN_LOCK_FILE);
+            } catch (e) {
+              // Already deleted
+            }
+          };
+        } catch {
+          // Failed to acquire lock after timeout, continue without lock
+          return async () => {
+            // No-op release
+          };
+        }
+      }
+      // Wait a bit and retry
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+}
+
+/**
+ * Read token from cache (thread-safe)
+ */
+async function readTokenCache(): Promise<TokenCache | null> {
+  const release = await acquireLock();
+  try {
+    if (existsSync(TOKEN_CACHE_FILE)) {
+      const data = await fsAsync.readFile(TOKEN_CACHE_FILE, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (e) {
+    // Cache file invalid or missing
+  } finally {
+    await release();
+  }
+  return null;
+}
+
+/**
+ * Write token to cache (thread-safe)
+ */
+async function saveTokenCache(token: string, expirySeconds: number): Promise<void> {
+  await ensureCacheDir();
+  const release = await acquireLock();
+  try {
+    const cache: TokenCache = {
+      token,
+      expiresAt: Date.now() + expirySeconds * 1000,
+    };
+    await fsAsync.writeFile(TOKEN_CACHE_FILE, JSON.stringify(cache), {
+      flag: 'w',
+    });
+  } catch (e) {
+    // Log error but don't throw (cache is best-effort)
+    console.warn('Failed to save token cache:', e);
+  } finally {
+    await release();
+  }
+}
+
+/**
+ * Extract expiry seconds from JWT token
+ * JWT format: header.payload.signature (payload is base64-encoded JSON)
+ */
+function extractJWTExpiry(token: string): number {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      console.warn('Invalid JWT format: expected 3 parts, got', parts.length);
+      return 3600; // Default to 1 hour
+    }
+
+    // Add padding if needed
+    let payload = parts[1];
+    const padding = 4 - (payload.length % 4);
+    if (padding < 4) {
+      payload += '='.repeat(padding);
+    }
+
+    const decoded = JSON.parse(Buffer.from(payload, 'base64').toString());
+    if (decoded.exp) {
+      // exp is in seconds, convert to seconds remaining
+      const now = Math.floor(Date.now() / 1000);
+      const remaining = Math.max(0, decoded.exp - now);
+      return remaining;
+    }
+  } catch (e) {
+    console.warn('Failed to extract JWT expiry:', e);
+  }
+  return 3600; // Default to 1 hour
+}
+
+/**
+ * Check if cached token is expired (considering refresh threshold)
+ */
+async function isTokenExpired(): Promise<boolean> {
+  const cache = await readTokenCache();
+  if (!cache) return true;
+
+  // Refresh if within threshold (5 min before actual expiry)
+  return Date.now() >= cache.expiresAt - TOKEN_REFRESH_THRESHOLD;
+}
+
+/**
+ * Refresh token if expired (for long-running test sessions)
+ * Supports the /api/v1/auth/refresh endpoint
+ */
+export async function refreshTokenIfNeeded(
+  baseURL: string | undefined,
+  currentToken: string
+): Promise<string> {
+  if (!baseURL) {
+    console.warn('baseURL not provided, skipping token refresh');
+    return currentToken;
+  }
+
+  // Check if cached token is still valid
+  if (!(await isTokenExpired())) {
+    const cache = await readTokenCache();
+    if (cache) {
+      return cache.token;
+    }
+  }
+
+  // Token expired or missing - refresh it
+  try {
+    const response = await fetch(`${baseURL}/api/v1/auth/refresh`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${currentToken}`,
+      },
+      body: JSON.stringify({}),
+    });
+
+    if (!response.ok) {
+      console.warn(
+        `Token refresh failed: ${response.status} ${response.statusText}`
+      );
+      return currentToken; // Fall back to current token
+    }
+
+    const data = (await response.json()) as { token?: string };
+    const newToken = data.token;
+
+    if (!newToken) {
+      console.warn('Token refresh response missing token field');
+      return currentToken;
+    }
+
+    // Extract expiry from JWT and cache new token
+    const expirySeconds = extractJWTExpiry(newToken);
+    await saveTokenCache(newToken, expirySeconds);
+
+    return newToken;
+  } catch (error) {
+    console.warn('Token refresh error:', error);
+    return currentToken; // Fall back to current token
+  }
+}
 
 /**
  * Extended Playwright test with authentication fixtures
