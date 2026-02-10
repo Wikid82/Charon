@@ -37,25 +37,68 @@ fi
 # Extract and print total coverage summary using python
 LINES_PERCENT=$(python3 - <<'PY'
 import json
-summary = json.load(open('coverage/coverage-summary.json'))['total']
+import sys
+
+try:
+    with open('coverage/coverage-summary.json') as f:
+        summary = json.load(f)
+except json.JSONDecodeError as e:
+    print(f"Error: Invalid JSON in coverage-summary.json: {e}", file=sys.stderr)
+    sys.exit(1)
+except KeyError as e:
+    print(f"Error: Missing key in coverage-summary.json: {e}", file=sys.stderr)
+    sys.exit(1)
+
+# Validate structure
+if 'total' not in summary:
+    print("Error: 'total' key not found in coverage-summary.json", file=sys.stderr)
+    sys.exit(1)
+
+total = summary['total']
+metrics = ['statements', 'branches', 'functions', 'lines']
+for metric in metrics:
+    if metric not in total:
+        print(f"Error: '{metric}' metric missing from coverage summary", file=sys.stderr)
+        sys.exit(1)
+    if not isinstance(total[metric], dict) or 'pct' not in total[metric]:
+        print(f"Error: '{metric}' metric missing 'pct' field", file=sys.stderr)
+        sys.exit(1)
+
 def fmt(metric):
     return f"{metric['pct']}% ({metric['covered']}/{metric['total']})"
 
 print("Frontend coverage summary:")
-print(f"  Statements: {fmt(summary['statements'])}")
-print(f"  Branches:   {fmt(summary['branches'])}")
-print(f"  Functions:  {fmt(summary['functions'])}")
-print(f"  Lines:      {fmt(summary['lines'])}")
+print(f"  Statements: {fmt(total['statements'])}")
+print(f"  Branches:   {fmt(total['branches'])}")
+print(f"  Functions:  {fmt(total['functions'])}")
+print(f"  Lines:      {fmt(total['lines'])}")
 
-print(summary['lines']['pct'])
+lines_pct = total['lines']['pct']
+
+# Validate that lines pct is numeric
+if not isinstance(lines_pct, (int, float)):
+    print(f"Error: Coverage percentage is not numeric: {lines_pct} ({type(lines_pct).__name__})", file=sys.stderr)
+    sys.exit(1)
+
+# Print just the numeric value
+print(lines_pct)
 PY
 )
 
 python3 - <<PY
 import sys
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
-total = Decimal('$LINES_PERCENT')
+if not '$LINES_PERCENT':
+    print("Error: Failed to extract coverage percentage from test output", file=sys.stderr)
+    sys.exit(1)
+
+try:
+    total = Decimal('$LINES_PERCENT')
+except InvalidOperation as e:
+    print(f"Error: Coverage value is not numeric: '$LINES_PERCENT' ({e})", file=sys.stderr)
+    sys.exit(1)
+
 minimum = Decimal('$MIN_COVERAGE')
 status = "PASS" if total >= minimum else "FAIL"
 print(f"Coverage gate: {status} (lines {total}% vs minimum {minimum}%)")
