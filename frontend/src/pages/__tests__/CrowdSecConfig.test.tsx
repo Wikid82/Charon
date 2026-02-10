@@ -16,6 +16,37 @@ vi.mock('../../api/crowdsec')
 vi.mock('../../api/backups')
 vi.mock('../../api/presets')
 vi.mock('../../api/featureFlags')
+vi.mock('../../components/CrowdSecBouncerKeyDisplay', () => ({
+  CrowdSecBouncerKeyDisplay: () => null,
+}))
+vi.mock('../../hooks/useConsoleEnrollment', () => ({
+  useConsoleStatus: vi.fn(() => ({
+    data: {
+      status: 'not_enrolled',
+      tenant: 'default',
+      agent_name: 'charon-agent',
+      last_error: null,
+      last_attempt_at: null,
+      enrolled_at: null,
+      last_heartbeat_at: null,
+      key_present: false,
+      correlation_id: 'corr-1',
+    },
+    isLoading: false,
+    isRefetching: false,
+  })),
+  useEnrollConsole: vi.fn(() => ({
+    mutateAsync: vi.fn().mockResolvedValue({
+      status: 'enrolling',
+      key_present: false,
+    }),
+    isPending: false,
+  })),
+  useClearConsoleEnrollment: vi.fn(() => ({
+    mutate: vi.fn(),
+    isPending: false,
+  })),
+}))
 vi.mock('../../utils/toast', () => ({
   toast: {
     success: vi.fn(),

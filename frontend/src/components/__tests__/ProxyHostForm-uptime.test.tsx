@@ -31,6 +31,27 @@ vi.mock('../../hooks/useCertificates', () => ({
   useCertificates: vi.fn(() => ({ certificates: [], isLoading: false, error: null })),
 }))
 
+vi.mock('../../hooks/useSecurityHeaders', () => ({
+  useSecurityHeaderProfiles: vi.fn(() => ({ data: [], isLoading: false, error: null })),
+}))
+
+vi.mock('../../hooks/useAccessLists', () => ({
+  useAccessLists: vi.fn(() => ({
+    data: [],
+    isLoading: false,
+    error: null,
+  })),
+}))
+
+vi.mock('../../hooks/useDNSDetection', () => ({
+  useDetectDNSProvider: vi.fn(() => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+    data: undefined,
+    reset: vi.fn(),
+  })),
+}))
+
 // stub global fetch for health endpoint
 vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ internal_ip: '127.0.0.1' }) })))
 

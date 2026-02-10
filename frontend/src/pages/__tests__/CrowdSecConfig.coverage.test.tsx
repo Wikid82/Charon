@@ -9,6 +9,7 @@ import * as crowdsecApi from '../../api/crowdsec'
 import * as presetsApi from '../../api/presets'
 import * as backupsApi from '../../api/backups'
 import * as settingsApi from '../../api/settings'
+import * as featureFlagsApi from '../../api/featureFlags'
 import { CROWDSEC_PRESETS } from '../../data/crowdsecPresets'
 import { renderWithQueryClient, createTestQueryClient } from '../../test-utils/renderWithQueryClient'
 import { toast } from '../../utils/toast'
@@ -19,6 +20,38 @@ vi.mock('../../api/crowdsec')
 vi.mock('../../api/presets')
 vi.mock('../../api/backups')
 vi.mock('../../api/settings')
+vi.mock('../../api/featureFlags')
+vi.mock('../../hooks/useConsoleEnrollment', () => ({
+  useConsoleStatus: vi.fn(() => ({
+    data: {
+      status: 'not_enrolled',
+      tenant: 'default',
+      agent_name: 'charon-agent',
+      last_error: null,
+      last_attempt_at: null,
+      enrolled_at: null,
+      last_heartbeat_at: null,
+      key_present: false,
+      correlation_id: 'corr-1',
+    },
+    isLoading: false,
+    isRefetching: false,
+  })),
+  useEnrollConsole: vi.fn(() => ({
+    mutateAsync: vi.fn().mockResolvedValue({
+      status: 'enrolling',
+      key_present: false,
+    }),
+    isPending: false,
+  })),
+  useClearConsoleEnrollment: vi.fn(() => ({
+    mutate: vi.fn(),
+    isPending: false,
+  })),
+}))
+vi.mock('../../components/CrowdSecBouncerKeyDisplay', () => ({
+  CrowdSecBouncerKeyDisplay: () => null,
+}))
 vi.mock('../../utils/crowdsecExport', () => ({
   buildCrowdsecExportFilename: vi.fn(() => 'crowdsec-default.tar.gz'),
   promptCrowdsecFilename: vi.fn(() => 'crowdsec.tar.gz'),
@@ -68,6 +101,7 @@ describe('CrowdSecConfig coverage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(baseStatus)
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 123, lapi_ready: true })
     vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: defaultFileList })
     vi.mocked(crowdsecApi.readCrowdsecFile).mockResolvedValue({ content: 'file-content' })
     vi.mocked(crowdsecApi.writeCrowdsecFile).mockResolvedValue(undefined)
@@ -116,6 +150,9 @@ describe('CrowdSecConfig coverage', () => {
     })
     vi.mocked(backupsApi.createBackup).mockResolvedValue({ filename: 'backup.tar.gz' })
     vi.mocked(settingsApi.updateSetting).mockResolvedValue()
+    vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+      'feature.crowdsec.console_enrollment': false,
+    })
   })
 
   it('renders loading and error boundaries', async () => {

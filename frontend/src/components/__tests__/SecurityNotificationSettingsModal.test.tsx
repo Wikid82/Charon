@@ -154,11 +154,10 @@ describe('SecurityNotificationSettingsModal', () => {
     renderModal();
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Enable Notifications')).toBeTruthy();
+      expect(screen.getByLabelText('Enable Notifications')).toBeChecked();
     });
 
     const enableSwitch = screen.getByLabelText('Enable Notifications') as HTMLInputElement;
-    expect(enableSwitch.checked).toBe(true);
 
     // Disable notifications
     await user.click(enableSwitch);

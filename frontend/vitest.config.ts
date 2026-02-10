@@ -10,7 +10,12 @@ const resolvedCoverageThreshold = Number.isNaN(coverageThreshold) ? 85.0 : cover
 export default defineConfig({
   plugins: [react()],
   test: {
-    pool: 'threads',
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        memoryLimit: '512MB',
+      },
+    },
     globals: true,
     environment: 'jsdom',
     environmentOptions: {
