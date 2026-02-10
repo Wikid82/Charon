@@ -35,7 +35,7 @@ if [ ! -f "$SUMMARY_FILE" ]; then
 fi
 
 # Extract and print total coverage summary using python
-LINES_PERCENT=$(python3 - <<'PY'
+python3 - <<'PY'
 import json
 import sys
 
@@ -67,11 +67,12 @@ for metric in metrics:
 def fmt(metric):
     return f"{metric['pct']}% ({metric['covered']}/{metric['total']})"
 
-print("Frontend coverage summary:")
-print(f"  Statements: {fmt(total['statements'])}")
-print(f"  Branches:   {fmt(total['branches'])}")
-print(f"  Functions:  {fmt(total['functions'])}")
-print(f"  Lines:      {fmt(total['lines'])}")
+# Print coverage summary to stderr to avoid capturing in LINES_PERCENT variable
+print("Frontend coverage summary:", file=sys.stderr)
+print(f"  Statements: {fmt(total['statements'])}", file=sys.stderr)
+print(f"  Branches:   {fmt(total['branches'])}", file=sys.stderr)
+print(f"  Functions:  {fmt(total['functions'])}", file=sys.stderr)
+print(f"  Lines:      {fmt(total['lines'])}", file=sys.stderr)
 
 lines_pct = total['lines']['pct']
 
@@ -80,31 +81,60 @@ if not isinstance(lines_pct, (int, float)):
     print(f"Error: Coverage percentage is not numeric: {lines_pct} ({type(lines_pct).__name__})", file=sys.stderr)
     sys.exit(1)
 
-# Print just the numeric value
+# Print just the numeric value to stdout (this will be captured in LINES_PERCENT)
+print(lines_pct)
+PY
+
+# Capture the numeric value output
+LINES_PERCENT=$(python3 - <<'PY'
+import json
+import sys
+
+try:
+    with open('coverage/coverage-summary.json') as f:
+        summary = json.load(f)
+except (json.JSONDecodeError, KeyError, FileNotFoundError) as e:
+    print(f"Error: Failed to read coverage-summary.json: {e}", file=sys.stderr)
+    sys.exit(1)
+
+if 'total' not in summary or 'lines' not in summary['total']:
+    print("Error: Missing lines coverage in summary", file=sys.stderr)
+    sys.exit(1)
+
+lines_pct = summary['total']['lines']['pct']
+if not isinstance(lines_pct, (int, float)):
+    print(f"Error: Coverage percentage is not numeric: {lines_pct}", file=sys.stderr)
+    sys.exit(1)
+
+# Only print the numeric value
 print(lines_pct)
 PY
 )
 
-python3 - <<PY
+python3 - <<'PY'
 import sys
 from decimal import Decimal, InvalidOperation
 
-if not '$LINES_PERCENT':
+lines_percent = """$LINES_PERCENT""".strip()
+min_coverage = """$MIN_COVERAGE""".strip()
+
+if not lines_percent:
     print("Error: Failed to extract coverage percentage from coverage-summary.json", file=sys.stderr)
     sys.exit(1)
 
 try:
-    total = Decimal('$LINES_PERCENT')
+    total = Decimal(lines_percent)
 except InvalidOperation as e:
-    print(f"Error: Coverage value is not numeric: '$LINES_PERCENT' ({e})", file=sys.stderr)
+    print(f"Error: Coverage value is not numeric: '{lines_percent}' ({e})", file=sys.stderr)
     sys.exit(1)
 
 try:
-    minimum = Decimal('$MIN_COVERAGE')
+    minimum = Decimal(min_coverage)
 except InvalidOperation as e:
-    print(f"Error: Minimum coverage value is not numeric: '$MIN_COVERAGE' ({e})", file=sys.stderr)
+    print(f"Error: Minimum coverage value is not numeric: '{min_coverage}' ({e})", file=sys.stderr)
     print("       Set CHARON_MIN_COVERAGE or CPM_MIN_COVERAGE to a numeric percentage value.", file=sys.stderr)
     sys.exit(1)
+
 status = "PASS" if total >= minimum else "FAIL"
 print(f"Coverage gate: {status} (lines {total}% vs minimum {minimum}%)")
 if total < minimum:
