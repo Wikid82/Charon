@@ -160,14 +160,19 @@ test.describe('User Management', () => {
         await expect(emailInput).toBeVisible();
         await emailInput.fill(inviteEmail);
 
-        const sendButton = page.getByRole('button', { name: /send.*invite/i });
+        // Scope to dialog to avoid strict mode violation with "Resend Invite" button
+        const sendButton = page.getByRole('dialog')
+          .getByRole('button', { name: /send.*invite/i })
+          .first();
         await sendButton.click();
 
         // Wait for invite creation
         await page.waitForTimeout(1000);
 
-        // Close the modal
-        const closeButton = page.getByRole('button', { name: /done|close|×/i });
+        // Close the modal - scope to dialog to avoid strict mode violation with Toast close buttons
+        const closeButton = page.getByRole('dialog')
+          .getByRole('button', { name: /done|close|×/i })
+          .first();
         if (await closeButton.isVisible()) {
           await closeButton.click();
         }
@@ -416,7 +421,10 @@ test.describe('User Management', () => {
 
       await test.step('Wait for URL preview to appear', async () => {
         // URL preview appears after debounced API call
-        const urlPreview = page.locator('[class*="font-mono"]').filter({
+        // Wait for invite generation (triggers after email is filled)
+        await page.waitForTimeout(500);
+
+        const urlPreview = page.locator('input[readonly]').filter({
           hasText: /accept.*invite|token/i,
         });
 
@@ -456,8 +464,10 @@ test.describe('User Management', () => {
       });
 
       await test.step('Click copy button', async () => {
-        const copyButton = page.getByRole('button', { name: /copy/i }).or(
-          page.getByRole('button').filter({ has: page.locator('svg.lucide-copy') })
+        // Scope to dialog to avoid strict mode with Resend/other buttons
+        const dialog = page.getByRole('dialog');
+        const copyButton = dialog.getByRole('button', { name: /copy/i }).or(
+          dialog.getByRole('button').filter({ has: dialog.locator('svg.lucide-copy') })
         );
 
         await expect(copyButton.first()).toBeVisible();
@@ -714,6 +724,10 @@ test.describe('User Management', () => {
 
         // First check a box, then uncheck it
         const firstCheckbox = hostCheckboxes.first();
+
+        // Wait for checkbox to be enabled (may be disabled during loading)
+        await expect(firstCheckbox).toBeEnabled({ timeout: 5000 });
+
         await firstCheckbox.check();
         await expect(firstCheckbox).toBeChecked();
 
@@ -1129,7 +1143,8 @@ test.describe('User Management', () => {
       });
 
       await test.step('Attempt to access users page', async () => {
-        await page.goto('/users');
+        await page.goto('/users', { waitUntil: 'domcontentloaded' });
+        await waitForLoadingComplete(page);
       });
 
       await test.step('Verify access denied or redirect', async () => {
@@ -1160,8 +1175,8 @@ test.describe('User Management', () => {
       });
 
       await test.step('Navigate to users page directly', async () => {
-        await page.goto('/users');
-        await page.waitForTimeout(1000);
+        await page.goto('/users', { waitUntil: 'domcontentloaded' });
+        await waitForLoadingComplete(page);
       });
 
       await test.step('Verify error message or redirect', async () => {
