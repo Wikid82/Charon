@@ -17,6 +17,24 @@ import * as settingsApi from '../../api/settings'
 vi.mock('../../api/security')
 vi.mock('../../api/crowdsec')
 vi.mock('../../api/settings')
+vi.mock('../../hooks/useNotifications', () => ({
+  useSecurityNotificationSettings: vi.fn(() => ({
+    data: {
+      enabled: false,
+      min_log_level: 'warn',
+      notify_waf_blocks: true,
+      notify_acl_denials: true,
+      notify_rate_limit_hits: true,
+      webhook_url: '',
+      email_recipients: '',
+    },
+    isLoading: false,
+  })),
+  useUpdateSecurityNotificationSettings: vi.fn(() => ({
+    mutate: vi.fn(),
+    isPending: false,
+  })),
+}))
 
 // Mock i18n translation
 vi.mock('react-i18next', () => ({

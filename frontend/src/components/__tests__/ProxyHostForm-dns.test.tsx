@@ -51,7 +51,15 @@ vi.mock('../../hooks/useSecurity', () => ({
 
 vi.mock('../../hooks/useSecurityHeaders', () => ({
   useSecurityHeaderProfiles: vi.fn(() => ({
-    profiles: [],
+    data: [],
+    isLoading: false,
+    error: null,
+  })),
+}))
+
+vi.mock('../../hooks/useAccessLists', () => ({
+  useAccessLists: vi.fn(() => ({
+    data: [],
     isLoading: false,
     error: null,
   })),

@@ -29,6 +29,32 @@ function generateTemplateName(prefix: string = 'test-template'): string {
   return `${prefix}-${Date.now()}`;
 }
 
+async function resetNotificationProviders(
+  page: import('@playwright/test').Page,
+  token: string
+): Promise<void> {
+  if (!token) {
+    return;
+  }
+
+  const listResponse = await page.request.get('/api/v1/notifications/providers', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!listResponse.ok()) {
+    return;
+  }
+
+  const providers = (await listResponse.json()) as Array<{ id: string }>;
+  await Promise.all(
+    providers.map((provider) =>
+      page.request.delete(`/api/v1/notifications/providers/${provider.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    )
+  );
+}
+
 test.describe('Notification Providers', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
@@ -329,22 +355,43 @@ test.describe('Notification Providers', () => {
      */
     test('should edit existing provider', async ({ page }) => {
       await test.step('Mock existing provider', async () => {
+        let providers = [
+          {
+            id: 'test-edit-id',
+            name: 'Original Provider',
+            type: 'discord',
+            url: 'https://discord.com/api/webhooks/test',
+            enabled: true,
+            notify_proxy_hosts: true,
+            notify_certs: false,
+          },
+        ];
+
         await page.route('**/api/v1/notifications/providers', async (route, request) => {
           if (request.method() === 'GET') {
             await route.fulfill({
               status: 200,
               contentType: 'application/json',
-              body: JSON.stringify([
-                {
-                  id: 'test-edit-id',
-                  name: 'Original Provider',
-                  type: 'discord',
-                  url: 'https://discord.com/api/webhooks/test',
-                  enabled: true,
-                  notify_proxy_hosts: true,
-                  notify_certs: false,
-                },
-              ]),
+              body: JSON.stringify(providers),
+            });
+          } else {
+            await route.continue();
+          }
+        });
+
+        await page.route('**/api/v1/notifications/providers/*', async (route, request) => {
+          if (request.method() === 'PUT') {
+            const payload = (await request.postDataJSON()) as Record<string, unknown>;
+            providers = providers.map((provider) =>
+              provider.id === 'test-edit-id'
+                ? { ...provider, ...payload }
+                : provider
+            );
+
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({ success: true }),
             });
           } else {
             await route.continue();
@@ -380,32 +427,27 @@ test.describe('Notification Providers', () => {
         await nameInput.fill('Updated Provider Name');
       });
 
-      await test.step('Mock update response', async () => {
-        await page.route('**/api/v1/notifications/providers/*', async (route, request) => {
-          if (request.method() === 'PUT') {
-            await route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: JSON.stringify({ success: true }),
-            });
-          } else {
-            await route.continue();
-          }
-        });
-      });
-
       await test.step('Save changes', async () => {
+        // Wait for the update response so the list refresh has updated data.
+        const updateResponsePromise = waitForAPIResponse(
+          page,
+          /\/api\/v1\/notifications\/providers\/test-edit-id/,
+          { status: 200 }
+        );
+        const refreshResponsePromise = waitForAPIResponse(
+          page,
+          /\/api\/v1\/notifications\/providers$/,
+          { status: 200 }
+        );
+
         await page.getByTestId('provider-save-btn').click();
+        await updateResponsePromise;
+        await refreshResponsePromise;
       });
 
       await test.step('Verify update success', async () => {
-        // Form should close or show success
-        await page.waitForTimeout(1000);
-        const updateIndicator = page.getByText('Updated Provider Name')
-          .or(page.locator('[data-testid="toast-success"]'))
-          .or(page.getByRole('status').filter({ hasText: /updated|saved/i }));
-
-        await expect(updateIndicator.first()).toBeVisible({ timeout: 10000 });
+        const updatedProvider = page.getByText('Updated Provider Name');
+        await expect(updatedProvider.first()).toBeVisible({ timeout: 10000 });
       });
     });
 
@@ -543,20 +585,69 @@ test.describe('Notification Providers', () => {
      * Note: Skip - URL validation behavior differs from expected
      */
     test('should validate provider URL', async ({ page }) => {
+      const providerName = generateProviderName('validation');
+
+      await test.step('Mock provider validation responses', async () => {
+        let providers: Array<Record<string, unknown>> = [];
+
+        await page.route('**/api/v1/notifications/providers', async (route, request) => {
+          if (request.method() === 'POST') {
+            const payload = (await request.postDataJSON()) as Record<string, unknown>;
+            if (payload.url === 'not-a-valid-url') {
+              await route.fulfill({
+                status: 400,
+                contentType: 'application/json',
+                body: JSON.stringify({ error: 'Invalid URL' }),
+              });
+              return;
+            }
+
+            const created = {
+              id: 'validated-provider-id',
+              enabled: true,
+              notify_proxy_hosts: true,
+              notify_remote_servers: true,
+              notify_domains: true,
+              notify_certs: true,
+              notify_uptime: true,
+              ...payload,
+            };
+
+            providers = [created];
+            await route.fulfill({
+              status: 201,
+              contentType: 'application/json',
+              body: JSON.stringify(created),
+            });
+            return;
+          }
+
+          if (request.method() === 'GET') {
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify(providers),
+            });
+            return;
+          }
+
+          await route.continue();
+        });
+      });
+
       await test.step('Click Add Provider button', async () => {
         const addButton = page.getByRole('button', { name: /add.*provider/i });
         await addButton.click();
       });
 
       await test.step('Fill form with invalid URL', async () => {
-        await page.getByTestId('provider-name').fill('Test Provider');
+        await page.getByTestId('provider-name').fill(providerName);
         await page.getByTestId('provider-type').selectOption('discord');
         await page.getByTestId('provider-url').fill('not-a-valid-url');
       });
 
       await test.step('Attempt to save', async () => {
         await page.getByTestId('provider-save-btn').click();
-        await page.waitForTimeout(500);
       });
 
       await test.step('Verify URL validation error', async () => {
@@ -572,20 +663,37 @@ test.describe('Notification Providers', () => {
         const errorMessage = page.getByText(/url.*required|invalid.*url|valid.*url/i);
         const hasErrorMessage = await errorMessage.isVisible().catch(() => false);
 
+        await expect(page.getByTestId('provider-save-btn')).toBeVisible();
         expect(hasError || hasErrorMessage || true).toBeTruthy();
       });
 
       await test.step('Correct URL and verify validation passes', async () => {
-        await page.getByTestId('provider-url').clear();
-        await page.getByTestId('provider-url').fill('https://discord.com/api/webhooks/valid/url');
-        await page.waitForTimeout(300);
-
         const urlInput = page.getByTestId('provider-url');
-        const stillHasError = await urlInput.evaluate((el) =>
-          el.classList.contains('border-red-500')
-        ).catch(() => false);
 
-        expect(stillHasError).toBeFalsy();
+        // Ensure the input is attached and visible before clearing to avoid detached element errors.
+        await expect(urlInput).toBeAttached();
+        await expect(urlInput).toBeVisible();
+        await urlInput.clear();
+        await urlInput.fill('https://discord.com/api/webhooks/valid/url');
+
+        // Wait for successful create response so the list refresh reflects the valid URL.
+        const createResponsePromise = waitForAPIResponse(
+          page,
+          /\/api\/v1\/notifications\/providers$/,
+          { status: 201 }
+        );
+        const refreshResponsePromise = waitForAPIResponse(
+          page,
+          /\/api\/v1\/notifications\/providers$/,
+          { status: 200 }
+        );
+
+        await page.getByTestId('provider-save-btn').click();
+        await createResponsePromise;
+        await refreshResponsePromise;
+
+        const providerInList = page.getByText(providerName);
+        await expect(providerInList.first()).toBeVisible({ timeout: 10000 });
       });
     });
 
@@ -907,29 +1015,54 @@ test.describe('Notification Providers', () => {
      */
     test('should delete external template', async ({ page }) => {
       await test.step('Mock external templates', async () => {
+        let templates = [
+          {
+            id: 'delete-template-id',
+            name: 'Template to Delete',
+            description: 'Will be deleted',
+            template: 'custom',
+            config: '{"delete": "me"}',
+          },
+        ];
+
         await page.route('**/api/v1/notifications/external-templates', async (route, request) => {
           if (request.method() === 'GET') {
             await route.fulfill({
               status: 200,
               contentType: 'application/json',
-              body: JSON.stringify([
-                {
-                  id: 'delete-template-id',
-                  name: 'Template to Delete',
-                  description: 'Will be deleted',
-                  template: 'custom',
-                  config: '{"delete": "me"}',
-                },
-              ]),
+              body: JSON.stringify(templates),
             });
-          } else {
-            await route.continue();
+            return;
           }
+
+          await route.continue();
+        });
+
+        await page.route('**/api/v1/notifications/external-templates/*', async (route, request) => {
+          if (request.method() === 'DELETE') {
+            templates = [];
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({ success: true }),
+            });
+            return;
+          }
+
+          await route.continue();
         });
       });
 
       await test.step('Reload page', async () => {
+        // Wait for external templates fetch so list render is deterministic.
+        const templatesResponsePromise = waitForAPIResponse(
+          page,
+          /\/api\/v1\/notifications\/external-templates$/,
+          { status: 200 }
+        );
+
         await page.reload();
+        await templatesResponsePromise;
         await waitForLoadingComplete(page);
       });
 
@@ -937,26 +1070,12 @@ test.describe('Notification Providers', () => {
         const manageButton = page.getByRole('button').filter({ hasText: /manage.*templates/i });
         await expect(manageButton).toBeVisible({ timeout: 5000 });
         await manageButton.click();
-        await page.waitForTimeout(500);
       });
 
       await test.step('Verify template is displayed', async () => {
-        const templateName = page.getByText('Template to Delete');
-        await expect(templateName.first()).toBeVisible({ timeout: 5000 });
-      });
-
-      await test.step('Mock delete response', async () => {
-        await page.route('**/api/v1/notifications/external-templates/*', async (route, request) => {
-          if (request.method() === 'DELETE') {
-            await route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: JSON.stringify({ success: true }),
-            });
-          } else {
-            await route.continue();
-          }
-        });
+        // Wait for list render so row-level actions are available.
+        const templateHeading = page.getByRole('heading', { name: 'Template to Delete', level: 4 });
+        await expect(templateHeading).toBeVisible({ timeout: 5000 });
       });
 
       await test.step('Click delete button with confirmation', async () => {
@@ -964,16 +1083,33 @@ test.describe('Notification Providers', () => {
           await dialog.accept();
         });
 
-        // Find the template card and click its delete button (second button)
-        const templateCard = page.locator('pre').filter({ hasText: /delete.*me/i }).locator('..');
-        const deleteButton = templateCard.locator('button').nth(1);
+        // Wait for delete response so the refresh uses the updated list.
+        const deleteResponsePromise = waitForAPIResponse(
+          page,
+          /\/api\/v1\/notifications\/external-templates\/delete-template-id/,
+          { status: 200 }
+        );
+        const refreshResponsePromise = waitForAPIResponse(
+          page,
+          /\/api\/v1\/notifications\/external-templates$/,
+          { status: 200 }
+        );
+
+        const templateHeading = page.getByRole('heading', { name: 'Template to Delete', level: 4 });
+        const templateCard = templateHeading.locator('..').locator('..');
+        const deleteButton = templateCard
+          .locator('[data-testid="template-delete-btn"]')
+          .or(templateCard.locator('button').nth(1));
+
         await expect(deleteButton).toBeVisible();
         await deleteButton.click();
+        await deleteResponsePromise;
+        await refreshResponsePromise;
       });
 
       await test.step('Verify template deleted', async () => {
-        await page.waitForTimeout(1000);
-        // Template should be removed or empty state shown
+        const templateHeading = page.getByRole('heading', { name: 'Template to Delete', level: 4 });
+        await expect(templateHeading).toHaveCount(0, { timeout: 5000 });
       });
     });
   });
@@ -1126,6 +1262,13 @@ test.describe('Notification Providers', () => {
   });
 
   test.describe('Event Selection', () => {
+    test.beforeEach(async ({ page, adminUser }) => {
+      await test.step('Reset notification providers via API', async () => {
+        // Reset providers to avoid persisted checkbox state across tests.
+        await resetNotificationProviders(page, adminUser.token);
+      });
+    });
+
     /**
      * Test: Configure notification events
      * Priority: P1
@@ -1186,6 +1329,44 @@ test.describe('Notification Providers', () => {
      */
     test('should persist event selections', async ({ page }) => {
       const providerName = generateProviderName('events-test');
+      let providers: Array<Record<string, unknown>> = [];
+
+      await test.step('Mock provider create and list responses', async () => {
+        await page.route('**/api/v1/notifications/providers', async (route, request) => {
+          if (request.method() === 'POST') {
+            const payload = (await request.postDataJSON()) as Record<string, unknown>;
+            const created = {
+              id: 'events-provider-id',
+              enabled: true,
+              notify_proxy_hosts: false,
+              notify_remote_servers: false,
+              notify_domains: false,
+              notify_certs: false,
+              notify_uptime: false,
+              ...payload,
+            };
+
+            providers = [created];
+            await route.fulfill({
+              status: 201,
+              contentType: 'application/json',
+              body: JSON.stringify(created),
+            });
+            return;
+          }
+
+          if (request.method() === 'GET') {
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify(providers),
+            });
+            return;
+          }
+
+          await route.continue();
+        });
+      });
 
       await test.step('Click Add Provider button', async () => {
         const addButton = page.getByRole('button', { name: /add.*provider/i });
@@ -1214,13 +1395,32 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Save provider', async () => {
+        // Wait for create response so persisted event flags are available on reload.
+        const createResponsePromise = waitForAPIResponse(
+          page,
+          /\/api\/v1\/notifications\/providers$/,
+          { status: 201 }
+        );
         await page.getByTestId('provider-save-btn').click();
-        await page.waitForTimeout(1000);
+        const createResponse = await createResponsePromise;
+        expect(createResponse.ok()).toBeTruthy();
       });
 
       await test.step('Verify provider was created', async () => {
         const providerInList = page.getByText(providerName);
         await expect(providerInList.first()).toBeVisible({ timeout: 10000 });
+      });
+
+      await test.step('Reload to fetch persisted provider state', async () => {
+        // Reload ensures the edit form reflects server-side persisted event flags.
+        const providersResponsePromise = waitForAPIResponse(
+          page,
+          /\/api\/v1\/notifications\/providers$/,
+          { status: 200 }
+        );
+        await page.reload();
+        await providersResponsePromise;
+        await waitForLoadingComplete(page);
       });
 
       await test.step('Edit provider to verify persisted values', async () => {
@@ -1232,7 +1432,6 @@ test.describe('Notification Providers', () => {
         const editButton = providerCard.getByRole('button').filter({ has: page.locator('svg') }).nth(1);
         await expect(editButton).toBeVisible({ timeout: 5000 });
         await editButton.click();
-        await page.waitForTimeout(500);
       });
 
       await test.step('Verify event selections persisted', async () => {

@@ -17,6 +17,9 @@ import { toast } from 'react-hot-toast'
 vi.mock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn() }))
 vi.mock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn() }))
 vi.mock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn() }))
+vi.mock('../../hooks/useSecurityHeaders', () => ({
+  useSecurityHeaderProfiles: vi.fn(() => ({ data: [], isLoading: false, error: null })),
+}))
 vi.mock('../../api/settings', () => ({ getSettings: vi.fn() }))
 vi.mock('../../api/uptime', () => ({ getMonitors: vi.fn() }))
 vi.mock('../../api/backups', () => ({ createBackup: vi.fn() }))

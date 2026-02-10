@@ -59,6 +59,9 @@ vi.mock('react-i18next', async () => {
 
 // Cleanup after each test
 afterEach(() => {
+  vi.clearAllTimers()
+  vi.useRealTimers()
+  vi.clearAllMocks()
   cleanup()
 })
 
