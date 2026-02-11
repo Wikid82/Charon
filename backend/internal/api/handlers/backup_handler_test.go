@@ -47,6 +47,11 @@ func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string
 	h := NewBackupHandler(svc)
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
 	api := r.Group("/api/v1")
 	// Manually register routes since we don't have a RegisterRoutes method on the handler yet?
 	// Wait, I didn't check if I added RegisterRoutes to BackupHandler.

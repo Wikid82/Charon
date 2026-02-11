@@ -194,20 +194,20 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
       await expect(page.getByTestId('log-file-list')).toBeVisible();
     });
 
-    test('should show list of available log files', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
-      await setupLogMocks(page);
+	    test('should show list of available log files', async ({ page, authenticatedUser }) => {
+	      await loginUser(page, authenticatedUser);
+	      await setupLogMocks(page);
 
-      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
-      await waitForLoadingComplete(page);
+	      const logFilesPromise = waitForAPIResponse(page, '/api/v1/logs', { status: 200 });
+	      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
+	      await waitForLoadingComplete(page);
 
-      // Wait for API response
-      await waitForAPIResponse(page, '/api/v1/logs', { status: 200 });
+	      await logFilesPromise;
 
-      // Verify all log files are displayed in the list
-      await expect(page.getByText('access.log')).toBeVisible();
-      await expect(page.getByText('error.log')).toBeVisible();
-      await expect(page.getByText('caddy.log')).toBeVisible();
+	      // Verify all log files are displayed in the list
+	      await expect(page.getByText('access.log')).toBeVisible();
+	      await expect(page.getByText('error.log')).toBeVisible();
+	      await expect(page.getByText('caddy.log')).toBeVisible();
     });
 
     test('should display log filters section', async ({ page, authenticatedUser }) => {
@@ -242,35 +242,37 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
       await expect(page.getByText('0.24 MB')).toBeVisible();
     });
 
-    test('should load log content when file selected', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
-      await setupLogMocks(page);
+	    test('should load log content when file selected', async ({ page, authenticatedUser }) => {
+	      await loginUser(page, authenticatedUser);
+	      await setupLogMocks(page);
 
-      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
-      await waitForLoadingComplete(page);
+	      const initialContentPromise = waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
+	      await waitForLoadingComplete(page);
 
-      // The first file (access.log) is auto-selected - wait for content
-      await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      // The first file (access.log) is auto-selected - wait for content
+	      await initialContentPromise;
 
-      // Verify log table is displayed
-      await expect(page.getByTestId('log-table')).toBeVisible();
-    });
-  });
+	      // Verify log table is displayed
+	      await expect(page.getByTestId('log-table')).toBeVisible();
+	    });
+	  });
 
   test.describe('Log Content Display', () => {
-    test('should display log entries in table format', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
-      await setupLogMocks(page);
+	    test('should display log entries in table format', async ({ page, authenticatedUser }) => {
+	      await loginUser(page, authenticatedUser);
+	      await setupLogMocks(page);
 
-      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
-      await waitForLoadingComplete(page);
+	      const initialContentPromise = waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
+	      await waitForLoadingComplete(page);
 
-      // Wait for auto-selected log content to load
-      await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      // Wait for auto-selected log content to load
+	      await initialContentPromise;
 
-      // Verify table structure
-      const logTable = page.getByTestId('log-table');
-      await expect(logTable).toBeVisible();
+	      // Verify table structure
+	      const logTable = page.getByTestId('log-table');
+	      await expect(logTable).toBeVisible();
 
       // Verify table has expected columns
       await expect(page.getByRole('columnheader', { name: /time/i })).toBeVisible();
@@ -278,35 +280,38 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
       await expect(page.getByRole('columnheader', { name: /method/i })).toBeVisible();
     });
 
-    test('should show timestamp, level, method, uri, status', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
-      await setupLogMocks(page);
+	    test('should show timestamp, level, method, uri, status', async ({ page, authenticatedUser }) => {
+	      await loginUser(page, authenticatedUser);
+	      await setupLogMocks(page);
 
-      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
-      await waitForLoadingComplete(page);
+	      const initialContentPromise = waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
+	      await waitForLoadingComplete(page);
 
-      // Wait for content to load
-      await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      // Wait for content to load
+	      await initialContentPromise;
 
-      // Verify log entry content is displayed
-      // The mock data includes 192.168.1.100 as remote_ip in first entry
-      await expect(page.getByText('192.168.1.100')).toBeVisible();
-      await expect(page.getByText('GET')).toBeVisible();
-      await expect(page.getByText('/api/v1/users')).toBeVisible();
-      await expect(page.getByTestId('status-200')).toBeVisible();
+	      // Verify log entry content is displayed
+	      // The mock data includes 192.168.1.100 as remote_ip in first entry
+	      const entryRow = page.getByRole('row').filter({ hasText: '192.168.1.100' }).first();
+      await expect(entryRow).toBeVisible();
+      await expect(entryRow.getByRole('cell', { name: 'GET' })).toBeVisible();
+      await expect(entryRow.getByText('/api/v1/users')).toBeVisible();
+      await expect(entryRow.getByTestId('status-200')).toBeVisible();
     });
 
-    test('should highlight error entries with distinct styling', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
-      await setupLogMocks(page);
+	    test('should highlight error entries with distinct styling', async ({ page, authenticatedUser }) => {
+	      await loginUser(page, authenticatedUser);
+	      await setupLogMocks(page);
 
-      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
-      await waitForLoadingComplete(page);
-      await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      const initialContentPromise = waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
+	      await waitForLoadingComplete(page);
+	      await initialContentPromise;
 
-      // Find the 502 error status badge - should have red styling class
-      const errorStatus = page.getByTestId('status-502');
-      await expect(errorStatus).toBeVisible();
+	      // Find the 502 error status badge - should have red styling class
+	      const errorStatus = page.getByTestId('status-502');
+	      await expect(errorStatus).toBeVisible();
 
       // Verify error has red styling (bg-red or similar)
       await expect(errorStatus).toHaveClass(/red/);
@@ -342,9 +347,11 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
         });
       });
 
+      // Set up the response wait BEFORE navigation to avoid missing fast mocked responses.
+      const initialContentPromise = waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
       await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
-      await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+      await initialContentPromise;
 
       // Initial state - page 1
       expect(capturedOffset).toBe(0);
@@ -363,8 +370,8 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
       expect(capturedOffset).toBe(50);
     });
 
-    test('should display page info correctly', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+	    test('should display page info correctly', async ({ page, authenticatedUser }) => {
+	      await loginUser(page, authenticatedUser);
 
       const largeEntrySet = generateMockEntries(150);
 
@@ -372,7 +379,7 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
         await route.fulfill({ status: 200, json: mockLogFiles });
       });
 
-      await page.route('**/api/v1/logs/access.log*', async (route) => {
+	      await page.route('**/api/v1/logs/access.log*', async (route) => {
         const url = new URL(route.request().url());
         const offset = parseInt(url.searchParams.get('offset') || '0');
         const limit = parseInt(url.searchParams.get('limit') || '50');
@@ -387,22 +394,23 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
             offset,
           },
         });
-      });
+	      });
 
-      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
-      await waitForLoadingComplete(page);
-      await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      const initialContentPromise = waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
+	      await waitForLoadingComplete(page);
+	      await initialContentPromise;
 
-      // Verify page info displays correctly
-      const pageInfo = page.getByTestId('page-info');
-      await expect(pageInfo).toBeVisible();
+	      // Verify page info displays correctly
+	      const pageInfo = page.getByTestId('page-info');
+	      await expect(pageInfo).toBeVisible();
 
       // Should show "Showing 1 - 50 of 150" or similar format
       await expect(pageInfo).toContainText(/1.*50.*150/);
     });
 
-    test('should disable prev button on first page and next on last', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+	    test('should disable prev button on first page and next on last', async ({ page, authenticatedUser }) => {
+	      await loginUser(page, authenticatedUser);
 
       const entries = generateMockEntries(75); // 2 pages (50 + 25)
 
@@ -410,7 +418,7 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
         await route.fulfill({ status: 200, json: mockLogFiles });
       });
 
-      await page.route('**/api/v1/logs/access.log*', async (route) => {
+	      await page.route('**/api/v1/logs/access.log*', async (route) => {
         const url = new URL(route.request().url());
         const offset = parseInt(url.searchParams.get('offset') || '0');
         const limit = parseInt(url.searchParams.get('limit') || '50');
@@ -425,11 +433,12 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
             offset,
           },
         });
-      });
+	      });
 
-      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
-      await waitForLoadingComplete(page);
-      await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      const initialContentPromise = waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
+	      await waitForLoadingComplete(page);
+	      await initialContentPromise;
 
       const prevButton = getPrevButton(page);
       const nextButton = getNextButton(page);
@@ -451,8 +460,8 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
   });
 
   test.describe('Search and Filter', () => {
-    test('should filter logs by search text', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+	    test('should filter logs by search text', async ({ page, authenticatedUser }) => {
+	      await loginUser(page, authenticatedUser);
 
       let capturedSearch = '';
 
@@ -460,7 +469,7 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
         await route.fulfill({ status: 200, json: mockLogFiles });
       });
 
-      await page.route('**/api/v1/logs/access.log*', async (route) => {
+	      await page.route('**/api/v1/logs/access.log*', async (route) => {
         const url = new URL(route.request().url());
         capturedSearch = url.searchParams.get('search') || '';
 
@@ -483,11 +492,12 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
             offset: 0,
           },
         });
-      });
+	      });
 
-      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
-      await waitForLoadingComplete(page);
-      await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      const initialContentPromise = waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
+	      await waitForLoadingComplete(page);
+	      await initialContentPromise;
 
       // Type in search input
       const searchInput = page.getByTestId('search-input');
@@ -506,8 +516,8 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
       expect(capturedSearch).toBe('users');
     });
 
-    test('should filter logs by log level', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+	    test('should filter logs by log level', async ({ page, authenticatedUser }) => {
+	      await loginUser(page, authenticatedUser);
 
       let capturedLevel = '';
 
@@ -515,7 +525,7 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
         await route.fulfill({ status: 200, json: mockLogFiles });
       });
 
-      await page.route('**/api/v1/logs/access.log*', async (route) => {
+	      await page.route('**/api/v1/logs/access.log*', async (route) => {
         const url = new URL(route.request().url());
         capturedLevel = url.searchParams.get('level') || '';
 
@@ -534,11 +544,12 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
             offset: 0,
           },
         });
-      });
+	      });
 
-      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
-      await waitForLoadingComplete(page);
-      await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      const initialContentPromise = waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
+	      await waitForLoadingComplete(page);
+	      await initialContentPromise;
 
       // Select Error level from dropdown using data-testid
       const levelSelect = page.getByTestId('level-select');
@@ -558,13 +569,14 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
   });
 
   test.describe('Download', () => {
-    test('should download log file successfully', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
-      await setupLogMocks(page);
+	    test('should download log file successfully', async ({ page, authenticatedUser }) => {
+	      await loginUser(page, authenticatedUser);
+	      await setupLogMocks(page);
 
-      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
-      await waitForLoadingComplete(page);
-      await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      const initialContentPromise = waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
+	      await waitForLoadingComplete(page);
+	      await initialContentPromise;
 
       // Verify download button is visible and enabled
       const downloadButton = page.getByTestId('download-button');
@@ -576,14 +588,14 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
       await expect(downloadButton).not.toHaveAttribute('disabled');
     });
 
-    test('should handle download error gracefully', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+	    test('should handle download error gracefully', async ({ page, authenticatedUser }) => {
+	      await loginUser(page, authenticatedUser);
 
       await page.route('**/api/v1/logs', async (route) => {
         await route.fulfill({ status: 200, json: mockLogFiles });
       });
 
-      await page.route('**/api/v1/logs/access.log*', async (route) => {
+	      await page.route('**/api/v1/logs/access.log*', async (route) => {
         if (!route.request().url().includes('/download')) {
           await route.fulfill({
             status: 200,
@@ -598,11 +610,12 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
         } else {
           await route.continue();
         }
-      });
+	      });
 
-      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
-      await waitForLoadingComplete(page);
-      await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      const initialContentPromise = waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
+	      await waitForLoadingComplete(page);
+	      await initialContentPromise;
 
       // Verify download button is present and properly rendered
       const downloadButton = page.getByTestId('download-button');
@@ -614,14 +627,14 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
   });
 
   test.describe('Edge Cases', () => {
-    test('should handle empty log content gracefully', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+	    test('should handle empty log content gracefully', async ({ page, authenticatedUser }) => {
+	      await loginUser(page, authenticatedUser);
 
       await page.route('**/api/v1/logs', async (route) => {
         await route.fulfill({ status: 200, json: mockLogFiles });
       });
 
-      await page.route('**/api/v1/logs/access.log*', async (route) => {
+	      await page.route('**/api/v1/logs/access.log*', async (route) => {
         await route.fulfill({
           status: 200,
           json: {
@@ -632,11 +645,12 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
             offset: 0,
           },
         });
-      });
+	      });
 
-      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
-      await waitForLoadingComplete(page);
-      await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      const initialContentPromise = waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+	      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
+	      await waitForLoadingComplete(page);
+	      await initialContentPromise;
 
       // Should show "No logs found" or similar message
       await expect(page.getByText(/no logs found|no.*matching/i)).toBeVisible();

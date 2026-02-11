@@ -95,6 +95,11 @@ Configure the application via `docker-compose.yml`:
 | `CHARON_HTTP_PORT` | `8080` | Port for the Web UI (`CPM_HTTP_PORT` supported for backward compatibility). |
 | `CHARON_DB_PATH` | `/app/data/charon.db` | Path to the SQLite database (`CPM_DB_PATH` supported for backward compatibility). |
 | `CHARON_CADDY_ADMIN_API` | `http://localhost:2019` | Internal URL for Caddy API (`CPM_CADDY_ADMIN_API` supported for backward compatibility). |
+| `CHARON_CADDY_CONFIG_ROOT` | `/config` | Path to Caddy autosave configuration directory. |
+| `CHARON_CADDY_LOG_DIR` | `/var/log/caddy` | Directory for Caddy access logs. |
+| `CHARON_CROWDSEC_LOG_DIR` | `/var/log/crowdsec` | Directory for CrowdSec logs. |
+| `CHARON_PLUGINS_DIR` | `/app/plugins` | Directory for DNS provider plugins. |
+| `CHARON_SINGLE_CONTAINER_MODE` | `true` | Enables permission repair endpoints for single-container deployments. |
 
 ## NAS Deployment Guides
 

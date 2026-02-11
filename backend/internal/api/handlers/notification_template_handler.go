@@ -9,11 +9,17 @@ import (
 )
 
 type NotificationTemplateHandler struct {
-	service *services.NotificationService
+	service         *services.NotificationService
+	securityService *services.SecurityService
+	dataRoot        string
 }
 
 func NewNotificationTemplateHandler(s *services.NotificationService) *NotificationTemplateHandler {
-	return &NotificationTemplateHandler{service: s}
+	return NewNotificationTemplateHandlerWithDeps(s, nil, "")
+}
+
+func NewNotificationTemplateHandlerWithDeps(s *services.NotificationService, securityService *services.SecurityService, dataRoot string) *NotificationTemplateHandler {
+	return &NotificationTemplateHandler{service: s, securityService: securityService, dataRoot: dataRoot}
 }
 
 func (h *NotificationTemplateHandler) List(c *gin.Context) {
@@ -26,12 +32,19 @@ func (h *NotificationTemplateHandler) List(c *gin.Context) {
 }
 
 func (h *NotificationTemplateHandler) Create(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	var t models.NotificationTemplate
 	if err := c.ShouldBindJSON(&t); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	if err := h.service.CreateTemplate(&t); err != nil {
+		if respondPermissionError(c, h.securityService, "notification_template_save_failed", err, h.dataRoot) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create template"})
 		return
 	}
@@ -39,6 +52,10 @@ func (h *NotificationTemplateHandler) Create(c *gin.Context) {
 }
 
 func (h *NotificationTemplateHandler) Update(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	id := c.Param("id")
 	var t models.NotificationTemplate
 	if err := c.ShouldBindJSON(&t); err != nil {
@@ -47,6 +64,9 @@ func (h *NotificationTemplateHandler) Update(c *gin.Context) {
 	}
 	t.ID = id
 	if err := h.service.UpdateTemplate(&t); err != nil {
+		if respondPermissionError(c, h.securityService, "notification_template_save_failed", err, h.dataRoot) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update template"})
 		return
 	}
@@ -54,8 +74,15 @@ func (h *NotificationTemplateHandler) Update(c *gin.Context) {
 }
 
 func (h *NotificationTemplateHandler) Delete(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	id := c.Param("id")
 	if err := h.service.DeleteTemplate(id); err != nil {
+		if respondPermissionError(c, h.securityService, "notification_template_delete_failed", err, h.dataRoot) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete template"})
 		return
 	}

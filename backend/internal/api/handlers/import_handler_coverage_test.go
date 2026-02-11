@@ -72,6 +72,10 @@ func TestUploadMulti_EmptyList(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	_, r := gin.CreateTestContext(w)
+	r.Use(func(c *gin.Context) {
+		setAdminContext(c)
+		c.Next()
+	})
 	r.POST("/upload-multi", h.UploadMulti)
 
 	// Create JSON with empty files list
@@ -116,6 +120,10 @@ func TestUploadMulti_FileServerDetected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	_, r := gin.CreateTestContext(w)
+	r.Use(func(c *gin.Context) {
+		setAdminContext(c)
+		c.Next()
+	})
 	r.POST("/upload-multi", h.UploadMulti)
 
 	req := map[string]interface{}{
@@ -155,6 +163,10 @@ func TestUploadMulti_NoSitesParsed(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	_, r := gin.CreateTestContext(w)
+	r.Use(func(c *gin.Context) {
+		setAdminContext(c)
+		c.Next()
+	})
 	r.POST("/upload-multi", h.UploadMulti)
 
 	req := map[string]interface{}{

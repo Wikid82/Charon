@@ -48,28 +48,35 @@ type ImportHandler struct {
 	importerservice ImporterService
 	importDir       string
 	mountPath       string
+	securityService *services.SecurityService
 }
 
 // NewImportHandler creates a new import handler.
 func NewImportHandler(db *gorm.DB, caddyBinary, importDir, mountPath string) *ImportHandler {
+	return NewImportHandlerWithDeps(db, caddyBinary, importDir, mountPath, nil)
+}
+
+func NewImportHandlerWithDeps(db *gorm.DB, caddyBinary, importDir, mountPath string, securityService *services.SecurityService) *ImportHandler {
 	return &ImportHandler{
 		db:              db,
 		proxyHostSvc:    services.NewProxyHostService(db),
 		importerservice: caddy.NewImporter(caddyBinary),
 		importDir:       importDir,
 		mountPath:       mountPath,
+		securityService: securityService,
 	}
 }
 
 // NewImportHandlerWithService creates an import handler with a custom ProxyHostService.
 // This is primarily used for testing with mock services.
-func NewImportHandlerWithService(db *gorm.DB, proxyHostSvc ProxyHostServiceInterface, caddyBinary, importDir, mountPath string) *ImportHandler {
+func NewImportHandlerWithService(db *gorm.DB, proxyHostSvc ProxyHostServiceInterface, caddyBinary, importDir, mountPath string, securityService *services.SecurityService) *ImportHandler {
 	return &ImportHandler{
 		db:              db,
 		proxyHostSvc:    proxyHostSvc,
 		importerservice: caddy.NewImporter(caddyBinary),
 		importDir:       importDir,
 		mountPath:       mountPath,
+		securityService: securityService,
 	}
 }
 
@@ -273,6 +280,10 @@ func (h *ImportHandler) GetPreview(c *gin.Context) {
 
 // Upload handles manual Caddyfile upload or paste.
 func (h *ImportHandler) Upload(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	var req struct {
 		Content  string `json:"content" binding:"required"`
 		Filename string `json:"filename"`
@@ -311,6 +322,9 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 	}
 	// #nosec G301 -- Import uploads directory needs group readability for processing
 	if mkdirErr := os.MkdirAll(uploadsDir, 0o755); mkdirErr != nil {
+		if respondPermissionError(c, h.securityService, "import_upload_failed", mkdirErr, h.importDir) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create uploads directory"})
 		return
 	}
@@ -322,6 +336,9 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 	// #nosec G306 -- Caddyfile uploads need group readability for Caddy validation
 	if writeErr := os.WriteFile(tempPath, []byte(normalizedContent), 0o644); writeErr != nil {
 		middleware.GetRequestLogger(c).WithField("tempPath", util.SanitizeForLog(filepath.Base(tempPath))).WithError(writeErr).Error("Import Upload: failed to write temp file")
+		if respondPermissionError(c, h.securityService, "import_upload_failed", writeErr, h.importDir) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write upload"})
 		return
 	}
@@ -435,6 +452,9 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 	}
 	if err := h.db.Create(&session).Error; err != nil {
 		middleware.GetRequestLogger(c).WithError(err).Warn("Import Upload: failed to persist session")
+		if respondPermissionError(c, h.securityService, "import_upload_failed", err, h.importDir) {
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -470,6 +490,10 @@ func (h *ImportHandler) DetectImports(c *gin.Context) {
 
 // UploadMulti handles upload of main Caddyfile + multiple site files.
 func (h *ImportHandler) UploadMulti(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	var req struct {
 		Files []struct {
 			Filename string `json:"filename" binding:"required"`
@@ -504,6 +528,9 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 	}
 	// #nosec G301 -- Session directory with standard permissions for import processing
 	if mkdirErr := os.MkdirAll(sessionDir, 0o755); mkdirErr != nil {
+		if respondPermissionError(c, h.securityService, "import_upload_failed", mkdirErr, h.importDir) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session directory"})
 		return
 	}
@@ -528,6 +555,9 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 		if dir := filepath.Dir(targetPath); dir != sessionDir {
 			// #nosec G301 -- Subdirectory within validated session directory
 			if mkdirErr := os.MkdirAll(dir, 0o755); mkdirErr != nil {
+				if respondPermissionError(c, h.securityService, "import_upload_failed", mkdirErr, h.importDir) {
+					return
+				}
 				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to create directory for %s", f.Filename)})
 				return
 			}
@@ -535,6 +565,9 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 
 		// #nosec G306 -- Imported Caddyfile needs to be readable for processing
 		if writeErr := os.WriteFile(targetPath, []byte(f.Content), 0o644); writeErr != nil {
+			if respondPermissionError(c, h.securityService, "import_upload_failed", writeErr, h.importDir) {
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to write file %s", f.Filename)})
 			return
 		}
@@ -663,6 +696,9 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 	}
 	if err := h.db.Create(&session).Error; err != nil {
 		middleware.GetRequestLogger(c).WithError(err).Warn("Import UploadMulti: failed to persist session")
+		if respondPermissionError(c, h.securityService, "import_upload_failed", err, h.importDir) {
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -764,6 +800,10 @@ func safeJoin(baseDir, userPath string) (string, error) {
 
 // Commit finalizes the import with user's conflict resolutions.
 func (h *ImportHandler) Commit(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	var req struct {
 		SessionUUID string            `json:"session_uuid" binding:"required"`
 		Resolutions map[string]string `json:"resolutions"` // domain -> action (keep/skip, overwrite, rename)
@@ -784,7 +824,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 		return
 	}
 	var result *caddy.ImportResult
-	if err := h.db.Where("uuid = ? AND status = ?", sid, "reviewing").First(&session).Error; err == nil {
+	if err := h.db.Where("uuid = ? AND status IN ?", sid, []string{"reviewing", "pending"}).First(&session).Error; err == nil {
 		// DB session found
 		if err := json.Unmarshal([]byte(session.ParsedData), &result); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse import data"})
@@ -910,6 +950,9 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 	}
 	if err := h.db.Save(&session).Error; err != nil {
 		middleware.GetRequestLogger(c).WithError(err).Warn("Warning: failed to save import session")
+		if respondPermissionError(c, h.securityService, "import_commit_failed", err, h.importDir) {
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -922,6 +965,10 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 
 // Cancel discards a pending import session.
 func (h *ImportHandler) Cancel(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	sessionUUID := c.Query("session_uuid")
 	if sessionUUID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "session_uuid required"})
@@ -937,7 +984,11 @@ func (h *ImportHandler) Cancel(c *gin.Context) {
 	var session models.ImportSession
 	if err := h.db.Where("uuid = ?", sid).First(&session).Error; err == nil {
 		session.Status = "rejected"
-		h.db.Save(&session)
+		if saveErr := h.db.Save(&session).Error; saveErr != nil {
+			if respondPermissionError(c, h.securityService, "import_cancel_failed", saveErr, h.importDir) {
+				return
+			}
+		}
 		c.JSON(http.StatusOK, gin.H{"message": "import cancelled"})
 		return
 	}
@@ -948,6 +999,9 @@ func (h *ImportHandler) Cancel(c *gin.Context) {
 		if _, err := os.Stat(uploadsPath); err == nil {
 			if err := os.Remove(uploadsPath); err != nil {
 				logger.Log().WithError(err).Warn("Failed to remove upload file")
+				if respondPermissionError(c, h.securityService, "import_cancel_failed", err, h.importDir) {
+					return
+				}
 			}
 			c.JSON(http.StatusOK, gin.H{"message": "transient upload cancelled"})
 			return

@@ -17,13 +17,14 @@ import (
 )
 
 type LogService struct {
-	LogDir string
+	LogDir      string
+	CaddyLogDir string
 }
 
 func NewLogService(cfg *config.Config) *LogService {
 	// Assuming logs are in data/logs relative to app root
 	logDir := filepath.Join(filepath.Dir(cfg.DatabasePath), "logs")
-	return &LogService{LogDir: logDir}
+	return &LogService{LogDir: logDir, CaddyLogDir: cfg.CaddyLogDir}
 }
 
 func (s *LogService) logDirs() []string {
@@ -42,13 +43,12 @@ func (s *LogService) logDirs() []string {
 	}
 
 	addDir(s.LogDir)
+	if s.CaddyLogDir != "" {
+		addDir(s.CaddyLogDir)
+	}
 
 	if accessLogPath := os.Getenv("CHARON_CADDY_ACCESS_LOG"); accessLogPath != "" {
 		addDir(filepath.Dir(accessLogPath))
-	}
-
-	if _, err := os.Stat("/var/log/caddy"); err == nil {
-		addDir("/var/log/caddy")
 	}
 
 	return dirs

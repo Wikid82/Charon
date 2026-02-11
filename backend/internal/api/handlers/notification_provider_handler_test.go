@@ -26,6 +26,11 @@ func setupNotificationProviderTest(t *testing.T) (*gin.Engine, *gorm.DB) {
 	handler := handlers.NewNotificationProviderHandler(service)
 
 	r := gin.Default()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
 	api := r.Group("/api/v1")
 	providers := api.Group("/notifications/providers")
 	providers.GET("", handler.List)

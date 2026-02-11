@@ -137,6 +137,7 @@ func TestSecurityNotificationHandler_UpdateSettings_InvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("PUT", "/settings", bytes.NewBuffer(malformedJSON))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -182,6 +183,7 @@ func TestSecurityNotificationHandler_UpdateSettings_InvalidMinLogLevel(t *testin
 			gin.SetMode(gin.TestMode)
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
+			setAdminContext(c)
 			c.Request = httptest.NewRequest("PUT", "/settings", bytes.NewBuffer(body))
 			c.Request.Header.Set("Content-Type", "application/json")
 
@@ -233,6 +235,7 @@ func TestSecurityNotificationHandler_UpdateSettings_InvalidWebhookURL_SSRF(t *te
 			gin.SetMode(gin.TestMode)
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
+			setAdminContext(c)
 			c.Request = httptest.NewRequest("PUT", "/settings", bytes.NewBuffer(body))
 			c.Request.Header.Set("Content-Type", "application/json")
 
@@ -284,6 +287,7 @@ func TestSecurityNotificationHandler_UpdateSettings_PrivateIPWebhook(t *testing.
 			gin.SetMode(gin.TestMode)
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
+			setAdminContext(c)
 			c.Request = httptest.NewRequest("PUT", "/settings", bytes.NewBuffer(body))
 			c.Request.Header.Set("Content-Type", "application/json")
 
@@ -320,6 +324,7 @@ func TestSecurityNotificationHandler_UpdateSettings_ServiceError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("PUT", "/settings", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -363,6 +368,7 @@ func TestSecurityNotificationHandler_UpdateSettings_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("PUT", "/settings", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -411,6 +417,7 @@ func TestSecurityNotificationHandler_UpdateSettings_EmptyWebhookURL(t *testing.T
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("PUT", "/settings", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 

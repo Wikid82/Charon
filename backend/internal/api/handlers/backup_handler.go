@@ -12,11 +12,16 @@ import (
 )
 
 type BackupHandler struct {
-	service *services.BackupService
+	service         *services.BackupService
+	securityService *services.SecurityService
 }
 
 func NewBackupHandler(service *services.BackupService) *BackupHandler {
-	return &BackupHandler{service: service}
+	return NewBackupHandlerWithDeps(service, nil)
+}
+
+func NewBackupHandlerWithDeps(service *services.BackupService, securityService *services.SecurityService) *BackupHandler {
+	return &BackupHandler{service: service, securityService: securityService}
 }
 
 func (h *BackupHandler) List(c *gin.Context) {
@@ -29,9 +34,16 @@ func (h *BackupHandler) List(c *gin.Context) {
 }
 
 func (h *BackupHandler) Create(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	filename, err := h.service.CreateBackup()
 	if err != nil {
 		middleware.GetRequestLogger(c).WithField("action", "create_backup").WithError(err).Error("Failed to create backup")
+		if respondPermissionError(c, h.securityService, "backup_create_failed", err, h.service.BackupDir) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create backup: " + err.Error()})
 		return
 	}
@@ -40,10 +52,17 @@ func (h *BackupHandler) Create(c *gin.Context) {
 }
 
 func (h *BackupHandler) Delete(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	filename := c.Param("filename")
 	if err := h.service.DeleteBackup(filename); err != nil {
 		if os.IsNotExist(err) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Backup not found"})
+			return
+		}
+		if respondPermissionError(c, h.securityService, "backup_delete_failed", err, h.service.BackupDir) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete backup"})
@@ -70,6 +89,10 @@ func (h *BackupHandler) Download(c *gin.Context) {
 }
 
 func (h *BackupHandler) Restore(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	filename := c.Param("filename")
 	if err := h.service.RestoreBackup(filename); err != nil {
 		// codeql[go/log-injection] Safe: User input sanitized via util.SanitizeForLog()
@@ -77,6 +100,9 @@ func (h *BackupHandler) Restore(c *gin.Context) {
 		middleware.GetRequestLogger(c).WithField("action", "restore_backup").WithField("filename", util.SanitizeForLog(filepath.Base(filename))).WithError(err).Error("Failed to restore backup")
 		if os.IsNotExist(err) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Backup not found"})
+			return
+		}
+		if respondPermissionError(c, h.securityService, "backup_restore_failed", err, h.service.BackupDir) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to restore backup: " + err.Error()})

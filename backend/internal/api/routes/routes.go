@@ -157,7 +157,8 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 	// Backup routes
 	backupService := services.NewBackupService(&cfg)
 	backupService.Start() // Start cron scheduler for scheduled backups
-	backupHandler := handlers.NewBackupHandler(backupService)
+	securityService := services.NewSecurityService(db)
+	backupHandler := handlers.NewBackupHandlerWithDeps(backupService, securityService)
 
 	// DB Health endpoint (uses backup service for last backup time)
 	dbHealthHandler := handlers.NewDBHealthHandler(db, backupService)
@@ -221,20 +222,26 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		protected.GET("/websocket/connections", wsStatusHandler.GetConnections)
 		protected.GET("/websocket/stats", wsStatusHandler.GetStats)
 
+		dataRoot := filepath.Dir(cfg.DatabasePath)
+
 		// Security Notification Settings
 		securityNotificationService := services.NewSecurityNotificationService(db)
-		securityNotificationHandler := handlers.NewSecurityNotificationHandler(securityNotificationService)
+		securityNotificationHandler := handlers.NewSecurityNotificationHandlerWithDeps(securityNotificationService, securityService, dataRoot)
 		protected.GET("/security/notifications/settings", securityNotificationHandler.GetSettings)
 		protected.PUT("/security/notifications/settings", securityNotificationHandler.UpdateSettings)
 
+		// System permissions diagnostics and repair
+		systemPermissionsHandler := handlers.NewSystemPermissionsHandler(cfg, securityService, nil)
+		protected.GET("/system/permissions", systemPermissionsHandler.GetPermissions)
+		protected.POST("/system/permissions/repair", systemPermissionsHandler.RepairPermissions)
+
 		// Audit Logs
-		securityService := services.NewSecurityService(db)
 		auditLogHandler := handlers.NewAuditLogHandler(securityService)
 		protected.GET("/audit-logs", auditLogHandler.List)
 		protected.GET("/audit-logs/:uuid", auditLogHandler.Get)
 
 		// Settings - with CaddyManager and Cerberus for security settings reload
-		settingsHandler := handlers.NewSettingsHandlerWithDeps(db, caddyManager, cerb)
+		settingsHandler := handlers.NewSettingsHandlerWithDeps(db, caddyManager, cerb, securityService, dataRoot)
 
 		protected.GET("/settings", settingsHandler.GetSettings)
 		protected.POST("/settings", settingsHandler.UpdateSetting)
@@ -387,7 +394,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		protected.POST("/uptime/sync", uptimeHandler.Sync)
 
 		// Notification Providers
-		notificationProviderHandler := handlers.NewNotificationProviderHandler(notificationService)
+		notificationProviderHandler := handlers.NewNotificationProviderHandlerWithDeps(notificationService, securityService, dataRoot)
 		protected.GET("/notifications/providers", notificationProviderHandler.List)
 		protected.POST("/notifications/providers", notificationProviderHandler.Create)
 		protected.PUT("/notifications/providers/:id", notificationProviderHandler.Update)
@@ -397,7 +404,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		protected.GET("/notifications/templates", notificationProviderHandler.Templates)
 
 		// External notification templates (saved templates for providers)
-		notificationTemplateHandler := handlers.NewNotificationTemplateHandler(notificationService)
+		notificationTemplateHandler := handlers.NewNotificationTemplateHandlerWithDeps(notificationService, securityService, dataRoot)
 		protected.GET("/notifications/external-templates", notificationTemplateHandler.List)
 		protected.POST("/notifications/external-templates", notificationTemplateHandler.Create)
 		protected.PUT("/notifications/external-templates/:id", notificationTemplateHandler.Update)
@@ -640,7 +647,8 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 
 // RegisterImportHandler wires up import routes with config dependencies.
 func RegisterImportHandler(router *gin.Engine, db *gorm.DB, caddyBinary, importDir, mountPath string) {
-	importHandler := handlers.NewImportHandler(db, caddyBinary, importDir, mountPath)
+	securityService := services.NewSecurityService(db)
+	importHandler := handlers.NewImportHandlerWithDeps(db, caddyBinary, importDir, mountPath, securityService)
 	api := router.Group("/api/v1")
 	importHandler.RegisterRoutes(api)
 

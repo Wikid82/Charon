@@ -920,14 +920,14 @@ test.describe('Notification Providers', () => {
      * Test: Edit external template
      * Priority: P2
      */
-    test('should edit external template', async ({ page }) => {
-      await test.step('Mock external templates API response', async () => {
-        await page.route('**/api/v1/notifications/external-templates', async (route, request) => {
-          if (request.method() === 'GET') {
-            await route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: JSON.stringify([
+	    test('should edit external template', async ({ page }) => {
+	      await test.step('Mock external templates API response', async () => {
+	        await page.route(/\/api\/v1\/notifications\/external-templates\/?(?:\?.*)?$/, async (route, request) => {
+	          if (request.method() === 'GET') {
+	            await route.fulfill({
+	              status: 200,
+	              contentType: 'application/json',
+	              body: JSON.stringify([
                 {
                   id: 'edit-template-id',
                   name: 'Editable Template',
@@ -936,7 +936,7 @@ test.describe('Notification Providers', () => {
                   config: '{"old": "config"}',
                 },
               ]),
-            });
+	      });
           } else {
             await route.continue();
           }
@@ -948,15 +948,13 @@ test.describe('Notification Providers', () => {
         await waitForLoadingComplete(page);
       });
 
-      await test.step('Click Manage Templates button to show templates list', async () => {
-        // Find the toggle button for template management
-        const allButtons = page.getByRole('button');
-        const manageBtn = allButtons.filter({ hasText: /manage.*templates/i }).first();
-
-        if (await manageBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await manageBtn.click();
-        }
-      });
+	      await test.step('Click Manage Templates button to show templates list', async () => {
+	        // Find the toggle button for template management
+	        const allButtons = page.getByRole('button');
+	        const manageBtn = allButtons.filter({ hasText: /manage.*templates/i }).first();
+	        await expect(manageBtn).toBeVisible({ timeout: 5000 });
+	        await manageBtn.click();
+	      });
 
       await test.step('Wait and verify templates list is visible', async () => {
         const templateText = page.getByText('Editable Template');
@@ -1013,9 +1011,9 @@ test.describe('Notification Providers', () => {
      * Test: Delete external template
      * Priority: P2
      */
-    test('should delete external template', async ({ page }) => {
-      await test.step('Mock external templates', async () => {
-        let templates = [
+	    test('should delete external template', async ({ page }) => {
+	      await test.step('Mock external templates', async () => {
+	        let templates = [
           {
             id: 'delete-template-id',
             name: 'Template to Delete',
@@ -1025,11 +1023,11 @@ test.describe('Notification Providers', () => {
           },
         ];
 
-        await page.route('**/api/v1/notifications/external-templates', async (route, request) => {
-          if (request.method() === 'GET') {
-            await route.fulfill({
-              status: 200,
-              contentType: 'application/json',
+	        await page.route(/\/api\/v1\/notifications\/external-templates\/?(?:\?.*)?$/, async (route, request) => {
+	          if (request.method() === 'GET') {
+	            await route.fulfill({
+	              status: 200,
+	              contentType: 'application/json',
               body: JSON.stringify(templates),
             });
             return;
@@ -1053,13 +1051,13 @@ test.describe('Notification Providers', () => {
         });
       });
 
-      await test.step('Reload page', async () => {
-        // Wait for external templates fetch so list render is deterministic.
-        const templatesResponsePromise = waitForAPIResponse(
-          page,
-          /\/api\/v1\/notifications\/external-templates$/,
-          { status: 200 }
-        );
+	      await test.step('Reload page', async () => {
+	        // Wait for external templates fetch so list render is deterministic.
+	        const templatesResponsePromise = waitForAPIResponse(
+	          page,
+	          /\/api\/v1\/notifications\/external-templates\/?(?:\?.*)?$/,
+	          { status: 200 }
+	        );
 
         await page.reload();
         await templatesResponsePromise;
@@ -1089,11 +1087,11 @@ test.describe('Notification Providers', () => {
           /\/api\/v1\/notifications\/external-templates\/delete-template-id/,
           { status: 200 }
         );
-        const refreshResponsePromise = waitForAPIResponse(
-          page,
-          /\/api\/v1\/notifications\/external-templates$/,
-          { status: 200 }
-        );
+	        const refreshResponsePromise = waitForAPIResponse(
+	          page,
+	          /\/api\/v1\/notifications\/external-templates\/?(?:\?.*)?$/,
+	          { status: 200 }
+	        );
 
         const templateHeading = page.getByRole('heading', { name: 'Template to Delete', level: 4 });
         const templateCard = templateHeading.locator('..').locator('..');

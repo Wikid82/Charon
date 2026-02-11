@@ -1,801 +1,1018 @@
-# E2E Playwright Shard Timeout Investigation — Current Spec
-
-Last updated: 2026-02-10
-
-## Goal
-- Concise summary: investigate GitHub Actions run https://github.com/Wikid82/Charon/actions/runs/21865692694 where the E2E Playwright job reports Shard 3 stopping at ~30 minutes despite configured timeouts of ~40 minutes. Produce reproducible diagnostics, collect artifacts/logs, identify root cause hypotheses, and provide prioritized remediations and short-term unblock steps.
-
-## Phases
-- Discover: collect logs and artifacts.
-- Analyze: review config and correlate shard → tests.
-- Remediate: short-term and long-term fixes.
-- Verify: reproduce and confirm the fix.
-
 ---
-
-## 1) Discover — exact places to collect logs & artifacts
-
-### GitHub Actions (run-level)
-- Run page: https://github.com/Wikid82/Charon/actions/runs/21865692694
-- Run logs (zip): GET https://api.github.com/repos/Wikid82/Charon/actions/runs/21865692694/logs
-  - Programmatic commands:
-    ```bash
-    export GITHUB_OWNER=Wikid82
-    export GITHUB_REPO=Charon
-    export RUN_ID=21865692694
-    # Requires GITHUB_TOKEN set with repo access
-    curl -H "Accept: application/vnd.github+json" \
-      -H "Authorization: token $GITHUB_TOKEN" \
-      -L "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/actions/runs/$RUN_ID/logs" \
-      -o run-${RUN_ID}-logs.zip
-    unzip -d run-${RUN_ID}-logs run-${RUN_ID}-logs.zip
-    ```
-- Artifacts list (API):
-  ```bash
-  curl -H "Authorization: token $GITHUB_TOKEN" \
-    "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/actions/runs/$RUN_ID/artifacts" | jq '.'
-  ```
-- gh CLI (interactive/script):
-  ```bash
-  gh run view $RUN_ID --repo $GITHUB_OWNER/$GITHUB_REPO --log > run-$RUN_ID-summary.log
-  gh run download $RUN_ID --repo $GITHUB_OWNER/$GITHUB_REPO --dir artifacts-$RUN_ID
-  ```
-
-### GitHub Actions (job-level)
-- List jobs for the run and find Playwright shard job(s):
-  ```bash
-  curl -H "Authorization: token $GITHUB_TOKEN" \
-    "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/actions/runs/$RUN_ID/jobs" | jq '.jobs[] | {id: .id, name: .name, runner_name: .runner_name, started_at: .started_at, completed_at: .completed_at}'
-  ```
-- For JOB_ID identified as the shard job, download job logs:
-  ```bash
-  curl -H "Authorization: token $GITHUB_TOKEN" -L \
-    "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/actions/jobs/$JOB_ID/logs" -o job-${JOB_ID}-logs.zip
-  unzip -d job-${JOB_ID}-logs job-${JOB_ID}-logs.zip
-  ```
-
-### Playwright test outputs used by this project
-- Search and collect the following files in the repo root (or workflow-run directories):
-  - `playwright.config.ts`, `playwright.config.js`, `playwright.config.mjs`
-  - `package.json` scripts invoking Playwright (e.g., `test:e2e`, `e2e:ci`)
-  - `.github/workflows/*` steps that run Playwright
-- Typical Playwright outputs to collect (per-shard):
-  - `<outputDir>/trace.zip`
-  - `<outputDir>/test-results.json` or `test-results/*`
-  - `<outputDir>/video/*`
-  - `<outputDir>/*.log` (stdout/stderr)
-
-Observed local example (for context): the developer ran
-`npx playwright test --project=chromium --output=/tmp/playwright-chromium-output --reporter=list > /tmp/playwright-chromium.log 2>&1` — look for similar invocations in workflows/scripts.
-
-### Repository container logs (containers/)
-- containers/charon:
-  - Files to check: `containers/charon/docker-compose.yml`, any `logs/` or `data/` directories under `containers/charon/`.
-  - Local commands (when reproducing):
-    ```bash
-    docker compose -f containers/charon/docker-compose.yml logs --no-color --timestamps > containers-charon-logs.txt
-    docker logs --timestamps --since "1h" charon-e2e > charon-e2e.log 2>&1 || true
-    ```
-- containers/caddy:
-  - Files: `containers/caddy/Caddyfile`, `containers/caddy/config/`, `containers/caddy/logs/`
-  - Local checks:
-    ```bash
-    docker logs --timestamps caddy > caddy.log 2>&1 || true
-    curl -sS http://127.0.0.1:2019/ || true  # admin
-    curl -sS http://127.0.0.1:2020/ || true  # emergency
-    ```
-
----
-
-## 2) Analyze — specific files and config to review (exact paths)
-
-- Workflows (search these paths):
-  - `.github/workflows/*.yml` — likely candidates: `.github/workflows/e2e.yml`, `.github/workflows/ci.yml`, `.github/workflows/playwright.yml` (run `grep -R "playwright" .github/workflows || true`).
-  - Look for `timeout-minutes:` either at top-level workflow or under `jobs:<job>.timeout-minutes`.
-
-- Playwright config files:
-  - `/projects/Charon/playwright.config.ts`
-  - `/projects/Charon/playwright.config.js`
-  - `/projects/Charon/playwright.config.mjs`
-  - Inspect `projects`, `workers`, `retries`, `outputDir`, `reporter` sections.
-
-- package.json and scripts:
-  - `/projects/Charon/package.json` — inspect `scripts` for e.g. `test:e2e`, `e2e:ci` and the exact Playwright CLI flags used by CI.
-
-- GitHub skill scripts & E2E runner:
-  - `.github/skills/scripts/skill-runner.sh` — used in `docs` and testing instructions; check for `docker-rebuild-e2e`, `test-e2e-playwright-coverage`.
-  - Commands:
-    ```bash
-    sed -n '1,240p' .github/skills/scripts/skill-runner.sh
-    grep -n "docker-rebuild-e2e\|test-e2e-playwright-coverage\|playwright" -n .github/skills || true
-    ```
-
-- Makefile:
-  - `/projects/Charon/Makefile` — search for targets related to `e2e`, `playwright`, `rebuild`.
-
----
-
-## 3) Steps to download GitHub Actions logs & artifacts for run 21865692694
-
-### Programmatic (API)
-1. List artifacts for run:
-```bash
-curl -H "Authorization: token $GITHUB_TOKEN" \
-  "https://api.github.com/repos/Wikid82/Charon/actions/runs/21865692694/artifacts" | jq '.'
-```
-2. Download run logs (zip):
-```bash
-curl -H "Authorization: token $GITHUB_TOKEN" -L \
-  "https://api.github.com/repos/Wikid82/Charon/actions/runs/21865692694/logs" -o run-21865692694-logs.zip
-unzip -d run-21865692694-logs run-21865692694-logs.zip
-```
-3. List jobs to find Playwright shard job id(s):
-```bash
-curl -H "Authorization: token $GITHUB_TOKEN" \
-  "https://api.github.com/repos/Wikid82/Charon/actions/runs/21865692694/jobs" | jq '.jobs[] | {id: .id, name: .name, runner_name: .runner_name, started_at: .started_at, completed_at: .completed_at}'
-```
-4. Download job logs by JOB_ID:
-```bash
-curl -H "Authorization: token $GITHUB_TOKEN" -L \
-  "https://api.github.com/repos/Wikid82/Charon/actions/jobs/$JOB_ID/logs" -o job-$JOB_ID-logs.zip
-unzip -d job-$JOB_ID-logs job-$JOB_ID-logs.zip
-```
-
-### Using gh CLI
-```bash
-gh run view 21865692694 --repo Wikid82/Charon --log > run-21865692694-summary.log
-gh run download 21865692694 --repo Wikid82/Charon --dir artifacts-21865692694
-```
-
-### Manual web UI
-- Visit run page and download artifacts and job logs from the job view.
-
----
-
-## 4) How to locate shard-specific logs and correlate shard indices to tests
-
-- Typical patterns to inspect:
-  - Look for Playwright CLI flags in the job step (e.g., `--shard=INDEX/TOTAL`, `--output=/tmp/...`).
-  - If the job ran `npx playwright test --output=/tmp/...`, search the downloaded job logs for that exact command to find the shard index.
-
-- Commands to list tests assigned to a shard (dry-run):
-```bash
-# Show which tests a given shard would run (no execution)
-npx playwright test --list --shard=INDEX/TOTAL
-
-# Or run with reporter=list (shows test items as executed)
-npx playwright test --shard=INDEX/TOTAL --reporter=list
-```
-
-- Note: Playwright shard index is zero-based. If CI logs show `--shard=3/4`, double-check whether the team used zero-based numbering; confirm by re-running the `--list` command.
-
-Expected per-shard artifact names (if implemented):
-- `e2e-shard-<INDEX>-output` containing `trace.zip`, `video/*`, `test-results.json`, and shard-specific logs (stdout/stderr files).
-
----
-
-## 5) Runner/container logs to inspect
-
-- GitHub-hosted runner: review the Actions job logs for runner messages and any `Runner` diagnostic lines. You cannot access host-level logs.
-
-- Self-hosted runner (if used): retrieve host system logs (requires access to runner host):
-  ```bash
-  sudo journalctl -u actions.runner.* -n 1000 > runner-service-journal.log
-  sudo journalctl -k --since "1 hour ago" | grep -i oom > runner-kernel-oom.log || true
-  sudo journalctl -u docker.service -n 200 > docker-journal.log
-  ```
-
-- Docker container logs (charon, caddy, charon-e2e):
-  ```bash
-  docker ps -a --filter "name=charon" --format "{{.Names}} {{.Status}}" > containers-ps.txt
-  docker logs --since "1h" charon-e2e > charon-e2e.log 2>&1 || true
-  docker logs --since "1h" caddy > caddy.log 2>&1 || true
-  ```
-
-Check Caddy admin/emergency ports (2019 & 2020) to confirm the proxy was healthy during the test run:
-```bash
-curl -sS --max-time 5 http://127.0.0.1:2019/ || echo "admin not responding"
-curl -sS --max-time 5 http://127.0.0.1:2020/ || echo "emergency not responding"
-```
-
----
-
-## 6) Hypotheses for why Shard 3 stopped at ~30m (descriptions + exact artifacts to search)
-
-H1 — Workflow/job timeout configured smaller than expected
-- Search:
-  - `.github/workflows/*` for `timeout-minutes:`
-  - job logs for `Timeout` or `Job execution time exceeded`
-- Commands:
-  ```bash
-  grep -n "timeout-minutes" .github/workflows -R || true
-  grep -i "timeout" -R run-${RUN_ID}-logs || true
-  ```
-- Confirmed by: `timeout-minutes: 30` or job logs showing `aborting execution due to timeout`.
-
-H2 — Runner preemption / connection loss
-- Search job logs for: `Runner lost`, `The runner has been shutdown`, `Connection to the server was lost`.
-- Commands:
-  ```bash
-  grep -iE "runner lost|runner.*shutdown|connection.*lost|Job canceled|cancelled by" -R run-${RUN_ID}-logs || true
-  ```
-- Confirmed by: runner disconnect lines and abrupt end of logs with no Playwright stack trace.
-
-H3 — E2E environment container (charon/caddy) died or became unhealthy
-- Search container logs for crash/fatal/panic messages and timestamps matching the job stop time.
-- Commands:
-  ```bash
-  docker ps -a --filter "name=charon" --format '{{.Names}} {{.Status}}'
-  docker logs charon-e2e --since "2h" | sed -n '1,200p'
-  grep -iE "panic|fatal|segfault|exited|health.*unhealthy|503|502" containers -R || true
-  ```
-- Confirmed by: container exit matching job finish time and Caddy returning 502/503 during run.
-
-H4 — Playwright/Node process killed by OOM
-- Search for `Killed`, kernel `oom_reaper` lines, system `dmesg` outputs.
-- Commands:
-  ```bash
-  grep -R "Killed" job-${JOB_ID}-logs || true
-  # on self-hosted runner host
-  sudo journalctl -k --since '2 hours ago' | grep -i oom || true
-  ```
-- Confirmed by: kernel OOM logs at same timestamp or `Killed` in job logs.
-
-H5 — Script-level early timeout (explicit `timeout 30m` or `kill`)
-- Search `.github/skills` and workflow steps for `timeout 30m`, `timeout 1800`, or `kill` calls.
-- Commands:
-  ```bash
-  grep -R "\btimeout\b\|kill -9\|kill -15\|pkill" -n .github || true
-  ```
-- Confirmed by: a script with `timeout 30m` or similar wrapper used in the job.
-
-H6 — Misinterpreted units or mis-configuration (seconds vs minutes)
-- Search for numeric values used in scripts and steps (e.g., `1800` used where minutes expected).
-- Commands:
-  ```bash
-  grep -R "\b1800\b\|\b3600\b\|timeout-minutes" -n .github || true
-  ```
-- Confirmed by: a value of `1800` where `timeout-minutes` or similar was expected to be minutes.
-
-For each hypothesis, the exact lines/entries returned by the grep/journal/docker commands are the evidence to confirm or refute it. Keep timestamps to correlate with the job start/completion times in the run logs.
-
----
-
-## 7) Prioritized remediation plan (short-term → long-term)
-
-### Short-term (unblock re-runs quickly)
-1. Download and attach all logs/artifacts for run 21865692694 (use `gh run download`) and share with E2E test author.
-2. Temporarily bump `timeout-minutes` for the failing workflow to 60 to allow full runs while diagnosing.
-3. Add an `if: always()` step to the E2E job that collects diagnostics and uploads them as artifacts (free memory, `dmesg`, `ps aux`, `docker ps -a`, `docker logs charon-e2e`).
-4. Re-run just the failing shard with added `DEBUG=pw:api` and `PWDEBUG=1` and persist shard outputs.
-
-### Medium-term
-1. Persist per-shard Playwright outputs via `actions/upload-artifact@v4` for traces/videos/test-results.
-2. Add Playwright `retries` for transient failures and `--trace`/`--video` options.
-3. Add a CI smoke check before full shard execution to confirm env health.
-4. If self-hosted, add runner health checks and alerting (memory, disk, Docker status).
-
-### Long-term
-1. Implement stable test splitting based on historical test durations rather than equal-file sharding.
-2. Introduce resource constraints and monitoring to protect against OOM and flapping containers.
-3. Build a golden-minimal E2E smoke job that must pass before running full shards.
-
----
-
-## 8) Minimal reproduction checklist (local)
-
-1. Rebuild E2E image used by CI (per repo skill):
-```bash
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e
-```
-2. Start the environment (example):
-```bash
-docker compose -f containers/charon/docker-compose.yml up -d
-```
-3. Set base URL and run the same shard (replace INDEX/TOTAL with values from CI):
-```bash
-export PLAYWRIGHT_BASE_URL=http://localhost:5173
-DEBUG=pw:api PWDEBUG=1 \
-  npx playwright test --shard=INDEX/TOTAL --project=chromium \
-  --output=/tmp/playwright-shard-INDEX --reporter=list > /tmp/playwright-shard-INDEX.log 2>&1
-```
-4. If reproducing a timeout, immediately collect:
-```bash
-docker ps -a --format '{{.Names}} {{.Status}}' > reproduce-docker-ps.txt
-docker logs --since '1h' charon-e2e > reproduce-charon-e2e.log || true
-tail -n 500 /tmp/playwright-shard-INDEX.log > reproduce-pw-tail.log
-```
-
----
-
-## 9) Required workflow/scripts changes to improve diagnostics & prevent recurrence
-
-- Add `timeout-minutes: 60` to `.github/workflows/<e2e workflow>.yml` while diagnosing; later set to a reasoned SLA (e.g., 50m).
-- Add an `always()` step to collect diagnostics on failure and upload artifacts. Example YAML snippet:
-  ```yaml
-  - name: Collect diagnostics
-    if: always()
-    run: |
-      uptime > uptime.txt
-      free -m > free-m.txt
-      df -h > df-h.txt
-      ps aux > ps-aux.txt
-      docker ps -a > docker-ps.txt || true
-      docker logs --tail 500 charon-e2e > docker-charon-e2e.log || true
-  - uses: actions/upload-artifact@v4
-    with:
-      name: e2e-diagnostics-${{ github.run_id }}
-      path: |
-        uptime.txt
-        free-m.txt
-        df-h.txt
-        ps-aux.txt
-        docker-ps.txt
-        docker-charon-e2e.log
-  ```
-
-- Ensure each Playwright shard runs with `--output` pointing to a shard-specific path and upload that path as artifact:
-  - artifact name convention: `e2e-shard-${{ matrix.index }}-output`.
-
----
-
-## 10) People/roles to notify & recommended next actions
-
-- Notify:
-  - CI/Infra owner or person in `CODEOWNERS` for `.github/workflows`
-  - E2E test author(s) (owners of failing tests)
-  - Self-hosted runner owner (if runner_name in job JSON indicates self-hosted)
-
-- Recommended immediate actions for them:
-  1. Download run artifacts and job logs for run 21865692694 and share them with the test author.
-  2. Re-run the shard with `DEBUG=pw:api` and `PWDEBUG=1` enabled and ensure per-shard artifacts are uploaded.
-  3. If self-hosted, check runner host kernel logs for OOM and Docker container exits at the job time.
-
----
-
-## 11) Verification steps (post-remediation)
-
-1. Re-run E2E workflow end-to-end; verify Shard 3 completes.
-2. Confirm artifacts `e2e-shard-3-output` exist and contain `trace.zip`, `video/*`, and `test-results.json`.
-3. Confirm no `oom_reaper` or `Killed` messages in runner host logs during the run.
-
----
-
-## Appendix — quick extraction commands summary
-```bash
-# Download all artifacts and logs for RUN_ID
-gh run download 21865692694 --repo Wikid82/Charon --dir ./artifacts-21865692694
-
-# List jobs and find Playwright shard job(s)
-curl -H "Authorization: token $GITHUB_TOKEN" \
-  "https://api.github.com/repos/Wikid82/Charon/actions/runs/21865692694/jobs" | jq '.jobs[] | {id: .id, name: .name, runner_name: .runner_name, started_at: .started_at, completed_at: .completed_at}'
-
-# Download job logs for JOB_ID
-curl -H "Authorization: token $GITHUB_TOKEN" -L \
-  "https://api.github.com/repos/Wikid82/Charon/actions/jobs/$JOB_ID/logs" -o job-$JOB_ID-logs.zip
-unzip -d job-$JOB_ID-logs job-$JOB_ID-logs.zip
-
-# Grep for likely causes
-grep -iE "timeout|minut|runner lost|cancelled|Killed|OOM|oom_reaper|Out of memory|panic|fatal" -R run-21865692694-logs || true
-```
-
----
-
-## Next three immediate actions (checklist)
-1. Run `gh run download 21865692694 --repo Wikid82/Charon --dir ./artifacts-21865692694` and unzip the run logs.
-2. Search the downloaded logs for `timeout-minutes`, `Runner lost`, `Killed`, and `oom_reaper` to triage H1–H4.
-3. Re-run the failing shard locally with `DEBUG=pw:api PWDEBUG=1` and `--output=/tmp/playwright-shard-INDEX`, capture outputs, and upload them as artifacts.
-
----
-
-If you want, I can now (A) download the run artifacts & logs for run 21865692694 using gh/API (requires your GITHUB_TOKEN) and list the job IDs, or (B) open the workflow files in `.github/workflows` and search for `timeout-minutes` and Playwright invocations. Which would you like me to do first?
----
-post_title: "E2E Test Remediation Plan"
+post_title: Permissions Integrity Plan
 author1: "Charon Team"
-post_slug: "e2e-test-remediation-plan"
-microsoft_alias: "charon-team"
-featured_image: "https://wikid82.github.io/charon/assets/images/featured/charon.png"
-categories: ["testing"]
-tags: ["playwright", "e2e", "remediation", "security"]
-ai_note: "true"
-summary: "Phased remediation plan for Charon Playwright E2E tests, covering
-   inventory, dependencies, runtime estimates, and quick start commands."
-post_date: "2026-01-28"
+post_slug: permissions-integrity-plan-non-root
+microsoft_alias: "charon"
+featured_image: >-
+  https://wikid82.github.io/charon/assets/images/featured/charon.png
+categories:
+  - security
+tags:
+  - permissions
+  - non-root
+  - diagnostics
+  - settings
+summary: "Plan to harden non-root permissions, add diagnostics, and align
+  saves."
+post_date: "2026-02-11"
 ---
 
-## 1. Introduction
+## Permissions Integrity Plan — Non-Root Containers, Notifications, Saves,<br>
+and Dropdown State
 
-This plan replaces the current spec with a comprehensive, phased remediation
-strategy for the Playwright E2E test suite under [tests](tests). The goal is to
-stabilize execution, align dependencies, and sequence remediation work so that
-core management flows, security controls, and integration workflows become
-reliable in Docker-based E2E runs.
+Last updated: 2026-02-11
 
-## 2. Research Findings
+## 1) Introduction
 
-### 2.1 Test Harness and Global Dependencies
+Running Charon as a non-root container should feel like a locked garden gate:
+secure, predictable, and fully functional. Today, permission mismatches on
+mounted volumes can silently corrode core features—notifications, settings
+saves, and dropdown selections—because persistence depends on writing to
+`/app/data`, `/config`, and related paths. This plan focuses on a full, precise
+remediation: map every write path, instrument permissions, tighten error
+handling, and make the UI reveal permission failures in plain terms.
 
-- Global setup and teardown are enforced by
-   [tests/global-setup.ts](tests/global-setup.ts),
-   [tests/auth.setup.ts](tests/auth.setup.ts), and
-   [tests/security-teardown.setup.ts](tests/security-teardown.setup.ts).
-- Global setup validates the emergency token, checks health endpoints, and
-   resets security settings, which impacts all security-enforcement suites.
-- Multiple suites depend on the emergency server (port 2020) and Cerberus
-   modules with explicit admin whitelist configuration.
+**Objectives**
+- Ensure all persistent paths are writable for non-root execution without
+  weakening security.
+- Make permission errors visible and actionable from API to UI.
+- Reduce multi-request settings saves to avoid partial writes and improve
+  reliability.
+- Align notification settings fields between frontend and backend.
+- Provide a clear path for operators to set correct volume ownership.
 
-### 2.2 Test Inventory and Feature Areas
+## Handoff Contract
 
-- Core management flows: authentication, navigation, dashboard, proxy hosts,
-   certificates, access lists in [tests/core](tests/core).
-- DNS providers and ACME workflows: [tests/dns-provider-crud.spec.ts]
-   (tests/dns-provider-crud.spec.ts),
-   [tests/dns-provider-types.spec.ts](tests/dns-provider-types.spec.ts),
-   [tests/manual-dns-provider.spec.ts](tests/manual-dns-provider.spec.ts).
-- Monitoring: uptime and log streaming in
-   [tests/monitoring](tests/monitoring).
-- Settings: system, account, SMTP, notifications, encryption, user management
-   in [tests/settings](tests/settings).
-- Tasks and imports: backups, Caddyfile import flows, CrowdSec import, and log
-   viewing in [tests/tasks](tests/tasks).
-- Security UI: dashboard, WAF, CrowdSec, headers, rate limiting, and audit logs
-   in [tests/security](tests/security).
-- Security enforcement: ACL, WAF, rate limits, CrowdSec, emergency token, and
-   break-glass recovery in [tests/security-enforcement](tests/security-enforcement).
-- Integration workflows: cross-feature scenarios in
-   [tests/integration](tests/integration).
-- Browser-specific regressions for import flows in
-   [tests/webkit-specific](tests/webkit-specific) and
-   [tests/firefox-specific](tests/firefox-specific).
-- Debug and diagnostics: certificates and Caddy import debug coverage in
-   [tests/debug/certificates-debug.spec.ts](tests/debug/certificates-debug.spec.ts),
-   [tests/tasks/caddy-import-gaps.spec.ts](tests/tasks/caddy-import-gaps.spec.ts),
-   [tests/tasks/caddy-import-cross-browser.spec.ts](tests/tasks/caddy-import-cross-browser.spec.ts),
-   and [tests/debug](tests/debug).
-- UI triage and regression coverage: dropdown/modal coverage in
-   [tests/modal-dropdown-triage.spec.ts](tests/modal-dropdown-triage.spec.ts) and
-   [tests/proxy-host-dropdown-fix.spec.ts](tests/proxy-host-dropdown-fix.spec.ts).
-- Shared utilities validation: wait helpers in
-   [tests/utils/wait-helpers.spec.ts](tests/utils/wait-helpers.spec.ts).
+Use this contract to brief implementation and QA. All paths and schemas must
+match the plan.
 
-### 2.3 Dependency and Ordering Constraints
-
-- The security-enforcement suite assumes Cerberus can be toggled on, and its
-   final tests intentionally restore admin whitelist state
-   (see [tests/security-enforcement/zzzz-break-glass-recovery.spec.ts]
-   (tests/security-enforcement/zzzz-break-glass-recovery.spec.ts)).
-- Admin whitelist blocking is designed to run last using a zzz prefix
-   (see [tests/security-enforcement/zzz-admin-whitelist-blocking.spec.ts]
-   (tests/security-enforcement/zzz-admin-whitelist-blocking.spec.ts)).
-- Emergency server tests depend on port 2020 availability
-   (see [tests/security-enforcement/emergency-server](tests/security-enforcement/emergency-server)).
-- Some import suites use real APIs and TestDataManager cleanup; others mock
-   requests. Remediation must avoid mixing mocked and real flows in a single
-   phase without clear isolation.
-
-### 2.4 Runtime and Flake Hotspots
-
-- Security-enforcement suites include extended retries, network propagation
-   delays, and rate limit loops.
-- Import debug and gap-coverage suites perform real uploads, data creation, and
-   commit flows, making them sensitive to backend state and Caddy reload timing.
-- Monitoring WebSocket tests require stable log streaming state.
-
-## 3. Technical Specifications
-
-### 3.1 Test Grouping and Shards
-
-- **Foundation:** global setup, auth storage state, security teardown.
-- **Core UI:** authentication, navigation, dashboard, proxy hosts, certificates,
-   access lists.
-- **Settings:** system, account, SMTP, notifications, encryption, users.
-- **Tasks:** backups, logs, Caddyfile import, CrowdSec import.
-- **Monitoring:** uptime monitoring and real-time logs.
-- **Security UI:** Cerberus dashboard, WAF config, headers, rate limiting,
-   CrowdSec config, audit logs.
-- **Security Enforcement:** ACL/WAF/CrowdSec/rate limit enforcement, emergency
-   token and break-glass recovery, admin whitelist blocking.
-- **Integration:** proxy + cert, proxy + DNS, backup restore, import workflows,
-   multi-feature workflows.
-- **Browser-specific:** WebKit and Firefox import regressions.
-- **Debug/POC:** diagnostics and investigation suites (Caddy import debug).
-
-### 3.2 Dependency Graph (High-Level)
-
-```mermaid
-flowchart TD
-   A[global-setup + auth.setup] --> B[Core UI + Settings]
-   A --> C[Tasks + Monitoring]
-   A --> D[Security UI]
-   D --> E[Security Enforcement]
-   E --> F[Break-Glass Recovery]
-   B --> G[Integration Workflows]
-   C --> G
-   G --> H[Browser-specific Suites]
+```json
+{
+  "endpoints": {
+    "GET /api/v1/system/permissions": {
+      "response_schema": {
+        "paths": [
+          {
+            "path": "/app/data",
+            "required": "rwx",
+            "writable": false,
+            "owner_uid": 1000,
+            "owner_gid": 1000,
+            "mode": "0755",
+            "error": "permission denied",
+            "error_code": "permissions_write_denied"
+          }
+        ]
+      }
+    },
+    "POST /api/v1/system/permissions/repair": {
+      "request_schema": {
+        "paths": ["/app/data", "/config"],
+        "group_mode": false
+      },
+      "response_schema": {
+        "paths": [
+          {
+            "path": "/app/data",
+            "status": "repaired",
+            "owner_uid": 1000,
+            "owner_gid": 1000,
+            "mode_before": "0755",
+            "mode_after": "0700",
+            "message": "ownership and mode updated"
+          },
+          {
+            "path": "/config",
+            "status": "error",
+            "error_code": "permissions_readonly",
+            "message": "read-only filesystem"
+          }
+        ]
+      }
+    }
+  }
+}
 ```
 
-### 3.3 Runtime Estimates (Docker Mode)
+## 2) Research Findings
 
-| Group | Suite Examples | Expected Runtime | Prerequisites |
+### 2.1 Runtime Permissions and Startup Flow
+
+- Container entrypoint:
+  [.docker/docker-entrypoint.sh](.docker/docker-entrypoint.sh)
+  - `is_root()` and `run_as_charon()` drop privileges using `gosu`.
+  - Warns if `/app/data` or `/config` is not writable; does not repair unless
+    root.
+  - Creates `/app/data/caddy`, `/app/data/crowdsec`, `/app/data/geoip` and
+    `chown` only when root.
+  - If the container is started with `--user` (non-root), it cannot `chown` or
+    repair volume permissions.
+
+- Docker runtime image: [Dockerfile](Dockerfile)
+  - Creates `charon` user (`uid=1000`, `gid=1000`) and sets ownership of `/app`,
+    `/config`, `/var/log/crowdsec`, `/var/log/caddy`.
+  - Entry point starts as root, then drops privileges; this is good for dynamic
+    socket group handling but still depends on host volume ownership.
+  - Default environment points DB and data to `/app/data`.
+
+- Compose volumes:
+  [.docker/compose/docker-compose.yml](.docker/compose/docker-compose.yml)
+  - `cpm_data:/app/data` and `caddy_config:/config` are mounted without a user
+    override.
+  - `plugins_data:/app/plugins:ro` is read-only, so plugin operations should
+    never require writes there.
+
+### 2.2 Persistent Writes and Vulnerable Paths
+
+- Backend config creates directories with restrictive permissions (0700):
+  - [backend/internal/config/config.go](backend/internal/config/config.go)
+    - `Load()` calls `os.MkdirAll(filepath.Dir(cfg.DatabasePath), 0o700)`
+    - `os.MkdirAll(cfg.CaddyConfigDir, 0o700)`
+    - `os.MkdirAll(cfg.ImportDir, 0o700)`
+  - If `/app/data` is owned by root and container runs as non-root, startup can
+    fail or later writes can silently fail.
+
+- Database writes:
+  [backend/internal/database/database.go](backend/internal/database/database.go)
+  - SQLite file at `CHARON_DB_PATH` (default `/app/data/charon.db`).
+  - Read-only DB or directory permission failures block settings, notifications,
+    and any save flows.
+
+- Backups (writes to `/app/data/backups`):
+  -
+    [backend/internal/services/backup_service.go][backup-service-go]
+  - Uses `os.MkdirAll(backupDir, 0o700)` and `os.Create()` for ZIPs.
+
+- Import workflows write under `/app/data/imports`:
+  -
+    [backend/internal/api/handlers/import_handler.go][import-handler-go]
+  - Writes to `imports/uploads/` using `os.MkdirAll(..., 0o755)` and
+    `os.WriteFile(..., 0o644)`.
+
+### 2.3 Notifications and Settings Persistence
+
+- Notification providers and templates are stored in DB:
+  -
+    [backend/internal/services/notification_service.go][notification-service-go]
+  -
+    [backend/internal/api/handlers/<br>
+    notification_handler.go][notification-handler-go]
+  - UI:
+    [frontend/src/pages/Notifications.tsx][notifications-page-tsx]
+
+- Security notification settings are stored in DB:
+  - Backend:
+    [backend/internal/services/<br>
+    security_notification_service.go][security-notification-service-go]
+  - Handler:
+    [backend/internal/api/handlers/<br>
+    security_notifications.go][security-notifications-handler-go]
+  - UI modal:
+    [frontend/src/components/<br>
+    SecurityNotificationSettingsModal.tsx][security-notification-modal-tsx]
+
+**Field mismatch discovered:**
+- Frontend expects `notify_rate_limit_hits` and `email_recipients` and also
+  offers `min_log_level = fatal`.
+- Backend model
+  [backend/internal/models/notification_config.go][notification-config-go]
+  only includes:
+  - `Enabled`, `MinLogLevel`, `NotifyWAFBlocks`, `NotifyACLDenies`,
+    `WebhookURL`.
+  - Handler validation allows `debug|info|warn|error` only. This mismatch can
+    cause failed saves or silent drops, and it is adjacent to permissions issues
+    because a permissions error amplifies the confusion.
+
+### 2.4 Settings and Dropdown Persistence
+
+- System settings save path:
+  - UI:
+    [frontend/src/pages/SystemSettings.tsx][system-settings-tsx]
+  - API client: [frontend/src/api/settings.ts](frontend/src/api/settings.ts)
+  - Handler:
+    [backend/internal/api/handlers/settings_handler.go][settings-handler-go]
+  - Current UI saves multiple settings via multiple requests; a write failure
+    mid-way can lead to partial persistence.
+
+- SMTP settings save path:
+  - UI:
+    [frontend/src/pages/SMTPSettings.tsx][smtp-settings-tsx]
+  - Backend:
+    [backend/internal/services/mail_service.go][mail-service-go]
+
+- Dropdowns use Radix Select:
+  - Component:
+    [frontend/src/components/ui/Select.tsx][select-component-tsx]
+  - If API writes fail, the UI state can appear to “stick” until a reload resets
+    it.
+
+### 2.5 Initial Hygiene Review
+
+- [.gitignore](.gitignore), [.dockerignore](.dockerignore),
+  [codecov.yml](codecov.yml) currently do not require changes for permissions
+  work.
+- Dockerfile may require optional enhancements to accommodate PUID/PGID or a
+  dedicated permissions check, but no mandatory change is confirmed yet.
+
+## 3) Technical Specifications
+
+### 3.1 Data Paths, Ownership, and Required Access
+
+| Path | Purpose | Required Access | Notes |
 | --- | --- | --- | --- |
-| Foundation | global setup + auth | 1-2 min | Docker E2E container, emergency token |
-| Core UI | core specs | 6-10 min | Auth storage state, clean data |
-| Settings | settings specs | 6-10 min | Auth storage state |
-| Tasks | backups/import/logs | 10-16 min | Auth storage state, API mocks and real flows |
-| Monitoring | monitoring specs | 5-8 min | WebSocket stability |
-| Security UI | security specs | 10-14 min | Cerberus enabled, admin whitelist |
-| Security Enforcement | enforcement specs | 15-25 min | Emergency token, port 2020, admin whitelist |
-| Integration | integration specs | 12-20 min | Stable core + settings + tasks |
-| Browser-specific | firefox/webkit | 8-12 min | Import baseline stable |
-| Debug/POC | caddy import debug | 4-6 min | Docker logs available |
+| `/app/data` | Primary data root | rwx | Note A |
+| `/app/data/charon.db` | SQLite DB | rw | DB and parent dir must be writable |
+| `/app/data/backups` | Backup ZIPs | rwx | Created by backup service |
+| `/app/data/imports` | Import uploads | rwx | Used by import handler |
+| `/app/data/caddy` | Caddy state | rwx | Caddy writes certs and data |
+| `/app/data/crowdsec` | CrowdSec persistent config | rwx | Note B |
+| `/app/data/geoip` | GeoIP database | rwx | MaxMind GeoIP DB storage |
+| `/config` | Caddy config | rwx | Managed by Caddy |
+| `/var/log/caddy` | Caddy logs | rwx | Writable when file logging enabled |
+| `/var/log/crowdsec` | CrowdSec logs | rwx | Local bouncer and agent logs |
+| `/app/plugins` | Plugins | r-x | Should not be writable in production |
 
-Assumed worker count: 4 (default) except security-enforcement which requires
-`--workers=1`. Serial execution increases runtime for enforcement suites.
+Notes:
+- Note A: Must be owned by runtime user or group-writable.
+- Note B: Entry point chown when root.
 
-### 3.4 Environment Preconditions
+### 3.2 Permission Readiness Diagnostics
 
-- E2E container built and healthy via
-   `.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`.
-- Ports 8080 (UI/API) and 2020 (emergency server) reachable.
-- `CHARON_EMERGENCY_TOKEN` configured and valid.
-- Admin whitelist includes test runner ranges when Cerberus is enabled.
-- Caddy admin health endpoints reachable for import workflows.
+**Goal:** Provide definitive, machine-readable permission diagnostics for UI and
+logs.
 
-### 3.5 Emergency Server and Security Prerequisites
+**Proposed API**
 
-- Port 2020 (emergency server) available and reachable for
-   [tests/security-enforcement/emergency-server](tests/security-enforcement/emergency-server).
-- Port 2019 is reserved for the Caddy admin API; use 2020 for emergency server
-   tests to avoid conflicts.
-- Basic Auth credentials required for emergency server tests. Defaults in test
-   fixtures are `admin` / `changeme` and should match the E2E compose config.
-- Admin whitelist bypass must be configured before enforcement tests that
-   toggle Cerberus settings.
+- `GET /api/v1/system/permissions`
+  - Returns a list of paths, expected access, current uid/gid ownership, mode
+    bits, writeability, and a stable `error_code` when a check fails.
+  - Example response schema:
+    ```json
+    {
+      "paths": [
+        {
+          "path": "/app/data",
+          "required": "rwx",
+          "writable": false,
+          "owner_uid": 1000,
+          "owner_gid": 1000,
+          "mode": "0755",
+          "error": "permission denied",
+          "error_code": "permissions_write_denied"
+        }
+      ]
+    }
+    ```
 
-## 4. Implementation Plan
+**Writable determination (explicit, non-destructive):**
+- For each path, perform `os.Stat` to capture owner/mode and to confirm the
+  path exists.
+- If the `required` access does not include `w` (for example `r-x`), skip any
+  writeability probe, do not set `error_code`, and optionally set
+  `status=expected_readonly` to clarify that non-writable is expected.
+- If the path is a directory, attempt a non-destructive writeability probe by
+  creating a temp file in the directory (`os.CreateTemp`) and then immediately
+  removing it.
+- If the path is a file, attempt to open it with write permissions
+  (`os.OpenFile` with `os.O_WRONLY` or `os.O_RDWR`) without truncation and close
+  immediately.
+- Do not modify file contents or truncate; no destructive writes are allowed.
+- If any step fails, set `writable=false` and return a stable `error_code`.
 
-### Phase 1: Foundation and Test Harness Reliability
+**Error code coverage (explicit):**
+- The `error_code` field SHALL be returned by diagnostics responses for both
+  `GET /api/v1/system/permissions` and `POST /api/v1/system/permissions/repair`
+  whenever a per-path check fails.
+- For a `GET` diagnostics entry that is healthy, omit `error_code` and `error`.
+- Diagnostics error mapping MUST distinguish read-only vs permission denied:
+  - `EROFS` -> `permissions_readonly`
+  - `EACCES` -> `permissions_write_denied`
 
-Objective: Ensure the shared test harness is stable before touching feature
-flows.
+- `POST /api/v1/system/permissions/repair` (optional)
+  - Only enabled when process is root.
+  - Attempts to `chown` and `chmod` only for known safe paths.
+  - Returns a per-path remediation report.
+  - **Request schema (explicit):**
+    ```json
+    {
+      "paths": ["/app/data", "/config"],
+      "group_mode": false
+    }
+    ```
+  - **Response schema (explicit):**
+    ```json
+    {
+      "paths": [
+        {
+          "path": "/app/data",
+          "status": "repaired",
+          "owner_uid": 1000,
+          "owner_gid": 1000,
+          "mode_before": "0755",
+          "mode_after": "0700",
+          "message": "ownership and mode updated"
+        },
+        {
+          "path": "/config",
+          "status": "error",
+          "error_code": "permissions_readonly",
+          "message": "read-only filesystem"
+        }
+      ]
+    }
+    ```
+  - **Target ownership and mode rules (explicit):**
+    - Use runtime UID/GID (effective process UID/GID at time of request).
+    - Directory mode: `0700` by default; `0770` when `group_mode=true`.
+    - File mode: `0600` by default; `0660` when `group_mode=true`.
+    - `group_mode` applies to all provided paths; per-path overrides are not
+      supported in this plan.
+  - **Per-path behavior and responses (explicit):**
+    - For each path in `paths`, validate and act independently.
+    - If a path is missing, return `status=error` with
+      `error_code=permissions_missing_path` and do not create it.
+    - If a path resolves to a directory, apply directory mode rules and
+      ownership updates.
+    - If a path resolves to a file, apply file mode rules and ownership
+      updates.
+    - If a path resolves to neither a file nor directory, return
+      `status=error` with `error_code=permissions_unsupported_type`.
+    - If a path is already correct, return `status=skipped` with a
+      `message` indicating no change.
+    - If any mutation fails (read-only FS, permission denied), return
+      `status=error` and include a stable `error_code`.
+  - **Allowlist + Symlink Safety:**
+    - **Allowlist roots (hard-coded, immutable):**
+      - `/app/data`
+      - `/config`
+      - `/var/log/caddy`
+      - `/var/log/crowdsec`
+    - Only allow subpaths that remain within these roots after
+      `filepath.Clean` and `filepath.EvalSymlinks` checks.
+    - Resolve each requested path with `filepath.EvalSymlinks` and reject any
+      that resolve outside the allowlist roots.
+    - Use `os.Lstat` to detect and reject symlinks before any mutation.
+    - Use no-follow semantics for any filesystem operations (reject if any path
+      component is a symlink).
+    - If a path is missing, return a per-path error instead of creating it.
+  - **Path Normalization (explicit):**
+    - Only accept absolute paths and reject relative inputs.
+    - Normalize with `filepath.Clean` before validation.
+    - Reject any path that resolves to `.` or contains `..` after normalization.
+    - Reject any request where normalization would change the intended path
+      outside the allowlist roots.
 
-- Validate global setup and storage state creation
-   (see [tests/global-setup.ts](tests/global-setup.ts) and
-   [tests/auth.setup.ts](tests/auth.setup.ts)).
-- Confirm emergency server availability and credentials for break-glass suites.
-- Establish baseline run for core login/navigation suites.
+**Scope:**
+- Diagnostics SHALL include all persistent write paths listed in section 3.1,
+  including `/app/data/geoip`, `/var/log/caddy`, and `/var/log/crowdsec`.
+- Any additional persistent write paths referenced elsewhere in this plan SHALL
+  be included in diagnostics as they are added.
+- Diagnostics SHALL include `/app/plugins` as a read-only check with
+  `required: r-x`. A non-writable result for `/app/plugins` is expected and
+  MUST NOT be treated as a failure condition; skip the write probe and do not
+  include an `error_code`.
 
-Estimated runtime: 2-4 minutes
+**Backend placement:**
+- New handler in `backend/internal/api/handlers/system_permissions_handler.go`.
+- Utility in `backend/internal/util/permissions.go` for POSIX stat + access
+  checks.
 
-Success criteria:
+### 3.3 Access Control and Path Exposure
 
-- Storage state created once and reused without re-auth flake.
-- Emergency token validation passes and security reset executes.
+**Goal:** Ensure diagnostics are admin-only and paths are not exposed to non-
+admins.
 
-### Phase 2: Core UI, Settings, Monitoring, and Task Flows
+- `GET /api/v1/system/permissions` and `POST /api/v1/system/permissions/repair`
+  must be admin-only.
+- Non-admin requests SHALL return `403` with a stable error code
+  `permissions_admin_only`.
+- Full filesystem paths SHALL only be included for admins; non-admin errors must
+  omit or redact path details.
 
-Objective: Remediate the highest-traffic user journeys and tasks.
+**Redaction and authorization strategy (explicit):**
+- Admin enforcement happens in the handler layer using the existing admin guard
+  middleware; handlers SHALL read the admin flag from request context and fail
+  closed if the flag is missing.
+- Redaction happens in the error response builder at the handler boundary before
+  JSON serialization. Services return a structured error with optional `path`
+  and `detail` fields; the handler removes `path` and sensitive filesystem hints
+  for non-admins and replaces help text with a generic remediation message.
+- The redaction decision SHALL not rely on client-provided hints; it must only
+  use server-side auth context.
 
-- Core UI: authentication, navigation, dashboard, proxy hosts, certificates,
-   access lists (core CRUD and navigation).
-- Settings: system, account, SMTP, notifications, encryption, users.
-- Monitoring: uptime and real-time logs.
-- Tasks: backups, logs viewing, and base Caddyfile import flows.
-- Include modal/dropdown triage coverage and wait helpers validation.
+**Non-admin response schema (redacted, brief):**
+- Diagnostics (non-admin, 403):
+  ```json
+  {
+    "error": "admin privileges required",
+    "error_code": "permissions_admin_only"
+  }
+  ```
+- Repair (non-admin, 403):
+  ```json
+  {
+    "error": "admin privileges required",
+    "error_code": "permissions_admin_only"
+  }
+  ```
 
-Estimated runtime: 25-40 minutes
+**Save endpoint access (admin-only):**
+- Settings and configuration save endpoints SHALL remain admin-only where
+  applicable (e.g., system settings, SMTP settings, notification
+  providers/templates, security notification settings, imports, and backups).
+- If any save endpoint is currently not admin-gated, the implementation MUST add
+  admin-only checks or explicitly document the exception in this plan before
+  implementation.
 
-Success criteria:
+#### 3.3.1 Admin-Gated Save Endpoints Checklist
 
-- Core CRUD and navigation pass without retries.
-- Monitoring WebSocket tests pass without timeouts.
-- Backups and log viewing flows pass with mocks and deterministic waits.
+For each endpoint below, confirm the current state and enforce admin-only access
+unless explicitly documented as public.
 
-### Phase 3: Security UI and Enforcement
+- System settings save
+  - Current: Verify admin guard is enforced in handler and service.
+  - Target: Admin-only with `403` and stable error code on failure.
+  - Verify: API call as non-admin returns `403` without write.
+- SMTP settings save
+  - Current: Verify admin guard in handler and service.
+  - Target: Admin-only with `403` and stable error code on failure.
+  - Verify: API call as non-admin returns `403` without write.
+- Notification providers save/update/delete
+  - Current: Verify admin guard in handler and service.
+  - Target: Admin-only with `403` and stable error code on failure.
+  - Verify: API call as non-admin returns `403` without write.
+- Notification templates save/update/delete
+  - Current: Verify admin guard in handler and service.
+  - Target: Admin-only with `403` and stable error code on failure.
+  - Verify: API call as non-admin returns `403` without write.
+- Security notification settings save
+  - Current: Verify admin guard in handler and service.
+  - Target: Admin-only with `403` and stable error code on failure.
+  - Verify: API call as non-admin returns `403` without write.
+- Import create/upload
+  - Current: Verify admin guard in handler and service.
+  - Target: Admin-only with `403` and stable error code on failure.
+  - Verify: API call as non-admin returns `403` without write.
+- Backup create/restore
+  - Current: Verify admin guard in handler and service.
+  - Target: Admin-only with `403` and stable error code on failure.
+  - Verify: API call as non-admin returns `403` without write.
 
-Objective: Stabilize Cerberus UI configuration and enforcement workflows.
+### 3.4 Permission-Aware Error Mapping
 
-- Security dashboard and configuration pages.
-- WAF, headers, rate limiting, CrowdSec, audit logs.
-- Enforcement suites, including emergency token and whitelist blocking order.
+**Goal:** When a save fails, the user sees “why.”
 
-Estimated runtime: 30-45 minutes
+- Identify key persistence actions and wrap errors with permission hints:
+  - Settings saves: `SettingsHandler.UpdateSetting()` and `PatchConfig()`.
+  - SMTP saves: `MailService.SaveSMTPConfig()`.
+  - Notification providers/templates: `NotificationService.CreateProvider()`,
+    `UpdateProvider()`, `CreateTemplate()`, `UpdateTemplate()`.
+  - Security notification settings:
+    `SecurityNotificationService.UpdateSettings()`.
+  - Backup creation: `BackupService.CreateBackup()`.
+  - Import uploads: `ImportHandler.Upload()` and `UploadMulti()`.
 
-Success criteria:
+**Error behavior:**
+- If error is permission-related (`os.IsPermission`, SQLite read-only), return a
+  500 with a standard payload:
+  - `error`: short message
+  - `help`: actionable guidance using runtime UID/GID (e.g.,
+    `chown -R <runtime_uid>:<runtime_gid> /path/to/volume`)
+  - `path`: affected path (admin-only; omit or redact for non-admins)
+  - `code`: stable error code (required for permission-related save failures;
+    e.g., `permissions_write_failed`)
 
-- Security UI toggles and pages load without state leakage.
-- Enforcement suites pass with Cerberus enabled and whitelist configured.
-- Break-glass recovery restores bypass state for subsequent suites.
+**Audit logging:**
+- Log all diagnostics reads and repair attempts as audit events, including
+  requestor identity, admin flag, and outcome.
+- Log permission-related save failures (settings, notifications, imports,
+  backups, SMTP) as audit events with error codes and redacted path details for
+  non-admin contexts.
 
-### Phase 4: Integration, Browser-Specific, and Debug Suites
+**SQLite read-only detection (explicit):**
+- Map SQLite read-only failures by driver code when available (e.g.,
+  `SQLITE_READONLY` and extended codes such as `SQLITE_READONLY_DB`,
+  `SQLITE_READONLY_DIRECTORY`).
+- Also detect string-based error messages to cover driver variations (e.g.,
+  `attempt to write a readonly database`, `readonly database`, `read-only
+  database`).
+- If driver codes are unavailable, fall back to message matching +
+  `os.IsPermission` to produce the same standard payload.
 
-Objective: Close cross-feature and browser-specific regressions.
+### 3.4.1 Canonical Error-Code Catalog (Diagnostics + Repair + Save Failures)
 
-- Integration workflows: proxy + cert, proxy + DNS, backup restore, import to
-   production, multi-feature workflows.
-- Browser-specific Caddy import regressions (Firefox/WebKit).
-- Debug/POC suites (Caddy import debug, diagnostics) run as opt-in,
-   including caddy-import-gaps and cross-browser import coverage.
+**Goal:** Provide a single source of truth for error codes used by diagnostics,
+repair, and persistence failures. All responses MUST use values from this
+catalog.
 
-Estimated runtime: 25-40 minutes
+**Scope:**
+- Diagnostics: `GET /api/v1/system/permissions`
+- Repair: `POST /api/v1/system/permissions/repair`
+- Save failures: settings, SMTP, notifications, security notifications,
+  imports, backups
 
-Success criteria:
+| Error Code | Scope | Meaning |
+| --- | --- | --- |
+| `permissions_admin_only` | Diagnostics/Repair/Save | Note 1 |
+| `permissions_non_root` | Repair | Note 2 |
+| `permissions_repair_disabled` | Repair | Note 3 |
+| `permissions_missing_path` | Diagnostics/Repair | Path does not exist. |
+| `permissions_unsupported_type` | Diagnostics/Repair | Note 4 |
+| `permissions_outside_allowlist` | Repair | Note 5 |
+| `permissions_symlink_rejected` | Repair | Path or a component is a symlink. |
+| `permissions_invalid_path` | Diagnostics/Repair | Note 6 |
+| `permissions_readonly` | Diagnostics/Repair/Save | Filesystem is read-only. |
+| `permissions_write_denied` | Diagnostics/Save | Note 7 |
+| `permissions_write_failed` | Save | Note 8 |
+| `permissions_db_readonly` | Save | Note 9 |
+| `permissions_db_locked` | Save | Note 10 |
+| `permissions_repair_failed` | Repair | Note 11 |
+| `permissions_repair_skipped` | Repair | No changes required for the path. |
 
-- Integration workflows pass with stable TestDataManager cleanup.
-- Browser-specific import tests show consistent API request handling.
-- Debug suites remain optional and do not block core pipelines.
+Notes:
+- Note 1: Request requires admin privileges.
+- Note 2: Repair endpoint invoked without root privileges.
+- Note 3: Repair endpoint disabled because single-container mode is false.
+- Note 4: Path is not a file or directory.
+- Note 5: Path resolves outside allowlist roots.
+- Note 6: Path is relative, normalizes to `.`/`..`, or fails validation.
+- Note 7: Write probe or write operation denied.
+- Note 8: Write operation failed for another permission-related reason.
+- Note 9: SQLite database or directory is read-only.
+- Note 10: SQLite database locked; treat as transient write failure.
+- Note 11: Repair attempted but failed (non-permission errors).
 
-## 5. Acceptance Criteria (EARS)
+**Mapping rules (explicit):**
+- Diagnostics uses `permissions_missing_path`, `permissions_write_denied`,
+  `permissions_readonly`, `permissions_invalid_path`,
+  `permissions_unsupported_type` as appropriate.
+- Repair uses `permissions_admin_only`, `permissions_non_root`, or
+  `permissions_repair_disabled` when blocked, and otherwise maps to the per-path
+  codes above.
+- Save failures use `permissions_db_readonly` when SQLite read-only is
+  detected; otherwise use `permissions_write_denied` or
+  `permissions_write_failed` depending on `os.IsPermission` and error context.
+- Save failures SHALL always include an error code from this catalog.
 
-- WHEN the E2E harness initializes, THE SYSTEM SHALL validate emergency token
-   and create a reusable auth state without flake.
-- WHEN core management tests execute, THE SYSTEM SHALL complete CRUD flows
-   without manual retries or timeouts.
-- WHEN security enforcement suites execute, THE SYSTEM SHALL apply Cerberus
-   settings with admin whitelist bypass and SHALL restore security state after
-   completion.
-- WHEN integration workflows execute, THE SYSTEM SHALL complete cross-feature
-   journeys without data collisions or residual state.
+### 3.5 Notification Settings Model Alignment
 
-## 6. Quick Start Commands
+**Goal:** Align UI fields with backend persistence.
 
-```bash
-# Rebuild and start E2E container
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+- Update
+  [backend/internal/models/notification_config.go][notification-config-go]
+  to include:
+  - `NotifyRateLimitHits bool`
+  - `EmailRecipients string`
+- Update handler validation in
+  [backend/internal/api/handlers/<br>
+  security_notifications.go][security-notifications-handler-go]:
+  - Keep backend validation to `debug|info|warn|error`.
+- Update UI log level options to remove `fatal` and match backend validation.
+- Update `SecurityNotificationService.GetSettings()` default struct to include
+  new fields.
 
-# PHASE 1: Foundation
-cd /projects/Charon
-npx playwright test tests/global-setup.ts tests/auth.setup.ts --project=firefox
+**EmailRecipients data format (explicit):**
+- Input accepts a comma-separated list of email addresses.
+- Split on `,`, trim whitespace for each entry, and drop empty values.
+- Validate each email using existing backend validation rules.
+- Store a normalized, comma-separated string joined with `, `.
+- If validation fails, return a single error listing invalid entries.
 
-# PHASE 2: Core UI, Settings, Tasks, Monitoring
-# NOTE: PLAYWRIGHT_SKIP_SECURITY_DEPS=1 is automatically set in E2E scripts
-# Security suites will NOT execute as dependencies
-npx playwright test tests/core --project=firefox
-npx playwright test tests/settings --project=firefox
-npx playwright test tests/tasks --project=firefox
-npx playwright test tests/monitoring --project=firefox
+**Validation and UX notes:**
+- UI helper text: "Use comma-separated emails, e.g. admin@example.com,
+  ops@example.com".
+- Inline error highlights the invalid address(es) and does not save.
+- Empty input is treated as "no recipients" and stored as an empty string.
+- The UI must preserve the normalized format returned by the API.
 
-# PHASE 3: Security UI and Enforcement (SERIAL)
-npx playwright test tests/security --project=firefox
-npx playwright test tests/security-enforcement --project=firefox --workers=1
+### 3.6 Reduce Settings Write Requests
 
-# PHASE 4: Integration, Browser-Specific, Debug (Optional)
-npx playwright test tests/integration --project=firefox
-npx playwright test tests/firefox-specific --project=firefox
-npx playwright test tests/webkit-specific --project=webkit
-npx playwright test tests/debug --project=firefox
-npx playwright test tests/tasks/caddy-import-gaps.spec.ts --project=firefox
-```
+**Goal:** Fewer requests, fewer partial failures.
 
-## 7. Risks and Mitigations
+- Reuse existing `PATCH /api/v1/config` in
+  [backend/internal/api/handlers/settings_handler.go][settings-handler-go].
+- PATCH updates MUST be transactional and all-or-nothing. If any field update
+  fails (validation, DB write, or permission), the transaction must roll back
+  and the API must return a single failure response.
+- Update
+  [frontend/src/pages/SystemSettings.tsx](frontend/src/pages/SystemSettings.tsx)
+  to send one patch request for all fields.
+- Add failure-mode UI message that references permission diagnostics if present.
 
-- Risk: Security suite state leaks across tests. Mitigation: enforce admin
-   whitelist reset and break-glass recovery ordering.
-- Risk: File-name ordering (zzz-) not enforced without `--workers=1`.
-   Mitigation: document `--workers=1` requirement and make it mandatory in
-   CI and quick-start commands.
-- Risk: Emergency server unavailable. Mitigation: gate enforcement suites on
-   health checks and document port 2020 requirements.
-- Risk: Import suites combine mocked and real flows. Mitigation: isolate by
-   phase and keep debug suites opt-in.
-- Risk: Missing test suites hide regressions. Mitigation: inventory now
-   includes all suites and maps them to phases.
+### 3.7 UX Guidance for Non-Root Deployments
 
-## 8. Dependencies and Impacted Files
+- Add a settings banner or toast when permissions fail, pointing to:
+  - `docker run` or `docker compose` examples
+  - `chown -R <runtime_uid>:<runtime_gid> /path/to/volume` using values from
+    diagnostics or configured `--user` / `CHARON_UID` / `CHARON_GID`
+  - Optionally `--user <runtime_uid>:<runtime_gid>` or PUID/PGID env if added
 
-- Harness: [tests/global-setup.ts](tests/global-setup.ts),
-   [tests/auth.setup.ts](tests/auth.setup.ts),
-   [tests/security-teardown.setup.ts](tests/security-teardown.setup.ts).
-- Core UI: [tests/core](tests/core).
-- Settings: [tests/settings](tests/settings).
-- Tasks: [tests/tasks](tests/tasks).
-- Monitoring: [tests/monitoring](tests/monitoring).
-- Security UI: [tests/security](tests/security).
-- Security enforcement: [tests/security-enforcement](tests/security-enforcement).
-- Integration: [tests/integration](tests/integration).
-- Browser-specific: [tests/firefox-specific](tests/firefox-specific),
-   [tests/webkit-specific](tests/webkit-specific).
+### 3.8 PUID/PGID and --user Behavior
 
-## 9. Confidence Score
+- If the container is started with `--user`, the entrypoint cannot `chown`
+  mounted volumes.
+- When `--user` is set, `CHARON_UID`/`CHARON_GID` (and any PUID/PGID
+  equivalents) SHALL be treated as no-ops and only used for logging.
+- Documentation must instruct operators to pre-create and `chown` host volumes
+  to the runtime UID/GID when using `--user`, based on the diagnostics-reported
+  UID/GID or the configured runtime values.
 
-Confidence: 79 percent
+**Directory permission modes (0700 vs group-writable):**
+- Default directory mode remains `0700` for single-user deployments.
+- When PUID/PGID or supplemental group access is used, directories MAY be
+  created as `0770` (or `0750` if group write is not required).
+- If group-writable directories are used, ensure the runtime user is in the
+  owning group and document the expected umask behavior.
 
-Rationale: The suite inventory and dependencies are well understood. The main
-unknowns are timing-sensitive security propagation and emergency server
-availability in varied environments.
+### 3.9 Risk Register and Mitigations
 
-## Review Feedback & Required Additions
+- **Risk:** Repair endpoint could be abused in a multi-tenant environment.
+  - **Mitigation:** Only enabled in single-container mode; root-only; allowlist
+    paths.
+- **Risk:** Adding fields to NotificationConfig might break existing migrations.
+  - **Mitigation:** Use GORM AutoMigrate and default values.
+- **Risk:** UI still masks failures due to optimistic updates.
+  - **Mitigation:** Ensure all mutations handle error states and show help text.
 
-Summary: the spec is thorough and well-structured but is missing several concrete
-forensic and reproduction details needed to reliably diagnose shard timeouts
-and to make CI-side fixes repeatable. The items below add those missing
-artifacts, commands, and prioritized mitigations.
+### 3.9.1 Single-Container Mode Detection and Enforcement
 
-1) Test-forensics (how to analyze Playwright traces & map failing tests to shards)
-- Extract and open traces per-shard: unzip the artifact and run:
-   ```bash
-   unzip e2e-shard-<INDEX>-output/trace.zip -d /tmp/trace-INDEX
-   npx playwright show-trace /tmp/trace-INDEX
-   ```
-- Use JSON reporter to map test IDs to trace files and timestamps:
-   ```bash
-   # run locally to produce a reporter JSON for the shard
-   npx playwright test --shard=INDEX/TOTAL --project=chromium --reporter=json --output=/tmp/playwright-shard-INDEX --trace=on > /tmp/playwright-shard-INDEX.json
-   jq '.suites[].specs[]?.tests[] | {title: .title, file: .location.file, line: .location.line, duration: .duration, annotations: .annotations}' /tmp/playwright-shard-INDEX.json
-   ```
-- Correlate test start/stop timestamps (from reporter JSON) with job logs and container logs to find the precise point where execution stopped.
-- If only one test is hanging, use `--grep` or `--file` to re-run that test with `--trace=on --debug=pw:api` and capture trace and stdout.
+**Goal:** Ensure repair operations are only enabled in single-container mode
+and the system can deterministically report whether this mode is active.
 
-2) CI / Workflow checks (where to inspect timeouts and cancellation causes)
-- Inspect `.github/workflows/*.yml` for both top-level `timeout-minutes:` and job-level `jobs.<job>.timeout-minutes`.
-   ```bash
-   grep -n "timeout-minutes" .github/workflows -R || true
-   ```
-- From the run/job JSON (API) check `status` and `conclusion` fields and `cancelled_by` / `cancelled_at` times:
-   ```bash
-   curl -H "Authorization: token $GITHUB_TOKEN" \
-      "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/actions/jobs/$JOB_ID" | jq '.'
-   ```
-- Search job logs for runner messages indicating preemption, OOM, or cancellation:
-   ```bash
-   grep -iE "Job canceled|cancelled|runner lost|Runner|Killed|OOM|oom_reaper|Timeout" -R job-$JOB_ID-logs || true
-   ```
-- Confirm whether the runner was `self-hosted` (job JSON `runner_name` / `runner_group_id`). If self-hosted, collect `journalctl` and docker host logs for the timestamp window.
+**Detection (explicit):**
+- Environment flag: `CHARON_SINGLE_CONTAINER_MODE`.
+- Accepted values: `true|false` (case-insensitive). Any other value defaults
+  to `false` and logs a warning.
+- Default: `true` in official Dockerfile and official compose examples.
+- Non-container installs (binary on host) default to `false` unless explicitly
+  set.
 
-3) Reproduction instructions (how to reproduce the shard locally exactly)
-- Rebuild image used by CI (recommended to match CI):
-   ```bash
-   .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
-   ```
-- Start E2E environment (use the same compose used in CI):
-   ```bash
-   docker compose -f containers/charon/docker-compose.yml up -d
-   ```
-- Environment variables to set (use the values CI uses):
-   - `PLAYWRIGHT_BASE_URL` – CI base URL (e.g. `http://localhost:8080` for Docker mode; `http://localhost:5173` for Vite dev).
-   - `CHARON_EMERGENCY_TOKEN` – emergency token used by tests.
-   - `PLAYWRIGHT_JOBS` or `PWDEBUG` as needed: `DEBUG=pw:api PWDEBUG=1`.
-   - Optional toggles used in CI: `PLAYWRIGHT_SKIP_SECURITY_DEPS=1`.
-- Exact shard reproduction command (example matching CI):
-   ```bash
-   export PLAYWRIGHT_BASE_URL=http://localhost:8080
-   export CHARON_EMERGENCY_TOKEN=changeme
-   DEBUG=pw:api PWDEBUG=1 \
-      npx playwright test --shard=INDEX/TOTAL --project=chromium \
-         --output=/tmp/playwright-shard-INDEX --reporter=json --trace=on > /tmp/playwright-shard-INDEX.log 2>&1
-   ```
-- To re-run a single failing test found in JSON:
-   ```bash
-   npx playwright test tests/path/to/spec.ts -g "Exact test title" --project=chromium --trace=on --output=/tmp/playwright-single
-   ```
+**Enforcement (explicit):**
+- The repair endpoint is disabled when single-container mode is `false`.
+- The handler MUST return `403` with `permissions_repair_disabled` when the
+  mode check fails, and SHALL NOT attempt any filesystem mutations.
+- Diagnostics remain available regardless of mode.
 
-4) Required artifacts & evidence to collect (exact list and commands)
-- Per-shard Playwright outputs: `trace.zip`, `video/*`, `test-results.json` or `reporter json` and shard stdout/stderr log. Ensure `--output` points to shard-specific path and upload as artifact.
-- Job-level artifacts: GitHub Actions run logs ZIP, job logs ZIP, `gh run download` output.
-- Runner/host diagnostics (self-hosted): `journalctl -u actions.runner.*`, `dmesg | grep -i oom`, `sudo journalctl -u docker.service`, `docker ps -a`, `docker logs --since` for charon-e2e and caddy.
-- Capture a timestamped mapping file that lists: job start, shard start, last test start, last trace timestamp, job end. Example CSV header: `job_id,job_start,shard_index,shard_start, last_test_started_at, job_end, conclusion`.
-- Attach a minimal repro package: Docker image tag, docker-compose file, the exact Playwright command-line, and the failing test id/title.
+**Repair gating and precedence (explicit):**
+1) Admin-only check first. If not admin, return `403` with
+  `permissions_admin_only`.
+2) Single-container mode check second. If disabled, return `403` with
+  `permissions_repair_disabled`.
+3) Root check third. If not root, return `403` with `permissions_non_root`.
+4) Only after all gating checks pass, proceed to path validation and mutation.
 
-5) Prioritization of fixes and quick mitigations (concrete)
-- P0 (Immediate unblock):
-   - Temporarily increase `timeout-minutes` to 60 for failing workflow; add `if: always()` diagnostics step and artifact upload.
-   - Ensure each shard uses `--output` per-shard and is uploaded (`actions/upload-artifact`) so traces are available even on cancellation.
-   - Re-run failing shard locally with `DEBUG=pw:api PWDEBUG=1` and collect traces.
-- P1 (Same-day):
-   - Add CI smoke healthcheck step that validates UI and emergency server before shards start (quick `curl` checks and a small Playwright smoke test).
-   - If self-hosted runner, add simple resource guard (systemd service restart prevention) and OOM monitoring alert.
-   - Configure Playwright retries for flaky tests (small number) and mark expensive suites as `--workers=1`.
-- P2 (Next sprint):
-   - Implement historical-duration-based shard splitting to avoid heavy concentration in one shard.
-   - Add test-level tagging and targeted prioritization for long-running security-enforcement suites.
-   - Add CI-level telemetry: test-duration history, flaky-test dashboard.
+**Placement:**
+- Mode detection lives in `backend/internal/config` as a boolean flag on the
+  runtime config object.
+- Enforcement happens in the permissions repair handler before any path
+  validation or mutation.
+- Log the evaluated mode and source (explicit env vs default) once at startup.
 
-Verdict: NEEDS CHANGES — the existing spec is a solid base, but add the forensic commands, reproducible shard reproduction steps, explicit artifact list, and CI checks above before marking this plan approved.
+### 3.10 Spec-Driven Workflow Artifacts (Pre-Implementation Gate)
 
-Actionable next steps (short list):
-- Add the `always()` diagnostics step to `.github/workflows/<e2e-workflow>.yml` and upload diagnostics as artifacts.
-- Modify the E2E job to set `--output` to `e2e-shard-${{ matrix.index }}-output` and upload that path.
-- Run `gh run download 21865692694` and extract the per-job logs; parse the job JSON to determine if the runner was self-hosted and collect host logs if so.
-- Reproduce the failing shard locally using the exact commands above and attach `trace.zip` and JSON reporter output to the issue.
+Before Phase 1 begins, update the following artifacts and confirm sign-off:
 
-If you want, I can apply the small CI YAML snippets (diagnostics + upload) as a targeted patch or download the run artifacts now (requires `GITHUB_TOKEN`).
+- `requirements.md` with new or refined EARS statements for permissions
+  diagnostics, admin-gated saves, and error mapping.
+- `design.md` with new endpoints, data flow, error payloads, and non-root
+  permission remediation design.
+- `tasks.md` with the phase plan, test order, verification tasks, and the
+  deterministic read-only DB simulation approach.
+
+## 4) Implementation Plan (Phased, Minimal Requests)
+
+### Pre-Implementation Gate (Required)
+
+1) Update `requirements.md`, `design.md`, and `tasks.md` per section 3.10.
+2) Confirm the deterministic read-only DB simulation approach and exact
+  invocation are documented in `tasks.md`.
+3) Proceed only after the spec artifacts are updated and reviewed.
+
+### Phase 1 — Playwright & Diagnostic Ground Truth
+
+**Goal:** Define the expected UX and capture the failure state before changes.
+
+1) Add E2E coverage for permissions and save failures:
+  - Tests in `tests/settings/settings-permissions.spec.ts`:
+    - Simulate DB read-only deterministically (compose override only).
+    - Verify toast/error text on save failure.
+   - Tests for dropdown persistence in System Settings and SMTP:
+     - Ensure selections persist after reload when writes succeed.
+     - Ensure UI reverts with visible error on write failure.
+   - Security notification log level options:
+     - Ensure `fatal` is not present in the dropdown options.
+
+
+1a) Deterministic failure simulation setup (aligned with E2E workflow):
+  - Use a docker-compose override to bind-mount a read-only DB file for E2E.
+    This is the single supported approach for deterministic DB read-only
+    simulation.
+  - Override file (example name):
+    `.docker/compose/docker-compose.e2e-readonly-db.override.yml`.
+  - Read-only DB setup sequence (explicit):
+    1. Run the E2E rebuild skill first to ensure the base container and
+       baseline volumes are fresh and healthy.
+    2. Start a one-off container (or job) with a writable volume.
+    3. Run migrations and seed data to create the SQLite DB file in that
+       writable location.
+    4. Stop the one-off container and bind-mount the DB file into the E2E
+       container as read-only using the override.
+  - Exact invocation (Docker E2E mode):
+    ```bash
+    # Step 1: rebuild E2E container
+    .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+
+    # Step 2: start with override
+    docker compose -f .docker/compose/docker-compose.yml \
+      -f .docker/compose/docker-compose.e2e-readonly-db.override.yml up -d
+    ```
+  - The override SHALL mount the DB file read-only and MUST NOT require any
+    application code changes or test-only flags.
+  - Teardown/cleanup after the test run (explicit):
+    1. Stop and remove the override services/containers started for the
+       read-only run.
+    2. Remove any override-specific volumes used for the read-only DB file
+       to avoid cross-test contamination.
+    3. Re-run the E2E rebuild skill before the next E2E session to restore
+       the standard writable DB state.
+  - Add a planned VS Code task or skill-runner entry to make this workflow
+    one-command and discoverable (example task label: "Test: E2E Readonly
+    DB", command invoking the docker compose override sequence above).
+
+2) Add a health check step in tests for permissions endpoint once available.
+
+**Outputs:** New E2E baseline expectations for save behavior.
+
+### Phase 2 — Backend Permissions Diagnostics & Errors
+
+**Goal:** Make permission issues undeniable and actionable.
+
+1) Add system permissions handler and util:
+   - `backend/internal/api/handlers/system_permissions_handler.go`
+   - `backend/internal/util/permissions.go`
+
+2) Add standardized permission error mapping:
+   - Wrap DB and filesystem errors in settings, notifications, imports, backups.
+
+3) Extend security notifications model and defaults:
+   - Update `NotificationConfig` fields.
+   - Update handler validation for min log level or adjust UI.
+
+**Outputs:** A diagnostics API and consistent error payloads across persistence
+paths.
+
+### Phase 3 — Frontend Save Flows and UI Messaging
+
+**Goal:** Reduce request count and surface errors clearly.
+
+1) System Settings:
+   - Switch to `PATCH /api/v1/config` for multi-field save.
+   - On error, show permission hint if provided.
+
+2) Security Notification Settings modal:
+   - Align log level options with backend.
+   - Ensure new fields are saved and displayed.
+
+3) Notifications providers:
+   - Surface permission errors on save/update/delete.
+
+**Outputs:** Fewer save calls, better error clarity, stable dropdown
+persistence.
+
+### Phase 4 — Integration and Testing
+
+1) Run Playwright E2E tests first, before any unit tests.
+2) If the E2E environment changed, rebuild using the E2E Docker skill.
+3) Ensure E2E tests cover permission failure UX and dropdown persistence.
+4) Run unit tests only after E2E passes.
+5) Enforce 100% patch coverage for all modified lines.
+6) Record any coverage gaps in `tasks.md` before adding tests.
+
+### Phase 5 — Container & Volume Hardening
+
+**Goal:** Provide a clear, secure non-root path.
+
+1) Entrypoint improvements:
+   - When running as root, ensure `/app/data` ownership is corrected (not only
+     subdirs).
+   - Log UID/GID at startup.
+
+2) Optional PUID/PGID support:
+   - If `CHARON_UID`/`CHARON_GID` are set and the container is not started with
+     `--user`, re-map `charon` user or add supplemental group.
+   - If `--user` is set, log that PUID/PGID overrides are ignored and volume
+     ownership must be handled on the host.
+
+3) Dockerfile/Compose review:
+   - If PUID/PGID added, update Dockerfile and compose example.
+
+**Outputs:** Hardening changes that remove the “silent failure” path.
+
+### Phase 6 — Integration, Documentation, and Cleanup
+
+1) Add troubleshooting docs for non-root volumes.
+2) Update any user guides referencing permissions.
+3) Update API docs for new endpoints:
+   - Add `GET /api/v1/system/permissions` and
+     `POST /api/v1/system/permissions/repair` to
+     [docs/api.md](docs/api.md) with schemas, auth, and error codes.
+4) Update documentation to reference `CHARON_SINGLE_CONTAINER_MODE`:
+   - Add the env var description and default behavior to the primary
+     configuration reference (include accepted values and fallback behavior).
+   - Add or update a Docker Compose example showing
+     `CHARON_SINGLE_CONTAINER_MODE=true` in the environment list.
+5) Ensure `requirements.md`, `design.md`, and `tasks.md` are updated.
+6) Finalize tests and ensure coverage targets are met.
+7) Update [docs/features.md](docs/features.md) for any user-facing permissions
+   diagnostics or repair UX changes.
+
+## 5) Acceptance Criteria (EARS)
+
+- WHEN the container runs as non-root and a mounted volume is not writable, THE
+  SYSTEM SHALL expose a permissions diagnostic endpoint that reports the failing
+  path and required access.
+- WHEN the permissions repair endpoint is called by a non-root process, THE
+  SYSTEM SHALL return `403` and SHALL NOT perform any filesystem mutation.
+- WHEN the permissions repair endpoint is called by a non-admin user, THE SYSTEM
+  SHALL return `403` with `permissions_admin_only` and SHALL NOT perform any
+  filesystem mutation.
+- WHEN the permissions repair endpoint is called while single-container mode is
+  disabled, THE SYSTEM SHALL return `403` with `permissions_repair_disabled`
+  and SHALL NOT perform any filesystem mutation.
+- WHEN the permissions repair endpoint receives a path that is outside the
+  allowlist, THE SYSTEM SHALL reject the request with a clear error and SHALL
+  NOT touch the filesystem.
+- WHEN the permissions repair endpoint receives a symlink or a path containing a
+  symlinked component, THE SYSTEM SHALL reject the request with a clear error
+  and SHALL NOT follow the link.
+- WHEN the permissions repair endpoint receives a missing path, THE SYSTEM SHALL
+  return a per-path error and SHALL NOT create the path.
+- WHEN the permissions repair endpoint receives a relative path or a path that
+  normalizes to `.` or `..`, THE SYSTEM SHALL reject the request and SHALL NOT
+  perform any filesystem mutation.
+- WHEN a user saves system, SMTP, or notification settings and the DB is read-
+  only, THE SYSTEM SHALL return a clear error with a remediation hint.
+- WHEN a user updates dropdown-based settings and persistence fails, THE SYSTEM
+  SHALL display an error and SHALL NOT silently pretend the save succeeded.
+- WHEN the security notification log level options are displayed, THE SYSTEM
+  SHALL only present `debug`, `info`, `warn`, and `error`.
+- WHEN security notification settings are saved, THE SYSTEM SHALL persist all
+  fields that the UI presents.
+- WHEN settings updates include multiple fields, THE SYSTEM SHALL apply them in
+  a single request and a single transaction to avoid partial persistence.
+- WHEN a non-admin user attempts to call a save endpoint, THE SYSTEM SHALL
+  return `403` with `permissions_admin_only` and SHALL NOT perform any write.
+- WHEN permissions diagnostics or repair endpoints are called, THE SYSTEM SHALL
+  emit an audit log entry with outcome details.
+- WHEN a permission-related save failure occurs, THE SYSTEM SHALL emit an audit
+  log entry with a stable error code and redacted path details for non-admin
+  contexts.
+- WHEN a non-admin user receives a permission-related error, THE SYSTEM SHALL
+  redact filesystem path details from the response payload.
+
+## 6) Files and Components to Touch (Trace Map)
+
+**Backend**
+-
+  [.docker/docker-entrypoint.sh][docker-entrypoint-sh] — permission checks
+  and potential ownership fixes.
+-
+  [backend/internal/config/config.go][config-go] — data directory creation
+  behavior.
+-
+  [backend/internal/api/handlers/settings_handler.go][settings-handler-go]
+  — permission-aware errors, PATCH usage.
+-
+  [backend/internal/api/handlers/<br>
+  security_notifications.go][security-notifications-handler-go]
+  — validation alignment.
+-
+  [backend/internal/services/<br>
+  security_notification_service.go][security-notification-service-go]
+  — defaults, persistence.
+-
+  [backend/internal/models/notification_config.go][notification-config-go]
+  — new fields.
+-
+  [backend/internal/services/mail_service.go][mail-service-go] — permission-
+  aware errors.
+-
+  [backend/internal/services/notification_service.go][notification-service-go]
+  — permission-aware errors.
+-
+  [backend/internal/services/backup_service.go][backup-service-go] —
+  permission-aware errors.
+-
+  [backend/internal/util/permissions.go][permissions-util-go] — permission
+  diagnostics utility.
+-
+  [backend/internal/api/handlers/import_handler.go][import-handler-go] —
+  permission-aware errors for uploads.
+
+**Frontend**
+-
+  [frontend/src/pages/SystemSettings.tsx][system-settings-tsx] — batch save
+  via PATCH and better error UI.
+-
+  [frontend/src/pages/SMTPSettings.tsx][smtp-settings-tsx] — permission error
+  messaging.
+-
+  [frontend/src/pages/Notifications.tsx][notifications-page-tsx] — save error
+  handling.
+-
+  [frontend/src/components/<br>
+  SecurityNotificationSettingsModal.tsx][security-notification-modal-tsx]
+  — align fields.
+-
+  [frontend/src/components/ui/Select.tsx][select-component-tsx] — no
+  functional change expected; verify for state persistence.
+
+**Infra**
+- [Dockerfile](Dockerfile)
+- [.docker/compose/docker-compose.yml](.docker/compose/docker-compose.yml)
+
+## 7) Repo Hygiene Review (Requested)
+
+- **.gitignore:** No change required unless we add new diagnostics artifacts
+  (e.g., `permissions-report.json`). If added, ignore them under root or `test-
+  results/`.
+- **.dockerignore:** No change required. If we add new documentation files or
+  test artifacts, keep them excluded from the image.
+- **codecov.yml:** No change required unless new diagnostics packages warrant
+  exclusions.
+- **Dockerfile:** Potential update if PUID/PGID support is added; otherwise, no
+  change required.
+
+## 8) Unit Test Plan
+
+Backend unit tests (Go):
+- Permissions diagnostics utility: validate stat parsing, writable checks, and
+  error mapping for missing paths and permission denied.
+- Permissions endpoints: admin-only access (403 + `permissions_admin_only`) and
+  successful admin responses.
+- Permissions repair endpoint:
+  - Rejects non-root execution with `403` and no filesystem changes.
+  - Rejects non-admin requests with `permissions_admin_only`.
+  - Rejects paths outside the allowlist safe roots.
+  - Rejects relative paths, `.` and `..` after normalization, and any request
+    where `filepath.Clean` produces an out-of-allowlist path.
+  - Rejects symlinks and symlinked path components via `Lstat` and
+    `EvalSymlinks` checks.
+  - Returns per-path errors for missing paths without creating them.
+- Permission-aware error mapping: ensure DB read-only and `os.IsPermission`
+  errors map to the standard payload fields and redact path details for non-
+  admins.
+- Audit logging: verify diagnostics/repair calls and permission-related save
+  failures emit audit entries with redacted path details for non-admin contexts.
+- Settings PATCH behavior: multi-field patch applies atomically in the
+  handler/service and returns a single failure when any persistence step fails.
+
+Frontend unit tests (Vitest):
+- Diagnostics fetch handling: verify non-admin error messaging without path
+  details.
+- Settings save errors: ensure error toast displays remediation text and UI
+  state does not silently persist on failure.
+
+## 9) Confidence Score
+
+Confidence: 80%
+
+Rationale: The permissions write paths are well mapped, and the root cause (non-
+root + volume ownership mismatch) is a common pattern. The only uncertainty is
+the exact user environment for the failure, which will be clarified once
+diagnostics are in place.
+
+[backup-service-go]:
+  backend/internal/services/backup_service.go
+[import-handler-go]:
+  backend/internal/api/handlers/import_handler.go
+[notification-service-go]:
+  backend/internal/services/notification_service.go
+[notification-handler-go]:
+  backend/internal/api/handlers/notification_handler.go
+[notifications-page-tsx]:
+  frontend/src/pages/Notifications.tsx
+[security-notification-service-go]:
+  backend/internal/services/security_notification_service.go
+[security-notifications-handler-go]:
+  backend/internal/api/handlers/security_notifications.go
+[security-notification-modal-tsx]:
+  frontend/src/components/SecurityNotificationSettingsModal.tsx
+[notification-config-go]:
+  backend/internal/models/notification_config.go
+[system-settings-tsx]:
+  frontend/src/pages/SystemSettings.tsx
+[settings-handler-go]:
+  backend/internal/api/handlers/settings_handler.go
+[smtp-settings-tsx]:
+  frontend/src/pages/SMTPSettings.tsx
+[mail-service-go]:
+  backend/internal/services/mail_service.go
+[select-component-tsx]:
+  frontend/src/components/ui/Select.tsx
+[docker-entrypoint-sh]:
+  .docker/docker-entrypoint.sh
+[config-go]:
+  backend/internal/config/config.go
+[permissions-util-go]:
+  backend/internal/util/permissions.go
