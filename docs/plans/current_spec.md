@@ -1,4 +1,418 @@
 ---
+post_title: Discord Notification Payload Fix Plan
+author1: "Charon Team"
+post_slug: discord-notification-payload-fix-plan
+categories:
+  - notifications
+tags:
+  - discord
+  - webhooks
+  - payloads
+  - bugfix
+summary: "Plan to fix Discord test notifications by aligning templates with
+  required payload fields and updating tests."
+post_date: "2026-02-11"
+---
+
+## Discord Notification Payload Fix Plan
+
+Last updated: 2026-02-11
+
+## 1) Introduction
+
+Discord test notifications fail with the error: "discord payload requires
+'content' or 'embeds' field". The fix requires aligning default notification
+templates with Discord (and Slack) webhook requirements across backend and
+frontend, while preserving custom templates and existing webhook behavior for
+other providers.
+
+**Objectives**
+- Ensure Discord test notifications succeed with default templates.
+- Keep template rendering consistent between backend and frontend.
+- Preserve validation for service-specific payload requirements.
+- Provide clear, testable behavior for previews and test sends.
+
+## 2) Research Findings (Root Cause)
+
+### 2.1 Request Flow and Failure Point
+
+1) UI "Test" button in Notifications page sends POST to
+   `/api/v1/notifications/providers/test`.
+2) Backend handler `NotificationProviderHandler.Test()` calls
+   `NotificationService.TestProvider()`.
+3) `TestProvider()` uses `sendJSONPayload()` for JSON-template providers.
+4) `sendJSONPayload()` renders built-in minimal/detailed templates when
+   `provider.Template` is `minimal` or `detailed` and `Config` is empty.
+5) Discord validation in `sendJSONPayload()` rejects payloads missing
+   `content` or `embeds`, returning the error seen by users.
+
+### 2.2 Where the Payload Goes Missing
+
+**Backend templates:**
+- Minimal template uses `message/title/time/event` keys and omits
+  `content` or `embeds`.
+- Detailed template uses the same keys plus host/service data.
+- Validation for Discord requires `content` or `embeds`, so default templates
+  fail.
+
+**Frontend defaults:**
+- The Notifications form defaults to `template: "minimal"` and uses
+  prefilled template JSON with `message/title/time/event` only.
+- This reinforces the backend default template and causes test sends to fail
+  for Discord (and Slack, which requires `text` or `blocks`).
+
+### 2.3 Evidence (File Trace)
+
+- Default template selection and Discord/Slack validation live in
+  [backend/internal/services/notification_service.go](backend/internal/services/notification_service.go#L170-L272)
+- Provider default template and `Template` field live in
+  [backend/internal/models/notification_provider.go](backend/internal/models/notification_provider.go#L10-L47)
+- Test endpoint that triggers the failure is in
+  [backend/internal/api/handlers/notification_provider_handler.go](backend/internal/api/handlers/notification_provider_handler.go#L100-L140)
+- Frontend template buttons and defaults are in
+  [frontend/src/pages/Notifications.tsx](frontend/src/pages/Notifications.tsx#L24-L235)
+
+**Root cause:** built-in minimal/detailed templates do not include required
+Discord fields (`content` or `embeds`). The frontend defaults to those templates
+and the backend enforces strict validation, so tests fail even when the webhook
+URL is valid.
+
+### 2.3 Security Notification Settings 404 Regression (New)
+
+**Symptom:** `GET /api/v1/notifications/settings/security` returns `404`.
+
+**Findings:**
+- Backend routes register security notification settings at
+  `GET/PUT /api/v1/security/notifications/settings`.
+- Frontend API calls (and tests) use
+  `GET/PUT /api/v1/notifications/settings/security`.
+- This path mismatch causes the 404 and is a regression relative to prior
+  behavior where the frontend path was valid.
+
+**Root cause:** route path mismatch between frontend API client and backend
+route registration. The handler exists, but the frontend calls a different
+endpoint path.
+
+**Missing component:** route registration (alias) for
+`/api/v1/notifications/settings/security` or an updated frontend path to match
+`/api/v1/security/notifications/settings`.
+
+### 2.4 Comprehensive Notification Path Audit (2026-02-11)
+
+**Scope:** backend notification routes in `backend/internal/api/routes/` and
+frontend notification API calls in `frontend/src/api/`.
+
+**Audit summary:**
+- **Mismatches found:** 1
+- **Pattern:** All notification endpoints use `/api/v1/notifications/*` except
+  security notification settings, which are registered under
+  `/api/v1/security/notifications/settings` in the backend.
+
+**Path mapping table (backend vs frontend):**
+
+| Backend Route | Frontend Call | Match Status | Endpoint Purpose |
+| --- | --- | --- | --- |
+| `/api/v1/notifications` (GET) | — | ✅ Match (backend-only) | List notifications |
+| `/api/v1/notifications/:id/read` (POST) | — | ✅ Match (backend-only) | Mark a notification read |
+| `/api/v1/notifications/read-all` (POST) | — | ✅ Match (backend-only) | Mark all notifications read |
+| `/api/v1/notifications/providers` (GET/POST) | `/api/v1/notifications/providers` | ✅ Match | Provider list and create |
+| `/api/v1/notifications/providers/:id` (PUT/DELETE) | `/api/v1/notifications/providers/:id` | ✅ Match | Provider update/delete |
+| `/api/v1/notifications/providers/test` (POST) | `/api/v1/notifications/providers/test` | ✅ Match | Provider test send |
+| `/api/v1/notifications/providers/preview` (POST) | `/api/v1/notifications/providers/preview` | ✅ Match | Provider preview render |
+| `/api/v1/notifications/templates` (GET) | `/api/v1/notifications/templates` | ✅ Match | Built-in templates list |
+| `/api/v1/notifications/external-templates` (GET/POST) | `/api/v1/notifications/external-templates` | ✅ Match | External template list/create |
+| `/api/v1/notifications/external-templates/:id` (PUT/DELETE) | `/api/v1/notifications/external-templates/:id` | ✅ Match | External template update/delete |
+| `/api/v1/notifications/external-templates/preview` (POST) | `/api/v1/notifications/external-templates/preview` | ✅ Match | External template preview render |
+| `/api/v1/security/notifications/settings` (GET/PUT) | `/api/v1/notifications/settings/security` | ❌ Mismatch | Security notification settings |
+
+**Pattern analysis:**
+- The mismatch is isolated to the security notification settings endpoint.
+- All other notification-related routes follow a consistent `/api/v1/notifications/*` pattern.
+- No evidence of a broader systematic inversion beyond the security settings endpoint.
+
+**Git blame (path establishment):**
+- Backend path `/api/v1/security/notifications/settings` registered in
+  [backend/internal/api/routes/routes.go](backend/internal/api/routes/routes.go#L227-L231),
+  blamed to commit `3169b0515` (2026-02-09).
+- Frontend path `/api/v1/notifications/settings/security` used in
+  [frontend/src/api/notifications.ts](frontend/src/api/notifications.ts#L188-L203),
+  blamed to commit `3169b0515` (2026-02-09).
+
+**Fix recommendation:**
+- **Preferred:** Add a backend route alias for
+  `/api/v1/notifications/settings/security` to map to the existing security
+  settings handler. This preserves backward compatibility and keeps the
+  broader `/api/v1/notifications/*` namespace consistent for the frontend.
+- **Alternative:** Update frontend calls to `/api/v1/security/notifications/settings`
+  and adjust frontend tests accordingly.
+
+**Impact on original Discord test failure:**
+- The Discord test failure is tied to provider payload validation and uses
+  `/api/v1/notifications/providers/test`; it is **not** caused by the security
+  settings mismatch. The mismatch only explains the 404 regression for security
+  settings reads/updates.
+
+## 3) Technical Specifications
+
+### 3.1 Template Catalog (Service-Specific)
+
+Introduce a service-aware template catalog for built-in templates and use it
+both for rendering and preview. This ensures Discord and Slack requirements are
+met while preserving current behavior for generic webhooks.
+
+**Template mapping (proposed):**
+
+| Provider Type | Minimal Template | Detailed Template |
+| --- | --- | --- |
+| discord | `content` from Title/Message | `embeds` with title/description/timestamp |
+| slack | `text` from Title/Message | `text` from Title/Message (no blocks) |
+| gotify | `message` + `title` | `message` + `title` + extras |
+| webhook | current minimal | current detailed |
+| generic | current minimal | current detailed |
+
+### 3.2 Before/After Payload Structures
+
+**Before (current minimal template):**
+```json
+{
+  "message": "{{.Message}}",
+  "title": "{{.Title}}",
+  "time": "{{.Time}}",
+  "event": "{{.EventType}}"
+}
+```
+
+**After (Discord minimal template):**
+```json
+{
+  "content": "{{.Title}} - {{.Message}}",
+  "username": "Charon"
+}
+```
+
+**After (Discord detailed template):**
+```json
+{
+  "embeds": [
+    {
+      "title": "{{.Title}}",
+      "description": "{{.Message}}",
+      "timestamp": "{{.Time}}",
+      "fields": [
+        {"name": "Event", "value": "{{.EventType}}", "inline": true},
+        {"name": "Host", "value": "{{.HostName}}", "inline": true}
+      ]
+    }
+  ]
+}
+```
+
+**After (Slack minimal template):**
+```json
+{
+  "text": "{{.Title}} - {{.Message}}"
+}
+```
+
+**After (Slack detailed template):**
+```json
+{
+  "text": "{{.Title}} - {{.Message}}"
+}
+```
+
+### 3.3 Validation Rules
+
+- Discord: treat missing or empty `content` and `embeds` as invalid. If both
+  are missing or empty, return the existing error message.
+- Slack: treat missing or empty `text` as invalid. `blocks` are not used in
+  this plan.
+- Gotify: `message` must be present and non-empty.
+- Custom templates remain user-defined and are validated by existing rules.
+
+### 3.4 Preview Behavior
+
+Preview (`/api/v1/notifications/providers/preview`) should use the same service-aware
+template selection and validation so users see failures before attempting a
+real send.
+
+### 3.5 Edge Cases
+
+- Empty `Title` and `Message`: fallback to a safe string (e.g.,
+  "Charon notification") so `content` or `text` is not empty for Discord or
+  Slack.
+- `Message` only or `Title` only: concatenate non-empty values with " - ".
+- Discord detailed: if `embeds` would be empty or missing after rendering,
+  fallback to a `content` string derived from Title/Message.
+- Slack detailed: if `text` renders empty, fallback to the safe string.
+- No empty payloads: if a rendered payload would be empty after all fallbacks,
+  return a validation error and do not send to any webhook.
+- Custom templates must remain unchanged; only built-in template selection
+  becomes service-aware.
+
+## 4) Implementation Plan (Phased)
+
+### Pre-Implementation Gate (Required)
+
+1) Update `requirements.md`, `design.md`, and `tasks.md` for this plan.
+2) Add a trace map entry for preview handler/tests and include preview in the
+  testing strategy.
+3) Proceed only after these artifacts are updated and reviewed.
+
+### Phase 1: Playwright Expectations
+
+- Update E2E tests to validate Discord provider test success with the default
+  minimal template and confirm Slack provider test success.
+- Add a negative test to confirm Discord preview/test fails when a custom
+  template omits both `content` and `embeds`.
+
+**Targets:**
+- `tests/settings/notifications.spec.ts`
+
+### Phase 1a: 404 Regression Fix (Security Notification Settings)
+
+- Align the security notification settings endpoint path between frontend and
+  backend.
+- Preferred minimal fix: add a route alias that maps
+  `/api/v1/notifications/settings/security` to the existing handler for
+  `/api/v1/security/notifications/settings` to preserve backward
+  compatibility.
+- Alternative fix: update frontend API calls to use
+  `/api/v1/security/notifications/settings` and update associated frontend
+  tests.
+
+**Targets:**
+- Backend route registration in
+  [backend/internal/api/routes/routes.go](backend/internal/api/routes/routes.go)
+- Frontend client in
+  [frontend/src/api/notifications.ts](frontend/src/api/notifications.ts)
+- Frontend tests:
+  [frontend/src/api/notifications.test.ts](frontend/src/api/notifications.test.ts)
+  and [frontend/src/api/__tests__/notifications.test.ts](frontend/src/api/__tests__/notifications.test.ts)
+
+### Phase 2: Backend Template Selection
+
+- Add a template catalog keyed by provider type and template variant.
+- Update `sendJSONPayload()` and `RenderTemplate()` to use service-aware
+  templates for `minimal` and `detailed`.
+- Update validation to treat empty strings as missing for required fields and
+  to enforce non-empty fallbacks.
+
+**Targets:**
+- `backend/internal/services/notification_service.go`
+- `backend/internal/services/notification_service_test.go`
+- `backend/internal/services/notification_service_json_test.go`
+
+### Phase 3: Frontend Template Defaults
+
+- Update the Notifications form to set minimal/detailed templates based on
+  provider type (Discord vs Slack vs Gotify vs Generic/Webhook).
+- Ensure the preview content reflects the new defaults.
+
+**Targets:**
+- `frontend/src/pages/Notifications.tsx`
+
+### Phase 4: Integration and Regression Testing
+
+- Run Playwright E2E tests first (notifications suite).
+- Run backend unit tests with coverage after E2E passes.
+- Run frontend unit tests (Vitest) and type checks.
+
+### Phase 5: Documentation
+
+- Update API or user docs only if the default template behavior is documented
+  or exposed. Document the Discord/Slack default template expectations if
+  needed.
+
+## 5) Testing Strategy
+
+### 5.1 Backend Unit Tests (Go)
+
+- Add tests for service-aware minimal/detailed templates:
+  - Discord minimal produces `content`.
+  - Discord detailed produces `embeds`.
+  - Slack minimal produces `text`.
+  - Slack detailed produces `text` (blocks are not used).
+- Add tests for preview path behavior:
+  - Preview uses service-aware templates.
+  - Preview enforces fallback rules and rejects empty payloads.
+- Update existing tests that assert `message/title` for minimal templates to
+  account for provider-type differences.
+
+**Targets:**
+- `backend/internal/services/notification_service_test.go`
+- `backend/internal/services/notification_service_json_test.go`
+- `backend/internal/api/handlers/notification_provider_preview_handler_test.go` (new)
+
+### 5.2 Frontend Unit Tests (Vitest)
+
+- Add or update tests to confirm template selection changes with provider type
+  and that the generated config includes `content` for Discord.
+
+**Targets:**
+- `frontend/src/pages/__tests__/Notifications.test.tsx` (new or update
+  existing if present)
+
+### 5.3 Playwright E2E
+
+- Verify the Discord provider test succeeds with default minimal template.
+- Verify Slack provider test succeeds with default minimal template.
+- Verify custom template without required fields fails and surfaces the
+  backend error message.
+- Verify provider preview uses service-aware templates and rejects empty
+  payloads.
+
+**Targets:**
+- `tests/settings/notifications.spec.ts`
+
+### 5.4 Manual Testing Steps
+
+1) Create a Discord provider with a real webhook URL.
+2) Use the default minimal template and click "Test".
+3) Confirm the webhook receives a message (content or embed).
+4) Switch to detailed template and click "Test".
+5) Confirm the webhook receives an embed payload.
+6) Repeat for Slack provider (text only).
+
+## 6) Acceptance Criteria (EARS)
+
+- WHEN a Discord notification provider uses the default minimal template,
+  THE SYSTEM SHALL send a payload containing `content`.
+- WHEN a Discord notification provider uses the default detailed template,
+  THE SYSTEM SHALL send a payload containing `embeds`.
+- WHEN a Slack notification provider uses the default minimal template,
+  THE SYSTEM SHALL send a payload containing `text`.
+- WHEN a custom Discord template omits both `content` and `embeds`,
+  THE SYSTEM SHALL return a validation error and SHALL NOT send the webhook.
+- WHEN a preview request is made for a Discord or Slack provider,
+  THE SYSTEM SHALL validate the rendered JSON against provider requirements.
+- WHEN a preview or test send renders an empty payload after fallback,
+  THE SYSTEM SHALL return a validation error and SHALL NOT send the webhook.
+- WHEN a Discord provider test succeeds, THE SYSTEM SHALL return 200 OK and
+  THE SYSTEM SHALL record the success without error.
+
+## 7) Files and Components to Touch (Trace Map)
+
+**Backend**
+- [backend/internal/services/notification_service.go](backend/internal/services/notification_service.go#L170-L272)
+- [backend/internal/services/notification_service_test.go](backend/internal/services/notification_service_test.go)
+- [backend/internal/services/notification_service_json_test.go](backend/internal/services/notification_service_json_test.go)
+- [backend/internal/api/handlers/notification_provider_preview_handler.go](backend/internal/api/handlers/notification_provider_preview_handler.go) (new)
+- [backend/internal/api/handlers/notification_provider_preview_handler_test.go](backend/internal/api/handlers/notification_provider_preview_handler_test.go) (new)
+- [backend/internal/api/handlers/notification_provider_handler.go](backend/internal/api/handlers/notification_provider_handler.go#L100-L180)
+- [backend/internal/api/handlers/notification_coverage_test.go](backend/internal/api/handlers/notification_coverage_test.go#L340-L610)
+
+**Frontend**
+- [frontend/src/pages/Notifications.tsx](frontend/src/pages/Notifications.tsx#L24-L235)
+- [tests/settings/notifications.spec.ts](tests/settings/notifications.spec.ts)
+
+## 8) Confidence Score
+
+Confidence: 86%
+
+Rationale: The failure is directly tied to a known validation rule and to
+default templates that omit required fields. The changes are isolated to the
+notification template selection path and the Notifications UI.---
 post_title: Permissions Integrity Plan
 author1: "Charon Team"
 post_slug: permissions-integrity-plan-non-root

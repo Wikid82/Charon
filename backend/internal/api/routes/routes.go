@@ -229,6 +229,8 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		securityNotificationHandler := handlers.NewSecurityNotificationHandlerWithDeps(securityNotificationService, securityService, dataRoot)
 		protected.GET("/security/notifications/settings", securityNotificationHandler.GetSettings)
 		protected.PUT("/security/notifications/settings", securityNotificationHandler.UpdateSettings)
+		protected.GET("/notifications/settings/security", securityNotificationHandler.GetSettings)
+		protected.PUT("/notifications/settings/security", securityNotificationHandler.UpdateSettings)
 
 		// System permissions diagnostics and repair
 		systemPermissionsHandler := handlers.NewSystemPermissionsHandler(cfg, securityService, nil)
