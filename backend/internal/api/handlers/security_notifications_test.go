@@ -431,3 +431,87 @@ func TestSecurityNotificationHandler_UpdateSettings_EmptyWebhookURL(t *testing.T
 
 	assert.Equal(t, "Settings updated successfully", response["message"])
 }
+
+func TestSecurityNotificationHandler_RouteAliasGet(t *testing.T) {
+	t.Parallel()
+
+	expectedConfig := &models.NotificationConfig{
+		ID:              "alias-test-id",
+		Enabled:         true,
+		MinLogLevel:     "info",
+		WebhookURL:      "https://example.com/webhook",
+		NotifyWAFBlocks: true,
+		NotifyACLDenies: true,
+	}
+
+	mockService := &mockSecurityNotificationService{
+		getSettingsFunc: func() (*models.NotificationConfig, error) {
+			return expectedConfig, nil
+		},
+	}
+
+	handler := NewSecurityNotificationHandler(mockService)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/v1/security/notifications/settings", handler.GetSettings)
+	router.GET("/api/v1/notifications/settings/security", handler.GetSettings)
+
+	originalWriter := httptest.NewRecorder()
+	originalRequest := httptest.NewRequest(http.MethodGet, "/api/v1/security/notifications/settings", http.NoBody)
+	router.ServeHTTP(originalWriter, originalRequest)
+
+	aliasWriter := httptest.NewRecorder()
+	aliasRequest := httptest.NewRequest(http.MethodGet, "/api/v1/notifications/settings/security", http.NoBody)
+	router.ServeHTTP(aliasWriter, aliasRequest)
+
+	assert.Equal(t, http.StatusOK, originalWriter.Code)
+	assert.Equal(t, originalWriter.Code, aliasWriter.Code)
+	assert.Equal(t, originalWriter.Body.String(), aliasWriter.Body.String())
+}
+
+func TestSecurityNotificationHandler_RouteAliasUpdate(t *testing.T) {
+	t.Parallel()
+
+	mockService := &mockSecurityNotificationService{
+		updateSettingsFunc: func(c *models.NotificationConfig) error {
+			return nil
+		},
+	}
+
+	handler := NewSecurityNotificationHandler(mockService)
+
+	config := models.NotificationConfig{
+		Enabled:         true,
+		MinLogLevel:     "warn",
+		WebhookURL:      "http://localhost:8080/security",
+		NotifyWAFBlocks: true,
+		NotifyACLDenies: false,
+	}
+
+	body, err := json.Marshal(config)
+	require.NoError(t, err)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		setAdminContext(c)
+		c.Next()
+	})
+	router.PUT("/api/v1/security/notifications/settings", handler.UpdateSettings)
+	router.PUT("/api/v1/notifications/settings/security", handler.UpdateSettings)
+
+	originalWriter := httptest.NewRecorder()
+	originalRequest := httptest.NewRequest(http.MethodPut, "/api/v1/security/notifications/settings", bytes.NewBuffer(body))
+	originalRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(originalWriter, originalRequest)
+
+	aliasWriter := httptest.NewRecorder()
+	aliasRequest := httptest.NewRequest(http.MethodPut, "/api/v1/notifications/settings/security", bytes.NewBuffer(body))
+	aliasRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(aliasWriter, aliasRequest)
+
+	assert.Equal(t, http.StatusOK, originalWriter.Code)
+	assert.Equal(t, originalWriter.Code, aliasWriter.Code)
+	assert.Equal(t, originalWriter.Body.String(), aliasWriter.Body.String())
+}
