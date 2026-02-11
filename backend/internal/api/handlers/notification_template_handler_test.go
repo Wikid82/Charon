@@ -26,6 +26,11 @@ func TestNotificationTemplateHandler_CRUDAndPreview(t *testing.T) {
 	h := NewNotificationTemplateHandler(svc)
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
 	api := r.Group("/api/v1")
 	api.GET("/notifications/templates", h.List)
 	api.POST("/notifications/templates", h.Create)
@@ -89,6 +94,11 @@ func TestNotificationTemplateHandler_Create_InvalidJSON(t *testing.T) {
 	svc := services.NewNotificationService(db)
 	h := NewNotificationTemplateHandler(svc)
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
 	r.POST("/api/templates", h.Create)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/templates", strings.NewReader(`{invalid}`))
@@ -105,6 +115,11 @@ func TestNotificationTemplateHandler_Update_InvalidJSON(t *testing.T) {
 	svc := services.NewNotificationService(db)
 	h := NewNotificationTemplateHandler(svc)
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
 	r.PUT("/api/templates/:id", h.Update)
 
 	req := httptest.NewRequest(http.MethodPut, "/api/templates/test-id", strings.NewReader(`{invalid}`))
@@ -121,6 +136,11 @@ func TestNotificationTemplateHandler_Preview_InvalidJSON(t *testing.T) {
 	svc := services.NewNotificationService(db)
 	h := NewNotificationTemplateHandler(svc)
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
 	r.POST("/api/templates/preview", h.Preview)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/templates/preview", strings.NewReader(`{invalid}`))

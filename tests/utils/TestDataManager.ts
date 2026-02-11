@@ -28,7 +28,7 @@
  * ```
  */
 
-import { APIRequestContext, type APIResponse } from '@playwright/test';
+import { APIRequestContext, type APIResponse, request as playwrightRequest } from '@playwright/test';
 import * as crypto from 'crypto';
 
 /**
@@ -162,6 +162,7 @@ export class TestDataManager {
   private resources: ManagedResource[] = [];
   private namespace: string;
   private request: APIRequestContext;
+  private baseURLPromise: Promise<string> | null = null;
 
   /**
    * Creates a new TestDataManager instance
@@ -174,6 +175,33 @@ export class TestDataManager {
     this.namespace = testName
       ? `test-${this.sanitize(testName)}-${Date.now()}`
       : `test-${crypto.randomUUID()}`;
+  }
+
+  private async getBaseURL(): Promise<string> {
+    if (this.baseURLPromise) {
+      return await this.baseURLPromise;
+    }
+
+    this.baseURLPromise = (async () => {
+      const envBaseURL = process.env.PLAYWRIGHT_BASE_URL;
+      if (envBaseURL) {
+        try {
+          return new URL(envBaseURL).origin;
+        } catch {
+          return envBaseURL;
+        }
+      }
+
+      try {
+        const response = await this.request.get('/api/v1/health');
+        return new URL(response.url()).origin;
+      } catch {
+        // Default matches playwright.config.js non-coverage baseURL
+        return 'http://127.0.0.1:8080';
+      }
+    })();
+
+    return await this.baseURLPromise;
   }
 
   /**
@@ -474,20 +502,36 @@ export class TestDataManager {
       createdAt: new Date(),
     });
 
-    // Automatically log in the user and return token
-    const loginResponse = await this.request.post('/api/v1/auth/login', {
-      data: { email: namespacedEmail, password: data.password },
+    // Automatically log in the user and return token.
+    //
+    // IMPORTANT: Do NOT log in using the manager's request context.
+    // The request context is expected to remain admin-authenticated so later
+    // operations (and automatic cleanup) can delete resources regardless of
+    // the created user's role.
+    const loginContext = await playwrightRequest.newContext({
+      baseURL: await this.getBaseURL(),
+      extraHTTPHeaders: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
     });
 
-    if (!loginResponse.ok()) {
-      // User created but login failed - still return user info
-      console.warn(`User created but login failed: ${await loginResponse.text()}`);
-      return { id: result.id, email: namespacedEmail, token: '' };
+    try {
+      const loginResponse = await loginContext.post('/api/v1/auth/login', {
+        data: { email: namespacedEmail, password: data.password },
+      });
+
+      if (!loginResponse.ok()) {
+        // User created but login failed - still return user info
+        console.warn(`User created but login failed: ${await loginResponse.text()}`);
+        return { id: result.id, email: namespacedEmail, token: '' };
+      }
+
+      const { token } = await loginResponse.json();
+      return { id: result.id, email: namespacedEmail, token };
+    } finally {
+      await loginContext.dispose();
     }
-
-    const { token } = await loginResponse.json();
-
-    return { id: result.id, email: namespacedEmail, token };
   }
 
   /**

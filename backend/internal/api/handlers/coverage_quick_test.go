@@ -27,6 +27,10 @@ func TestBackupHandlerQuick(t *testing.T) {
 	h := NewBackupHandler(svc)
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		setAdminContext(c)
+		c.Next()
+	})
 	// register routes used
 	r.GET("/backups", h.List)
 	r.POST("/backups", h.Create)

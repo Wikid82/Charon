@@ -12,7 +12,7 @@
  * @see /projects/Charon/frontend/src/pages/UsersPage.tsx
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import { test, expect, loginUser, logoutUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
 import {
   waitForLoadingComplete,
   waitForToast,
@@ -409,26 +409,46 @@ test.describe('User Management', () => {
      * Priority: P1
      */
     test('should show invite URL preview', async ({ page }) => {
-      await test.step('Open invite modal', async () => {
+      const inviteModal = await test.step('Open invite modal', async () => {
         const inviteButton = page.getByRole('button', { name: /invite.*user/i });
         await inviteButton.click();
+        return await waitForModal(page, /invite.*user/i);
       });
 
       await test.step('Enter valid email', async () => {
-        const emailInput = page.getByPlaceholder(/user@example/i);
+        // Debounced API call triggers invite URL preview
+        const previewResponsePromise = waitForAPIResponse(
+          page,
+          /\/api\/v1\/users\/preview-invite-url\/?(?:\?.*)?$/,
+          { status: 200 }
+        );
+
+        const emailInput = inviteModal.getByPlaceholder(/user@example/i);
         await emailInput.fill('preview-test@example.com');
+        await previewResponsePromise;
       });
 
       await test.step('Wait for URL preview to appear', async () => {
-        // URL preview appears after debounced API call
-        // Wait for invite generation (triggers after email is filled)
-        await page.waitForTimeout(500);
+        // When app.public_url is not configured, the backend returns an empty preview URL
+        // and the UI shows a warning with a link to system settings.
+        const warningAlert = inviteModal
+          .getByRole('alert')
+          .filter({ hasText: /application url is not configured/i })
+          .first();
+        const previewUrlText = inviteModal
+          .locator('div.font-mono')
+          .filter({ hasText: /accept-invite\?token=/i })
+          .first();
 
-        const urlPreview = page.locator('input[readonly]').filter({
-          hasText: /accept.*invite|token/i,
-        });
+        await expect(warningAlert.or(previewUrlText).first()).toBeVisible({ timeout: 5000 });
 
-        await expect(urlPreview.first()).toBeVisible({ timeout: 5000 });
+        if (await warningAlert.isVisible().catch(() => false)) {
+          const configureLink = warningAlert.getByRole('link', { name: /configure.*application url/i });
+          await expect(configureLink).toBeVisible();
+          await expect(configureLink).toHaveAttribute('href', '/settings/system');
+        } else {
+          await expect(previewUrlText).toBeVisible();
+        }
       });
     });
 
@@ -635,37 +655,37 @@ test.describe('User Management', () => {
      * Test: Add permitted hosts
      * Priority: P0
      */
-    test('should add permitted hosts', async ({ page, testData }) => {
-      // SKIP: Depends on settings (permissions) button which is not yet implemented
-      const testUser = await testData.createUser({
-        name: 'Add Hosts Test',
-        email: `add-hosts-${Date.now()}@test.local`,
-        password: TEST_PASSWORD,
-        role: 'user',
-      });
+	    test('should add permitted hosts', async ({ page, testData }) => {
+	      // SKIP: Depends on settings (permissions) button which is not yet implemented
+	      const testUser = await testData.createUser({
+	        name: 'Add Hosts Test',
+	        email: `add-hosts-${Date.now()}@test.local`,
+	        password: TEST_PASSWORD,
+	        role: 'user',
+	      });
 
-      await test.step('Open permissions modal', async () => {
-        await page.reload();
-        await waitForLoadingComplete(page);
+	      const permissionsModal = await test.step('Open permissions modal', async () => {
+	        await page.reload();
+	        await waitForLoadingComplete(page);
 
-        const userRow = page.getByRole('row').filter({
-          hasText: testUser.email,
+	        const userRow = page.getByRole('row').filter({
+	          hasText: testUser.email,
         });
 
         const permissionsButton = userRow.locator('button').filter({
           has: page.locator('svg.lucide-settings'),
-        });
+	        });
 
-        await permissionsButton.first().click();
-        await page.waitForTimeout(500);
-      });
+	        await permissionsButton.first().click();
+	        return await waitForModal(page, /permissions/i);
+	      });
 
-      await test.step('Check a host to add', async () => {
-        const hostCheckboxes = page.locator('input[type="checkbox"]');
-        const count = await hostCheckboxes.count();
+	      await test.step('Check a host to add', async () => {
+	        const hostCheckboxes = permissionsModal.locator('input[type="checkbox"]');
+	        const count = await hostCheckboxes.count();
 
-        if (count === 0) {
-          // No hosts to add - return
+	        if (count === 0) {
+	          // No hosts to add - return
           return;
         }
 
@@ -674,12 +694,12 @@ test.describe('User Management', () => {
           await firstCheckbox.check();
         }
         await expect(firstCheckbox).toBeChecked();
-      });
+	      });
 
-      await test.step('Save changes', async () => {
-        const saveButton = page.getByRole('button', { name: /save/i });
-        await saveButton.click();
-      });
+	      await test.step('Save changes', async () => {
+	        const saveButton = permissionsModal.getByRole('button', { name: /save/i });
+	        await saveButton.click();
+	      });
 
       await test.step('Verify success', async () => {
         await waitForToast(page, /updated|saved|success/i, { type: 'success' });
@@ -690,36 +710,36 @@ test.describe('User Management', () => {
      * Test: Remove permitted hosts
      * Priority: P1
      */
-    test('should remove permitted hosts', async ({ page, testData }) => {
-      const testUser = await testData.createUser({
-        name: 'Remove Hosts Test',
-        email: `remove-hosts-${Date.now()}@test.local`,
-        password: TEST_PASSWORD,
-        role: 'user',
-      });
+	    test('should remove permitted hosts', async ({ page, testData }) => {
+	      const testUser = await testData.createUser({
+	        name: 'Remove Hosts Test',
+	        email: `remove-hosts-${Date.now()}@test.local`,
+	        password: TEST_PASSWORD,
+	        role: 'user',
+	      });
 
-      await test.step('Open permissions modal', async () => {
-        await page.reload();
-        await waitForLoadingComplete(page);
+	      const permissionsModal = await test.step('Open permissions modal', async () => {
+	        await page.reload();
+	        await waitForLoadingComplete(page);
 
-        const userRow = page.getByRole('row').filter({
-          hasText: testUser.email,
+	        const userRow = page.getByRole('row').filter({
+	          hasText: testUser.email,
         });
 
         const permissionsButton = userRow.locator('button').filter({
           has: page.locator('svg.lucide-settings'),
-        });
+	        });
 
-        await permissionsButton.first().click();
-        await page.waitForTimeout(500);
-      });
+	        await permissionsButton.first().click();
+	        return await waitForModal(page, /permissions/i);
+	      });
 
-      await test.step('Uncheck a checked host', async () => {
-        const hostCheckboxes = page.locator('input[type="checkbox"]');
-        const count = await hostCheckboxes.count();
+	      await test.step('Uncheck a checked host', async () => {
+	        const hostCheckboxes = permissionsModal.locator('input[type="checkbox"]');
+	        const count = await hostCheckboxes.count();
 
-        if (count === 0) {
-          return;
+	        if (count === 0) {
+	          return;
         }
 
         // First check a box, then uncheck it
@@ -733,12 +753,12 @@ test.describe('User Management', () => {
 
         await firstCheckbox.uncheck();
         await expect(firstCheckbox).not.toBeChecked();
-      });
+	      });
 
-      await test.step('Save changes', async () => {
-        const saveButton = page.getByRole('button', { name: /save/i });
-        await saveButton.click();
-      });
+	      await test.step('Save changes', async () => {
+	        const saveButton = permissionsModal.getByRole('button', { name: /save/i });
+	        await saveButton.click();
+	      });
 
       await test.step('Verify success', async () => {
         await waitForToast(page, /updated|saved|success/i, { type: 'success' });
@@ -1129,12 +1149,7 @@ test.describe('User Management', () => {
     // Skip: Admin access control is enforced via routing/middleware, not visible error messages
     test('should require admin role for access', async ({ page, regularUser }) => {
       await test.step('Logout current admin', async () => {
-        // Navigate to logout or click logout button
-        const logoutButton = page.getByText(/logout/i);
-        if (await logoutButton.isVisible()) {
-          await logoutButton.click();
-          await page.waitForURL(/\/login/);
-        }
+        await logoutUser(page);
       });
 
       await test.step('Login as regular user', async () => {
@@ -1142,18 +1157,30 @@ test.describe('User Management', () => {
         await waitForLoadingComplete(page);
       });
 
-      await test.step('Attempt to access users page', async () => {
+      const listUsersResponse = await test.step('Attempt to access users page', async () => {
+        const responsePromise = page.waitForResponse(
+          (response) =>
+            response.request().method() === 'GET' &&
+            /\/api\/v1\/users\/?(?:\?.*)?$/.test(response.url()) &&
+            !/\/api\/v1\/users\/preview-invite-url\/?(?:\?.*)?$/.test(response.url()),
+          { timeout: 15000 }
+        ).catch(() => null);
+
         await page.goto('/users', { waitUntil: 'domcontentloaded' });
-        await waitForLoadingComplete(page);
+        return await responsePromise;
       });
 
       await test.step('Verify access denied or redirect', async () => {
         // Should either redirect to home/dashboard or show error
         const currentUrl = page.url();
         const isRedirected = !currentUrl.includes('/users');
-        const hasError = await page.getByText(/access.*denied|not.*authorized|forbidden/i).isVisible({ timeout: 3000 }).catch(() => false);
+        const hasForbiddenResponse = listUsersResponse?.status() === 403;
+        const hasError = await page
+          .getByText(/admin access required|access.*denied|not.*authorized|forbidden/i)
+          .isVisible({ timeout: 3000 })
+          .catch(() => false);
 
-        expect(isRedirected || hasError).toBeTruthy();
+        expect(isRedirected || hasForbiddenResponse || hasError).toBeTruthy();
       });
     });
 
@@ -1164,29 +1191,34 @@ test.describe('User Management', () => {
     // Skip: Admin access control is enforced via routing/middleware, not visible error messages
     test('should show error for regular user access', async ({ page, regularUser }) => {
       await test.step('Logout and login as regular user', async () => {
-        const logoutButton = page.getByText(/logout/i);
-        if (await logoutButton.isVisible()) {
-          await logoutButton.click();
-          await page.waitForURL(/\/login/);
-        }
+        await logoutUser(page);
 
         await loginUser(page, regularUser);
         await waitForLoadingComplete(page);
       });
 
-      await test.step('Navigate to users page directly', async () => {
+      const listUsersResponse = await test.step('Navigate to users page directly', async () => {
+        const responsePromise = page.waitForResponse(
+          (response) =>
+            response.request().method() === 'GET' &&
+            /\/api\/v1\/users\/?(?:\?.*)?$/.test(response.url()) &&
+            !/\/api\/v1\/users\/preview-invite-url\/?(?:\?.*)?$/.test(response.url()),
+          { timeout: 15000 }
+        ).catch(() => null);
+
         await page.goto('/users', { waitUntil: 'domcontentloaded' });
-        await waitForLoadingComplete(page);
+        return await responsePromise;
       });
 
       await test.step('Verify error message or redirect', async () => {
         // Check for error toast, error page, or redirect
-        const errorMessage = page.getByText(/access.*denied|unauthorized|forbidden|permission/i);
+        const errorMessage = page.getByText(/admin access required|access.*denied|unauthorized|forbidden|permission/i);
         const hasError = await errorMessage.isVisible({ timeout: 3000 }).catch(() => false);
 
         const isRedirected = !page.url().includes('/users');
+        const hasForbiddenResponse = listUsersResponse?.status() === 403;
 
-        expect(hasError || isRedirected).toBeTruthy();
+        expect(hasError || isRedirected || hasForbiddenResponse).toBeTruthy();
       });
     });
 

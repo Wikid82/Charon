@@ -14,6 +14,7 @@ type Config struct {
 	Environment     string
 	HTTPPort        string
 	DatabasePath    string
+	ConfigRoot      string
 	FrontendDir     string
 	CaddyAdminAPI   string
 	CaddyConfigDir  string
@@ -23,6 +24,10 @@ type Config struct {
 	JWTSecret       string
 	EncryptionKey   string
 	ACMEStaging     bool
+	SingleContainer bool
+	PluginsDir      string
+	CaddyLogDir     string
+	CrowdSecLogDir  string
 	Debug           bool
 	Security        SecurityConfig
 	Emergency       EmergencyConfig
@@ -82,6 +87,7 @@ func Load() (Config, error) {
 		Environment:     getEnvAny("development", "CHARON_ENV", "CPM_ENV"),
 		HTTPPort:        getEnvAny("8080", "CHARON_HTTP_PORT", "CPM_HTTP_PORT"),
 		DatabasePath:    getEnvAny(filepath.Join("data", "charon.db"), "CHARON_DB_PATH", "CPM_DB_PATH"),
+		ConfigRoot:      getEnvAny("/config", "CHARON_CADDY_CONFIG_ROOT"),
 		FrontendDir:     getEnvAny(filepath.Clean(filepath.Join("..", "frontend", "dist")), "CHARON_FRONTEND_DIR", "CPM_FRONTEND_DIR"),
 		CaddyAdminAPI:   getEnvAny("http://localhost:2019", "CHARON_CADDY_ADMIN_API", "CPM_CADDY_ADMIN_API"),
 		CaddyConfigDir:  getEnvAny(filepath.Join("data", "caddy"), "CHARON_CADDY_CONFIG_DIR", "CPM_CADDY_CONFIG_DIR"),
@@ -91,6 +97,10 @@ func Load() (Config, error) {
 		JWTSecret:       getEnvAny("change-me-in-production", "CHARON_JWT_SECRET", "CPM_JWT_SECRET"),
 		EncryptionKey:   getEnvAny("", "CHARON_ENCRYPTION_KEY"),
 		ACMEStaging:     getEnvAny("", "CHARON_ACME_STAGING", "CPM_ACME_STAGING") == "true",
+		SingleContainer: strings.EqualFold(getEnvAny("true", "CHARON_SINGLE_CONTAINER_MODE"), "true"),
+		PluginsDir:      getEnvAny("/app/plugins", "CHARON_PLUGINS_DIR"),
+		CaddyLogDir:     getEnvAny("/var/log/caddy", "CHARON_CADDY_LOG_DIR"),
+		CrowdSecLogDir:  getEnvAny("/var/log/crowdsec", "CHARON_CROWDSEC_LOG_DIR"),
 		Security:        loadSecurityConfig(),
 		Emergency:       loadEmergencyConfig(),
 		Debug:           getEnvAny("false", "CHARON_DEBUG", "CPM_DEBUG") == "true",

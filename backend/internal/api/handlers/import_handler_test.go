@@ -106,6 +106,13 @@ func setupTestHandler(t *testing.T, db *gorm.DB) (*ImportHandler, *mockProxyHost
 	return handler, mockSvc, mockImport
 }
 
+func addAdminMiddleware(router *gin.Engine) {
+	router.Use(func(c *gin.Context) {
+		setAdminContext(c)
+		c.Next()
+	})
+}
+
 // TestUpload_NormalizationSuccess verifies single-line Caddyfile formatting
 func TestUpload_NormalizationSuccess(t *testing.T) {
 	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
@@ -142,6 +149,7 @@ func TestUpload_NormalizationSuccess(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -190,6 +198,7 @@ func TestUpload_NormalizationFailure(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -230,6 +239,7 @@ func TestUpload_PathTraversalBlocked(t *testing.T) {
 
 				gin.SetMode(gin.TestMode)
 				router := gin.New()
+				addAdminMiddleware(router)
 				handler.RegisterRoutes(router.Group("/api/v1"))
 				router.ServeHTTP(w, req)
 
@@ -270,6 +280,7 @@ func TestUploadMulti_ArchiveExtraction(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -315,6 +326,7 @@ func TestUploadMulti_ConflictDetection(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -353,6 +365,7 @@ func TestCommit_TransientToImport(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -397,6 +410,7 @@ func TestCommit_RollbackOnError(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -429,6 +443,7 @@ func TestDetectImports_EmptyCaddyfile(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -573,6 +588,7 @@ func TestImportHandler_Upload_NullByteInjection(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -599,6 +615,7 @@ func TestImportHandler_DetectImports_MalformedFile(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -744,6 +761,7 @@ func TestImportHandler_Upload_InvalidSessionPaths(t *testing.T) {
 
 				gin.SetMode(gin.TestMode)
 				router := gin.New()
+				addAdminMiddleware(router)
 				handler.RegisterRoutes(router.Group("/api/v1"))
 				router.ServeHTTP(w, req)
 

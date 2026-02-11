@@ -127,6 +127,16 @@ func setupSettingsTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+func newAdminRouter() *gin.Engine {
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
+	return router
+}
+
 func TestSettingsHandler_GetSettings(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
@@ -135,7 +145,7 @@ func TestSettingsHandler_GetSettings(t *testing.T) {
 	db.Create(&models.Setting{Key: "test_key", Value: "test_value", Category: "general", Type: "string"})
 
 	handler := handlers.NewSettingsHandler(db)
-	router := gin.New()
+	router := newAdminRouter()
 	router.GET("/settings", handler.GetSettings)
 
 	w := httptest.NewRecorder()
@@ -159,7 +169,7 @@ func TestSettingsHandler_GetSettings_DatabaseError(t *testing.T) {
 	_ = sqlDB.Close()
 
 	handler := handlers.NewSettingsHandler(db)
-	router := gin.New()
+	router := newAdminRouter()
 	router.GET("/settings", handler.GetSettings)
 
 	w := httptest.NewRecorder()
@@ -178,7 +188,7 @@ func TestSettingsHandler_UpdateSettings(t *testing.T) {
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
-	router := gin.New()
+	router := newAdminRouter()
 	router.POST("/settings", handler.UpdateSetting)
 
 	// Test Create
@@ -221,7 +231,7 @@ func TestSettingsHandler_UpdateSetting_SyncsAdminWhitelist(t *testing.T) {
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
-	router := gin.New()
+	router := newAdminRouter()
 	router.POST("/settings", handler.UpdateSetting)
 
 	payload := map[string]string{
@@ -248,7 +258,7 @@ func TestSettingsHandler_UpdateSetting_EnablesCerberusWhenACLEnabled(t *testing.
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
-	router := gin.New()
+	router := newAdminRouter()
 	router.POST("/settings", handler.UpdateSetting)
 
 	payload := map[string]string{
@@ -290,7 +300,7 @@ func TestSettingsHandler_PatchConfig_SyncsAdminWhitelist(t *testing.T) {
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -322,7 +332,7 @@ func TestSettingsHandler_PatchConfig_EnablesCerberusWhenACLEnabled(t *testing.T)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -361,7 +371,7 @@ func TestSettingsHandler_UpdateSetting_DatabaseError(t *testing.T) {
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
-	router := gin.New()
+	router := newAdminRouter()
 	router.POST("/settings", handler.UpdateSetting)
 
 	// Close the database to force an error
@@ -391,7 +401,7 @@ func TestSettingsHandler_Errors(t *testing.T) {
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
-	router := gin.New()
+	router := newAdminRouter()
 	router.POST("/settings", handler.UpdateSetting)
 
 	// Invalid JSON
@@ -438,7 +448,7 @@ func TestSettingsHandler_GetSMTPConfig(t *testing.T) {
 	db.Create(&models.Setting{Key: "smtp_from_address", Value: "noreply@example.com", Category: "smtp", Type: "string"})
 	db.Create(&models.Setting{Key: "smtp_encryption", Value: "starttls", Category: "smtp", Type: "string"})
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.GET("/settings/smtp", handler.GetSMTPConfig)
 
 	w := httptest.NewRecorder()
@@ -459,7 +469,7 @@ func TestSettingsHandler_GetSMTPConfig_Empty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.GET("/settings/smtp", handler.GetSMTPConfig)
 
 	w := httptest.NewRecorder()
@@ -479,7 +489,7 @@ func TestSettingsHandler_GetSMTPConfig_DatabaseError(t *testing.T) {
 	sqlDB, _ := db.DB()
 	_ = sqlDB.Close()
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.GET("/settings/smtp", handler.GetSMTPConfig)
 
 	w := httptest.NewRecorder()
@@ -493,7 +503,7 @@ func TestSettingsHandler_UpdateSMTPConfig_NonAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "user")
 		c.Next()
@@ -519,7 +529,7 @@ func TestSettingsHandler_UpdateSMTPConfig_InvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -538,7 +548,7 @@ func TestSettingsHandler_UpdateSMTPConfig_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -573,7 +583,7 @@ func TestSettingsHandler_UpdateSMTPConfig_KeepExistingPassword(t *testing.T) {
 	db.Create(&models.Setting{Key: "smtp_from_address", Value: "old@example.com", Category: "smtp", Type: "string"})
 	db.Create(&models.Setting{Key: "smtp_encryption", Value: "none", Category: "smtp", Type: "string"})
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -606,7 +616,7 @@ func TestSettingsHandler_TestSMTPConfig_NonAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "user")
 		c.Next()
@@ -624,7 +634,7 @@ func TestSettingsHandler_TestSMTPConfig_NotConfigured(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -652,7 +662,7 @@ func TestSettingsHandler_TestSMTPConfig_Success(t *testing.T) {
 	db.Create(&models.Setting{Key: "smtp_port", Value: fmt.Sprintf("%d", port), Category: "smtp", Type: "number"})
 	db.Create(&models.Setting{Key: "smtp_encryption", Value: "none", Category: "smtp", Type: "string"})
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -674,7 +684,7 @@ func TestSettingsHandler_SendTestEmail_NonAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "user")
 		c.Next()
@@ -695,7 +705,7 @@ func TestSettingsHandler_SendTestEmail_InvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -714,7 +724,7 @@ func TestSettingsHandler_SendTestEmail_NotConfigured(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -746,7 +756,7 @@ func TestSettingsHandler_SendTestEmail_Success(t *testing.T) {
 	db.Create(&models.Setting{Key: "smtp_from_address", Value: "noreply@example.com", Category: "smtp", Type: "string"})
 	db.Create(&models.Setting{Key: "smtp_encryption", Value: "none", Category: "smtp", Type: "string"})
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -780,7 +790,7 @@ func TestSettingsHandler_ValidatePublicURL_NonAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "user")
 		c.Next()
@@ -801,7 +811,7 @@ func TestSettingsHandler_ValidatePublicURL_InvalidFormat(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -838,7 +848,7 @@ func TestSettingsHandler_ValidatePublicURL_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -878,7 +888,7 @@ func TestSettingsHandler_TestPublicURL_NonAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "user")
 		c.Next()
@@ -899,7 +909,7 @@ func TestSettingsHandler_TestPublicURL_NoRole(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	// No role set in context
 	router.POST("/settings/test-url", handler.TestPublicURL)
 
@@ -917,7 +927,7 @@ func TestSettingsHandler_TestPublicURL_InvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -936,7 +946,7 @@ func TestSettingsHandler_TestPublicURL_InvalidURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -961,7 +971,7 @@ func TestSettingsHandler_TestPublicURL_PrivateIPBlocked(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -1017,7 +1027,7 @@ func TestSettingsHandler_TestPublicURL_Success(t *testing.T) {
 	// Alternative: Refactor handler to accept injectable URL validator (future improvement).
 	publicTestURL := "https://example.com"
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -1045,7 +1055,7 @@ func TestSettingsHandler_TestPublicURL_DNSFailure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -1074,7 +1084,7 @@ func TestSettingsHandler_TestPublicURL_ConnectivityError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -1165,7 +1175,7 @@ func TestSettingsHandler_TestPublicURL_SSRFProtection(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			handler, _ := setupSettingsHandlerWithMail(t)
 
-			router := gin.New()
+			router := newAdminRouter()
 			router.Use(func(c *gin.Context) {
 				c.Set("role", "admin")
 				c.Next()
@@ -1200,7 +1210,7 @@ func TestSettingsHandler_TestPublicURL_EmbeddedCredentials(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -1228,7 +1238,7 @@ func TestSettingsHandler_TestPublicURL_EmptyURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -1260,7 +1270,7 @@ func TestSettingsHandler_TestPublicURL_InvalidScheme(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -1300,7 +1310,7 @@ func TestSettingsHandler_ValidatePublicURL_InvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -1319,7 +1329,7 @@ func TestSettingsHandler_ValidatePublicURL_URLWithWarning(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -1350,7 +1360,7 @@ func TestSettingsHandler_UpdateSMTPConfig_DatabaseError(t *testing.T) {
 	sqlDB, _ := db.DB()
 	_ = sqlDB.Close()
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
@@ -1379,7 +1389,7 @@ func TestSettingsHandler_TestPublicURL_IPv6LocalhostBlocked(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := gin.New()
+	router := newAdminRouter()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
 		c.Next()
