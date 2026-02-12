@@ -10,7 +10,7 @@
  * - Port 2020 accessible from test environment
  * - Basic Auth credentials configured
  *
- * Reference: docs/plans/break_glass_protocol_redesign.md - Phase 3.2
+ * Reference: docs/plans/break_glass_protocol_redesign.md
  */
 
 import { test, expect, request as playwrightRequest } from '@playwright/test';
