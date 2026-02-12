@@ -1,262 +1,210 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import {
+  clickAndWaitForResponse,
+  waitForAPIResponse,
+  waitForLoadingComplete,
+  waitForModal,
+  waitForResourceInUI,
+} from '../utils/wait-helpers';
 
 /**
- * Phase 4 UAT: Domain & DNS Management
+ * Domain & DNS Management Workflow
  *
  * Purpose: Validate domain and DNS provider management
  * Scenarios: Add domain, configure DNS, SSL cert management
  * Success: Domains created and certificates managed
  */
 
-test.describe('UAT-005: Domain & DNS Management', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await page.waitForSelector('[data-testid="dashboard-container"], [role="main"]', { timeout: 5000 });
+const DOMAIN_API_PATTERN = /\/api\/v1\/domains/;
+const DNS_PROVIDERS_API_PATTERN = /\/api\/v1\/dns-providers/;
+
+function generateDomainName(seed: string): string {
+  const timestamp = Date.now().toString(36);
+  return `${seed}-${timestamp}.example.com`;
+}
+
+async function navigateToDomains(page: import('@playwright/test').Page): Promise<void> {
+  const domainsResponse = waitForAPIResponse(page, DOMAIN_API_PATTERN);
+  await page.goto('/domains');
+  await domainsResponse;
+  await waitForLoadingComplete(page);
+}
+
+async function navigateToDnsProviders(page: import('@playwright/test').Page): Promise<void> {
+  const providersResponse = waitForAPIResponse(page, DNS_PROVIDERS_API_PATTERN);
+  await page.goto('/dns/providers');
+  await providersResponse;
+  await waitForLoadingComplete(page);
+}
+
+test.describe('Domain & DNS Management', () => {
+  test.beforeEach(async ({ page, adminUser }) => {
+    await loginUser(page, adminUser);
+    await waitForLoadingComplete(page, { timeout: 15000 });
+    await expect(page.getByRole('main')).toBeVisible({ timeout: 15000 });
   });
 
-  // UAT-401: Add domain
-  test('Add domain to system', async ({ page }) => {
+  // Add domain
+  test('Domain - add via UI and verify in list', async ({ page }) => {
+    const domainName = generateDomainName('ui-domain');
+    let createdId: string | undefined;
+
     await test.step('Navigate to domains page', async () => {
-      const domainsLink = page.getByRole('link', { name: /domain|dns/i });
-      await domainsLink.click();
-      await page.waitForSelector('[data-testid="domains-list"], [class*="domain"]', { timeout: 5000 });
+      await navigateToDomains(page);
     });
 
-    await test.step('Click add domain button', async () => {
-      const addButton = page.getByRole('button', { name: /add|create|new/i }).first();
+    await test.step('Fill and submit domain form', async () => {
+      const domainInput = page.getByRole('textbox').first();
+      await expect(domainInput).toBeVisible();
+      await domainInput.fill(domainName);
+
+      const addButton = page.getByRole('button', { name: /add domain/i }).first();
+      const response = await clickAndWaitForResponse(page, addButton, DOMAIN_API_PATTERN, { status: 201 });
+      const payload = await response.json();
+      createdId = payload.uuid || payload.id;
+    });
+
+    await test.step('Verify domain card is visible', async () => {
+      await waitForResourceInUI(page, domainName);
+      await expect(page.getByRole('heading', { name: domainName })).toBeVisible();
+    });
+
+    await test.step('Clean up domain via API', async () => {
+      if (createdId) {
+        await page.request.delete(`/api/v1/domains/${createdId}`);
+      }
+    });
+  });
+
+  // View DNS records
+  test('Domain - delete via UI with confirmation dialog', async ({ page }) => {
+    const domainName = generateDomainName('delete-domain');
+    const createResponse = await page.request.post('/api/v1/domains', {
+      data: { name: domainName },
+    });
+    const created = await createResponse.json();
+    const domainId = created.uuid || created.id;
+
+    await test.step('Navigate to domains page', async () => {
+      await navigateToDomains(page);
+    });
+
+    await test.step('Confirm domain card is visible', async () => {
+      await waitForResourceInUI(page, domainName);
+      await expect(page.getByRole('heading', { name: domainName })).toBeVisible();
+    });
+
+    await test.step('Delete domain from card', async () => {
+      const domainCard = page.locator('div').filter({
+        has: page.getByRole('heading', { name: domainName }),
+      }).first();
+      await expect(domainCard).toBeVisible();
+
+      const deleteButton = domainCard.getByRole('button', { name: /delete/i }).first();
+      await expect(deleteButton).toBeVisible();
+
+      page.once('dialog', async (dialog) => {
+        await dialog.accept();
+      });
+
+      const deleteResponse = clickAndWaitForResponse(
+        page,
+        deleteButton,
+        new RegExp(`/api/v1/domains/${domainId}`),
+        { status: 200 }
+      );
+
+      await deleteResponse;
+    });
+  });
+
+  // Add DNS provider
+  test('DNS Providers - list providers after API seed', async ({ page, testData }) => {
+    const { name } = await testData.createDNSProvider({
+      providerType: 'manual',
+      name: 'Domain-Management-DNS',
+      credentials: {},
+    });
+
+    await test.step('Navigate to DNS providers page', async () => {
+      await navigateToDnsProviders(page);
+    });
+
+    await test.step('Verify provider card is visible', async () => {
+      await waitForResourceInUI(page, name);
+      await expect(page.getByRole('heading', { name })).toBeVisible();
+    });
+  });
+
+  // Verify domain ownership
+  test('DNS Providers - open form and load provider types', async ({ page }) => {
+    await test.step('Navigate to DNS providers page', async () => {
+      await navigateToDnsProviders(page);
+    });
+
+    await test.step('Open add provider dialog', async () => {
+      await page.request.get('/api/v1/dns-providers/types');
+      const addButton = page.getByRole('button', { name: /add.*provider/i }).first();
       await addButton.click();
-      await page.waitForSelector('[role="dialog"], form', { timeout: 3000 });
+      await waitForModal(page, /provider/i);
     });
 
-    await test.step('Fill domain details', async () => {
-      await page.getByLabel(/domain|name|hostname/i).fill('test.example.com');
+    await test.step('Select provider type and verify credentials section', async () => {
+      const providerType = page.getByRole('combobox', { name: /provider type/i }).first();
+      await expect(providerType).toBeVisible();
+      await providerType.click();
 
-      const descriptionField = page.getByLabel(/description|notes/i);
-      if (await descriptionField.isVisible()) {
-        await descriptionField.fill('Test domain');
-      }
-    });
+      const manualOption = page.getByRole('option').filter({ hasText: /manual/i }).first();
+      await expect(manualOption).toBeVisible();
+      await manualOption.click();
 
-    await test.step('Submit domain', async () => {
-      const submitButton = page.getByRole('button', { name: /create|submit|save/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
-    });
-
-    await test.step('Verify domain created', async () => {
-      const domainElement = page.locator('text=test.example.com').first();
-      await expect(domainElement).toBeVisible();
+      await expect(page.getByTestId('credentials-section')).toBeVisible();
     });
   });
 
-  // UAT-402: View DNS records
-  test('View DNS records for domain', async ({ page }) => {
-    await test.step('Navigate to domains', async () => {
-      await page.goto('/domains', { waitUntil: 'networkidle' });
+  // Renew SSL certificate
+  test('DNS Providers - delete provider via API and verify removal', async ({ page, testData }) => {
+    const { id, name } = await testData.createDNSProvider({
+      providerType: 'manual',
+      name: 'Delete-Provider-DNS',
+      credentials: {},
     });
 
-    await test.step('Select domain to view records', async () => {
-      const domainRow = page.locator('text=example.com').first();
-      if (await domainRow.isVisible()) {
-        const viewButton = domainRow.locator('..').getByRole('button', { name: /view|dns|records/i }).first();
-        if (await viewButton.isVisible()) {
-          await viewButton.click();
-          await page.waitForLoadState('networkidle');
-        }
-      }
+    await test.step('Navigate to DNS providers page', async () => {
+      await navigateToDnsProviders(page);
     });
 
-    await test.step('Verify DNS records displayed', async () => {
-      const recordsSection = page.getByText(/dns|record|a\s+record|cname|mx/i).first();
-      if (await recordsSection.isVisible()) {
-        await expect(recordsSection).toBeVisible();
-      }
-    });
-  });
-
-  // UAT-403: Add DNS provider
-  test('Add DNS provider configuration', async ({ page }) => {
-    await test.step('Navigate to DNS provider settings', async () => {
-      await page.goto('/settings', { waitUntil: 'networkidle' });
-
-      const dnsTab = page.getByRole('tab', { name: /dns|provider/i }).first();
-      if (await dnsTab.isVisible()) {
-        await dnsTab.click();
-      }
+    await test.step('Verify provider card is visible', async () => {
+      const providerCard = page.locator('div').filter({
+        has: page.getByRole('heading', { name }),
+      }).first();
+      await expect(providerCard).toBeVisible();
     });
 
-    await test.step('Click add provider button', async () => {
-      const addButton = page.getByRole('button', { name: /add|create|new.*provider/i }).first();
-      if (await addButton.isVisible()) {
-        await addButton.click();
-        await page.waitForSelector('[role="dialog"], form');
-      }
+    await test.step('Delete provider via API', async () => {
+      await page.request.delete(`/api/v1/dns-providers/${id}`);
     });
 
-    await test.step('Fill provider details', async () => {
-      const providerSelect = page.locator('select[name*="provider"], [role="combobox"]').first();
-      if (await providerSelect.isVisible()) {
-        await providerSelect.selectOption(0); // Select first available
-      }
-
-      const keyInput = page.getByLabel(/key|api.?key|token|credential/i).first();
-      if (await keyInput.isVisible()) {
-        // Don't fill with real credentials - just verify field
-        expect(await keyInput.isVisible()).toBe(true);
-      }
-    });
-
-    await test.step('Save provider', async () => {
-      const saveButton = page.getByRole('button', { name: /save|create|add/i }).first();
-      if (await saveButton.isVisible()) {
-        await saveButton.click();
-        await page.waitForLoadState('networkidle');
-      }
+    await test.step('Verify provider card removed', async () => {
+      await navigateToDnsProviders(page);
+      await expect(page.getByRole('heading', { name })).toHaveCount(0);
     });
   });
 
-  // UAT-404: Verify domain ownership
-  test('Verify domain ownership', async ({ page }) => {
-    await test.step('Navigate to domains', async () => {
-      await page.goto('/domains', { waitUntil: 'networkidle' });
+  // View domain statistics
+  test('Domains page renders heading and add form', async ({ page }) => {
+    await test.step('Navigate to domains page', async () => {
+      await navigateToDomains(page);
     });
 
-    await test.step('Select domain to verify', async () => {
-      const domainRow = page.locator('text=example.com').first();
-      if (await domainRow.isVisible()) {
-        const verifyButton = domainRow.locator('..').getByRole('button', { name: /verify|validate/i }).first();
-        if (await verifyButton.isVisible()) {
-          await verifyButton.click();
-          await page.waitForLoadState('networkidle');
-        }
-      }
-    });
+    await test.step('Verify heading and form controls', async () => {
+      const heading = page.getByRole('heading', { name: /domains/i }).first();
+      const input = page.getByRole('textbox').first();
+      const addButton = page.getByRole('button', { name: /add domain/i }).first();
 
-    await test.step('Verify verification process shown', async () => {
-      const verificationText = page.getByText(/dns.*txt|cname|verify|valid/i).first();
-      if (await verificationText.isVisible()) {
-        await expect(verificationText).toBeVisible();
-      }
-    });
-  });
-
-  // UAT-405: Renew SSL certificate
-  test('Renew SSL certificate for domain', async ({ page }) => {
-    await test.step('Navigate to domains', async () => {
-      await page.goto('/domains', { waitUntil: 'networkidle' });
-    });
-
-    await test.step('Find domain with certificate', async () => {
-      const domainRow = page.locator('text=example.com').first();
-      if (await domainRow.isVisible()) {
-        const renewButton = domainRow.locator('..').getByRole('button', { name: /renew|refresh|certificate/i }).first();
-        if (await renewButton.isVisible()) {
-          await test.step('Click renew certificate', async () => {
-            await renewButton.click();
-          });
-
-          await test.step('Confirm renewal', async () => {
-            const confirmButton = page.getByRole('button', { name: /confirm|renew|ok/i }).first();
-            if (await confirmButton.isVisible()) {
-              await confirmButton.click();
-              await page.waitForLoadState('networkidle');
-            }
-          });
-        }
-      }
-    });
-
-    await test.step('Verify certificate status updated', async () => {
-      const certStatus = page.getByText(/certificate|valid|renew/i).first();
-      if (await certStatus.isVisible()) {
-        await expect(certStatus).toBeVisible();
-      }
-    });
-  });
-
-  // UAT-406: View domain statistics
-  test('View domain statistics and status', async ({ page }) => {
-    await test.step('Navigate to domains', async () => {
-      await page.goto('/domains', { waitUntil: 'networkidle' });
-    });
-
-    await test.step('Open domain details', async () => {
-      const domainRow = page.locator('text=example.com').first();
-      if (await domainRow.isVisible()) {
-        const statsButton = domainRow.locator('..').getByRole('button', { name: /view|details|stats/i }).first();
-        if (await statsButton.isVisible()) {
-          await statsButton.click();
-          await page.waitForLoadState('networkidle');
-        }
-      }
-    });
-
-    await test.step('Verify stats displayed', async () => {
-      const statsElements = page.locator('[data-testid*="stat"], [class*="stat"]');
-      const count = await statsElements.count();
-      expect(count).toBeGreaterThanOrEqual(0);
-
-      // Look for common stats
-      const certStatus = page.getByText(/certificate|cert|expir/i).first();
-      const dnsStatus = page.getByText(/dns|a\s+record|valid/i).first();
-
-      const hasStats = await certStatus.isVisible().catch(() => false)
-        || await dnsStatus.isVisible().catch(() => false);
-
-      expect(hasStats || count > 0).toBe(true);
-    });
-  });
-
-  // UAT-407: Disable domain temporarily
-  test('Disable domain temporarily', async ({ page }) => {
-    await test.step('Navigate to domains', async () => {
-      await page.goto('/domains', { waitUntil: 'networkidle' });
-    });
-
-    await test.step('Find and disable domain', async () => {
-      const domainRow = page.locator('text=example.com').first();
-      if (await domainRow.isVisible()) {
-        const disableToggle = domainRow.locator('..').locator('input[type="checkbox"]').first();
-        if (await disableToggle.isVisible()) {
-          const isChecked = await disableToggle.isChecked();
-          if (isChecked) {
-            await disableToggle.click();
-            await page.waitForLoadState('networkidle');
-          }
-        }
-      }
-    });
-
-    await test.step('Verify domain disabled', async () => {
-      const disabledIndicator = page.getByText(/inactive|disabled/i).first();
-      if (await disabledIndicator.isVisible()) {
-        await expect(disabledIndicator).toBeVisible();
-      }
-    });
-  });
-
-  // UAT-408: Export domains as JSON
-  test('Export domains configuration as JSON', async ({ page }) => {
-    await test.step('Navigate to domains', async () => {
-      await page.goto('/domains', { waitUntil: 'networkidle' });
-    });
-
-    await test.step('Find export button', async () => {
-      const exportButton = page.getByRole('button', { name: /export|download|json/i }).first();
-      if (await exportButton.isVisible()) {
-        // Set up listener for download
-        const downloadPromise = page.waitForEvent('download');
-
-        await exportButton.click();
-
-        try {
-          const download = await downloadPromise;
-          expect(download.suggestedFilename()).toMatch(/domain|config|export/i);
-        } catch (e) {
-          // Download might not trigger in test environment
-          expect(true);
-        }
-      }
+      await expect(heading).toBeVisible();
+      await expect(input).toBeVisible();
+      await expect(addButton).toBeVisible();
     });
   });
 });
