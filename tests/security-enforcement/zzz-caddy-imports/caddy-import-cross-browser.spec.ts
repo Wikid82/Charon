@@ -17,7 +17,7 @@
  * Those are verified in backend/integration/ tests.
  */
 
-import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
 import { Page } from '@playwright/test';
 
 /**

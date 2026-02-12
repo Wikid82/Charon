@@ -16,7 +16,7 @@
  * - Row-scoped selectors (filter by domain, then find within row)
  */
 
-import { test, expect } from '../fixtures/auth-fixtures';
+import { test, expect } from '../../fixtures/auth-fixtures';
 import type { TestDataManager } from '../utils/TestDataManager';
 import type { Page } from '@playwright/test';
 

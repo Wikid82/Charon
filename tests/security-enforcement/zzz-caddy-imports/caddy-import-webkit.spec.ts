@@ -17,7 +17,7 @@
  * NOTE: Tests are skipped if not running in WebKit browser.
  */
 
-import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
 import { Page } from '@playwright/test';
 
 /**
