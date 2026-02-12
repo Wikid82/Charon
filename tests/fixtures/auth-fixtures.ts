@@ -442,6 +442,13 @@ export async function loginUser(
   try {
     const response = await page.request.post('/api/v1/auth/login', { data: loginPayload });
     if (response.ok()) {
+      const body = await response.json().catch(() => ({})) as { token?: string };
+      if (body.token) {
+        await page.addInitScript((token: string) => {
+          localStorage.setItem('charon_auth_token', token);
+        }, body.token);
+      }
+
       const storageState = await page.request.storageState();
       if (storageState.cookies?.length) {
         await page.context().addCookies(storageState.cookies);
