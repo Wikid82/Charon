@@ -8,7 +8,7 @@
  * - Delete certificate with confirmation and backup
  * - Certificate status indicators and sorting
  *
- * @see /projects/Charon/docs/plans/current_spec.md - Phase 2
+ * @see /projects/Charon/docs/plans/current_spec.md
  */
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
