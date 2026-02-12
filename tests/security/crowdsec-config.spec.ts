@@ -8,7 +8,7 @@
  * - Import/Export functionality
  * - Console enrollment (if enabled)
  *
- * @see /projects/Charon/docs/plans/current_spec.md - Phase 3
+ * @see /projects/Charon/docs/plans/current_spec.md
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
