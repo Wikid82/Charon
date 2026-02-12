@@ -1,14 +1,14 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Phase 4 Integration: ACL & WAF Layering (Defense in Depth)
+ * Integration: ACL & WAF Layering (Defense in Depth)
  *
  * Purpose: Validate ACL and WAF work as defense-in-depth layers
  * Scenarios: Both modules apply, WAF independent of role, ACL independent of payload
  * Success: Malicious requests blocked regardless of role, unauthorized users blocked regardless of payload
  */
 
-test.describe('INT-003: ACL & WAF Layering', () => {
+test.describe('ACL & WAF Layering', () => {
   const testProxy = {
     domain: 'acl-waf-test.local',
     target: 'http://localhost:3001',
@@ -60,7 +60,7 @@ test.describe('INT-003: ACL & WAF Layering', () => {
     }
   });
 
-  // INT-003-1: Non-admin user cannot bypass WAF even with proxy access
+  // Non-admin user cannot bypass WAF even with proxy access
   test('Regular user cannot bypass WAF on authorized proxy', async ({ page }) => {
     await test.step('Admin creates test user with limited permissions', async () => {
       await page.goto('/users', { waitUntil: 'networkidle' });
@@ -127,7 +127,7 @@ test.describe('INT-003: ACL & WAF Layering', () => {
     });
   });
 
-  // INT-003-2: WAF enforces regardless of user role
+  // WAF enforces regardless of user role
   test('WAF blocks malicious requests from all user roles', async ({ page }) => {
     await test.step('Create proxy with WAF', async () => {
       await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
@@ -207,7 +207,7 @@ test.describe('INT-003: ACL & WAF Layering', () => {
     });
   });
 
-  // INT-003-3: Admin and user both subject to WAF and ACL
+  // Admin and user both subject to WAF and ACL
   test('Both admin and user roles subject to WAF protection', async ({ page }) => {
     await test.step('Setup: Create proxy and user', async () => {
       // Create user
@@ -285,7 +285,7 @@ test.describe('INT-003: ACL & WAF Layering', () => {
     });
   });
 
-  // INT-003-4: ACL adds layer beyond WAF (defense in depth)
+  // ACL adds layer beyond WAF (defense in depth)
   test('ACL restricts access beyond WAF protection', async ({ page }) => {
     await test.step('Create restricted user', async () => {
       await page.goto('/users', { waitUntil: 'networkidle' });
