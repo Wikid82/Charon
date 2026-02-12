@@ -138,6 +138,18 @@
             }
         },
         {
+            "label": "Test: E2E Playwright (FireFox, Workers 1)",
+            "type": "shell",
+            "command": "cd /projects/Charon && npx playwright test --project=firefox --workers=1",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
             "label": "Test: E2E Playwright (FireFox) - Cerberus: Real-Time Logs",
             "type": "shell",
             "command": "cd /projects/Charon && PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox tests/monitoring/real-time-logs.spec.ts",
