@@ -722,6 +722,19 @@
             }
         },
         {
+            "label": "Utility: Rebuild Go Tools",
+            "type": "shell",
+            "command": "./scripts/rebuild-go-tools.sh",
+            "group": "none",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "close": false
+            },
+            "detail": "Rebuild Go development tools (golangci-lint, gopls, govulncheck, dlv) with the current Go version"
+        },
+        {
             "label": "Utility: Update Grype Version",
             "type": "shell",
             "command": "curl -sSfL https://get.anchore.io/grype | sudo sh -s -- -b /usr/local/bin",

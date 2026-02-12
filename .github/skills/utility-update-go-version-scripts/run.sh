@@ -69,3 +69,48 @@ if [[ "$NEW_VERSION" != "$REQUIRED_VERSION" ]]; then
     echo "⚠️  Warning: Installed version ($NEW_VERSION) doesn't match required ($REQUIRED_VERSION)"
     echo "   You may need to restart your terminal or IDE"
 fi
+
+# Phase 1: Rebuild critical development tools with new Go version
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🔧 Rebuilding development tools with Go $REQUIRED_VERSION..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# List of critical tools to rebuild
+TOOLS=(
+    "github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+    "golang.org/x/tools/gopls@latest"
+    "golang.org/x/vuln/cmd/govulncheck@latest"
+)
+
+FAILED_TOOLS=()
+
+for tool in "${TOOLS[@]}"; do
+    tool_name=$(basename "$(dirname "$tool")")
+    echo "📦 Installing $tool_name..."
+
+    if go install "$tool" 2>&1; then
+        echo "✅ $tool_name installed successfully"
+    else
+        echo "❌ Failed to install $tool_name"
+        FAILED_TOOLS+=("$tool_name")
+    fi
+    echo ""
+done
+
+if [ ${#FAILED_TOOLS[@]} -eq 0 ]; then
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "✅ All tools rebuilt successfully!"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+else
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "⚠️  Some tools failed to install:"
+    for tool in "${FAILED_TOOLS[@]}"; do
+        echo "   - $tool"
+    done
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "You can manually rebuild tools later with:"
+    echo "  ./scripts/rebuild-go-tools.sh"
+fi
