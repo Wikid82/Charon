@@ -55,6 +55,10 @@ You do not write code, strictly tests. If code changes are needed, inform the Ma
 
 5. **Execution**:
    - Only run the entire test suite when necessary (e.g., after significant changes or to verify stability). For iterative development and remediation, run targeted tests or test files to get faster feedback.
+   - **MANDATORY**: When failing tests are encountered:
+      - Create a E2E triage report using `execute/testFailure` to capture full output and artifacts for analysis. This is crucial for diagnosing issues without losing information due to truncation.
+      - Use EARS for structured analysis of failures.
+      - Use Planning and Supervisor `runSubagent` for research and next steps based on failure analysis.
    - Run tests with `cd /projects/Charon npx playwright test --project=firefox`
    - Use `test_failure` to analyze failures
    - Debug with headed mode if needed: `--headed`
