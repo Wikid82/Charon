@@ -18,6 +18,20 @@ export default function AccessListSelector({ value, onChange }: AccessListSelect
 
   const selectedACL = accessLists?.find((acl) => acl.id === value);
 
+  // Convert between component's string-based value and the prop's number|null
+  const selectValue = value === null || value === undefined ? 'none' : String(value);
+
+  const handleValueChange = (newValue: string) => {
+    if (newValue === 'none') {
+      onChange(null);
+    } else {
+      const numericId = parseInt(newValue, 10);
+      if (!isNaN(numericId)) {
+        onChange(numericId);
+      }
+    }
+  };
+
   return (
     <div>
       <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -25,14 +39,14 @@ export default function AccessListSelector({ value, onChange }: AccessListSelect
         <span className="text-gray-500 font-normal ml-2">(Optional)</span>
       </label>
       <Select
-        value={String(value || 0)}
-        onValueChange={(val) => onChange(parseInt(val) || null)}
+        value={selectValue}
+        onValueChange={handleValueChange}
       >
         <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Access Control List">
           <SelectValue placeholder="Select an ACL" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="0">No Access Control (Public)</SelectItem>
+          <SelectItem value="none">No Access Control (Public)</SelectItem>
           {accessLists
             ?.filter((acl) => acl.enabled)
             .map((acl) => (
