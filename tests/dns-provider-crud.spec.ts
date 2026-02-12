@@ -29,10 +29,17 @@ test.describe('DNS Provider CRUD Operations', () => {
       await page.goto('/dns/providers');
       await waitForLoadingComplete(page);
 
+      await test.step('Wait for DNS Providers page content', async () => {
+        // Wait for the nested DNS page content area to be visible
+        // DNS route has parent DNS component + child DNSProviders component via Outlet
+        await page.waitForLoadState('networkidle');
+        await page.waitForTimeout(1000); // Allow React nested routing to complete
+      });
+
       await test.step('Click Add Provider button', async () => {
         // Use first() to handle both header button and empty state button
         const addButton = page.getByRole('button', { name: /add.*provider/i }).first();
-        await expect(addButton).toBeVisible();
+        await expect(addButton).toBeVisible({ timeout: 10000 });
         await addButton.click();
         await waitForDialog(page);
       });
