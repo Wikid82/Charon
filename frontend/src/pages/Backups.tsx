@@ -193,8 +193,10 @@ export default function Backups() {
     },
   ]
 
-  // Header actions (visible only to admin users)
-  const headerActions = user?.role === 'admin' ? (
+  const canCreateBackup = user?.role === 'admin' || user?.role === 'user'
+
+  // Header actions (visible only to admin and user roles)
+  const headerActions = canCreateBackup ? (
     <Button onClick={() => createMutation.mutate()} isLoading={createMutation.isPending}>
       <Plus className="w-4 h-4 mr-2" />
       {t('backups.createBackup')}
@@ -247,10 +249,14 @@ export default function Backups() {
           icon={<Archive className="h-12 w-12" />}
           title={t('backups.noBackups')}
           description={t('backups.noBackupsDescription')}
-          action={{
-            label: t('backups.createBackup'),
-            onClick: () => createMutation.mutate(),
-          }}
+          action={
+            canCreateBackup
+              ? {
+                  label: t('backups.createBackup'),
+                  onClick: () => createMutation.mutate(),
+                }
+              : undefined
+          }
           data-testid="empty-state"
         />
       ) : (
@@ -264,10 +270,14 @@ export default function Backups() {
               icon={<Archive className="h-12 w-12" />}
               title={t('backups.noBackups')}
               description={t('backups.noBackupsDescription')}
-              action={{
-                label: t('backups.createBackup'),
-                onClick: () => createMutation.mutate(),
-              }}
+              action={
+                canCreateBackup
+                  ? {
+                      label: t('backups.createBackup'),
+                      onClick: () => createMutation.mutate(),
+                    }
+                  : undefined
+              }
             />
           }
         />
