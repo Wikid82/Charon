@@ -18,7 +18,7 @@
  * NOTE: Tests are skipped if not running in Firefox browser.
  */
 
-import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
 import { Page } from '@playwright/test';
 
 /**
