@@ -68,6 +68,12 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     localStorage.removeItem('charon_auth_token');
     setAuthToken(null);
     setUser(null);
+
+    // Force navigation to login with full page reload to clear any stale state
+    // This ensures all React state and cookies are cleared
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
   };
 
   const changePassword = async (oldPassword: string, newPassword: string) => {
