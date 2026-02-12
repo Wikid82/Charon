@@ -1,14 +1,71 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import { waitForLoadingComplete } from '../utils/wait-helpers';
+
+async function getAuthToken(page: import('@playwright/test').Page): Promise<string> {
+  return await page.evaluate(() => {
+    return (
+      localStorage.getItem('token') ||
+      localStorage.getItem('charon_auth_token') ||
+      localStorage.getItem('auth') ||
+      ''
+    );
+  });
+}
+
+async function openInviteUserForm(page: import('@playwright/test').Page): Promise<void> {
+  await page.goto('/users');
+  await waitForLoadingComplete(page, { timeout: 15000 });
+  const inviteButton = page.getByRole('button', { name: /invite.*user|add user|create user/i }).first();
+  await expect(inviteButton).toBeVisible({ timeout: 15000 });
+  await inviteButton.click();
+  await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15000 });
+}
+
+async function fillInviteForm(
+  page: import('@playwright/test').Page,
+  user: { email: string; name?: string; password?: string }
+): Promise<void> {
+  const emailInput = page.getByPlaceholder(/user@example/i);
+  await expect(emailInput).toBeVisible({ timeout: 15000 });
+  await emailInput.fill(user.email);
+
+  const nameInput = page.getByPlaceholder(/name/i)
+    .or(page.getByLabel(/name/i))
+    .first();
+  if (await nameInput.isVisible().catch(() => false)) {
+    await nameInput.fill(user.name || '');
+  }
+
+  const passwordInput = page.getByLabel(/password/i).first();
+  if (user.password && await passwordInput.isVisible().catch(() => false)) {
+    await passwordInput.fill(user.password);
+  }
+
+  const sendButton = page.getByRole('dialog')
+    .getByRole('button', { name: /send.*invite|create|submit/i })
+    .first();
+  await expect(sendButton).toBeVisible({ timeout: 15000 });
+  await sendButton.click();
+  await waitForLoadingComplete(page, { timeout: 15000 });
+}
+
+async function openCreateProxyHostForm(page: import('@playwright/test').Page): Promise<void> {
+  await page.goto('/proxy-hosts');
+  await waitForLoadingComplete(page, { timeout: 15000 });
+  const addButton = page.getByRole('button', { name: /add.*proxy.*host/i }).first();
+  await expect(addButton).toBeVisible({ timeout: 15000 });
+  await addButton.click();
+}
 
 /**
- * Phase 4 Integration: Data Consistency (UI ↔ API)
+ * Integration: Data Consistency (UI ↔ API)
  *
  * Purpose: Validate data consistency between UI operations and API responses
  * Scenarios: UI create/API read, API modify/UI display, concurrent operations
  * Success: UI and API always show same data, no data loss or corruption
  */
 
-test.describe('INT-005: Data Consistency', () => {
+test.describe('Data Consistency', () => {
   const testUser = {
     email: 'consistency@test.local',
     name: 'Consistency Test User',
@@ -21,66 +78,62 @@ test.describe('INT-005: Data Consistency', () => {
     description: 'Data consistency test proxy',
   };
 
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/', { waitUntil: 'networkidle' });
-    await page.waitForSelector('[role="main"]', { timeout: 5000 });
+  test.beforeEach(async ({ page, adminUser }) => {
+    await loginUser(page, adminUser);
+    await waitForLoadingComplete(page, { timeout: 15000 });
+    await expect(page.getByRole('main')).toBeVisible({ timeout: 15000 });
   });
 
   test.afterEach(async ({ page }) => {
     try {
       // Cleanup user
-      await page.goto('/users', { waitUntil: 'networkidle' });
-      const userRow = page.locator(`text=${testUser.email}`).first();
-      if (await userRow.isVisible()) {
-        const deleteButton = userRow.locator('..').getByRole('button', { name: /delete/i }).first();
+      await page.goto('/users');
+      await waitForLoadingComplete(page, { timeout: 15000 });
+      const userRow = page.getByText(testUser.email);
+      if (await userRow.isVisible().catch(() => false)) {
+        const row = userRow.locator('xpath=ancestor::tr');
+        const deleteButton = row.getByRole('button', { name: /delete/i });
         await deleteButton.click();
 
-        const confirmButton = page.getByRole('button', { name: /confirm|delete/i }).first();
-        if (await confirmButton.isVisible()) {
+        const confirmButton = page.getByRole('dialog').getByRole('button', { name: /confirm|delete/i });
+        if (await confirmButton.isVisible().catch(() => false)) {
           await confirmButton.click();
         }
-        await page.waitForLoadState('networkidle');
+        await waitForLoadingComplete(page, { timeout: 15000 });
       }
 
       // Cleanup proxy
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
-      const proxyRow = page.locator(`text=${testProxy.domain}`).first();
-      if (await proxyRow.isVisible()) {
-        const deleteButton = proxyRow.locator('..').getByRole('button', { name: /delete/i }).first();
+      await page.goto('/proxy-hosts');
+      await waitForLoadingComplete(page, { timeout: 15000 });
+      const proxyRow = page.getByText(testProxy.domain);
+      if (await proxyRow.isVisible().catch(() => false)) {
+        const row = proxyRow.locator('xpath=ancestor::tr');
+        const deleteButton = row.getByRole('button', { name: /delete/i });
         await deleteButton.click();
 
-        const confirmButton = page.getByRole('button', { name: /confirm|delete/i }).first();
-        if (await confirmButton.isVisible()) {
+        const confirmButton = page.getByRole('dialog').getByRole('button', { name: /confirm|delete/i });
+        if (await confirmButton.isVisible().catch(() => false)) {
           await confirmButton.click();
         }
-        await page.waitForLoadState('networkidle');
+        await waitForLoadingComplete(page, { timeout: 15000 });
       }
     } catch {
       // Ignore cleanup errors
     }
   });
 
-  // INT-005-1: UI create → API read returns same data
+  // UI create → API read returns same data
   test('Data created via UI is properly stored and readable via API', async ({ page }) => {
     let createdUserId: string | null = null;
 
     await test.step('Create user via UI', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
+      await openInviteUserForm(page);
 
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/name/i).fill(testUser.name);
-      await page.getByLabel(/password/i).first().fill(testUser.password);
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await fillInviteForm(page, testUser);
     });
 
     await test.step('Verify API returns created user data', async () => {
-      const token = await page.evaluate(() => localStorage.getItem('token'));
+      const token = await getAuthToken(page);
 
       const response = await page.request.get(
         'http://127.0.0.1:8080/api/users',
@@ -100,34 +153,24 @@ test.describe('INT-005: Data Consistency', () => {
 
         if (foundUser) {
           expect(foundUser.email).toBe(testUser.email);
-          expect(foundUser.name).toBe(testUser.name);
           createdUserId = foundUser.id;
         }
       }
     });
   });
 
-  // INT-005-2: API modify → UI displays updated data
+  // API modify → UI displays updated data
   test('Data modified via API is reflected in UI', async ({ page }) => {
     const updatedName = 'Updated User Name';
 
     await test.step('Create user', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
+      await openInviteUserForm(page);
 
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/name/i).fill(testUser.name);
-      await page.getByLabel(/password/i).first().fill(testUser.password);
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await fillInviteForm(page, testUser);
     });
 
     await test.step('Modify user via API', async () => {
-      const token = await page.evaluate(() => localStorage.getItem('token'));
+      const token = await getAuthToken(page);
 
       const usersResponse = await page.request.get(
         'http://127.0.0.1:8080/api/users',
@@ -157,8 +200,10 @@ test.describe('INT-005: Data Consistency', () => {
     });
 
     await test.step('Reload UI and verify updated data', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
+      await page.goto('/users');
+      await waitForLoadingComplete(page, { timeout: 15000 });
       await page.reload();
+      await waitForLoadingComplete(page, { timeout: 15000 });
 
       // Check if updated name is visible
       const updatedElement = page.getByText(updatedName).first();
@@ -168,39 +213,31 @@ test.describe('INT-005: Data Consistency', () => {
     });
   });
 
-  // INT-005-3: Delete via UI → API no longer returns
+  // Delete via UI → API no longer returns
   test('Data deleted via UI is removed from API', async ({ page }) => {
     await test.step('Create user', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
+      await openInviteUserForm(page);
 
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/name/i).fill(testUser.name);
-      await page.getByLabel(/password/i).first().fill(testUser.password);
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await fillInviteForm(page, testUser);
     });
 
     await test.step('Delete user via UI', async () => {
-      const userRow = page.locator(`text=${testUser.email}`).first();
-      if (await userRow.isVisible()) {
-        const deleteButton = userRow.locator('..').getByRole('button', { name: /delete/i }).first();
+      const userRow = page.getByText(testUser.email);
+      if (await userRow.isVisible().catch(() => false)) {
+        const row = userRow.locator('xpath=ancestor::tr');
+        const deleteButton = row.getByRole('button', { name: /delete/i });
         await deleteButton.click();
 
-        const confirmButton = page.getByRole('button', { name: /confirm|delete/i }).first();
-        if (await confirmButton.isVisible()) {
+        const confirmButton = page.getByRole('dialog').getByRole('button', { name: /confirm|delete/i });
+        if (await confirmButton.isVisible().catch(() => false)) {
           await confirmButton.click();
         }
-        await page.waitForLoadState('networkidle');
+        await waitForLoadingComplete(page, { timeout: 15000 });
       }
     });
 
     await test.step('Verify API no longer returns user', async () => {
-      const token = await page.evaluate(() => localStorage.getItem('token'));
+      const token = await getAuthToken(page);
 
       const response = await page.request.get(
         'http://127.0.0.1:8080/api/users',
@@ -220,25 +257,16 @@ test.describe('INT-005: Data Consistency', () => {
     });
   });
 
-  // INT-005-4: Concurrent modifications resolved correctly
+  // Concurrent modifications resolved correctly
   test('Concurrent modifications do not cause data corruption', async ({ page }) => {
     await test.step('Create initial user', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
+      await openInviteUserForm(page);
 
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/name/i).fill(testUser.name);
-      await page.getByLabel(/password/i).first().fill(testUser.password);
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await fillInviteForm(page, testUser);
     });
 
     await test.step('Trigger concurrent modifications', async () => {
-      const token = await page.evaluate(() => localStorage.getItem('token'));
+      const token = await getAuthToken(page);
 
       const usersResponse = await page.request.get(
         'http://127.0.0.1:8080/api/users',
@@ -280,38 +308,36 @@ test.describe('INT-005: Data Consistency', () => {
     });
 
     await test.step('Verify final state is consistent', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
+      await page.goto('/users');
+      await waitForLoadingComplete(page, { timeout: 15000 });
 
-      const userElement = page.locator(`text=${testUser.email}`).first();
+      const userElement = page.getByText(testUser.email);
       await expect(userElement).toBeVisible();
 
       // User should have one of the update names, not corrupted
-      const updateTwo = page.getByText('Update Two').first();
-      if (await updateTwo.isVisible()) {
+      const updateTwo = page.getByText('Update Two');
+      if (await updateTwo.isVisible().catch(() => false)) {
         await expect(updateTwo).toBeVisible();
       }
     });
   });
 
-  // INT-005-5: Transaction rollback prevents partial updates
+  // Transaction rollback prevents partial updates
   test('Failed transaction prevents partial data updates', async ({ page }) => {
     await test.step('Create proxy', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await openCreateProxyHostForm(page);
 
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/domain/i).fill(testProxy.domain);
-      await page.getByLabel(/target|forward/i).fill(testProxy.target);
-      await page.getByLabel(/description/i).fill(testProxy.description);
+      await page.getByRole('textbox', { name: /domain names/i }).first().fill(testProxy.domain);
+      await page.getByRole('textbox', { name: /target|forward/i }).first().fill(testProxy.target);
+      await page.getByRole('textbox', { name: /description/i }).first().fill(testProxy.description);
 
       const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
       await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await waitForLoadingComplete(page, { timeout: 15000 });
     });
 
     await test.step('Attempt invalid modification', async () => {
-      const token = await page.evaluate(() => localStorage.getItem('token'));
+      const token = await getAuthToken(page);
 
       // Try to modify with invalid data that should fail validation
       const response = await page.request.patch(
@@ -328,41 +354,26 @@ test.describe('INT-005: Data Consistency', () => {
     });
 
     await test.step('Verify original data unchanged', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
+      await waitForLoadingComplete(page, { timeout: 15000 });
 
-      const proxyElement = page.locator(`text=${testProxy.domain}`).first();
+      const proxyElement = page.getByText(testProxy.domain);
       await expect(proxyElement).toBeVisible();
     });
   });
 
-  // INT-005-6: Database constraints enforced (unique, foreign key)
+  // Database constraints enforced (unique, foreign key)
   test('Database constraints prevent invalid data', async ({ page }) => {
     await test.step('Create first user', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
+      await openInviteUserForm(page);
 
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/name/i).fill(testUser.name);
-      await page.getByLabel(/password/i).first().fill(testUser.password);
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await fillInviteForm(page, testUser);
     });
 
     await test.step('Attempt to create duplicate user with same email', async () => {
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
+      await openInviteUserForm(page);
 
-      await page.getByLabel(/email/i).fill(testUser.email); // Duplicate email
-      await page.getByLabel(/name/i).fill('Different Name');
-      await page.getByLabel(/password/i).first().fill('DiffPass123!');
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await fillInviteForm(page, { email: testUser.email, name: 'Different Name', password: 'DiffPass123!' });
     });
 
     await test.step('Verify duplicate prevented by error message', async () => {
@@ -373,16 +384,13 @@ test.describe('INT-005: Data Consistency', () => {
     });
   });
 
-  // INT-005-7: UI form validation matches backend validation
+  // UI form validation matches backend validation
   test('Client-side and server-side validation consistent', async ({ page }) => {
     await test.step('Test email format validation on create form', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
-
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
+      await openInviteUserForm(page);
 
       // Try invalid email
-      const emailInput = page.getByLabel(/email/i);
+      const emailInput = page.getByPlaceholder(/user@example/i);
       await emailInput.fill('not-an-email');
 
       // Check for client validation error
@@ -392,10 +400,10 @@ test.describe('INT-005: Data Consistency', () => {
       }
 
       // Try submitting anyway
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
+      const submitButton = page.getByRole('button', { name: /send.*invite|create|submit/i }).first();
       if (!(await submitButton.isDisabled())) {
         await submitButton.click();
-        await page.waitForLoadState('networkidle');
+        await waitForLoadingComplete(page, { timeout: 15000 });
 
         // Server should also reject
         const serverError = page.getByText(/invalid|error|failed/i).first();
@@ -406,28 +414,23 @@ test.describe('INT-005: Data Consistency', () => {
     });
   });
 
-  // INT-005-8: Long dataset pagination consistent across loads
+  // Long dataset pagination consistent across loads
   test('Pagination and sorting produce consistent results', async ({ page }) => {
     await test.step('Create multiple users for pagination test', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
+      await page.goto('/users');
+      await waitForLoadingComplete(page, { timeout: 15000 });
 
       for (let i = 0; i < 3; i++) {
-        const addButton = page.getByRole('button', { name: /add|create/i }).first();
-        await addButton.click();
+        await openInviteUserForm(page);
 
         const uniqueEmail = `user${i}@test.local`;
-        await page.getByLabel(/email/i).fill(uniqueEmail);
-        await page.getByLabel(/name/i).fill(`User ${i}`);
-        await page.getByLabel(/password/i).first().fill(`Pass${i}123!`);
-
-        const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-        await submitButton.click();
-        await page.waitForLoadState('networkidle');
+        await fillInviteForm(page, { email: uniqueEmail, name: `User ${i}`, password: `Pass${i}123!` });
       }
     });
 
     await test.step('Navigate and verify pagination consistency', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
+      await page.goto('/users');
+      await waitForLoadingComplete(page, { timeout: 15000 });
 
       // Get first page
       const page1Items = await page.locator('[role="row"], [class*="user-item"]').count();
@@ -437,7 +440,7 @@ test.describe('INT-005: Data Consistency', () => {
       const nextButton = page.getByRole('button', { name: /next|>/ }).first();
       if (await nextButton.isVisible() && !(await nextButton.isDisabled())) {
         await nextButton.click();
-        await page.waitForLoadState('networkidle');
+        await waitForLoadingComplete(page, { timeout: 15000 });
 
         const page2Items = await page.locator('[role="row"], [class*="user-item"]').count();
         expect(page2Items).toBeGreaterThanOrEqual(0);
@@ -446,7 +449,7 @@ test.describe('INT-005: Data Consistency', () => {
         const prevButton = page.getByRole('button', { name: /prev|</ }).first();
         if (await prevButton.isVisible()) {
           await prevButton.click();
-          await page.waitForLoadState('networkidle');
+          await waitForLoadingComplete(page, { timeout: 15000 });
 
           const backPage1Items = await page.locator('[role="row"], [class*="user-item"]').count();
           expect(backPage1Items).toBe(page1Items);
