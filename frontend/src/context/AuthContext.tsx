@@ -29,6 +29,13 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
         const stored = localStorage.getItem('charon_auth_token');
         if (stored) {
           setAuthToken(stored);
+        } else {
+          // No token in localStorage - don't even try to authenticate
+          // This prevents re-authentication via HttpOnly cookie after logout
+          setAuthToken(null);
+          setUser(null);
+          setIsLoading(false);
+          return;
         }
         const response = await client.get('/auth/me');
         setUser(response.data);
