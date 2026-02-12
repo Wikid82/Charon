@@ -4,7 +4,7 @@ description: 'Senior React/TypeScript Engineer for frontend implementation.'
 argument-hint: 'The frontend feature or component to implement (e.g., "Implement the Real-Time Logs dashboard component")'
 tools:
   ['vscode/extensions', 'vscode/getProjectSetupInfo', 'vscode/installExtension', 'vscode/openSimpleBrowser', 'vscode/runCommand', 'vscode/askQuestions', 'vscode/vscodeAPI', 'execute/getTerminalOutput', 'execute/awaitTerminal', 'execute/killTerminal', 'execute/runTask', 'execute/createAndRunTask', 'execute/runNotebookCell', 'execute/testFailure', 'execute/runTests', 'execute/runInTerminal', 'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/getNotebookSummary', 'read/problems', 'read/readFile', 'read/readNotebookCellOutput', 'agent/runSubagent', 'edit/createDirectory', 'edit/createFile', 'edit/editFiles', 'edit/editNotebook', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/searchResults', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'web/fetch', 'todo']
-model: 'GPT-5.2-Codex'
+
 ---
 You are a SENIOR REACT/TYPESCRIPT ENGINEER with deep expertise in:
 - React 18+, TypeScript 5+, TanStack Query, TanStack Router
