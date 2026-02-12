@@ -96,16 +96,17 @@ function validateEmergencyToken(): void {
 
 /**
  * Get the base URL for the application
+ * CRITICAL: Must use localhost (not 127.0.0.1) for cookie domain consistency
  */
 function getBaseURL(): string {
-  return process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+  return process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
 }
 
 /**
  * Check if Caddy admin API is enabled and healthy (port 2019 - read-only config inspection)
  */
 async function checkCaddyAdminHealth(): Promise<boolean> {
-  const caddyAdminHost = process.env.CADDY_ADMIN_HOST || 'http://127.0.0.1:2019';
+  const caddyAdminHost = process.env.CADDY_ADMIN_HOST || 'http://localhost:2019';
   const startTime = Date.now();
   console.log(`🔍 Checking Caddy admin API health at ${caddyAdminHost}...`);
 
@@ -135,7 +136,7 @@ async function checkCaddyAdminHealth(): Promise<boolean> {
  * This prevents 401 errors when global-setup runs before containers finish starting.
  */
 async function waitForContainer(maxRetries = 15, delayMs = 2000): Promise<void> {
-  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
   console.log(`⏳ Waiting for container to be ready at ${baseURL}...`);
 
   for (let i = 0; i < maxRetries; i++) {
@@ -162,7 +163,7 @@ async function waitForContainer(maxRetries = 15, delayMs = 2000): Promise<void> 
  * Check if emergency tier-2 server is enabled and healthy (port 2020 - break-glass with auth)
  */
 async function checkEmergencyServerHealth(): Promise<boolean> {
-  const emergencyHost = process.env.EMERGENCY_SERVER_HOST || 'http://127.0.0.1:2020';
+  const emergencyHost = process.env.EMERGENCY_SERVER_HOST || 'http://localhost:2020';
   const startTime = Date.now();
   console.log(`🔍 Checking emergency tier-2 server health at ${emergencyHost}...`);
 
@@ -391,7 +392,7 @@ async function emergencySecurityReset(requestContext: APIRequestContext): Promis
   console.log('🔓 Performing emergency security reset...');
 
   const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
-  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
 
   if (!emergencyToken) {
     console.warn('  ⚠️  CHARON_EMERGENCY_TOKEN not set, skipping emergency reset');
