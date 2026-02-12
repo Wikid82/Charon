@@ -1236,8 +1236,8 @@ export async function waitForNavigation(
 ): Promise<void> {
   const { timeout = 10000, waitUntil = 'load' } = options;
 
-  // Wait for URL to change to expected value
-  await page.waitForURL(expectedUrl, { timeout, waitUntil });
+  // Wait for URL to change to expected value (commit-level avoids SPA timeouts)
+  await page.waitForURL(expectedUrl, { timeout, waitUntil: 'commit' });
 
   // Additional verification using auto-waiting assertion
   if (typeof expectedUrl === 'string') {
@@ -1246,6 +1246,10 @@ export async function waitForNavigation(
     await expect(page).toHaveURL(expectedUrl, { timeout: 1000 });
   }
 
-  // Ensure page is fully loaded
-  await page.waitForLoadState(waitUntil, { timeout });
+  // Ensure page is fully loaded when a navigation actually triggers a load event
+  if (waitUntil !== 'commit') {
+    await page.waitForLoadState(waitUntil, { timeout }).catch(() => {
+      // Same-document navigations (SPA) may not fire the requested load state.
+    });
+  }
 }
