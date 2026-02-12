@@ -1,14 +1,14 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Phase 4 Integration: Multi-Component Workflows
+ * Integration: Multi-Component Workflows
  *
  * Purpose: Validate complex workflows involving multiple system components
  * Scenarios: Create proxy → enable security → test enforcement, user workflows, backup restore integration
  * Success: Multi-step workflows complete correctly, all components integrate properly
  */
 
-test.describe('INT-007: Multi-Component Workflows', () => {
+test.describe('Multi-Component Workflows', () => {
   const testProxy = {
     domain: 'multi-workflow.local',
     target: 'http://localhost:3001',
@@ -58,7 +58,7 @@ test.describe('INT-007: Multi-Component Workflows', () => {
     }
   });
 
-  // INT-007-1: Create proxy → Enable WAF → Send request → WAF enforces
+  // Create proxy → Enable WAF → Send request → WAF enforces
   test('WAF enforcement applies to newly created proxy', async ({ page }) => {
     await test.step('Create new proxy', async () => {
       await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
@@ -113,7 +113,7 @@ test.describe('INT-007: Multi-Component Workflows', () => {
     });
   });
 
-  // INT-007-2: Create user → Assign role → User creates proxy → Verify ACL
+  // Create user → Assign role → User creates proxy → Verify ACL
   test('User with proxy creation role can create and manage proxies', async ({ page }) => {
     await test.step('Create user with proxy management role', async () => {
       await page.goto('/users', { waitUntil: 'networkidle' });
@@ -167,7 +167,7 @@ test.describe('INT-007: Multi-Component Workflows', () => {
     });
   });
 
-  // INT-007-3: Create backup → Delete user → Restore → User reappears
+  // Create backup → Delete user → Restore → User reappears
   test('Backup restore recovers deleted user data', async ({ page }) => {
     const userToBackup = {
       email: 'backup-user@test.local',
@@ -254,7 +254,7 @@ test.describe('INT-007: Multi-Component Workflows', () => {
     });
   });
 
-  // INT-007-4: Enable security → Create user → User subject to rate limit
+  // Enable security → Create user → User subject to rate limit
   test('Security modules apply to subsequently created resources', async ({ page }) => {
     await test.step('Enable global rate limiting', async () => {
       await page.goto('/settings/security', { waitUntil: 'networkidle' }).catch(() => {
@@ -324,7 +324,7 @@ test.describe('INT-007: Multi-Component Workflows', () => {
     });
   });
 
-  // INT-007-5: Admin workflow: create user → enable security → user cannot bypass
+  // Admin workflow: create user → enable security → user cannot bypass
   test('Security enforced even on previously created resources', async ({ page }) => {
     await test.step('Create user before security enabled', async () => {
       await page.goto('/users', { waitUntil: 'networkidle' });
