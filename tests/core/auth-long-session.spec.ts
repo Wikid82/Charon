@@ -1,5 +1,5 @@
 /**
- * Phase 3 - Authentication & Long-Session Test
+ * Authentication & Long-Session Test
  *
  * Validates that authentication tokens work correctly over 60-minute session:
  * - Initial login successful
@@ -92,7 +92,7 @@ function parseTokenExpiry(tokenOrResponse: any): string | null {
   }
 }
 
-test.describe('Phase 3: Authentication & 60-Minute Long Session', () => {
+test.describe('Authentication & 60-Minute Long Session', () => {
   let sessionContext: any;
   let sessionToken: string | null;
   const startTime = Date.now();
@@ -101,7 +101,7 @@ test.describe('Phase 3: Authentication & 60-Minute Long Session', () => {
   const HEARTBEAT_COUNT = 6; // 60 minutes / 10 minutes
 
   test.beforeAll(async () => {
-    await logHeartbeat('=== PHASE 3 SESSION TEST STARTED ===');
+    await logHeartbeat('=== SESSION TEST STARTED ===');
 
     sessionContext = await playwrightRequest.newContext({
       baseURL: BASE_URL,
@@ -121,7 +121,7 @@ test.describe('Phase 3: Authentication & 60-Minute Long Session', () => {
 
   test.afterAll(async () => {
     await sessionContext?.close();
-    await logHeartbeat('=== PHASE 3 SESSION TEST COMPLETED ===');
+    await logHeartbeat('=== SESSION TEST COMPLETED ===');
   });
 
   // =========================================================================
