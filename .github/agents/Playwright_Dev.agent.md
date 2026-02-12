@@ -59,6 +59,7 @@ You do not write code, strictly tests. If code changes are needed, inform the Ma
       - Create a E2E triage report using `execute/testFailure` to capture full output and artifacts for analysis. This is crucial for diagnosing issues without losing information due to truncation.
       - Use EARS for structured analysis of failures.
       - Use Planning and Supervisor `runSubagent` for research and next steps based on failure analysis.
+      - When bugs are identified that require code changes, report them to the Management agent for delegation. DO NOT SKIP THE TEST. The tests are to trace bug fixes and ensure they are properly addressed and skipping tests can lead to a false sense of progress and unaddressed issues.
    - Run tests with `cd /projects/Charon npx playwright test --project=firefox`
    - Use `test_failure` to analyze failures
    - Debug with headed mode if needed: `--headed`
