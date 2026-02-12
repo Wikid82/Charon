@@ -1,20 +1,20 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Phase 4 UAT: Emergency & Break-Glass Operations
+ * Emergency & Break-Glass Operations Workflow
  *
  * Purpose: Validate emergency recovery procedures and break-glass token usage
  * Scenarios: Emergency token usage, system reset, WAF disable, encryption key reset
  * Success: Emergency procedures work to recover system from locked state
  */
 
-test.describe('UAT-008: Emergency & Break-Glass Operations', () => {
+test.describe('Emergency & Break-Glass Operations', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('[data-testid="dashboard-container"], [role="main"]', { timeout: 5000 });
   });
 
-  // UAT-701: Use emergency token
+  // Use emergency token
   test('Emergency token enables break-glass access', async ({ page }) => {
     await test.step('Verify emergency token available', async () => {
       // Navigate to security settings where token is generated
@@ -38,7 +38,7 @@ test.describe('UAT-008: Emergency & Break-Glass Operations', () => {
     });
   });
 
-  // UAT-702: Break-glass recovery
+  // Break-glass recovery
   test('Break-glass recovery brings system to safe state', async ({ page }) => {
     await test.step('Access break-glass procedures', async () => {
       const emergencyLink = page.getByRole('link', { name: /emergency|break.?glass/i }).first();
@@ -68,7 +68,7 @@ test.describe('UAT-008: Emergency & Break-Glass Operations', () => {
     });
   });
 
-  // UAT-703: Disable WAF in emergency
+  // Disable WAF in emergency
   test('Emergency token can disable security modules', async ({ page }) => {
     await test.step('Access emergency control panel', async () => {
       await page.goto('/settings/emergency', { waitUntil: 'networkidle' }).catch(() => {
@@ -91,7 +91,7 @@ test.describe('UAT-008: Emergency & Break-Glass Operations', () => {
     });
   });
 
-  // UAT-704: Reset encryption key in emergency
+  // Reset encryption key in emergency
   test('Emergency token can reset encryption key', async ({ page }) => {
     await test.step('Access emergency encryption settings', async () => {
       await page.goto('/settings/emergency', { waitUntil: 'networkidle' }).catch(() => {
@@ -120,7 +120,7 @@ test.describe('UAT-008: Emergency & Break-Glass Operations', () => {
     });
   });
 
-  // UAT-705: Emergency token single-use or reusable
+  // Emergency token single-use or reusable
   test('Emergency token usage logged and tracked', async ({ page }) => {
     await test.step('View emergency token access log', async () => {
       await page.goto('/audit', { waitUntil: 'networkidle' }).catch(() => {
