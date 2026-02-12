@@ -156,12 +156,16 @@ export default defineConfig({
      *
      * Non-coverage mode (enableCoverage=false):
      *   - Tests run against Docker container (faster, no coverage)
-     *   - Uses http://127.0.0.1:8080 (IPv4 loopback avoids IPv6 issues)
+     *   - Uses http://localhost:8080 (MUST use localhost for cookie consistency)
      *   - PLAYWRIGHT_BASE_URL override still respected
      *
      * CRITICAL: Authentication cookies are domain-scoped. The auth.setup.ts
      * stores cookies for the domain in this baseURL. TestDataManager and
      * browser tests must use the SAME domain for cookies to be sent.
+     *
+     * WHY LOCALHOST NOT 127.0.0.1:
+     * Cookies saved with domain="localhost" will NOT be sent to "127.0.0.1"
+     * and vice versa. Both auth and tests MUST use the same hostname.
      *
      * E2E tests verify UI/UX on the Charon management interface.
      * Middleware enforcement is tested separately via integration tests (backend/integration/).
@@ -170,7 +174,7 @@ export default defineConfig({
      *   export PLAYWRIGHT_BASE_URL=http://100.98.12.109:9323
      *   npx playwright test --ui
      */
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || (enableCoverage ? 'http://localhost:5173' : 'http://127.0.0.1:8080'),
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || (enableCoverage ? 'http://localhost:5173' : 'http://localhost:8080'),
 
     /* Traces: Capture execution traces for debugging
      *
