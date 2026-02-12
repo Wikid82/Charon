@@ -12,7 +12,12 @@
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForToast, waitForAPIResponse } from '../utils/wait-helpers';
+import {
+  waitForLoadingComplete,
+  waitForToast,
+  waitForAPIResponse,
+  clickAndWaitForResponse,
+} from '../utils/wait-helpers';
 
 test.describe('SMTP Settings', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -352,7 +357,12 @@ test.describe('SMTP Settings', () => {
       });
 
       await test.step('Save updated configuration', async () => {
-        await saveButton.click();
+        const saveResponse = await clickAndWaitForResponse(
+          page,
+          saveButton,
+          /\/api\/v1\/settings\/smtp/
+        );
+        expect(saveResponse.ok()).toBeTruthy();
 
         const successToast = page
           .locator('[data-testid="toast-success"]')

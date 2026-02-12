@@ -1,27 +1,29 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
 
 /**
- * Phase 4 Integration: Admin → User E2E Workflow
+ * Integration: Admin → User E2E Workflow
  *
  * Purpose: Validate complete workflows from admin creation through user access
  * Scenarios: User creation, role assignment, login, resource access
  * Success: Users can login and access appropriate resources based on role
  */
 
-test.describe('INT-001: Admin-User E2E Workflow', () => {
+test.describe('Admin-User E2E Workflow', () => {
+  let adminEmail = '';
+
   const testUser = {
     email: 'e2euser@test.local',
     name: 'E2E Test User',
     password: 'E2EUserPass123!',
   };
 
-  test.beforeEach(async ({ page }) => {
-    // Ensure admin is authenticated
-    await page.goto('/');
-    await page.waitForSelector('[data-testid="dashboard-container"], [role="main"]', { timeout: 5000 });
+  test.beforeEach(async ({ page, adminUser }) => {
+    adminEmail = adminUser.email;
+    await loginUser(page, adminUser);
+    await page.getByRole('main').first().waitFor({ state: 'visible', timeout: 15000 });
   });
 
-  // INT-001: Full user creation → role assignment → user login → resource access
+  // Full user creation → role assignment → user login → resource access
   test('Complete user lifecycle: creation to resource access', async ({ page }) => {
     let userId: string | null = null;
 
@@ -117,8 +119,8 @@ test.describe('INT-001: Admin-User E2E Workflow', () => {
       }
 
       // Login as admin
-      await page.getByLabel(/email/i).fill('admin@test.local');
-      await page.getByLabel(/password/i).fill('adminPassword123!');
+      await page.getByLabel(/email/i).fill(adminEmail);
+      await page.getByLabel(/password/i).fill(TEST_PASSWORD);
       await page.getByRole('button', { name: /login/i }).click();
       await page.waitForLoadState('networkidle');
 
@@ -133,7 +135,7 @@ test.describe('INT-001: Admin-User E2E Workflow', () => {
     });
   });
 
-  // INT-002: Admin modifies role → user gains new permissions immediately
+  // Admin modifies role → user gains new permissions immediately
   test('Role change takes effect immediately on user refresh', async ({ page }) => {
     await test.step('Create test user with default role', async () => {
       await page.goto('/users', { waitUntil: 'networkidle' });
@@ -178,7 +180,7 @@ test.describe('INT-001: Admin-User E2E Workflow', () => {
     });
   });
 
-  // INT-003: Admin deletes user → user login fails
+  // Admin deletes user → user login fails
   test('Deleted user cannot login', async ({ page }) => {
     const deletableUser = {
       email: 'deleteme@test.local',
@@ -241,7 +243,7 @@ test.describe('INT-001: Admin-User E2E Workflow', () => {
     });
   });
 
-  // INT-004: Audit log records entire workflow
+  // Audit log records entire workflow
   test('Audit log records user lifecycle events', async ({ page }) => {
     await test.step('Perform workflow actions', async () => {
       // Create user
@@ -283,7 +285,7 @@ test.describe('INT-001: Admin-User E2E Workflow', () => {
     });
   });
 
-  // INT-005: User cannot escalate own role
+  // User cannot escalate own role
   test('User cannot promote self to admin', async ({ page }) => {
     await test.step('Create test user', async () => {
       await page.goto('/users', { waitUntil: 'networkidle' });
@@ -332,7 +334,7 @@ test.describe('INT-001: Admin-User E2E Workflow', () => {
     });
   });
 
-  // INT-006: Multiple users isolated data
+  // Multiple users isolated data
   test('Users see only their own data', async ({ page }) => {
     const user1 = {
       email: 'user1@test.local',
@@ -392,7 +394,7 @@ test.describe('INT-001: Admin-User E2E Workflow', () => {
     });
   });
 
-  // INT-007: User logout → login as different user → resources isolated
+  // User logout → login as different user → resources isolated
   test('Session isolation after logout and re-login', async ({ page }) => {
     await test.step('Login as first user', async () => {
       await page.goto('/', { waitUntil: 'networkidle' });
@@ -400,8 +402,8 @@ test.describe('INT-001: Admin-User E2E Workflow', () => {
       const emailInput = page.getByLabel(/email/i);
       const passwordInput = page.getByLabel(/password/i);
 
-      await emailInput.fill('admin@test.local');
-      await passwordInput.fill('adminPassword123!');
+      await emailInput.fill(adminEmail);
+      await passwordInput.fill(TEST_PASSWORD);
 
       const loginButton = page.getByRole('button', { name: /login/i });
       await loginButton.click();
