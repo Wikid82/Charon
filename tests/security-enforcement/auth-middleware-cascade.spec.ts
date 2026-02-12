@@ -1,14 +1,14 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Phase 4 Integration: Authentication Middleware Cascade
+ * Integration: Authentication Middleware Cascade
  *
  * Purpose: Validate authentication flows through all middleware layers
  * Scenarios: Token validation, ACL enforcement, WAF, rate limiting, all in sequence
  * Success: Valid tokens pass all layers, invalid tokens fail at auth layer
  */
 
-test.describe('INT-004: Auth Middleware Cascade', () => {
+test.describe('Auth Middleware Cascade', () => {
   const testProxy = {
     domain: 'auth-cascade-test.local',
     target: 'http://localhost:3001',
@@ -39,7 +39,7 @@ test.describe('INT-004: Auth Middleware Cascade', () => {
     }
   });
 
-  // INT-004-1: Missing token → 401 at auth layer
+  // Missing token → 401 at auth layer
   test('Request without token gets 401 Unauthorized', async ({ page }) => {
     await test.step('Create test proxy', async () => {
       await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
@@ -71,7 +71,7 @@ test.describe('INT-004: Auth Middleware Cascade', () => {
     });
   });
 
-  // INT-004-2: Invalid token → 401 at auth layer
+  // Invalid token → 401 at auth layer
   test('Request with invalid token gets 401 Unauthorized', async ({ page }) => {
     await test.step('Create test proxy', async () => {
       await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
@@ -119,7 +119,7 @@ test.describe('INT-004: Auth Middleware Cascade', () => {
     });
   });
 
-  // INT-004-3: Valid token passes through ACL layer
+  // Valid token passes through ACL layer
   test('Valid token passes ACL validation', async ({ page }) => {
     await test.step('Create proxy with ACL', async () => {
       await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
@@ -154,7 +154,7 @@ test.describe('INT-004: Auth Middleware Cascade', () => {
     });
   });
 
-  // INT-004-4: Valid token passes through WAF layer
+  // Valid token passes through WAF layer
   test('Valid token passes WAF validation', async ({ page }) => {
     await test.step('Create proxy with WAF', async () => {
       await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
@@ -197,7 +197,7 @@ test.describe('INT-004: Auth Middleware Cascade', () => {
     });
   });
 
-  // INT-004-5: Valid token passes through rate limiting layer
+  // Valid token passes through rate limiting layer
   test('Valid token passes rate limiting validation', async ({ page }) => {
     await test.step('Create proxy with rate limiting', async () => {
       await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
@@ -247,7 +247,7 @@ test.describe('INT-004: Auth Middleware Cascade', () => {
     });
   });
 
-  // INT-004-6: Valid token passes ALL middleware layers
+  // Valid token passes ALL middleware layers
   test('Valid token passes auth, ACL, WAF, and rate limiting', async ({ page }) => {
     await test.step('Create proxy with all protections', async () => {
       await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
