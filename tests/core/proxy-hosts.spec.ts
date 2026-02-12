@@ -8,7 +8,7 @@
  * - Update existing proxy hosts
  * - Delete proxy hosts with confirmation
  *
- * @see /projects/Charon/docs/plans/current_spec.md - Phase 2
+ * @see /projects/Charon/docs/plans/current_spec.md
  */
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
