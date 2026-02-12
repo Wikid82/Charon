@@ -1,5 +1,5 @@
 /**
- * Proxy + Certificate Integration E2E Tests (Phase 6.2)
+ * Proxy + Certificate Integration E2E Tests
  *
  * Tests for proxy host and SSL certificate integration workflows.
  * Covers certificate assignment, ACME challenges, renewal, and edge cases.
@@ -30,8 +30,26 @@ import {
   waitForLoadingComplete,
   waitForAPIResponse,
   waitForModal,
+  waitForResourceInUI,
   clickAndWaitForResponse,
 } from '../utils/wait-helpers';
+
+const DNS_PROVIDERS_API_PATTERN = /\/api\/v1\/dns-providers/;
+const CERTIFICATES_API_PATTERN = /\/api\/v1\/certificates/;
+
+async function navigateToDnsProviders(page: import('@playwright/test').Page): Promise<void> {
+  const providersResponse = waitForAPIResponse(page, DNS_PROVIDERS_API_PATTERN);
+  await page.goto('/dns/providers');
+  await providersResponse;
+  await waitForLoadingComplete(page);
+}
+
+async function navigateToCertificates(page: import('@playwright/test').Page): Promise<void> {
+  const certsResponse = waitForAPIResponse(page, CERTIFICATES_API_PATTERN);
+  await page.goto('/certificates');
+  await certsResponse;
+  await waitForLoadingComplete(page);
+}
 
 /**
  * Selectors for Certificate and Proxy Host pages
@@ -257,8 +275,7 @@ test.describe('Proxy + Certificate Integration', () => {
       });
 
       await test.step('Navigate to certificates', async () => {
-        await page.goto('/certificates');
-        await waitForLoadingComplete(page);
+        await navigateToCertificates(page);
       });
 
       await test.step('Verify page loads', async () => {
@@ -304,14 +321,11 @@ test.describe('Proxy + Certificate Integration', () => {
       });
 
       await test.step('Navigate to DNS providers', async () => {
-        await page.goto('/dns-providers');
-        await waitForLoadingComplete(page);
+        await navigateToDnsProviders(page);
       });
 
       await test.step('Verify DNS provider exists', async () => {
-        // The provider name contains namespace prefix
-        const content = page.locator('main, table, .content').first();
-        await expect(content).toBeVisible();
+        await waitForResourceInUI(page, /Cloudflare-DNS-Test/i);
       });
     });
   });

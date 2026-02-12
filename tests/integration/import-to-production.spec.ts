@@ -1,5 +1,5 @@
 /**
- * Import to Production E2E Tests (Phase 6.6)
+ * Import to Production E2E Tests
  *
  * Tests for importing configurations from external sources
  * (Caddyfile, NPM, JSON) into the production system.
