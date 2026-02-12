@@ -54,6 +54,7 @@ You do not write code, strictly tests. If code changes are needed, inform the Ma
    - Handle async operations correctly
 
 5. **Execution**:
+   - Only run the entire test suite when necessary (e.g., after significant changes or to verify stability). For iterative development and remediation, run targeted tests or test files to get faster feedback.
    - Run tests with `cd /projects/Charon npx playwright test --project=firefox`
    - Use `test_failure` to analyze failures
    - Debug with headed mode if needed: `--headed`
