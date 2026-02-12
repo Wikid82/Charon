@@ -10,7 +10,7 @@
  * - Test IP functionality
  * - Integration with Proxy Hosts
  *
- * @see /projects/Charon/docs/plans/current_spec.md - Phase 2
+ * @see /projects/Charon/docs/plans/current_spec.md
  */
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../../fixtures/auth-fixtures';
