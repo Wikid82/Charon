@@ -1,5 +1,5 @@
 /**
- * Proxy + ACL Integration E2E Tests (Phase 6.1)
+ * Proxy + ACL Integration E2E Tests
  *
  * Tests for proxy host and access list integration workflows.
  * Covers ACL assignment, rule enforcement, dynamic updates, and edge cases.
