@@ -308,3 +308,4 @@ frontend/coverage_output.txt
 frontend/temp**
 playwright-output/**
 validation-evidence/**
+.github/agents/# Tools Configuration.md
