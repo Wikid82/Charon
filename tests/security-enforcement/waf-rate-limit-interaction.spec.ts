@@ -1,14 +1,14 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Phase 4 Integration: WAF & Rate Limit Interaction
+ * Integration: WAF & Rate Limit Interaction
  *
  * Purpose: Validate WAF and rate limiting work independently and together
  * Scenarios: Module enforcement, request handling, interaction
  * Success: Malicious requests blocked, rate limited requests blocked appropriately
  */
 
-test.describe('INT-002: WAF & Rate Limit Interaction', () => {
+test.describe('WAF & Rate Limit Interaction', () => {
   const testProxy = {
     domain: 'waf-test.local',
     target: 'http://localhost:3001',
@@ -40,7 +40,7 @@ test.describe('INT-002: WAF & Rate Limit Interaction', () => {
     }
   });
 
-  // INT-002-1: WAF blocks malicious request (403)
+  // WAF blocks malicious request (403)
   test('WAF blocks malicious SQL injection payload', async ({ page }) => {
     await test.step('Create proxy with WAF enabled', async () => {
       await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
@@ -80,7 +80,7 @@ test.describe('INT-002: WAF & Rate Limit Interaction', () => {
     });
   });
 
-  // INT-002-2: Rate limiting blocks excessive requests (429)
+  // Rate limiting blocks excessive requests (429)
   test('Rate limiting blocks requests exceeding threshold', async ({ page }) => {
     await test.step('Create proxy with rate limiting enabled', async () => {
       await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
@@ -130,7 +130,7 @@ test.describe('INT-002: WAF & Rate Limit Interaction', () => {
     });
   });
 
-  // INT-002-3: WAF and rate limit enforced independently
+  // WAF and rate limit enforced independently
   test('WAF enforces regardless of rate limit status', async ({ page }) => {
     await test.step('Create proxy with both WAF and rate limiting', async () => {
       await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
@@ -188,7 +188,7 @@ test.describe('INT-002: WAF & Rate Limit Interaction', () => {
     });
   });
 
-  // INT-002-4: Request within limit but triggers WAF
+  // Request within limit but triggers WAF
   test('Malicious request gets 403 (WAF) not 429 (rate limit)', async ({ page }) => {
     await test.step('Create proxy with both modules', async () => {
       await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
@@ -243,7 +243,7 @@ test.describe('INT-002: WAF & Rate Limit Interaction', () => {
     });
   });
 
-  // INT-002-5: Request exceeds limit (429) without malicious content
+  // Request exceeds limit (429) without malicious content
   test('Clean request gets 429 when rate limit exceeded', async ({ page }) => {
     await test.step('Setup proxy with rate limiting', async () => {
       await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
