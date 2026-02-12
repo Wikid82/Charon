@@ -1,5 +1,5 @@
 /**
- * Security Suite Integration E2E Tests (Phase 6.4)
+ * Security Suite Integration E2E Tests
  *
  * Tests for Cerberus security suite integration including WAF, CrowdSec,
  * ACLs, and security headers working together.
