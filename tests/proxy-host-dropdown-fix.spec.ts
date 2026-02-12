@@ -2,118 +2,112 @@ import { test, expect } from '@playwright/test'
 
 test.describe('ProxyHostForm Dropdown Click Fix', () => {
   test.beforeEach(async ({ page }) => {
-    // Navigate to the application
-    await page.goto('/proxy-hosts')
-    await page.waitForLoadState('networkidle')
+    await test.step('Navigate to proxy hosts and open the create modal', async () => {
+      await page.goto('/proxy-hosts')
+      await page.waitForLoadState('networkidle')
 
-    // Click "Add Proxy Host" button
-    const addButton = page.getByRole('button', { name: /add proxy host|create/i }).first()
-    await addButton.click()
+      const addButton = page.getByRole('button', { name: /add proxy host|create/i }).first()
+      await expect(addButton).toBeEnabled()
+      await addButton.click()
 
-    // Wait for modal to appear
-    await page.waitForSelector('[role="dialog"]')
+      await expect(page.getByRole('dialog')).toBeVisible()
+    })
   })
 
   test('ACL dropdown should open and items should be clickable', async ({ page }) => {
-    // Find the Access Control List select
-    const aclLabel = page.locator('text=Access Control List')
+    const dialog = page.getByRole('dialog')
 
-    // Click to open the dropdown
-    const aclTrigger = page.locator('[role="combobox"]').filter({ has: aclLabel.locator('..') }).first()
-    await aclTrigger.click()
+    await test.step('Open Access Control List dropdown', async () => {
+      const aclTrigger = dialog.getByRole('combobox', { name: /access control list/i })
+      await expect(aclTrigger).toBeEnabled()
+      await aclTrigger.click()
 
-    // Wait for dropdown menu to appear
-    await page.waitForSelector('[role="listbox"]')
+      const listbox = page.getByRole('listbox')
+      await expect(listbox).toBeVisible()
+      await expect(listbox).toMatchAriaSnapshot(`
+        - listbox:
+          - option
+      `)
 
-    // Verify dropdown is open
-    const dropdownItems = page.locator('[role="option"]')
-    const itemCount = await dropdownItems.count()
-    expect(itemCount).toBeGreaterThan(0)
+      const dropdownItems = listbox.getByRole('option')
+      const itemCount = await dropdownItems.count()
+      expect(itemCount).toBeGreaterThan(0)
 
-    // Try clicking on an option (skip the default "No Access Control" and click the first real option if available)
-    const options = await dropdownItems.all()
-    if (options.length > 1) {
-      await page.locator('[role="option"]').nth(1).click()
+      let selectedText: string | null = null
+      for (let i = 0; i < itemCount; i++) {
+        const option = dropdownItems.nth(i)
+        const isDisabled = (await option.getAttribute('aria-disabled')) === 'true'
+        if (!isDisabled) {
+          selectedText = (await option.textContent())?.trim() || null
+          await option.click()
+          break
+        }
+      }
 
-      // Verify the selection was registered (the trigger should show the selected value)
-      const selectedValue = await aclTrigger.locator('[role="combobox"]').innerText()
-      expect(selectedValue).toBeTruthy()
-    }
+      expect(selectedText).toBeTruthy()
+      await expect(aclTrigger).toContainText(selectedText || '')
+    })
   })
 
   test('Security Headers dropdown should open and items should be clickable', async ({ page }) => {
-    // Find the Security Headers select
-    const securityLabel = page.locator('text=Security Headers')
+    const dialog = page.getByRole('dialog')
 
-    // Get the select trigger associated with this label
-    const selectTriggers = page.locator('[role="combobox"]')
+    await test.step('Open Security Headers dropdown', async () => {
+      const securityTrigger = dialog.getByRole('combobox', { name: /security headers/i })
+      await expect(securityTrigger).toBeEnabled()
+      await securityTrigger.click()
 
-    // Find the one after the Security Headers label
-    let securityTrigger = null
-    const triggers = await selectTriggers.all()
+      const listbox = page.getByRole('listbox')
+      await expect(listbox).toBeVisible()
+      await expect(listbox).toMatchAriaSnapshot(`
+        - listbox:
+          - option
+      `)
 
-    for (let i = 0; i < triggers.length; i++) {
-      const trigger = triggers[i]
-      const boundingBox = await trigger.boundingBox()
-      const labelBox = await securityLabel.boundingBox()
+      const dropdownItems = listbox.getByRole('option')
+      const itemCount = await dropdownItems.count()
+      expect(itemCount).toBeGreaterThan(0)
 
-      if (labelBox && boundingBox && boundingBox.y > labelBox.y) {
-        securityTrigger = trigger
-        break
+      let selectedText: string | null = null
+      for (let i = 0; i < itemCount; i++) {
+        const option = dropdownItems.nth(i)
+        const isDisabled = (await option.getAttribute('aria-disabled')) === 'true'
+        if (!isDisabled) {
+          selectedText = (await option.textContent())?.trim() || null
+          await option.click()
+          break
+        }
       }
-    }
 
-    if (!securityTrigger) {
-      securityTrigger = selectTriggers.filter({ has: securityLabel.locator('..') }).first()
-    }
-
-    // Click to open the dropdown
-    await securityTrigger.click()
-
-    // Wait for dropdown menu to appear
-    await page.waitForSelector('[role="listbox"]')
-
-    // Verify dropdown is open
-    const dropdownItems = page.locator('[role="option"]')
-    const itemCount = await dropdownItems.count()
-    expect(itemCount).toBeGreaterThan(0)
-
-    // Click on the first non-disabled option
-    const options = await dropdownItems.all()
-    if (options.length > 1) {
-      await page.locator('[role="option"]').nth(1).click()
-
-      // Verify the selection was registered
-      const selectedValue = await securityTrigger.textContent()
-      expect(selectedValue).toBeTruthy()
-    }
+      expect(selectedText).toBeTruthy()
+      await expect(securityTrigger).toContainText(selectedText || '')
+    })
   })
 
   test('All dropdown menus should allow clicking on items without blocking', async ({ page }) => {
-    // Get all select triggers in the form
-    const selectTriggers = page.locator('[role="combobox"]')
+    const dialog = page.getByRole('dialog')
+    const selectTriggers = dialog.getByRole('combobox')
     const triggerCount = await selectTriggers.count()
 
-    // Test each dropdown
     for (let i = 0; i < Math.min(triggerCount, 3); i++) {
-      const trigger = selectTriggers.nth(i)
+      await test.step(`Open dropdown ${i + 1}`, async () => {
+        const trigger = selectTriggers.nth(i)
+        const isDisabled = await trigger.isDisabled()
+        if (isDisabled) {
+          return
+        }
 
-      // Click to open dropdown
-      await trigger.click()
+        await expect(trigger).toBeEnabled()
+        await trigger.click()
 
-      // Check if menu appears
-      const menu = page.locator('[role="listbox"]')
-      const isVisible = await menu.isVisible()
+        const menu = page.getByRole('listbox')
+        await expect(menu).toBeVisible()
 
-      if (isVisible) {
-        // Try to click on the first option
-        const firstOption = page.locator('[role="option"]').first()
-        const isClickable = await firstOption.isVisible()
-        expect(isClickable).toBe(true)
+        const firstOption = menu.getByRole('option').first()
+        await expect(firstOption).toBeVisible()
 
-        // Close menu by pressing Escape
         await page.keyboard.press('Escape')
-      }
+      })
     }
   })
 })
