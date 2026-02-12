@@ -252,7 +252,6 @@ export async function waitForLoadingComplete(
     '.loading',
     '.spinner',
     '[data-loading="true"]',
-    'div.animate-pulse', // Only divs upon animate-pulse (skeletons), excluding spans (badges)
     '[role="status"][aria-label="Loading"]',
     '[role="status"][aria-label="Authenticating"]',
     '[role="status"][aria-label="Security Loading"]'
