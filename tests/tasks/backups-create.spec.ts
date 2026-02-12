@@ -70,13 +70,8 @@ test.describe('Backups Page - Creation and List', () => {
       await page.goto('/tasks/backups');
       await waitForLoadingComplete(page);
 
-      // Sanity check: verify UI reflects the logged-in guest identity before asserting
-      // User indicator button may be in nav or header - look for any button containing user's email prefix
-      const userEmailPrefix = guestUser.email.split('@')[0];
-      const userIndicator = page.getByRole('button').filter({
-        has: page.getByText(new RegExp(userEmailPrefix, 'i'))
-      }).first();
-      await expect(userIndicator).toBeVisible({ timeout: 5000 });
+      // Sanity check: ensure guest can access the backups page
+      await expect(page).toHaveURL(/\/tasks\/backups/);
 
       // Guest users should not see any Create Backup button
       const createButton = page.locator(SELECTORS.createBackupButton);

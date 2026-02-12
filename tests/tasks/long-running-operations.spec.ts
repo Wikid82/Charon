@@ -1,14 +1,14 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 
 /**
- * Phase 4 Integration: Long-Running Operations
+ * Integration: Long-Running Operations
  *
  * Purpose: Verify system remains responsive during lengthy background tasks
  * Scenarios: Backup during other operations, concurrent task execution
  * Success: System responsive, tasks execute independently, no blocking
  */
 
-test.describe('INT-006: Long-Running Operations', () => {
+test.describe('Long-Running Operations', () => {
   const testProxy = {
     domain: 'longops-test.local',
     target: 'http://localhost:3001',
@@ -21,9 +21,9 @@ test.describe('INT-006: Long-Running Operations', () => {
     password: 'LongOpsPass123!',
   };
 
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/', { waitUntil: 'networkidle' });
-    await page.waitForSelector('[role="main"]', { timeout: 5000 });
+  test.beforeEach(async ({ page, adminUser }) => {
+    await loginUser(page, adminUser);
+    await page.getByRole('main').first().waitFor({ state: 'visible', timeout: 15000 });
   });
 
   test.afterEach(async ({ page }) => {
@@ -58,7 +58,7 @@ test.describe('INT-006: Long-Running Operations', () => {
     }
   });
 
-  // INT-006-1: Create backup while other operations running
+  // Create backup while other operations running
   test('Backup creation does not block other operations', async ({ page }) => {
     await test.step('Initiate backup creation', async () => {
       await page.goto('/settings/backup', { waitUntil: 'networkidle' }).catch(() => {
@@ -106,7 +106,7 @@ test.describe('INT-006: Long-Running Operations', () => {
     });
   });
 
-  // INT-006-2: System remains responsive during backup
+  // System remains responsive during backup
   test('UI remains responsive while backup in progress', async ({ page }) => {
     await test.step('Start backup operation', async () => {
       await page.goto('/settings/backup', { waitUntil: 'networkidle' }).catch(() => {
@@ -159,7 +159,7 @@ test.describe('INT-006: Long-Running Operations', () => {
     });
   });
 
-  // INT-006-3: Proxy creation during backup completes independently
+  // Proxy creation during backup completes independently
   test('Proxy creation independent of backup operation', async ({ page }) => {
     await test.step('Start backup', async () => {
       await page.goto('/settings/backup', { waitUntil: 'networkidle' }).catch(() => {
@@ -209,7 +209,7 @@ test.describe('INT-006: Long-Running Operations', () => {
     });
   });
 
-  // INT-006-4: User login succeeds during long operation
+  // User login succeeds during long operation
   test('Authentication completes quickly even during background tasks', async ({ page }) => {
     await test.step('Create test user', async () => {
       await page.goto('/users', { waitUntil: 'networkidle' });
@@ -262,7 +262,7 @@ test.describe('INT-006: Long-Running Operations', () => {
     });
   });
 
-  // INT-006-5: Task completion verified after operation finishes
+  // Task completion verified after operation finishes
   test('Long-running task completion can be verified', async ({ page }) => {
     let backupId: string | null = null;
 
