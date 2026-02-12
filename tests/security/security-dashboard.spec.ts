@@ -7,7 +7,7 @@
  * - Status indicators
  * - Navigation to sub-pages
  *
- * @see /projects/Charon/docs/plans/current_spec.md - Phase 3
+ * @see /projects/Charon/docs/plans/current_spec.md
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
