@@ -46,7 +46,7 @@ test.describe('System Settings - Feature Toggles', () => {
   test.afterAll(async () => {
     await test.step('Report API call metrics', async () => {
       // ✅ FIX 3.2: Report API call metrics for performance monitoring
-      // See: E2E Test Timeout Remediation Plan (Phase 3, Fix 3.2)
+      // See: E2E Test Timeout Remediation Plan (Fix 3.2)
       const metrics = getAPIMetrics();
       console.log('\n📊 API Call Metrics:');
       console.log(`   Feature Flag Calls: ${metrics.featureFlagCalls}`);
@@ -312,7 +312,7 @@ test.describe('System Settings - Feature Toggles', () => {
     });
   });
 
-  test.describe('Feature Toggles - Advanced Scenarios (Phase 4)', () => {
+  test.describe('Feature Toggles - Advanced Scenarios', () => {
     /**
      * Test: Handle concurrent toggle operations
      * Priority: P1
