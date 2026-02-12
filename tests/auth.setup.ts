@@ -1,7 +1,8 @@
 import { test as setup } from './fixtures/test';
 import { request as playwrightRequest } from '@playwright/test';
 import { STORAGE_STATE } from './constants';
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { dirname } from 'path';
 import { TestDataManager } from './utils/TestDataManager';
 
 /**
@@ -137,17 +138,49 @@ async function performLoginAndSaveState(
 
   console.log('Login successful');
 
-  // Store the authentication state
+  // Extract token from response body
+  const loginData = await loginResponse.json();
+  const token = loginData.token;
+
+  if (!token) {
+    throw new Error('Login response did not include a token');
+  }
+
+  // Store the authentication state (cookies)
   await request.storageState({ path: STORAGE_STATE });
   console.log(`Auth state saved to ${STORAGE_STATE}`);
 
-  // Verify cookie domain matches expected base URL
+  // Add localStorage with token to the storage state
+  // This is required because the frontend checks localStorage for the token
   try {
     const savedState = JSON.parse(readFileSync(STORAGE_STATE, 'utf-8'));
+
+    // Add localStorage data
+    if (!baseURL) {
+      throw new Error('baseURL is required to save localStorage in storage state');
+    }
+
+    savedState.origins = [{
+      origin: baseURL,
+      localStorage: [
+        { name: 'charon_auth_token', value: token }
+      ]
+    }];
+
+    // Write updated storage state
+    const storageDir = dirname(STORAGE_STATE);
+    if (!existsSync(storageDir)) {
+      throw new Error(`Storage directory does not exist: ${storageDir}`);
+    }
+
+    writeFileSync(STORAGE_STATE, JSON.stringify(savedState, null, 2));
+    console.log('✅ Added auth token to localStorage in storage state');
+
+    // Verify cookie domain matches expected base URL
     const cookies = savedState.cookies || [];
     const authCookie = cookies.find((c: { name: string }) => c.name === 'auth_token');
 
-    if (authCookie?.domain && baseURL) {
+    if (authCookie?.domain) {
       const expectedHost = new URL(baseURL).hostname;
       if (authCookie.domain !== expectedHost && authCookie.domain !== `.${expectedHost}`) {
         console.warn(`⚠️ Cookie domain mismatch: cookie domain "${authCookie.domain}" does not match baseURL host "${expectedHost}"`);
@@ -157,7 +190,7 @@ async function performLoginAndSaveState(
       }
     }
   } catch (err) {
-    console.warn('⚠️ Could not validate cookie domain:', err instanceof Error ? err.message : err);
+    console.warn('⚠️ Could not validate storage state:', err instanceof Error ? err.message : err);
   }
 }
 
