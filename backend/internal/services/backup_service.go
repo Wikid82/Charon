@@ -371,11 +371,48 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 		return fmt.Errorf("restored database file missing: %w", err)
 	}
 
+	tempRestoreFile, err := os.CreateTemp("", "charon-restore-src-*.sqlite")
+	if err != nil {
+		return fmt.Errorf("create temporary restore database copy: %w", err)
+	}
+	tempRestorePath := tempRestoreFile.Name()
+	if closeErr := tempRestoreFile.Close(); closeErr != nil {
+		_ = os.Remove(tempRestorePath)
+		return fmt.Errorf("close temporary restore database file: %w", closeErr)
+	}
+	defer func() {
+		_ = os.Remove(tempRestorePath)
+	}()
+
+	sourceFile, err := os.Open(restoredDBPath) // #nosec G304 -- restoredDBPath is internal controlled path
+	if err != nil {
+		return fmt.Errorf("open restored database file: %w", err)
+	}
+	defer func() {
+		_ = sourceFile.Close()
+	}()
+
+	destinationFile, err := os.OpenFile(tempRestorePath, os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("open temporary restore database file: %w", err)
+	}
+	defer func() {
+		_ = destinationFile.Close()
+	}()
+
+	if _, err := io.Copy(destinationFile, sourceFile); err != nil {
+		return fmt.Errorf("copy restored database to temporary file: %w", err)
+	}
+
+	if err := destinationFile.Sync(); err != nil {
+		return fmt.Errorf("sync temporary restore database file: %w", err)
+	}
+
 	if err := db.Exec("PRAGMA foreign_keys = OFF").Error; err != nil {
 		return fmt.Errorf("disable foreign keys: %w", err)
 	}
 
-	if err := db.Exec("ATTACH DATABASE ? AS restore_src", restoredDBPath).Error; err != nil {
+	if err := db.Exec("ATTACH DATABASE ? AS restore_src", tempRestorePath).Error; err != nil {
 		_ = db.Exec("PRAGMA foreign_keys = ON")
 		return fmt.Errorf("attach restored database: %w", err)
 	}
