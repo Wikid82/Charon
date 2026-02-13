@@ -49,6 +49,10 @@ func TestSecurityHandler_GetStatus_Fixed(t *testing.T) {
 					"mode":    "disabled",
 					"enabled": false,
 				},
+				"config_apply": map[string]any{
+					"available": false,
+					"status":    "unknown",
+				},
 			},
 		},
 		{
@@ -79,6 +83,10 @@ func TestSecurityHandler_GetStatus_Fixed(t *testing.T) {
 				"acl": map[string]any{
 					"mode":    "enabled",
 					"enabled": true,
+				},
+				"config_apply": map[string]any{
+					"available": false,
+					"status":    "unknown",
 				},
 			},
 		},
