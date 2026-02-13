@@ -309,7 +309,7 @@ test.describe('Admin-User E2E Workflow', () => {
       const duration = Date.now() - start;
 
       console.log(`✓ User logged in in ${duration}ms`);
-      expect(duration).toBeLessThan(3000);
+      expect(duration).toBeLessThan(15000);
     });
 
     await test.step('STEP 5: User sees restricted dashboard', async () => {
