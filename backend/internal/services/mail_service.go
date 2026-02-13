@@ -371,7 +371,7 @@ func (s *MailService) buildEmail(fromAddr, toAddr, replyToAddr *mail.Address, su
 	return msg.Bytes(), nil
 }
 
-func parseEmailAddressForHeader(field emailHeaderName, raw string) (*mail.Address, error) {
+func parseEmailAddressForHeader(_ emailHeaderName, raw string) (*mail.Address, error) {
 	if raw == "" {
 		return nil, errors.New("email address is empty")
 	}
@@ -388,7 +388,7 @@ func parseEmailAddressForHeader(field emailHeaderName, raw string) (*mail.Addres
 	return addr, nil
 }
 
-func formatEmailAddressForHeader(field emailHeaderName, addr *mail.Address) (string, error) {
+func formatEmailAddressForHeader(_ emailHeaderName, addr *mail.Address) (string, error) {
 	if addr == nil {
 		return "", errors.New("email address is nil")
 	}
