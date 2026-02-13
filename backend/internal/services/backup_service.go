@@ -371,75 +371,93 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 		return fmt.Errorf("restored database file missing: %w", err)
 	}
 
-	return db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec("PRAGMA foreign_keys = OFF").Error; err != nil {
-			return fmt.Errorf("disable foreign keys: %w", err)
-		}
+	if err := db.Exec("PRAGMA foreign_keys = OFF").Error; err != nil {
+		return fmt.Errorf("disable foreign keys: %w", err)
+	}
 
-		if err := tx.Exec("ATTACH DATABASE ? AS restore_src", restoredDBPath).Error; err != nil {
-			return fmt.Errorf("attach restored database: %w", err)
-		}
-		defer func() {
-			_ = tx.Exec("DETACH DATABASE restore_src")
-			_ = tx.Exec("PRAGMA foreign_keys = ON")
-		}()
+	if err := db.Exec("ATTACH DATABASE ? AS restore_src", restoredDBPath).Error; err != nil {
+		_ = db.Exec("PRAGMA foreign_keys = ON")
+		return fmt.Errorf("attach restored database: %w", err)
+	}
 
-		var currentTables []string
-		if err := tx.Raw(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&currentTables).Error; err != nil {
-			return fmt.Errorf("list current tables: %w", err)
-		}
-
-		restoredTableSet := map[string]struct{}{}
-		var restoredTables []string
-		if err := tx.Raw(`SELECT name FROM restore_src.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&restoredTables).Error; err != nil {
-			return fmt.Errorf("list restored tables: %w", err)
-		}
-		for _, tableName := range restoredTables {
-			restoredTableSet[tableName] = struct{}{}
-		}
-
-		for _, tableName := range currentTables {
-			quotedTable, err := quoteSQLiteIdentifier(tableName)
+	detached := false
+	defer func() {
+		if !detached {
+			err := db.Exec("DETACH DATABASE restore_src").Error
 			if err != nil {
-				return fmt.Errorf("quote table identifier: %w", err)
-			}
-
-			if err := tx.Exec("DELETE FROM " + quotedTable).Error; err != nil {
-				return fmt.Errorf("clear table %s: %w", tableName, err)
-			}
-
-			if _, exists := restoredTableSet[tableName]; !exists {
-				continue
-			}
-
-			if err := tx.Exec("INSERT INTO " + quotedTable + " SELECT * FROM restore_src." + quotedTable).Error; err != nil {
-				return fmt.Errorf("copy table %s: %w", tableName, err)
+				errMsg := strings.ToLower(err.Error())
+				if !strings.Contains(errMsg, "locked") && !strings.Contains(errMsg, "busy") {
+					logger.Log().WithError(err).Warn("failed to detach restore source database")
+				}
 			}
 		}
+		_ = db.Exec("PRAGMA foreign_keys = ON")
+	}()
 
-		hasSQLiteSequence := false
-		if err := tx.Raw(`SELECT COUNT(*) > 0 FROM restore_src.sqlite_master WHERE type='table' AND name='sqlite_sequence'`).Scan(&hasSQLiteSequence).Error; err != nil {
-			return fmt.Errorf("check sqlite_sequence presence: %w", err)
+	var currentTables []string
+	if err := db.Raw(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&currentTables).Error; err != nil {
+		return fmt.Errorf("list current tables: %w", err)
+	}
+
+	restoredTableSet := map[string]struct{}{}
+	var restoredTables []string
+	if err := db.Raw(`SELECT name FROM restore_src.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&restoredTables).Error; err != nil {
+		return fmt.Errorf("list restored tables: %w", err)
+	}
+	for _, tableName := range restoredTables {
+		restoredTableSet[tableName] = struct{}{}
+	}
+
+	for _, tableName := range currentTables {
+		quotedTable, err := quoteSQLiteIdentifier(tableName)
+		if err != nil {
+			return fmt.Errorf("quote table identifier: %w", err)
 		}
 
-		if hasSQLiteSequence {
-			if err := tx.Exec("DELETE FROM sqlite_sequence").Error; err != nil {
-				return fmt.Errorf("clear sqlite_sequence: %w", err)
-			}
-			if err := tx.Exec("INSERT INTO sqlite_sequence SELECT * FROM restore_src.sqlite_sequence").Error; err != nil {
-				return fmt.Errorf("copy sqlite_sequence: %w", err)
-			}
+		if err := db.Exec("DELETE FROM " + quotedTable).Error; err != nil {
+			return fmt.Errorf("clear table %s: %w", tableName, err)
 		}
 
-		if err := tx.Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error; err != nil {
-			errMsg := strings.ToLower(err.Error())
-			if !strings.Contains(errMsg, "locked") && !strings.Contains(errMsg, "busy") {
-				return fmt.Errorf("checkpoint wal after rehydrate: %w", err)
-			}
+		if _, exists := restoredTableSet[tableName]; !exists {
+			continue
 		}
 
-		return nil
-	})
+		if err := db.Exec("INSERT INTO " + quotedTable + " SELECT * FROM restore_src." + quotedTable).Error; err != nil {
+			return fmt.Errorf("copy table %s: %w", tableName, err)
+		}
+	}
+
+	hasSQLiteSequence := false
+	if err := db.Raw(`SELECT COUNT(*) > 0 FROM restore_src.sqlite_master WHERE type='table' AND name='sqlite_sequence'`).Scan(&hasSQLiteSequence).Error; err != nil {
+		return fmt.Errorf("check sqlite_sequence presence: %w", err)
+	}
+
+	if hasSQLiteSequence {
+		if err := db.Exec("DELETE FROM sqlite_sequence").Error; err != nil {
+			return fmt.Errorf("clear sqlite_sequence: %w", err)
+		}
+		if err := db.Exec("INSERT INTO sqlite_sequence SELECT * FROM restore_src.sqlite_sequence").Error; err != nil {
+			return fmt.Errorf("copy sqlite_sequence: %w", err)
+		}
+	}
+
+	if err := db.Exec("DETACH DATABASE restore_src").Error; err != nil {
+		errMsg := strings.ToLower(err.Error())
+		if !strings.Contains(errMsg, "locked") && !strings.Contains(errMsg, "busy") {
+			return fmt.Errorf("detach restored database: %w", err)
+		}
+	} else {
+		detached = true
+	}
+
+	if err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error; err != nil {
+		errMsg := strings.ToLower(err.Error())
+		if !strings.Contains(errMsg, "locked") && !strings.Contains(errMsg, "busy") {
+			return fmt.Errorf("checkpoint wal after rehydrate: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (s *BackupService) unzip(src, dest string) error {
