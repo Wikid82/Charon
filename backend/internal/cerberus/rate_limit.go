@@ -143,15 +143,10 @@ func (c *Cerberus) RateLimitMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Check config enabled status
-		enabled := false
-		if c.cfg.RateLimitMode == "enabled" {
-			enabled = true
-		} else {
-			// Check dynamic setting
-			if v, ok := c.getSetting("security.rate_limit.enabled"); ok && strings.EqualFold(v, "true") {
-				enabled = true
-			}
+		// Check config enabled status, then let dynamic setting override both true and false.
+		enabled := c.cfg.RateLimitMode == "enabled"
+		if v, ok := c.getSetting("security.rate_limit.enabled"); ok {
+			enabled = strings.EqualFold(v, "true")
 		}
 
 		if !enabled {
