@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -239,7 +240,7 @@ func (h *EmergencyHandler) disableAllSecurityModules() ([]string, error) {
 			Type:     "bool",
 		}
 
-		if err := h.db.Where(models.Setting{Key: key}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
+		if err := h.upsertSettingWithRetry(&setting); err != nil {
 			return disabledModules, fmt.Errorf("failed to disable %s: %w", key, err)
 		}
 		disabledModules = append(disabledModules, key)
@@ -252,7 +253,7 @@ func (h *EmergencyHandler) disableAllSecurityModules() ([]string, error) {
 		Category: "security",
 		Type:     "string",
 	}
-	if err := h.db.Where(models.Setting{Key: adminWhitelistSetting.Key}).Assign(adminWhitelistSetting).FirstOrCreate(&adminWhitelistSetting).Error; err != nil {
+	if err := h.upsertSettingWithRetry(&adminWhitelistSetting); err != nil {
 		return disabledModules, fmt.Errorf("failed to clear admin whitelist: %w", err)
 	}
 
@@ -272,6 +273,28 @@ func (h *EmergencyHandler) disableAllSecurityModules() ([]string, error) {
 	}
 
 	return disabledModules, nil
+}
+
+func (h *EmergencyHandler) upsertSettingWithRetry(setting *models.Setting) error {
+	const maxAttempts = 5
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err := h.db.Where(models.Setting{Key: setting.Key}).Assign(*setting).FirstOrCreate(setting).Error
+		if err == nil {
+			return nil
+		}
+
+		errMsg := strings.ToLower(err.Error())
+		isTransientLock := strings.Contains(errMsg, "database is locked") || strings.Contains(errMsg, "database table is locked") || strings.Contains(errMsg, "busy")
+		if isTransientLock && attempt < maxAttempts {
+			time.Sleep(time.Duration(attempt) * 10 * time.Millisecond)
+			continue
+		}
+
+		return err
+	}
+
+	return nil
 }
 
 // logAudit logs an emergency action to the security audit trail
