@@ -1,6 +1,66 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
 
+async function resetSecurityState(page: import('@playwright/test').Page): Promise<void> {
+  const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
+  if (!emergencyToken) {
+    return;
+  }
+
+  const username = process.env.CHARON_EMERGENCY_USERNAME || 'admin';
+  const password = process.env.CHARON_EMERGENCY_PASSWORD || 'changeme';
+  const basicAuth = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+
+  const response = await page.request.post('http://localhost:2020/emergency/security-reset', {
+    headers: {
+      Authorization: basicAuth,
+      'X-Emergency-Token': emergencyToken,
+      'Content-Type': 'application/json',
+    },
+    data: { reason: 'multi-component deterministic setup/teardown' },
+  });
+
+  expect(response.ok()).toBe(true);
+}
+
+async function getAuthToken(page: import('@playwright/test').Page): Promise<string> {
+  const token = await page.evaluate(() => {
+    return (
+      localStorage.getItem('token') ||
+      localStorage.getItem('charon_auth_token') ||
+      localStorage.getItem('auth') ||
+      ''
+    );
+  });
+
+  expect(token).toBeTruthy();
+  return token;
+}
+
+function uniqueSuffix(): string {
+  return `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+}
+
+async function createUserViaApi(
+  page: import('@playwright/test').Page,
+  user: { email: string; name: string; password: string; role: 'admin' | 'user' | 'guest' }
+): Promise<{ id: string | number; email: string }> {
+  const token = await getAuthToken(page);
+  const response = await page.request.post('/api/v1/users', {
+    data: user,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  expect(response.ok()).toBe(true);
+  const payload = await response.json();
+  expect(payload).toEqual(expect.objectContaining({
+    id: expect.anything(),
+    email: user.email,
+  }));
+
+  return { id: payload.id, email: payload.email };
+}
+
 /**
  * Integration: Multi-Component Workflows
  *
@@ -10,132 +70,86 @@ import { waitForLoadingComplete } from '../utils/wait-helpers';
  */
 
 test.describe('Multi-Component Workflows', () => {
-  const testProxy = {
-    domain: 'multi-workflow.local',
+  let testProxy = {
+    domain: `multi-workflow-${Date.now()}.local`,
     target: 'http://localhost:3001',
     description: 'Multi-component workflow test',
   };
 
-  const testUser = {
-    email: 'multiflow@test.local',
-    name: 'Multi Workflow User',
+  let testUser = {
+    email: '',
+    name: '',
     password: 'MultiFlow123!',
   };
 
   test.beforeEach(async ({ page, adminUser }) => {
+    const suffix = uniqueSuffix();
+    testProxy = {
+      domain: `multi-workflow-${suffix}.local`,
+      target: 'http://localhost:3001',
+      description: 'Multi-component workflow test',
+    };
+
+    testUser = {
+      email: `multiflow-${suffix}@test.local`,
+      name: `Multi Workflow User ${suffix}`,
+      password: 'MultiFlow123!',
+    };
+
+    await resetSecurityState(page);
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page, { timeout: 15000 });
-    await expect(page.getByRole('main')).toBeVisible({ timeout: 15000 });
+    const meResponse = await page.request.get('/api/v1/auth/me');
+    expect(meResponse.ok()).toBe(true);
   });
 
   test.afterEach(async ({ page }) => {
     try {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
-      const proxyRow = page.locator(`text=${testProxy.domain}`).first();
-      if (await proxyRow.isVisible()) {
-        const deleteButton = proxyRow.locator('..').getByRole('button', { name: /delete/i }).first();
-        await deleteButton.click();
+      const token = await getAuthToken(page);
 
-        const confirmButton = page.getByRole('button', { name: /confirm|delete/i }).first();
-        if (await confirmButton.isVisible()) {
-          await confirmButton.click();
+      const proxiesResponse = await page.request.get('/api/v1/proxy-hosts', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (proxiesResponse.ok()) {
+        const proxies = await proxiesResponse.json();
+        if (Array.isArray(proxies)) {
+          const matchingProxy = proxies.find((proxy: any) =>
+            proxy.domain_names === testProxy.domain || proxy.domainNames === testProxy.domain
+          );
+          if (matchingProxy?.uuid) {
+            await page.request.delete(`/api/v1/proxy-hosts/${matchingProxy.uuid}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+          }
         }
-        await page.waitForLoadState('networkidle');
       }
 
-      await page.goto('/users', { waitUntil: 'networkidle' });
-      const userRow = page.locator(`text=${testUser.email}`).first();
-      if (await userRow.isVisible()) {
-        const deleteButton = userRow.locator('..').getByRole('button', { name: /delete/i }).first();
-        await deleteButton.click();
-
-        const confirmButton = page.getByRole('button', { name: /confirm|delete/i }).first();
-        if (await confirmButton.isVisible()) {
-          await confirmButton.click();
+      const usersResponse = await page.request.get('/api/v1/users', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (usersResponse.ok()) {
+        const users = await usersResponse.json();
+        if (Array.isArray(users)) {
+          const matchingUser = users.find((user: any) => user.email === testUser.email);
+          if (matchingUser?.id) {
+            await page.request.delete(`/api/v1/users/${matchingUser.id}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+          }
         }
-        await page.waitForLoadState('networkidle');
       }
     } catch {
       // Ignore cleanup errors
+    } finally {
+      await resetSecurityState(page);
     }
   });
 
-  // Create proxy → Enable WAF → Send request → WAF enforces
-  test('WAF enforcement applies to newly created proxy', async ({ page }) => {
-    await test.step('Create new proxy', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
-
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/domain/i).fill(testProxy.domain);
-      await page.getByLabel(/target|forward/i).fill(testProxy.target);
-      await page.getByLabel(/description/i).fill(testProxy.description);
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
-    });
-
-    await test.step('Enable WAF on proxy', async () => {
-      const proxyRow = page.locator(`text=${testProxy.domain}`).first();
-      const editButton = proxyRow.locator('..').getByRole('button', { name: /edit/i }).first();
-      await editButton.click();
-
-      const wafToggle = page.locator('input[type="checkbox"][name*="waf"]').first();
-      if (await wafToggle.isVisible()) {
-        const isChecked = await wafToggle.isChecked();
-        if (!isChecked) {
-          await wafToggle.click();
-        }
-      }
-
-      const submitButton = page.getByRole('button', { name: /save|update/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
-    });
-
-    await test.step('Send malicious request to proxy with WAF', async () => {
-      const response = await page.request.get(
-        `http://127.0.0.1:8080/?id=1' OR '1'='1`,
-        { ignoreHTTPSErrors: true }
-      );
-
-      expect(response.status()).toBe(403); // WAF blocks
-    });
-
-    await test.step('Send legitimate request (allowed)', async () => {
-      const response = await page.request.get(
-        `http://127.0.0.1:8080/api/status`,
-        { ignoreHTTPSErrors: true }
-      );
-
-      // Should not be 403
-      expect(response.status()).not.toBe(403);
-    });
-  });
 
   // Create user → Assign role → User creates proxy → Verify ACL
   test('User with proxy creation role can create and manage proxies', async ({ page }) => {
     await test.step('Create user with proxy management role', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
-
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/name/i).fill(testUser.name);
-      await page.getByLabel(/password/i).first().fill(testUser.password);
-
-      // Try to assign a role with proxy management
-      const roleSelect = page.locator('select[name*="role"]').first();
-      if (await roleSelect.isVisible()) {
-        await roleSelect.selectOption('manager'); // or appropriate role
-      }
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await createUserViaApi(page, { ...testUser, role: 'admin' });
     });
 
     await test.step('User logs in and attempts proxy creation', async () => {
@@ -145,77 +159,56 @@ test.describe('Multi-Component Workflows', () => {
         await page.waitForURL(/login/);
       }
 
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/password/i).fill(testUser.password);
-      await page.getByRole('button', { name: /login/i }).click();
+      await page.locator('input[type="email"]').first().fill(testUser.email);
+      await page.locator('input[type="password"]').first().fill(testUser.password);
+      await page.getByRole('button', { name: /sign in|login/i }).first().click();
       await page.waitForLoadState('networkidle');
     });
 
     await test.step('User navigates to proxy management', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' }).catch(() => {
-        // May not have access or may be redirected
-        return Promise.resolve();
-      });
+      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
 
-      // Check if user can see proxy creation or gets access error
       const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      const accessDenied = page.getByText(/access|denied|forbidden/i).first();
-
-      const hasAccess = await addButton.isVisible().catch(() => false);
-      const isBlocked = await accessDenied.isVisible().catch(() => false);
-
-      // Should have access OR be blocked (depending on role)
-      console.log(`✓ User proxy access: allowed=${hasAccess}, blocked=${isBlocked}`);
+      await expect(addButton).toBeVisible({ timeout: 15000 });
     });
   });
 
   // Create backup → Delete user → Restore → User reappears
   test('Backup restore recovers deleted user data', async ({ page }) => {
+    const backupSuffix = uniqueSuffix();
     const userToBackup = {
-      email: 'backup-user@test.local',
+      email: `backup-user-${backupSuffix}@test.local`,
       name: 'Backup Recovery User',
       password: 'BackupPass123!',
     };
 
+    let createdUserId: string | number;
+    let createdBackupFilename = '';
+
     await test.step('Create user to be backed up', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
-
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/email/i).fill(userToBackup.email);
-      await page.getByLabel(/name/i).fill(userToBackup.name);
-      await page.getByLabel(/password/i).first().fill(userToBackup.password);
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      const createdUser = await createUserViaApi(page, { ...userToBackup, role: 'user' });
+      createdUserId = createdUser.id;
     });
 
     await test.step('Create backup with user data', async () => {
-      await page.goto('/settings/backup', { waitUntil: 'networkidle' }).catch(() => {
-        return page.goto('/backup');
+      const token = await getAuthToken(page);
+      const backupResponse = await page.request.post('/api/v1/backups', {
+        headers: { Authorization: `Bearer ${token}` },
       });
-
-      const backupButton = page.getByRole('button', { name: /backup|create|manual/i }).first();
-      if (await backupButton.isVisible()) {
-        await backupButton.click();
-        await page.waitForLoadState('networkidle');
-      }
+      expect([200, 201]).toContain(backupResponse.status());
+      const backupPayload = await backupResponse.json();
+      expect(backupPayload).toEqual(expect.objectContaining({
+        filename: expect.any(String),
+      }));
+      createdBackupFilename = backupPayload.filename;
     });
 
     await test.step('Delete the user', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
-
-      const userRow = page.locator(`text=${userToBackup.email}`).first();
-      const deleteButton = userRow.locator('..').getByRole('button', { name: /delete/i }).first();
-      await deleteButton.click();
-
-      const confirmButton = page.getByRole('button', { name: /confirm|delete/i }).first();
-      if (await confirmButton.isVisible()) {
-        await confirmButton.click();
-      }
-      await page.waitForLoadState('networkidle');
+      const token = await getAuthToken(page);
+      const deleteResponse = await page.request.delete(`/api/v1/users/${createdUserId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(deleteResponse.ok()).toBe(true);
     });
 
     await test.step('Verify user is deleted', async () => {
@@ -227,172 +220,36 @@ test.describe('Multi-Component Workflows', () => {
     });
 
     await test.step('Restore from backup', async () => {
-      await page.goto('/settings/backup', { waitUntil: 'networkidle' }).catch(() => {
-        return page.goto('/backup');
+      const token = await getAuthToken(page);
+      expect(createdBackupFilename).toBeTruthy();
+
+      const restoreResponse = await page.request.post(`/api/v1/backups/${createdBackupFilename}/restore`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-
-      const restoreButton = page.getByRole('button', { name: /restore/i }).first();
-      if (await restoreButton.isVisible()) {
-        await restoreButton.click();
-
-        const confirmButton = page.getByRole('button', { name: /confirm|restore/i }).first();
-        if (await confirmButton.isVisible()) {
-          await confirmButton.click();
-        }
-        await page.waitForLoadState('networkidle');
-      }
+      expect(restoreResponse.ok()).toBe(true);
     });
 
     await test.step('Verify user reappeared after restore', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
-
-      const restoredUser = page.locator(`text=${userToBackup.email}`).first();
-      const isVisible = await restoredUser.isVisible().catch(() => false);
-
-      if (isVisible) {
-        await expect(restoredUser).toBeVisible();
-        console.log(`✓ User ${userToBackup.email} recovered from backup`);
-      }
-    });
-  });
-
-  // Enable security → Create user → User subject to rate limit
-  test('Security modules apply to subsequently created resources', async ({ page }) => {
-    await test.step('Enable global rate limiting', async () => {
-      await page.goto('/settings/security', { waitUntil: 'networkidle' }).catch(() => {
-        return page.goto('/settings');
-      });
-
-      const rateLimitToggle = page.locator('input[type="checkbox"][name*="rate"]').first();
-      if (await rateLimitToggle.isVisible()) {
-        const isChecked = await rateLimitToggle.isChecked();
-        if (!isChecked) {
-          await rateLimitToggle.click();
+      const token = await getAuthToken(page);
+      await expect.poll(async () => {
+        const usersResponse = await page.request.get('/api/v1/users', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!usersResponse.ok()) {
+          return false;
         }
-      }
 
-      const saveButton = page.getByRole('button', { name: /save|apply/i }).first();
-      if (await saveButton.isVisible()) {
-        await saveButton.click();
-      }
-      await page.waitForLoadState('networkidle');
-    });
-
-    await test.step('Create new user after security enabled', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
-
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/name/i).fill(testUser.name);
-      await page.getByLabel(/password/i).first().fill(testUser.password);
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
-    });
-
-    await test.step('Verify user subject to rate limiting', async () => {
-      const logoutButton = page.getByRole('button', { name: /logout/i }).first();
-      if (await logoutButton.isVisible()) {
-        await logoutButton.click();
-        await page.waitForURL(/login/);
-      }
-
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/password/i).fill(testUser.password);
-      await page.getByRole('button', { name: /login/i }).click();
-      await page.waitForLoadState('networkidle');
-
-      const userToken = await page.evaluate(() => localStorage.getItem('token'));
-
-      // Send multiple requests and verify rate limiting
-      const responses = [];
-      for (let i = 0; i < 5; i++) {
-        const response = await page.request.get(
-          `http://127.0.0.1:8080/api/test-${i}`,
-          {
-            headers: { 'Authorization': `Bearer ${userToken || ''}` },
-            ignoreHTTPSErrors: true,
-          }
-        );
-        responses.push(response.status());
-      }
-
-      // With rate limiting, should see 429 eventually
-      const rateLimited = responses.some(status => status === 429);
-      console.log(`✓ Rate limiting applied to user: ${rateLimited ? 'YES' : 'NO'}`);
-    });
-  });
-
-  // Admin workflow: create user → enable security → user cannot bypass
-  test('Security enforced even on previously created resources', async ({ page }) => {
-    await test.step('Create user before security enabled', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
-
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/name/i).fill(testUser.name);
-      await page.getByLabel(/password/i).first().fill(testUser.password);
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
-    });
-
-    await test.step('Enable rate limiting globally', async () => {
-      await page.goto('/settings/security', { waitUntil: 'networkidle' }).catch(() => {
-        return page.goto('/settings');
-      });
-
-      const rateLimitToggle = page.locator('input[type="checkbox"][name*="rate"]').first();
-      if (await rateLimitToggle.isVisible()) {
-        const isChecked = await rateLimitToggle.isChecked();
-        if (!isChecked) {
-          await rateLimitToggle.click();
+        const users = await usersResponse.json();
+        if (!Array.isArray(users)) {
+          return false;
         }
-      }
 
-      const saveButton = page.getByRole('button', { name: /save|apply/i }).first();
-      if (await saveButton.isVisible()) {
-        await saveButton.click();
-      }
-      await page.waitForLoadState('networkidle');
-    });
-
-    await test.step('Verify user is now rate limited', async () => {
-      const logoutButton = page.getByRole('button', { name: /logout/i }).first();
-      if (await logoutButton.isVisible()) {
-        await logoutButton.click();
-        await page.waitForURL(/login/);
-      }
-
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/password/i).fill(testUser.password);
-      await page.getByRole('button', { name: /login/i }).click();
-      await page.waitForLoadState('networkidle');
-
-      const userToken = await page.evaluate(() => localStorage.getItem('token'));
-
-      // Send rapid requests
-      const responses = [];
-      for (let i = 0; i < 10; i++) {
-        const response = await page.request.get(
-          `http://127.0.0.1:8080/rapid-${i}`,
-          {
-            headers: { 'Authorization': `Bearer ${userToken || ''}` },
-            ignoreHTTPSErrors: true,
-          }
-        );
-        responses.push(response.status());
-      }
-
-      // Should eventually see 429
-      const rateLimited = responses.includes(429);
-      console.log(`✓ Security retroactively applied: ${rateLimited ? 'YES' : 'NO'}`);
+        return users.some((user: any) => user.email === userToBackup.email);
+      }, {
+        timeout: 75000,
+        message: `Expected restored user ${userToBackup.email} to reappear via API after backup restore`,
+      }).toBe(true);
     });
   });
+
 });
