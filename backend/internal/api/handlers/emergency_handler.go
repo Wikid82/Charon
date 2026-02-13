@@ -272,6 +272,10 @@ func (h *EmergencyHandler) disableAllSecurityModules() ([]string, error) {
 		}
 	}
 
+	if err := h.db.Where("action = ?", "block").Delete(&models.SecurityDecision{}).Error; err != nil {
+		log.WithError(err).Warn("Failed to clear block security decisions during emergency reset")
+	}
+
 	return disabledModules, nil
 }
 
