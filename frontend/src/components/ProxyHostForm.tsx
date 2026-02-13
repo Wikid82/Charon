@@ -571,7 +571,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               required
               value={formData.name}
               onChange={e => {
-                setFormData({ ...formData, name: e.target.value })
+                setFormData(prev => ({ ...prev, name: e.target.value }))
                 if (nameError && e.target.value.trim()) {
                   setNameError(null)
                 }
@@ -688,7 +688,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 type="text"
                 required
                 value={formData.domain_names}
-                onChange={e => setFormData({ ...formData, domain_names: e.target.value })}
+                onChange={e => setFormData(prev => ({ ...prev, domain_names: e.target.value }))}
                 onBlur={e => checkNewDomains(e.target.value)}
                 placeholder="example.com, www.example.com"
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -700,7 +700,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">Scheme</label>
-              <Select value={formData.forward_scheme} onValueChange={scheme => setFormData({ ...formData, forward_scheme: scheme })}>
+              <Select value={formData.forward_scheme} onValueChange={scheme => setFormData(prev => ({ ...prev, forward_scheme: scheme }))}>
                 <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Scheme">
                   <SelectValue />
                 </SelectTrigger>
@@ -725,7 +725,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 type="text"
                 required
                 value={formData.forward_host}
-                onChange={e => setFormData({ ...formData, forward_host: e.target.value })}
+                onChange={e => setFormData(prev => ({ ...prev, forward_host: e.target.value }))}
                 placeholder="my-container or 192.168.1.100"
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -748,7 +748,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 onChange={e => {
                   const v = parseInt(e.target.value)
                   portInputRef.current?.setCustomValidity('')
-                  setFormData({ ...formData, forward_port: Number.isNaN(v) ? 0 : v })
+                  setFormData(prev => ({ ...prev, forward_port: Number.isNaN(v) ? 0 : v }))
                 }}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -760,7 +760,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             <label className="block text-sm font-medium text-gray-300 mb-2">
               SSL Certificate
             </label>
-            <Select value={String(formData.certificate_id || 0)} onValueChange={e => setFormData({ ...formData, certificate_id: parseInt(e) || null })}>
+            <Select value={String(formData.certificate_id || 0)} onValueChange={e => setFormData(prev => ({ ...prev, certificate_id: parseInt(e) || null }))}>
               <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="SSL Certificate">
                 <SelectValue />
               </SelectTrigger>
@@ -819,7 +819,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           {/* Access Control List */}
           <AccessListSelector
             value={formData.access_list_id || null}
-            onChange={id => setFormData({ ...formData, access_list_id: id })}
+            onChange={id => setFormData(prev => ({ ...prev, access_list_id: id }))}
           />
 
           {/* Security Headers Profile */}
@@ -833,7 +833,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               value={String(formData.security_header_profile_id || 0)}
               onValueChange={e => {
                 const value = e === "0" ? null : parseInt(e) || null
-                setFormData({ ...formData, security_header_profile_id: value })
+                setFormData(prev => ({ ...prev, security_header_profile_id: value }))
               }}
             >
               <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Security Headers">
@@ -1096,7 +1096,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               <input
                 type="checkbox"
                 checked={formData.ssl_forced}
-                onChange={e => setFormData({ ...formData, ssl_forced: e.target.checked })}
+                onChange={e => setFormData(prev => ({ ...prev, ssl_forced: e.target.checked }))}
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">Force SSL</span>
@@ -1108,7 +1108,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               <input
                 type="checkbox"
                 checked={formData.http2_support}
-                onChange={e => setFormData({ ...formData, http2_support: e.target.checked })}
+                onChange={e => setFormData(prev => ({ ...prev, http2_support: e.target.checked }))}
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">HTTP/2 Support</span>
@@ -1120,7 +1120,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               <input
                 type="checkbox"
                 checked={formData.hsts_enabled}
-                onChange={e => setFormData({ ...formData, hsts_enabled: e.target.checked })}
+                onChange={e => setFormData(prev => ({ ...prev, hsts_enabled: e.target.checked }))}
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">HSTS Enabled</span>
@@ -1132,7 +1132,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               <input
                 type="checkbox"
                 checked={formData.hsts_subdomains}
-                onChange={e => setFormData({ ...formData, hsts_subdomains: e.target.checked })}
+                onChange={e => setFormData(prev => ({ ...prev, hsts_subdomains: e.target.checked }))}
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">HSTS Subdomains</span>
@@ -1144,7 +1144,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               <input
                 type="checkbox"
                 checked={formData.block_exploits}
-                onChange={e => setFormData({ ...formData, block_exploits: e.target.checked })}
+                onChange={e => setFormData(prev => ({ ...prev, block_exploits: e.target.checked }))}
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">Block Exploits</span>
@@ -1156,7 +1156,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               <input
                 type="checkbox"
                 checked={formData.websocket_support}
-                onChange={e => setFormData({ ...formData, websocket_support: e.target.checked })}
+                onChange={e => setFormData(prev => ({ ...prev, websocket_support: e.target.checked }))}
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">Websockets Support</span>
@@ -1168,7 +1168,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               <input
                 type="checkbox"
                 checked={formData.enable_standard_headers ?? true}
-                onChange={e => setFormData({ ...formData, enable_standard_headers: e.target.checked })}
+                onChange={e => setFormData(prev => ({ ...prev, enable_standard_headers: e.target.checked }))}
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">Enable Standard Proxy Headers</span>
@@ -1214,7 +1214,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               <textarea
               id="advanced-config"
               value={formData.advanced_config}
-              onChange={e => setFormData({ ...formData, advanced_config: e.target.value })}
+              onChange={e => setFormData(prev => ({ ...prev, advanced_config: e.target.value }))}
               placeholder="Additional Caddy directives..."
               rows={4}
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1228,7 +1228,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               <input
                 type="checkbox"
                 checked={formData.enabled}
-                onChange={e => setFormData({ ...formData, enabled: e.target.checked })}
+                onChange={e => setFormData(prev => ({ ...prev, enabled: e.target.checked }))}
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm font-medium text-white">Enable Proxy Host</span>
