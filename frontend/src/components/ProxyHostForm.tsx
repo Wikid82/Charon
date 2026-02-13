@@ -641,7 +641,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               {dockerError && connectionSource !== 'custom' && (
                 <div className="mt-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
                   <div className="flex items-start gap-2">
-                    <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                    <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
                     <div className="text-xs text-red-300">
                       <p className="font-semibold mb-1">Docker Connection Failed</p>
                       <p className="text-red-400/90 mb-2">
@@ -893,7 +893,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               return (
                 <div className="mt-2 p-3 bg-yellow-900/30 border border-yellow-600 rounded-lg">
                   <div className="flex items-start gap-2">
-                    <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                    <AlertTriangle className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
                     <div className="text-sm">
                       <p className="font-medium text-yellow-400">Mobile App Compatibility Warning</p>
                       <p className="text-yellow-300/80 mt-1">
@@ -956,7 +956,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           {formData.application !== 'none' && formData.domain_names && (
             <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-4">
               <div className="flex items-start gap-3">
-                <Info className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                <Info className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
                 <div className="flex-1 space-y-3">
                   <h4 className="text-sm font-semibold text-blue-300">
                     {formData.application === 'plex' && 'Plex Remote Access Setup'}
@@ -1182,7 +1182,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           {host && (formData.enable_standard_headers === false) && (
             <div className="bg-yellow-900/20 border border-yellow-600 rounded-lg p-3">
               <div className="flex items-start gap-2">
-                <Info className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                <Info className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
                 <div className="text-sm">
                   <p className="font-medium text-yellow-400">Standard Proxy Headers Disabled</p>
                   <p className="text-yellow-300/80 mt-1">
@@ -1313,7 +1313,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
       {/* New Domain Prompt Modal */}
       {showDomainPrompt && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[60]">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-60">
           <div className="bg-gray-800 rounded-lg border border-gray-700 max-w-md w-full p-6 shadow-xl">
             <div className="flex items-center gap-3 mb-4 text-blue-400">
               <AlertCircle size={24} />
@@ -1362,7 +1362,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
       {/* Preset Overwrite Confirmation Modal */}
       {showPresetConfirmModal && pendingPreset && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[60]">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-60">
           <div className="bg-gray-800 rounded-lg border border-gray-700 max-w-lg w-full p-6 shadow-xl">
             <div className="flex items-center gap-3 mb-4 text-blue-400">
               <AlertCircle size={24} />
