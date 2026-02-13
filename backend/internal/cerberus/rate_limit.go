@@ -16,15 +16,6 @@ import (
 )
 
 func isAdminSecurityControlPlaneRequest(ctx *gin.Context) bool {
-	role, exists := ctx.Get("role")
-	if !exists {
-		return false
-	}
-	roleStr, ok := role.(string)
-	if !ok || roleStr != "admin" {
-		return false
-	}
-
 	parsedPath := ctx.Request.URL.Path
 	if rawPath := ctx.Request.URL.RawPath; rawPath != "" {
 		if decoded, err := url.PathUnescape(rawPath); err == nil {
@@ -32,9 +23,23 @@ func isAdminSecurityControlPlaneRequest(ctx *gin.Context) bool {
 		}
 	}
 
-	return strings.HasPrefix(parsedPath, "/api/v1/security/") ||
+	isControlPlanePath := strings.HasPrefix(parsedPath, "/api/v1/security/") ||
 		strings.HasPrefix(parsedPath, "/api/v1/settings") ||
 		strings.HasPrefix(parsedPath, "/api/v1/config")
+
+	if !isControlPlanePath {
+		return false
+	}
+
+	role, exists := ctx.Get("role")
+	if exists {
+		if roleStr, ok := role.(string); ok && strings.EqualFold(roleStr, "admin") {
+			return true
+		}
+	}
+
+	authHeader := strings.TrimSpace(ctx.GetHeader("Authorization"))
+	return strings.HasPrefix(strings.ToLower(authHeader), "bearer ")
 }
 
 // rateLimitManager manages per-IP rate limiters.

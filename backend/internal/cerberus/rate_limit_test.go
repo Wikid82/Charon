@@ -421,6 +421,31 @@ func TestCerberusRateLimitMiddleware_AdminSettingsBypass(t *testing.T) {
 	}
 }
 
+func TestCerberusRateLimitMiddleware_ControlPlaneBypassWithBearerWithoutRoleContext(t *testing.T) {
+	cfg := config.SecurityConfig{
+		RateLimitMode:      "enabled",
+		RateLimitRequests:  1,
+		RateLimitWindowSec: 60,
+		RateLimitBurst:     1,
+	}
+	cerb := New(cfg, nil)
+
+	r := gin.New()
+	r.Use(cerb.RateLimitMiddleware())
+	r.POST("/api/v1/settings", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	for i := 0; i < 3; i++ {
+		req, _ := http.NewRequest("POST", "/api/v1/settings", nil)
+		req.RemoteAddr = "10.0.0.1:1234"
+		req.Header.Set("Authorization", "Bearer test-token")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	}
+}
+
 func TestCerberusRateLimitMiddleware_AdminNonSecurityPathStillLimited(t *testing.T) {
 	cfg := config.SecurityConfig{
 		RateLimitMode:      "enabled",
