@@ -78,10 +78,11 @@ func SafeJoinPath(baseDir, userPath string) (string, error) {
 }
 
 type BackupService struct {
-	DataDir      string
-	BackupDir    string
-	DatabaseName string
-	Cron         *cron.Cron
+	DataDir       string
+	BackupDir     string
+	DatabaseName  string
+	Cron          *cron.Cron
+	restoreDBPath string
 }
 
 func checkpointSQLiteDatabase(dbPath string) error {
@@ -98,6 +99,38 @@ func checkpointSQLiteDatabase(dbPath string) error {
 	}
 
 	return nil
+}
+
+func createSQLiteSnapshot(dbPath string) (string, func(), error) {
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return "", nil, fmt.Errorf("open sqlite database for snapshot: %w", err)
+	}
+	defer func() {
+		_ = db.Close()
+	}()
+
+	tmpFile, err := os.CreateTemp("", "charon-backup-snapshot-*.db")
+	if err != nil {
+		return "", nil, fmt.Errorf("create sqlite snapshot file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	if closeErr := tmpFile.Close(); closeErr != nil {
+		_ = os.Remove(tmpPath)
+		return "", nil, fmt.Errorf("close sqlite snapshot file: %w", closeErr)
+	}
+
+	escapedPath := strings.ReplaceAll(tmpPath, "'", "''")
+	if _, err := db.Exec("VACUUM INTO '" + escapedPath + "'"); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", nil, fmt.Errorf("vacuum into sqlite snapshot: %w", err)
+	}
+
+	cleanup := func() {
+		_ = os.Remove(tmpPath)
+	}
+
+	return tmpPath, cleanup, nil
 }
 
 type BackupFile struct {
@@ -271,24 +304,37 @@ func (s *BackupService) CreateBackup() (string, error) {
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		return "", fmt.Errorf("database file not found: %s", dbPath)
 	}
-	if err := checkpointSQLiteDatabase(dbPath); err != nil {
-		logger.Log().WithError(err).Warn("failed to checkpoint sqlite wal before backup; proceeding with file snapshot")
+	backupSourcePath := dbPath
+	cleanupBackupSource := func() {}
+
+	if snapshotPath, cleanup, err := createSQLiteSnapshot(dbPath); err == nil {
+		backupSourcePath = snapshotPath
+		cleanupBackupSource = cleanup
+	} else {
+		logger.Log().WithError(err).Warn("failed to create sqlite snapshot before backup; falling back to direct file copy")
+		if checkpointErr := checkpointSQLiteDatabase(dbPath); checkpointErr != nil {
+			logger.Log().WithError(checkpointErr).Warn("failed to checkpoint sqlite wal before backup; proceeding with file snapshot")
+		}
 	}
-	if err := s.addToZip(w, dbPath, s.DatabaseName); err != nil {
+	defer cleanupBackupSource()
+
+	if err := s.addToZip(w, backupSourcePath, s.DatabaseName); err != nil {
 		return "", fmt.Errorf("backup db: %w", err)
 	}
 
-	walPath := dbPath + "-wal"
-	if _, err := os.Stat(walPath); err == nil {
-		if err := s.addToZip(w, walPath, s.DatabaseName+"-wal"); err != nil {
-			return "", fmt.Errorf("backup db wal: %w", err)
+	if backupSourcePath == dbPath {
+		walPath := dbPath + "-wal"
+		if _, err := os.Stat(walPath); err == nil {
+			if err := s.addToZip(w, walPath, s.DatabaseName+"-wal"); err != nil {
+				return "", fmt.Errorf("backup db wal: %w", err)
+			}
 		}
-	}
 
-	shmPath := dbPath + "-shm"
-	if _, err := os.Stat(shmPath); err == nil {
-		if err := s.addToZip(w, shmPath, s.DatabaseName+"-shm"); err != nil {
-			return "", fmt.Errorf("backup db shm: %w", err)
+		shmPath := dbPath + "-shm"
+		if _, err := os.Stat(shmPath); err == nil {
+			if err := s.addToZip(w, shmPath, s.DatabaseName+"-shm"); err != nil {
+				return "", fmt.Errorf("backup db shm: %w", err)
+			}
 		}
 	}
 
@@ -391,6 +437,15 @@ func (s *BackupService) RestoreBackup(filename string) error {
 		return err
 	}
 
+	if restoreDBPath, err := s.extractDatabaseFromBackup(srcPath); err != nil {
+		return fmt.Errorf("extract database from backup: %w", err)
+	} else {
+		if s.restoreDBPath != "" && s.restoreDBPath != restoreDBPath {
+			_ = os.Remove(s.restoreDBPath)
+		}
+		s.restoreDBPath = restoreDBPath
+	}
+
 	// 2. Unzip to DataDir (overwriting)
 	return s.unzip(srcPath, s.DataDir)
 }
@@ -403,11 +458,20 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 	}
 
 	restoredDBPath := filepath.Join(s.DataDir, s.DatabaseName)
-	if _, err := os.Stat(restoredDBPath); err != nil {
+	rehydrateSourcePath := restoredDBPath
+	if s.restoreDBPath != "" {
+		if _, err := os.Stat(s.restoreDBPath); err == nil {
+			rehydrateSourcePath = s.restoreDBPath
+		}
+	}
+
+	if _, err := os.Stat(rehydrateSourcePath); err != nil {
 		return fmt.Errorf("restored database file missing: %w", err)
 	}
-	if err := checkpointSQLiteDatabase(restoredDBPath); err != nil {
-		logger.Log().WithError(err).Warn("failed to checkpoint restored sqlite wal before live rehydrate")
+	if rehydrateSourcePath == restoredDBPath {
+		if err := checkpointSQLiteDatabase(restoredDBPath); err != nil {
+			logger.Log().WithError(err).Warn("failed to checkpoint restored sqlite wal before live rehydrate")
+		}
 	}
 
 	tempRestoreFile, err := os.CreateTemp("", "charon-restore-src-*.sqlite")
@@ -423,7 +487,7 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 		_ = os.Remove(tempRestorePath)
 	}()
 
-	sourceFile, err := os.Open(restoredDBPath) // #nosec G304 -- restoredDBPath is internal controlled path
+	sourceFile, err := os.Open(rehydrateSourcePath) // #nosec G304 -- rehydrate source path is internal controlled path
 	if err != nil {
 		return fmt.Errorf("open restored database file: %w", err)
 	}
@@ -452,6 +516,7 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 	}
 
 	if err := db.Exec("ATTACH DATABASE ? AS restore_src", tempRestorePath).Error; err != nil {
+		logger.Log().WithError(err).Warn("failed to checkpoint restored sqlite wal before live rehydrate")
 		_ = db.Exec("PRAGMA foreign_keys = ON")
 		return fmt.Errorf("attach restored database: %w", err)
 	}
@@ -534,6 +599,67 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 	}
 
 	return nil
+}
+
+func (s *BackupService) extractDatabaseFromBackup(zipPath string) (string, error) {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return "", fmt.Errorf("open backup archive: %w", err)
+	}
+	defer func() {
+		_ = r.Close()
+	}()
+
+	for _, file := range r.File {
+		if filepath.Clean(file.Name) != s.DatabaseName {
+			continue
+		}
+
+		tmpFile, err := os.CreateTemp("", "charon-restore-db-*.sqlite")
+		if err != nil {
+			return "", fmt.Errorf("create restore snapshot file: %w", err)
+		}
+		tmpPath := tmpFile.Name()
+
+		rc, err := file.Open()
+		if err != nil {
+			_ = tmpFile.Close()
+			_ = os.Remove(tmpPath)
+			return "", fmt.Errorf("open database entry in backup archive: %w", err)
+		}
+
+		const maxDecompressedSize = 100 * 1024 * 1024 // 100MB
+		limitedReader := io.LimitReader(rc, maxDecompressedSize+1)
+		written, err := io.Copy(tmpFile, limitedReader)
+		if err != nil {
+			_ = rc.Close()
+			_ = tmpFile.Close()
+			_ = os.Remove(tmpPath)
+			return "", fmt.Errorf("copy database entry from backup archive: %w", err)
+		}
+
+		if written > maxDecompressedSize {
+			_ = rc.Close()
+			_ = tmpFile.Close()
+			_ = os.Remove(tmpPath)
+			return "", fmt.Errorf("database entry %s exceeded decompression limit (%d bytes), potential decompression bomb", file.Name, maxDecompressedSize)
+		}
+
+		if err := rc.Close(); err != nil {
+			_ = tmpFile.Close()
+			_ = os.Remove(tmpPath)
+			return "", fmt.Errorf("close database entry reader: %w", err)
+		}
+
+		if err := tmpFile.Close(); err != nil {
+			_ = os.Remove(tmpPath)
+			return "", fmt.Errorf("close restore snapshot file: %w", err)
+		}
+
+		return tmpPath, nil
+	}
+
+	return "", fmt.Errorf("database entry %s not found in backup archive", s.DatabaseName)
 }
 
 func (s *BackupService) unzip(src, dest string) error {
