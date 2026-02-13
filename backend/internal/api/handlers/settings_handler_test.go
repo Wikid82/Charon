@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -21,6 +22,19 @@ import (
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
+
+type mockCaddyConfigManager struct {
+	applyFunc func(context.Context) error
+	calls     int
+}
+
+func (m *mockCaddyConfigManager) ApplyConfig(ctx context.Context) error {
+	m.calls++
+	if m.applyFunc != nil {
+		return m.applyFunc(ctx)
+	}
+	return nil
+}
 
 func startTestSMTPServer(t *testing.T) (host string, port int) {
 	t.Helper()
@@ -293,6 +307,56 @@ func TestSettingsHandler_UpdateSetting_EnablesCerberusWhenACLEnabled(t *testing.
 	err = db.Where("name = ?", "default").First(&cfg).Error
 	assert.NoError(t, err)
 	assert.True(t, cfg.Enabled)
+}
+
+func TestSettingsHandler_UpdateSetting_SecurityKeyAppliesConfigSynchronously(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	mgr := &mockCaddyConfigManager{}
+	handler := handlers.NewSettingsHandlerWithDeps(db, mgr, nil, nil, "")
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{
+		"key":   "security.waf.enabled",
+		"value": "true",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, 1, mgr.calls)
+}
+
+func TestSettingsHandler_UpdateSetting_SecurityKeyApplyFailureReturnsError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	mgr := &mockCaddyConfigManager{applyFunc: func(context.Context) error {
+		return fmt.Errorf("apply failed")
+	}}
+	handler := handlers.NewSettingsHandlerWithDeps(db, mgr, nil, nil, "")
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{
+		"key":   "security.waf.enabled",
+		"value": "true",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, 1, mgr.calls)
 }
 
 func TestSettingsHandler_PatchConfig_SyncsAdminWhitelist(t *testing.T) {
