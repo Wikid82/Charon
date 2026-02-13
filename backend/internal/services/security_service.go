@@ -252,9 +252,10 @@ func (s *SecurityService) LogAudit(a *models.SecurityAudit) error {
 	case s.auditChan <- a:
 		return nil
 	default:
-		// If channel is full, log the event but don't block
-		// In production, consider incrementing a dropped events metric
-		return errors.New("audit channel full, event dropped")
+		if err := s.db.Create(a).Error; err != nil {
+			return fmt.Errorf("persist audit synchronously: %w", err)
+		}
+		return nil
 	}
 }
 

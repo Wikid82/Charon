@@ -15,7 +15,26 @@ import (
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/robfig/cron/v3"
+	"gorm.io/gorm"
 )
+
+func quoteSQLiteIdentifier(identifier string) (string, error) {
+	if identifier == "" {
+		return "", fmt.Errorf("sqlite identifier is empty")
+	}
+
+	for _, character := range identifier {
+		if (character >= 'a' && character <= 'z') ||
+			(character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') ||
+			character == '_' {
+			continue
+		}
+		return "", fmt.Errorf("sqlite identifier contains invalid characters: %s", identifier)
+	}
+
+	return `"` + identifier + `"`, nil
+}
 
 // SafeJoinPath sanitizes and validates file paths to prevent directory traversal attacks.
 // It ensures the resulting path is within the base directory.
@@ -338,6 +357,86 @@ func (s *BackupService) RestoreBackup(filename string) error {
 
 	// 2. Unzip to DataDir (overwriting)
 	return s.unzip(srcPath, s.DataDir)
+}
+
+// RehydrateLiveDatabase reloads the currently-open SQLite database from the restored DB file
+// without requiring a process restart.
+func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
+	if db == nil {
+		return fmt.Errorf("database handle is required")
+	}
+
+	restoredDBPath := filepath.Join(s.DataDir, s.DatabaseName)
+	if _, err := os.Stat(restoredDBPath); err != nil {
+		return fmt.Errorf("restored database file missing: %w", err)
+	}
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("PRAGMA foreign_keys = OFF").Error; err != nil {
+			return fmt.Errorf("disable foreign keys: %w", err)
+		}
+
+		if err := tx.Exec("ATTACH DATABASE ? AS restore_src", restoredDBPath).Error; err != nil {
+			return fmt.Errorf("attach restored database: %w", err)
+		}
+		defer func() {
+			_ = tx.Exec("DETACH DATABASE restore_src")
+			_ = tx.Exec("PRAGMA foreign_keys = ON")
+		}()
+
+		var currentTables []string
+		if err := tx.Raw(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&currentTables).Error; err != nil {
+			return fmt.Errorf("list current tables: %w", err)
+		}
+
+		restoredTableSet := map[string]struct{}{}
+		var restoredTables []string
+		if err := tx.Raw(`SELECT name FROM restore_src.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&restoredTables).Error; err != nil {
+			return fmt.Errorf("list restored tables: %w", err)
+		}
+		for _, tableName := range restoredTables {
+			restoredTableSet[tableName] = struct{}{}
+		}
+
+		for _, tableName := range currentTables {
+			quotedTable, err := quoteSQLiteIdentifier(tableName)
+			if err != nil {
+				return fmt.Errorf("quote table identifier: %w", err)
+			}
+
+			if err := tx.Exec("DELETE FROM " + quotedTable).Error; err != nil {
+				return fmt.Errorf("clear table %s: %w", tableName, err)
+			}
+
+			if _, exists := restoredTableSet[tableName]; !exists {
+				continue
+			}
+
+			if err := tx.Exec("INSERT INTO " + quotedTable + " SELECT * FROM restore_src." + quotedTable).Error; err != nil {
+				return fmt.Errorf("copy table %s: %w", tableName, err)
+			}
+		}
+
+		hasSQLiteSequence := false
+		if err := tx.Raw(`SELECT COUNT(*) > 0 FROM restore_src.sqlite_master WHERE type='table' AND name='sqlite_sequence'`).Scan(&hasSQLiteSequence).Error; err != nil {
+			return fmt.Errorf("check sqlite_sequence presence: %w", err)
+		}
+
+		if hasSQLiteSequence {
+			if err := tx.Exec("DELETE FROM sqlite_sequence").Error; err != nil {
+				return fmt.Errorf("clear sqlite_sequence: %w", err)
+			}
+			if err := tx.Exec("INSERT INTO sqlite_sequence SELECT * FROM restore_src.sqlite_sequence").Error; err != nil {
+				return fmt.Errorf("copy sqlite_sequence: %w", err)
+			}
+		}
+
+		if err := tx.Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error; err != nil {
+			return fmt.Errorf("checkpoint wal after rehydrate: %w", err)
+		}
+
+		return nil
+	})
 }
 
 func (s *BackupService) unzip(src, dest string) error {

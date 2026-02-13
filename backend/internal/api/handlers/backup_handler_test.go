@@ -108,6 +108,11 @@ func TestBackupLifecycle(t *testing.T) {
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
+	var restoreResult map[string]any
+	err = json.Unmarshal(resp.Body.Bytes(), &restoreResult)
+	require.NoError(t, err)
+	require.Contains(t, restoreResult, "restart_required")
+	require.Contains(t, restoreResult, "live_rehydrate_applied")
 
 	// 5. Download backup
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/backups/"+filename+"/download", http.NoBody)

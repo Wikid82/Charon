@@ -147,9 +147,10 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 	authMiddleware := middleware.AuthMiddleware(authService)
 
 	api := router.Group("/api/v1")
-	// Rate Limiting (Emergency/Go-layer) MUST run before Auth to prevent 401 masking 429
-	api.Use(cerb.RateLimitMiddleware())
 	api.Use(middleware.OptionalAuth(authService))
+	// Rate Limiting (Emergency/Go-layer) runs after optional auth so authenticated
+	// admin control-plane requests can be exempted safely.
+	api.Use(cerb.RateLimitMiddleware())
 	// Cerberus middleware (ACL, WAF Stats, CrowdSec Tracking) runs after Auth
 	// because ACLs need to know if user is authenticated admin to apply whitelist bypass
 	api.Use(cerb.Middleware())
@@ -158,7 +159,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 	backupService := services.NewBackupService(&cfg)
 	backupService.Start() // Start cron scheduler for scheduled backups
 	securityService := services.NewSecurityService(db)
-	backupHandler := handlers.NewBackupHandlerWithDeps(backupService, securityService)
+	backupHandler := handlers.NewBackupHandlerWithDeps(backupService, securityService, db)
 
 	// DB Health endpoint (uses backup service for last backup time)
 	dbHealthHandler := handlers.NewDBHealthHandler(db, backupService)

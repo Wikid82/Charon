@@ -334,3 +334,64 @@ func TestCerberusRateLimitMiddleware_WindowFallback(t *testing.T) {
 	r.ServeHTTP(w2, req)
 	assert.Equal(t, http.StatusTooManyRequests, w2.Code)
 }
+
+func TestCerberusRateLimitMiddleware_AdminSecurityControlPlaneBypass(t *testing.T) {
+	cfg := config.SecurityConfig{
+		RateLimitMode:      "enabled",
+		RateLimitRequests:  1,
+		RateLimitWindowSec: 60,
+		RateLimitBurst:     1,
+	}
+	cerb := New(cfg, nil)
+
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
+	r.Use(cerb.RateLimitMiddleware())
+	r.GET("/api/v1/security/status", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	for i := 0; i < 3; i++ {
+		req, _ := http.NewRequest("GET", "/api/v1/security/status", nil)
+		req.RemoteAddr = "10.0.0.1:1234"
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	}
+}
+
+func TestCerberusRateLimitMiddleware_AdminNonSecurityPathStillLimited(t *testing.T) {
+	cfg := config.SecurityConfig{
+		RateLimitMode:      "enabled",
+		RateLimitRequests:  1,
+		RateLimitWindowSec: 60,
+		RateLimitBurst:     1,
+	}
+	cerb := New(cfg, nil)
+
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
+	r.Use(cerb.RateLimitMiddleware())
+	r.GET("/api/v1/users", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req, _ := http.NewRequest("GET", "/api/v1/users", nil)
+	req.RemoteAddr = "10.0.0.1:1234"
+
+	w1 := httptest.NewRecorder()
+	r.ServeHTTP(w1, req)
+	assert.Equal(t, http.StatusOK, w1.Code)
+
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, req)
+	assert.Equal(t, http.StatusTooManyRequests, w2.Code)
+}

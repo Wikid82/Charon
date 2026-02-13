@@ -909,7 +909,7 @@ func TestSettingsHandler_TestPublicURL_NoRole(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	router := newAdminRouter()
+	router := gin.New()
 	// No role set in context
 	router.POST("/settings/test-url", handler.TestPublicURL)
 
