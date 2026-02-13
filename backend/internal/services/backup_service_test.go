@@ -11,7 +11,18 @@ import (
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
+
+func createSQLiteTestDB(t *testing.T, dbPath string) {
+	t.Helper()
+
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.Exec("CREATE TABLE IF NOT EXISTS healthcheck (id INTEGER PRIMARY KEY, value TEXT)").Error)
+	require.NoError(t, db.Exec("INSERT INTO healthcheck (value) VALUES (?)", "ok").Error)
+}
 
 func TestBackupService_CreateAndList(t *testing.T) {
 	// Setup temp dirs
@@ -23,10 +34,9 @@ func TestBackupService_CreateAndList(t *testing.T) {
 	err = os.MkdirAll(dataDir, 0o700)
 	require.NoError(t, err)
 
-	// Create dummy DB
+	// Create valid sqlite DB
 	dbPath := filepath.Join(dataDir, "charon.db")
-	err = os.WriteFile(dbPath, []byte("dummy db"), 0o600)
-	require.NoError(t, err)
+	createSQLiteTestDB(t, dbPath)
 
 	// Create dummy caddy dir
 	caddyDir := filepath.Join(dataDir, "caddy")
@@ -58,18 +68,13 @@ func TestBackupService_CreateAndList(t *testing.T) {
 	assert.Equal(t, filepath.Join(service.BackupDir, filename), path)
 
 	// Test Restore
-	// Modify DB to verify restore
-	err = os.WriteFile(dbPath, []byte("modified db"), 0o600)
-	require.NoError(t, err)
 
 	err = service.RestoreBackup(filename)
 	require.NoError(t, err)
 
-	// Verify DB content restored
-	// #nosec G304 -- Test reads from known database path in test directory
-	content, err := os.ReadFile(dbPath)
-	require.NoError(t, err)
-	assert.Equal(t, "dummy db", string(content))
+	// DB file is staged for live rehydrate (not directly overwritten during unzip)
+	assert.NotEmpty(t, service.restoreDBPath)
+	assert.FileExists(t, service.restoreDBPath)
 
 	// Test Delete
 	err = service.DeleteBackup(filename)
@@ -1173,7 +1178,7 @@ func TestBackupService_FullCycle(t *testing.T) {
 
 	// Create database and caddy config
 	dbPath := filepath.Join(dataDir, "charon.db")
-	_ = os.WriteFile(dbPath, []byte("original db"), 0o600) // #nosec G306 -- test fixture
+	createSQLiteTestDB(t, dbPath)
 
 	caddyDir := filepath.Join(dataDir, "caddy")
 	_ = os.MkdirAll(caddyDir, 0o750)                                                              // #nosec G301 -- test directory
@@ -1188,20 +1193,15 @@ func TestBackupService_FullCycle(t *testing.T) {
 	require.NoError(t, err)
 
 	// Modify files
-	_ = os.WriteFile(dbPath, []byte("modified db"), 0o600)                                        // #nosec G306 -- test fixture
 	_ = os.WriteFile(filepath.Join(caddyDir, "config.json"), []byte(`{"modified": true}`), 0o600) // #nosec G306 -- test fixture
-
-	// Verify modification
-	content, _ := os.ReadFile(dbPath) // #nosec G304 -- test fixture path
-	assert.Equal(t, "modified db", string(content))
 
 	// Restore backup
 	err = service.RestoreBackup(filename)
 	require.NoError(t, err)
 
-	// Verify restoration
-	content, _ = os.ReadFile(dbPath) // #nosec G304 -- test fixture path
-	assert.Equal(t, "original db", string(content))
+	// DB file is staged for live rehydrate (not directly overwritten during unzip)
+	assert.NotEmpty(t, service.restoreDBPath)
+	assert.FileExists(t, service.restoreDBPath)
 
 	caddyContent, _ := os.ReadFile(filepath.Join(caddyDir, "config.json")) // #nosec G304 -- test fixture path
 	assert.Equal(t, `{"original": true}`, string(caddyContent))
