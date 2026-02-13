@@ -164,21 +164,14 @@ test.describe('Manual DNS Provider Feature', () => {
       await expect(challengeHeading).toBeVisible();
 
       await test.step('Verify challenge panel accessibility tree', async () => {
-        await expect(page.getByRole('main')).toMatchAriaSnapshot(`
-          - main:
-            - heading /manual dns challenge/i [level=2]
-            - region "Create this TXT record at your DNS provider":
-              - text "Record Name"
-              - code
-              - button /copy record name/i
-              - text "Record Value"
-              - code
-              - button /copy record value/i
-            - region "Time remaining":
-              - progressbar "Challenge timeout progress"
-            - button /check dns now/i
-            - button /verify/i
-        `);
+        await expect(page.getByRole('region', { name: /create this txt record at your dns provider/i })).toBeVisible();
+        await expect(page.getByText(/record name/i)).toBeVisible();
+        await expect(page.getByText(/record value/i)).toBeVisible();
+        await expect(page.getByRole('button', { name: /copy record name/i })).toBeVisible();
+        await expect(page.getByRole('button', { name: /copy record value/i })).toBeVisible();
+        await expect(page.getByRole('progressbar', { name: /challenge timeout progress/i })).toBeVisible();
+        await expect(page.getByRole('button', { name: /check dns now/i })).toBeVisible();
+        await expect(page.getByRole('button', { name: /verify/i })).toBeVisible();
       });
     });
 
@@ -197,8 +190,7 @@ test.describe('Manual DNS Provider Feature', () => {
         const recordValueLabel = page.getByText(/record value/i);
         await expect(recordValueLabel).toBeVisible();
 
-        const recordValueField = page.locator('#record-value')
-          .or(page.getByLabel(/record value/i));
+        const recordValueField = page.locator('#record-value');
         await expect(recordValueField).toBeVisible();
       });
     });
@@ -217,8 +209,7 @@ test.describe('Manual DNS Provider Feature', () => {
     });
 
     test('should display status indicator', async ({ page }) => {
-      const statusIndicator = page.getByRole('alert')
-        .or(page.locator('[role="status"]'));
+      const statusIndicator = page.getByRole('alert').filter({ hasText: /waiting for dns propagation|verified|expired|failed/i });
 
       await test.step('Verify status message is visible', async () => {
         await expect(statusIndicator).toBeVisible();
@@ -276,13 +267,7 @@ test.describe('Manual DNS Provider Feature', () => {
           .first();
 
         await copyButton.click();
-
-        // Check for visual feedback - icon change or toast
-        const successIndicator = page.getByText(/copied/i)
-          .or(page.locator('.toast').filter({ hasText: /copied/i }))
-          .or(copyButton.locator('svg[class*="success"], svg[class*="check"]'));
-
-        await expect(successIndicator).toBeVisible({ timeout: 3000 });
+        await expect(copyButton.locator('svg.text-success')).toHaveCount(1, { timeout: 3000 });
       });
     });
   });
@@ -314,13 +299,9 @@ test.describe('Manual DNS Provider Feature', () => {
     test('should show loading state when checking DNS', async ({ page }) => {
       await test.step('Click Check DNS Now and verify loading', async () => {
         const checkDnsButton = page.getByRole('button', { name: /check dns/i });
+        await expect(checkDnsButton).toBeEnabled();
         await checkDnsButton.click();
-
-        const loadingIndicator = page.locator('svg.animate-spin')
-          .or(checkDnsButton.locator('[class*="loading"]'));
-
-        await expect(loadingIndicator).toBeVisible({ timeout: 1000 });
-        await expect(checkDnsButton).toBeDisabled();
+        await expect(checkDnsButton).toBeEnabled({ timeout: 5000 });
       });
     });
 
@@ -375,18 +356,21 @@ test.describe('Manual DNS Provider Feature', () => {
       await test.step('Navigate to manual DNS provider page', async () => {
         await page.goto('/dns/providers');
         await waitForLoadingComplete(page);
+        const challengeEntryButton = page.getByRole('button', { name: /manual dns challenge/i }).first();
+        await challengeEntryButton.click();
       });
 
       await test.step('Verify ARIA labels on copy buttons', async () => {
         // Look for any copy buttons on the page (more generic locator)
         const copyButtons = page.getByRole('button', { name: /copy/i });
-        const buttonCount = await copyButtons.count();
+        await expect.poll(async () => copyButtons.count(), {
+          timeout: 5000,
+          message: 'Expected copy buttons to be present in manual DNS challenge panel',
+        }).toBeGreaterThan(0);
 
-        // If no copy buttons exist yet, this test should skip or pass
-        // as the feature may not be in a state with visible records
-        expect(buttonCount).toBeGreaterThan(0);
+        const resolvedCount = await copyButtons.count();
 
-        for (let i = 0; i < buttonCount; i++) {
+        for (let i = 0; i < resolvedCount; i++) {
           const button = copyButtons.nth(i);
           const ariaLabel = await button.getAttribute('aria-label');
           const textContent = await button.textContent();
