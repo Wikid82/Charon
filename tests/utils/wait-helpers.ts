@@ -246,7 +246,7 @@ export async function waitForLoadingComplete(
   // Wait for any loading indicator to disappear
   // Updated to be more specific and exclude pulsing UI badges
   const loader = page.locator([
-    '[role="progressbar"]',
+    '[role="progressbar"]:not([aria-label*="Challenge timeout progress"])',
     '[aria-busy="true"]',
     '.loading-spinner',
     '.loading',
