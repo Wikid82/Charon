@@ -154,20 +154,15 @@ async function createUserViaApi(
 }
 
 async function navigateToLogin(page: import('@playwright/test').Page): Promise<void> {
-  const logoutButton = page.getByRole('button', { name: /logout/i }).first();
-  if (await logoutButton.isVisible().catch(() => false)) {
-    await logoutButton.click();
-    await page.waitForURL(/\/login/, { timeout: 15000 }).catch(() => undefined);
-  } else {
-    try {
-      await page.goto('/login', { waitUntil: 'domcontentloaded' });
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes('interrupted by another navigation')) {
-        throw error;
-      }
+  try {
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('interrupted by another navigation')) {
+      throw error;
     }
   }
 
+  await page.waitForURL(/\/login/, { timeout: 15000 }).catch(() => undefined);
   const emailInput = page.locator('input[type="email"]').or(page.getByLabel(/email/i)).first();
   await expect(emailInput).toBeVisible({ timeout: 15000 });
 }
