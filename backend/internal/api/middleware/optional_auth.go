@@ -37,8 +37,14 @@ func OptionalAuth(authService *services.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		c.Set("userID", claims.UserID)
-		c.Set("role", claims.Role)
+		user, err := authService.GetUserByID(claims.UserID)
+		if err != nil || !user.Enabled {
+			c.Next()
+			return
+		}
+
+		c.Set("userID", user.ID)
+		c.Set("role", user.Role)
 		c.Next()
 	}
 }
