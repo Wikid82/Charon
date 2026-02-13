@@ -157,13 +157,26 @@ async function navigateToLogin(page: import('@playwright/test').Page): Promise<v
   try {
     await page.goto('/login', { waitUntil: 'domcontentloaded' });
   } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes('interrupted by another navigation')) {
+    if (
+      !(error instanceof Error) ||
+      (!error.message.includes('interrupted by another navigation') && !error.message.includes('net::ERR_ABORTED'))
+    ) {
       throw error;
     }
   }
 
   await page.waitForURL(/\/login/, { timeout: 15000 }).catch(() => undefined);
   const emailInput = page.locator('input[type="email"]').or(page.getByLabel(/email/i)).first();
+
+  if (!(await emailInput.isVisible().catch(() => false))) {
+    await page.context().clearCookies();
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+  }
+
   await expect(emailInput).toBeVisible({ timeout: 15000 });
 }
 
@@ -216,6 +229,10 @@ async function loginWithCredentialsExpectFailure(
 ): Promise<void> {
   const emailInput = page.locator('input[type="email"]').or(page.getByLabel(/email/i)).first();
   const passwordInput = page.locator('input[type="password"]').or(page.getByLabel(/password/i)).first();
+
+  if (!(await emailInput.isVisible().catch(() => false))) {
+    await navigateToLogin(page);
+  }
 
   await expect(emailInput).toBeVisible({ timeout: 15000 });
   await expect(passwordInput).toBeVisible({ timeout: 15000 });
