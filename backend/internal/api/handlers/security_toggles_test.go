@@ -98,6 +98,13 @@ func TestSecurityToggles(t *testing.T) {
 			err := db.Where("key = ?", tc.settingKey).First(&setting).Error
 			assert.NoError(t, err)
 			assert.Equal(t, tc.expectVal, setting.Value)
+
+			if tc.expectVal == "true" && tc.settingKey != "feature.cerberus.enabled" {
+				var cerberusSetting models.Setting
+				err = db.Where("key = ?", "feature.cerberus.enabled").First(&cerberusSetting).Error
+				assert.NoError(t, err)
+				assert.Equal(t, "true", cerberusSetting.Value)
+			}
 		})
 	}
 }

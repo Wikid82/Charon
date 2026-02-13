@@ -1008,6 +1008,38 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		}
 	}
 
+	if enabled && settingKey != "feature.cerberus.enabled" {
+		if err := h.ensureSecurityConfigEnabled(); err != nil {
+			log.WithError(err).Error("Failed to enable SecurityConfig while enabling security module")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
+			return
+		}
+
+		cerberusSetting := models.Setting{
+			Key:      "feature.cerberus.enabled",
+			Value:    "true",
+			Category: "feature",
+			Type:     "bool",
+		}
+		if err := h.db.Where(models.Setting{Key: cerberusSetting.Key}).Assign(cerberusSetting).FirstOrCreate(&cerberusSetting).Error; err != nil {
+			log.WithError(err).Error("Failed to enable Cerberus while enabling security module")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
+			return
+		}
+
+		legacyCerberus := models.Setting{
+			Key:      "security.cerberus.enabled",
+			Value:    "true",
+			Category: "security",
+			Type:     "bool",
+		}
+		if err := h.db.Where(models.Setting{Key: legacyCerberus.Key}).Assign(legacyCerberus).FirstOrCreate(&legacyCerberus).Error; err != nil {
+			log.WithError(err).Error("Failed to enable legacy Cerberus while enabling security module")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
+			return
+		}
+	}
+
 	if settingKey == "security.acl.enabled" && enabled {
 		if err := h.ensureSecurityConfigEnabled(); err != nil {
 			log.WithError(err).Error("Failed to enable SecurityConfig while enabling ACL")
