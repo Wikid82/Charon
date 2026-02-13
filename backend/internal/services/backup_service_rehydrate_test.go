@@ -1,6 +1,8 @@
 package services
 
 import (
+	"archive/zip"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -54,4 +56,67 @@ func TestBackupService_RehydrateLiveDatabase(t *testing.T) {
 	require.NoError(t, db.Find(&restoredUsers).Error)
 	require.Len(t, restoredUsers, 1)
 	assert.Equal(t, "restore-user@example.com", restoredUsers[0].Email)
+}
+
+func TestBackupService_RehydrateLiveDatabase_FromBackupWithWAL(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o700))
+
+	dbPath := filepath.Join(dataDir, "charon.db")
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.Exec("PRAGMA journal_mode=WAL").Error)
+	require.NoError(t, db.Exec("PRAGMA wal_autocheckpoint=0").Error)
+	require.NoError(t, db.AutoMigrate(&models.User{}))
+
+	seedUser := models.User{
+		UUID:    uuid.NewString(),
+		Email:   "restore-from-wal@example.com",
+		Name:    "Restore From WAL",
+		Role:    "user",
+		Enabled: true,
+		APIKey:  uuid.NewString(),
+	}
+	require.NoError(t, db.Create(&seedUser).Error)
+
+	walPath := dbPath + "-wal"
+	_, err = os.Stat(walPath)
+	require.NoError(t, err)
+
+	svc := NewBackupService(&config.Config{DatabasePath: dbPath})
+	defer svc.Stop()
+
+	backupName := "backup_with_wal.zip"
+	backupPath := filepath.Join(svc.BackupDir, backupName)
+	backupFile, err := os.Create(backupPath)
+	require.NoError(t, err)
+	zipWriter := zip.NewWriter(backupFile)
+
+	addFileToZip := func(sourcePath, zipEntryName string) {
+		sourceFile, openErr := os.Open(sourcePath)
+		require.NoError(t, openErr)
+		defer func() {
+			_ = sourceFile.Close()
+		}()
+
+		zipEntry, createErr := zipWriter.Create(zipEntryName)
+		require.NoError(t, createErr)
+		_, copyErr := io.Copy(zipEntry, sourceFile)
+		require.NoError(t, copyErr)
+	}
+
+	addFileToZip(dbPath, svc.DatabaseName)
+	addFileToZip(walPath, svc.DatabaseName+"-wal")
+	require.NoError(t, zipWriter.Close())
+	require.NoError(t, backupFile.Close())
+
+	require.NoError(t, db.Where("1 = 1").Delete(&models.User{}).Error)
+	require.NoError(t, svc.RestoreBackup(backupName))
+	require.NoError(t, svc.RehydrateLiveDatabase(db))
+
+	var restoredUsers []models.User
+	require.NoError(t, db.Find(&restoredUsers).Error)
+	require.Len(t, restoredUsers, 1)
+	assert.Equal(t, "restore-from-wal@example.com", restoredUsers[0].Email)
 }
