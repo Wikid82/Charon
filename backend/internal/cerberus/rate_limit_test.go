@@ -308,6 +308,34 @@ func TestCerberusRateLimitMiddleware_OverridesConfigWithSettings(t *testing.T) {
 	assert.Equal(t, http.StatusTooManyRequests, w2.Code)
 }
 
+func TestCerberusRateLimitMiddleware_SettingsDisableOverride(t *testing.T) {
+	db := setupRateLimitTestDB(t)
+	require.NoError(t, db.Create(&models.Setting{Key: "security.rate_limit.enabled", Value: "false"}).Error)
+
+	cfg := config.SecurityConfig{
+		RateLimitMode:      "enabled",
+		RateLimitRequests:  1,
+		RateLimitWindowSec: 60,
+		RateLimitBurst:     1,
+	}
+	cerb := New(cfg, db)
+
+	r := gin.New()
+	r.Use(cerb.RateLimitMiddleware())
+	r.GET("/", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "10.0.0.1:1234"
+
+	for i := 0; i < 3; i++ {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	}
+}
+
 func TestCerberusRateLimitMiddleware_WindowFallback(t *testing.T) {
 	cfg := config.SecurityConfig{
 		RateLimitMode:      "enabled",
