@@ -164,7 +164,7 @@
         {
             "label": "Test: E2E Playwright (FireFox) - Cerberus: Security Dashboard",
             "type": "shell",
-            "command": "cd /projects/Charon && PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox tests/security/security-dashboard.spec.ts",
+            "command": "cd /projects/Charon && PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=security-tests tests/security/security-dashboard.spec.ts",
             "group": "test",
             "problemMatcher": [],
             "presentation": {
@@ -176,7 +176,7 @@
         {
             "label": "Test: E2E Playwright (FireFox) - Cerberus: Rate Limiting",
             "type": "shell",
-            "command": "cd /projects/Charon && PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox tests/security/rate-limiting.spec.ts",
+            "command": "cd /projects/Charon && PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=security-tests tests/security/rate-limiting.spec.ts",
             "group": "test",
             "problemMatcher": [],
             "presentation": {

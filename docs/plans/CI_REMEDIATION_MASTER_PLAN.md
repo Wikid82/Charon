@@ -2,16 +2,17 @@
 
 **Status:** 🔴 **BLOCKED** - CI failures preventing releases
 **Created:** February 12, 2026
-**Last Updated:** February 12, 2026
+**Last Updated:** February 13, 2026
 **Priority:** CRITICAL (P0)
 
 ---
 
 ## Status Overview
 
-**Target:** 100% Pass Rate (0 failures)
-**Current:** 98.3% Pass Rate (36 failures total)
-**Blockers:** 8 security + 28 Chromium E2E
+**Target:** 100% Pass Rate (0 failures, 0 skipped)
+**Current (latest full rerun):** 1500 passed, 62 failed, 50 skipped
+**Current (Phase 2 targeted Chromium rerun):** 17 passed, 1 failed
+**Blockers:** Cross-browser E2E instability + unresolved skip debt + Phase 2 user lifecycle regression
 
 ### Progress Tracker
 
@@ -20,10 +21,14 @@
 - [ ] **Phase 3:** Medium-Impact E2E (6 items) - **PRIORITY 2** - Est. 3-5 hours
 - [ ] **Phase 4:** Low-Impact E2E (5 items) - **PRIORITY 3** - Est. 2-3 hours
 - [ ] **Phase 5:** Final Validation & CI Approval - **MANDATORY** - Est. 2-3 hours
+- [-] **Phase 6:** Fail & Skip Census (Research) - **MANDATORY** - Est. 2-4 hours
+- [ ] **Phase 7:** Failure Cluster Remediation (Execution) - **MANDATORY** - Est. 8-16 hours
+- [ ] **Phase 8:** Skip Debt Burn-down & Re-enable - **MANDATORY** - Est. 4-8 hours
+- [ ] **Phase 9:** Final Re-baseline & CI Gate Freeze - **MANDATORY** - Est. 2-4 hours
 
-**Current Phase:** Phase 1 - Security Fixes
-**Estimated Total Time:** 21-31 hours
-**Target Completion:** Within 4-5 business days (split across team)
+**Current Phase:** Phase 6 - Fail & Skip Census (skip registry created; full skip enumeration pending)
+**Estimated Total Time:** 37-68 hours (including new Phases 6-9)
+**Target Completion:** Within 7-10 business days (split across team)
 
 ---
 
@@ -34,7 +39,7 @@
 **Current Pass Rate:** 94.2% (65/69 tests passing)
 **Target:** 100% (69/69 tests passing)
 **Owner:** Backend Dev (API) + Frontend Dev (Imports)
-**Status:** 🔴 Not Started
+**Status:** 🟡 In Progress
 
 ---
 
@@ -1018,6 +1023,163 @@ git push origin fix/ci-remediation
 
 ---
 
+## Phase 6: Fail & Skip Census (RESEARCH TRACKING)
+
+### Overview
+**Purpose:** Create a deterministic inventory of all failures and skips from latest full rerun and map each to an owner and remediation path.
+**Owner:** QA Lead + Playwright Dev
+**Status:** 🔴 Not Started
+**Estimated Time:** 2-4 hours
+
+### Inputs (Latest Evidence)
+- Full rerun command:
+  ```bash
+  npx playwright test --project=firefox --project=chromium --project=webkit
+  ```
+- Latest result snapshot:
+  - Passed: `1500`
+  - Failed: `62`
+  - Skipped: `50`
+- Phase 2 focused Chromium result:
+  - Passed: `17`
+  - Failed: `1` (`tests/settings/user-lifecycle.spec.ts` full lifecycle test)
+
+### Task 6.1: Build Fail/Skip Ledger
+**Output File:** `docs/reports/e2e_fail_skip_ledger_2026-02-13.md`
+
+**Progress:** ✅ Ledger created and committed locally.
+
+For each failing or skipped test, record:
+- Project/browser (`chromium`, `firefox`, `webkit`)
+- Test file + test title
+- Failure/skip reason category
+- Repro command
+- Suspected root cause
+- Owner (`Backend Dev`, `Frontend Dev`, `Playwright Dev`, `QA`)
+- Priority (`P0`, `P1`, `P2`)
+
+### Task 6.2: Categorize into Clusters
+Minimum clusters to track:
+1. Auth/session stability (`auth-long-session`, `authentication`, onboarding)
+2. Locator strictness & selector ambiguity (`modal-dropdown-triage`, long-running tasks)
+3. Navigation/load reliability (`navigation`, account settings)
+4. Data/empty-state assertions (`certificates`, list rendering)
+5. Browser-engine specific flakiness (`webkit internal error`, detached elements)
+6. Skip debt (`test.skip` or project-level skipped suites)
+
+**Progress:** 🟡 Skip cause registry created: `docs/reports/e2e_skip_registry_2026-02-13.md`.
+
+### Task 6.3: Prioritized Queue
+- Generate top 15 failing tests by impact/frequency.
+- Mark blockers for release path separately.
+- Identify tests safe for immediate stabilization vs requiring product/contract decisions.
+
+### Phase 6 Exit Criteria
+- [ ] Ledger created and committed
+- [ ] Every fail/skip mapped to an owner and priority
+- [ ] Clusters documented with root-cause hypotheses
+- [ ] Top-15 queue approved for Phase 7
+
+---
+
+## Phase 7: Failure Cluster Remediation (EXECUTION TRACKING)
+
+### Overview
+**Purpose:** Resolve failures by cluster, not by ad-hoc file edits, and prevent regression spread.
+**Owner:** Playwright Dev + Frontend Dev + Backend Dev
+**Status:** 🔴 Not Started
+**Estimated Time:** 8-16 hours
+
+### Execution Order
+1. **P0 Auth/Session Cluster**
+   - Target files: `tests/core/auth-long-session.spec.ts`, `tests/core/authentication.spec.ts`, `tests/core/admin-onboarding.spec.ts`, `tests/settings/user-lifecycle.spec.ts`
+   - First action: fix context/session API misuse and deterministic re-auth flow.
+2. **P1 Locator/Modal Cluster**
+   - Target files: `tests/modal-dropdown-triage.spec.ts`, `tests/tasks/long-running-operations.spec.ts`, related UI forms
+   - First action: replace broad strict-mode locators with role/name-scoped unique locators.
+3. **P1 Navigation/Load Cluster**
+   - Target files: `tests/core/navigation.spec.ts`, `tests/settings/account-settings.spec.ts`, `tests/integration/import-to-production.spec.ts`
+   - First action: enforce stable route-ready checks before assertions.
+4. **P2 Data/Empty-State Cluster**
+   - Target files: `tests/core/certificates.spec.ts`
+   - First action: align empty-state assertions to actual UI contract.
+
+### Validation Rule (Per Cluster)
+- Run only affected files first.
+- Then run browser matrix for those files (`chromium`, `firefox`, `webkit`).
+- Then run nightly full rerun checkpoint.
+
+### Phase 7 Exit Criteria
+- [ ] P0 cluster fully green in all browsers
+- [ ] P1 clusters fully green in all browsers
+- [ ] P2 cluster resolved or explicitly deferred with approved issue
+- [ ] No new failures introduced in previously green files
+
+---
+
+## Phase 8: Skip Debt Burn-down & Re-enable (TRACKING)
+
+### Overview
+**Purpose:** Eliminate non-justified skipped tests and restore full execution coverage.
+**Owner:** QA Lead + Playwright Dev
+**Status:** 🔴 Not Started
+**Estimated Time:** 4-8 hours
+
+### Task 8.1: Enumerate Skip Sources
+- `test.skip` annotations
+- conditional skips by browser/env
+- project-level skip patterns
+- temporarily disabled suites
+
+### Task 8.2: Classify Skips
+- **Valid contractual skip** (document reason and expiry)
+- **Technical debt skip** (must remediate)
+- **Obsolete test** (replace/remove via approved change)
+
+### Task 8.3: Re-enable Plan
+For each technical-debt skip:
+- define unblock task
+- assign owner
+- assign ETA
+- define re-enable command
+
+### Phase 8 Exit Criteria
+- [x] Skip registry created (`docs/reports/e2e_skip_registry_2026-02-13.md`)
+- [ ] All technical-debt skips have remediation tasks
+- [ ] No silent skips remain in critical suites
+- [ ] Critical-path suites run with zero skips
+
+---
+
+## Phase 9: Final Re-baseline & CI Gate Freeze
+
+### Overview
+**Purpose:** Produce a clean baseline proving remediation completion and freeze test gates for merge.
+**Owner:** QA Lead
+**Status:** 🔴 Not Started
+**Estimated Time:** 2-4 hours
+
+### Required Runs
+```bash
+npx playwright test --project=firefox --project=chromium --project=webkit
+scripts/go-test-coverage.sh
+scripts/frontend-test-coverage.sh
+npm run type-check
+pre-commit run --all-files
+```
+
+### Gate Criteria
+- [ ] E2E: 0 fails, 0 skips in required suites
+- [ ] Coverage thresholds met + patch coverage 100%
+- [ ] Typecheck/lint/security scans green
+- [ ] CI workflows fully green on PR
+
+### Freeze Criteria
+- [ ] No test-definition changes after baseline without QA approval
+- [ ] New failures automatically routed to ledger process (Phase 6 template)
+
+---
+
 ### Success Criteria Summary
 
 ✅ **All checkboxes above must be checked before PR approval**
@@ -1134,9 +1296,13 @@ pre-commit run --all-files
 | **4.2** | Admin Onboarding Tests | Playwright Dev | 1h | 🔴 Not Started | Phase 3 Complete |
 | **4.3** | Navigation Mobile Test | Playwright Dev | 0.5h | 🔴 Not Started | Phase 3 Complete |
 | **5.0** | Final Validation & CI | QA Lead | 2-3h | 🔴 Not Started | Phases 1-4 Complete |
+| **6.0** | Fail & Skip Census | QA Lead + Playwright Dev | 2-4h | 🔴 Not Started | Full rerun evidence |
+| **7.0** | Failure Cluster Remediation | Playwright/Frontend/Backend | 8-16h | 🔴 Not Started | Phase 6 Complete |
+| **8.0** | Skip Debt Burn-down | QA Lead + Playwright Dev | 4-8h | 🔴 Not Started | Phase 7 Complete |
+| **9.0** | Final Re-baseline Freeze | QA Lead | 2-4h | 🔴 Not Started | Phase 8 Complete |
 
-**Total Estimated Time:** 21-23 hours
-**Critical Path:** Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
+**Total Estimated Time:** 37-68 hours
+**Critical Path:** Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5 → Phase 6 → Phase 7 → Phase 8 → Phase 9
 
 ### Team Resource Allocation
 
@@ -1312,6 +1478,7 @@ pre-commit run --all-files
 | Version | Date | Changes | Author |
 |---------|------|---------|--------|
 | 1.0 | 2026-02-12 | Initial plan creation | GitHub Copilot (Planning Agent) |
+| 1.1 | 2026-02-13 | Added Phases 6-9 for fail/skip research, remediation tracking, skip debt burn-down, and final gate freeze; refreshed latest rerun metrics | GitHub Copilot (Management) |
 
 ---
 
