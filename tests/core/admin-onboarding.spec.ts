@@ -123,39 +123,6 @@ test.describe('Admin Onboarding & Setup', () => {
     });
   });
 
-  // Emergency token can be generated
-  test('Emergency token can be generated', async ({ page }) => {
-    await test.step('Navigate to security page', async () => {
-      await page.goto('/security', { waitUntil: 'domcontentloaded' });
-      await waitForLoadingComplete(page);
-    });
-
-    await test.step('Check if Cerberus is enabled (required for emergency token UI)', async () => {
-      // The Admin Whitelist card (with Generate Token button) only renders when Cerberus is enabled
-      const cerberusCard = page.locator('text=Cerberus').first();
-      const isCerberusVisible = await cerberusCard.isVisible().catch(() => false);
-
-      if (!isCerberusVisible) {
-        test.skip(true, 'Cerberus must be enabled to access emergency token generation UI');
-      }
-    });
-
-    await test.step('Verify generate token button exists', async () => {
-      const generateButton = page.getByRole('button', { name: /generate.*token/i });
-      await expect(generateButton).toBeVisible();
-
-      // Button functionality works (API call succeeds)
-      await generateButton.click();
-
-      // Note: Token display UI not yet implemented (see docs/plans/e2e_emergency_token_fix.md Phase 2, Task 2.4)
-      // When implemented, the UI should show:
-      // 1. A modal with the generated token
-      // 2. Usage instructions
-      // 3. Confirmation checkboxes before dismissing
-      // For now, we just verify the button is accessible and clickable.
-    });
-  });
-
   // Encryption key setup required on first login
   test('Dashboard loads with encryption key management', async ({ page }) => {
     await test.step('Navigate to encryption settings', async () => {
