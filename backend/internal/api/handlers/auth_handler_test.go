@@ -96,6 +96,92 @@ func TestSetSecureCookie_HTTP_Lax(t *testing.T) {
 	assert.Equal(t, http.SameSiteLaxMode, c.SameSite)
 }
 
+func TestSetSecureCookie_ForwardedHTTPS_LocalhostForcesInsecure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	_ = os.Setenv("CHARON_ENV", "production")
+	defer func() { _ = os.Unsetenv("CHARON_ENV") }()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://localhost:8080/login", http.NoBody)
+	req.Host = "localhost:8080"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.False(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
+func TestSetSecureCookie_ForwardedHTTPS_LoopbackForcesInsecure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	_ = os.Setenv("CHARON_ENV", "production")
+	defer func() { _ = os.Unsetenv("CHARON_ENV") }()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://127.0.0.1:8080/login", http.NoBody)
+	req.Host = "127.0.0.1:8080"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.False(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
+func TestSetSecureCookie_ForwardedHostLocalhostForcesInsecure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	_ = os.Setenv("CHARON_ENV", "production")
+	defer func() { _ = os.Unsetenv("CHARON_ENV") }()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://charon.local/login", http.NoBody)
+	req.Host = "charon.internal:8080"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Host", "localhost:8080")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.False(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
+func TestSetSecureCookie_OriginLoopbackForcesInsecure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	_ = os.Setenv("CHARON_ENV", "production")
+	defer func() { _ = os.Unsetenv("CHARON_ENV") }()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://service.internal/login", http.NoBody)
+	req.Host = "service.internal:8080"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("Origin", "http://127.0.0.1:8080")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.False(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
 func TestAuthHandler_Login_Errors(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandler(t)

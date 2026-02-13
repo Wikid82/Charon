@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -47,6 +49,82 @@ func requestScheme(c *gin.Context) string {
 	return "http"
 }
 
+func normalizeHost(rawHost string) string {
+	host := strings.TrimSpace(rawHost)
+	if host == "" {
+		return ""
+	}
+
+	if strings.Contains(host, ":") {
+		if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+			host = parsedHost
+		}
+	}
+
+	return strings.Trim(host, "[]")
+}
+
+func originHost(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+
+	return normalizeHost(parsedURL.Host)
+}
+
+func isLocalHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return true
+	}
+
+	return false
+}
+
+func isLocalRequest(c *gin.Context) bool {
+	candidates := []string{}
+
+	if c.Request != nil {
+		candidates = append(candidates, normalizeHost(c.Request.Host))
+
+		if c.Request.URL != nil {
+			candidates = append(candidates, normalizeHost(c.Request.URL.Host))
+		}
+
+		candidates = append(candidates,
+			originHost(c.Request.Header.Get("Origin")),
+			originHost(c.Request.Header.Get("Referer")),
+		)
+	}
+
+	if forwardedHost := c.GetHeader("X-Forwarded-Host"); forwardedHost != "" {
+		parts := strings.Split(forwardedHost, ",")
+		for _, part := range parts {
+			candidates = append(candidates, normalizeHost(part))
+		}
+	}
+
+	for _, host := range candidates {
+		if host == "" {
+			continue
+		}
+
+		if isLocalHost(host) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // setSecureCookie sets an auth cookie with security best practices
 // - HttpOnly: prevents JavaScript access (XSS protection)
 // - Secure: derived from request scheme to allow HTTP/IP logins when needed
@@ -56,6 +134,11 @@ func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
 	secure := isProduction() && scheme == "https"
 	sameSite := http.SameSiteStrictMode
 	if scheme != "https" {
+		sameSite = http.SameSiteLaxMode
+	}
+
+	if isLocalRequest(c) {
+		secure = false
 		sameSite = http.SameSiteLaxMode
 	}
 
