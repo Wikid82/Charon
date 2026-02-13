@@ -290,8 +290,8 @@ func (s *BackupService) CreateBackup() (string, error) {
 		return "", err
 	}
 	defer func() {
-		if err := outFile.Close(); err != nil {
-			logger.Log().WithError(err).Warn("failed to close backup file")
+		if closeErr := outFile.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Warn("failed to close backup file")
 		}
 	}()
 
@@ -301,41 +301,17 @@ func (s *BackupService) CreateBackup() (string, error) {
 	// 1. Database
 	dbPath := filepath.Join(s.DataDir, s.DatabaseName)
 	// Ensure DB exists before backing up
-	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+	if _, statErr := os.Stat(dbPath); os.IsNotExist(statErr) {
 		return "", fmt.Errorf("database file not found: %s", dbPath)
 	}
-	backupSourcePath := dbPath
-	cleanupBackupSource := func() {}
-
-	if snapshotPath, cleanup, err := createSQLiteSnapshot(dbPath); err == nil {
-		backupSourcePath = snapshotPath
-		cleanupBackupSource = cleanup
-	} else {
-		logger.Log().WithError(err).Warn("failed to create sqlite snapshot before backup; falling back to direct file copy")
-		if checkpointErr := checkpointSQLiteDatabase(dbPath); checkpointErr != nil {
-			logger.Log().WithError(checkpointErr).Warn("failed to checkpoint sqlite wal before backup; proceeding with file snapshot")
-		}
+	backupSourcePath, cleanupBackupSource, err := createSQLiteSnapshot(dbPath)
+	if err != nil {
+		return "", fmt.Errorf("create sqlite snapshot before backup: %w", err)
 	}
 	defer cleanupBackupSource()
 
 	if err := s.addToZip(w, backupSourcePath, s.DatabaseName); err != nil {
 		return "", fmt.Errorf("backup db: %w", err)
-	}
-
-	if backupSourcePath == dbPath {
-		walPath := dbPath + "-wal"
-		if _, err := os.Stat(walPath); err == nil {
-			if err := s.addToZip(w, walPath, s.DatabaseName+"-wal"); err != nil {
-				return "", fmt.Errorf("backup db wal: %w", err)
-			}
-		}
-
-		shmPath := dbPath + "-shm"
-		if _, err := os.Stat(shmPath); err == nil {
-			if err := s.addToZip(w, shmPath, s.DatabaseName+"-shm"); err != nil {
-				return "", fmt.Errorf("backup db shm: %w", err)
-			}
-		}
 	}
 
 	// 2. Caddy Data (Certificates, etc)
@@ -446,8 +422,14 @@ func (s *BackupService) RestoreBackup(filename string) error {
 		s.restoreDBPath = restoreDBPath
 	}
 
-	// 2. Unzip to DataDir (overwriting)
-	return s.unzip(srcPath, s.DataDir)
+	// 2. Unzip to DataDir while skipping database files.
+	// Database data is applied through controlled live rehydrate to avoid corrupting the active SQLite file.
+	skipEntries := map[string]struct{}{
+		s.DatabaseName:          {},
+		s.DatabaseName + "-wal": {},
+		s.DatabaseName + "-shm": {},
+	}
+	return s.unzipWithSkip(srcPath, s.DataDir, skipEntries)
 }
 
 // RehydrateLiveDatabase reloads the currently-open SQLite database from the restored DB file
@@ -705,7 +687,7 @@ func (s *BackupService) extractDatabaseFromBackup(zipPath string) (string, error
 	return tmpPath, nil
 }
 
-func (s *BackupService) unzip(src, dest string) error {
+func (s *BackupService) unzipWithSkip(src, dest string, skipEntries map[string]struct{}) error {
 	r, err := zip.OpenReader(src)
 	if err != nil {
 		return err
@@ -717,6 +699,12 @@ func (s *BackupService) unzip(src, dest string) error {
 	}()
 
 	for _, f := range r.File {
+		if skipEntries != nil {
+			if _, skip := skipEntries[filepath.Clean(f.Name)]; skip {
+				continue
+			}
+		}
+
 		// Use SafeJoinPath to prevent directory traversal attacks
 		fpath, err := SafeJoinPath(dest, f.Name)
 		if err != nil {
