@@ -1,6 +1,53 @@
 import { test, expect } from './fixtures/test';
 import { waitForAPIHealth } from './utils/api-helpers';
 import { waitForDialog, waitForLoadingComplete } from './utils/wait-helpers';
+import {
+  mockManualChallenge,
+  mockExpiredChallenge,
+  mockVerifiedChallenge,
+} from './fixtures/dns-providers';
+
+const MANUAL_CHALLENGE_ROUTE = '**/api/v1/dns-providers/*/manual-challenge/*';
+const MANUAL_VERIFY_ROUTE = '**/api/v1/dns-providers/*/manual-challenge/*/verify';
+
+async function addManualChallengeRoute(
+  page: Parameters<typeof test>[0]['page'],
+  challengePayload: Record<string, unknown>
+): Promise<() => Promise<void>> {
+  const routeHandler = async (route: { fulfill: (options: { status: number; contentType: string; body: string }) => Promise<void> }) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(challengePayload),
+    });
+  };
+
+  await page.route(MANUAL_CHALLENGE_ROUTE, routeHandler);
+
+  return async () => {
+    await page.unroute(MANUAL_CHALLENGE_ROUTE, routeHandler);
+  };
+}
+
+async function addManualVerifyRoute(
+  page: Parameters<typeof test>[0]['page'],
+  status: number,
+  responsePayload: Record<string, unknown>
+): Promise<() => Promise<void>> {
+  const routeHandler = async (route: { fulfill: (options: { status: number; contentType: string; body: string }) => Promise<void> }) => {
+    await route.fulfill({
+      status,
+      contentType: 'application/json',
+      body: JSON.stringify(responsePayload),
+    });
+  };
+
+  await page.route(MANUAL_VERIFY_ROUTE, routeHandler);
+
+  return async () => {
+    await page.unroute(MANUAL_VERIFY_ROUTE, routeHandler);
+  };
+}
 
 /**
  * Manual DNS Provider E2E Tests
@@ -84,7 +131,22 @@ test.describe('Manual DNS Provider Feature', () => {
     });
   });
 
-  test.describe.skip('Manual Challenge UI Display', () => {
+  test.describe('Manual Challenge UI Display', () => {
+    let cleanupManualChallengeRoute: null | (() => Promise<void>) = null;
+
+    test.beforeEach(async ({ page }) => {
+      cleanupManualChallengeRoute = await addManualChallengeRoute(page, mockManualChallenge as unknown as Record<string, unknown>);
+      await page.goto('/dns/providers');
+      await waitForLoadingComplete(page);
+    });
+
+    test.afterEach(async () => {
+      if (cleanupManualChallengeRoute) {
+        await cleanupManualChallengeRoute();
+        cleanupManualChallengeRoute = null;
+      }
+    });
+
     /**
      * This test verifies the challenge UI structure.
      * In a real scenario, this would be triggered by requesting a certificate
@@ -169,7 +231,22 @@ test.describe('Manual DNS Provider Feature', () => {
     });
   });
 
-  test.describe.skip('Copy to Clipboard', () => {
+  test.describe('Copy to Clipboard', () => {
+    let cleanupManualChallengeRoute: null | (() => Promise<void>) = null;
+
+    test.beforeEach(async ({ page }) => {
+      cleanupManualChallengeRoute = await addManualChallengeRoute(page, mockManualChallenge as unknown as Record<string, unknown>);
+      await page.goto('/dns/providers');
+      await waitForLoadingComplete(page);
+    });
+
+    test.afterEach(async () => {
+      if (cleanupManualChallengeRoute) {
+        await cleanupManualChallengeRoute();
+        cleanupManualChallengeRoute = null;
+      }
+    });
+
     test('should have accessible copy buttons', async ({ page }) => {
       await test.step('Verify copy button for record name', async () => {
         const copyNameButton = page.getByRole('button', { name: /copy.*record.*name/i })
@@ -210,7 +287,22 @@ test.describe('Manual DNS Provider Feature', () => {
     });
   });
 
-  test.describe.skip('Verify Button Interactions', () => {
+  test.describe('Verify Button Interactions', () => {
+    let cleanupManualChallengeRoute: null | (() => Promise<void>) = null;
+
+    test.beforeEach(async ({ page }) => {
+      cleanupManualChallengeRoute = await addManualChallengeRoute(page, mockManualChallenge as unknown as Record<string, unknown>);
+      await page.goto('/dns/providers');
+      await waitForLoadingComplete(page);
+    });
+
+    test.afterEach(async () => {
+      if (cleanupManualChallengeRoute) {
+        await cleanupManualChallengeRoute();
+        cleanupManualChallengeRoute = null;
+      }
+    });
+
     test('should have Check DNS Now button', async ({ page }) => {
       await test.step('Verify Check DNS Now button exists', async () => {
         const checkDnsButton = page.getByRole('button', { name: /check dns/i });
@@ -292,10 +384,6 @@ test.describe('Manual DNS Provider Feature', () => {
 
         // If no copy buttons exist yet, this test should skip or pass
         // as the feature may not be in a state with visible records
-        if (buttonCount === 0) {
-          test.skip('No copy buttons found - requires DNS challenge records to be visible');
-        }
-
         expect(buttonCount).toBeGreaterThan(0);
 
         for (let i = 0; i < buttonCount; i++) {
@@ -309,7 +397,9 @@ test.describe('Manual DNS Provider Feature', () => {
       });
     });
 
-    test.skip('should announce status changes to screen readers', async ({ page }) => {
+    test('should announce status changes to screen readers', async ({ page }) => {
+      await page.goto('/dns/providers');
+      await waitForLoadingComplete(page);
       await test.step('Verify live region for status updates', async () => {
         const liveRegion = page.locator('[aria-live="polite"]').or(page.locator('[role="status"]'));
         await expect(liveRegion).toBeAttached();
@@ -357,164 +447,149 @@ test.describe('Manual DNS Provider Feature', () => {
   });
 });
 
-test.describe.skip('Manual DNS Challenge Component Tests', () => {
+test.describe('Manual DNS Challenge Component Tests', () => {
   /**
    * Component-level tests that verify the ManualDNSChallenge component
    * These can run with mocked data if the component supports it
    */
 
   test('should render all required challenge information', async ({ page }) => {
-    // Mock the component data if possible
-    await page.route('**/api/v1/dns-providers/*/manual-challenge/*', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          id: 1,
-          provider_id: 1,
-          fqdn: '_acme-challenge.example.com',
-          value: 'mock-challenge-token-value-abc123',
-          status: 'pending',
-          ttl: 300,
-          expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-          created_at: new Date().toISOString(),
-          dns_propagated: false,
-          last_check_at: null,
-        }),
+    const cleanupManualChallengeRoute = await addManualChallengeRoute(
+      page,
+      mockManualChallenge as unknown as Record<string, unknown>
+    );
+
+    try {
+      await page.goto('/dns/providers');
+      await waitForLoadingComplete(page);
+
+      await test.step('Verify challenge FQDN is displayed', async () => {
+        await expect(page.getByText('_acme-challenge.example.com')).toBeVisible();
       });
-    });
 
-    await page.goto('/dns/providers');
-    await waitForLoadingComplete(page);
+      await test.step('Verify challenge token value is displayed', async () => {
+        await expect(page.getByText(/mock-challenge-token/)).toBeVisible();
+      });
 
-    await test.step('Verify challenge FQDN is displayed', async () => {
-      await expect(page.getByText('_acme-challenge.example.com')).toBeVisible();
-    });
-
-    await test.step('Verify challenge token value is displayed', async () => {
-      await expect(page.getByText(/mock-challenge-token/)).toBeVisible();
-    });
-
-    await test.step('Verify TTL information', async () => {
-      await expect(page.getByText(/300.*seconds|5.*minutes/i)).toBeVisible();
-    });
+      await test.step('Verify TTL information', async () => {
+        await expect(page.getByText(/300.*seconds|5.*minutes/i)).toBeVisible();
+      });
+    } finally {
+      await cleanupManualChallengeRoute();
+    }
   });
 
   test('should handle expired challenge state', async ({ page }) => {
-    await page.route('**/api/v1/dns-providers/*/manual-challenge/*', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          id: 1,
-          provider_id: 1,
-          fqdn: '_acme-challenge.example.com',
-          value: 'expired-token',
-          status: 'expired',
-          ttl: 300,
-          expires_at: new Date(Date.now() - 60000).toISOString(),
-          created_at: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
-          dns_propagated: false,
-        }),
+    const cleanupManualChallengeRoute = await addManualChallengeRoute(
+      page,
+      mockExpiredChallenge as unknown as Record<string, unknown>
+    );
+
+    try {
+      await page.goto('/dns/providers');
+      await waitForLoadingComplete(page);
+
+      await test.step('Verify expired status is displayed', async () => {
+        const expiredStatus = page.getByText(/expired/i);
+        await expect(expiredStatus).toBeVisible();
       });
-    });
 
-    await page.goto('/dns/providers');
-    await waitForLoadingComplete(page);
+      await test.step('Verify action buttons are disabled', async () => {
+        const checkDnsButton = page.getByRole('button', { name: /check dns/i });
+        const verifyButton = page.getByRole('button', { name: /verify/i });
 
-    await test.step('Verify expired status is displayed', async () => {
-      const expiredStatus = page.getByText(/expired/i);
-      await expect(expiredStatus).toBeVisible();
-    });
-
-    await test.step('Verify action buttons are disabled', async () => {
-      const checkDnsButton = page.getByRole('button', { name: /check dns/i });
-      const verifyButton = page.getByRole('button', { name: /verify/i });
-
-      await expect(checkDnsButton).toBeDisabled();
-      await expect(verifyButton).toBeDisabled();
-    });
+        await expect(checkDnsButton).toBeDisabled();
+        await expect(verifyButton).toBeDisabled();
+      });
+    } finally {
+      await cleanupManualChallengeRoute();
+    }
   });
 
   test('should handle verified challenge state', async ({ page }) => {
-    await page.route('**/api/v1/dns-providers/*/manual-challenge/*', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          id: 1,
-          provider_id: 1,
-          fqdn: '_acme-challenge.example.com',
-          value: 'verified-token',
-          status: 'verified',
-          ttl: 300,
-          expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-          created_at: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
-          dns_propagated: true,
-        }),
+    const cleanupManualChallengeRoute = await addManualChallengeRoute(
+      page,
+      mockVerifiedChallenge as unknown as Record<string, unknown>
+    );
+
+    try {
+      await page.goto('/dns/providers');
+      await waitForLoadingComplete(page);
+
+      await test.step('Verify success status is displayed', async () => {
+        const successStatus = page.getByText(/verified|success/i);
+        await expect(successStatus).toBeVisible();
       });
-    });
 
-    await page.goto('/dns/providers');
-    await waitForLoadingComplete(page);
-
-    await test.step('Verify success status is displayed', async () => {
-      const successStatus = page.getByText(/verified|success/i);
-      await expect(successStatus).toBeVisible();
-    });
-
-    await test.step('Verify success indicator', async () => {
-      const successAlert = page.locator('[role="alert"]').filter({
-        has: page.locator('[class*="success"]'),
+      await test.step('Verify success indicator', async () => {
+        const successAlert = page.locator('[role="alert"]').filter({
+          has: page.locator('[class*="success"]'),
+        });
+        await expect(successAlert).toBeVisible();
       });
-      await expect(successAlert).toBeVisible();
-    });
+    } finally {
+      await cleanupManualChallengeRoute();
+    }
   });
 });
 
-test.describe.skip('Manual DNS Provider Error Handling', () => {
+test.describe('Manual DNS Provider Error Handling', () => {
   test('should display error message on verification failure', async ({ page }) => {
-    await page.route('**/api/v1/dns-providers/*/manual-challenge/*/verify', async (route) => {
-      await route.fulfill({
-        status: 400,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          message: 'DNS record not found',
-          dns_found: false,
-        }),
+    const cleanupManualChallengeRoute = await addManualChallengeRoute(
+      page,
+      mockManualChallenge as unknown as Record<string, unknown>
+    );
+    const cleanupManualVerifyRoute = await addManualVerifyRoute(page, 400, {
+      message: 'DNS record not found',
+      dns_found: false,
+    });
+
+    try {
+      await page.goto('/dns/providers');
+      await waitForLoadingComplete(page);
+
+      await test.step('Click verify and check error display', async () => {
+        const verifyButton = page.getByRole('button', { name: /verify/i });
+        await verifyButton.click();
+
+        const errorMessage = page.getByText(/dns record not found/i)
+          .or(page.locator('.toast').filter({ hasText: /not found/i }));
+
+        await expect(errorMessage).toBeVisible({ timeout: 5000 });
       });
-    });
-
-    await page.goto('/dns/providers');
-    await waitForLoadingComplete(page);
-
-    await test.step('Click verify and check error display', async () => {
-      const verifyButton = page.getByRole('button', { name: /verify/i });
-      await verifyButton.click();
-
-      const errorMessage = page.getByText(/dns record not found/i)
-        .or(page.locator('.toast').filter({ hasText: /not found/i }));
-
-      await expect(errorMessage).toBeVisible({ timeout: 5000 });
-    });
+    } finally {
+      await cleanupManualVerifyRoute();
+      await cleanupManualChallengeRoute();
+    }
   });
 
   test('should handle network errors gracefully', async ({ page }) => {
-    await page.route('**/api/v1/dns-providers/*/manual-challenge/*/verify', async (route) => {
+    const verifyRouteHandler = async (route: { abort: (errorCode?: string) => Promise<void> }) => {
       await route.abort('failed');
-    });
+    };
 
-    await page.goto('/dns/providers');
-    await waitForLoadingComplete(page);
+    const cleanupManualChallengeRoute = await addManualChallengeRoute(
+      page,
+      mockManualChallenge as unknown as Record<string, unknown>
+    );
+    await page.route(MANUAL_VERIFY_ROUTE, verifyRouteHandler);
 
-    await test.step('Click verify with network error', async () => {
-      const verifyButton = page.getByRole('button', { name: /verify/i });
-      await verifyButton.click();
+    try {
+      await page.goto('/dns/providers');
+      await waitForLoadingComplete(page);
 
-      const errorFeedback = page.getByText(/error|failed|network/i)
-        .or(page.locator('.toast').filter({ hasText: /error|failed/i }));
+      await test.step('Click verify with network error', async () => {
+        const verifyButton = page.getByRole('button', { name: /verify/i });
+        await verifyButton.click();
 
-      await expect(errorFeedback).toBeVisible({ timeout: 5000 });
-    });
+        const errorFeedback = page.getByText(/error|failed|network/i)
+          .or(page.locator('.toast').filter({ hasText: /error|failed/i }));
+
+        await expect(errorFeedback).toBeVisible({ timeout: 5000 });
+      });
+    } finally {
+      await page.unroute(MANUAL_VERIFY_ROUTE, verifyRouteHandler);
+      await cleanupManualChallengeRoute();
+    }
   });
 });
