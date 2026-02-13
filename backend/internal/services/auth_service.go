@@ -22,8 +22,9 @@ func NewAuthService(db *gorm.DB, cfg config.Config) *AuthService {
 }
 
 type Claims struct {
-	UserID uint   `json:"user_id"`
-	Role   string `json:"role"`
+	UserID         uint   `json:"user_id"`
+	Role           string `json:"role"`
+	SessionVersion uint   `json:"session_version"`
 	jwt.RegisteredClaims
 }
 
@@ -96,8 +97,9 @@ func (s *AuthService) Login(email, password string) (string, error) {
 func (s *AuthService) GenerateToken(user *models.User) (string, error) {
 	expirationTime := time.Now().Add(24 * time.Hour)
 	claims := &Claims{
-		UserID: user.ID,
-		Role:   user.Role,
+		UserID:         user.ID,
+		Role:           user.Role,
+		SessionVersion: user.SessionVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expirationTime),
 			Issuer:    "charon",
@@ -140,6 +142,39 @@ func (s *AuthService) ValidateToken(tokenString string) (*Claims, error) {
 	}
 
 	return claims, nil
+}
+
+func (s *AuthService) AuthenticateToken(tokenString string) (*models.User, *Claims, error) {
+	claims, err := s.ValidateToken(tokenString)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	user, err := s.GetUserByID(claims.UserID)
+	if err != nil || !user.Enabled {
+		return nil, nil, errors.New("invalid token")
+	}
+
+	if claims.SessionVersion != user.SessionVersion {
+		return nil, nil, errors.New("invalid token")
+	}
+
+	return user, claims, nil
+}
+
+func (s *AuthService) InvalidateSessions(userID uint) error {
+	result := s.db.Model(&models.User{}).
+		Where("id = ?", userID).
+		Update("session_version", gorm.Expr("session_version + 1"))
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return errors.New("user not found")
+	}
+
+	return nil
 }
 
 func (s *AuthService) GetUserByID(id uint) (*models.User, error) {

@@ -1,381 +1,498 @@
 ---
-post_title: E2E Skip Retarget & Unskip Execution Plan
+post_title: Full E2E Green Execution Spec
 author1: "Charon Team"
-post_slug: e2e-skip-retarget-unskip-execution-plan
+post_slug: full-e2e-green-execution-spec
 categories:
   - testing
-  - infrastructure
   - quality
+  - remediation
 tags:
   - playwright
   - e2e
   - ci
-  - remediation
-summary: "Execution spec to move skipped suites to the correct Playwright project, remove skip directives, and enforce deterministic preconditions so tests run before failure remediation."
+  - go
+  - react
+summary: "Execution-ready specification to drive Charon E2E to fully green across browser and security projects, including test remediation, backend/frontend fixes, deterministic state controls, and CI/config hygiene updates."
 post_date: "2026-02-13"
 ---
 
-## Introduction
+## 1. Introduction
 
-This specification defines how to move currently skipped E2E suites to the correct Playwright execution environment and remove skip directives so they run deterministically.
+This document replaces the previous skip-focused plan and defines the end-to-end execution strategy to get Charon Playwright suites fully green with no hidden skip debt.
 
-Primary objective: get all currently skipped critical-path suites executing in the right project (`security-tests` vs browser projects) with stable preconditions, even if some assertions still fail and continue into Phase 7 remediation.
+Objective:
 
-Policy update (2026-02-13): E2E must be green before QA audit. Dev agents (Backend/Frontend/Playwright) must fix missing features, product bugs, and failing tests first.
+- QA unblock scope is a frozen target matrix that MUST finish with `0 failed`, `0 skipped`, and `0 did-not-run`.
+- All frozen-matrix E2E suites execute and pass in the exact mapped Playwright projects.
+- Security suites run only in `security-tests` where required.
+- Browser suites (`chromium`, `firefox`, `webkit`) are deterministic and flake-resistant.
+- Configuration files (`.gitignore`, `codecov.yml`, `.dockerignore`, `Dockerfile`) are aligned to reduce CI noise and improve repeatability.
 
-## Research Findings
+Primary source artifacts reviewed:
 
-### Current skip inventory (confirmed)
+- `docs/plans/CI_REMEDIATION_MASTER_PLAN.md`
+- `docs/reports/e2e_skip_registry_2026-02-13.md`
+- `docs/reports/e2e_fail_skip_ledger_2026-02-13.md`
 
+## 2. Research Findings
+
+### 2.1 Existing architecture and execution topology
+
+Backend and route wiring (`backend/internal/api/routes/routes.go`) confirms:
+
+- Auth/session APIs used heavily by E2E:
+  - `POST /api/v1/auth/login`
+  - `POST /api/v1/auth/logout`
+  - `POST /api/v1/auth/refresh`
+  - `GET /api/v1/auth/me`
+- Security feature APIs relied on by settings/security workflows:
+  - `GET /api/v1/security/status`
+  - `PATCH /api/v1/security/acl`
+  - `PATCH /api/v1/security/waf`
+  - `PATCH /api/v1/security/crowdsec`
+  - `PATCH /api/v1/security/rate-limit`
+- Access list APIs used by workflow/data consistency tests:
+  - `GET/POST/PUT/DELETE /api/v1/access-lists`
+
+Frontend pages/components directly mapped to failing suites:
+
+- `frontend/src/pages/DNSProviders.tsx`
+- `frontend/src/components/dns-providers/ManualDNSChallenge.tsx`
+- `frontend/src/pages/UsersPage.tsx`
+- `frontend/src/components/ProxyHostForm.tsx`
+- `frontend/src/pages/Certificates.tsx`
+- `frontend/src/components/RequireAuth.tsx`
+
+### 2.2 High-impact suite clusters (evidence-based)
+
+Primary remediation suites:
+
+- `tests/settings/user-lifecycle.spec.ts`
+- `tests/core/multi-component-workflows.spec.ts`
+- `tests/core/data-consistency.spec.ts`
 - `tests/manual-dns-provider.spec.ts`
-  - `test.describe.skip('Manual Challenge UI Display', ...)`
-  - `test.describe.skip('Copy to Clipboard', ...)`
-  - `test.describe.skip('Verify Button Interactions', ...)`
-  - `test.describe.skip('Manual DNS Challenge Component Tests', ...)`
-  - `test.describe.skip('Manual DNS Provider Error Handling', ...)`
-  - `test.skip('No copy buttons found - requires DNS challenge records to be visible')`
-  - `test.skip('should announce status changes to screen readers', ...)`
 - `tests/core/admin-onboarding.spec.ts`
-  - test title: `Emergency token can be generated`
-  - inline gate: `test.skip(true, 'Cerberus must be enabled to access emergency token generation UI')`
+- `tests/modal-dropdown-triage.spec.ts`
+- `tests/core/certificates.spec.ts`
+- `tests/core/authentication.spec.ts`
+- `tests/core/navigation.spec.ts`
 
-### Playwright project routing (confirmed)
+Authentication/session fixture dependency surface:
 
-- `playwright.config.js`
-  - `security-tests` project runs `tests/security/**` and `tests/security-enforcement/**`.
-  - `chromium`, `firefox`, `webkit` explicitly ignore `**/security/**` and `**/security-enforcement/**`.
-  - Therefore security-dependent assertions must live under security suites, not core/browser suites.
+- `tests/fixtures/auth-fixtures.ts`
+- Core helpers: `getAuthToken`, `loginWithCredentials`, `refreshTokenIfNeeded`, `loginUser`, `logoutUser`, `createUserViaApi`
 
-### Existing reusable patterns (confirmed)
+Observed failure patterns from code and baseline reports:
 
-- Deterministic DNS fixture data exists in `tests/fixtures/dns-providers.ts` (`mockManualChallenge`, `mockExpiredChallenge`, `mockVerifiedChallenge`).
-- Deterministic creation helpers already exist in `tests/utils/TestDataManager.ts` (`createDNSProvider`) and are used in integration suites.
-- Security suites already cover emergency and Cerberus behaviors (`tests/security/emergency-operations.spec.ts`, `tests/security-enforcement/emergency-token.spec.ts`).
+- Race/readiness failures around `auth/me` and post-login state transitions.
+- Mixed security toggle propagation timing (settings updates not immediately reflected in UI/API assertions).
+- Manual DNS tests relying on route mocks and challenge visibility that can drift by timing/state.
+- Dropdown/modal selectors in triage suites using brittle targeting patterns.
+- Certificate suite includes permissive expectations that mask true failures.
 
-### Routing mismatch requiring plan action
+### 2.3 Config and pipeline hygiene findings
 
-- `.vscode/tasks.json` contains security suite invocations using `--project=firefox` for files in `tests/security/`.
-- This does not match intended project routing and can hide environment mistakes during local triage.
+- `playwright.config.js` already separates `security-tests` and browser projects correctly.
+- `.gitignore` currently allows root-level scan/report artifacts to linger and pollute workspace/PR diffs.
+- `.dockerignore` should prioritize excluding test/output/docs-heavy artifacts from build context.
+- `codecov.yml` is strict on patch/project coverage and needs explicit handling of E2E/generated noise.
+- `Dockerfile` supports runtime, but E2E reproducibility depends on deterministic env/runtime contracts and avoiding accidental context bloat.
 
-## Technical Specifications
+## 3. Technical Specifications
 
-### EARS requirements
+### 3.1 EARS requirements
 
-- WHEN a suite requires Cerberus/security enforcement, THE SYSTEM SHALL execute it under `security-tests` only.
-- WHEN a suite validates UI flows not dependent on Cerberus, THE SYSTEM SHALL execute it under `chromium`, `firefox`, and `webkit` projects.
-- WHEN a test previously used `describe.skip` or `test.skip` due to missing challenge state, THE SYSTEM SHALL provide deterministic preconditions so the test executes.
-- IF deterministic preconditions cannot be established from existing APIs/fixtures, THEN THE SYSTEM SHALL fail the test with explicit precondition diagnostics instead of skipping.
-- WHILE Phase 7 failure remediation is in progress, THE SYSTEM SHALL keep skip count at zero for targeted suites in this plan.
+- WHEN Playwright executes browser projects, THE SYSTEM SHALL run only browser-targeted suites and produce deterministic results with no retry masking.
+- WHEN Playwright executes `security-tests`, THE SYSTEM SHALL run security-only suites with Cerberus-enabled state and explicit preconditions.
+- WHEN an auth-dependent test starts, THE SYSTEM SHALL confirm valid auth token/session and successful `GET /api/v1/auth/me` before asserting UI state.
+- WHEN wildcard/manual DNS scenarios are tested, THE SYSTEM SHALL provide deterministic challenge state using scoped mocks and verified cleanup.
+- IF a security toggle is changed from UI/API, THEN THE SYSTEM SHALL expose a deterministic synchronization point before downstream assertions.
+- IF a test cannot satisfy preconditions, THEN THE SYSTEM SHALL fail with explicit diagnostics and SHALL NOT use skip masking, quarantine, or did-not-run allowances.
 
-### Scope boundaries
+### 3.7 Frozen QA Unblock Matrix Artifact
 
-- In scope: test routing, skip removal, deterministic setup, task/script routing consistency, validation commands.
-- Out of scope: feature behavior fixes needed to make all assertions pass (handled by existing failure remediation phases).
+Artifact ID: `QA_UNBLOCK_MATRIX_FROZEN_2026-02-13`
 
-### Supervisor blocker list (session-mandated)
+Policy:
 
-The following blockers are mandatory and must be resolved in dev execution before QA audit starts:
+- This matrix is frozen for QA unblock and cannot be expanded or reduced during execution.
+- Every row must execute and finish with expected status `pass`.
+- Any `failed`, `skipped`, `timedOut`, `interrupted`, or `did-not-run` result fails the gate.
 
-1. `auth/me` readiness failure in `tests/settings/user-lifecycle.spec.ts`.
-2. Manual DNS feature wiring gap (`ManualDNSChallenge` into DNSProviders page).
-3. Manual DNS test alignment/rework.
-4. Security-dashboard soft-skip/skip-reason masking.
-5. Deterministic sync for multi-component security propagation.
+| Suite | Project | Expected Status |
+|---|---|---|
+| `tests/settings/user-lifecycle.spec.ts` | `chromium` | `pass` |
+| `tests/settings/user-lifecycle.spec.ts` | `firefox` | `pass` |
+| `tests/settings/user-lifecycle.spec.ts` | `webkit` | `pass` |
+| `tests/core/multi-component-workflows.spec.ts` | `chromium` | `pass` |
+| `tests/core/multi-component-workflows.spec.ts` | `firefox` | `pass` |
+| `tests/core/multi-component-workflows.spec.ts` | `webkit` | `pass` |
+| `tests/core/data-consistency.spec.ts` | `chromium` | `pass` |
+| `tests/core/data-consistency.spec.ts` | `firefox` | `pass` |
+| `tests/core/data-consistency.spec.ts` | `webkit` | `pass` |
+| `tests/manual-dns-provider.spec.ts` | `chromium` | `pass` |
+| `tests/manual-dns-provider.spec.ts` | `firefox` | `pass` |
+| `tests/manual-dns-provider.spec.ts` | `webkit` | `pass` |
+| `tests/core/admin-onboarding.spec.ts` | `chromium` | `pass` |
+| `tests/core/admin-onboarding.spec.ts` | `firefox` | `pass` |
+| `tests/core/admin-onboarding.spec.ts` | `webkit` | `pass` |
+| `tests/modal-dropdown-triage.spec.ts` | `chromium` | `pass` |
+| `tests/modal-dropdown-triage.spec.ts` | `firefox` | `pass` |
+| `tests/modal-dropdown-triage.spec.ts` | `webkit` | `pass` |
+| `tests/core/certificates.spec.ts` | `chromium` | `pass` |
+| `tests/core/certificates.spec.ts` | `firefox` | `pass` |
+| `tests/core/certificates.spec.ts` | `webkit` | `pass` |
+| `tests/core/authentication.spec.ts` | `chromium` | `pass` |
+| `tests/core/authentication.spec.ts` | `firefox` | `pass` |
+| `tests/core/authentication.spec.ts` | `webkit` | `pass` |
+| `tests/core/navigation.spec.ts` | `chromium` | `pass` |
+| `tests/core/navigation.spec.ts` | `firefox` | `pass` |
+| `tests/core/navigation.spec.ts` | `webkit` | `pass` |
 
-### Explicit pre-QA green gate criteria
+### 3.2 API and contract requirements (no new endpoint required unless explicitly noted)
 
-QA execution is blocked until all criteria pass:
+Required stable contracts (must be treated as blockers if unstable):
 
-1. Supervisor blocker list above is resolved and verified in targeted suites.
-2. Targeted E2E suites show zero failures and zero unexpected skips.
-3. `tests/settings/user-lifecycle.spec.ts` is green with stable `auth/me` readiness behavior.
-4. Manual DNS feature wiring is present in DNSProviders page and validated by passing tests.
-5. Security-dashboard skip masking is removed (no soft-skip/skip-reason masking as failure suppression).
-6. Deterministic sync is validated in:
-  - `tests/core/multi-component-workflows.spec.ts`
-  - `tests/core/data-consistency.spec.ts`
-7. Two consecutive targeted reruns are green before QA handoff.
+- `GET /api/v1/auth/me`: must return 200 with consistent user payload after login refresh boundaries.
+- `GET /api/v1/security/status`: must reflect toggle changes within bounded synchronization window.
+- `PATCH /api/v1/security/*`: must return deterministic success/failure and invalidate relevant cache.
+- `GET/POST /api/v1/access-lists` and related endpoints: must be strongly consistent for immediate read-after-write assertions used by multi-component workflows.
 
-No-QA-until-green rule:
+Optional contract hardening (only if required by failures):
 
-- QA agents and QA audit tasks SHALL NOT execute until this gate passes.
-- If any criterion fails, continue dev-only remediation loop and do not invoke QA.
+- Add explicit operation-complete payload fields for security patch endpoints (for deterministic UI waiters).
 
-### Files and symbols in planned change set
+### 3.3 Database schema expectations
 
-- `tests/manual-dns-provider.spec.ts`
-  - `test.describe('Manual DNS Provider Feature', ...)`
-  - skipped blocks listed above
-- `tests/core/admin-onboarding.spec.ts`
-  - test: `Emergency token can be generated`
-- `tests/security/security-dashboard.spec.ts` (or a new security-only file under `tests/security/`)
-  - target location for Cerberus-required emergency-token UI assertions
-- `.vscode/tasks.json`
-  - security tasks currently using `--project=firefox` for `tests/security/*`
-- Optional script normalization:
-  - `package.json` (`e2e:*` scripts) if dedicated security command is added
+No schema migration is planned by default.
 
-### Data flow and environment design
+Escalation rule:
+
+- IF auth/security consistency issues are traced to persistence-layer defaults or stale records, THEN create a separate migration spec before code changes.
+
+### 3.4 Component-level design responsibilities
+
+#### Frontend focus areas
+
+- `frontend/src/components/RequireAuth.tsx`
+  - Ensure auth gate uses a single source of truth for token + user state readiness.
+- `frontend/src/pages/DNSProviders.tsx`
+  - Stabilize manual challenge visibility/load path and fallback behavior.
+- `frontend/src/components/dns-providers/ManualDNSChallenge.tsx`
+  - Stabilize status transitions (`pending` → `verifying` → terminal states) for testability.
+- `frontend/src/pages/UsersPage.tsx`
+  - Modal/selection reliability and deterministic host permission rendering.
+- `frontend/src/components/ProxyHostForm.tsx`
+  - Selector stability and predictable async behavior for domain/provider/dropdowns.
+- `frontend/src/pages/Certificates.tsx` + dependent list components
+  - Deterministic list/loading states and no permissive pass conditions.
+
+#### Backend focus areas
+
+- `backend/internal/api/handlers/auth_handler.go`
+  - Session cookie/token lifecycle consistency (`login`, `refresh`, `me`, `logout`).
+- `backend/internal/api/handlers/security_handler.go`
+  - Toggle/cache invalidation and observable state transition timing.
+- `backend/internal/api/handlers/access_list_handler.go`
+  - Stable CRUD/test behavior under immediate read-after-write.
+
+### 3.5 Data flow and synchronization design
 
 ```mermaid
-flowchart LR
-  A[setup project auth.setup.ts] --> B{Project}
-  B -->|chromium/firefox/webkit| C[Core/UI suites incl. manual-dns-provider]
-  B -->|security-tests| D[Security + security-enforcement suites]
-  C --> E[Deterministic DNS preconditions via fixtures/routes/API seed]
-  D --> F[Cerberus enabled environment]
+flowchart TD
+  A[Playwright setup auth fixture] --> B[Login/token acquisition]
+  B --> C[Auth readiness gate: auth/me 200 + UI ready]
+  C --> D{Suite type}
+  D -->|Browser projects| E[Core/UI flows: DNS, users, certificates, navigation]
+  D -->|security-tests| F[Security enforcement and emergency flows]
+  E --> G[Deterministic UI/API assertions]
+  F --> G
+  G --> H[Targeted rerun x2 gate]
+  H --> I[Pre-QA green approved]
 ```
 
-### Deterministic preconditions (minimum required to run)
+Synchronization requirements:
 
-#### Manual DNS suite
+- Replace ad-hoc sleeps with API-backed waiters and stable UI readiness signals.
+- Keep route mocking test-scoped and paired cleanup (`route`/`unroute`).
 
-- Precondition M1: authenticated user/session from existing fixture.
-- Precondition M2: deterministic manual DNS provider presence (API create if absent via existing fixture/TestDataManager path).
-- Precondition M3: deterministic challenge payload availability (use existing mock challenge fixtures and route interception where backend challenge state is non-deterministic).
-- Precondition M3.1: DNS route mocks SHALL be test-scoped (inside each test case or a test-scoped helper), not shared across file scope.
-- Precondition M3.2: every `page.route(...)` used for DNS challenge mocking SHALL have deterministic cleanup via `page.unroute(...)` (or equivalent scoped helper cleanup) in the same test lifecycle.
-- Precondition M4: explicit page-state readiness check before assertions (`waitForLoadingComplete` + stable challenge container locator).
+### 3.6 Error handling and edge-case matrix
 
-#### Admin onboarding Cerberus token path
+| Area | Edge Case | Required Handling |
+|---|---|---|
+| Auth | token present but stale user state | force refresh path then re-check `auth/me` |
+| Auth | cookie vs localStorage divergence | unify guard and fixture refresh behavior |
+| Security toggles | API success but stale status read | explicit poll window with fail-fast timeout |
+| Manual DNS | no active challenge found | deterministic challenge seed or scoped fallback mock |
+| Modals/dropdowns | element attached but not interactable | role-based locator and visible+enabled precondition |
+| Certificates | permissive expectation masks fail | replace permissive assertions with strict contract checks |
 
-- Precondition C1: test must execute in security-enabled project (`security-tests`).
-- Precondition C2: Cerberus status asserted from security status API or visible security dashboard state before token assertions.
-- Precondition C3: if token UI not available under security-enabled environment, fail with explicit assertion message; do not skip.
-- Precondition C4: moved Cerberus-token coverage SHALL capture explicit security-state snapshots both before and after test execution (pre/post) and fail if post-state drifts unexpectedly.
+## 4. Implementation Plan
 
-### No database schema/API contract change required
+### Phase 0: Pre-run environment gate (mandatory)
 
-- This plan relies on existing endpoints and fixtures; no backend schema migration is required for the retarget/unskip objective.
+Owner: DevOps
 
-## Implementation Plan
+Work packets:
 
-### Phase 0: Iterative dev-only test loop (mandatory)
+1. Apply testing protocol rebuild decision before any matrix execution:
+  - Rebuild E2E container if app/runtime/build inputs changed, or if container state is not healthy/trusted.
+  - Reuse running container only for test-only changes when health is already confirmed.
+2. Verify runtime health before matrix runs:
+  - Management UI health endpoint reachable (`:8080`).
+  - Emergency endpoint reachable (`:2020`) when required by targeted tests.
+  - Container health status is `healthy`.
+3. Persist environment-gate verdict in execution log: `rebuild-required` or `reuse-allowed` with evidence.
 
-This loop is owned by Backend/Frontend/Playwright agents and repeats until the pre-QA green gate passes.
+Gate:
 
-Execution commands:
+- No Phase 1 start until rebuild decision and health verification both pass.
 
-```bash
-# Iteration run: blocker-focused suites
-set -a && source .env && set +a
-PLAYWRIGHT_COVERAGE=0 PLAYWRIGHT_HTML_OPEN=never npx playwright test \
-  tests/settings/user-lifecycle.spec.ts \
-  tests/manual-dns-provider.spec.ts \
-  tests/core/multi-component-workflows.spec.ts \
-  tests/core/data-consistency.spec.ts \
-  tests/security/security-dashboard.spec.ts \
-  --project=chromium --reporter=line
+Handoff criteria:
 
-# Security-specific verification run
-set -a && source .env && set +a
-PLAYWRIGHT_COVERAGE=0 PLAYWRIGHT_HTML_OPEN=never npx playwright test \
-  tests/security/security-dashboard.spec.ts \
-  tests/security-enforcement/emergency-token.spec.ts \
-  --project=security-tests --reporter=line
+- DevOps provides a pass/fail environment gate record consumed by QA Security in Phase 5.
 
-# Gate run (repeat twice; both must be green)
-set -a && source .env && set +a
-PLAYWRIGHT_COVERAGE=0 PLAYWRIGHT_HTML_OPEN=never npx playwright test \
-  tests/settings/user-lifecycle.spec.ts \
-  tests/manual-dns-provider.spec.ts \
-  tests/core/multi-component-workflows.spec.ts \
-  tests/core/data-consistency.spec.ts \
-  tests/security/security-dashboard.spec.ts \
-  --project=chromium --project=firefox --project=webkit --project=security-tests \
-  --reporter=json > /tmp/pre-qa-green-gate.json
-```
+Complexity: Low
 
-Enforcement:
+### Phase 1: Playwright behavior contract and baseline capture (mandatory first)
 
-- No QA execution until `/tmp/pre-qa-green-gate.json` confirms gate pass and the second confirmation run is also green.
+1. Capture fresh fail/skip ledger for target suites only.
+2. Freeze target suite list and expected project mapping.
+3. Define precondition contract in tests before feature-level edits.
 
-### Phase 1: Playwright Spec Alignment (behavior contract)
+Deliverables:
 
-1. Enumerate and freeze the skip baseline for targeted files using JSON reporter.
-2. Confirm target ownership:
-   - `manual-dns-provider` => browser projects.
-   - Cerberus token path => `security-tests`.
-3. Define run contract for each moved/unskipped block in this spec before edits.
+- Updated fail/skip matrix appended to `docs/reports/e2e_fail_skip_ledger_2026-02-13.md`.
+- Explicit project-routing map per suite.
 
-Validation commands:
+Complexity: Medium
 
-```bash
-npx playwright test tests/manual-dns-provider.spec.ts tests/core/admin-onboarding.spec.ts --project=chromium --reporter=json > /tmp/skip-contract-baseline.json
-jq -r '.. | objects | select(.status? == "skipped") | [.projectName,.location.file,.title] | @tsv' /tmp/skip-contract-baseline.json
-```
+### Phase 2: Backend remediation (auth + security + ACL consistency)
 
-### Phase 2: Backend/Environment Preconditions (minimal, deterministic)
+Work packets:
 
-1. Reuse existing fixture/data helpers for manual DNS setup; do not add new backend endpoints.
-2. Standardize Cerberus-enabled environment invocation for security project tests.
-3. Ensure local task commands don’t misroute security suites to browser projects.
+1. Auth reliability:
+   - Files: `backend/internal/api/handlers/auth_handler.go`, auth service dependencies.
+   - Goal: eliminate intermittent `auth/me` readiness failures post-login/refresh/logout cycles.
+2. Security state propagation:
+   - Files: `backend/internal/api/handlers/security_handler.go`.
+   - Goal: deterministic status observability after patch/enable/disable actions.
+3. Access list consistency:
+   - Files: `backend/internal/api/handlers/access_list_handler.go` and service layer.
+   - Goal: immediate read-after-write consistency for tests.
 
-Potential task-level updates:
+Validation:
 
-- `.vscode/tasks.json` security task commands should use `--project=security-tests` when targeting files under `tests/security/` or `tests/security-enforcement/`.
+- Targeted Go tests for changed packages.
+- Targeted Playwright suites that consume these APIs.
 
-Validation commands:
+Complexity: High
 
-```bash
-npx playwright test tests/security/security-dashboard.spec.ts --project=security-tests
-npx playwright test tests/security-enforcement/emergency-token.spec.ts --project=security-tests
-```
+### Phase 3: Frontend remediation (state, selectors, deterministic UX)
 
-### Phase 3: Two-Pass Retarget + Unskip Execution
+Work packets:
 
-#### Pass 1: Critical UI flow first
+1. Auth guard and lifecycle:
+   - Files: `frontend/src/components/RequireAuth.tsx`, auth hooks/store dependencies.
+2. Manual DNS flow stabilization:
+   - Files: `frontend/src/pages/DNSProviders.tsx`, `frontend/src/components/dns-providers/ManualDNSChallenge.tsx`.
+3. Modal/dropdown hardening:
+   - Files: `frontend/src/pages/UsersPage.tsx`, `frontend/src/components/ProxyHostForm.tsx`.
+4. Certificates UX contract:
+   - Files: `frontend/src/pages/Certificates.tsx` and certificate list dependencies.
 
-1. `tests/core/admin-onboarding.spec.ts`
-  - remove Cerberus-gated skip path from core onboarding suite.
-  - keep onboarding suite browser-project-safe.
-2. `tests/manual-dns-provider.spec.ts`
-  - unskip critical flow suites first:
-    - `Provider Selection Flow`
-    - `Manual Challenge UI Display`
-    - `Copy to Clipboard`
-    - `Verify Button Interactions`
-    - `Accessibility Checks`
-  - replace inline `test.skip` with deterministic preconditions and hard assertions.
-3. Move Cerberus token assertion out of core onboarding and into security suite under `tests/security/**`.
+Validation:
 
-Pass 1 execution + checkpoint commands:
+- Frontend lint + TS checks.
+- Targeted Playwright runs on affected suites.
 
-```bash
-npx playwright test tests/manual-dns-provider.spec.ts tests/core/admin-onboarding.spec.ts \
-  --project=chromium --project=firefox --project=webkit \
-  --grep "Provider Selection Flow|Manual Challenge UI Display|Copy to Clipboard|Verify Button Interactions|Accessibility Checks|Admin Onboarding & Setup" \
-  --grep-invert "Emergency token can be generated" \
-  --reporter=json > /tmp/pass1-critical-ui.json
+Complexity: High
 
-# Checkpoint A1: zero skip-reason annotations in targeted run
-jq -r '.. | objects | select(has("annotations")) | .annotations[]? | select(.type == "skip-reason") | .description' /tmp/pass1-critical-ui.json
+### Phase 4: Test suite hardening and flake elimination
 
-# Checkpoint A2: zero skipped + did-not-run/not-run statuses in targeted run
-jq -r '.. | objects | select(.status? != null and (.status|test("^(skipped|didNotRun|did-not-run|not-run|notrun)$"; "i"))) | [.status, (.title // ""), (.location.file // "")] | @tsv' /tmp/pass1-critical-ui.json
-```
+Work packets:
 
-#### Pass 2: Component + error suites second
+1. Auth fixture hardening:
+   - File: `tests/fixtures/auth-fixtures.ts`.
+   - Goal: centralize token refresh/readiness checks and remove duplicate race-prone paths.
+2. Manual DNS test alignment:
+   - File: `tests/manual-dns-provider.spec.ts`.
+   - Goal: deterministic challenge setup, strict assertions, no skip masking.
+3. Workflow/data consistency synchronization:
+   - Files: `tests/core/multi-component-workflows.spec.ts`, `tests/core/data-consistency.spec.ts`.
+   - Goal: API-backed sync points, eliminate timing flake.
+4. Triage and strictness:
+   - Files: `tests/modal-dropdown-triage.spec.ts`, `tests/core/certificates.spec.ts`.
+   - Goal: robust locators, remove permissive success conditions.
 
-1. `tests/manual-dns-provider.spec.ts`
-  - unskip and execute:
-    - `Manual DNS Challenge Component Tests`
-    - `Manual DNS Provider Error Handling`
-2. Enforce per-test route mocking + cleanup for DNS mocks (`page.route` + `page.unroute` parity).
+Validation:
 
-Pass 2 execution + checkpoint commands:
+- Execute targeted suites across all browser projects.
+- Repeat run twice; both runs must be green.
 
-```bash
-npx playwright test tests/manual-dns-provider.spec.ts \
-  --project=chromium --project=firefox --project=webkit \
-  --grep "Manual DNS Challenge Component Tests|Manual DNS Provider Error Handling" \
-  --reporter=json > /tmp/pass2-component-error.json
+Complexity: High
 
-# Checkpoint B1: zero skip-reason annotations in targeted run
-jq -r '.. | objects | select(has("annotations")) | .annotations[]? | select(.type == "skip-reason") | .description' /tmp/pass2-component-error.json
+### Phase 5: QA Security ownership, gate validation, and unblock sign-off
 
-# Checkpoint B2: zero skipped + did-not-run/not-run statuses in targeted run
-jq -r '.. | objects | select(.status? != null and (.status|test("^(skipped|didNotRun|did-not-run|not-run|notrun)$"; "i"))) | [.status, (.title // ""), (.location.file // "")] | @tsv' /tmp/pass2-component-error.json
+Owner: QA Security
 
-# Checkpoint B3: DNS mock anti-leakage (route/unroute parity)
-ROUTES=$(grep -c "page\\.route(" tests/manual-dns-provider.spec.ts || true)
-UNROUTES=$(grep -c "page\\.unroute(" tests/manual-dns-provider.spec.ts || true)
-echo "ROUTES=$ROUTES UNROUTES=$UNROUTES"
-test "$ROUTES" -eq "$UNROUTES"
-```
+Work packets:
 
-### Phase 4: Integration and Remediation Sequencing
+1. Validate execution strictly against `QA_UNBLOCK_MATRIX_FROZEN_2026-02-13`.
+2. Verify determinism policy enforcement:
+  - No retry masking (`--retries=0` for gate runs).
+  - No quarantine lists or temporary excludes.
+  - No did-not-run allowance for any frozen matrix row.
+3. Confirm frozen matrix success scope for unblock:
+  - Aggregate result is exactly `0 failed / 0 skipped / 0 did-not-run`.
 
-1. Run anti-duplication guard for Cerberus token assertion:
-  - removed from `tests/core/admin-onboarding.spec.ts`.
-  - present exactly once in security suite (`tests/security/**`) only.
-2. Run explicit security-state pre/post snapshot checks around moved Cerberus token coverage.
-3. Re-run skip census for targeted suites and verify `skipped=0` plus `did-not-run/not-run=0` only for intended file/project pairs.
-4. Ignore `did-not-run/not-run` records produced by intentionally excluded project/file combinations (for example, browser projects ignoring security suites).
-5. Hand off remaining failures (if any) to existing remediation sequence:
-   - Phase 7: failure cluster remediation.
-   - Phase 8: skip debt closure check.
-   - Phase 9: re-baseline freeze.
+Gate:
 
-Validation commands:
+- QA unblock is denied unless the frozen matrix exactly matches expected `pass` for all rows.
 
-```bash
-npx playwright test tests/manual-dns-provider.spec.ts tests/core/admin-onboarding.spec.ts tests/security/security-dashboard.spec.ts tests/security-enforcement/emergency-token.spec.ts --project=chromium --project=firefox --project=webkit --project=security-tests --reporter=json > /tmp/retarget-unskip-validation.json
+Handoff criteria:
 
-# Anti-duplication: Cerberus token assertion removed from core, present once in security suite only
-CORE_COUNT=$(grep -RIn "Emergency token can be generated" tests/core/admin-onboarding.spec.ts | wc -l)
-SEC_COUNT=$(grep -RIn --include='*.spec.ts' "Emergency token can be generated" tests/security tests/security-enforcement | wc -l)
-echo "CORE_COUNT=$CORE_COUNT SEC_COUNT=$SEC_COUNT"
-test "$CORE_COUNT" -eq 0
-test "$SEC_COUNT" -eq 1
+- QA Security publishes signed gate verdict: `QA_UNBLOCK_APPROVED` or `QA_UNBLOCK_REJECTED`, with matrix evidence.
 
-# Security-state snapshot presence checks around moved security test
-jq -r '[.. | objects | select(has("annotations")) | .annotations[]? | select(.type == "security-state-pre")] | length' /tmp/retarget-unskip-validation.json
-jq -r '[.. | objects | select(has("annotations")) | .annotations[]? | select(.type == "security-state-post")] | length' /tmp/retarget-unskip-validation.json
+Complexity: Medium
 
-# Final JSON census (intent-scoped): skipped + did-not-run/not-run + skip-reason annotations
-# - Browser projects (chromium/firefox/webkit): only non-security targeted files
-# - security-tests project: only security targeted files
-jq -r '
-  ..
-  | objects
-  | select(.status? != null and .projectName? != null and .location.file? != null)
-  | select(
-      (
-        (.projectName | test("^(chromium|firefox|webkit)$"))
-        and
-        (.location.file | test("^tests/manual-dns-provider\\.spec\\.ts$|^tests/core/admin-onboarding\\.spec\\.ts$"))
-      )
-      or
-      (
-        (.projectName == "security-tests")
-        and
-        (.location.file | test("^tests/security/|^tests/security-enforcement/"))
-      )
-    )
-  | select(.status | test("^(skipped|didNotRun|did-not-run|not-run|notrun)$"; "i"))
-  | [.projectName, .location.file, (.title // ""), .status]
-  | @tsv
-' /tmp/retarget-unskip-validation.json
-jq -r '.. | objects | select(has("annotations")) | .annotations[]? | select(.type == "skip-reason") | .description' /tmp/retarget-unskip-validation.json
-```
+### Phase 6: DevOps ownership for CI parity and handoff
 
-### Phase 5: Documentation + CI Gate Alignment
+Owner: DevOps
 
-1. Update `docs/reports/e2e_skip_registry_2026-02-13.md` with post-retarget status.
-2. Update `docs/plans/CI_REMEDIATION_MASTER_PLAN.md` Phase 8 progress checkboxes with concrete completion state.
-3. Ensure CI split jobs continue to run security suites in security context and non-security suites in browser shards.
+Work packets:
 
-## Risks and Mitigations
+1. Reconcile outputs with:
+   - `docs/plans/CI_REMEDIATION_MASTER_PLAN.md`
+   - `docs/reports/e2e_skip_registry_2026-02-13.md`
+   - `docs/reports/e2e_fail_skip_ledger_2026-02-13.md`
+2. Confirm no reintroduced skip debt in targeted suites.
+3. Verify CI command parity with local execution.
+4. Ensure CI gate commands validate against the same frozen matrix and determinism policy.
 
-- Risk: manual DNS challenge UI is unavailable in normal flow.
-  - Mitigation: deterministic route/API fixture setup to force visible challenge state for test runtime.
-- Risk: duplicated emergency-token coverage across core and security suites.
-  - Mitigation: single source of truth in security suite; core suite retains only non-Cerberus onboarding checks.
-- Risk: local task misrouting causes false confidence.
-  - Mitigation: update task commands to use `security-tests` for security files.
+Gate:
 
-## Acceptance Criteria
+- No Supervisor handoff until CI parity and frozen-matrix enforcement are confirmed.
 
-- [ ] E2E is green before QA audit starts (hard gate).
-- [ ] Dev agents fix missing features, product bugs, and failing tests first.
-- [ ] Supervisor blocker list is fully resolved before QA execution.
-- [ ] Iterative dev-only loop is used until gate pass is achieved.
-- [ ] No QA execution occurs until pre-QA gate criteria pass.
-- [ ] No `test.skip`/`describe.skip` remains in `tests/manual-dns-provider.spec.ts` and `tests/core/admin-onboarding.spec.ts` for the targeted paths.
-- [ ] Cerberus-dependent emergency token test executes under `security-tests` (not browser projects).
-- [ ] Manual DNS suite executes under browser projects with deterministic preconditions.
-- [ ] Pass 1 (critical UI flow) completes with zero `skip-reason` annotations and zero skipped/did-not-run/not-run statuses.
-- [ ] Pass 2 (component/error suites) completes with zero `skip-reason` annotations and zero skipped/did-not-run/not-run statuses.
-- [ ] Cerberus token assertion is removed from `tests/core/admin-onboarding.spec.ts` and appears exactly once under `tests/security/**`.
-- [ ] Moved Cerberus token test emits/validates explicit `security-state-pre` and `security-state-post` snapshots.
-- [ ] DNS route mocks are per-test scoped and cleaned up deterministically (`page.route`/`page.unroute` parity).
-- [ ] Any remaining failures are assertion/behavior failures only and are tracked in Phase 7 remediation queue.
+Handoff criteria:
 
-## Actionable Phase Summary
+- DevOps provides final execution package with environment-gate record, QA Security verdict, and CI parity evidence.
 
-1. Normalize routing first (security assertions in `security-tests`, browser-safe assertions in browser projects).
-2. Remove skip directives in `manual-dns-provider` and onboarding emergency-token path.
-3. Add deterministic preconditions (existing fixtures/routes/helpers only) so tests run consistently.
-4. Re-run targeted matrix and verify `skipped=0` for targeted files.
-5. Continue with Phase 7 failure remediation for remaining non-skip failures.
+Complexity: Medium
+
+## 5. Config Review and Required Recommendations
+
+### 5.1 `.gitignore`
+
+Recommendation:
+
+- Add/normalize ignores for root-level generated outputs that should never be committed:
+  - `playwright-report/`, `test-results/`, `.playwright-artifacts/` (if used), `coverage/e2e/` artifacts policy-defined.
+  - security scan outputs and temporary SARIF/JSON/TXT reports generated during local runs.
+
+Rationale:
+
+- Reduce PR noise and prevent stale artifact interference with triage.
+
+### 5.2 `codecov.yml`
+
+Recommendation:
+
+- Keep strict patch coverage policy; do not relax thresholds.
+- Ensure generated E2E artifacts and transient files are excluded consistently from coverage paths.
+- Add explicit patch triage process in plan execution notes (copy missing lines from Codecov Patch view to task list).
+
+Rationale:
+
+- Preserve quality gate while preventing false negatives from non-source artifacts.
+
+### 5.3 `.dockerignore`
+
+Recommendation:
+
+- Exclude non-runtime directories from build context where safe:
+  - large docs/report outputs, Playwright artifacts, local test outputs, and temporary scan files.
+- Keep only build/runtime-essential files in Docker context for reproducibility and speed.
+
+Rationale:
+
+- Faster deterministic builds and reduced accidental cache invalidation.
+
+### 5.4 `Dockerfile`
+
+Recommendation:
+
+- Keep image behavior stable; avoid introducing test-only variability.
+- Validate that runtime env defaults required by E2E are explicit and reproducible.
+- Ensure no unnecessary build context dependencies remain after `.dockerignore` tightening.
+
+Rationale:
+
+- E2E reliability depends on predictable runtime behavior, not ad-hoc local state.
+
+## 6. Subagent Execution Matrix
+
+| Subagent | Scope | File Focus | Exit Criteria |
+|---|---|---|---|
+| Playwright | test hardening + deterministic waits | `tests/**`, `tests/fixtures/auth-fixtures.ts` | target suites green x2 |
+| Backend | auth/security/ACL consistency | `backend/internal/api/handlers/**`, service deps | API contracts stable under targeted runs |
+| Frontend | state and interaction reliability | `frontend/src/pages/**`, `frontend/src/components/**` | deterministic UI behavior in target suites |
+| QA Security | frozen-matrix gate enforcement + unblock decision | `docs/plans/current_spec.md`, Playwright run artifacts, matrix evidence | `0 failed / 0 skipped / 0 did-not-run` on frozen matrix and signed QA verdict |
+| DevOps | environment gate + CI parity + release handoff | `.docker/compose/**`, `playwright.config.js`, `.gitignore`, `.dockerignore`, `codecov.yml`, `Dockerfile`, docs reports | environment gate pass + CI parity pass + handoff package delivered |
+
+## 7. Validation Strategy
+
+Execution order:
+
+1. Run Phase 0 environment gate (rebuild decision + health verification).
+2. Execute frozen matrix artifact rows in mapped projects with `--retries=0`.
+3. Run security-targeted set in `security-tests`.
+4. Repeat full frozen matrix a second time (must also pass).
+5. Run lint/typecheck and relevant backend tests.
+
+Determinism gate rule:
+
+- No retry masking, no quarantine, no did-not-run allowance.
+
+QA gate rule:
+
+- No QA handoff until two consecutive frozen-matrix green runs are achieved with exact scope match.
+
+## 8. Acceptance Criteria
+
+- [ ] Frozen matrix (`QA_UNBLOCK_MATRIX_FROZEN_2026-02-13`) completes with `0 failed / 0 skipped / 0 did-not-run`.
+- [ ] All frozen matrix rows execute and pass in exact suite-to-project mapping.
+- [ ] `auth/me` readiness failures are eliminated in user lifecycle flows.
+- [ ] Manual DNS provider tests run deterministically without skip masking.
+- [ ] Security toggle propagation is deterministic for workflow/data consistency suites.
+- [ ] Dropdown/modal triage scenarios are stable with robust selectors/interactions.
+- [ ] Certificate tests use strict assertions (no permissive masking patterns).
+- [ ] Determinism policy is enforced: no retries for gate runs, no quarantine, no did-not-run allowance.
+- [ ] Phase 0 pre-run environment gate evidence is present and valid.
+- [ ] QA Security gate verdict is recorded and approved for unblock.
+- [ ] DevOps CI parity gate verdict is recorded before Supervisor handoff.
+- [ ] `.gitignore`, `.dockerignore`, `codecov.yml`, and `Dockerfile` recommendations are implemented and validated.
+- [ ] Baseline docs/reports are updated to reflect final green state.
+- [ ] Pre-QA green gate passes twice consecutively.
+
+## 9. Risks and Mitigations
+
+- Risk: Hidden coupling between fixtures and UI state causes intermittent regressions.
+  - Mitigation: centralize readiness gates and remove duplicated auth logic.
+- Risk: Security state propagation latency causes false negatives.
+  - Mitigation: bounded poll contracts and backend cache invalidation checks.
+- Risk: Overfitting tests to implementation details.
+  - Mitigation: prefer user-facing role/label locators and API-level readiness only.
+
+## 10. Handoff
+
+Decision summary (for Supervisor review):
+
+- Decision: Replace skip-retarget-only plan with full green-suite execution spec spanning backend, frontend, tests, and config hygiene.
+- Rationale: Current blockers are not only skip/routing issues; they include product behavior and determinism gaps.
+- Impact: Enables parallel subagent execution with explicit ownership and measurable gates.
+- Review target: Supervisor agent validates task sequencing, ownership, and gate criteria before implementation begins.
+
+Next action:
+
+- Submit this plan to Supervisor for approval, then execute phases in order with strict gate enforcement.

@@ -31,14 +31,8 @@ func OptionalAuth(authService *services.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		claims, err := authService.ValidateToken(tokenString)
+		user, _, err := authService.AuthenticateToken(tokenString)
 		if err != nil {
-			c.Next()
-			return
-		}
-
-		user, err := authService.GetUserByID(claims.UserID)
-		if err != nil || !user.Enabled {
 			c.Next()
 			return
 		}

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
@@ -209,4 +210,37 @@ func TestACLEnabledIfIPWhitelisted(t *testing.T) {
 	h.EnableACL(c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestSecurityToggles_RollbackSettingWhenApplyFails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: true}).Error)
+	require.NoError(t, db.Create(&models.Setting{Key: "security.waf.enabled", Value: "false", Category: "security", Type: "bool"}).Error)
+
+	manager := caddy.NewManager(
+		caddy.NewClient("http://127.0.0.1:65535"),
+		db,
+		t.TempDir(),
+		t.TempDir(),
+		false,
+		config.SecurityConfig{},
+	)
+	h := NewSecurityHandler(config.SecurityConfig{}, db, manager)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/api/v1/security/waf", strings.NewReader(`{"enabled":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+	c.Set("role", "admin")
+
+	h.PatchWAF(c)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+
+	var setting models.Setting
+	require.NoError(t, db.Where("key = ?", "security.waf.enabled").First(&setting).Error)
+	assert.Equal(t, "false", setting.Value)
 }

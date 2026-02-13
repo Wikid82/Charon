@@ -130,7 +130,7 @@ func (s *AccessListService) GetByUUID(uuidStr string) (*models.AccessList, error
 // List retrieves all access lists sorted by updated_at desc
 func (s *AccessListService) List() ([]models.AccessList, error) {
 	var acls []models.AccessList
-	if err := s.db.Order("updated_at desc").Find(&acls).Error; err != nil {
+	if err := s.db.Order("updated_at desc, id desc").Find(&acls).Error; err != nil {
 		return nil, err
 	}
 	return acls, nil

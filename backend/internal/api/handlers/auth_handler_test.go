@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
@@ -955,4 +956,74 @@ func TestAuthHandler_CheckHostAccess_Denied(t *testing.T) {
 	var resp map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["can_access"])
+}
+
+func TestAuthHandler_Logout_InvalidatesBearerSession(t *testing.T) {
+	t.Parallel()
+	handler, db := setupAuthHandler(t)
+
+	user := &models.User{
+		UUID:    uuid.NewString(),
+		Email:   "logout-session@example.com",
+		Name:    "Logout Session",
+		Role:    "admin",
+		Enabled: true,
+	}
+	_ = user.SetPassword("password123")
+	require.NoError(t, db.Create(user).Error)
+
+	r := gin.New()
+	r.POST("/auth/login", handler.Login)
+	protected := r.Group("/")
+	protected.Use(middleware.AuthMiddleware(handler.authService))
+	protected.POST("/auth/logout", handler.Logout)
+	protected.GET("/auth/me", handler.Me)
+
+	loginBody, _ := json.Marshal(map[string]string{
+		"email":    "logout-session@example.com",
+		"password": "password123",
+	})
+	loginReq := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewBuffer(loginBody))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginRes := httptest.NewRecorder()
+	r.ServeHTTP(loginRes, loginReq)
+	require.Equal(t, http.StatusOK, loginRes.Code)
+
+	var loginPayload map[string]string
+	require.NoError(t, json.Unmarshal(loginRes.Body.Bytes(), &loginPayload))
+	token := loginPayload["token"]
+	require.NotEmpty(t, token)
+
+	meReq := httptest.NewRequest(http.MethodGet, "/auth/me", http.NoBody)
+	meReq.Header.Set("Authorization", "Bearer "+token)
+	meRes := httptest.NewRecorder()
+	r.ServeHTTP(meRes, meReq)
+	require.Equal(t, http.StatusOK, meRes.Code)
+
+	logoutReq := httptest.NewRequest(http.MethodPost, "/auth/logout", http.NoBody)
+	logoutReq.Header.Set("Authorization", "Bearer "+token)
+	logoutRes := httptest.NewRecorder()
+	r.ServeHTTP(logoutRes, logoutReq)
+	require.Equal(t, http.StatusOK, logoutRes.Code)
+
+	meAfterLogoutReq := httptest.NewRequest(http.MethodGet, "/auth/me", http.NoBody)
+	meAfterLogoutReq.Header.Set("Authorization", "Bearer "+token)
+	meAfterLogoutRes := httptest.NewRecorder()
+	r.ServeHTTP(meAfterLogoutRes, meAfterLogoutReq)
+	require.Equal(t, http.StatusUnauthorized, meAfterLogoutRes.Code)
+}
+
+func TestAuthHandler_Me_RequiresUserContext(t *testing.T) {
+	t.Parallel()
+	handler, _ := setupAuthHandler(t)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/me", handler.Me)
+
+	req := httptest.NewRequest(http.MethodGet, "/me", http.NoBody)
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusUnauthorized, res.Code)
 }
