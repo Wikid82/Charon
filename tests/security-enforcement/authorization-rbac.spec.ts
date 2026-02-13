@@ -51,9 +51,9 @@ test.describe('Cerberus ACL Role-Based Access Control', () => {
   });
 
   test.afterAll(async () => {
-    await adminContext?.close();
-    await userContext?.close();
-    await guestContext?.close();
+    await adminContext?.dispose();
+    await userContext?.dispose();
+    await guestContext?.dispose();
   });
 
   test.describe('Admin Role Access Control', () => {
