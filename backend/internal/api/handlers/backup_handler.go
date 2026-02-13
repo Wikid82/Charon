@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -116,8 +118,22 @@ func (h *BackupHandler) Restore(c *gin.Context) {
 	rehydrated := false
 
 	if h.db != nil {
-		if err := h.service.RehydrateLiveDatabase(h.db); err != nil {
-			middleware.GetRequestLogger(c).WithField("action", "restore_backup_rehydrate").WithError(err).Warn("Backup restored but live database rehydrate failed")
+		var rehydrateErr error
+		for attempt := 0; attempt < 5; attempt++ {
+			rehydrateErr = h.service.RehydrateLiveDatabase(h.db)
+			if rehydrateErr == nil {
+				break
+			}
+
+			if !isSQLiteTransientRehydrateError(rehydrateErr) || attempt == 4 {
+				break
+			}
+
+			time.Sleep(time.Duration(attempt+1) * 150 * time.Millisecond)
+		}
+
+		if rehydrateErr != nil {
+			middleware.GetRequestLogger(c).WithField("action", "restore_backup_rehydrate").WithError(rehydrateErr).Warn("Backup restored but live database rehydrate failed")
 		} else {
 			restartRequired = false
 			rehydrated = true
@@ -129,4 +145,17 @@ func (h *BackupHandler) Restore(c *gin.Context) {
 		"restart_required":       restartRequired,
 		"live_rehydrate_applied": rehydrated,
 	})
+}
+
+func isSQLiteTransientRehydrateError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "database is locked") ||
+		strings.Contains(message, "database is busy") ||
+		strings.Contains(message, "database table is locked") ||
+		strings.Contains(message, "table is locked") ||
+		strings.Contains(message, "resource busy")
 }
