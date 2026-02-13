@@ -177,18 +177,18 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 			h.Cerberus.InvalidateCache()
 		}
 
-		// Trigger async Caddy config reload (doesn't block HTTP response)
+		// Trigger sync Caddy config reload so callers can rely on deterministic applied state
 		if h.CaddyManager != nil {
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+			defer cancel()
 
-				if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
-					logger.Log().WithError(err).Warn("Failed to reload Caddy config after security setting change")
-				} else {
-					logger.Log().WithField("setting_key", req.Key).Info("Caddy config reloaded after security setting change")
-				}
-			}()
+			if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
+				logger.Log().WithError(err).Warn("Failed to reload Caddy config after security setting change")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload configuration"})
+				return
+			}
+
+			logger.Log().WithField("setting_key", req.Key).Info("Caddy config reloaded after security setting change")
 		}
 	}
 
@@ -283,18 +283,18 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 			h.Cerberus.InvalidateCache()
 		}
 
-		// Trigger async Caddy config reload
+		// Trigger sync Caddy config reload so callers can rely on deterministic applied state
 		if h.CaddyManager != nil {
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+			defer cancel()
 
-				if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
-					logger.Log().WithError(err).Warn("Failed to reload Caddy config after security settings change")
-				} else {
-					logger.Log().Info("Caddy config reloaded after security settings change")
-				}
-			}()
+			if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
+				logger.Log().WithError(err).Warn("Failed to reload Caddy config after security settings change")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload configuration"})
+				return
+			}
+
+			logger.Log().Info("Caddy config reloaded after security settings change")
 		}
 	}
 
