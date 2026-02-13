@@ -49,13 +49,15 @@ func AuthMiddleware(authService *services.AuthService) gin.HandlerFunc {
 }
 
 func extractAuthToken(c *gin.Context) (string, bool) {
-	authHeader := c.GetHeader("Authorization")
+	authHeader := ""
+
+	// Try cookie first for browser flows (including WebSocket upgrades)
+	if cookieToken := extractAuthCookieToken(c); cookieToken != "" {
+		authHeader = "Bearer " + cookieToken
+	}
 
 	if authHeader == "" {
-		// Try cookie first for browser flows (including WebSocket upgrades)
-		if cookie, err := c.Cookie("auth_token"); err == nil && cookie != "" {
-			authHeader = "Bearer " + cookie
-		}
+		authHeader = c.GetHeader("Authorization")
 	}
 
 	// DEPRECATED: Query parameter authentication for WebSocket connections
@@ -78,6 +80,27 @@ func extractAuthToken(c *gin.Context) (string, bool) {
 	}
 
 	return tokenString, true
+}
+
+func extractAuthCookieToken(c *gin.Context) string {
+	if c.Request == nil {
+		return ""
+	}
+
+	token := ""
+	for _, cookie := range c.Request.Cookies() {
+		if cookie.Name != "auth_token" {
+			continue
+		}
+
+		if cookie.Value == "" {
+			continue
+		}
+
+		token = cookie.Value
+	}
+
+	return token
 }
 
 func RequireRole(role string) gin.HandlerFunc {

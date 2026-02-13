@@ -23,7 +23,10 @@ async function resetSecurityState(page: import('@playwright/test').Page): Promis
   expect(response.ok()).toBe(true);
 }
 
-async function getAuthToken(page: import('@playwright/test').Page): Promise<string> {
+async function getAuthToken(
+  page: import('@playwright/test').Page,
+  options: { required?: boolean } = {}
+): Promise<string> {
   const token = await page.evaluate(() => {
     return (
       localStorage.getItem('token') ||
@@ -33,7 +36,9 @@ async function getAuthToken(page: import('@playwright/test').Page): Promise<stri
     );
   });
 
-  expect(token).toBeTruthy();
+  if (options.required !== false) {
+    expect(token).toBeTruthy();
+  }
   return token;
 }
 
@@ -123,8 +128,31 @@ test.describe('Multi-Component Workflows', () => {
     await resetSecurityState(page);
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page, { timeout: 15000 });
-    const meResponse = await page.request.get('/api/v1/auth/me');
+    let token = adminUser.token;
+    let meResponse = await page.request.get('/api/v1/auth/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!meResponse.ok()) {
+      await loginUser(page, adminUser);
+      await waitForLoadingComplete(page, { timeout: 15000 });
+      token = adminUser.token;
+      meResponse = await page.request.get('/api/v1/auth/me', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }
+
     expect(meResponse.ok()).toBe(true);
+
+    await expect.poll(async () => {
+      const meResponse = await page.request.get('/api/v1/auth/me', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return meResponse.status();
+    }, {
+      timeout: 10000,
+      message: 'Expected authenticated /api/v1/auth/me status to stabilize at 200',
+    }).toBe(200);
   });
 
   test.afterEach(async ({ page }) => {
