@@ -209,6 +209,15 @@ func (h *AuthHandler) Register(c *gin.Context) {
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
+	if userIDValue, exists := c.Get("userID"); exists {
+		if userID, ok := userIDValue.(uint); ok && userID > 0 {
+			if err := h.authService.InvalidateSessions(userID); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to invalidate session"})
+				return
+			}
+		}
+	}
+
 	clearSecureCookie(c, "auth_token")
 	c.JSON(http.StatusOK, gin.H{"message": "Logged out"})
 }
@@ -242,10 +251,21 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 }
 
 func (h *AuthHandler) Me(c *gin.Context) {
-	userID, _ := c.Get("userID")
+	userIDValue, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	userID, ok := userIDValue.(uint)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
 	role, _ := c.Get("role")
 
-	u, err := h.authService.GetUserByID(userID.(uint))
+	u, err := h.authService.GetUserByID(userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
@@ -325,16 +345,8 @@ func (h *AuthHandler) Verify(c *gin.Context) {
 	}
 
 	// Validate token
-	claims, err := h.authService.ValidateToken(tokenString)
+	user, _, err := h.authService.AuthenticateToken(tokenString)
 	if err != nil {
-		c.Header("X-Auth-Redirect", "/login")
-		c.AbortWithStatus(http.StatusUnauthorized)
-		return
-	}
-
-	// Get user details
-	user, err := h.authService.GetUserByID(claims.UserID)
-	if err != nil || !user.Enabled {
 		c.Header("X-Auth-Redirect", "/login")
 		c.AbortWithStatus(http.StatusUnauthorized)
 		return
@@ -400,16 +412,8 @@ func (h *AuthHandler) VerifyStatus(c *gin.Context) {
 		return
 	}
 
-	claims, err := h.authService.ValidateToken(tokenString)
+	user, _, err := h.authService.AuthenticateToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"authenticated": false,
-		})
-		return
-	}
-
-	user, err := h.authService.GetUserByID(claims.UserID)
-	if err != nil || !user.Enabled {
 		c.JSON(http.StatusOK, gin.H{
 			"authenticated": false,
 		})

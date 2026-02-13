@@ -377,3 +377,29 @@ func TestAuthMiddleware_RejectsDeletedUserToken(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
+
+func TestAuthMiddleware_RejectsTokenAfterSessionInvalidation(t *testing.T) {
+	authService := setupAuthService(t)
+	user, err := authService.Register("session-invalidated@example.com", "password", "Session Invalidated")
+	require.NoError(t, err)
+
+	token, err := authService.GenerateToken(user)
+	require.NoError(t, err)
+
+	require.NoError(t, authService.InvalidateSessions(user.ID))
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(AuthMiddleware(authService))
+	r.GET("/test", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req, err := http.NewRequest("GET", "/test", http.NoBody)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}

@@ -31,6 +31,7 @@ type User struct {
 	FailedLoginAttempts int        `json:"-" gorm:"default:0"`
 	LockedUntil         *time.Time `json:"-"`
 	LastLogin           *time.Time `json:"last_login,omitempty"`
+	SessionVersion      uint       `json:"-" gorm:"default:0"`
 
 	// Invite system fields
 	InviteToken   string     `json:"-" gorm:"index"`          // Token sent via email for account setup

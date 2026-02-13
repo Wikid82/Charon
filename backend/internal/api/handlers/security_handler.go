@@ -1036,6 +1036,30 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		return
 	}
 
+	settingCategory := "security"
+	if strings.HasPrefix(settingKey, "feature.") {
+		settingCategory = "feature"
+	}
+
+	snapshotKeys := []string{settingKey}
+	if enabled && settingKey != "feature.cerberus.enabled" {
+		snapshotKeys = append(snapshotKeys, "feature.cerberus.enabled", "security.cerberus.enabled")
+	}
+
+	settingSnapshots, err := h.snapshotSettings(snapshotKeys)
+	if err != nil {
+		log.WithError(err).Error("Failed to snapshot security settings before toggle")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
+		return
+	}
+
+	securityConfigExistsBefore, securityConfigEnabledBefore, err := h.snapshotDefaultSecurityConfigState()
+	if err != nil {
+		log.WithError(err).Error("Failed to snapshot security config before toggle")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
+		return
+	}
+
 	if settingKey == "security.acl.enabled" && enabled {
 		if !h.allowACLEnable(c) {
 			return
@@ -1113,7 +1137,7 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 	setting := models.Setting{
 		Key:      settingKey,
 		Value:    value,
-		Category: "security",
+		Category: settingCategory,
 		Type:     "bool",
 	}
 
@@ -1154,6 +1178,15 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 	if h.caddyManager != nil {
 		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
 			log.WithError(err).Warn("Failed to reload Caddy config after security module toggle")
+			if restoreErr := h.restoreSettings(settingSnapshots); restoreErr != nil {
+				log.WithError(restoreErr).Error("Failed to restore settings after security module toggle apply failure")
+			}
+			if restoreErr := h.restoreDefaultSecurityConfigState(securityConfigExistsBefore, securityConfigEnabledBefore); restoreErr != nil {
+				log.WithError(restoreErr).Error("Failed to restore security config after security module toggle apply failure")
+			}
+			if h.cerberus != nil {
+				h.cerberus.InvalidateCache()
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload configuration"})
 			return
 		}
@@ -1168,7 +1201,75 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		"success": true,
 		"module":  settingKey,
 		"enabled": enabled,
+		"applied": true,
 	})
+}
+
+type settingSnapshot struct {
+	exists   bool
+	setting  models.Setting
+}
+
+func (h *SecurityHandler) snapshotSettings(keys []string) (map[string]settingSnapshot, error) {
+	snapshots := make(map[string]settingSnapshot, len(keys))
+	for _, key := range keys {
+		if _, exists := snapshots[key]; exists {
+			continue
+		}
+
+		var existing models.Setting
+		err := h.db.Where("key = ?", key).First(&existing).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			snapshots[key] = settingSnapshot{exists: false}
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		snapshots[key] = settingSnapshot{exists: true, setting: existing}
+	}
+
+	return snapshots, nil
+}
+
+func (h *SecurityHandler) restoreSettings(snapshots map[string]settingSnapshot) error {
+	for key, snapshot := range snapshots {
+		if snapshot.exists {
+			restore := snapshot.setting
+			if err := h.db.Where(models.Setting{Key: key}).Assign(restore).FirstOrCreate(&restore).Error; err != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := h.db.Where("key = ?", key).Delete(&models.Setting{}).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (h *SecurityHandler) snapshotDefaultSecurityConfigState() (bool, bool, error) {
+	var cfg models.SecurityConfig
+	err := h.db.Where("name = ?", "default").First(&cfg).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+
+	return true, cfg.Enabled, nil
+}
+
+func (h *SecurityHandler) restoreDefaultSecurityConfigState(exists bool, enabled bool) error {
+	if exists {
+		return h.db.Model(&models.SecurityConfig{}).Where("name = ?", "default").Update("enabled", enabled).Error
+	}
+
+	return h.db.Where("name = ?", "default").Delete(&models.SecurityConfig{}).Error
 }
 
 func (h *SecurityHandler) ensureSecurityConfigEnabled() error {
