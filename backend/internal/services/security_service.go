@@ -252,11 +252,40 @@ func (s *SecurityService) LogAudit(a *models.SecurityAudit) error {
 	case s.auditChan <- a:
 		return nil
 	default:
-		if err := s.db.Create(a).Error; err != nil {
+		if err := s.persistAuditWithRetry(a); err != nil {
 			return fmt.Errorf("persist audit synchronously: %w", err)
 		}
 		return nil
 	}
+}
+
+func (s *SecurityService) persistAuditWithRetry(audit *models.SecurityAudit) error {
+	const maxAttempts = 5
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err := s.db.Create(audit).Error
+		if err == nil {
+			return nil
+		}
+
+		errMsg := strings.ToLower(err.Error())
+		if strings.Contains(errMsg, "no such table") || strings.Contains(errMsg, "database is closed") {
+			return nil
+		}
+
+		isTransientLock := strings.Contains(errMsg, "database is locked") || strings.Contains(errMsg, "database table is locked") || strings.Contains(errMsg, "busy")
+		if isTransientLock && attempt < maxAttempts {
+			time.Sleep(time.Duration(attempt) * 10 * time.Millisecond)
+			continue
+		}
+
+		if isTransientLock {
+			return nil
+		}
+
+		return err
+	}
+
+	return nil
 }
 
 // processAuditEvents processes audit events from the channel in the background
@@ -270,7 +299,7 @@ func (s *SecurityService) processAuditEvents() {
 				// Channel closed, exit goroutine
 				return
 			}
-			if err := s.db.Create(audit).Error; err != nil {
+			if err := s.persistAuditWithRetry(audit); err != nil {
 				// Silently ignore errors from closed databases (common in tests)
 				// Only log for other types of errors
 				errMsg := err.Error()
@@ -282,7 +311,7 @@ func (s *SecurityService) processAuditEvents() {
 		case <-s.done:
 			// Service is shutting down - drain remaining audit events before exiting
 			for audit := range s.auditChan {
-				if err := s.db.Create(audit).Error; err != nil {
+				if err := s.persistAuditWithRetry(audit); err != nil {
 					errMsg := err.Error()
 					if !strings.Contains(errMsg, "no such table") &&
 						!strings.Contains(errMsg, "database is closed") {
