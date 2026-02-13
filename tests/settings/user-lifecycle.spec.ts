@@ -157,8 +157,15 @@ async function navigateToLogin(page: import('@playwright/test').Page): Promise<v
   const logoutButton = page.getByRole('button', { name: /logout/i }).first();
   if (await logoutButton.isVisible().catch(() => false)) {
     await logoutButton.click();
+    await page.waitForURL(/\/login/, { timeout: 15000 }).catch(() => undefined);
   } else {
-    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+    try {
+      await page.goto('/login', { waitUntil: 'domcontentloaded' });
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('interrupted by another navigation')) {
+        throw error;
+      }
+    }
   }
 
   const emailInput = page.locator('input[type="email"]').or(page.getByLabel(/email/i)).first();
@@ -172,6 +179,11 @@ async function loginWithCredentials(
 ): Promise<void> {
   const emailInput = page.locator('input[type="email"]').or(page.getByLabel(/email/i)).first();
   const passwordInput = page.locator('input[type="password"]').or(page.getByLabel(/password/i)).first();
+
+  const hasEmailInput = await emailInput.isVisible().catch(() => false);
+  if (!hasEmailInput) {
+    await navigateToLogin(page);
+  }
 
   await expect(emailInput).toBeVisible({ timeout: 15000 });
   await expect(passwordInput).toBeVisible({ timeout: 15000 });
@@ -344,6 +356,7 @@ test.describe('Admin-User E2E Workflow', () => {
       }
 
       // Login as admin
+      await navigateToLogin(page);
       await loginWithCredentials(page, adminEmail, TEST_PASSWORD);
 
       const token = await getAuthToken(page);
