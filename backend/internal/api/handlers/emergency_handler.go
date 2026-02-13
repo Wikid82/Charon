@@ -280,7 +280,9 @@ func (h *EmergencyHandler) disableAllSecurityModules() ([]string, error) {
 }
 
 func (h *EmergencyHandler) upsertSettingWithRetry(setting *models.Setting) error {
-	const maxAttempts = 5
+	const maxAttempts = 20
+
+	_ = h.db.Exec("PRAGMA busy_timeout = 5000").Error
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		err := h.db.Where(models.Setting{Key: setting.Key}).Assign(*setting).FirstOrCreate(setting).Error
@@ -288,10 +290,13 @@ func (h *EmergencyHandler) upsertSettingWithRetry(setting *models.Setting) error
 			return nil
 		}
 
-		errMsg := strings.ToLower(err.Error())
-		isTransientLock := strings.Contains(errMsg, "database is locked") || strings.Contains(errMsg, "database table is locked") || strings.Contains(errMsg, "busy")
+		isTransientLock := isTransientSQLiteError(err)
 		if isTransientLock && attempt < maxAttempts {
-			time.Sleep(time.Duration(attempt) * 10 * time.Millisecond)
+			wait := time.Duration(attempt) * 50 * time.Millisecond
+			if wait > time.Second {
+				wait = time.Second
+			}
+			time.Sleep(wait)
 			continue
 		}
 
@@ -299,6 +304,19 @@ func (h *EmergencyHandler) upsertSettingWithRetry(setting *models.Setting) error
 	}
 
 	return nil
+}
+
+func isTransientSQLiteError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "database is locked") ||
+		strings.Contains(errMsg, "database table is locked") ||
+		strings.Contains(errMsg, "database is busy") ||
+		strings.Contains(errMsg, "busy") ||
+		strings.Contains(errMsg, "locked")
 }
 
 // logAudit logs an emergency action to the security audit trail
