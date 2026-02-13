@@ -198,7 +198,41 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 			"mode":    aclMode,
 			"enabled": aclEnabled,
 		},
+		"config_apply": latestConfigApplyState(h.db),
 	})
+}
+
+func latestConfigApplyState(db *gorm.DB) gin.H {
+	state := gin.H{
+		"available": false,
+		"status":    "unknown",
+	}
+
+	if db == nil {
+		return state
+	}
+
+	var latest models.CaddyConfig
+	err := db.Order("applied_at desc").First(&latest).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return state
+		}
+		return state
+	}
+
+	status := "failed"
+	if latest.Success {
+		status = "applied"
+	}
+
+	state["available"] = true
+	state["status"] = status
+	state["success"] = latest.Success
+	state["applied_at"] = latest.AppliedAt
+	state["error_msg"] = latest.ErrorMsg
+
+	return state
 }
 
 // GetConfig returns the site security configuration from DB or default
