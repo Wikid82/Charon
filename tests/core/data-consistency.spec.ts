@@ -1,5 +1,5 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete } from '../utils/wait-helpers';
+import { waitForDialog, waitForLoadingComplete } from '../utils/wait-helpers';
 
 async function getAuthToken(page: import('@playwright/test').Page): Promise<string> {
   return await page.evaluate(() => {
@@ -18,7 +18,7 @@ async function openInviteUserForm(page: import('@playwright/test').Page): Promis
   const inviteButton = page.getByRole('button', { name: /invite.*user|add user|create user/i }).first();
   await expect(inviteButton).toBeVisible({ timeout: 15000 });
   await inviteButton.click();
-  await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15000 });
+  await waitForDialog(page, { timeout: 15000 });
 }
 
 async function fillInviteForm(
@@ -44,9 +44,25 @@ async function fillInviteForm(
   const sendButton = page.getByRole('dialog')
     .getByRole('button', { name: /send.*invite|create|submit/i })
     .first();
+
+  const createResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/v1/users') && response.request().method() === 'POST',
+    { timeout: 15000 }
+  ).catch(() => null);
+
   await expect(sendButton).toBeVisible({ timeout: 15000 });
   await sendButton.click();
+  await createResponse;
   await waitForLoadingComplete(page, { timeout: 15000 });
+
+  const inviteDialog = page.getByRole('dialog').first();
+  const doneButton = inviteDialog.getByRole('button', { name: /done|close|cancel/i }).first();
+  if (await doneButton.isVisible().catch(() => false)) {
+    await doneButton.click();
+  }
+  await inviteDialog.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {
+    // Some implementations auto-close on submit.
+  });
 }
 
 async function openCreateProxyHostForm(page: import('@playwright/test').Page): Promise<void> {
@@ -55,6 +71,7 @@ async function openCreateProxyHostForm(page: import('@playwright/test').Page): P
   const addButton = page.getByRole('button', { name: /add.*proxy.*host/i }).first();
   await expect(addButton).toBeVisible({ timeout: 15000 });
   await addButton.click();
+  await waitForDialog(page, { timeout: 15000 });
 }
 
 /**
@@ -136,7 +153,7 @@ test.describe('Data Consistency', () => {
       const token = await getAuthToken(page);
 
       const response = await page.request.get(
-        'http://127.0.0.1:8080/api/users',
+        '/api/v1/users',
         {
           headers: { 'Authorization': `Bearer ${token || ''}` },
           ignoreHTTPSErrors: true,
@@ -173,7 +190,7 @@ test.describe('Data Consistency', () => {
       const token = await getAuthToken(page);
 
       const usersResponse = await page.request.get(
-        'http://127.0.0.1:8080/api/users',
+        '/api/v1/users',
         {
           headers: { 'Authorization': `Bearer ${token || ''}` },
           ignoreHTTPSErrors: true,
@@ -187,7 +204,7 @@ test.describe('Data Consistency', () => {
 
       if (user) {
         const updateResponse = await page.request.patch(
-          `http://127.0.0.1:8080/api/users/${user.id}`,
+          `/api/v1/users/${user.id}`,
           {
             data: { name: updatedName },
             headers: { 'Authorization': `Bearer ${token || ''}` },
@@ -240,7 +257,7 @@ test.describe('Data Consistency', () => {
       const token = await getAuthToken(page);
 
       const response = await page.request.get(
-        'http://127.0.0.1:8080/api/users',
+        '/api/v1/users',
         {
           headers: { 'Authorization': `Bearer ${token || ''}` },
           ignoreHTTPSErrors: true,
@@ -269,7 +286,7 @@ test.describe('Data Consistency', () => {
       const token = await getAuthToken(page);
 
       const usersResponse = await page.request.get(
-        'http://127.0.0.1:8080/api/users',
+        '/api/v1/users',
         {
           headers: { 'Authorization': `Bearer ${token || ''}` },
           ignoreHTTPSErrors: true,
@@ -284,7 +301,7 @@ test.describe('Data Consistency', () => {
       if (user) {
         // Send two concurrent updates
         const update1 = page.request.patch(
-          `http://127.0.0.1:8080/api/users/${user.id}`,
+          `/api/v1/users/${user.id}`,
           {
             data: { name: 'Update One' },
             headers: { 'Authorization': `Bearer ${token || ''}` },
@@ -293,7 +310,7 @@ test.describe('Data Consistency', () => {
         );
 
         const update2 = page.request.patch(
-          `http://127.0.0.1:8080/api/users/${user.id}`,
+          `/api/v1/users/${user.id}`,
           {
             data: { name: 'Update Two' },
             headers: { 'Authorization': `Bearer ${token || ''}` },
@@ -327,8 +344,8 @@ test.describe('Data Consistency', () => {
     await test.step('Create proxy', async () => {
       await openCreateProxyHostForm(page);
 
-      await page.getByRole('textbox', { name: /domain names/i }).first().fill(testProxy.domain);
-      await page.getByRole('textbox', { name: /target|forward/i }).first().fill(testProxy.target);
+      await page.getByRole('textbox', { name: /domain names|domain/i }).first().fill(testProxy.domain);
+      await page.getByLabel(/forward host|target|forward/i).first().fill(testProxy.target);
       await page.getByRole('textbox', { name: /description/i }).first().fill(testProxy.description);
 
       const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
@@ -341,7 +358,7 @@ test.describe('Data Consistency', () => {
 
       // Try to modify with invalid data that should fail validation
       const response = await page.request.patch(
-        `http://127.0.0.1:8080/api/proxy-hosts`,
+        `/api/v1/proxy-hosts`,
         {
           data: { domain: '' }, // Empty domain should fail
           headers: { 'Authorization': `Bearer ${token || ''}` },
@@ -400,7 +417,9 @@ test.describe('Data Consistency', () => {
       }
 
       // Try submitting anyway
-      const submitButton = page.getByRole('button', { name: /send.*invite|create|submit/i }).first();
+      const submitButton = page.getByRole('dialog')
+        .getByRole('button', { name: /send.*invite|create|submit/i })
+        .first();
       if (!(await submitButton.isDisabled())) {
         await submitButton.click();
         await waitForLoadingComplete(page, { timeout: 15000 });
@@ -433,7 +452,7 @@ test.describe('Data Consistency', () => {
       await waitForLoadingComplete(page, { timeout: 15000 });
 
       // Get first page
-      const page1Items = await page.locator('[role="row"], [class*="user-item"]').count();
+      const page1Items = await page.locator('table tbody tr').count();
       expect(page1Items).toBeGreaterThan(0);
 
       // Navigate to page 2 if pagination exists
@@ -442,7 +461,7 @@ test.describe('Data Consistency', () => {
         await nextButton.click();
         await waitForLoadingComplete(page, { timeout: 15000 });
 
-        const page2Items = await page.locator('[role="row"], [class*="user-item"]').count();
+        const page2Items = await page.locator('table tbody tr').count();
         expect(page2Items).toBeGreaterThanOrEqual(0);
 
         // Go back to page 1
@@ -451,7 +470,7 @@ test.describe('Data Consistency', () => {
           await prevButton.click();
           await waitForLoadingComplete(page, { timeout: 15000 });
 
-          const backPage1Items = await page.locator('[role="row"], [class*="user-item"]').count();
+          const backPage1Items = await page.locator('table tbody tr').count();
           expect(backPage1Items).toBe(page1Items);
         }
       }

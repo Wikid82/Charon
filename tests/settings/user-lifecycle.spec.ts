@@ -1,4 +1,90 @@
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import { waitForDialog, waitForLoadingComplete } from '../utils/wait-helpers';
+
+async function openInviteUserDialog(page: import('@playwright/test').Page): Promise<void> {
+  await page.goto('/users', { waitUntil: 'networkidle' });
+  await waitForLoadingComplete(page, { timeout: 15000 });
+
+  const inviteButton = page.getByRole('button', { name: /invite.*user|add user|create user/i }).first();
+  await expect(inviteButton).toBeVisible({ timeout: 15000 });
+  await inviteButton.click();
+  await waitForDialog(page, { timeout: 15000 });
+}
+
+async function createUserFromInviteDialog(
+  page: import('@playwright/test').Page,
+  user: { email: string; name: string; password: string }
+): Promise<void> {
+  const dialog = page.getByRole('dialog').first();
+
+  const emailInput = dialog.getByPlaceholder(/user@example/i).or(dialog.getByLabel(/email/i)).first();
+  await expect(emailInput).toBeVisible({ timeout: 15000 });
+  await emailInput.fill(user.email);
+
+  const nameInput = dialog.getByPlaceholder(/name/i).or(dialog.getByLabel(/name/i)).first();
+  if (await nameInput.isVisible().catch(() => false)) {
+    await nameInput.fill(user.name);
+  }
+
+  const passwordInput = dialog.getByLabel(/password/i).first();
+  if (await passwordInput.isVisible().catch(() => false)) {
+    await passwordInput.fill(user.password);
+  }
+
+  const createResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/v1/users') && response.request().method() === 'POST',
+    { timeout: 15000 }
+  ).catch(() => null);
+
+  const submitButton = dialog.getByRole('button', { name: /send.*invite|create.*user|create|submit/i }).first();
+  await expect(submitButton).toBeVisible({ timeout: 15000 });
+  await submitButton.click();
+  await createResponse;
+  await waitForLoadingComplete(page, { timeout: 15000 });
+
+  const doneButton = dialog.getByRole('button', { name: /done|close|cancel/i }).first();
+  if (await doneButton.isVisible().catch(() => false)) {
+    await doneButton.click();
+  }
+  await dialog.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {
+    // Some implementations auto-close the dialog.
+  });
+}
+
+async function navigateToLogin(page: import('@playwright/test').Page): Promise<void> {
+  const logoutButton = page.getByRole('button', { name: /logout/i }).first();
+  if (await logoutButton.isVisible().catch(() => false)) {
+    await logoutButton.click();
+  } else {
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+  }
+
+  const emailInput = page.locator('input[type="email"]').or(page.getByLabel(/email/i)).first();
+  await expect(emailInput).toBeVisible({ timeout: 15000 });
+}
+
+async function loginWithCredentials(
+  page: import('@playwright/test').Page,
+  email: string,
+  password: string
+): Promise<void> {
+  const emailInput = page.locator('input[type="email"]').or(page.getByLabel(/email/i)).first();
+  const passwordInput = page.locator('input[type="password"]').or(page.getByLabel(/password/i)).first();
+
+  await expect(emailInput).toBeVisible({ timeout: 15000 });
+  await expect(passwordInput).toBeVisible({ timeout: 15000 });
+  await emailInput.fill(email);
+  await passwordInput.fill(password);
+
+  const loginResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/v1/auth/login') && response.request().method() === 'POST',
+    { timeout: 15000 }
+  ).catch(() => null);
+
+  await page.getByRole('button', { name: /login|sign in/i }).first().click();
+  await loginResponse;
+  await waitForLoadingComplete(page, { timeout: 15000 });
+}
 
 /**
  * Integration: Admin → User E2E Workflow
@@ -30,18 +116,8 @@ test.describe('Admin-User E2E Workflow', () => {
     await test.step('STEP 1: Admin creates new user', async () => {
       const start = Date.now();
 
-      await page.goto('/users', { waitUntil: 'networkidle' });
-
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/name/i).fill(testUser.name);
-      await page.getByLabel(/password/i).first().fill(testUser.password);
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await openInviteUserDialog(page);
+      await createUserFromInviteDialog(page, testUser);
 
       const duration = Date.now() - start;
       console.log(`✓ User created in ${duration}ms`);
@@ -77,13 +153,7 @@ test.describe('Admin-User E2E Workflow', () => {
     await test.step('STEP 4: New user logs in', async () => {
       const start = Date.now();
 
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/password/i).fill(testUser.password);
-
-      const loginButton = page.getByRole('button', { name: /login/i });
-      await loginButton.click();
-
-      await page.waitForLoadState('networkidle');
+      await loginWithCredentials(page, testUser.email, testUser.password);
       const duration = Date.now() - start;
 
       console.log(`✓ User logged in in ${duration}ms`);
@@ -119,10 +189,7 @@ test.describe('Admin-User E2E Workflow', () => {
       }
 
       // Login as admin
-      await page.getByLabel(/email/i).fill(adminEmail);
-      await page.getByLabel(/password/i).fill(TEST_PASSWORD);
-      await page.getByRole('button', { name: /login/i }).click();
-      await page.waitForLoadState('networkidle');
+      await loginWithCredentials(page, adminEmail, TEST_PASSWORD);
 
       // Check audit logs
       await page.goto('/audit', { waitUntil: 'networkidle' }).catch(() => {
@@ -138,18 +205,8 @@ test.describe('Admin-User E2E Workflow', () => {
   // Admin modifies role → user gains new permissions immediately
   test('Role change takes effect immediately on user refresh', async ({ page }) => {
     await test.step('Create test user with default role', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
-
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/name/i).fill(testUser.name);
-      await page.getByLabel(/password/i).first().fill(testUser.password);
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await openInviteUserDialog(page);
+      await createUserFromInviteDialog(page, testUser);
     });
 
     await test.step('User logs in and notes current permissions', async () => {
@@ -157,10 +214,7 @@ test.describe('Admin-User E2E Workflow', () => {
       await logoutButton.click();
       await page.waitForURL(/login/);
 
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/password/i).fill(testUser.password);
-      await page.getByRole('button', { name: /login/i }).click();
-      await page.waitForLoadState('networkidle');
+      await loginWithCredentials(page, testUser.email, testUser.password);
     });
 
     await test.step('Admin upgrades user role (in parallel)', async () => {
@@ -189,18 +243,8 @@ test.describe('Admin-User E2E Workflow', () => {
     };
 
     await test.step('Create user to delete', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
-
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/email/i).fill(deletableUser.email);
-      await page.getByLabel(/name/i).fill(deletableUser.name);
-      await page.getByLabel(/password/i).first().fill(deletableUser.password);
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await openInviteUserDialog(page);
+      await createUserFromInviteDialog(page, deletableUser);
     });
 
     await test.step('Admin deletes user', async () => {
@@ -222,11 +266,7 @@ test.describe('Admin-User E2E Workflow', () => {
         await page.waitForURL(/login/);
       }
 
-      await page.getByLabel(/email/i).fill(deletableUser.email);
-      await page.getByLabel(/password/i).fill(deletableUser.password);
-      await page.getByRole('button', { name: /login/i }).click();
-
-      await page.waitForLoadState('networkidle');
+      await loginWithCredentials(page, deletableUser.email, deletableUser.password);
     });
 
     await test.step('Verify login failed with appropriate error', async () => {
@@ -247,18 +287,8 @@ test.describe('Admin-User E2E Workflow', () => {
   test('Audit log records user lifecycle events', async ({ page }) => {
     await test.step('Perform workflow actions', async () => {
       // Create user
-      await page.goto('/users', { waitUntil: 'networkidle' });
-
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/name/i).fill(testUser.name);
-      await page.getByLabel(/password/i).first().fill(testUser.password);
-
-      const submit = page.getByRole('button', { name: /create|submit/i }).first();
-      await submit.click();
-      await page.waitForLoadState('networkidle');
+      await openInviteUserDialog(page);
+      await createUserFromInviteDialog(page, testUser);
     });
 
     await test.step('Check audit trail for user creation event', async () => {
@@ -288,18 +318,8 @@ test.describe('Admin-User E2E Workflow', () => {
   // User cannot escalate own role
   test('User cannot promote self to admin', async ({ page }) => {
     await test.step('Create test user', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
-
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/name/i).fill(testUser.name);
-      await page.getByLabel(/password/i).first().fill(testUser.password);
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await openInviteUserDialog(page);
+      await createUserFromInviteDialog(page, testUser);
     });
 
     await test.step('User attempts to modify own role', async () => {
@@ -309,10 +329,7 @@ test.describe('Admin-User E2E Workflow', () => {
       await page.waitForURL(/login/);
 
       // Login as user
-      await page.getByLabel(/email/i).fill(testUser.email);
-      await page.getByLabel(/password/i).fill(testUser.password);
-      await page.getByRole('button', { name: /login/i }).click();
-      await page.waitForLoadState('networkidle');
+      await loginWithCredentials(page, testUser.email, testUser.password);
 
       // Try to access user management
       await page.goto('/users', { waitUntil: 'networkidle' }).catch(() => {
@@ -349,31 +366,13 @@ test.describe('Admin-User E2E Workflow', () => {
     };
 
     await test.step('Create first user', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
-
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/email/i).fill(user1.email);
-      await page.getByLabel(/name/i).fill(user1.name);
-      await page.getByLabel(/password/i).first().fill(user1.password);
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await openInviteUserDialog(page);
+      await createUserFromInviteDialog(page, user1);
     });
 
     await test.step('Create second user', async () => {
-      const addButton = page.getByRole('button', { name: /add|create/i }).first();
-      await addButton.click();
-
-      await page.getByLabel(/email/i).fill(user2.email);
-      await page.getByLabel(/name/i).fill(user2.name);
-      await page.getByLabel(/password/i).first().fill(user2.password);
-
-      const submitButton = page.getByRole('button', { name: /create|submit/i }).first();
-      await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await openInviteUserDialog(page);
+      await createUserFromInviteDialog(page, user2);
     });
 
     await test.step('User1 logs in and verifies data isolation', async () => {
@@ -381,10 +380,7 @@ test.describe('Admin-User E2E Workflow', () => {
       await logoutButton.click();
       await page.waitForURL(/login/);
 
-      await page.getByLabel(/email/i).fill(user1.email);
-      await page.getByLabel(/password/i).fill(user1.password);
-      await page.getByRole('button', { name: /login/i }).click();
-      await page.waitForLoadState('networkidle');
+      await loginWithCredentials(page, user1.email, user1.password);
 
       // User1 should see their profile but not User2's
       const user1Profile = page.getByText(user1.name).first();
@@ -396,18 +392,14 @@ test.describe('Admin-User E2E Workflow', () => {
 
   // User logout → login as different user → resources isolated
   test('Session isolation after logout and re-login', async ({ page }) => {
+    await test.step('Create secondary user for session switch', async () => {
+      await openInviteUserDialog(page);
+      await createUserFromInviteDialog(page, testUser);
+    });
+
     await test.step('Login as first user', async () => {
-      await page.goto('/', { waitUntil: 'networkidle' });
-
-      const emailInput = page.getByLabel(/email/i);
-      const passwordInput = page.getByLabel(/password/i);
-
-      await emailInput.fill(adminEmail);
-      await passwordInput.fill(TEST_PASSWORD);
-
-      const loginButton = page.getByRole('button', { name: /login/i });
-      await loginButton.click();
-      await page.waitForLoadState('networkidle');
+      await navigateToLogin(page);
+      await loginWithCredentials(page, adminEmail, TEST_PASSWORD);
     });
 
     await test.step('Note session storage', async () => {
@@ -429,15 +421,7 @@ test.describe('Admin-User E2E Workflow', () => {
     });
 
     await test.step('Login as different user', async () => {
-      const emailInput = page.getByLabel(/email/i);
-      const passwordInput = page.getByLabel(/password/i);
-
-      await emailInput.fill(testUser.email);
-      await passwordInput.fill(testUser.password);
-
-      const loginButton = page.getByRole('button', { name: /login/i });
-      await loginButton.click();
-      await page.waitForLoadState('networkidle');
+      await loginWithCredentials(page, testUser.email, testUser.password);
     });
 
     await test.step('Verify new session established', async () => {

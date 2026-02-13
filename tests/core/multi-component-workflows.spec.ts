@@ -1,4 +1,5 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import { waitForLoadingComplete } from '../utils/wait-helpers';
 
 /**
  * Integration: Multi-Component Workflows
@@ -21,9 +22,10 @@ test.describe('Multi-Component Workflows', () => {
     password: 'MultiFlow123!',
   };
 
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/', { waitUntil: 'networkidle' });
-    await page.waitForSelector('[role="main"]', { timeout: 5000 });
+  test.beforeEach(async ({ page, adminUser }) => {
+    await loginUser(page, adminUser);
+    await waitForLoadingComplete(page, { timeout: 15000 });
+    await expect(page.getByRole('main')).toBeVisible({ timeout: 15000 });
   });
 
   test.afterEach(async ({ page }) => {
