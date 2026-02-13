@@ -32,7 +32,9 @@ func isAdminSecurityControlPlaneRequest(ctx *gin.Context) bool {
 		}
 	}
 
-	return strings.HasPrefix(parsedPath, "/api/v1/security/")
+	return strings.HasPrefix(parsedPath, "/api/v1/security/") ||
+		strings.HasPrefix(parsedPath, "/api/v1/settings") ||
+		strings.HasPrefix(parsedPath, "/api/v1/config")
 }
 
 // rateLimitManager manages per-IP rate limiters.
