@@ -377,6 +377,38 @@ test.describe('Security Dashboard @security', () => {
         });
       }
     });
+
+    test('Emergency token can be generated', async ({ page, request }, testInfo) => {
+      const securityStatePre = await captureSecurityState(request);
+      testInfo.annotations.push({
+        type: 'security-state-pre',
+        description: JSON.stringify(securityStatePre),
+      });
+
+      try {
+        await test.step('Verify generate token button exists in security dashboard', async () => {
+          const generateButton = page.getByRole('button', { name: /generate.*token/i });
+          await expect(generateButton).toBeVisible();
+          await expect(generateButton).toBeEnabled();
+        });
+
+        await test.step('Generate emergency token from security dashboard UI', async () => {
+          await page.getByRole('button', { name: /generate.*token/i }).click();
+        });
+      } finally {
+        const securityStatePost = await captureSecurityState(request);
+        testInfo.annotations.push({
+          type: 'security-state-post',
+          description: JSON.stringify(securityStatePost),
+        });
+
+        expect(securityStatePost.cerberus).toBe(securityStatePre.cerberus);
+        expect(securityStatePost.acl).toBe(securityStatePre.acl);
+        expect(securityStatePost.waf).toBe(securityStatePre.waf);
+        expect(securityStatePost.rateLimit).toBe(securityStatePre.rateLimit);
+        expect(securityStatePost.crowdsec).toBe(securityStatePre.crowdsec);
+      }
+    });
   });
 
   test.describe('Accessibility', () => {
