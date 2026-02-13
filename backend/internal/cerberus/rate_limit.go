@@ -2,6 +2,7 @@ package cerberus
 
 import (
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,6 +14,26 @@ import (
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/util"
 )
+
+func isAdminSecurityControlPlaneRequest(ctx *gin.Context) bool {
+	role, exists := ctx.Get("role")
+	if !exists {
+		return false
+	}
+	roleStr, ok := role.(string)
+	if !ok || roleStr != "admin" {
+		return false
+	}
+
+	parsedPath := ctx.Request.URL.Path
+	if rawPath := ctx.Request.URL.RawPath; rawPath != "" {
+		if decoded, err := url.PathUnescape(rawPath); err == nil {
+			parsedPath = decoded
+		}
+	}
+
+	return strings.HasPrefix(parsedPath, "/api/v1/security/")
+}
 
 // rateLimitManager manages per-IP rate limiters.
 type rateLimitManager struct {
@@ -88,6 +109,11 @@ func NewRateLimitMiddleware(requests int, windowSec int, burst int) gin.HandlerF
 			return
 		}
 
+		if isAdminSecurityControlPlaneRequest(ctx) {
+			ctx.Next()
+			return
+		}
+
 		clientIP := util.CanonicalizeIPForSecurity(ctx.ClientIP())
 		limiter := mgr.getLimiter(clientIP, limit, burst)
 
@@ -108,6 +134,11 @@ func (c *Cerberus) RateLimitMiddleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		// Check for emergency bypass flag
 		if bypass, exists := ctx.Get("emergency_bypass"); exists && bypass.(bool) {
+			ctx.Next()
+			return
+		}
+
+		if isAdminSecurityControlPlaneRequest(ctx) {
 			ctx.Next()
 			return
 		}

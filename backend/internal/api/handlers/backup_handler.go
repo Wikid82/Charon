@@ -9,19 +9,21 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type BackupHandler struct {
 	service         *services.BackupService
 	securityService *services.SecurityService
+	db              *gorm.DB
 }
 
 func NewBackupHandler(service *services.BackupService) *BackupHandler {
-	return NewBackupHandlerWithDeps(service, nil)
+	return NewBackupHandlerWithDeps(service, nil, nil)
 }
 
-func NewBackupHandlerWithDeps(service *services.BackupService, securityService *services.SecurityService) *BackupHandler {
-	return &BackupHandler{service: service, securityService: securityService}
+func NewBackupHandlerWithDeps(service *services.BackupService, securityService *services.SecurityService, db *gorm.DB) *BackupHandler {
+	return &BackupHandler{service: service, securityService: securityService, db: db}
 }
 
 func (h *BackupHandler) List(c *gin.Context) {
@@ -109,6 +111,22 @@ func (h *BackupHandler) Restore(c *gin.Context) {
 		return
 	}
 	middleware.GetRequestLogger(c).WithField("action", "restore_backup").WithField("filename", util.SanitizeForLog(filepath.Base(filename))).Info("Backup restored successfully")
-	// In a real scenario, we might want to trigger a restart here
-	c.JSON(http.StatusOK, gin.H{"message": "Backup restored successfully. Please restart the container."})
+
+	restartRequired := true
+	rehydrated := false
+
+	if h.db != nil {
+		if err := h.service.RehydrateLiveDatabase(h.db); err != nil {
+			middleware.GetRequestLogger(c).WithField("action", "restore_backup_rehydrate").WithError(err).Warn("Backup restored but live database rehydrate failed")
+		} else {
+			restartRequired = false
+			rehydrated = true
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":                "Backup restored successfully",
+		"restart_required":       restartRequired,
+		"live_rehydrate_applied": rehydrated,
+	})
 }

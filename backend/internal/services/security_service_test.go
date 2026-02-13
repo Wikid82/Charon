@@ -744,6 +744,32 @@ func TestSecurityService_AsyncAuditLogging(t *testing.T) {
 	assert.Equal(t, "test_action", stored.Action)
 }
 
+func TestSecurityService_LogAudit_ChannelFullFallsBackToSyncWrite(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := newTestSecurityService(t, db)
+
+	for i := 0; i < cap(svc.auditChan); i++ {
+		svc.auditChan <- &models.SecurityAudit{
+			UUID:   fmt.Sprintf("prefill-%d", i),
+			Actor:  "prefill",
+			Action: "prefill_action",
+		}
+	}
+
+	audit := &models.SecurityAudit{
+		Actor:  "sync-fallback",
+		Action: "user_create",
+	}
+
+	err := svc.LogAudit(audit)
+	assert.NoError(t, err)
+
+	var stored models.SecurityAudit
+	err = db.Where("uuid = ?", audit.UUID).First(&stored).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "sync-fallback", stored.Actor)
+}
+
 // TestSecurityService_ListAuditLogs_EdgeCases tests edge cases for audit log listing.
 func TestSecurityService_ListAuditLogs_EdgeCases(t *testing.T) {
 	db := setupSecurityTestDB(t)
