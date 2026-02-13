@@ -11,6 +11,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/oschwald/geoip2-golang/v2 v2.1.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/robfig/cron/v3 v3.0.1
@@ -61,7 +62,6 @@ require (
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/sys/atomicwriter v0.1.0 // indirect
 	github.com/moby/term v0.5.2 // indirect
