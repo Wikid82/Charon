@@ -432,7 +432,10 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 		}
 
 		if err := tx.Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error; err != nil {
-			return fmt.Errorf("checkpoint wal after rehydrate: %w", err)
+			errMsg := strings.ToLower(err.Error())
+			if !strings.Contains(errMsg, "locked") && !strings.Contains(errMsg, "busy") {
+				return fmt.Errorf("checkpoint wal after rehydrate: %w", err)
+			}
 		}
 
 		return nil
