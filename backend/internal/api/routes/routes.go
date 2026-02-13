@@ -110,15 +110,6 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		}
 	}
 
-	router.GET("/api/v1/health", handlers.HealthHandler)
-
-	// Metrics endpoint (Prometheus)
-	reg := prometheus.NewRegistry()
-	metrics.Register(reg)
-	router.GET("/metrics", func(c *gin.Context) {
-		promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP(c.Writer, c.Request)
-	})
-
 	if caddyManager == nil {
 		caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
 		caddyManager = caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
@@ -126,6 +117,15 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 	if cerb == nil {
 		cerb = cerberus.New(cfg.Security, db)
 	}
+
+	router.GET("/api/v1/health", cerb.RateLimitMiddleware(), handlers.HealthHandler)
+
+	// Metrics endpoint (Prometheus)
+	reg := prometheus.NewRegistry()
+	metrics.Register(reg)
+	router.GET("/metrics", func(c *gin.Context) {
+		promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP(c.Writer, c.Request)
+	})
 
 	// Emergency endpoint
 	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(db, caddyManager, cerb)
