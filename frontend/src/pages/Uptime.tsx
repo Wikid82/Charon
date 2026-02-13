@@ -72,8 +72,8 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
       {/* Top Row: Name (left), Badge (center-right), Settings (right) */}
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold text-lg text-gray-900 dark:text-white flex-1 min-w-0 truncate">{monitor.name}</h3>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <div className={`flex items-center justify-center px-3 py-1 rounded-full text-sm font-medium min-w-[90px] ${
+        <div className="flex items-center gap-2 shrink-0">
+          <div className={`flex items-center justify-center px-3 py-1 rounded-full text-sm font-medium min-w-22.5 ${
             isPaused
               ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
               : isUp
@@ -178,7 +178,7 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
       </div>
 
       {/* Heartbeat Bar (Last 60 checks / 1 Hour) */}
-      <div className="flex gap-[2px] h-8 items-end relative" title={t('uptime.last60Checks')} data-testid="heartbeat-bar">
+      <div className="flex gap-0.5 h-8 items-end relative" title={t('uptime.last60Checks')} data-testid="heartbeat-bar">
         {/* Fill with empty bars if not enough history to keep alignment right-aligned */}
         {Array.from({ length: Math.max(0, 60 - (history?.length || 0)) }).map((_, i) => (
            <div key={`empty-${i}`} className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-sm h-full opacity-50" />
