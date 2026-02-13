@@ -16,12 +16,17 @@ import (
 )
 
 func setupAuthService(t *testing.T) *services.AuthService {
+	authService, _ := setupAuthServiceWithDB(t)
+	return authService
+}
+
+func setupAuthServiceWithDB(t *testing.T) (*services.AuthService, *gorm.DB) {
 	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
 	_ = db.AutoMigrate(&models.User{})
 	cfg := config.Config{JWTSecret: "test-secret"}
-	return services.NewAuthService(db, cfg)
+	return services.NewAuthService(db, cfg), db
 }
 
 func TestAuthMiddleware_MissingHeader(t *testing.T) {
@@ -265,4 +270,56 @@ func TestAuthMiddleware_PrefersCookieOverQueryParam(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestAuthMiddleware_RejectsDisabledUserToken(t *testing.T) {
+	authService, db := setupAuthServiceWithDB(t)
+	user, err := authService.Register("disabled@example.com", "password", "Disabled User")
+	require.NoError(t, err)
+
+	token, err := authService.GenerateToken(user)
+	require.NoError(t, err)
+
+	require.NoError(t, db.Model(&models.User{}).Where("id = ?", user.ID).Update("enabled", false).Error)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(AuthMiddleware(authService))
+	r.GET("/test", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req, err := http.NewRequest("GET", "/test", http.NoBody)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestAuthMiddleware_RejectsDeletedUserToken(t *testing.T) {
+	authService, db := setupAuthServiceWithDB(t)
+	user, err := authService.Register("deleted@example.com", "password", "Deleted User")
+	require.NoError(t, err)
+
+	token, err := authService.GenerateToken(user)
+	require.NoError(t, err)
+
+	require.NoError(t, db.Delete(&models.User{}, user.ID).Error)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(AuthMiddleware(authService))
+	r.GET("/test", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req, err := http.NewRequest("GET", "/test", http.NoBody)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
