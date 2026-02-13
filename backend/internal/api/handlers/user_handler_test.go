@@ -24,7 +24,7 @@ func setupUserHandler(t *testing.T) (*UserHandler, *gorm.DB) {
 	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
-	_ = db.AutoMigrate(&models.User{}, &models.Setting{})
+	_ = db.AutoMigrate(&models.User{}, &models.Setting{}, &models.SecurityAudit{})
 	return NewUserHandler(db), db
 }
 
@@ -399,7 +399,7 @@ func setupUserHandlerWithProxyHosts(t *testing.T) (*UserHandler, *gorm.DB) {
 	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
-	_ = db.AutoMigrate(&models.User{}, &models.Setting{}, &models.ProxyHost{})
+	_ = db.AutoMigrate(&models.User{}, &models.Setting{}, &models.ProxyHost{}, &models.SecurityAudit{})
 	return NewUserHandler(db), db
 }
 
@@ -473,11 +473,12 @@ func TestUserHandler_CreateUser_NonAdmin(t *testing.T) {
 }
 
 func TestUserHandler_CreateUser_Admin(t *testing.T) {
-	handler, _ := setupUserHandlerWithProxyHosts(t)
+	handler, db := setupUserHandlerWithProxyHosts(t)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
+		c.Set("userID", uint(99))
 		c.Next()
 	})
 	r.POST("/users", handler.CreateUser)
@@ -494,6 +495,11 @@ func TestUserHandler_CreateUser_Admin(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
+	handler.securitySvc.Flush()
+
+	var audit models.SecurityAudit
+	require.NoError(t, db.Where("action = ? AND event_category = ?", "user_create", "user").First(&audit).Error)
+	assert.Equal(t, "99", audit.Actor)
 }
 
 func TestUserHandler_CreateUser_InvalidJSON(t *testing.T) {
@@ -737,6 +743,7 @@ func TestUserHandler_UpdateUser_Success(t *testing.T) {
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
+		c.Set("userID", uint(11))
 		c.Next()
 	})
 	r.PUT("/users/:id", handler.UpdateUser)
@@ -752,6 +759,11 @@ func TestUserHandler_UpdateUser_Success(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	handler.securitySvc.Flush()
+
+	var audit models.SecurityAudit
+	require.NoError(t, db.Where("action = ? AND event_category = ?", "user_update", "user").First(&audit).Error)
+	assert.Equal(t, user.UUID, audit.ResourceUUID)
 }
 
 func TestUserHandler_UpdateUser_PasswordReset(t *testing.T) {
@@ -863,6 +875,11 @@ func TestUserHandler_DeleteUser_Success(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	handler.securitySvc.Flush()
+
+	var audit models.SecurityAudit
+	require.NoError(t, db.Where("action = ? AND event_category = ?", "user_delete", "user").First(&audit).Error)
+	assert.Equal(t, user.UUID, audit.ResourceUUID)
 }
 
 func TestUserHandler_DeleteUser_CannotDeleteSelf(t *testing.T) {
@@ -1181,12 +1198,17 @@ func TestUserHandler_AcceptInvite_Success(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	handler.securitySvc.Flush()
 
 	// Verify user was updated
 	var updated models.User
 	db.First(&updated, user.ID)
 	assert.Equal(t, "accepted", updated.InviteStatus)
 	assert.True(t, updated.Enabled)
+
+	var audit models.SecurityAudit
+	require.NoError(t, db.Where("action = ? AND event_category = ?", "user_invite_accept", "user").First(&audit).Error)
+	assert.Equal(t, user.UUID, audit.ResourceUUID)
 }
 
 func TestGenerateSecureToken(t *testing.T) {
@@ -1303,6 +1325,7 @@ func TestUserHandler_InviteUser_Success(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
+	handler.securitySvc.Flush()
 
 	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
@@ -1316,6 +1339,10 @@ func TestUserHandler_InviteUser_Success(t *testing.T) {
 	db.Where("email = ?", "newinvite@example.com").First(&user)
 	assert.Equal(t, "pending", user.InviteStatus)
 	assert.False(t, user.Enabled)
+
+	var audit models.SecurityAudit
+	require.NoError(t, db.Where("action = ? AND event_category = ?", "user_invite", "user").First(&audit).Error)
+	assert.Equal(t, user.UUID, audit.ResourceUUID)
 }
 
 func TestUserHandler_InviteUser_WithPermittedHosts(t *testing.T) {
