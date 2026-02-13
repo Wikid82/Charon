@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -22,13 +23,44 @@ import (
 type UserHandler struct {
 	DB          *gorm.DB
 	MailService *services.MailService
+	securitySvc *services.SecurityService
 }
 
 func NewUserHandler(db *gorm.DB) *UserHandler {
 	return &UserHandler{
 		DB:          db,
 		MailService: services.NewMailService(db),
+		securitySvc: services.NewSecurityService(db),
 	}
+}
+
+func (h *UserHandler) actorFromContext(c *gin.Context) string {
+	if userID, ok := c.Get("userID"); ok {
+		return fmt.Sprintf("%v", userID)
+	}
+	return c.ClientIP()
+}
+
+func (h *UserHandler) logUserAudit(c *gin.Context, action string, user *models.User, details map[string]any) {
+	if h.securitySvc == nil || user == nil {
+		return
+	}
+
+	detailsJSON, err := json.Marshal(details)
+	if err != nil {
+		detailsJSON = []byte("{}")
+	}
+
+	_ = h.securitySvc.LogAudit(&models.SecurityAudit{
+		Actor:         h.actorFromContext(c),
+		Action:        action,
+		EventCategory: "user",
+		ResourceID:    &user.ID,
+		ResourceUUID:  user.UUID,
+		Details:       string(detailsJSON),
+		IPAddress:     c.ClientIP(),
+		UserAgent:     c.Request.UserAgent(),
+	})
 }
 
 func (h *UserHandler) RegisterRoutes(r *gin.RouterGroup) {
@@ -366,6 +398,11 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
+	h.logUserAudit(c, "user_create", &user, map[string]any{
+		"target_email": user.Email,
+		"target_role":  user.Role,
+	})
+
 	c.JSON(http.StatusCreated, gin.H{
 		"id":    user.ID,
 		"uuid":  user.UUID,
@@ -479,6 +516,12 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user: " + err.Error()})
 		return
 	}
+
+	h.logUserAudit(c, "user_invite", &user, map[string]any{
+		"target_email":  user.Email,
+		"target_role":   user.Role,
+		"invite_status": user.InviteStatus,
+	})
 
 	// Send invite email asynchronously (non-blocking)
 	// Capture user data BEFORE launching goroutine to prevent race conditions
@@ -683,9 +726,23 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
 			return
 		}
+
+		h.logUserAudit(c, "user_update", &user, map[string]any{
+			"target_email": user.Email,
+			"target_role":  user.Role,
+			"fields":       mapsKeys(updates),
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "User updated successfully"})
+}
+
+func mapsKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 // DeleteUser deletes a user (admin only).
@@ -727,6 +784,11 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete user"})
 		return
 	}
+
+	h.logUserAudit(c, "user_delete", &user, map[string]any{
+		"target_email": user.Email,
+		"target_role":  user.Role,
+	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "User deleted successfully"})
 }
@@ -946,6 +1008,11 @@ func (h *UserHandler) AcceptInvite(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to accept invite"})
 		return
 	}
+
+	h.logUserAudit(c, "user_invite_accept", &user, map[string]any{
+		"target_email":  user.Email,
+		"invite_status": "accepted",
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Invite accepted successfully",
