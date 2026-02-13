@@ -22,6 +22,8 @@ func TestBackupService_RehydrateLiveDatabase(t *testing.T) {
 	dbPath := filepath.Join(dataDir, "charon.db")
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	require.NoError(t, err)
+	require.NoError(t, db.Exec("PRAGMA journal_mode=WAL").Error)
+	require.NoError(t, db.Exec("PRAGMA wal_autocheckpoint=0").Error)
 	require.NoError(t, db.AutoMigrate(&models.User{}))
 
 	seedUser := models.User{

@@ -2,6 +2,7 @@ package services
 
 import (
 	"archive/zip"
+	"database/sql"
 	"fmt"
 	"io"
 	"math"
@@ -16,6 +17,8 @@ import (
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/robfig/cron/v3"
 	"gorm.io/gorm"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func quoteSQLiteIdentifier(identifier string) (string, error) {
@@ -79,6 +82,22 @@ type BackupService struct {
 	BackupDir    string
 	DatabaseName string
 	Cron         *cron.Cron
+}
+
+func checkpointSQLiteDatabase(dbPath string) error {
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return fmt.Errorf("open sqlite database for checkpoint: %w", err)
+	}
+	defer func() {
+		_ = db.Close()
+	}()
+
+	if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		return fmt.Errorf("checkpoint sqlite wal: %w", err)
+	}
+
+	return nil
 }
 
 type BackupFile struct {
@@ -252,8 +271,25 @@ func (s *BackupService) CreateBackup() (string, error) {
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		return "", fmt.Errorf("database file not found: %s", dbPath)
 	}
+	if err := checkpointSQLiteDatabase(dbPath); err != nil {
+		logger.Log().WithError(err).Warn("failed to checkpoint sqlite wal before backup; proceeding with file snapshot")
+	}
 	if err := s.addToZip(w, dbPath, s.DatabaseName); err != nil {
 		return "", fmt.Errorf("backup db: %w", err)
+	}
+
+	walPath := dbPath + "-wal"
+	if _, err := os.Stat(walPath); err == nil {
+		if err := s.addToZip(w, walPath, s.DatabaseName+"-wal"); err != nil {
+			return "", fmt.Errorf("backup db wal: %w", err)
+		}
+	}
+
+	shmPath := dbPath + "-shm"
+	if _, err := os.Stat(shmPath); err == nil {
+		if err := s.addToZip(w, shmPath, s.DatabaseName+"-shm"); err != nil {
+			return "", fmt.Errorf("backup db shm: %w", err)
+		}
 	}
 
 	// 2. Caddy Data (Certificates, etc)
@@ -369,6 +405,9 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 	restoredDBPath := filepath.Join(s.DataDir, s.DatabaseName)
 	if _, err := os.Stat(restoredDBPath); err != nil {
 		return fmt.Errorf("restored database file missing: %w", err)
+	}
+	if err := checkpointSQLiteDatabase(restoredDBPath); err != nil {
+		logger.Log().WithError(err).Warn("failed to checkpoint restored sqlite wal before live rehydrate")
 	}
 
 	tempRestoreFile, err := os.CreateTemp("", "charon-restore-src-*.sqlite")
