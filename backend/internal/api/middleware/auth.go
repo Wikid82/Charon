@@ -19,6 +19,11 @@ func AuthMiddleware(authService *services.AuthService) gin.HandlerFunc {
 			}
 		}
 
+		if authService == nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
+			return
+		}
+
 		tokenString, ok := extractAuthToken(c)
 		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
@@ -31,8 +36,14 @@ func AuthMiddleware(authService *services.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		c.Set("userID", claims.UserID)
-		c.Set("role", claims.Role)
+		user, err := authService.GetUserByID(claims.UserID)
+		if err != nil || !user.Enabled {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+			return
+		}
+
+		c.Set("userID", user.ID)
+		c.Set("role", user.Role)
 		c.Next()
 	}
 }
