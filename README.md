@@ -305,6 +305,19 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for complete development environment setu
 
 **Note:** GitHub Actions CI uses `GOTOOLCHAIN: auto` to automatically download and use go 1.26.0, even if your system has an older version installed. For local development, ensure you have go 1.26.0+ installed.
 
+#### Keeping Go Tools Up-to-Date
+
+After pulling a Go version update:
+
+```bash
+# Rebuild all Go development tools
+./scripts/rebuild-go-tools.sh
+```
+
+**Why?** Tools like golangci-lint are compiled programs. When Go upgrades, they need to be recompiled to work with the new version. This one command rebuilds all your tools automatically.
+
+See [Go Version Upgrades Guide](docs/development/go_version_upgrades.md) for details.
+
 ### Environment Configuration
 
 Before running Charon or E2E tests, configure required environment variables:
