@@ -96,10 +96,9 @@ function validateEmergencyToken(): void {
 
 /**
  * Get the base URL for the application
- * CRITICAL: Must use localhost (not 127.0.0.1) for cookie domain consistency
  */
 function getBaseURL(): string {
-  return process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
+  return process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
 }
 
 /**
@@ -136,7 +135,7 @@ async function checkCaddyAdminHealth(): Promise<boolean> {
  * This prevents 401 errors when global-setup runs before containers finish starting.
  */
 async function waitForContainer(maxRetries = 15, delayMs = 2000): Promise<void> {
-  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
+  const baseURL = getBaseURL();
   console.log(`⏳ Waiting for container to be ready at ${baseURL}...`);
 
   for (let i = 0; i < maxRetries; i++) {
@@ -392,7 +391,7 @@ async function emergencySecurityReset(requestContext: APIRequestContext): Promis
   console.log('🔓 Performing emergency security reset...');
 
   const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
-  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
+  const baseURL = getBaseURL();
 
   if (!emergencyToken) {
     console.warn('  ⚠️  CHARON_EMERGENCY_TOKEN not set, skipping emergency reset');
