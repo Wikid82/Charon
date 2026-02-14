@@ -10,7 +10,7 @@ import { test, expect } from '@playwright/test'
 
 test.describe('Modal Dropdown Z-Index Triage', () => {
   // Common setup
-  const baseURL = 'http://localhost:8080'
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080'
 
   // Helper to check if a dropdown can be opened
   async function testDropdownInteraction(page: any, labelText: RegExp, stepName: string) {
