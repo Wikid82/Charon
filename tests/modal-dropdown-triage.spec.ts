@@ -262,7 +262,8 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
 
     await test.step('Navigate to Remote Servers page', async () => {
       await page.goto(`${baseURL}/remote-servers`)
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('domcontentloaded')
+      await page.waitForURL(/remote-servers|login/i)
     })
 
     await test.step('Click "Add Server" button', async () => {
