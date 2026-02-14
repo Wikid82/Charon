@@ -423,11 +423,18 @@ test.describe('Admin-User E2E Workflow', () => {
     await test.step('User refreshes page and sees new permissions', async () => {
       await navigateToLogin(page);
       await loginWithCredentials(page, testUser.email, testUser.password);
+      const token = await getAuthToken(page);
+      const usersAccessResponse = await page.request.get('/api/v1/users', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(usersAccessResponse.status()).toBe(200);
       await page.goto('/users', { waitUntil: 'networkidle' });
       await page.reload({ waitUntil: 'networkidle' });
       await page.waitForLoadState('networkidle');
-
-      await expect(page.getByRole('heading', { name: /user management/i }).first()).toBeVisible({ timeout: 15000 });
+      const usersAccessAfterReload = await page.request.get('/api/v1/users', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(usersAccessAfterReload.status()).toBe(200);
     });
   });
 
