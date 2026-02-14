@@ -469,6 +469,9 @@ test.describe('SSL Certificates - CRUD Operations', () => {
   });
 
   test.describe('Certificate Details', () => {
+    const getEmptyState = (page: import('@playwright/test').Page) =>
+      page.locator('tbody tr td[colspan], tbody tr td').filter({ hasText: /no.*certificates.*found/i }).first();
+
     const findDataRow = async (page: import('@playwright/test').Page) => {
       const rows = page.locator('tbody tr');
       const rowCount = await rows.count();
@@ -485,10 +488,23 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     };
 
     const getDataRowOrEmpty = async (page: import('@playwright/test').Page) => {
-      const emptyState = page.getByText(/no.*certificates.*found/i);
+      await waitForLoadingComplete(page);
+
+      const emptyState = getEmptyState(page);
+
+      await expect
+        .poll(async () => {
+          const dataRow = await findDataRow(page);
+          if (dataRow) return 'data';
+          if (await emptyState.isVisible().catch(() => false)) return 'empty';
+          return 'pending';
+        }, { timeout: 15000 })
+        .not.toBe('pending');
+
       if (await emptyState.isVisible().catch(() => false)) {
         return null;
       }
+
       return findDataRow(page);
     };
 
@@ -497,7 +513,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
         const firstRow = await getDataRowOrEmpty(page);
 
         if (!firstRow) {
-          const emptyState = page.getByText(/no.*certificates.*found/i);
+          const emptyState = getEmptyState(page);
           await expect(emptyState).toBeVisible();
           return;
         }
@@ -513,7 +529,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
         const firstRow = await getDataRowOrEmpty(page);
 
         if (!firstRow) {
-          const emptyState = page.getByText(/no.*certificates.*found/i);
+          const emptyState = getEmptyState(page);
           await expect(emptyState).toBeVisible();
           return;
         }
@@ -528,7 +544,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
         const firstRow = await getDataRowOrEmpty(page);
 
         if (!firstRow) {
-          const emptyState = page.getByText(/no.*certificates.*found/i);
+          const emptyState = getEmptyState(page);
           await expect(emptyState).toBeVisible();
           return;
         }
