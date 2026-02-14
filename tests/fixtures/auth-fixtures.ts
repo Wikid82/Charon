@@ -329,7 +329,7 @@ export const test = base.extend<AuthFixtures>({
             `   Cookie domain: "${authCookie.domain}"\n` +
             `   Base URL host: "${expectedHost}"\n` +
             `   API calls will likely fail with 401/403.\n` +
-            `   Fix: Set PLAYWRIGHT_BASE_URL=http://localhost:8080 in your environment.`
+            `   Fix: Set PLAYWRIGHT_BASE_URL to the same host used by Playwright baseURL.`
           );
         }
       }

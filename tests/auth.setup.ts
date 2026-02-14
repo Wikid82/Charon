@@ -184,7 +184,7 @@ async function performLoginAndSaveState(
       const expectedHost = new URL(baseURL).hostname;
       if (authCookie.domain !== expectedHost && authCookie.domain !== `.${expectedHost}`) {
         console.warn(`⚠️ Cookie domain mismatch: cookie domain "${authCookie.domain}" does not match baseURL host "${expectedHost}"`);
-        console.warn('TestDataManager API calls may fail with 401. Ensure PLAYWRIGHT_BASE_URL uses localhost.');
+        console.warn('TestDataManager API calls may fail with 401. Ensure PLAYWRIGHT_BASE_URL matches the configured Playwright base URL host.');
       } else {
         console.log(`✅ Cookie domain "${authCookie.domain}" matches baseURL host "${expectedHost}"`);
       }
