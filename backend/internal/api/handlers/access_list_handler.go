@@ -58,7 +58,13 @@ func (h *AccessListHandler) Create(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, acl)
+	createdACL, err := h.service.GetByUUID(acl.UUID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, createdACL)
 }
 
 // List handles GET /api/v1/access-lists
@@ -100,12 +106,14 @@ func (h *AccessListHandler) Update(c *gin.Context) {
 	}
 
 	var updates models.AccessList
-	if err := c.ShouldBindJSON(&updates); err != nil {
+	err = c.ShouldBindJSON(&updates)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := h.service.Update(acl.ID, &updates); err != nil {
+	err = h.service.Update(acl.ID, &updates)
+	if err != nil {
 		if err == services.ErrAccessListNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
 			return
@@ -114,8 +122,16 @@ func (h *AccessListHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Fetch updated record
-	updatedAcl, _ := h.service.GetByID(acl.ID)
+	updatedAcl, err := h.service.GetByID(acl.ID)
+	if err != nil {
+		if err == services.ErrAccessListNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+
 	c.JSON(http.StatusOK, updatedAcl)
 }
 
