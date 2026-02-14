@@ -945,7 +945,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should navigate between Certificates and Proxy Hosts', async ({ page }) => {
       await test.step('Navigate to Proxy Hosts', async () => {
         await page.goto('/proxy-hosts');
-        const heading = page.getByRole('heading', { name: /proxy.*hosts/i });
+        const heading = page.getByRole('heading', { name: /^proxy hosts$/i });
         await expect(heading).toBeVisible({ timeout: 10000 });
         const hasHeading = await heading.isVisible({ timeout: 5000 }).catch(() => false);
         expect(hasHeading || true).toBeTruthy();
