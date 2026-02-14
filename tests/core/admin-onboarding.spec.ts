@@ -11,6 +11,8 @@ import { waitForAPIResponse, waitForLoadingComplete } from '../utils/wait-helper
  */
 
 test.describe('Admin Onboarding & Setup', () => {
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+
   // Purpose: Establish baseline admin auth state before each test
   // Uses loginUser helper for consistent authentication
   test.beforeEach(async ({ page, adminUser }, testInfo) => {
@@ -45,7 +47,7 @@ test.describe('Admin Onboarding & Setup', () => {
     const start = Date.now();
 
     await test.step('Navigate to login page', async () => {
-      await page.goto(`/login`, { waitUntil: 'domcontentloaded' });
+      await page.goto(`${baseURL}/login`, { waitUntil: 'domcontentloaded' });
       const emailField = page.locator('input[type="email"], input[name="email"], input[autocomplete="email"], input[placeholder*="@"]');
       await expect(emailField.first()).toBeVisible({ timeout: 15000 });
     });
