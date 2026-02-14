@@ -393,13 +393,15 @@ test.describe('Navigation', () => {
       await page.goto('/');
       await waitForLoadingComplete(page);
 
+      const initialUrl = page.url();
+
       await page.goto('/proxy-hosts');
       await waitForLoadingComplete(page);
 
       await test.step('Go back then forward', async () => {
         await page.goBack();
         await waitForLoadingComplete(page);
-        await expect(page).toHaveURL('/');
+        await expect(page).toHaveURL(initialUrl);
 
         await page.goForward();
         await waitForLoadingComplete(page);
