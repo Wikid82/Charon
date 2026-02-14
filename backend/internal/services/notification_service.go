@@ -34,6 +34,11 @@ func NewNotificationService(db *gorm.DB) *NotificationService {
 
 var discordWebhookRegex = regexp.MustCompile(`^https://discord(?:app)?\.com/api/webhooks/(\d+)/([a-zA-Z0-9_-]+)`)
 
+var allowedDiscordWebhookHosts = map[string]struct{}{
+	"discord.com":        {},
+	"canary.discord.com": {},
+}
+
 func normalizeURL(serviceType, rawURL string) string {
 	if serviceType == "discord" {
 		matches := discordWebhookRegex.FindStringSubmatch(rawURL)
@@ -46,33 +51,42 @@ func normalizeURL(serviceType, rawURL string) string {
 	return rawURL
 }
 
-func canonicalizeDiscordWebhookURL(providerType, rawURL string) string {
-	if !strings.EqualFold(providerType, "discord") {
-		return rawURL
-	}
-
+func validateDiscordWebhookURL(rawURL string) error {
 	parsedURL, err := neturl.Parse(rawURL)
 	if err != nil {
-		return rawURL
+		return fmt.Errorf("invalid Discord webhook URL: failed to parse URL; use the HTTPS webhook URL provided by Discord")
+	}
+
+	if strings.EqualFold(parsedURL.Scheme, "discord") {
+		return nil
 	}
 
 	if !strings.EqualFold(parsedURL.Scheme, "https") {
-		return rawURL
+		return fmt.Errorf("invalid Discord webhook URL: URL must use HTTPS and the hostname URL provided by Discord")
 	}
 
-	hostname := parsedURL.Hostname()
-	if net.ParseIP(hostname) == nil {
-		return rawURL
+	hostname := strings.ToLower(parsedURL.Hostname())
+	if hostname == "" {
+		return fmt.Errorf("invalid Discord webhook URL: missing hostname; use the HTTPS webhook URL provided by Discord")
 	}
 
-	port := parsedURL.Port()
-	if port == "" || port == "443" {
-		parsedURL.Host = "discord.com"
-	} else {
-		parsedURL.Host = net.JoinHostPort("discord.com", port)
+	if net.ParseIP(hostname) != nil {
+		return fmt.Errorf("invalid Discord webhook URL: IP address hosts are not allowed; use the hostname URL provided by Discord (discord.com or canary.discord.com)")
 	}
 
-	return parsedURL.String()
+	if _, ok := allowedDiscordWebhookHosts[hostname]; !ok {
+		return fmt.Errorf("invalid Discord webhook URL: host must be discord.com or canary.discord.com; use the hostname URL provided by Discord")
+	}
+
+	return nil
+}
+
+func validateDiscordProviderURL(providerType, rawURL string) error {
+	if !strings.EqualFold(providerType, "discord") {
+		return nil
+	}
+
+	return validateDiscordWebhookURL(rawURL)
 }
 
 // supportsJSONTemplates returns true if the provider type can use JSON templates
@@ -196,6 +210,12 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 // In production it defaults to shoutrrr.Send.
 var shoutrrrSendFunc = shoutrrr.Send
 
+// webhookDoRequestFunc is a test hook for outbound JSON webhook requests.
+// In production it defaults to (*http.Client).Do.
+var webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
+	return client.Do(req)
+}
+
 func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.NotificationProvider, data map[string]any) error {
 	// Built-in templates
 	const minimalTemplate = `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}}`
@@ -234,7 +254,11 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 	// Additionally, we apply `isValidRedirectURL` as a barrier-guard style predicate.
 	// CodeQL recognizes this pattern as a sanitizer for untrusted URL values, while
 	// the real SSRF protection remains `security.ValidateExternalURL`.
-	webhookURL := canonicalizeDiscordWebhookURL(p.Type, p.URL)
+	if err := validateDiscordProviderURL(p.Type, p.URL); err != nil {
+		return err
+	}
+
+	webhookURL := p.URL
 
 	if !isValidRedirectURL(webhookURL) {
 		return fmt.Errorf("invalid webhook url")
@@ -322,81 +346,7 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 		network.WithAllowLocalhost(), // Allow localhost for testing
 	)
 
-	// Resolve the hostname to an explicit IP and construct the request URL using the
-	// resolved IP. This prevents direct user-controlled hostnames from being used
-	// as the request's destination (SSRF mitigation) and helps CodeQL validate the
-	// sanitisation performed by security.ValidateExternalURL.
-	//
-	// NOTE (security): The following mitigations are intentionally applied to
-	// reduce SSRF/request-forgery risk:
-	//  - security.ValidateExternalURL enforces http(s) schemes and rejects private IPs
-	//    (except explicit localhost for testing) after DNS resolution.
-	//  - We perform an additional DNS resolution here and choose a non-private
-	//    IP to use as the TCP destination to avoid direct hostname-based routing.
-	//  - We set the request's `Host` header to the original hostname so virtual
-	//    hosting works while the actual socket connects to a resolved IP.
-	//  - The HTTP client disables automatic redirects and has a short timeout.
-	// Together these steps make the request destination unambiguous and prevent
-	// accidental requests to internal networks. If your threat model requires
-	// stricter controls, consider an explicit allowlist of webhook hostnames.
-	// Re-parse the validated URL string to get hostname for DNS lookup.
-	// This uses the sanitized string rather than the original tainted input.
-	validatedURL, _ := neturl.Parse(validatedURLStr)
-
-	// Normalize scheme to a constant value derived from an allowlisted set.
-	// This avoids propagating the original input string directly into request construction.
-	var safeScheme string
-	switch validatedURL.Scheme {
-	case "http":
-		safeScheme = "http"
-	case "https":
-		safeScheme = "https"
-	default:
-		return fmt.Errorf("invalid webhook url: unsupported scheme")
-	}
-	ips, err := net.LookupIP(validatedURL.Hostname())
-	if err != nil || len(ips) == 0 {
-		return fmt.Errorf("failed to resolve webhook host: %w", err)
-	}
-	// If hostname is local loopback, accept loopback addresses; otherwise pick
-	// the first non-private IP (security.ValidateExternalURL already ensured these
-	// are not private, but check again defensively).
-	var selectedIP net.IP
-	for _, ip := range ips {
-		if validatedURL.Hostname() == "localhost" || validatedURL.Hostname() == "127.0.0.1" || validatedURL.Hostname() == "::1" {
-			selectedIP = ip
-			break
-		}
-		if !isPrivateIP(ip) {
-			selectedIP = ip
-			break
-		}
-	}
-	if selectedIP == nil {
-		return fmt.Errorf("failed to find non-private IP for webhook host: %s", validatedURL.Hostname())
-	}
-
-	port := validatedURL.Port()
-	if port == "" {
-		if safeScheme == "https" {
-			port = "443"
-		} else {
-			port = "80"
-		}
-	}
-	// Construct a safe URL using the resolved IP:port for the Host component,
-	// while preserving the original path and query from the validated URL.
-	// This makes the destination hostname unambiguously an IP that we resolved
-	// and prevents accidental requests to private/internal addresses.
-	// Using validatedURL (derived from validatedURLStr) breaks the CodeQL taint chain.
-	safeURL := &neturl.URL{
-		Scheme:   safeScheme,
-		Host:     net.JoinHostPort(selectedIP.String(), port),
-		Path:     validatedURL.Path,
-		RawQuery: validatedURL.RawQuery,
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", safeURL.String(), &body)
+	req, err := http.NewRequestWithContext(ctx, "POST", validatedURLStr, &body)
 	if err != nil {
 		return fmt.Errorf("failed to create webhook request: %w", err)
 	}
@@ -407,22 +357,15 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 			req.Header.Set("X-Request-ID", ridStr)
 		}
 	}
-	// Preserve original hostname for virtual host (Host header)
-	// Using validatedURL.Host ensures we're using the sanitized value.
-	req.Host = validatedURL.Host
-
-	// We validated the URL and resolved the hostname to an explicit IP above.
-	// The request uses the resolved IP (selectedIP) and we also set the
-	// Host header to the original hostname, so virtual-hosting works while
-	// preventing requests to private or otherwise disallowed addresses.
-	// This mitigates SSRF and addresses the CodeQL request-forgery rule.
+	// Safe: URL validated by security.ValidateExternalURL() which validates URL
+	// format/scheme and blocks private/reserved destinations through DNS+dial-time checks.
 	// Safe: URL validated by security.ValidateExternalURL() which:
 	// 1. Validates URL format and scheme (HTTPS required in production)
 	// 2. Resolves DNS and blocks private/reserved IPs (RFC 1918, loopback, link-local)
 	// 3. Uses ssrfSafeDialer for connection-time IP revalidation (TOCTOU protection)
 	// 4. No redirect following allowed
 	// See: internal/security/url_validator.go
-	resp, err := client.Do(req)
+	resp, err := webhookDoRequestFunc(client, req)
 	if err != nil {
 		return fmt.Errorf("failed to send webhook: %w", err)
 	}
@@ -459,6 +402,10 @@ func isValidRedirectURL(rawURL string) bool {
 }
 
 func (s *NotificationService) TestProvider(provider models.NotificationProvider) error {
+	if err := validateDiscordProviderURL(provider.Type, provider.URL); err != nil {
+		return err
+	}
+
 	if supportsJSONTemplates(provider.Type) && provider.Template != "" {
 		data := map[string]any{
 			"Title":   "Test Notification",
@@ -574,6 +521,10 @@ func (s *NotificationService) ListProviders() ([]models.NotificationProvider, er
 }
 
 func (s *NotificationService) CreateProvider(provider *models.NotificationProvider) error {
+	if err := validateDiscordProviderURL(provider.Type, provider.URL); err != nil {
+		return err
+	}
+
 	// Validate custom template before creating
 	if strings.ToLower(strings.TrimSpace(provider.Template)) == "custom" && strings.TrimSpace(provider.Config) != "" {
 		// Provide a minimal preview payload
@@ -586,6 +537,10 @@ func (s *NotificationService) CreateProvider(provider *models.NotificationProvid
 }
 
 func (s *NotificationService) UpdateProvider(provider *models.NotificationProvider) error {
+	if err := validateDiscordProviderURL(provider.Type, provider.URL); err != nil {
+		return err
+	}
+
 	// Validate custom template before saving
 	if strings.ToLower(strings.TrimSpace(provider.Template)) == "custom" && strings.TrimSpace(provider.Config) != "" {
 		payload := map[string]any{"Title": "Preview", "Message": "Preview", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}

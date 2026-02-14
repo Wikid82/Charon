@@ -43,6 +43,91 @@ func TestSupportsJSONTemplates(t *testing.T) {
 	}
 }
 
+func TestSendJSONPayload_DiscordIPHostRejected(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
+
+	svc := NewNotificationService(db)
+
+	provider := models.NotificationProvider{
+		Type:     "discord",
+		URL:      "https://203.0.113.10/api/webhooks/123456/token_abc",
+		Template: "custom",
+		Config:   `{"content": {{toJSON .Message}}, "username": "Charon"}`,
+	}
+
+	data := map[string]any{
+		"Message": "Test notification",
+		"Title":   "Test",
+		"Time":    time.Now().Format(time.RFC3339),
+	}
+
+	err = svc.sendJSONPayload(context.Background(), provider, data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid Discord webhook URL")
+	assert.Contains(t, err.Error(), "IP address hosts are not allowed")
+}
+
+func TestValidateDiscordWebhookURL_AcceptsDiscordHostname(t *testing.T) {
+	err := validateDiscordWebhookURL("https://discord.com/api/webhooks/123456/token_abc?wait=true")
+	assert.NoError(t, err)
+}
+
+func TestValidateDiscordWebhookURL_AcceptsCanaryDiscordHostname(t *testing.T) {
+	err := validateDiscordWebhookURL("https://canary.discord.com/api/webhooks/123456/token_abc")
+	assert.NoError(t, err)
+}
+
+func TestValidateDiscordProviderURL_NonDiscordUnchanged(t *testing.T) {
+	err := validateDiscordProviderURL("webhook", "https://203.0.113.20/hooks/test?x=1#y")
+	assert.NoError(t, err)
+}
+
+func TestSendJSONPayload_UsesStoredHostnameURLWithoutHostMutation(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
+	require.NoError(t, err)
+
+	svc := NewNotificationService(db)
+
+	var observedURLHost string
+	var observedRequestHost string
+	originalDo := webhookDoRequestFunc
+	defer func() { webhookDoRequestFunc = originalDo }()
+	webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
+		observedURLHost = req.URL.Host
+		observedRequestHost = req.Host
+		return client.Do(req)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	parsedServerURL, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	parsedServerURL.Host = "localhost:" + parsedServerURL.Port()
+
+	provider := models.NotificationProvider{
+		Type:     "webhook",
+		URL:      parsedServerURL.String(),
+		Template: "minimal",
+	}
+
+	data := map[string]any{
+		"Message": "Test notification",
+		"Title":   "Test",
+		"Time":    time.Now().Format(time.RFC3339),
+	}
+
+	err = svc.sendJSONPayload(context.Background(), provider, data)
+	require.NoError(t, err)
+
+	assert.Equal(t, "localhost:"+parsedServerURL.Port(), observedURLHost)
+	assert.Equal(t, observedURLHost, observedRequestHost)
+}
+
 func TestSendJSONPayload_Discord(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "POST", r.Method)
@@ -66,7 +151,7 @@ func TestSendJSONPayload_Discord(t *testing.T) {
 	svc := NewNotificationService(db)
 
 	provider := models.NotificationProvider{
-		Type:     "discord",
+		Type:     "webhook",
 		URL:      server.URL,
 		Template: "custom",
 		Config:   `{"content": {{toJSON .Message}}, "username": "Charon"}`,
@@ -80,31 +165,6 @@ func TestSendJSONPayload_Discord(t *testing.T) {
 
 	err = svc.sendJSONPayload(context.Background(), provider, data)
 	assert.NoError(t, err)
-}
-
-func TestCanonicalizeDiscordWebhookURL_DiscordIPHostToDiscordDomain(t *testing.T) {
-	raw := "https://203.0.113.10/api/webhooks/123456/token_abc?wait=true#frag"
-	got := canonicalizeDiscordWebhookURL("discord", raw)
-
-	parsed, err := url.Parse(got)
-	require.NoError(t, err)
-	assert.Equal(t, "https", parsed.Scheme)
-	assert.Equal(t, "discord.com", parsed.Hostname())
-	assert.Equal(t, "/api/webhooks/123456/token_abc", parsed.Path)
-	assert.Equal(t, "wait=true", parsed.RawQuery)
-	assert.Equal(t, "frag", parsed.Fragment)
-}
-
-func TestCanonicalizeDiscordWebhookURL_NonDiscordUnchanged(t *testing.T) {
-	raw := "https://203.0.113.20/hooks/test?x=1#y"
-	got := canonicalizeDiscordWebhookURL("webhook", raw)
-	assert.Equal(t, raw, got)
-}
-
-func TestCanonicalizeDiscordWebhookURL_DiscordNonIPUnchanged(t *testing.T) {
-	raw := "https://discord.com/api/webhooks/123456/token_abc?wait=true"
-	got := canonicalizeDiscordWebhookURL("discord", raw)
-	assert.Equal(t, raw, got)
 }
 
 func TestSendJSONPayload_Slack(t *testing.T) {
@@ -232,15 +292,6 @@ func TestSendJSONPayload_TemplateSizeLimit(t *testing.T) {
 }
 
 func TestSendJSONPayload_DiscordValidation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var payload map[string]any
-		err := json.NewDecoder(r.Body).Decode(&payload)
-		require.NoError(t, err)
-		assert.Equal(t, "Test", payload["content"])
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
@@ -248,7 +299,7 @@ func TestSendJSONPayload_DiscordValidation(t *testing.T) {
 
 	provider := models.NotificationProvider{
 		Type:     "discord",
-		URL:      server.URL,
+		URL:      "https://203.0.113.10/api/webhooks/123456/token_abc",
 		Template: "custom",
 		Config:   `{"username": "Charon", "message": {{toJSON .Message}}}`,
 	}
@@ -258,7 +309,9 @@ func TestSendJSONPayload_DiscordValidation(t *testing.T) {
 	}
 
 	err = svc.sendJSONPayload(context.Background(), provider, data)
-	assert.NoError(t, err)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid Discord webhook URL")
+	assert.Contains(t, err.Error(), "IP address hosts are not allowed")
 }
 
 func TestSendJSONPayload_DiscordValidation_MissingMessage(t *testing.T) {
@@ -269,7 +322,7 @@ func TestSendJSONPayload_DiscordValidation_MissingMessage(t *testing.T) {
 
 	provider := models.NotificationProvider{
 		Type:     "discord",
-		URL:      "http://localhost:9999",
+		URL:      "https://discord.com/api/webhooks/123456/token_abc",
 		Template: "custom",
 		Config:   `{"username": "Charon"}`,
 	}
@@ -401,7 +454,7 @@ func TestSendExternal_UsesJSONForSupportedServices(t *testing.T) {
 	defer server.Close()
 
 	provider := models.NotificationProvider{
-		Type:             "discord",
+		Type:             "webhook",
 		URL:              server.URL,
 		Template:         "custom",
 		Config:           `{"content": {{toJSON .Message}}}`,
@@ -415,7 +468,7 @@ func TestSendExternal_UsesJSONForSupportedServices(t *testing.T) {
 
 	// Give goroutine time to execute
 	time.Sleep(100 * time.Millisecond)
-	assert.True(t, called.Load(), "Discord notification should have been sent via JSON")
+	assert.True(t, called.Load(), "notification should have been sent via JSON")
 }
 
 func TestTestProvider_UsesJSONForSupportedServices(t *testing.T) {
@@ -434,7 +487,7 @@ func TestTestProvider_UsesJSONForSupportedServices(t *testing.T) {
 	svc := NewNotificationService(db)
 
 	provider := models.NotificationProvider{
-		Type:     "discord",
+		Type:     "webhook",
 		URL:      server.URL,
 		Template: "custom",
 		Config:   `{"content": {{toJSON .Message}}}`,

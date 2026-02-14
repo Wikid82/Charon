@@ -486,8 +486,7 @@ COPY scripts/ /app/scripts/
 RUN chmod +x /app/scripts/db-recovery.sh
 
 # Set default environment variables
-ENV GODEBUG=netdns=go \
-    CHARON_ENV=production \
+ENV CHARON_ENV=production \
     CHARON_DB_PATH=/app/data/charon.db \
     CHARON_FRONTEND_DIR=/app/frontend/dist \
     CHARON_CADDY_ADMIN_API=http://localhost:2019 \

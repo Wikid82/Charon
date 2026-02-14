@@ -97,7 +97,7 @@ func TestNotificationService_Providers(t *testing.T) {
 	provider := models.NotificationProvider{
 		Name: "Discord",
 		Type: "discord",
-		URL:  "http://example.com",
+		URL:  "https://discord.com/api/webhooks/123456/token_abc",
 	}
 	err := svc.CreateProvider(&provider)
 	require.NoError(t, err)
