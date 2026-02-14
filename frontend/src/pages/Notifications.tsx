@@ -260,7 +260,7 @@ const ProviderForm: FC<{
           onClick={handlePreview}
           disabled={testMutation.isPending}
           data-testid="provider-preview-btn"
-          className="min-w-[80px]"
+          className="min-w-20"
         >
           {t('notificationProviders.preview')}
         </Button>
@@ -270,7 +270,7 @@ const ProviderForm: FC<{
           onClick={handleTest}
           disabled={testMutation.isPending}
           data-testid="provider-test-btn"
-          className="min-w-[80px]"
+          className="min-w-20"
         >
           {testMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> :
            testStatus === 'success' ? <Check className="w-4 h-4 text-green-500 mx-auto" /> :
