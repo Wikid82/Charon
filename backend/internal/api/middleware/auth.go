@@ -43,15 +43,13 @@ func AuthMiddleware(authService *services.AuthService) gin.HandlerFunc {
 }
 
 func extractAuthToken(c *gin.Context) (string, bool) {
-	authHeader := ""
+	authHeader := c.GetHeader("Authorization")
 
-	// Try cookie first for browser flows (including WebSocket upgrades)
-	if cookieToken := extractAuthCookieToken(c); cookieToken != "" {
-		authHeader = "Bearer " + cookieToken
-	}
-
+	// Fall back to cookie for browser flows (including WebSocket upgrades)
 	if authHeader == "" {
-		authHeader = c.GetHeader("Authorization")
+		if cookieToken := extractAuthCookieToken(c); cookieToken != "" {
+			authHeader = "Bearer " + cookieToken
+		}
 	}
 
 	// DEPRECATED: Query parameter authentication for WebSocket connections

@@ -1,22 +1,41 @@
-import { useState, useEffect, useCallback, type ReactNode, type FC } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode, type FC } from 'react';
 import client, { setAuthToken, setAuthErrorHandler } from '../api/client';
 import { AuthContext, User } from './AuthContextValue';
 
 export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const authRequestVersionRef = useRef(0);
+
+  const fetchSessionUser = useCallback(async (): Promise<User> => {
+    const response = await fetch('/api/v1/auth/me', {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Session validation failed');
+    }
+
+    return response.json() as Promise<User>;
+  }, []);
+
+  const invalidateAuthRequests = useCallback(() => {
+    authRequestVersionRef.current += 1;
+  }, []);
 
   // Handle session expiry by clearing auth state and redirecting to login
   const handleAuthError = useCallback(() => {
-    console.log('Session expired, redirecting to login');
+    console.warn('Session expired, clearing auth state');
+    invalidateAuthRequests();
     localStorage.removeItem('charon_auth_token');
     setAuthToken(null);
     setUser(null);
-    // Use window.location for full page redirect to clear any stale state
-    if (window.location.pathname !== '/login') {
-      window.location.href = '/login';
-    }
-  }, []);
+    setIsLoading(false);
+  }, [invalidateAuthRequests]);
 
   // Register auth error handler on mount
   useEffect(() => {
@@ -25,6 +44,9 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
   useEffect(() => {
     const checkAuth = async () => {
+      const requestVersion = authRequestVersionRef.current + 1;
+      authRequestVersionRef.current = requestVersion;
+
       try {
         const stored = localStorage.getItem('charon_auth_token');
         if (stored) {
@@ -33,53 +55,71 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
           // No token in localStorage - don't even try to authenticate
           // This prevents re-authentication via HttpOnly cookie after logout
           setAuthToken(null);
-          setUser(null);
-          setIsLoading(false);
+          if (authRequestVersionRef.current === requestVersion) {
+            setUser(null);
+            setIsLoading(false);
+          }
           return;
         }
-        const response = await client.get('/auth/me');
-        setUser(response.data);
+        const response = await fetchSessionUser();
+        if (authRequestVersionRef.current === requestVersion) {
+          setUser(response);
+        }
       } catch {
-        setAuthToken(null);
-        setUser(null);
+        if (authRequestVersionRef.current === requestVersion) {
+          setAuthToken(null);
+          setUser(null);
+        }
       } finally {
-        setIsLoading(false);
+        if (authRequestVersionRef.current === requestVersion) {
+          setIsLoading(false);
+        }
       }
     };
 
     checkAuth();
-  }, []);
+  }, [fetchSessionUser]);
 
-  const login = async (token?: string) => {
+  const login = useCallback(async (token?: string) => {
+    const requestVersion = authRequestVersionRef.current + 1;
+    authRequestVersionRef.current = requestVersion;
+    setIsLoading(true);
+
     if (token) {
       localStorage.setItem('charon_auth_token', token);
       setAuthToken(token);
     }
+
     try {
-      const response = await client.get<User>('/auth/me');
-      setUser(response.data);
+      const response = await fetchSessionUser();
+      if (authRequestVersionRef.current === requestVersion) {
+        setUser(response);
+      }
     } catch (error) {
-      setUser(null);
-      setAuthToken(null);
-      localStorage.removeItem('charon_auth_token');
+      if (authRequestVersionRef.current === requestVersion) {
+        setUser(null);
+        setAuthToken(null);
+        localStorage.removeItem('charon_auth_token');
+      }
       throw error;
+    } finally {
+      if (authRequestVersionRef.current === requestVersion) {
+        setIsLoading(false);
+      }
     }
-  };
+  }, [fetchSessionUser]);
 
   const logout = async () => {
+    invalidateAuthRequests();
+    localStorage.removeItem('charon_auth_token');
+    setAuthToken(null);
+    setUser(null);
+    setIsLoading(false);
+
     try {
       await client.post('/auth/logout');
     } catch (error) {
       console.error("Logout failed", error);
-    }
-    localStorage.removeItem('charon_auth_token');
-    setAuthToken(null);
-    setUser(null);
-
-    // Force navigation to login with full page reload to clear any stale state
-    // This ensures all React state and cookies are cleared
-    if (window.location.pathname !== '/login') {
-      window.location.href = '/login';
     }
   };
 

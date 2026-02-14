@@ -55,7 +55,11 @@ client.interceptors.response.use(
       console.warn('Authentication failed:', error.config?.url);
       // Skip auth error handling for login/auth endpoints to avoid redirect loops
       const url = error.config?.url || '';
-      const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/me');
+      const isAuthEndpoint =
+        url.includes('/auth/login') ||
+        url.includes('/auth/me') ||
+        url.includes('/auth/logout') ||
+        url.includes('/auth/refresh');
       if (onAuthError && !isAuthEndpoint) {
         onAuthError();
       }

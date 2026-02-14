@@ -101,8 +101,18 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		var setting struct{ Value string }
 
 		// Cerberus enabled override
+		cerberusOverrideApplied := false
 		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "feature.cerberus.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
 			enabled = strings.EqualFold(setting.Value, "true")
+			cerberusOverrideApplied = true
+		}
+
+		// Backward-compatible Cerberus enabled override
+		if !cerberusOverrideApplied {
+			setting = struct{ Value string }{}
+			if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.cerberus.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
+				enabled = strings.EqualFold(setting.Value, "true")
+			}
 		}
 
 		// WAF enabled override
@@ -1147,6 +1157,20 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		return
 	}
 
+	if settingKey == "feature.cerberus.enabled" {
+		legacyCerberus := models.Setting{
+			Key:      "security.cerberus.enabled",
+			Value:    value,
+			Category: "security",
+			Type:     "bool",
+		}
+		if err := h.db.Where(models.Setting{Key: legacyCerberus.Key}).Assign(legacyCerberus).FirstOrCreate(&legacyCerberus).Error; err != nil {
+			log.WithError(err).Error("Failed to sync legacy Cerberus setting")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
+			return
+		}
+	}
+
 	if settingKey == "security.acl.enabled" && enabled {
 		var count int64
 		if err := h.db.Model(&models.SecurityConfig{}).Count(&count).Error; err != nil {
@@ -1206,8 +1230,8 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 }
 
 type settingSnapshot struct {
-	exists   bool
-	setting  models.Setting
+	exists  bool
+	setting models.Setting
 }
 
 func (h *SecurityHandler) snapshotSettings(keys []string) (map[string]settingSnapshot, error) {

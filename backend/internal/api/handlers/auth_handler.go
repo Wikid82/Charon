@@ -323,17 +323,15 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 func (h *AuthHandler) Verify(c *gin.Context) {
 	// Extract token from cookie or Authorization header
 	var tokenString string
-
-	// Try cookie first (most common for browser requests)
-	if cookie, err := c.Cookie("auth_token"); err == nil && cookie != "" {
-		tokenString = cookie
+	authHeader := c.GetHeader("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		tokenString = strings.TrimPrefix(authHeader, "Bearer ")
 	}
 
-	// Fall back to Authorization header
+	// Fall back to cookie (most common for browser requests)
 	if tokenString == "" {
-		authHeader := c.GetHeader("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer ") {
-			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+		if cookie, err := c.Cookie("auth_token"); err == nil && cookie != "" {
+			tokenString = cookie
 		}
 	}
 
@@ -393,15 +391,14 @@ func (h *AuthHandler) Verify(c *gin.Context) {
 func (h *AuthHandler) VerifyStatus(c *gin.Context) {
 	// Extract token
 	var tokenString string
-
-	if cookie, err := c.Cookie("auth_token"); err == nil && cookie != "" {
-		tokenString = cookie
+	authHeader := c.GetHeader("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		tokenString = strings.TrimPrefix(authHeader, "Bearer ")
 	}
 
 	if tokenString == "" {
-		authHeader := c.GetHeader("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer ") {
-			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+		if cookie, err := c.Cookie("auth_token"); err == nil && cookie != "" {
+			tokenString = cookie
 		}
 	}
 
