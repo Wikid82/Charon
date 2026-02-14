@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -79,6 +80,31 @@ func TestSendJSONPayload_Discord(t *testing.T) {
 
 	err = svc.sendJSONPayload(context.Background(), provider, data)
 	assert.NoError(t, err)
+}
+
+func TestCanonicalizeDiscordWebhookURL_DiscordIPHostToDiscordDomain(t *testing.T) {
+	raw := "https://203.0.113.10/api/webhooks/123456/token_abc?wait=true#frag"
+	got := canonicalizeDiscordWebhookURL("discord", raw)
+
+	parsed, err := url.Parse(got)
+	require.NoError(t, err)
+	assert.Equal(t, "https", parsed.Scheme)
+	assert.Equal(t, "discord.com", parsed.Hostname())
+	assert.Equal(t, "/api/webhooks/123456/token_abc", parsed.Path)
+	assert.Equal(t, "wait=true", parsed.RawQuery)
+	assert.Equal(t, "frag", parsed.Fragment)
+}
+
+func TestCanonicalizeDiscordWebhookURL_NonDiscordUnchanged(t *testing.T) {
+	raw := "https://203.0.113.20/hooks/test?x=1#y"
+	got := canonicalizeDiscordWebhookURL("webhook", raw)
+	assert.Equal(t, raw, got)
+}
+
+func TestCanonicalizeDiscordWebhookURL_DiscordNonIPUnchanged(t *testing.T) {
+	raw := "https://discord.com/api/webhooks/123456/token_abc?wait=true"
+	got := canonicalizeDiscordWebhookURL("discord", raw)
+	assert.Equal(t, raw, got)
 }
 
 func TestSendJSONPayload_Slack(t *testing.T) {
@@ -206,12 +232,41 @@ func TestSendJSONPayload_TemplateSizeLimit(t *testing.T) {
 }
 
 func TestSendJSONPayload_DiscordValidation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		err := json.NewDecoder(r.Body).Decode(&payload)
+		require.NoError(t, err)
+		assert.Equal(t, "Test", payload["content"])
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
 	svc := NewNotificationService(db)
 
-	// Discord payload without content or embeds should fail
+	provider := models.NotificationProvider{
+		Type:     "discord",
+		URL:      server.URL,
+		Template: "custom",
+		Config:   `{"username": "Charon", "message": {{toJSON .Message}}}`,
+	}
+
+	data := map[string]any{
+		"Message": "Test",
+	}
+
+	err = svc.sendJSONPayload(context.Background(), provider, data)
+	assert.NoError(t, err)
+}
+
+func TestSendJSONPayload_DiscordValidation_MissingMessage(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
+	require.NoError(t, err)
+
+	svc := NewNotificationService(db)
+
 	provider := models.NotificationProvider{
 		Type:     "discord",
 		URL:      "http://localhost:9999",
@@ -219,9 +274,7 @@ func TestSendJSONPayload_DiscordValidation(t *testing.T) {
 		Config:   `{"username": "Charon"}`,
 	}
 
-	data := map[string]any{
-		"Message": "Test",
-	}
+	data := map[string]any{}
 
 	err = svc.sendJSONPayload(context.Background(), provider, data)
 	assert.Error(t, err)

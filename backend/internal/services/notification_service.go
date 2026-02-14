@@ -46,6 +46,35 @@ func normalizeURL(serviceType, rawURL string) string {
 	return rawURL
 }
 
+func canonicalizeDiscordWebhookURL(providerType, rawURL string) string {
+	if !strings.EqualFold(providerType, "discord") {
+		return rawURL
+	}
+
+	parsedURL, err := neturl.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+
+	if !strings.EqualFold(parsedURL.Scheme, "https") {
+		return rawURL
+	}
+
+	hostname := parsedURL.Hostname()
+	if net.ParseIP(hostname) == nil {
+		return rawURL
+	}
+
+	port := parsedURL.Port()
+	if port == "" || port == "443" {
+		parsedURL.Host = "discord.com"
+	} else {
+		parsedURL.Host = net.JoinHostPort("discord.com", port)
+	}
+
+	return parsedURL.String()
+}
+
 // supportsJSONTemplates returns true if the provider type can use JSON templates
 func supportsJSONTemplates(providerType string) bool {
 	switch strings.ToLower(providerType) {
@@ -205,10 +234,12 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 	// Additionally, we apply `isValidRedirectURL` as a barrier-guard style predicate.
 	// CodeQL recognizes this pattern as a sanitizer for untrusted URL values, while
 	// the real SSRF protection remains `security.ValidateExternalURL`.
-	if !isValidRedirectURL(p.URL) {
+	webhookURL := canonicalizeDiscordWebhookURL(p.Type, p.URL)
+
+	if !isValidRedirectURL(webhookURL) {
 		return fmt.Errorf("invalid webhook url")
 	}
-	validatedURLStr, err := security.ValidateExternalURL(p.URL,
+	validatedURLStr, err := security.ValidateExternalURL(webhookURL,
 		security.WithAllowHTTP(),      // Allow both http and https for webhooks
 		security.WithAllowLocalhost(), // Allow localhost for testing
 	)
@@ -255,7 +286,19 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 		// Discord requires either 'content' or 'embeds'
 		if _, hasContent := jsonPayload["content"]; !hasContent {
 			if _, hasEmbeds := jsonPayload["embeds"]; !hasEmbeds {
-				return fmt.Errorf("discord payload requires 'content' or 'embeds' field")
+				if messageValue, hasMessage := jsonPayload["message"]; hasMessage {
+					jsonPayload["content"] = messageValue
+					normalizedBody, marshalErr := json.Marshal(jsonPayload)
+					if marshalErr != nil {
+						return fmt.Errorf("failed to normalize discord payload: %w", marshalErr)
+					}
+					body.Reset()
+					if _, writeErr := body.Write(normalizedBody); writeErr != nil {
+						return fmt.Errorf("failed to write normalized discord payload: %w", writeErr)
+					}
+				} else {
+					return fmt.Errorf("discord payload requires 'content' or 'embeds' field")
+				}
 			}
 		}
 	case "slack":
