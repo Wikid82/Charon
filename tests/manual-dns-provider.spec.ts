@@ -385,7 +385,7 @@ test.describe('Manual DNS Provider Feature', () => {
       await page.goto('/dns/providers');
       await waitForLoadingComplete(page);
       await test.step('Verify live region for status updates', async () => {
-        const liveRegion = page.locator('[aria-live="polite"]').or(page.locator('[role="status"]'));
+        const liveRegion = page.locator('[aria-live="polite"], [role="status"]').first();
         await expect(liveRegion).toBeAttached();
       });
     });
