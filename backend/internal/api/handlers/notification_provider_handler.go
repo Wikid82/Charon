@@ -48,7 +48,7 @@ func (h *NotificationProviderHandler) Create(c *gin.Context) {
 
 	if err := h.service.CreateProvider(&provider); err != nil {
 		// If it's a validation error from template parsing, return 400
-		if strings.Contains(err.Error(), "invalid custom template") || strings.Contains(err.Error(), "rendered template") || strings.Contains(err.Error(), "failed to parse template") || strings.Contains(err.Error(), "failed to render template") {
+		if isProviderValidationError(err) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -75,7 +75,7 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 	provider.ID = id
 
 	if err := h.service.UpdateProvider(&provider); err != nil {
-		if strings.Contains(err.Error(), "invalid custom template") || strings.Contains(err.Error(), "rendered template") || strings.Contains(err.Error(), "failed to parse template") || strings.Contains(err.Error(), "failed to render template") {
+		if isProviderValidationError(err) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -86,6 +86,19 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, provider)
+}
+
+func isProviderValidationError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "invalid custom template") ||
+		strings.Contains(errMsg, "rendered template") ||
+		strings.Contains(errMsg, "failed to parse template") ||
+		strings.Contains(errMsg, "failed to render template") ||
+		strings.Contains(errMsg, "invalid Discord webhook URL")
 }
 
 func (h *NotificationProviderHandler) Delete(c *gin.Context) {

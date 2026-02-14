@@ -232,3 +232,37 @@ func TestNotificationProviderHandler_Preview(t *testing.T) {
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
+
+func TestNotificationProviderHandler_CreateRejectsDiscordIPHost(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	provider := models.NotificationProvider{
+		Name: "Discord IP",
+		Type: "discord",
+		URL:  "https://203.0.113.10/api/webhooks/123456/token_abc",
+	}
+	body, _ := json.Marshal(provider)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "invalid Discord webhook URL")
+	assert.Contains(t, w.Body.String(), "IP address hosts are not allowed")
+}
+
+func TestNotificationProviderHandler_CreateAcceptsDiscordHostname(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	provider := models.NotificationProvider{
+		Name: "Discord Host",
+		Type: "discord",
+		URL:  "https://discord.com/api/webhooks/123456/token_abc",
+	}
+	body, _ := json.Marshal(provider)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+}
