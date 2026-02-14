@@ -1337,18 +1337,22 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db)
 
-	t.Run("discord_requires_content_or_embeds", func(t *testing.T) {
+	t.Run("discord_message_is_normalized_to_content", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var payload map[string]any
+			err := json.NewDecoder(r.Body).Decode(&payload)
+			require.NoError(t, err)
+			assert.Equal(t, "Test Message", payload["content"])
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer server.Close()
 
-		// Discord without content or embeds should fail
+		// Discord payload with message should be normalized to content
 		provider := models.NotificationProvider{
 			Type:     "discord",
 			URL:      server.URL,
 			Template: "custom",
-			Config:   `{"message": {{toJSON .Message}}}`, // Missing content/embeds
+			Config:   `{"message": {{toJSON .Message}}}`,
 		}
 		data := map[string]any{
 			"Title":     "Test",
@@ -1358,8 +1362,7 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 		}
 
 		err := svc.sendJSONPayload(context.Background(), provider, data)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "discord payload requires 'content' or 'embeds' field")
+		require.NoError(t, err)
 	})
 
 	t.Run("discord_with_content_succeeds", func(t *testing.T) {
