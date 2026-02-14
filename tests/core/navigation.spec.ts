@@ -19,6 +19,16 @@ test.describe('Navigation', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page);
+
+    await page.goto('/');
+    await waitForLoadingComplete(page);
+
+    if (page.url().includes('/login')) {
+      await loginUser(page, adminUser);
+      await waitForLoadingComplete(page);
+      await page.goto('/');
+      await waitForLoadingComplete(page);
+    }
   });
 
   test.describe('Main Menu Items', () => {
