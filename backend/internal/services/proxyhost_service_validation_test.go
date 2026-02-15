@@ -93,3 +93,44 @@ func TestProxyHostService_ForwardHostValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestProxyHostService_DomainNamesRequired(t *testing.T) {
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+
+	t.Run("create rejects empty domain names", func(t *testing.T) {
+		host := &models.ProxyHost{
+			UUID:          "create-empty-domain",
+			DomainNames:   "",
+			ForwardHost:   "localhost",
+			ForwardPort:   8080,
+			ForwardScheme: "http",
+		}
+
+		err := service.Create(host)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "domain names is required")
+	})
+
+	t.Run("update rejects whitespace-only domain names", func(t *testing.T) {
+		host := &models.ProxyHost{
+			UUID:          "update-empty-domain",
+			DomainNames:   "valid.example.com",
+			ForwardHost:   "localhost",
+			ForwardPort:   8080,
+			ForwardScheme: "http",
+		}
+
+		err := service.Create(host)
+		assert.NoError(t, err)
+
+		host.DomainNames = "   "
+		err = service.Update(host)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "domain names is required")
+
+		persisted, getErr := service.GetByID(host.ID)
+		assert.NoError(t, getErr)
+		assert.Equal(t, "valid.example.com", persisted.DomainNames)
+	})
+}

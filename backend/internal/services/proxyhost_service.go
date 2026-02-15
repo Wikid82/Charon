@@ -80,6 +80,10 @@ func (s *ProxyHostService) ValidateHostname(host string) error {
 }
 
 func (s *ProxyHostService) validateProxyHost(host *models.ProxyHost) error {
+	if strings.TrimSpace(host.DomainNames) == "" {
+		return errors.New("domain names is required")
+	}
+
 	if host.ForwardHost == "" {
 		return errors.New("forward host is required")
 	}
