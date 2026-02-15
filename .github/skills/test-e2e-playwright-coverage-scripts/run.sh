@@ -238,6 +238,7 @@ main() {
     # IMPORTANT: Use Vite URL (3000) for coverage, not Docker (8080)
     export PLAYWRIGHT_HTML_OPEN="${PLAYWRIGHT_HTML_OPEN:-never}"
     export PLAYWRIGHT_SKIP_SECURITY_DEPS="${PLAYWRIGHT_SKIP_SECURITY_DEPS:-1}"
+    export PLAYWRIGHT_COVERAGE="1"
     export PLAYWRIGHT_BASE_URL="${PLAYWRIGHT_BASE_URL:-http://localhost:${VITE_PORT}}"
 
     # Log configuration

@@ -197,7 +197,7 @@ main() {
     export PLAYWRIGHT_SKIP_SECURITY_DEPS="${PLAYWRIGHT_SKIP_SECURITY_DEPS:-1}"
     # Debug runs should not start the Vite dev server by default
     export PLAYWRIGHT_COVERAGE="${PLAYWRIGHT_COVERAGE:-0}"
-    set_default_env "PLAYWRIGHT_BASE_URL" "http://localhost:8080"
+    set_default_env "PLAYWRIGHT_BASE_URL" "http://127.0.0.1:8080"
 
     # Enable Inspector if requested
     if [[ "${INSPECTOR}" == "true" ]]; then

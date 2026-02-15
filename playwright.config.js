@@ -23,9 +23,9 @@ const STORAGE_STATE = join(__dirname, 'playwright/.auth/user.json');
 
 /**
  * Coverage reporter configuration for E2E tests
- * Enabled by default, disable with PLAYWRIGHT_COVERAGE=0
+ * Disabled by default; enable with PLAYWRIGHT_COVERAGE=1.
  */
-const enableCoverage = process.env.PLAYWRIGHT_COVERAGE !== '0';
+const enableCoverage = process.env.PLAYWRIGHT_COVERAGE === '1';
 const resolvedBaseURL = process.env.PLAYWRIGHT_BASE_URL || (enableCoverage ? 'http://localhost:5173' : 'http://127.0.0.1:8080');
 if (!process.env.PLAYWRIGHT_BASE_URL) {
   process.env.PLAYWRIGHT_BASE_URL = resolvedBaseURL;
