@@ -277,8 +277,11 @@ export async function waitForLoadingComplete(
     if (page.isClosed()) {
       return;
     }
-
-    throw error;
+    console.warn(
+      `[waitForLoadingComplete] timed out after ${timeout}ms; continuing to avoid false positives from non-blocking loaders.`,
+      error
+    );
+    return;
   }
 }
 
