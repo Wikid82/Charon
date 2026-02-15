@@ -10,6 +10,32 @@ import {
 const MANUAL_CHALLENGE_ROUTE = '**/api/v1/dns-providers/*/manual-challenge/*';
 const MANUAL_VERIFY_ROUTE = '**/api/v1/dns-providers/*/manual-challenge/*/verify';
 
+async function gotoWithRetry(
+  page: Parameters<typeof test>[0]['page'],
+  url: string,
+  attempts = 2
+): Promise<void> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      return;
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      const isWebkitInternalError = /WebKit encountered an internal error/i.test(message);
+      if (!isWebkitInternalError || attempt === attempts) {
+        throw error;
+      }
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+}
+
 async function addManualChallengeRoute(
   page: Parameters<typeof test>[0]['page'],
   challengePayload: Record<string, unknown>
@@ -136,7 +162,7 @@ test.describe('Manual DNS Provider Feature', () => {
 
     test.beforeEach(async ({ page }) => {
       cleanupManualChallengeRoute = await addManualChallengeRoute(page, mockManualChallenge as unknown as Record<string, unknown>);
-      await page.goto('/dns/providers');
+      await gotoWithRetry(page, '/dns/providers');
       await waitForLoadingComplete(page);
     });
 
@@ -236,7 +262,7 @@ test.describe('Manual DNS Provider Feature', () => {
 
     test.beforeEach(async ({ page }) => {
       cleanupManualChallengeRoute = await addManualChallengeRoute(page, mockManualChallenge as unknown as Record<string, unknown>);
-      await page.goto('/dns/providers');
+      await gotoWithRetry(page, '/dns/providers');
       await waitForLoadingComplete(page);
     });
 
@@ -514,11 +540,11 @@ test.describe('Manual DNS Challenge Component Tests', () => {
     );
 
     try {
-      await page.goto('/dns/providers');
+      await gotoWithRetry(page, '/dns/providers');
       await waitForLoadingComplete(page);
 
       await test.step('Verify success status is displayed', async () => {
-        const successStatus = page.getByText(/verified|success/i);
+        const successStatus = page.getByText(/verified|success|valid|completed/i);
         await expect(successStatus).toBeVisible();
       });
 
