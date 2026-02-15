@@ -1,181 +1,352 @@
----
-post_title: Local CI-Parity Playwright Shard Task Set Spec
-author1: "Charon Team"
-post_slug: local-ci-parity-playwright-task-spec
-categories:
-  - testing
-  - ci
-  - actions
-tags:
-  - playwright
-  - vscode-tasks
-  - firefox
-  - ci-parity
-summary: "Concise implementation plan to add five VS Code tasks for CI-like Firefox non-security shard execution: one sequential 1/4..4/4 runner and four per-shard triage tasks, all with CI-parity environment variables and explicit test paths."
-post_date: "2026-02-15"
+## DNS Providers E2E Failure Recovery Spec
+
+Date: 2026-02-15
+Owner: Planning Agent
+Target file: docs/plans/current_spec.md
+
 ---
 
-## 1. Introduction
+## 1) Introduction
 
-Add five minimal VS Code tasks in `.vscode/tasks.json` that reproduce the CI Firefox
-non-security shard execution locally for `/projects/Charon`.
+This specification addresses two failing Playwright Firefox tests in tests/core/domain-dns-management.spec.ts:
 
-Goals:
+1. DNS Providers - list providers after API seed
+2. DNS Providers - delete provider via API and verify removal
 
-- Match CI env parity for these runs: `CI=true`,
-  `PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080`,
--  `CHARON_SECURITY_TESTS_ENABLED=false`, and shard-specific
-  `TEST_WORKER_INDEX` values (`1..4`).
-- Add one sequential task that executes Firefox shards `1/4` through `4/4` in order.
-- Add four triage tasks, one per shard (`1/4`, `2/4`, `3/4`, `4/4`).
-- Use deterministic Playwright output paths:
-  `playwright-output/firefox-shard-1` through
-  `playwright-output/firefox-shard-4`.
-- Use explicit test path arguments from the active CI workflow non-security list.
-- Keep task definition style aligned with existing Playwright tasks.
-- Keep scope minimal to `.vscode/tasks.json` only.
+Observed failures are deterministic across retries and happen before deletion assertions. The plan below focuses on root-cause correction with minimal API request overhead and stable UI semantics.
 
-## 1.1 Prerequisites
+Primary objective:
+- Make DNS provider cards discoverable and testable again without regressing Manual DNS Challenge behavior.
 
-Before task execution, the E2E runtime MUST be healthy per
-`.github/instructions/testing.instructions.md`:
+Secondary objective:
+- Reduce unnecessary DNS page requests while preserving UX and accessibility behavior.
 
-- Use existing healthy `charon-e2e` container, OR
-- Rebuild/start it with:
+---
 
-```bash
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e
-```
+## 2) Research Findings
 
-## 2. Research Findings
+### 2.1 Confirmed failing assertions
 
-Source of truth for CI-like command shape and env:
+From targeted run:
+- tests/core/domain-dns-management.spec.ts:122
+  - waitForResourceInUI fails after 15s for namespaced provider name.
+- tests/core/domain-dns-management.spec.ts:166
+  - expect(providerCard).toBeVisible() fails, element not found.
 
-- `.github/workflows/e2e-tests-split.yml` (`e2e-firefox`, non-security shard job).
+Both fail before provider deletion verification; both retries fail identically.
 
-CI-like non-security Firefox path list (must be explicit in every shard command):
+### 2.2 Root-cause path (entry -> transform -> render)
 
-- `tests/core`
-- `tests/dns-provider-crud.spec.ts`
-- `tests/dns-provider-types.spec.ts`
-- `tests/integration`
-- `tests/manual-dns-provider.spec.ts`
-- `tests/monitoring`
-- `tests/settings`
-- `tests/tasks`
+Entry path:
+- Test fixture creates providers via TestDataManager.createDNSProvider in tests/utils/TestDataManager.ts.
+- Backend accepts and persists via DNSProviderHandler.Create in backend/internal/api/handlers/dns_provider_handler.go.
 
-Current task style in `.vscode/tasks.json` for Playwright tasks uses:
+Transform path:
+- DNSProviders page fetches provider list through useDNSProviders -> getDNSProviders.
+- File chain:
+  - frontend/src/pages/DNSProviders.tsx
+  - frontend/src/hooks/useDNSProviders.ts
+  - frontend/src/api/dnsProviders.ts
 
-- `type: "shell"`
-- `group: "test"`
-- `problemMatcher: []`
-- `presentation` with `reveal: "always"`, `panel: "dedicated"`, `close: false`
+Render path:
+- In DNSProviders.tsx, showManualChallenge is derived from manualChallenge state.
+- loadManualChallenge calls getChallenge(providerId, active).
+- On any error, loadManualChallenge currently sets a fallback challenge object.
+- Because fallback always sets manualChallenge, showManualChallenge becomes true.
+- Provider cards grid is gated by !showManualChallenge and providers.length > 0.
+- Result: provider cards are suppressed even when providers exist.
 
-## 3. Technical Specification
+Persistence path validation:
+- Backend list/delete routes are present and correct when encryption key is configured:
+  - protected.GET /dns-providers
+  - protected.DELETE /dns-providers/:id
+  in backend/internal/api/routes/routes.go.
+- DNS provider service List/Delete implementations do not explain the UI invisibility.
 
-### 3.1 EARS Requirements
+### 2.3 Additional architectural observations
 
-- WHEN the developer runs the sequential VS Code task, THE SYSTEM SHALL execute
-  four `npx playwright test` shard commands with `--project=firefox` in order
-  (`1/4`, `2/4`, `3/4`, `4/4`) using `&&` chaining.
-- WHEN the developer runs any per-shard triage task, THE SYSTEM SHALL execute
-  exactly one matching shard command with `--project=firefox` and
-  `--shard=N/4`.
-- WHEN any task executes, THE SYSTEM SHALL set
-  `CI=true`, `PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080`, and
-  `CHARON_SECURITY_TESTS_ENABLED=false`, and shard-appropriate
-  `TEST_WORKER_INDEX` for command execution.
-- WHEN any shard command executes, THE SYSTEM SHALL pass deterministic Playwright
-  output path `--output=playwright-output/firefox-shard-N` for that shard.
-- WHEN any task executes, THE SYSTEM SHALL pass the explicit CI-like
-  non-security test paths and SHALL NOT include security-only directories.
+- Manual challenge endpoint GET /dns-providers/:id/manual-challenge/:challengeId returns 404 when challenge is missing.
+- Frontend passes challengeId active as a synthetic ID, but backend has no explicit active alias route.
+- Manual challenge UI has comprehensive component tests in frontend/src/components/__tests__/ManualDNSChallenge.test.tsx.
+- DNS providers page has no dedicated unit test for coexistence rules between provider cards and manual challenge panel.
 
-### 3.2 Planned Task Additions
+### 2.4 Confidence score
 
-File to modify:
+Confidence: 93% (high)
 
-- `.vscode/tasks.json`
+Rationale:
+- Failure output, snapshots, and rendering condition align.
+- Issue reproduces across retries.
+- Backend CRUD path appears healthy; failure is in frontend display gating.
 
-Planned labels and exact command strings:
+---
 
-- Label: `Test: E2E Playwright (FireFox) - CI Parity Non-Security Shards 1-4 (Sequential)`
-  Command:
-  `cd /projects/Charon && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false TEST_WORKER_INDEX=1 npx playwright test --project=firefox --shard=1/4 --output=playwright-output/firefox-shard-1 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false TEST_WORKER_INDEX=2 npx playwright test --project=firefox --shard=2/4 --output=playwright-output/firefox-shard-2 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false TEST_WORKER_INDEX=3 npx playwright test --project=firefox --shard=3/4 --output=playwright-output/firefox-shard-3 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false TEST_WORKER_INDEX=4 npx playwright test --project=firefox --shard=4/4 --output=playwright-output/firefox-shard-4 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks`
+## 3) Technical Specifications
 
-- Label: `Test: E2E Playwright (FireFox) - CI Parity Non-Security Shard 1/4`
-  Command:
-  `cd /projects/Charon && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false TEST_WORKER_INDEX=1 npx playwright test --project=firefox --shard=1/4 --output=playwright-output/firefox-shard-1 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks`
+## 3.1 EARS requirements
 
-- Label: `Test: E2E Playwright (FireFox) - CI Parity Non-Security Shard 2/4`
-  Command:
-  `cd /projects/Charon && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false TEST_WORKER_INDEX=2 npx playwright test --project=firefox --shard=2/4 --output=playwright-output/firefox-shard-2 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks`
+- WHEN the DNS Providers page loads and no active manual challenge exists, THE SYSTEM SHALL render provider cards from GET /api/v1/dns-providers.
+- WHEN provider cards exist, THE SYSTEM SHALL keep them visible regardless of manual challenge fetch failures.
+- WHEN stabilizing the current failure, THE SYSTEM SHALL apply frontend root-cause fixes before any E2E test edits.
+- IF the same E2E assertion still fails after the frontend fix is applied, THEN THE SYSTEM SHALL permit minimal, targeted test adjustments.
+- IF manual challenge retrieval returns not found, THEN THE SYSTEM SHALL treat it as no active challenge and SHALL NOT inject fallback challenge content.
+- WHEN a person explicitly requests Manual DNS Challenge view, THE SYSTEM SHALL fetch/display challenge data and SHALL preserve keyboard/screen-reader semantics.
+- WHEN a provider is created via API seed in tests, THE SYSTEM SHALL expose it in UI heading text within the provider card grid.
+- WHEN a provider is deleted via API and page is refreshed, THE SYSTEM SHALL remove the matching card from the grid.
 
-- Label: `Test: E2E Playwright (FireFox) - CI Parity Non-Security Shard 3/4`
-  Command:
-  `cd /projects/Charon && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false TEST_WORKER_INDEX=3 npx playwright test --project=firefox --shard=3/4 --output=playwright-output/firefox-shard-3 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks`
+## 3.2 Request-minimization strategy (least amount of requests)
 
-- Label: `Test: E2E Playwright (FireFox) - CI Parity Non-Security Shard 4/4`
-  Command:
-  `cd /projects/Charon && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false TEST_WORKER_INDEX=4 npx playwright test --project=firefox --shard=4/4 --output=playwright-output/firefox-shard-4 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks`
+Current behavior issues:
+- DNS page performs challenge fetch eagerly and converts errors into fallback UI state.
 
-Planned task structure:
+Planned behavior:
+- One baseline request on page load: GET /api/v1/dns-providers.
+- Zero manual challenge requests on initial load unless manual challenge panel is opened explicitly.
+- Optional follow-up requests only on user action:
+  - GET /api/v1/dns-providers/:id/manual-challenge/active (new optional endpoint), or
+  - GET /api/v1/dns-providers/:id/manual-challenge/:challengeId only if challengeId is known.
 
-- Follow existing Playwright task JSON keys and ordering pattern already used in
-  `.vscode/tasks.json`.
-- Keep change scope strictly to task objects in `.vscode/tasks.json`.
+Net effect:
+- Fewer initial requests and deterministic provider list rendering.
 
-## 4. Implementation Plan
+## 3.3 API and handler design options
 
-1. Add one sequential shard task object in `.vscode/tasks.json` adjacent to
-  existing Playwright test tasks.
-2. Add four per-shard triage task objects (`1/4`..`4/4`) in the same section.
-3. Copy existing Playwright task structure (`group`, `problemMatcher`,
-  `presentation`) to maintain consistency for all five tasks.
-4. Insert CI-parity env vars and explicit non-security path list in each task
-  `command`.
-5. Keep all other files unchanged.
+Option A (preferred for least backend change):
+- Frontend-only behavior correction.
+- In frontend/src/pages/DNSProviders.tsx:
+  - Remove synthetic fallback challenge injection from catch block in loadManualChallenge.
+  - Track manual panel visibility separately from challenge data.
+  - Only call loadManualChallenge from manual action button or explicit deep-link flow.
 
-## 5. Validation
+Option B (clean API contract enhancement):
+- Add explicit active challenge endpoint:
+  - GET /api/v1/dns-providers/:id/manual-challenge/active
+- Handler addition in backend/internal/api/handlers/manual_challenge_handler.go:
+  - GetActiveChallenge(c *gin.Context)
+- Service addition in backend/internal/services/manual_challenge_service.go:
+  - GetLatestActiveChallengeForProvider(ctx, providerID, userID)
+- Route registration in backend/internal/api/routes/routes.go.
 
-Validation commands (direct shell equivalents):
+Recommendation:
+- Implement Option A first (fastest unblock).
+- Option B can follow if active-challenge UX remains core and reused broadly.
 
-```bash
-cd /projects/Charon && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false TEST_WORKER_INDEX=1 npx playwright test --project=firefox --shard=1/4 --output=playwright-output/firefox-shard-1 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks
+## 3.4 Component-level design changes
 
-cd /projects/Charon && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false TEST_WORKER_INDEX=2 npx playwright test --project=firefox --shard=2/4 --output=playwright-output/firefox-shard-2 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks
+Primary component:
+- frontend/src/pages/DNSProviders.tsx
 
-cd /projects/Charon && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false TEST_WORKER_INDEX=3 npx playwright test --project=firefox --shard=3/4 --output=playwright-output/firefox-shard-3 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks
+Current critical symbols:
+- loadManualChallenge
+- showManualChallenge
+- manualChallenge
+- manualProviderId
 
-cd /projects/Charon && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false TEST_WORKER_INDEX=4 npx playwright test --project=firefox --shard=4/4 --output=playwright-output/firefox-shard-4 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks
-```
+Planned symbol responsibilities:
+- isManualPanelOpen (new): controls panel visibility as explicit UI state.
+- manualChallenge: nullable real challenge only (no synthetic fallback).
+- loadManualChallenge(providerId):
+  - on 404/not-found, set manualChallenge = null and keep provider cards visible.
+  - on transport/server errors, surface toast warning without replacing page mode.
 
-Expected behavior:
+Render rules:
+- Provider grid visibility should not be blocked by challenge lookup failure.
+- Manual panel visibility must be driven by `isManualPanelOpen`, not by presence/absence of `manualChallenge`.
+- `manualChallenge` data existence must not implicitly switch overall page mode.
 
-- Sequential task runs Firefox shards `1/4` to `4/4` in order, stopping on first
-  failing shard due to `&&` chaining.
-- Per-shard tasks run only their respective shard for triage speed.
-- Only the listed non-security paths are included in the run.
-- Execution targets `http://127.0.0.1:8080`.
-- Security toggle is disabled for all runs
-  (`CHARON_SECURITY_TESTS_ENABLED=false`).
-- Worker index is explicitly set per shard (`TEST_WORKER_INDEX=1..4`).
-- Playwright artifacts are written to deterministic per-shard paths
-  (`playwright-output/firefox-shard-1` through
-  `playwright-output/firefox-shard-4`).
-- Process exits `0` when invoked shard(s) pass; non-zero on test failure.
+Accessibility continuity:
+- Preserve existing button names and aria labeling in ManualDNSChallenge.
+- Ensure focus flow remains predictable when opening/closing panel.
 
-## 6. Acceptance Criteria
+## 3.5 Test strategy updates
 
-- [ ] `.vscode/tasks.json` includes exactly five new CI-parity Firefox
-      non-security tasks: one sequential runner and four per-shard triage tasks.
-- [ ] VS Code task execution succeeds (`exit code 0`) in a healthy E2E runtime,
-  with prerequisites satisfied (healthy container or `docker-rebuild-e2e`).
-- [ ] Every task command includes all explicit parity fields:
-  `CI=true`, `PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080`,
-  `CHARON_SECURITY_TESTS_ENABLED=false`, matching `--shard=N/4`,
-  matching `--output=playwright-output/firefox-shard-N`, matching
-  `TEST_WORKER_INDEX=N`, and explicit non-security test paths.
-- [ ] Task format and style match existing Playwright tasks in the repository.
-- [ ] Plan scope remains minimal: implementation changes are limited to
-  `.vscode/tasks.json`.
-- [ ] Manual run (task or equivalent command) behaves as expected.
+E2E tests to stabilize:
+- tests/core/domain-dns-management.spec.ts
+
+E2E test-edit guard:
+- Do not edit failing E2E tests during initial fix.
+- Only after frontend fix attempt, if the same failure still reproduces deterministically, allow minimal assertion/wait adjustments limited to the failing steps.
+
+Related E2E tests for regression guard:
+- tests/dns-provider-crud.spec.ts
+- tests/manual-dns-provider.spec.ts
+- tests/dns-provider-types.spec.ts
+
+Frontend unit test additions (new):
+- frontend/src/pages/__tests__/DNSProviders.test.tsx (new file)
+  - Case 1: providers render when manual challenge fetch returns 404.
+  - Case 2: manual panel opens only after explicit button action.
+  - Case 3: provider grid remains visible after manual challenge fetch error.
+
+Backend unit tests (only if Option B implemented):
+- backend/internal/api/handlers/manual_challenge_handler_test.go
+- backend/internal/services/manual_challenge_service_test.go
+
+---
+
+## 4) Implementation Plan (Phased, minimal-request first)
+
+## Phase 1 - Reproduction and baseline lock
+
+Goal:
+- Lock failing behavior and ensure deterministic reproduction path.
+
+Actions:
+1. Run targeted failing tests only in tests/core/domain-dns-management.spec.ts.
+2. Capture failure screenshots, traces, and assertions.
+3. Capture request timeline for /api/v1/dns-providers and manual challenge endpoints.
+
+Expected output:
+- Baseline artifact bundle confirming pre-fix failure.
+
+## Phase 2 - Frontend display mode correction (least requests)
+
+Goal:
+- Ensure provider list renders independently from manual challenge fetch.
+
+Files:
+- frontend/src/pages/DNSProviders.tsx
+
+Actions:
+1. Decouple panel visibility from challenge fetch side effects.
+2. Remove synthetic fallback challenge creation on fetch error.
+3. Make manual challenge fetch opt-in (button-driven).
+4. Keep provider cards visible by default after provider list fetch.
+
+Expected output:
+- The two failing tests can locate seeded provider cards.
+
+## Phase 3 - Test hardening and contract coverage
+
+Goal:
+- Prevent regressions in DNS page state machine.
+
+Files:
+- tests/core/domain-dns-management.spec.ts (assertion timing refinements only if needed)
+- frontend/src/pages/__tests__/DNSProviders.test.tsx (new)
+
+Actions:
+1. Add unit tests for no-active-challenge behavior.
+2. Verify manual challenge visibility toggle logic.
+3. Keep Playwright assertions role-based and deterministic.
+4. Do not modify existing failing E2E assertions in this phase unless post-fix deterministic failure persists.
+
+Expected output:
+- Stable UI contract for providers + manual challenge coexistence.
+
+## Phase 4 - Backend/API enhancement (deferred by default)
+
+Goal:
+- Normalize active challenge retrieval contract, reduce 404 control-flow usage.
+
+Scope rule:
+- Out of scope for this spec by default.
+- Enter this phase only if the frontend-only fix fails to resolve the two target failures after deterministic re-runs.
+
+Files:
+- backend/internal/api/handlers/manual_challenge_handler.go
+- backend/internal/services/manual_challenge_service.go
+- backend/internal/api/routes/routes.go
+- backend/internal/api/handlers/manual_challenge_handler_test.go
+- backend/internal/services/manual_challenge_service_test.go
+
+Actions:
+1. Add explicit active challenge endpoint.
+2. Return 204 or structured null payload for no-active state.
+3. Update frontend manual flow to consume explicit endpoint.
+
+Expected output:
+- Cleaner API semantics and fewer error-as-control-flow branches.
+
+## Phase 5 - Validation and CI gates
+
+Goal:
+- Validate functionality, patch coverage, and security checks.
+
+Actions:
+1. Run exactly the two failing Firefox tests in tests/core/domain-dns-management.spec.ts.
+2. Repeat the same two tests to confirm stability (deterministic pass/fail behavior).
+3. Run one focused manual DNS regression: tests/manual-dns-provider.spec.ts.
+4. Broaden beyond this set only if failures remain unresolved after steps 1-3.
+5. Run additional coverage/security gates per repo policy only after deterministic validation set is complete.
+
+Expected output:
+- Green E2E for failing scenarios, no regressions in DNS/manual challenge suites.
+
+---
+
+## 5) Risk and Edge Case Matrix
+
+1. Risk: Manual challenge panel no longer appears automatically for valid active challenges.
+   - Mitigation: explicit open action plus optional active endpoint check.
+
+2. Risk: Existing manual-dns-provider tests assume automatic panel visibility.
+   - Mitigation: update tests to trigger panel intentionally via Manual DNS Challenge button.
+
+3. Risk: Provider card heading selector changes break tests.
+   - Mitigation: keep DNSProviderCard title semantics stable in frontend/src/components/DNSProviderCard.tsx.
+
+4. Risk: Encryption key not configured in environment suppresses DNS routes.
+   - Mitigation: confirm CHARON_ENCRYPTION_KEY presence in test runtime before asserting provider flows.
+
+---
+
+## 6) File-by-File Change Map
+
+Planned edits (high likelihood):
+- frontend/src/pages/DNSProviders.tsx
+- frontend/src/pages/__tests__/DNSProviders.test.tsx (new)
+- tests/core/domain-dns-management.spec.ts (small sync updates only if required)
+
+Conditional edits (if API enhancement chosen):
+- backend/internal/api/handlers/manual_challenge_handler.go
+- backend/internal/services/manual_challenge_service.go
+- backend/internal/api/routes/routes.go
+- backend/internal/api/handlers/manual_challenge_handler_test.go
+- backend/internal/services/manual_challenge_service_test.go
+
+No expected edits for root fix:
+- backend/internal/api/handlers/dns_provider_handler.go
+- backend/internal/services/dns_provider_service.go
+
+---
+
+## 7) Deferred Scope Notes
+
+- Unrelated root-level configuration file review is deferred and removed from this spec scope.
+- Any .gitignore, codecov.yml, .dockerignore, or Dockerfile review must be handled in a separate dedicated plan.
+
+---
+
+## 8) Acceptance Criteria
+
+Functional:
+- The two previously failing tests in tests/core/domain-dns-management.spec.ts pass in Firefox:
+  - DNS Providers - list providers after API seed
+  - DNS Providers - delete provider via API and verify removal
+
+Behavioral:
+- DNS provider cards are visible after API seed on /dns/providers.
+- Provider card visibility no longer depends on fallback manual challenge state.
+- Manual challenge panel appears only under explicit trigger or real active challenge state.
+
+Quality:
+- No regression in tests/manual-dns-provider.spec.ts and tests/dns-provider-crud.spec.ts.
+- Added or updated unit tests cover DNSProviders page state transitions.
+- Validation sequence follows minimal deterministic order: two failing Firefox tests, repeat run, then one manual DNS regression test.
+- No backend/API enhancement work is executed unless frontend fix attempt fails and failure still reproduces.
+
+Coverage and gate alignment:
+- Patch coverage remains 100% for modified lines.
+- Existing project coverage thresholds remain satisfied.
+
+---
+
+## 9) Handoff to Supervisor
+
+Supervisor review focus:
+1. Verify root-cause alignment: UI state gating vs backend CRUD.
+2. Confirm minimal-request architecture in DNSProviders page flow.
+3. Confirm manual panel state is explicit UI state and not inferred from challenge object presence.
+4. Confirm no hidden regressions in manual challenge UX and accessibility semantics.
+5. Approve frontend-first execution, with backend/API phase only if frontend fix fails.

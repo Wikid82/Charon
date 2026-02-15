@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Cloud } from 'lucide-react'
 import { Button, Alert, EmptyState, Skeleton } from '../components/ui'
@@ -19,37 +19,43 @@ export default function DNSProviders() {
   const [testingProviderId, setTestingProviderId] = useState<number | null>(null)
   const [manualChallenge, setManualChallenge] = useState<ManualChallenge | null>(null)
   const [activeManualProviderId, setActiveManualProviderId] = useState<number | null>(null)
+  const [isManualChallengeOpen, setIsManualChallengeOpen] = useState(false)
 
-  const manualProviderId = providers.find((provider) => provider.provider_type === 'manual')?.id ?? 1
+  const manualProviderId = providers.find((provider) => provider.provider_type === 'manual')?.id ?? null
 
-  const loadManualChallenge = useCallback(async (providerId: number) => {
+  const loadManualChallenge = useCallback(async (providerId: number): Promise<boolean> => {
     try {
       const challenge = await getChallenge(providerId, 'active')
       setManualChallenge(challenge)
       setActiveManualProviderId(providerId)
+      return true
     } catch {
-      const now = new Date()
-      const fallbackChallenge: ManualChallenge = {
-        id: 'active',
-        status: 'pending',
-        fqdn: '_acme-challenge.example.com',
-        value: 'mock-challenge-token-value-abc123',
-        ttl: 300,
-        created_at: now.toISOString(),
-        expires_at: new Date(now.getTime() + 10 * 60 * 1000).toISOString(),
-        dns_propagated: false,
-      }
-      setManualChallenge(fallbackChallenge)
+      setManualChallenge(null)
       setActiveManualProviderId(providerId)
+      return false
     }
   }, [])
 
-  useEffect(() => {
-    if (isLoading) return
-    void loadManualChallenge(manualProviderId)
-  }, [isLoading, loadManualChallenge, manualProviderId])
+  const manualChallengeProviderId = activeManualProviderId ?? manualProviderId
+  const showManualChallenge =
+    isManualChallengeOpen && Boolean(manualChallenge) && manualChallengeProviderId !== null
 
-  const showManualChallenge = Boolean(manualChallenge)
+  const handleManualChallengeClick = async () => {
+    if (manualProviderId === null) {
+      toast.error(t('dnsProviders.noProviders'))
+      return
+    }
+
+    const hasChallenge = await loadManualChallenge(manualProviderId)
+
+    if (!hasChallenge) {
+      toast.error(t('dnsProvider.manual.challengeNotFound'))
+      setIsManualChallengeOpen(false)
+      return
+    }
+
+    setIsManualChallengeOpen(true)
+  }
 
   const handleAddProvider = () => {
     setEditingProvider(null)
@@ -124,20 +130,29 @@ export default function DNSProviders() {
       </Alert>
 
       <div className="flex justify-end">
-        <Button variant="secondary" onClick={() => void loadManualChallenge(manualProviderId)}>
+        <Button variant="secondary" onClick={() => void handleManualChallengeClick()}>
           {t('dnsProvider.manual.title')}
         </Button>
       </div>
 
-      {showManualChallenge && manualChallenge && (
+      {showManualChallenge && manualChallenge && manualChallengeProviderId !== null && (
         <ManualDNSChallenge
-          providerId={activeManualProviderId ?? manualProviderId}
+          providerId={manualChallengeProviderId}
           challenge={manualChallenge}
           onComplete={() => {
-            void loadManualChallenge(activeManualProviderId ?? manualProviderId)
+            const providerId = activeManualProviderId ?? manualProviderId
+            if (providerId === null) {
+              setIsManualChallengeOpen(false)
+              return
+            }
+
+            void loadManualChallenge(providerId).then((hasChallenge) => {
+              setIsManualChallengeOpen(hasChallenge)
+            })
           }}
           onCancel={() => {
             setManualChallenge(null)
+            setIsManualChallengeOpen(false)
           }}
         />
       )}
