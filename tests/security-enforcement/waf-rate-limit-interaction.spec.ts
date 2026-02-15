@@ -16,8 +16,8 @@ test.describe('WAF & Rate Limit Interaction', () => {
   };
 
   test.beforeEach(async ({ page }) => {
-    await page.goto('/', { waitUntil: 'networkidle' });
-    await page.waitForSelector('[role="main"]', { timeout: 5000 });
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await page.waitForLoadState('networkidle');
   });
 
   test.afterEach(async ({ page }) => {
