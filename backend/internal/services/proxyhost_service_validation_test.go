@@ -134,3 +134,67 @@ func TestProxyHostService_DomainNamesRequired(t *testing.T) {
 		assert.Equal(t, "valid.example.com", persisted.DomainNames)
 	})
 }
+
+func TestProxyHostService_DNSChallengeValidation(t *testing.T) {
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+
+	t.Run("create rejects use_dns_challenge without provider", func(t *testing.T) {
+		host := &models.ProxyHost{
+			UUID:            "dns-create-validation",
+			DomainNames:     "dns-create.example.com",
+			ForwardHost:     "localhost",
+			ForwardPort:     8080,
+			ForwardScheme:   "http",
+			UseDNSChallenge: true,
+			DNSProviderID:   nil,
+		}
+
+		err := service.Create(host)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "dns provider is required")
+	})
+
+	t.Run("update rejects use_dns_challenge without provider", func(t *testing.T) {
+		host := &models.ProxyHost{
+			UUID:            "dns-update-validation",
+			DomainNames:     "dns-update.example.com",
+			ForwardHost:     "localhost",
+			ForwardPort:     8080,
+			ForwardScheme:   "http",
+			UseDNSChallenge: false,
+		}
+
+		err := service.Create(host)
+		assert.NoError(t, err)
+
+		host.UseDNSChallenge = true
+		host.DNSProviderID = nil
+		err = service.Update(host)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "dns provider is required")
+
+		persisted, getErr := service.GetByID(host.ID)
+		assert.NoError(t, getErr)
+		assert.False(t, persisted.UseDNSChallenge)
+		assert.Nil(t, persisted.DNSProviderID)
+	})
+
+	t.Run("create trims domain and forward host", func(t *testing.T) {
+		host := &models.ProxyHost{
+			UUID:          "dns-trim-validation",
+			DomainNames:   "  trim.example.com  ",
+			ForwardHost:   "  localhost  ",
+			ForwardPort:   8080,
+			ForwardScheme: "http",
+		}
+
+		err := service.Create(host)
+		assert.NoError(t, err)
+
+		persisted, getErr := service.GetByID(host.ID)
+		assert.NoError(t, getErr)
+		assert.Equal(t, "trim.example.com", persisted.DomainNames)
+		assert.Equal(t, "localhost", persisted.ForwardHost)
+	})
+}

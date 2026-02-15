@@ -80,7 +80,10 @@ func (s *ProxyHostService) ValidateHostname(host string) error {
 }
 
 func (s *ProxyHostService) validateProxyHost(host *models.ProxyHost) error {
-	if strings.TrimSpace(host.DomainNames) == "" {
+	host.DomainNames = strings.TrimSpace(host.DomainNames)
+	host.ForwardHost = strings.TrimSpace(host.ForwardHost)
+
+	if host.DomainNames == "" {
 		return errors.New("domain names is required")
 	}
 
@@ -112,6 +115,10 @@ func (s *ProxyHostService) validateProxyHost(host *models.ProxyHost) error {
 		if !validHostname {
 			return errors.New("forward host must be a valid IP address or hostname")
 		}
+	}
+
+	if host.UseDNSChallenge && host.DNSProviderID == nil {
+		return errors.New("dns provider is required when use_dns_challenge is enabled")
 	}
 
 	return nil
