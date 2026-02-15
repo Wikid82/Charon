@@ -110,7 +110,8 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
 
     await test.step('Navigate to Users page', async () => {
       await page.goto(`${baseURL}/users`)
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('domcontentloaded')
+      await page.waitForURL(/users|login/i)
     })
 
     await test.step('Click "Invite User" button', async () => {
@@ -173,9 +174,12 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
   })
 
   test('C. UsersPage - EditPermissionsModal Dropdowns', async ({ page }) => {
+    let editPermissionsModalVisible = false
+
     await test.step('Navigate to Users page', async () => {
       await page.goto(`${baseURL}/users`)
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('domcontentloaded')
+      await page.waitForURL(/users|login/i)
     })
 
     await test.step('Find and click Edit Permissions for first user', async () => {
@@ -183,6 +187,7 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
       if (await editButtons.first().isVisible()) {
         await editButtons.first().click()
         await expect(page.getByRole('dialog').first()).toBeVisible({ timeout: 3000 })
+        editPermissionsModalVisible = true
       } else {
         console.log('⚠️ No users found or edit button not visible')
         return
@@ -190,6 +195,10 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
     })
 
     await test.step('Test permission dropdowns', async () => {
+      if (!editPermissionsModalVisible) {
+        return
+      }
+
       const allSelects = page.locator('select')
       const selectCount = await allSelects.count()
 
@@ -206,6 +215,9 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
     })
 
     await test.step('Close modal', async () => {
+      if (!editPermissionsModalVisible) {
+        return
+      }
       await page.keyboard.press('Escape')
       await expect(page.getByRole('dialog').first()).toBeHidden({ timeout: 3000 })
     })

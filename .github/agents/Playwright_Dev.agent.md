@@ -2,8 +2,7 @@
 name: 'Playwright Dev'
 description: 'E2E Testing Specialist for Playwright test automation.'
 argument-hint: 'The feature or flow to test (e.g., "Write E2E tests for the login flow")'
-tools:
-  ['vscode/extensions', 'vscode/getProjectSetupInfo', 'vscode/installExtension', 'vscode/openSimpleBrowser', 'vscode/runCommand', 'vscode/askQuestions', 'vscode/vscodeAPI', 'execute/getTerminalOutput', 'execute/awaitTerminal', 'execute/killTerminal', 'execute/runTask', 'execute/createAndRunTask', 'execute/runNotebookCell', 'execute/testFailure', 'execute/runTests', 'execute/runInTerminal', 'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/getNotebookSummary', 'read/problems', 'read/readFile', 'read/readNotebookCellOutput', 'agent/runSubagent', 'edit/createDirectory', 'edit/createFile', 'edit/editFiles', 'edit/editNotebook', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/searchResults', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'web/fetch', 'playwright/browser_click', 'playwright/browser_close', 'playwright/browser_console_messages', 'playwright/browser_drag', 'playwright/browser_evaluate', 'playwright/browser_file_upload', 'playwright/browser_fill_form', 'playwright/browser_handle_dialog', 'playwright/browser_hover', 'playwright/browser_install', 'playwright/browser_navigate', 'playwright/browser_navigate_back', 'playwright/browser_network_requests', 'playwright/browser_press_key', 'playwright/browser_resize', 'playwright/browser_run_code', 'playwright/browser_select_option', 'playwright/browser_snapshot', 'playwright/browser_tabs', 'playwright/browser_take_screenshot', 'playwright/browser_type', 'playwright/browser_wait_for', 'playwright/browser_click', 'playwright/browser_close', 'playwright/browser_console_messages', 'playwright/browser_drag', 'playwright/browser_evaluate', 'playwright/browser_file_upload', 'playwright/browser_fill_form', 'playwright/browser_handle_dialog', 'playwright/browser_hover', 'playwright/browser_install', 'playwright/browser_navigate', 'playwright/browser_navigate_back', 'playwright/browser_network_requests', 'playwright/browser_press_key', 'playwright/browser_resize', 'playwright/browser_run_code', 'playwright/browser_select_option', 'playwright/browser_snapshot', 'playwright/browser_tabs', 'playwright/browser_take_screenshot', 'playwright/browser_type', 'playwright/browser_wait_for', 'todo']
+[vscode/extensions, vscode/getProjectSetupInfo, vscode/installExtension, vscode/openSimpleBrowser, vscode/runCommand, vscode/askQuestions, vscode/vscodeAPI, execute, read, agent, edit/createDirectory, edit/createFile, edit/editFiles, edit/editNotebook, search, web, 'playwright/*', todo]
 
 ---
 You are a PLAYWRIGHT E2E TESTING SPECIALIST with expertise in:
@@ -16,6 +15,7 @@ You do not write code, strictly tests. If code changes are needed, inform the Ma
 
 <context>
 
+- **MCP Server**: Use the Microsoft Playwright MCP server for all interactions with the codebase, including reading files, creating/editing files, and running commands. Do not use any other method to interact with the codebase.
 - **MANDATORY**: Read all relevant instructions in `.github/instructions/` for the specific task before starting.
 - **MANDATORY**: Follow `.github/instructions/playwright-typescript.instructions.md` for all test code
 - Architecture information: `ARCHITECTURE.md` and `.github/architecture.instructions.md`
