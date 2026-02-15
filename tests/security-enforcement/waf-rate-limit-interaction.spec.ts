@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 /**
  * Integration: WAF & Rate Limit Interaction
@@ -11,8 +11,24 @@ import { test, expect } from '@playwright/test';
 test.describe('WAF & Rate Limit Interaction', () => {
   const testProxy = {
     domain: 'waf-test.local',
-    target: 'http://localhost:3001',
+    forwardHost: '127.0.0.1',
+    forwardPort: '3001',
     description: 'Test proxy for WAF and rate limit',
+  };
+
+  const fillProxyForm = async (page: Page) => {
+    await page.locator('#domain-names').fill(testProxy.domain);
+    await page.locator('#forward-host').fill(testProxy.forwardHost);
+    const forwardPortInput = page.locator('#forward-port');
+    await forwardPortInput.clear();
+    await forwardPortInput.fill(testProxy.forwardPort);
+
+    const descriptionInput = page
+      .locator('textarea[name*="description"], input[name*="description"], #description')
+      .first();
+    if (await descriptionInput.isVisible().catch(() => false)) {
+      await descriptionInput.fill(testProxy.description);
+    }
   };
 
   test.beforeEach(async ({ page }) => {
@@ -48,9 +64,7 @@ test.describe('WAF & Rate Limit Interaction', () => {
       const addButton = page.getByRole('button', { name: /add|create/i }).first();
       await addButton.click();
 
-      await page.getByLabel(/domain/i).fill(testProxy.domain);
-      await page.getByLabel(/target|forward/i).fill(testProxy.target);
-      await page.getByLabel(/description/i).fill(testProxy.description);
+      await fillProxyForm(page);
 
       const wafToggle = page.locator('input[type="checkbox"][name*="waf"], [class*="waf"] input[type="checkbox"]').first();
       if (await wafToggle.isVisible()) {
@@ -88,9 +102,7 @@ test.describe('WAF & Rate Limit Interaction', () => {
       const addButton = page.getByRole('button', { name: /add|create/i }).first();
       await addButton.click();
 
-      await page.getByLabel(/domain/i).fill(testProxy.domain);
-      await page.getByLabel(/target|forward/i).fill(testProxy.target);
-      await page.getByLabel(/description/i).fill(testProxy.description);
+      await fillProxyForm(page);
 
       const rateLimitToggle = page.locator('input[type="checkbox"][name*="rate"], [class*="rate"] input[type="checkbox"]').first();
       if (await rateLimitToggle.isVisible()) {
@@ -138,9 +150,7 @@ test.describe('WAF & Rate Limit Interaction', () => {
       const addButton = page.getByRole('button', { name: /add|create/i }).first();
       await addButton.click();
 
-      await page.getByLabel(/domain/i).fill(testProxy.domain);
-      await page.getByLabel(/target|forward/i).fill(testProxy.target);
-      await page.getByLabel(/description/i).fill(testProxy.description);
+      await fillProxyForm(page);
 
       const wafToggle = page.locator('input[type="checkbox"][name*="waf"]').first();
       if (await wafToggle.isVisible()) {
@@ -196,9 +206,7 @@ test.describe('WAF & Rate Limit Interaction', () => {
       const addButton = page.getByRole('button', { name: /add|create/i }).first();
       await addButton.click();
 
-      await page.getByLabel(/domain/i).fill(testProxy.domain);
-      await page.getByLabel(/target|forward/i).fill(testProxy.target);
-      await page.getByLabel(/description/i).fill(testProxy.description);
+      await fillProxyForm(page);
 
       const wafToggle = page.locator('input[type="checkbox"][name*="waf"]').first();
       if (await wafToggle.isVisible()) {
@@ -251,9 +259,7 @@ test.describe('WAF & Rate Limit Interaction', () => {
       const addButton = page.getByRole('button', { name: /add|create/i }).first();
       await addButton.click();
 
-      await page.getByLabel(/domain/i).fill(testProxy.domain);
-      await page.getByLabel(/target|forward/i).fill(testProxy.target);
-      await page.getByLabel(/description/i).fill(testProxy.description);
+      await fillProxyForm(page);
 
       const rateLimitToggle = page.locator('input[type="checkbox"][name*="rate"]').first();
       if (await rateLimitToggle.isVisible()) {
