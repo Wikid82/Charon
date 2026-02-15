@@ -190,10 +190,13 @@ test.describe('Manual DNS Provider Feature', () => {
         const recordValueLabel = page.getByText(/record value/i);
         await expect(recordValueLabel).toBeVisible();
 
-        const recordValueField = page
-          .locator('#record-value')
-          .or(page.locator('code').filter({ hasText: /mock-challenge-token|challenge-token|acme/i }));
-        await expect(recordValueField).toBeVisible();
+        const recordValueById = page.locator('#record-value');
+        const recordValueByText = page.locator('code').filter({ hasText: /mock-challenge-token-value|challenge-token/i }).first();
+        const hasVisibleRecordValue =
+          await recordValueById.isVisible().catch(() => false) ||
+          await recordValueByText.isVisible().catch(() => false);
+
+        expect(hasVisibleRecordValue).toBeTruthy();
       });
     });
 
