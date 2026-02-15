@@ -292,7 +292,7 @@ test.describe('Admin-User E2E Workflow', () => {
       const createdUser = await createUserViaApi(page, { ...testUser, role: 'user' });
       createdUserId = createdUser.id;
 
-      await page.goto('/users', { waitUntil: 'networkidle' });
+      await page.goto('/users', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page, { timeout: 15000 });
       await expect(page.getByText(testUser.email).first()).toBeVisible({ timeout: 15000 });
 
@@ -352,7 +352,7 @@ test.describe('Admin-User E2E Workflow', () => {
     });
 
     await test.step('STEP 6: User cannot access user management', async () => {
-      await page.goto('/users', { waitUntil: 'networkidle' });
+      await page.goto('/users', { waitUntil: 'domcontentloaded' });
       const accessDeniedMessage = page.getByText(/access.*denied|forbidden|not allowed|admin access required/i).first();
       const hasUsersHeading = await page.getByRole('heading', { name: /users/i }).first().isVisible().catch(() => false);
       const hasAccessDenied = await accessDeniedMessage.isVisible().catch(() => false);
@@ -428,9 +428,10 @@ test.describe('Admin-User E2E Workflow', () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       expect(usersAccessResponse.status()).toBe(200);
-      await page.goto('/users', { waitUntil: 'networkidle' });
-      await page.reload({ waitUntil: 'networkidle' });
-      await page.waitForLoadState('networkidle');
+      await page.goto('/users', { waitUntil: 'domcontentloaded' });
+      await waitForLoadingComplete(page, { timeout: 15000 });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await waitForLoadingComplete(page, { timeout: 15000 });
       const usersAccessAfterReload = await page.request.get('/api/v1/users', {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -533,7 +534,7 @@ test.describe('Admin-User E2E Workflow', () => {
       await loginWithCredentials(page, testUser.email, testUser.password);
 
       // Try to access user management
-      await page.goto('/users', { waitUntil: 'networkidle' });
+      await page.goto('/users', { waitUntil: 'domcontentloaded' });
     });
 
     await test.step('Verify user cannot access user management', async () => {
