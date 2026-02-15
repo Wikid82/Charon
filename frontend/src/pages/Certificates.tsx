@@ -51,7 +51,7 @@ export default function Certificates() {
 
   // Header actions
   const headerActions = (
-    <Button onClick={() => setIsModalOpen(true)}>
+    <Button onClick={() => setIsModalOpen(true)} data-testid="add-certificate-btn">
       <Plus className="w-4 h-4 mr-2" />
       {t('certificates.addCertificate')}
     </Button>
@@ -71,7 +71,7 @@ export default function Certificates() {
 
       {/* Upload Certificate Dialog */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent>
+        <DialogContent data-testid="certificate-upload-dialog">
           <DialogHeader>
             <DialogTitle>{t('certificates.uploadCertificate')}</DialogTitle>
           </DialogHeader>
@@ -88,6 +88,7 @@ export default function Certificates() {
               <Label htmlFor="cert-file">{t('certificates.certificatePem')}</Label>
               <input
                 id="cert-file"
+                data-testid="certificate-file-input"
                 type="file"
                 accept=".pem,.crt,.cer"
                 onChange={(e) => setCertFile(e.target.files?.[0] || null)}
@@ -99,6 +100,7 @@ export default function Certificates() {
               <Label htmlFor="key-file">{t('certificates.privateKeyPem')}</Label>
               <input
                 id="key-file"
+                data-testid="certificate-key-input"
                 type="file"
                 accept=".pem,.key"
                 onChange={(e) => setKeyFile(e.target.files?.[0] || null)}

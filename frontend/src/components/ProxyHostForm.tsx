@@ -936,7 +936,12 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 setFormData(prev => ({ ...prev, websocket_support: needsWebsockets || prev.websocket_support }))
               }}
             >
-              <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Application Preset">
+              <SelectTrigger
+                id="application-preset"
+                data-testid="application-preset"
+                className="w-full bg-gray-900 border-gray-700 text-white"
+                aria-label="Application Preset"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1279,6 +1284,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               type="button"
               onClick={onCancel}
               disabled={loading}
+              data-testid="proxy-host-cancel"
               className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
             >
               Cancel
@@ -1288,6 +1294,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               type="button"
               onClick={handleTestConnection}
               disabled={loading || testStatus === 'testing' || !formData.forward_host || !formData.forward_port}
+              data-testid="proxy-host-test-connection"
               className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-50 ${
                 testStatus === 'success' ? 'bg-green-600 hover:bg-green-500 text-white' :
                 testStatus === 'error' ? 'bg-red-600 hover:bg-red-500 text-white' :
@@ -1304,6 +1311,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             <button
               type="submit"
               disabled={loading}
+              data-testid="proxy-host-save"
               className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
             >
               {loading ? 'Saving...' : 'Save'}

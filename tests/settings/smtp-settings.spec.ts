@@ -213,7 +213,7 @@ test.describe('SMTP Settings', () => {
 
       await test.step('Attempt to save and verify validation', async () => {
         await saveButton.click();
-        await page.waitForTimeout(500);
+        await waitForLoadingComplete(page);
 
         // Check for validation error
         const errorMessage = page.getByText(/invalid.*email|email.*format|valid.*email/i);
@@ -238,7 +238,7 @@ test.describe('SMTP Settings', () => {
         await fromInput.fill('noreply@example.com');
 
         // Should not show validation error for valid email
-        await page.waitForTimeout(300);
+        await waitForLoadingComplete(page);
         const inputHasError = await fromInput.evaluate((el) =>
           el.classList.contains('border-red-500')
         ).catch(() => false);
@@ -384,7 +384,7 @@ test.describe('SMTP Settings', () => {
         await hostInput.clear();
         await hostInput.fill(originalHost || 'smtp.test.local');
         await saveButton.click();
-        await page.waitForTimeout(1000);
+        await waitForToast(page, /saved|success/i, { type: 'success', timeout: 10000 });
       });
     });
 
@@ -413,7 +413,7 @@ test.describe('SMTP Settings', () => {
         await saveButton.click();
 
         // Wait for save to complete
-        await page.waitForTimeout(1000);
+        await waitForToast(page, /saved|success/i, { type: 'success', timeout: 10000 });
 
         // After save, password field may be cleared or masked
         // The actual behavior depends on implementation
@@ -442,7 +442,7 @@ test.describe('SMTP Settings', () => {
         await passwordInput.clear();
         await passwordInput.fill('initial-password');
         await saveButton.click();
-        await page.waitForTimeout(1000);
+        await waitForToast(page, /saved|success/i, { type: 'success', timeout: 10000 });
       });
 
       await test.step('Reload page', async () => {
@@ -757,7 +757,7 @@ test.describe('SMTP Settings', () => {
 
         // Open select with Enter or Space
         await page.keyboard.press('Enter');
-        await page.waitForTimeout(300);
+        await waitForLoadingComplete(page);
 
         // Check if listbox opened
         const listbox = page.getByRole('listbox');
@@ -877,7 +877,7 @@ test.describe('SMTP Settings', () => {
         // Try to save with empty required field
         const saveButton = page.getByRole('button', { name: /save/i }).last();
         await saveButton.click();
-        await page.waitForTimeout(500);
+        await waitForLoadingComplete(page);
       });
 
       await test.step('Verify error announcement', async () => {

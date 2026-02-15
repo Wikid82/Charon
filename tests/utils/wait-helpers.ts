@@ -243,22 +243,38 @@ export async function waitForLoadingComplete(
     return;
   }
 
-  // Wait for any loading indicator to disappear
-  // Updated to be more specific and exclude pulsing UI badges
+  // Wait for visible loading indicators to disappear.
+  // Avoid broad class-based selectors (e.g. .loading, .spinner) to prevent
+  // false positives from persistent layout/status elements.
   const loader = page.locator([
     '[role="progressbar"]:not([aria-label*="Challenge timeout progress"])',
     '[aria-busy="true"]',
-    '.loading-spinner',
-    '.loading',
-    '.spinner',
     '[data-loading="true"]',
+    '[data-testid="config-reload-overlay"]',
+    '[data-testid="loading-spinner"]',
     '[role="status"][aria-label="Loading"]',
     '[role="status"][aria-label="Authenticating"]',
     '[role="status"][aria-label="Security Loading"]'
   ].join(', '));
 
   try {
-    await expect(loader).toHaveCount(0, { timeout });
+    await expect
+      .poll(async () => {
+        const count = await loader.count();
+        if (count === 0) {
+          return 0;
+        }
+
+        let visibleCount = 0;
+        for (let index = 0; index < count; index += 1) {
+          if (await loader.nth(index).isVisible().catch(() => false)) {
+            visibleCount += 1;
+          }
+        }
+
+        return visibleCount;
+      }, { timeout })
+      .toBe(0);
   } catch (error) {
     if (page.isClosed()) {
       return;
