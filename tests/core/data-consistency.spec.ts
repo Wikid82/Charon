@@ -358,7 +358,8 @@ test.describe('Data Consistency', () => {
         }
       );
 
-      expect([200, 400, 422]).toContain(response.status());
+      expect(response.ok()).toBe(false);
+      expect([400, 422]).toContain(response.status());
     });
 
     await test.step('Verify original data unchanged', async () => {

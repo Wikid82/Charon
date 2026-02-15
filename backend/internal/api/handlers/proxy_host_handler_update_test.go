@@ -295,6 +295,38 @@ func TestProxyHostUpdate_WAFDisabled(t *testing.T) {
 	assert.True(t, updated.WAFDisabled)
 }
 
+func TestProxyHostUpdate_RejectsEmptyDomainNamesAndPreservesOriginal(t *testing.T) {
+	t.Parallel()
+	router, db := setupUpdateTestRouter(t)
+
+	host := models.ProxyHost{
+		UUID:          uuid.NewString(),
+		Name:          "Validation Test Host",
+		DomainNames:   "original.example.com",
+		ForwardScheme: "http",
+		ForwardHost:   "localhost",
+		ForwardPort:   8080,
+		Enabled:       true,
+	}
+	require.NoError(t, db.Create(&host).Error)
+
+	updateBody := map[string]any{
+		"domain_names": "",
+	}
+	body, _ := json.Marshal(updateBody)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+
+	var updated models.ProxyHost
+	require.NoError(t, db.First(&updated, "uuid = ?", host.UUID).Error)
+	assert.Equal(t, "original.example.com", updated.DomainNames)
+}
+
 // TestProxyHostUpdate_SecurityHeaderProfileID_NegativeFloat tests that a negative float64
 // for security_header_profile_id returns a 400 Bad Request.
 func TestProxyHostUpdate_SecurityHeaderProfileID_NegativeFloat(t *testing.T) {
