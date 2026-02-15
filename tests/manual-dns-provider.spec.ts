@@ -9,6 +9,28 @@ import {
 
 const MANUAL_CHALLENGE_ROUTE = '**/api/v1/dns-providers/*/manual-challenge/*';
 const MANUAL_VERIFY_ROUTE = '**/api/v1/dns-providers/*/manual-challenge/*/verify';
+const DNS_PROVIDERS_ROUTE = '**/api/v1/dns-providers';
+
+const mockManualProvidersResponse = {
+  providers: [
+    {
+      id: 1,
+      uuid: 'manual-provider-uuid',
+      name: 'E2E Manual Provider',
+      provider_type: 'manual',
+      enabled: true,
+      is_default: false,
+      has_credentials: true,
+      propagation_timeout: 600,
+      polling_interval: 10,
+      success_count: 0,
+      failure_count: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ],
+  total: 1,
+};
 
 async function gotoWithRetry(
   page: Parameters<typeof test>[0]['page'],
@@ -53,6 +75,33 @@ async function addManualChallengeRoute(
   return async () => {
     await page.unroute(MANUAL_CHALLENGE_ROUTE, routeHandler);
   };
+}
+
+async function addDNSProvidersRoute(
+  page: Parameters<typeof test>[0]['page']
+): Promise<() => Promise<void>> {
+  const routeHandler = async (route: { fulfill: (options: { status: number; contentType: string; body: string }) => Promise<void> }) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mockManualProvidersResponse),
+    });
+  };
+
+  await page.route(DNS_PROVIDERS_ROUTE, routeHandler);
+
+  return async () => {
+    await page.unroute(DNS_PROVIDERS_ROUTE, routeHandler);
+  };
+}
+
+async function openManualChallengePanel(
+  page: Parameters<typeof test>[0]['page']
+): Promise<void> {
+  const manualChallengeButton = page.getByRole('button', { name: /manual dns challenge/i }).first();
+  await expect(manualChallengeButton).toBeVisible();
+  await manualChallengeButton.click();
+  await expect(page.getByRole('heading', { name: /manual dns challenge/i })).toBeVisible();
 }
 
 async function addManualVerifyRoute(
@@ -159,17 +208,24 @@ test.describe('Manual DNS Provider Feature', () => {
 
   test.describe('Manual Challenge UI Display', () => {
     let cleanupManualChallengeRoute: null | (() => Promise<void>) = null;
+    let cleanupDNSProvidersRoute: null | (() => Promise<void>) = null;
 
     test.beforeEach(async ({ page }) => {
+      cleanupDNSProvidersRoute = await addDNSProvidersRoute(page);
       cleanupManualChallengeRoute = await addManualChallengeRoute(page, mockManualChallenge as unknown as Record<string, unknown>);
       await gotoWithRetry(page, '/dns/providers');
       await waitForLoadingComplete(page);
+      await openManualChallengePanel(page);
     });
 
     test.afterEach(async () => {
       if (cleanupManualChallengeRoute) {
         await cleanupManualChallengeRoute();
         cleanupManualChallengeRoute = null;
+      }
+      if (cleanupDNSProvidersRoute) {
+        await cleanupDNSProvidersRoute();
+        cleanupDNSProvidersRoute = null;
       }
     });
 
@@ -180,10 +236,7 @@ test.describe('Manual DNS Provider Feature', () => {
      */
     test('should display challenge panel with required elements', async ({ page }) => {
       await test.step('Navigate to an active challenge (mock scenario)', async () => {
-        // This would navigate to an active manual challenge
-        // For now, we test the component structure
-        await page.goto('/dns/providers');
-        await waitForLoadingComplete(page);
+        await expect(page.getByRole('heading', { name: /manual dns challenge/i })).toBeVisible();
       });
 
       const challengeHeading = page.getByRole('heading', { name: /manual dns challenge/i });
@@ -259,17 +312,24 @@ test.describe('Manual DNS Provider Feature', () => {
 
   test.describe('Copy to Clipboard', () => {
     let cleanupManualChallengeRoute: null | (() => Promise<void>) = null;
+    let cleanupDNSProvidersRoute: null | (() => Promise<void>) = null;
 
     test.beforeEach(async ({ page }) => {
+      cleanupDNSProvidersRoute = await addDNSProvidersRoute(page);
       cleanupManualChallengeRoute = await addManualChallengeRoute(page, mockManualChallenge as unknown as Record<string, unknown>);
       await gotoWithRetry(page, '/dns/providers');
       await waitForLoadingComplete(page);
+      await openManualChallengePanel(page);
     });
 
     test.afterEach(async () => {
       if (cleanupManualChallengeRoute) {
         await cleanupManualChallengeRoute();
         cleanupManualChallengeRoute = null;
+      }
+      if (cleanupDNSProvidersRoute) {
+        await cleanupDNSProvidersRoute();
+        cleanupDNSProvidersRoute = null;
       }
     });
 
@@ -309,17 +369,24 @@ test.describe('Manual DNS Provider Feature', () => {
 
   test.describe('Verify Button Interactions', () => {
     let cleanupManualChallengeRoute: null | (() => Promise<void>) = null;
+    let cleanupDNSProvidersRoute: null | (() => Promise<void>) = null;
 
     test.beforeEach(async ({ page }) => {
+      cleanupDNSProvidersRoute = await addDNSProvidersRoute(page);
       cleanupManualChallengeRoute = await addManualChallengeRoute(page, mockManualChallenge as unknown as Record<string, unknown>);
       await page.goto('/dns/providers');
       await waitForLoadingComplete(page);
+      await openManualChallengePanel(page);
     });
 
     test.afterEach(async () => {
       if (cleanupManualChallengeRoute) {
         await cleanupManualChallengeRoute();
         cleanupManualChallengeRoute = null;
+      }
+      if (cleanupDNSProvidersRoute) {
+        await cleanupDNSProvidersRoute();
+        cleanupDNSProvidersRoute = null;
       }
     });
 
@@ -396,11 +463,13 @@ test.describe('Manual DNS Provider Feature', () => {
     });
 
     test('should have proper ARIA labels on copy buttons', async ({ page }) => {
+      const cleanupDNSProvidersRoute = await addDNSProvidersRoute(page);
+      const cleanupManualChallengeRoute = await addManualChallengeRoute(page, mockManualChallenge as unknown as Record<string, unknown>);
+
       await test.step('Navigate to manual DNS provider page', async () => {
-        await page.goto('/dns/providers');
+        await gotoWithRetry(page, '/dns/providers');
         await waitForLoadingComplete(page);
-        const challengeEntryButton = page.getByRole('button', { name: /manual dns challenge/i }).first();
-        await challengeEntryButton.click();
+        await openManualChallengePanel(page);
       });
 
       await test.step('Verify ARIA labels on copy buttons', async () => {
@@ -422,15 +491,25 @@ test.describe('Manual DNS Provider Feature', () => {
           expect(isAccessible).toBeTruthy();
         }
       });
+
+      await cleanupManualChallengeRoute();
+      await cleanupDNSProvidersRoute();
     });
 
     test('should announce status changes to screen readers', async ({ page }) => {
-      await page.goto('/dns/providers');
+      const cleanupDNSProvidersRoute = await addDNSProvidersRoute(page);
+      const cleanupManualChallengeRoute = await addManualChallengeRoute(page, mockManualChallenge as unknown as Record<string, unknown>);
+
+      await gotoWithRetry(page, '/dns/providers');
       await waitForLoadingComplete(page);
+      await openManualChallengePanel(page);
       await test.step('Verify live region for status updates', async () => {
         const liveRegion = page.locator('[aria-live="polite"], [role="status"]').first();
         await expect(liveRegion).toBeAttached();
       });
+
+      await cleanupManualChallengeRoute();
+      await cleanupDNSProvidersRoute();
     });
 
     // Test requires add provider dialog to function correctly
@@ -481,6 +560,7 @@ test.describe('Manual DNS Challenge Component Tests', () => {
    */
 
   test('should render all required challenge information', async ({ page }) => {
+    const cleanupDNSProvidersRoute = await addDNSProvidersRoute(page);
     const cleanupManualChallengeRoute = await addManualChallengeRoute(
       page,
       mockManualChallenge as unknown as Record<string, unknown>
@@ -489,6 +569,7 @@ test.describe('Manual DNS Challenge Component Tests', () => {
     try {
       await page.goto('/dns/providers');
       await waitForLoadingComplete(page);
+      await openManualChallengePanel(page);
 
       await test.step('Verify challenge FQDN is displayed', async () => {
         await expect(page.getByText('_acme-challenge.example.com')).toBeVisible();
@@ -503,10 +584,12 @@ test.describe('Manual DNS Challenge Component Tests', () => {
       });
     } finally {
       await cleanupManualChallengeRoute();
+      await cleanupDNSProvidersRoute();
     }
   });
 
   test('should handle expired challenge state', async ({ page }) => {
+    const cleanupDNSProvidersRoute = await addDNSProvidersRoute(page);
     const cleanupManualChallengeRoute = await addManualChallengeRoute(
       page,
       mockExpiredChallenge as unknown as Record<string, unknown>
@@ -515,6 +598,7 @@ test.describe('Manual DNS Challenge Component Tests', () => {
     try {
       await page.goto('/dns/providers');
       await waitForLoadingComplete(page);
+      await openManualChallengePanel(page);
 
       await test.step('Verify expired status is displayed', async () => {
         const expiredStatus = page.getByText(/expired/i);
@@ -530,10 +614,12 @@ test.describe('Manual DNS Challenge Component Tests', () => {
       });
     } finally {
       await cleanupManualChallengeRoute();
+      await cleanupDNSProvidersRoute();
     }
   });
 
   test('should handle verified challenge state', async ({ page }) => {
+    const cleanupDNSProvidersRoute = await addDNSProvidersRoute(page);
     const cleanupManualChallengeRoute = await addManualChallengeRoute(
       page,
       mockVerifiedChallenge as unknown as Record<string, unknown>
@@ -542,6 +628,7 @@ test.describe('Manual DNS Challenge Component Tests', () => {
     try {
       await gotoWithRetry(page, '/dns/providers');
       await waitForLoadingComplete(page);
+      await openManualChallengePanel(page);
 
       await test.step('Verify success status is displayed', async () => {
         const successStatus = page.getByText(/verified|success|valid|completed/i);
@@ -556,12 +643,14 @@ test.describe('Manual DNS Challenge Component Tests', () => {
       });
     } finally {
       await cleanupManualChallengeRoute();
+      await cleanupDNSProvidersRoute();
     }
   });
 });
 
 test.describe('Manual DNS Provider Error Handling', () => {
   test('should display error message on verification failure', async ({ page }) => {
+    const cleanupDNSProvidersRoute = await addDNSProvidersRoute(page);
     const cleanupManualChallengeRoute = await addManualChallengeRoute(
       page,
       mockManualChallenge as unknown as Record<string, unknown>
@@ -574,6 +663,7 @@ test.describe('Manual DNS Provider Error Handling', () => {
     try {
       await page.goto('/dns/providers');
       await waitForLoadingComplete(page);
+      await openManualChallengePanel(page);
 
       await test.step('Click verify and check error display', async () => {
         const verifyButton = page.getByRole('button', { name: /verify/i });
@@ -587,6 +677,7 @@ test.describe('Manual DNS Provider Error Handling', () => {
     } finally {
       await cleanupManualVerifyRoute();
       await cleanupManualChallengeRoute();
+      await cleanupDNSProvidersRoute();
     }
   });
 
@@ -595,6 +686,7 @@ test.describe('Manual DNS Provider Error Handling', () => {
       await route.abort('failed');
     };
 
+    const cleanupDNSProvidersRoute = await addDNSProvidersRoute(page);
     const cleanupManualChallengeRoute = await addManualChallengeRoute(
       page,
       mockManualChallenge as unknown as Record<string, unknown>
@@ -604,6 +696,7 @@ test.describe('Manual DNS Provider Error Handling', () => {
     try {
       await page.goto('/dns/providers');
       await waitForLoadingComplete(page);
+      await openManualChallengePanel(page);
 
       await test.step('Click verify with network error', async () => {
         const verifyButton = page.getByRole('button', { name: /verify/i });
@@ -617,6 +710,7 @@ test.describe('Manual DNS Provider Error Handling', () => {
     } finally {
       await page.unroute(MANUAL_VERIFY_ROUTE, verifyRouteHandler);
       await cleanupManualChallengeRoute();
+      await cleanupDNSProvidersRoute();
     }
   });
 });
