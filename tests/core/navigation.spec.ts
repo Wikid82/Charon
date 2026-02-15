@@ -155,9 +155,10 @@ test.describe('Navigation', () => {
       await page.goto('/');
 
       await test.step('Click Settings navigation', async () => {
-        const settingsNav = page
+        const explicitSettingsNav = page.locator('a[href^="/settings"]').first();
+        const settingsNav = explicitSettingsNav.or(page
           .getByRole('link', { name: /settings?/i })
-          .or(page.getByRole('button', { name: /settings?/i }))
+          .or(page.getByRole('button', { name: /settings?/i })))
           .first();
 
         if (await settingsNav.isVisible().catch(() => false)) {

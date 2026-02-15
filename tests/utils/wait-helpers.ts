@@ -247,8 +247,6 @@ export async function waitForLoadingComplete(
   // Avoid broad class-based selectors (e.g. .loading, .spinner) to prevent
   // false positives from persistent layout/status elements.
   const loader = page.locator([
-    '[role="progressbar"]:not([aria-label*="Challenge timeout progress"])',
-    '[aria-busy="true"]',
     '[data-loading="true"]',
     '[data-testid="config-reload-overlay"]',
     '[data-testid="loading-spinner"]',
