@@ -150,7 +150,7 @@ main() {
     export PLAYWRIGHT_SKIP_SECURITY_DEPS="${PLAYWRIGHT_SKIP_SECURITY_DEPS:-1}"
     # Ensure non-coverage runs do NOT start the Vite dev server (use Docker in CI/local non-coverage)
     export PLAYWRIGHT_COVERAGE="${PLAYWRIGHT_COVERAGE:-0}"
-    set_default_env "PLAYWRIGHT_BASE_URL" "http://localhost:8080"
+    set_default_env "PLAYWRIGHT_BASE_URL" "http://127.0.0.1:8080"
 
     # Log configuration
     log_step "CONFIG" "Test configuration"

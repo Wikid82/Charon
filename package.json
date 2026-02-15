@@ -1,9 +1,9 @@
 {
   "type": "module",
   "scripts": {
-    "e2e": "PLAYWRIGHT_HTML_OPEN=never npx playwright test --project=firefox",
-    "e2e:all": "PLAYWRIGHT_HTML_OPEN=never npx playwright test",
-    "e2e:headed": "npx playwright test --project=firefox --headed",
+    "e2e": "PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_COVERAGE=0 PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox",
+    "e2e:all": "PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_COVERAGE=0 PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test",
+    "e2e:headed": "PLAYWRIGHT_COVERAGE=0 PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox --headed",
     "e2e:ui:headless-server": "bash ./scripts/run-e2e-ui.sh",
     "e2e:report": "npx playwright show-report",
     "lint:md": "markdownlint-cli2 '**/*.md' --ignore node_modules --ignore .venv --ignore test-results --ignore codeql-db --ignore codeql-agent-results",
