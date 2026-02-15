@@ -3,9 +3,11 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -147,6 +149,72 @@ func safeFloat64ToUint(f float64) (uint, bool) {
 		return 0, false
 	}
 	return uint(f), true
+}
+
+func parseNullableUintField(value any, fieldName string) (*uint, bool, error) {
+	if value == nil {
+		return nil, true, nil
+	}
+
+	switch v := value.(type) {
+	case float64:
+		if id, ok := safeFloat64ToUint(v); ok {
+			return &id, true, nil
+		}
+		return nil, true, fmt.Errorf("invalid %s: unable to convert value %v of type %T to uint", fieldName, value, value)
+	case int:
+		if id, ok := safeIntToUint(v); ok {
+			return &id, true, nil
+		}
+		return nil, true, fmt.Errorf("invalid %s: unable to convert value %v of type %T to uint", fieldName, value, value)
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return nil, true, nil
+		}
+		n, err := strconv.ParseUint(trimmed, 10, 32)
+		if err != nil {
+			return nil, true, fmt.Errorf("invalid %s: unable to convert value %v of type %T to uint", fieldName, value, value)
+		}
+		id := uint(n)
+		return &id, true, nil
+	default:
+		return nil, true, fmt.Errorf("invalid %s: unable to convert value %v of type %T to uint", fieldName, value, value)
+	}
+}
+
+func parseForwardPortField(value any) (int, error) {
+	switch v := value.(type) {
+	case float64:
+		if v != math.Trunc(v) {
+			return 0, fmt.Errorf("invalid forward_port: must be an integer")
+		}
+		port := int(v)
+		if port < 1 || port > 65535 {
+			return 0, fmt.Errorf("invalid forward_port: must be between 1 and 65535")
+		}
+		return port, nil
+	case int:
+		if v < 1 || v > 65535 {
+			return 0, fmt.Errorf("invalid forward_port: must be between 1 and 65535")
+		}
+		return v, nil
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return 0, fmt.Errorf("invalid forward_port: must be between 1 and 65535")
+		}
+		port, err := strconv.Atoi(trimmed)
+		if err != nil {
+			return 0, fmt.Errorf("invalid forward_port: must be an integer")
+		}
+		if port < 1 || port > 65535 {
+			return 0, fmt.Errorf("invalid forward_port: must be between 1 and 65535")
+		}
+		return port, nil
+	default:
+		return 0, fmt.Errorf("invalid forward_port: unsupported type %T", value)
+	}
 }
 
 // NewProxyHostHandler creates a new proxy host handler.
@@ -292,25 +360,21 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		host.Name = v
 	}
 	if v, ok := payload["domain_names"].(string); ok {
-		host.DomainNames = v
+		host.DomainNames = strings.TrimSpace(v)
 	}
 	if v, ok := payload["forward_scheme"].(string); ok {
 		host.ForwardScheme = v
 	}
 	if v, ok := payload["forward_host"].(string); ok {
-		host.ForwardHost = v
+		host.ForwardHost = strings.TrimSpace(v)
 	}
 	if v, ok := payload["forward_port"]; ok {
-		switch t := v.(type) {
-		case float64:
-			host.ForwardPort = int(t)
-		case int:
-			host.ForwardPort = t
-		case string:
-			if p, err := strconv.Atoi(t); err == nil {
-				host.ForwardPort = p
-			}
+		port, parseErr := parseForwardPortField(v)
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": parseErr.Error()})
+			return
 		}
+		host.ForwardPort = port
 	}
 	if v, ok := payload["ssl_forced"].(bool); ok {
 		host.SSLForced = v
@@ -358,46 +422,33 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 
 	// Nullable foreign keys
 	if v, ok := payload["certificate_id"]; ok {
-		if v == nil {
-			host.CertificateID = nil
-		} else {
-			switch t := v.(type) {
-			case float64:
-				if id, ok := safeFloat64ToUint(t); ok {
-					host.CertificateID = &id
-				}
-			case int:
-				if id, ok := safeIntToUint(t); ok {
-					host.CertificateID = &id
-				}
-			case string:
-				if n, err := strconv.ParseUint(t, 10, 32); err == nil {
-					id := uint(n)
-					host.CertificateID = &id
-				}
-			}
+		parsedID, _, parseErr := parseNullableUintField(v, "certificate_id")
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": parseErr.Error()})
+			return
 		}
+		host.CertificateID = parsedID
 	}
 	if v, ok := payload["access_list_id"]; ok {
-		if v == nil {
-			host.AccessListID = nil
-		} else {
-			switch t := v.(type) {
-			case float64:
-				if id, ok := safeFloat64ToUint(t); ok {
-					host.AccessListID = &id
-				}
-			case int:
-				if id, ok := safeIntToUint(t); ok {
-					host.AccessListID = &id
-				}
-			case string:
-				if n, err := strconv.ParseUint(t, 10, 32); err == nil {
-					id := uint(n)
-					host.AccessListID = &id
-				}
-			}
+		parsedID, _, parseErr := parseNullableUintField(v, "access_list_id")
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": parseErr.Error()})
+			return
 		}
+		host.AccessListID = parsedID
+	}
+
+	if v, ok := payload["dns_provider_id"]; ok {
+		parsedID, _, parseErr := parseNullableUintField(v, "dns_provider_id")
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": parseErr.Error()})
+			return
+		}
+		host.DNSProviderID = parsedID
+	}
+
+	if v, ok := payload["use_dns_challenge"].(bool); ok {
+		host.UseDNSChallenge = v
 	}
 
 	// Security Header Profile: update only if provided
