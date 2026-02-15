@@ -47,7 +47,13 @@ test.describe('Admin Onboarding & Setup', () => {
     const start = Date.now();
 
     await test.step('Navigate to login page', async () => {
-      await page.goto(`${baseURL}/login`, { waitUntil: 'domcontentloaded' });
+      await page.goto('/login', { waitUntil: 'domcontentloaded' });
+
+      if (!/\/login|\/signin|\/auth/i.test(page.url())) {
+        await logoutUser(page).catch(() => {});
+        await page.goto('/login', { waitUntil: 'domcontentloaded' });
+      }
+
       const emailField = page.locator('input[type="email"], input[name="email"], input[autocomplete="email"], input[placeholder*="@"]');
       await expect(emailField.first()).toBeVisible({ timeout: 15000 });
     });
@@ -110,11 +116,12 @@ test.describe('Admin Onboarding & Setup', () => {
       // Direct navigation is more reliable than trying to find menu items
       await page.goto('/settings', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
+      await expect(page).toHaveURL(/\/settings/i, { timeout: 15000 });
+      await expect(page.getByRole('main')).toBeVisible({ timeout: 15000 });
     });
 
     await test.step('Verify settings page loads', async () => {
-      // Use first() to handle multiple h1 headings (page has both "Settings" and "System Settings")
-      const settingsHeading = page.getByRole('heading', { name: /setting|configuration/i, level: 1 }).first();
+      const settingsHeading = page.locator('h1, h2').filter({ hasText: /setting|configuration/i }).first();
       await expect(settingsHeading).toBeVisible({ timeout: 15000 });
     });
 
