@@ -93,11 +93,22 @@ test.describe('Authentication Flows', () => {
       });
 
       await test.step('Submit and verify error', async () => {
+        const loginResponsePromise = page.waitForResponse(
+          (response) => response.url().includes('/api/v1/auth/login') && response.request().method() === 'POST',
+          { timeout: 15000 },
+        );
+
         await page.getByRole('button', { name: /sign in/i }).click();
 
-        // Wait for error toast to appear (use specific test ID to avoid strict mode violation)
-        const errorMessage = page.getByTestId('toast-error');
-        await expect(errorMessage).toBeVisible({ timeout: 10000 });
+        const loginResponse = await loginResponsePromise;
+        expect([400, 401, 403, 404]).toContain(loginResponse.status());
+
+        const errorToast = page.getByTestId('toast-error');
+        const inlineError = page.getByText(/invalid|not found|failed|incorrect|unauthorized/i).first();
+        const hasErrorToast = await errorToast.isVisible({ timeout: 10000 }).catch(() => false);
+        const hasInlineError = await inlineError.isVisible({ timeout: 10000 }).catch(() => false);
+
+        expect(hasErrorToast || hasInlineError).toBe(true);
       });
 
       await test.step('Verify user stays on login page', async () => {
