@@ -165,7 +165,7 @@ test.describe('User Management', () => {
           .getByRole('button', { name: /send.*invite/i })
           .first();
         await sendButton.click();
-        await waitForToast(page, /invite.*sent|invite.*created|success/i, { type: 'success', timeout: 10000 });
+        await expect(page.getByRole('dialog').getByRole('button', { name: /done/i }).first()).toBeVisible({ timeout: 10000 });
 
         // Close the modal - scope to dialog to avoid strict mode violation with Toast close buttons
         const closeButton = page.getByRole('dialog')
@@ -1024,7 +1024,7 @@ test.describe('User Management', () => {
         await sendButton.click();
 
         // Wait for success and close modal
-        await waitForToast(page, /invite.*sent|invite.*created|success/i, { type: 'success', timeout: 10000 });
+        await expect(page.getByRole('dialog').getByRole('button', { name: /done/i }).first()).toBeVisible({ timeout: 10000 });
         const closeButton = page.getByRole('button', { name: /done|close|×/i }).first();
         if (await closeButton.isVisible()) {
           await closeButton.click();
