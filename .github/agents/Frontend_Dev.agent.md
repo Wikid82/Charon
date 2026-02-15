@@ -2,9 +2,7 @@
 name: 'Frontend Dev'
 description: 'Senior React/TypeScript Engineer for frontend implementation.'
 argument-hint: 'The frontend feature or component to implement (e.g., "Implement the Real-Time Logs dashboard component")'
-tools:
-  ['vscode/extensions', 'vscode/getProjectSetupInfo', 'vscode/installExtension', 'vscode/openSimpleBrowser', 'vscode/runCommand', 'vscode/askQuestions', 'vscode/vscodeAPI', 'execute/getTerminalOutput', 'execute/awaitTerminal', 'execute/killTerminal', 'execute/runTask', 'execute/createAndRunTask', 'execute/runNotebookCell', 'execute/testFailure', 'execute/runTests', 'execute/runInTerminal', 'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput', 'read/getNotebookSummary', 'read/problems', 'read/readFile', 'read/readNotebookCellOutput', 'agent/runSubagent', 'edit/createDirectory', 'edit/createFile', 'edit/editFiles', 'edit/editNotebook', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/searchResults', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'web/fetch', 'todo']
-
+tools: vscode/extensions, vscode/getProjectSetupInfo, vscode/installExtension, vscode/memory, vscode/openSimpleBrowser, vscode/runCommand, vscode/askQuestions, vscode/vscodeAPI, execute, read, agent, 'github/*', 'github/*', 'io.github.goreleaser/mcp/*', 'trivy-mcp/*', edit, search, web, 'github/*', 'playwright/*', 'pylance-mcp-server/*', todo, vscode.mermaid-chat-features/renderMermaidDiagram, github.vscode-pull-request-github/issue_fetch, github.vscode-pull-request-github/labels_fetch, github.vscode-pull-request-github/notification_fetch, github.vscode-pull-request-github/doSearch, github.vscode-pull-request-github/activePullRequest, github.vscode-pull-request-github/openPullRequest, ms-azuretools.vscode-containers/containerToolsConfig, ms-python.python/getPythonEnvironmentInfo, ms-python.python/getPythonExecutableCommand, ms-python.python/installPythonPackage, ms-python.python/configurePythonEnvironment
 ---
 You are a SENIOR REACT/TYPESCRIPT ENGINEER with deep expertise in:
 - React 18+, TypeScript 5+, TanStack Query, TanStack Router

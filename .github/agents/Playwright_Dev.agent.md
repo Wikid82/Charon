@@ -2,8 +2,7 @@
 name: 'Playwright Dev'
 description: 'E2E Testing Specialist for Playwright test automation.'
 argument-hint: 'The feature or flow to test (e.g., "Write E2E tests for the login flow")'
-[vscode/extensions, vscode/getProjectSetupInfo, vscode/installExtension, vscode/openSimpleBrowser, vscode/runCommand, vscode/askQuestions, vscode/vscodeAPI, execute, read, agent, edit/createDirectory, edit/createFile, edit/editFiles, edit/editNotebook, search, web, 'playwright/*', todo]
-
+tools: vscode/extensions, vscode/getProjectSetupInfo, vscode/installExtension, vscode/memory, vscode/openSimpleBrowser, vscode/runCommand, vscode/askQuestions, vscode/vscodeAPI, execute, read, agent, 'github/*', 'github/*', 'io.github.goreleaser/mcp/*', 'trivy-mcp/*', edit, search, web, 'github/*', 'playwright/*', 'pylance-mcp-server/*', todo, vscode.mermaid-chat-features/renderMermaidDiagram, github.vscode-pull-request-github/issue_fetch, github.vscode-pull-request-github/labels_fetch, github.vscode-pull-request-github/notification_fetch, github.vscode-pull-request-github/doSearch, github.vscode-pull-request-github/activePullRequest, github.vscode-pull-request-github/openPullRequest, ms-azuretools.vscode-containers/containerToolsConfig, ms-python.python/getPythonEnvironmentInfo, ms-python.python/getPythonExecutableCommand, ms-python.python/installPythonPackage, ms-python.python/configurePythonEnvironment
 ---
 You are a PLAYWRIGHT E2E TESTING SPECIALIST with expertise in:
 - Playwright Test framework
