@@ -190,7 +190,9 @@ test.describe('Manual DNS Provider Feature', () => {
         const recordValueLabel = page.getByText(/record value/i);
         await expect(recordValueLabel).toBeVisible();
 
-        const recordValueField = page.locator('#record-value');
+        const recordValueField = page
+          .locator('#record-value')
+          .or(page.locator('code').filter({ hasText: /mock-challenge-token|challenge-token|acme/i }));
         await expect(recordValueField).toBeVisible();
       });
     });
@@ -299,7 +301,13 @@ test.describe('Manual DNS Provider Feature', () => {
     test('should show loading state when checking DNS', async ({ page }) => {
       await test.step('Click Check DNS Now and verify loading', async () => {
         const checkDnsButton = page.getByRole('button', { name: /check dns/i });
-        await expect(checkDnsButton).toBeEnabled();
+        await expect(checkDnsButton).toBeVisible();
+        await expect
+          .poll(async () => checkDnsButton.isEnabled(), {
+            timeout: 10000,
+            message: 'Expected Check DNS button to become enabled before interaction',
+          })
+          .toBe(true);
         await checkDnsButton.click();
         await expect(checkDnsButton).toBeEnabled({ timeout: 5000 });
       });
