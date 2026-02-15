@@ -503,6 +503,7 @@ export default function ProxyHosts() {
       cell: (host) => (
         <Switch
           checked={host.enabled}
+          aria-label={`${host.enabled ? 'Disable' : 'Enable'} proxy host ${host.name || host.domain_names}`}
           onCheckedChange={(checked) => updateHost(host.uuid, { enabled: checked })}
         />
       ),
@@ -516,6 +517,7 @@ export default function ProxyHosts() {
           <Button
             variant="ghost"
             size="sm"
+            aria-label={`Edit proxy host ${host.name || host.domain_names}`}
             onClick={(e) => {
               e.stopPropagation()
               handleEdit(host)
@@ -527,6 +529,7 @@ export default function ProxyHosts() {
             variant="ghost"
             size="sm"
             className="text-error hover:text-error hover:bg-error/10"
+            aria-label={`Delete proxy host ${host.name || host.domain_names}`}
             onClick={(e) => {
               e.stopPropagation()
               handleDelete(host.uuid)

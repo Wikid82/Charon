@@ -292,7 +292,6 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Verify provider appears in list', async () => {
-        await page.waitForTimeout(1000);
         const providerInList = page.getByText(providerName);
         await expect(providerInList.first()).toBeVisible({ timeout: 10000 });
       });
@@ -343,7 +342,6 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Verify provider created', async () => {
-        await page.waitForTimeout(1000);
         const providerInList = page.getByText(providerName);
         await expect(providerInList.first()).toBeVisible({ timeout: 10000 });
       });
@@ -515,7 +513,6 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Verify deletion', async () => {
-        await page.waitForTimeout(1000);
         // Provider should be gone or success message shown
         const successIndicator = page.locator('[data-testid="toast-success"]')
           .or(page.getByRole('status').filter({ hasText: /deleted|removed/i }))
@@ -714,7 +711,6 @@ test.describe('Notification Providers', () => {
 
       await test.step('Attempt to save', async () => {
         await page.getByTestId('provider-save-btn').click();
-        await page.waitForTimeout(500);
       });
 
       await test.step('Verify name validation error', async () => {
@@ -844,7 +840,6 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Verify template was created and appears in list', async () => {
-        await page.waitForTimeout(1500);
         const templateInList = page.getByText(templateName);
         await expect(templateInList.first()).toBeVisible({ timeout: 10000 });
       });
@@ -1002,7 +997,7 @@ test.describe('Notification Providers', () => {
         const saveButton = page.getByRole('button', { name: /save/i }).last();
         if (await saveButton.isVisible({ timeout: 3000 }).catch(() => false)) {
           await saveButton.click();
-          await page.waitForTimeout(1000);
+          await waitForLoadingComplete(page);
         }
       });
     });
@@ -1153,7 +1148,7 @@ test.describe('Notification Providers', () => {
         const testButton = page.getByTestId('provider-test-btn');
 
         // Wait for loading to complete and check for success icon
-        await page.waitForTimeout(2000);
+        await waitForLoadingComplete(page);
         const hasSuccessIcon = await testButton.locator('svg').evaluate((el) =>
           el.classList.contains('text-green-500') ||
           el.closest('button')?.querySelector('.text-green-500') !== null
@@ -1195,7 +1190,7 @@ test.describe('Notification Providers', () => {
 
       await test.step('Verify success feedback', async () => {
         // Wait for success icon (checkmark)
-        await page.waitForTimeout(1500);
+        await waitForLoadingComplete(page);
 
         const testButton = page.getByTestId('provider-test-btn');
         const successIcon = testButton.locator('svg.text-green-500, svg[class*="green"]');
@@ -1618,7 +1613,7 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Verify error feedback', async () => {
-        await page.waitForTimeout(1500);
+        await waitForLoadingComplete(page);
 
         // Should show error icon (X)
         const testButton = page.getByTestId('provider-test-btn');

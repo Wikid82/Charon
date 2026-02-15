@@ -165,9 +165,7 @@ test.describe('User Management', () => {
           .getByRole('button', { name: /send.*invite/i })
           .first();
         await sendButton.click();
-
-        // Wait for invite creation
-        await page.waitForTimeout(1000);
+        await waitForToast(page, /invite.*sent|invite.*created|success/i, { type: 'success', timeout: 10000 });
 
         // Close the modal - scope to dialog to avoid strict mode violation with Toast close buttons
         const closeButton = page.getByRole('dialog')
@@ -941,7 +939,7 @@ test.describe('User Management', () => {
       });
 
       await test.step('Verify user no longer in list', async () => {
-        await page.waitForTimeout(500);
+        await waitForLoadingComplete(page);
         const userRow = page.getByRole('row').filter({
           hasText: testUser.email,
         });
@@ -1026,7 +1024,7 @@ test.describe('User Management', () => {
         await sendButton.click();
 
         // Wait for success and close modal
-        await page.waitForTimeout(2000);
+        await waitForToast(page, /invite.*sent|invite.*created|success/i, { type: 'success', timeout: 10000 });
         const closeButton = page.getByRole('button', { name: /done|close|×/i }).first();
         if (await closeButton.isVisible()) {
           await closeButton.click();

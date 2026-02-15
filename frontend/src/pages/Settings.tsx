@@ -28,11 +28,12 @@ export default function Settings() {
       }
     >
       {/* Tab Navigation */}
-      <nav className="flex items-center gap-1 p-1 bg-surface-subtle rounded-lg w-fit">
+      <nav aria-label={t('settings.title')} className="flex items-center gap-1 p-1 bg-surface-subtle rounded-lg w-fit">
         {navItems.map(({ path, label, icon: Icon }) => (
           <Link
             key={path}
             to={path}
+            aria-current={isActive(path) ? 'page' : undefined}
             className={cn(
               'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all duration-fast',
               isActive(path)

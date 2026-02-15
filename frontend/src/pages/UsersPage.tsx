@@ -173,10 +173,15 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
       <div className="fixed inset-0 bg-black/50 z-40" onClick={handleClose} />
 
       {/* Layer 2: Form container (z-50, pointer-events-none) */}
-      <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50" role="dialog" aria-modal="true" aria-labelledby="invite-modal-title">
+      <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
 
         {/* Layer 3: Form content (pointer-events-auto) */}
-        <div className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto pointer-events-auto">
+        <div
+          className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto pointer-events-auto"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="invite-modal-title"
+        >
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
           <h3 id="invite-modal-title" className="text-lg font-semibold text-white flex items-center gap-2">
             <UserPlus className="h-5 w-5" />
@@ -253,10 +258,11 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
               </div>
 
               <div className="w-full">
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">
+                <label htmlFor="invite-user-role" className="block text-sm font-medium text-gray-300 mb-1.5">
                   {t('users.role')}
                 </label>
                 <select
+                  id="invite-user-role"
                   value={role}
                   onChange={(e) => setRole(e.target.value as 'user' | 'admin')}
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -269,10 +275,11 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
               {role === 'user' && (
                 <>
                   <div className="w-full">
-                    <label className="block text-sm font-medium text-gray-300 mb-1.5">
+                    <label htmlFor="invite-permission-mode" className="block text-sm font-medium text-gray-300 mb-1.5">
                       {t('users.permissionMode')}
                     </label>
                     <select
+                      id="invite-permission-mode"
                       value={permissionMode}
                       onChange={(e) => setPermissionMode(e.target.value as PermissionMode)}
                       className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -444,10 +451,15 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
       <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
 
       {/* Layer 2: Form container (z-50, pointer-events-none) */}
-      <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50" role="dialog" aria-modal="true" aria-labelledby="permissions-modal-title">
+      <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
 
         {/* Layer 3: Form content (pointer-events-auto) */}
-        <div className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto pointer-events-auto">
+        <div
+          className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto pointer-events-auto"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="permissions-modal-title"
+        >
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
           <h3 id="permissions-modal-title" className="text-lg font-semibold text-white flex items-center gap-2">
             <Shield className="h-5 w-5" />
@@ -460,10 +472,11 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
 
         <div className="p-4 space-y-4">
           <div className="w-full">
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">
+            <label htmlFor="edit-permission-mode" className="block text-sm font-medium text-gray-300 mb-1.5">
               {t('users.permissionMode')}
             </label>
             <select
+              id="edit-permission-mode"
               value={permissionMode}
               onChange={(e) => setPermissionMode(e.target.value as PermissionMode)}
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
