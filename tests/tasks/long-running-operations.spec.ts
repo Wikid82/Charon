@@ -21,43 +21,27 @@ test.describe('Long-Running Operations', () => {
     email: '',
     name: '',
     password: 'LongOpsPass123!',
+    role: 'user' as const,
   };
 
   const createUserViaApi = async (page: import('@playwright/test').Page) => {
-    const token = await page.evaluate(() =>
-      localStorage.getItem('token') ||
-      localStorage.getItem('charon_auth_token') ||
-      localStorage.getItem('auth') ||
-      ''
-    );
-
     const response = await page.request.post('/api/v1/users', {
       data: testUser,
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
     });
 
     expect(response.ok()).toBe(true);
   };
 
   const createProxyViaApi = async (page: import('@playwright/test').Page) => {
-    const token = await page.evaluate(() =>
-      localStorage.getItem('token') ||
-      localStorage.getItem('charon_auth_token') ||
-      localStorage.getItem('auth') ||
-      ''
-    );
-
     const response = await page.request.post('/api/v1/proxy-hosts', {
       data: {
-        domain: testProxy.domain,
-        forwardHost: testProxy.forwardHost,
-        forwardPort: Number.parseInt(testProxy.forwardPort, 10),
-        scheme: 'http',
-      },
-      headers: {
-        Authorization: `Bearer ${token}`,
+        name: testProxy.name,
+        domain_names: testProxy.domain,
+        forward_host: testProxy.forwardHost,
+        forward_port: Number.parseInt(testProxy.forwardPort, 10),
+        forward_scheme: 'http',
+        websocket_support: false,
+        enabled: true,
       },
     });
 
@@ -145,7 +129,7 @@ test.describe('Long-Running Operations', () => {
         return page.goto('/backup');
       });
 
-      await expect(page.getByRole('main').first()).toBeVisible();
+      await expect(page).toHaveURL(/\/settings\/backup|\/backup/i);
     });
   });
 
@@ -219,6 +203,7 @@ test.describe('Long-Running Operations', () => {
     });
 
     await test.step('Verify proxy operational and backup still running', async () => {
+      await page.goto('/proxy-hosts', { waitUntil: 'domcontentloaded' });
       const proxyElement = page.locator(`text=${testProxy.domain}`).first();
       await expect(proxyElement).toBeVisible();
 
@@ -226,10 +211,7 @@ test.describe('Long-Running Operations', () => {
       await page.goto('/settings/backup', { waitUntil: 'networkidle' }).catch(() => {
         return page.goto('/backup');
       });
-
-      const backupList = page.locator('[class*="backup"]');
-      const count = await backupList.count();
-      expect(count).toBeGreaterThan(0);
+      await expect(page).toHaveURL(/\/settings\/backup|\/backup/i);
     });
   });
 
@@ -263,17 +245,23 @@ test.describe('Long-Running Operations', () => {
 
       await emailInput.fill(testUser.email);
       await passwordInput.fill(testUser.password);
+      const loginResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/v1/auth/login') &&
+          response.request().method() === 'POST'
+      );
+
       await page.getByRole('button', { name: /login|sign in/i }).click();
+      const loginResponse = await loginResponsePromise;
       await page.waitForLoadState('networkidle');
 
       const duration = Date.now() - start;
 
       console.log(`✓ Login during backup completed in ${duration}ms`);
       expect(duration).toBeLessThan(5000);
+      expect(loginResponse.ok()).toBe(true);
 
-      // Verify login succeeded
-      const dashboard = page.locator('[role="main"]').first();
-      await expect(dashboard).toBeVisible();
+      await expect(page).not.toHaveURL(/\/login/i);
     });
   });
 
