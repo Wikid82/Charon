@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -1038,6 +1039,33 @@ func TestAuthHandler_HelperFunctions(t *testing.T) {
 		req.Header.Set("X-Forwarded-Proto", "HTTPS, http")
 		ctx.Request = req
 		assert.Equal(t, "https", requestScheme(ctx))
+	})
+
+	t.Run("requestScheme uses tls when forwarded proto missing", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
+		req.TLS = &tls.ConnectionState{}
+		ctx.Request = req
+		assert.Equal(t, "https", requestScheme(ctx))
+	})
+
+	t.Run("requestScheme uses request url scheme when available", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
+		req.URL.Scheme = "HTTP"
+		ctx.Request = req
+		assert.Equal(t, "http", requestScheme(ctx))
+	})
+
+	t.Run("requestScheme defaults to http when request url is nil", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
+		req.URL = nil
+		ctx.Request = req
+		assert.Equal(t, "http", requestScheme(ctx))
 	})
 
 	t.Run("normalizeHost strips brackets and port", func(t *testing.T) {

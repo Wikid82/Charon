@@ -11,11 +11,8 @@ export default defineConfig({
   plugins: [react()],
   test: {
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        memoryLimit: '512MB',
-      },
-    },
+    maxWorkers: 1,
+    minWorkers: 1,
     globals: true,
     environment: 'jsdom',
     environmentOptions: {
@@ -36,6 +33,7 @@ export default defineConfig({
     ],
     coverage: {
       provider: 'v8',
+      clean: false,
       reporter: ['text', 'json', 'html', 'lcov', 'json-summary'],
       exclude: [
         'node_modules/',

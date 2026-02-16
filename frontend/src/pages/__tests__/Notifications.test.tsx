@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { act } from 'react'
 import Notifications from '../Notifications'
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
 import * as notificationsApi from '../../api/notifications'
@@ -131,10 +130,9 @@ describe('Notifications', () => {
   })
 
   it('shows and hides the update indicator after save', async () => {
-    vi.useFakeTimers()
     setupMocks([baseProvider])
 
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const user = userEvent.setup()
     renderWithQueryClient(<Notifications />)
 
     const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
@@ -143,28 +141,24 @@ describe('Notifications', () => {
 
     await user.click(screen.getByTestId('provider-save-btn'))
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0)
-    })
-
     expect(notificationsApi.updateProvider).toHaveBeenCalled()
 
     expect(screen.getByTestId(`provider-update-indicator-${baseProvider.id}`)).toBeInTheDocument()
     expect(toast.success).toHaveBeenCalledWith('common.saved')
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000)
-    })
-
-    expect(screen.queryByTestId(`provider-update-indicator-${baseProvider.id}`)).toBeNull()
+    await waitFor(
+      () => {
+        expect(screen.queryByTestId(`provider-update-indicator-${baseProvider.id}`)).toBeNull()
+      },
+      { timeout: 4000 },
+    )
   })
 
   it('cleans up the update indicator timer on unmount', async () => {
-    vi.useFakeTimers()
     setupMocks([baseProvider])
 
     const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout')
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const user = userEvent.setup()
     const { unmount } = renderWithQueryClient(<Notifications />)
 
     const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
@@ -172,10 +166,6 @@ describe('Notifications', () => {
     await user.click(buttons[1])
 
     await user.click(screen.getByTestId('provider-save-btn'))
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0)
-    })
 
     expect(notificationsApi.updateProvider).toHaveBeenCalled()
     expect(screen.getByTestId(`provider-update-indicator-${baseProvider.id}`)).toBeInTheDocument()

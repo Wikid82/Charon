@@ -1338,19 +1338,20 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 	svc := NewNotificationService(db)
 
 	t.Run("discord_message_is_normalized_to_content", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		originalDo := webhookDoRequestFunc
+		defer func() { webhookDoRequestFunc = originalDo }()
+		webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
 			var payload map[string]any
-			err := json.NewDecoder(r.Body).Decode(&payload)
+			err := json.NewDecoder(req.Body).Decode(&payload)
 			require.NoError(t, err)
 			assert.Equal(t, "Test Message", payload["content"])
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
+		}
 
 		// Discord payload with message should be normalized to content
 		provider := models.NotificationProvider{
 			Type:     "discord",
-			URL:      server.URL,
+			URL:      "https://discord.com/api/webhooks/123456/token_abc",
 			Template: "custom",
 			Config:   `{"message": {{toJSON .Message}}}`,
 		}
@@ -1366,14 +1367,15 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 	})
 
 	t.Run("discord_with_content_succeeds", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
+		originalDo := webhookDoRequestFunc
+		defer func() { webhookDoRequestFunc = originalDo }()
+		webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
+		}
 
 		provider := models.NotificationProvider{
 			Type:     "discord",
-			URL:      server.URL,
+			URL:      "https://discord.com/api/webhooks/123456/token_abc",
 			Template: "custom",
 			Config:   `{"content": {{toJSON .Message}}}`,
 		}
@@ -1389,14 +1391,15 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 	})
 
 	t.Run("discord_with_embeds_succeeds", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
+		originalDo := webhookDoRequestFunc
+		defer func() { webhookDoRequestFunc = originalDo }()
+		webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
+		}
 
 		provider := models.NotificationProvider{
 			Type:     "discord",
-			URL:      server.URL,
+			URL:      "https://discord.com/api/webhooks/123456/token_abc",
 			Template: "custom",
 			Config:   `{"embeds": [{"title": {{toJSON .Title}}}]}`,
 		}

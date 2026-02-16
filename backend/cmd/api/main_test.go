@@ -190,3 +190,94 @@ func TestStartupVerification_MissingTables(t *testing.T) {
 		}
 	}
 }
+
+func TestMain_MigrateCommand_InProcess(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "data", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatalf("mkdir db dir: %v", err)
+	}
+
+	db, err := database.Connect(dbPath)
+	if err != nil {
+		t.Fatalf("connect db: %v", err)
+	}
+	if err = db.AutoMigrate(&models.User{}); err != nil {
+		t.Fatalf("automigrate user: %v", err)
+	}
+
+	originalArgs := os.Args
+	t.Cleanup(func() { os.Args = originalArgs })
+
+	t.Setenv("CHARON_DB_PATH", dbPath)
+	t.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tmp, "caddy"))
+	t.Setenv("CHARON_IMPORT_DIR", filepath.Join(tmp, "imports"))
+	os.Args = []string{"charon", "migrate"}
+
+	main()
+
+	db2, err := database.Connect(dbPath)
+	if err != nil {
+		t.Fatalf("reconnect db: %v", err)
+	}
+
+	securityModels := []any{
+		&models.SecurityConfig{},
+		&models.SecurityDecision{},
+		&models.SecurityAudit{},
+		&models.SecurityRuleSet{},
+		&models.CrowdsecPresetEvent{},
+		&models.CrowdsecConsoleEnrollment{},
+	}
+
+	for _, model := range securityModels {
+		if !db2.Migrator().HasTable(model) {
+			t.Errorf("Table for %T was not created by migrate command", model)
+		}
+	}
+}
+
+func TestMain_ResetPasswordCommand_InProcess(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "data", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatalf("mkdir db dir: %v", err)
+	}
+
+	db, err := database.Connect(dbPath)
+	if err != nil {
+		t.Fatalf("connect db: %v", err)
+	}
+	if err = db.AutoMigrate(&models.User{}); err != nil {
+		t.Fatalf("automigrate: %v", err)
+	}
+
+	email := "user@example.com"
+	user := models.User{UUID: "u-1", Email: email, Name: "User", Role: "admin", Enabled: true}
+	user.PasswordHash = "$2a$10$example_hashed_password"
+	user.FailedLoginAttempts = 3
+	if err = db.Create(&user).Error; err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	originalArgs := os.Args
+	t.Cleanup(func() { os.Args = originalArgs })
+
+	t.Setenv("CHARON_DB_PATH", dbPath)
+	t.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tmp, "caddy"))
+	t.Setenv("CHARON_IMPORT_DIR", filepath.Join(tmp, "imports"))
+	os.Args = []string{"charon", "reset-password", email, "new-password"}
+
+	main()
+
+	var updated models.User
+	if err := db.Where("email = ?", email).First(&updated).Error; err != nil {
+		t.Fatalf("fetch updated user: %v", err)
+	}
+	if updated.PasswordHash == "$2a$10$example_hashed_password" {
+		t.Fatal("expected password hash to be updated")
+	}
+	if updated.FailedLoginAttempts != 0 {
+		t.Fatalf("expected failed login attempts reset to 0, got %d", updated.FailedLoginAttempts)
+	}
+}
