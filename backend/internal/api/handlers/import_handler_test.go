@@ -845,3 +845,83 @@ func TestImportHandler_Upload_InvalidSessionPaths(t *testing.T) {
 		})
 	}
 }
+
+func TestImportHandler_Commit_InvalidSessionUUID_BranchCoverage(t *testing.T) {
+	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+		handler, _, _ := setupTestHandler(t, tx)
+
+		reqBody := map[string]any{
+			"session_uuid": ".",
+		}
+		body, _ := json.Marshal(reqBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/commit", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "invalid session_uuid")
+	})
+}
+
+func TestImportHandler_Cancel_ValidationAndNotFound_BranchCoverage(t *testing.T) {
+	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+		handler, _, _ := setupTestHandler(t, tx)
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/import/cancel", http.NoBody)
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "session_uuid required")
+
+		w = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodDelete, "/api/v1/import/cancel?session_uuid=.", http.NoBody)
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "invalid session_uuid")
+
+		w = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodDelete, "/api/v1/import/cancel?session_uuid=missing-session", http.NoBody)
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code)
+		assert.Contains(t, w.Body.String(), "session not found")
+	})
+}
+
+func TestImportHandler_Cancel_TransientUploadCancelled_BranchCoverage(t *testing.T) {
+	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+		handler, _, _ := setupTestHandler(t, tx)
+
+		sessionID := "transient-123"
+		uploadDir := filepath.Join(handler.importDir, "uploads")
+		require.NoError(t, os.MkdirAll(uploadDir, 0o700))
+		uploadPath := filepath.Join(uploadDir, sessionID+".caddyfile")
+		require.NoError(t, os.WriteFile(uploadPath, []byte("example.com { respond \"ok\" }"), 0o600))
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/import/cancel?session_uuid="+sessionID, http.NoBody)
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "transient upload cancelled")
+		_, err := os.Stat(uploadPath)
+		require.Error(t, err)
+		assert.True(t, os.IsNotExist(err))
+	})
+}

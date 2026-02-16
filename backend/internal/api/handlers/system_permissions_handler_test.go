@@ -171,10 +171,10 @@ func TestSystemPermissionsHandler_PathHasSymlink(t *testing.T) {
 	root := t.TempDir()
 
 	realDir := filepath.Join(root, "real")
-	require.NoError(t, os.Mkdir(realDir, 0o755))
+	require.NoError(t, os.Mkdir(realDir, 0o750))
 
 	plainPath := filepath.Join(realDir, "file.txt")
-	require.NoError(t, os.WriteFile(plainPath, []byte("ok"), 0o644))
+	require.NoError(t, os.WriteFile(plainPath, []byte("ok"), 0o600))
 
 	hasSymlink, err := pathHasSymlink(plainPath)
 	require.NoError(t, err)
@@ -220,7 +220,7 @@ func TestSystemPermissionsHandler_RepairPermissions_InvalidJSON(t *testing.T) {
 
 	root := t.TempDir()
 	dataDir := filepath.Join(root, "data")
-	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	require.NoError(t, os.MkdirAll(dataDir, 0o750))
 
 	cfg := config.Config{
 		SingleContainer: true,
@@ -253,10 +253,10 @@ func TestSystemPermissionsHandler_RepairPermissions_Success(t *testing.T) {
 
 	root := t.TempDir()
 	dataDir := filepath.Join(root, "data")
-	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	require.NoError(t, os.MkdirAll(dataDir, 0o750))
 
 	targetFile := filepath.Join(dataDir, "repair-target.txt")
-	require.NoError(t, os.WriteFile(targetFile, []byte("repair"), 0o644))
+	require.NoError(t, os.WriteFile(targetFile, []byte("repair"), 0o600))
 
 	cfg := config.Config{
 		SingleContainer: true,
@@ -287,4 +287,76 @@ func TestSystemPermissionsHandler_RepairPermissions_Success(t *testing.T) {
 	require.Len(t, payload.Paths, 1)
 	require.Equal(t, targetFile, payload.Paths[0].Path)
 	require.NotEqual(t, "error", payload.Paths[0].Status)
+}
+
+func TestSystemPermissionsHandler_RepairPath_Branches(t *testing.T) {
+	h := NewSystemPermissionsHandler(config.Config{}, nil, stubPermissionChecker{})
+	allowRoot := t.TempDir()
+	allowlist := []string{allowRoot}
+
+	t.Run("invalid path", func(t *testing.T) {
+		result := h.repairPath("", false, allowlist)
+		require.Equal(t, "error", result.Status)
+		require.Equal(t, "permissions_invalid_path", result.ErrorCode)
+	})
+
+	t.Run("missing path", func(t *testing.T) {
+		missingPath := filepath.Join(allowRoot, "missing-file.txt")
+		result := h.repairPath(missingPath, false, allowlist)
+		require.Equal(t, "error", result.Status)
+		require.Equal(t, "permissions_missing_path", result.ErrorCode)
+	})
+
+	t.Run("symlink leaf rejected", func(t *testing.T) {
+		target := filepath.Join(allowRoot, "target.txt")
+		require.NoError(t, os.WriteFile(target, []byte("ok"), 0o600))
+		link := filepath.Join(allowRoot, "link.txt")
+		require.NoError(t, os.Symlink(target, link))
+
+		result := h.repairPath(link, false, allowlist)
+		require.Equal(t, "error", result.Status)
+		require.Equal(t, "permissions_symlink_rejected", result.ErrorCode)
+	})
+
+	t.Run("symlink component rejected", func(t *testing.T) {
+		realDir := filepath.Join(allowRoot, "real")
+		require.NoError(t, os.MkdirAll(realDir, 0o750))
+		realFile := filepath.Join(realDir, "file.txt")
+		require.NoError(t, os.WriteFile(realFile, []byte("ok"), 0o600))
+
+		linkDir := filepath.Join(allowRoot, "linkdir")
+		require.NoError(t, os.Symlink(realDir, linkDir))
+
+		result := h.repairPath(filepath.Join(linkDir, "file.txt"), false, allowlist)
+		require.Equal(t, "error", result.Status)
+		require.Equal(t, "permissions_symlink_rejected", result.ErrorCode)
+	})
+
+	t.Run("outside allowlist rejected", func(t *testing.T) {
+		outsideFile := filepath.Join(t.TempDir(), "outside.txt")
+		require.NoError(t, os.WriteFile(outsideFile, []byte("x"), 0o600))
+
+		result := h.repairPath(outsideFile, false, allowlist)
+		require.Equal(t, "error", result.Status)
+		require.Equal(t, "permissions_outside_allowlist", result.ErrorCode)
+	})
+
+	t.Run("unsupported type rejected", func(t *testing.T) {
+		fifoPath := filepath.Join(allowRoot, "fifo")
+		require.NoError(t, syscall.Mkfifo(fifoPath, 0o600))
+
+		result := h.repairPath(fifoPath, false, allowlist)
+		require.Equal(t, "error", result.Status)
+		require.Equal(t, "permissions_unsupported_type", result.ErrorCode)
+	})
+
+	t.Run("already correct skipped", func(t *testing.T) {
+		filePath := filepath.Join(allowRoot, "already-correct.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("ok"), 0o600))
+
+		result := h.repairPath(filePath, false, allowlist)
+		require.Equal(t, "skipped", result.Status)
+		require.Equal(t, "permissions_repair_skipped", result.ErrorCode)
+		require.Equal(t, "0600", result.ModeAfter)
+	})
 }

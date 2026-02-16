@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,48 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
+
+func TestIsTransientSQLiteError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "locked", err: errors.New("database is locked"), want: true},
+		{name: "busy", err: errors.New("database is busy"), want: true},
+		{name: "table locked", err: errors.New("database table is locked"), want: true},
+		{name: "mixed case", err: errors.New("DataBase Is Locked"), want: true},
+		{name: "non transient", err: errors.New("constraint failed"), want: false},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			require.Equal(t, testCase.want, isTransientSQLiteError(testCase.err))
+		})
+	}
+}
+
+func TestUpsertSettingWithRetry_ReturnsErrorForClosedDB(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	handler := NewEmergencyHandler(db)
+
+	stdDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, stdDB.Close())
+
+	setting := &models.Setting{
+		Key:      "security.test.closed_db",
+		Value:    "false",
+		Category: "security",
+		Type:     "bool",
+	}
+
+	err = handler.upsertSettingWithRetry(setting)
+	require.Error(t, err)
+}
 
 func jsonReader(data interface{}) io.Reader {
 	b, _ := json.Marshal(data)

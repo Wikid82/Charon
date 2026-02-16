@@ -89,12 +89,12 @@ func TestBackupService_RehydrateLiveDatabase_FromBackupWithWAL(t *testing.T) {
 
 	backupName := "backup_with_wal.zip"
 	backupPath := filepath.Join(svc.BackupDir, backupName)
-	backupFile, err := os.Create(backupPath)
+	backupFile, err := os.Create(backupPath) // #nosec G304 -- backupPath is built from service BackupDir and fixed test filename
 	require.NoError(t, err)
 	zipWriter := zip.NewWriter(backupFile)
 
 	addFileToZip := func(sourcePath, zipEntryName string) {
-		sourceFile, openErr := os.Open(sourcePath)
+		sourceFile, openErr := os.Open(sourcePath) // #nosec G304 -- sourcePath is provided by test with controlled db/wal paths under TempDir
 		require.NoError(t, openErr)
 		defer func() {
 			_ = sourceFile.Close()
