@@ -198,3 +198,33 @@ func TestProxyHostService_DNSChallengeValidation(t *testing.T) {
 		assert.Equal(t, "localhost", persisted.ForwardHost)
 	})
 }
+
+func TestProxyHostService_ValidateHostname(t *testing.T) {
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+
+	tests := []struct {
+		name    string
+		host    string
+		wantErr bool
+	}{
+		{name: "plain hostname", host: "example.com", wantErr: false},
+		{name: "hostname with scheme", host: "https://example.com", wantErr: false},
+		{name: "hostname with port", host: "example.com:8080", wantErr: false},
+		{name: "ipv4 address", host: "127.0.0.1", wantErr: false},
+		{name: "bracketed ipv6 with port", host: "[::1]:443", wantErr: false},
+		{name: "docker style underscore", host: "my_service", wantErr: false},
+		{name: "invalid character", host: "invalid$host", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := service.ValidateHostname(tt.host)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
