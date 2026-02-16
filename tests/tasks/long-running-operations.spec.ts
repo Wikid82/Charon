@@ -1,4 +1,5 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import { waitForToast, waitForLoadingComplete } from '../utils/wait-helpers';
 
 /**
  * Integration: Long-Running Operations
@@ -267,50 +268,36 @@ test.describe('Long-Running Operations', () => {
 
   // Task completion verified after operation finishes
   test('Long-running task completion can be verified', async ({ page }) => {
-    let backupId: string | null = null;
+    await test.step('Create backup from the backups task page', async () => {
+      await page.goto('/tasks/backups', { waitUntil: 'domcontentloaded' });
+      await waitForLoadingComplete(page);
 
-    await test.step('Create backup and get ID', async () => {
-      await page.goto('/settings/backup', { waitUntil: 'networkidle' }).catch(() => {
-        return page.goto('/backup');
-      });
+      const backupButton = page.getByRole('button', { name: /create backup/i }).first();
+      await expect(backupButton).toBeVisible();
 
-      const backupButton = page.getByRole('button', { name: /backup|create|manual/i }).first();
-      if (await backupButton.isVisible()) {
-        await backupButton.click();
-        await page.waitForLoadState('networkidle');
-      }
+      const createResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/v1/backups') &&
+          response.request().method() === 'POST' &&
+          (response.status() === 200 || response.status() === 201)
+      );
 
-      // Get first backup from list
-      const backupElements = page.locator('[class*="backup-item"], [role="row"]');
-      const firstBackup = backupElements.first();
-      if (await firstBackup.isVisible()) {
-        const text = await firstBackup.textContent();
-        if (text) {
-          backupId = text.substring(0, 10); // Extract some identifier
-        }
-      }
+      await backupButton.click();
+      await expect(backupButton).toBeDisabled();
+      await createResponsePromise;
+      await waitForToast(page, /success|created/i, { type: 'success' });
+      await expect(backupButton).toBeEnabled();
     });
 
-    await test.step('Wait for backup completion', async () => {
-      await page.waitForTimeout(2000); // Wait for backup to complete
-    });
+    await test.step('Verify created backup is actionable', async () => {
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await waitForLoadingComplete(page);
 
-    await test.step('Verify backup status is complete', async () => {
-      await page.reload();
+      const backupRows = page.locator('[data-testid="backup-row"]');
+      await expect(backupRows.first()).toBeVisible();
 
-      const completedElement = page.getByText(/completed|finished|success/i).first();
-      if (await completedElement.isVisible()) {
-        await expect(completedElement).toBeVisible();
-        console.log(`✓ Backup ${backupId} completed successfully`);
-      }
-    });
-
-    await test.step('Verify backup can be used (download/restore)', async () => {
-      const restoreButton = page.getByRole('button', { name: /restore|download/i }).first();
-      if (await restoreButton.isVisible()) {
-        // Just verify button is clickable, don't actually restore
-        await expect(restoreButton).toBeEnabled();
-      }
+      const downloadButton = page.locator('[data-testid="backup-download-btn"]').first();
+      await expect(downloadButton).toBeEnabled();
     });
   });
 });
