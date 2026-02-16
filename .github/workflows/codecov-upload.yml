@@ -36,7 +36,7 @@ jobs:
     name: Backend Codecov Upload
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_backend != 'false' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_backend }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -70,7 +70,7 @@ jobs:
     name: Frontend Codecov Upload
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_frontend != 'false' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_frontend }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
