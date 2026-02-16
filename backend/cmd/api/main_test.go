@@ -289,7 +289,8 @@ func TestMain_DefaultStartupGracefulShutdown_Subprocess(t *testing.T) {
 		os.Args = []string{"charon"}
 
 		go func() {
-			time.Sleep(500 * time.Millisecond)
+			// Increased from 500ms to 1000ms for Go 1.26.0 signal handling changes
+			time.Sleep(1000 * time.Millisecond)
 			process, err := os.FindProcess(os.Getpid())
 			if err == nil {
 				_ = process.Signal(syscall.SIGTERM)
