@@ -90,6 +90,38 @@ describe('api client', () => {
     expect(error.message).toBe('Bad request')
   })
 
+  it('keeps original message when response payload is not an object', async () => {
+    const error: ResponseError = {
+      response: { data: 'plain text error' as unknown as Record<string, unknown> },
+      config: { url: '/test' },
+      message: 'Original',
+    }
+
+    const handler = capturedHandlers.onRejected
+    expect(handler).toBeDefined()
+
+    const resultPromise = handler ? handler(error) : Promise.reject(new Error('handler missing'))
+
+    await expect(resultPromise).rejects.toBe(error)
+    expect(error.message).toBe('Original')
+  })
+
+  it('uses error field over message field when both exist', async () => {
+    const error: ResponseError = {
+      response: { data: { error: 'Preferred error', message: 'Secondary message' } },
+      config: { url: '/test' },
+      message: 'Original',
+    }
+
+    const handler = capturedHandlers.onRejected
+    expect(handler).toBeDefined()
+
+    const resultPromise = handler ? handler(error) : Promise.reject(new Error('handler missing'))
+
+    await expect(resultPromise).rejects.toBe(error)
+    expect(error.message).toBe('Preferred error')
+  })
+
   it('invokes auth error handler on 401 outside auth endpoints', async () => {
     const onAuthError = vi.fn()
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -136,5 +168,38 @@ describe('api client', () => {
     expect(onAuthError).not.toHaveBeenCalled()
 
     warnSpy.mockRestore()
+  })
+
+  it('does not invoke auth error handler when status is not 401', async () => {
+    const onAuthError = vi.fn()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    setAuthErrorHandler(onAuthError)
+
+    const error: ResponseError = {
+      response: { status: 403, data: { message: 'Forbidden' } },
+      config: { url: '/proxy-hosts' },
+      message: 'Original',
+    }
+
+    const handler = capturedHandlers.onRejected
+    expect(handler).toBeDefined()
+
+    const resultPromise = handler ? handler(error) : Promise.reject(new Error('handler missing'))
+
+    await expect(resultPromise).rejects.toBe(error)
+    expect(onAuthError).not.toHaveBeenCalled()
+    expect(warnSpy).not.toHaveBeenCalled()
+
+    warnSpy.mockRestore()
+  })
+
+  it('passes through successful responses via fulfilled interceptor', () => {
+    const responsePayload = { data: { ok: true } }
+    const fulfilled = capturedHandlers.onFulfilled
+
+    expect(fulfilled).toBeDefined()
+    const result = fulfilled ? fulfilled(responsePayload) : undefined
+    expect(result).toBe(responsePayload)
   })
 })

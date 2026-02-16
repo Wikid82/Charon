@@ -1,289 +1,265 @@
-## Playwright E2E Green Plan (Single Objective)
+## Frontend Coverage Fast-Recovery Plan (Minimum Threshold First)
 
-Date: 2026-02-15
+Date: 2026-02-16
 Owner: Planning Agent
-Scope: Achieve 100% green Playwright E2E quickly through root-cause fixes and performance/stability optimization.
-
----
-
-## Objective
-
-Deliver a fully green Playwright E2E suite with deterministic results and controlled runtime by fixing root causes first (not symptom retries).
-
-This file contains one objective only for today’s request.
-
----
-
-## Requirements (EARS)
-
-- WHEN the E2E environment is invalid or stale, THE SYSTEM SHALL stop execution and rebuild before test reproduction.
-- WHEN a failure is reproduced, THE SYSTEM SHALL identify root cause in frontend/backend/helpers before mitigation.
-- WHEN synchronization is required, THE SYSTEM SHALL use condition-based waits and deterministic locators rather than fixed sleeps.
-- WHEN `tests/core/data-consistency.spec.ts` is relevant to the failing path, THE SYSTEM SHALL include it consistently in targeted reproduction, impacted rerun, browser fan-out, and final confirmation.
-- WHEN all impacted fixes are complete, THE SYSTEM SHALL pass security matrix and full split confirmation without regressions.
-- WHEN production code is modified, THE SYSTEM SHALL complete coverage runs before final sign-off.
-- WHEN Codecov Patch view reports missing or partial coverage, THE SYSTEM SHALL require 100% patch coverage for modified lines before go-live.
-- WHEN patch coverage is below 100%, THE SYSTEM SHALL capture exact missing/partial line ranges and map each range to targeted tests.
-- WHEN stability is being validated, THE SYSTEM SHALL use Playwright-native `--repeat-each` consecutive-pass gates rather than ad hoc loops.
-- WHEN classifying possible state contamination, THE SYSTEM SHALL run an early single-worker diagnostic branch (`--workers=1`) before parallel reruns.
-- WHEN retries are enabled for instrumentation, THE SYSTEM SHALL enforce `--fail-on-flaky-tests` so flaky-pass results do not qualify as green.
-
----
-
-## Hard-Gated Execution Order (Stop/Go)
-
-### Gate 1: Environment Validity and Rebuild Decision
-
-Stop:
-- `charon-e2e` unhealthy, missing required env, stale runtime after app/runtime changes.
-
-Go:
-- Health checks pass and runtime mode matches test scope.
-
-Order:
-1. Validate health and required env.
-2. Prefer runner-managed setup where feasible:
-   - Use Playwright project-dependency setup flow (for example, setup project + dependent browser projects) instead of external-only setup scripts when equivalent.
-   - Use `webServer` readiness gating option when applicable so runner controls startup/ready checks.
-3. Decide rebuild using testing protocol:
-   - Rebuild required for runtime changes (`backend/**`, `frontend/**`, runtime/Docker inputs).
-   - Reuse container for test-only changes if healthy.
-
-### Gate 2: Targeted Shard Reproduction
-
-Stop:
-- Failure not reproducible in targeted shard/spec.
-
-Go:
-- Failure reproduced with clear signal and trace.
-
-Order:
-1. Reproduce in smallest shard/spec containing failure.
-2. Capture trace/artifacts once failure is reproduced.
-
-### Gate 3: Root-Cause Fix Loop
-
-Stop:
-- Change does not map to verified cause.
-- Proposed fix is only timeout/retry inflation.
-
-Go:
-- Cause mapped to specific file/function/component.
-
-Loop:
-1. Classify cause (`SYNC_WAIT`, `LOCATOR_AMBIGUITY`, `STATE_LEAK`, `ENV_ORCHESTRATION`, `PERF_TIMEOUT`).
-2. Run taxonomy-first fastest diagnostic move:
-   - `SYNC_WAIT`: run failing test with trace + UI mode/timeouts unchanged; verify missing awaited state transition first.
-   - `LOCATOR_AMBIGUITY`: run strict locator count/assertion first (`toHaveCount(1)`/role+name narrowing) before selector rewrites.
-   - `STATE_LEAK`: run early deterministic branch with `--workers=1` and same shard/spec to confirm isolation issue.
-   - `ENV_ORCHESTRATION`: verify setup project execution order and `webServer` ready signal before app-code changes.
-   - `PERF_TIMEOUT`: run smallest repro with unchanged expectations and capture slow step timings before raising timeout.
-3. Apply root-cause fix.
-4. Re-run smallest failing scope.
-5. Repeat until deterministic pass.
-
-### Gate 4: Impacted Shard Rerun
-
-Stop:
-- Any failure in impacted shard after fix.
-
-Go:
-- Impacted shard fully green.
-
-### Gate 5: Browser Fan-Out
-
-Stop:
-- Any browser fails on impacted scope.
-
-Go:
-- Chromium + Firefox + WebKit pass impacted scope.
-
-Order:
-1. Single-browser deterministic validation first (primary browser baseline).
-2. Cross-browser fan-out second (Chromium + Firefox + WebKit).
-
-### Gate 6: Security Matrix and Full Split Confirmation
-
-Stop:
-- Security suites fail or split topology regresses.
-
-Go:
-- Security matrix green and full split pipeline green.
-
-### Gate 7: Mandatory Coverage and Codecov Patch Triage
-
-Stop:
-- Coverage runs not completed for modified production code.
-- Codecov Patch view not reviewed after coverage upload.
-- Patch coverage for modified lines is < 100%.
-- Missing/partial patch line ranges are not documented with mapped targeted tests.
-
-Go:
-- Coverage runs completed.
-- Codecov Patch coverage for modified lines is exactly 100%.
-- All missing/partial ranges are triaged and resolved with targeted tests.
-
-Order:
-1. Run required coverage suites for modified areas.
-2. Open Codecov Patch view.
-3. Copy exact missing/partial modified line ranges.
-4. Map each range to targeted tests.
-5. Add/adjust tests and rerun coverage until patch coverage is 100%.
-
----
-
-## Performance and Stability Thresholds
-
-### Runtime Thresholds
-
-- Baseline source: most recent known-good split run on same branch/runtime profile.
-- Non-security shard runtime regression allowed: <= 10% per shard.
-- Total non-security wall-clock regression allowed: <= 10%.
-- Security matrix runtime regression allowed: <= 15%.
-
-Runtime fail:
-- Any threshold exceeded without explicit documented acceptance as follow-up.
-
-### Stability / Flake Thresholds
-
-- Targeted repaired failure: 3 consecutive passes required.
-- Impacted shard: 2 consecutive passes required.
-- Browser fan-out: 2 consecutive passes per browser on impacted scope.
-- Final full split confirmation: 1 full run with zero retry-required failures.
-- Consecutive-pass gates use Playwright-native `--repeat-each`.
-- Retry runs are instrumentation only (small CI retry count) and must be paired with `--fail-on-flaky-tests`.
-
-Stability fail:
-- Any non-deterministic reappearance inside required consecutive pass window.
-- Any flaky-pass classified by Playwright as flaky.
-
-### Auth-State Reuse Nuance
-
-- Shared `storageState` reuse is acceptable only when server-side state mutation conflicts are controlled.
-- If tests mutate shared server-side entities (user/session/settings records), isolate state per test/suite or reset deterministically before reuse.
-
----
-
-## Root-Cause-First Focus Areas
-
-### Orchestration and helpers
-- `tests/global-setup.ts` (`waitForContainer`, `emergencySecurityReset`)
-- `tests/auth.setup.ts` (`performLoginAndSaveState`, `resetAdminCredentials`)
-- `tests/utils/wait-helpers.ts`
-- `tests/utils/ui-helpers.ts`
-- `tests/utils/TestDataManager.ts`
-
-### Flake-prone suites
-- `tests/core/navigation.spec.ts`
-- `tests/core/proxy-hosts.spec.ts`
-- `tests/core/data-consistency.spec.ts`
-- `tests/settings/user-management.spec.ts`
-- `tests/settings/smtp-settings.spec.ts`
-- `tests/settings/notifications.spec.ts`
-- `tests/tasks/*.spec.ts`
-
-### UI/component hotspots
-- `frontend/src/components/ProxyHostForm.tsx`
-- `frontend/src/pages/ProxyHosts.tsx`
-- `frontend/src/pages/UsersPage.tsx`
-- `frontend/src/pages/Settings.tsx`
-- `frontend/src/pages/Certificates.tsx`
-
-### Backend integrity path
-- `backend/internal/api/handlers/proxy_host_handler.go` (`Update`)
-- `backend/internal/services/proxyhost_service.go` (`Update`, validation paths)
-- `backend/internal/models/proxy_host.go`
-
----
-
-## Data-Consistency Spec Policy (Aligned)
-
-`tests/core/data-consistency.spec.ts` is consistently in scope for this plan:
-
-- Included in targeted reproduction when active failure signal.
-- Included in impacted shard reruns after relevant fixes.
-- Included in cross-browser fan-out for impacted scope.
-- Included in final full split confirmation.
-
-No phase excludes this spec while claiming full-green readiness.
-
----
-
-## Phased Task Plan
-
-### Phase 1: Environment and Reproduction
-- Complete Gate 1 and Gate 2.
-- Produce failure map with taxonomy and ownership.
-
-### Phase 2: Root-Cause Fix Loop
-- Complete Gate 3.
-- Prioritize helper/contract/product fixes over retries/timeouts.
-
-### Phase 3: Impacted Validation
-- Complete Gate 4 and Gate 5.
-- Enforce consecutive-pass thresholds.
-
-### Phase 4: Full Confirmation
-- Complete Gate 6.
-- Complete Gate 7.
-- Verify full-green state for split topology and security matrix.
-
-### Phase 5: Patch Coverage Triage Closure
-- This phase runs after implementation changes and after coverage is executed/uploaded.
-- Capture exact missing/partial line ranges from Codecov Patch view.
-- Maintain line-range-to-test mapping until each range is covered.
-- Re-run only targeted suites first, then required final confirmation suite.
-
-Status convention for this phase:
-- `Pending Execution`: acceptable before implementation and before coverage + Codecov Patch review are run.
-- `Closed`: required at completion for every triage entry.
-
-#### Codecov Patch Triage Table (Mandatory)
-
-Note: `Codecov Patch line range` and related placeholders below are execution artifacts. Populate them only in Phase 5 after running coverage and opening the Codecov Patch view.
-
-| Codecov Patch line range | File | Coverage status | Targeted test(s) to add/run | Owner | Status |
-| --- | --- | --- | --- | --- | --- |
-| `<paste exact range from Codecov>` | `<path>` | Missing/Partial | `<test file + test name>` | `<name>` | Pending Execution |
-
----
-
-## Critical Path Exclusions
-
-Removed from critical path for this request:
-- `.gitignore` audit
-- `codecov.yml` audit
-- `.dockerignore` audit
-- `Dockerfile` audit
-
-These are non-blocking unless directly proven as root cause of active E2E failures.
-
----
-
-## Non-Blocking Follow-Up (Optional)
-
-- Config hygiene review for `.gitignore`, `codecov.yml`, `.dockerignore`, `Dockerfile`.
-- Additional CI/runtime optimization outside current pass criteria.
-
----
-
-## Definition of Done
-
-1. Hard-gated execution order completed without skipped stop/go checks.
-2. Active failures fixed via verified root causes.
-3. `tests/core/data-consistency.spec.ts` handled consistently per policy.
-4. Impacted shards green with required consecutive passes.
-5. Browser fan-out green with required consecutive passes.
-6. Security matrix and full split confirmation green.
-7. Runtime/stability thresholds satisfied, or explicit follow-up recorded for approved exceptions.
-8. Coverage completion is documented for all modified production code.
-9. Codecov Patch coverage for modified lines is 100%.
-10. Codecov Patch missing/partial line ranges are explicitly captured and each is mapped to targeted tests, with all entries closed.
-
----
-
-## Policy-Bound Caveat (Coverage)
-
-- Repository policy remains a hard gate: modified production lines require 100% Codecov patch coverage.
-- No exceptions are allowed unless repository policy itself is changed.
-- Filler tests are not acceptable; each missing/partial patch line must be covered by behavior-linked targeted tests tied to the affected scenario.
+Scope: Raise frontend unit-test coverage to project minimum quickly, without destabilizing ongoing flaky E2E CI validation.
+
+## 1) Objective
+
+Recover frontend coverage to the minimum required gate with the fewest
+iterations by targeting the biggest low-coverage modules first, starting
+with high-yield API files and then selected large UI files.
+
+Primary gate:
+- Frontend lines coverage >= 85% (Codecov project `frontend` + local Vitest gate)
+
+Hard constraints:
+- Do not modify production behavior unless a testability blocker is proven.
+- Keep E2E stabilization work isolated (final flaky E2E already in CI validation).
+
+## 2) Research Findings (Current Snapshot)
+
+Baseline sources discovered:
+- `frontend/coverage.log` (recent Vitest coverage table with uncovered ranges)
+- `frontend/vitest.config.ts` (default gate from `CHARON_MIN_COVERAGE`/`CPM_MIN_COVERAGE`, fallback `85.0`)
+- `codecov.yml` (frontend project target `85%`, patch target `100%`)
+
+Observed recent baseline in `frontend/coverage.log`:
+- All files lines: `86.91%`
+- Note: this run used a stricter environment gate (`88%`) and failed that stricter gate.
+
+### Ranked High-Yield Candidates (size + low current line coverage)
+
+Estimates below use current file length as approximation and prioritize
+modules where added tests can cover many currently uncovered lines quickly.
+
+| Rank | Module | File lines | Current line coverage | Approx uncovered lines | Existing test target to extend | Expected project lines impact |
+|---|---|---:|---:|---:|---|---|
+| 1 | `src/api/securityHeaders.ts` | 188 | 10.00% | ~169 | `frontend/src/api/__tests__/securityHeaders.test.ts` | +2.0% to +3.2% |
+| 2 | `src/api/import.ts` | 137 | 31.57% | ~94 | `frontend/src/api/__tests__/import.test.ts` | +1.0% to +1.9% |
+| 3 | `src/pages/UsersPage.tsx` | 775 | 75.67% | ~189 | `frontend/src/pages/__tests__/UsersPage.test.tsx` | +0.5% to +1.3% |
+| 4 | `src/pages/Security.tsx` | 643 | 72.22% | ~179 | `frontend/src/pages/__tests__/Security.test.tsx` | +0.4% to +1.1% |
+| 5 | `src/pages/Uptime.tsx` | 591 | 74.77% | ~149 | `frontend/src/pages/__tests__/Uptime.test.tsx` | +0.4% to +1.0% |
+| 6 | `src/pages/SecurityHeaders.tsx` | 340 | 69.35% | ~104 | `frontend/src/pages/__tests__/SecurityHeaders.test.tsx` | +0.3% to +0.9% |
+| 7 | `src/pages/Plugins.tsx` | 391 | 62.26% | ~148 | `frontend/src/pages/__tests__/Plugins.test.tsx` | +0.3% to +0.9% |
+| 8 | `src/components/SecurityHeaderProfileForm.tsx` | 467 | 58.97% | ~192 | `frontend/src/components/__tests__/SecurityHeaderProfileForm.test.tsx` | +0.4% to +1.0% |
+| 9 | `src/components/CredentialManager.tsx` | 609 | 75.75% | ~148 | `frontend/src/components/__tests__/CredentialManager.test.tsx` | +0.3% to +0.8% |
+| 10 | `src/api/client.ts` | 71 | 34.78% | ~46 | `frontend/src/api/__tests__/client.test.ts` | +0.2% to +0.6% |
+
+Planning decision:
+- Start with API modules (`securityHeaders.ts`, `import.ts`, optional `client.ts`) for fastest coverage-per-test effort.
+- Move to large pages only if the threshold is still not satisfied.
+
+## 3) Requirements in EARS Notation
+- WHEN frontend lines coverage is below the minimum threshold, THE SYSTEM SHALL prioritize modules by uncovered size and low coverage first.
+- WHEN selecting coverage targets, THE SYSTEM SHALL use existing test files before creating new test files.
+- WHEN collecting baseline and post-change metrics, THE SYSTEM SHALL use project-approved tasks/scripts only.
+- WHEN E2E is already being validated in CI, THE SYSTEM SHALL avoid introducing E2E test/config changes in this coverage effort.
+- IF frontend threshold is still not met after minimal path execution, THEN THE SYSTEM SHALL execute fallback targets in priority order until threshold is met.
+- WHEN coverage work is complete, THE SYSTEM SHALL pass frontend coverage gate, type-check, and manual pre-commit checks required by project testing instructions.
+
+
+## 4) Technical Specification (Coverage-Only)
+
+### In Scope
+- Frontend unit tests (Vitest) only.
+- Extending existing tests under:
+  - `frontend/src/api/__tests__/`
+  - `frontend/src/pages/__tests__/`
+  - `frontend/src/components/__tests__/`
+
+### Out of Scope
+- Backend changes.
+- Playwright test logic changes.
+- CI workflow redesign.
+- Product behavior changes unrelated to testability.
+
+### No Schema/API Contract Changes
+- No backend API contract changes are required for this plan.
+- No database changes are required.
+
+## 5) Phased Execution Plan
+
+### Phase 0 — Baseline and Target Lock (single pass)
+
+Goal: establish current truth and exact gap to 85%.
+
+1. Run approved frontend coverage task:
+   - Preferred: VS Code task `Test: Frontend Coverage (Vitest)`
+   - Equivalent script path: `.github/skills/scripts/skill-runner.sh test-frontend-coverage`
+2. Capture baseline artifacts:
+   - `frontend/coverage/coverage-summary.json`
+   - `frontend/coverage/lcov.info`
+3. Record baseline:
+   - total lines pct
+   - delta to 85%
+   - top 10 uncovered modules (from `coverage.log`/summary)
+4. Early-exit gate (immediately after baseline capture):
+    - Read active threshold from the same gate source used by the coverage task
+       (`CHARON_MIN_COVERAGE`/`CPM_MIN_COVERAGE`, fallback `85.0`).
+    - IF baseline frontend lines pct is already >= active threshold,
+       THEN stop further test additions for this plan cycle.
+
+Exit criteria:
+- Baseline numbers captured once and frozen for this cycle.
+- Either baseline is below threshold and Phase 1 proceeds, or execution exits
+   early because baseline already meets/exceeds threshold.
+
+### Phase 1 — Minimal Path (fewest requests/iterations)
+
+Goal: cross 85% quickly with smallest change set.
+
+Target set A (execute in order):
+1. `frontend/src/api/__tests__/securityHeaders.test.ts`
+2. `frontend/src/api/__tests__/import.test.ts`
+3. `frontend/src/api/__tests__/client.test.ts` (only if needed after #1-#2)
+
+Test focus inside these files:
+- error mapping branches
+- non-2xx response handling
+- optional parameter/query serialization branches
+- retry/timeout/cancel edge paths where already implemented
+
+Validation after each target (or pair):
+- run frontend coverage task
+- read updated total lines pct
+- stop as soon as >= 85%
+
+Expected result:
+- Most likely to reach threshold within 2-3 targeted API test updates.
+
+### Phase 2 — Secondary Path (only if still below threshold)
+
+Goal: add one large UI target at a time, highest projected return first.
+
+Target set B (execute in order, stop once >= 85%):
+1. `frontend/src/pages/__tests__/UsersPage.test.tsx`
+2. `frontend/src/pages/__tests__/Uptime.test.tsx`
+3. `frontend/src/pages/__tests__/SecurityHeaders.test.tsx`
+4. `frontend/src/pages/__tests__/Plugins.test.tsx`
+5. `frontend/src/components/__tests__/SecurityHeaderProfileForm.test.tsx`
+6. `frontend/src/pages/__tests__/Security.test.tsx` (de-prioritized because
+   it is currently fully skipped; only consider if skip state is removed)
+
+Test focus:
+- critical uncovered conditional render branches
+- form validation and submit error paths
+- loading/empty/error states not currently asserted
+
+### Phase 3 — Final Verification and Gates
+
+1. E2E verification-first check (run-first policy):
+   - Run `Test: E2E Playwright (Skill)` first.
+   - Use `Test: E2E Playwright (Targeted Suite)` only when scoped execution is
+     sufficient for the impacted area.
+   - No E2E code/config changes are allowed in this plan.
+2. Frontend coverage:
+   - VS Code task `Test: Frontend Coverage (Vitest)`
+3. Frontend type-check:
+   - VS Code task `Lint: TypeScript Check`
+4. Manual pre-commit checks:
+   - VS Code task `Lint: Pre-commit (All Files)`
+5. Confirm Codecov expectations:
+   - project frontend target >= 85%
+   - patch coverage target = 100% for modified lines
+
+## 6) Baseline vs Post-Change Collection Protocol
+
+Use this exact protocol for both baseline and post-change snapshots:
+
+1. Execute `Test: Frontend Coverage (Vitest)`.
+2. Save metrics from `frontend/coverage/coverage-summary.json`:
+   - lines, statements, functions, branches.
+3. Keep `frontend/coverage/lcov.info` as Codecov upload source.
+4. Compare baseline vs post:
+   - absolute lines pct delta
+   - per-target module line pct deltas
+
+Reporting format:
+- `Baseline lines: X%`
+- `Post lines: Y%`
+- `Net gain: (Y - X)%`
+- `Threshold status: PASS/FAIL`
+
+## 6.1) Codecov Patch Triage (Explicit, Required)
+
+Patch triage must capture exact missing/partial patch ranges from Codecov Patch
+view and map each range to concrete tests.
+
+Required workflow:
+1. Open PR Patch view in Codecov.
+2. Copy exact missing/partial ranges into the table below.
+3. Map each range to a specific test file and test case additions.
+4. Re-run coverage and update status until all listed ranges are covered.
+
+Required triage table template:
+
+| File | Patch status | Exact missing/partial patch range(s) | Uncovered patch lines | Mapped test file | Planned test case(s) for exact ranges | Status |
+|---|---|---|---:|---|---|---|
+| `frontend/src/...` | Missing or Partial | `Lxx-Lyy`; `Laa-Lbb` | 0 | `frontend/src/.../__tests__/...test.ts[x]` | `it('...')` cases covering each listed range | Open / In Progress / Done |
+
+Rules:
+- Ranges must be copied exactly from Codecov Patch view (not paraphrased).
+- Non-contiguous ranges must be listed explicitly.
+- Do not mark triage complete until every listed range is covered by passing tests.
+
+## 7) Risk Controls (Protect Ongoing Flaky E2E Validation)
+- No edits to Playwright specs, fixtures, config, sharding, retries, or setup.
+- No edits to `.docker/compose/docker-compose.playwright-*.yml`.
+- No edits to global app runtime behavior unless a testability blocker is proven.
+- Keep all changes inside frontend unit tests unless absolutely required.
+- Run E2E verification-first as an execution gate using approved task labels,
+  but make no E2E test/config changes; keep flaky E2E stabilization scope in CI.
+
+
+## 8) Minimal Path and Fallback Path
+
+### Minimal Path (default)
+- Baseline once.
+- Apply the early-exit gate immediately after baseline capture.
+- Update tests for:
+  1) `securityHeaders.ts`
+  2) `import.ts`
+- Re-run coverage.
+- If >= 85%, stop and verify final gates.
+
+### Fallback Path (if still below threshold)
+- Add `client.ts` API tests.
+- If still below, add one UI target at a time in this order:
+   `UsersPage` -> `Uptime` -> `SecurityHeaders` -> `Plugins` -> `SecurityHeaderProfileForm` -> `Security (de-prioritized while fully skipped)`.
+- Re-run coverage after each addition; stop immediately when threshold is reached.
+
+## 9) Config/Ignore File Recommendations (Only If Needed)
+
+Current assessment for this effort:
+- `.gitignore`: already excludes frontend coverage artifacts.
+- `codecov.yml`: already enforces frontend 85% and patch 100% with suitable ignores.
+- `.dockerignore`: already excludes frontend coverage/test artifacts from image context.
+- `Dockerfile`: no changes required for unit coverage-only work.
+
+Decision:
+- No config-file modifications are required for this coverage recovery task.
+
+## 10) Acceptance Checklist
+- [ ] Baseline coverage collected with approved frontend coverage task.
+- [ ] Target ranking confirmed from largest-lowest-coverage modules.
+- [ ] Minimal path executed first (API targets before UI targets).
+- [ ] Early-exit gate applied after baseline capture.
+- [ ] Frontend lines coverage >= 85%.
+- [ ] TypeScript check passes.
+- [ ] Manual pre-commit run passes.
+- [ ] E2E verification-first gate executed with approved task labels (no E2E code/config changes).
+- [ ] No Playwright/E2E infra changes introduced.
+- [ ] Post-change coverage summary recorded.
+- [ ] Codecov patch triage table completed with exact missing/partial ranges and mapped tests.
+
+
+## 11) Definition of Done (Coverage Task Specific)
+
+Done is achieved only when all are true:
+1. Frontend lines coverage is >= 85% using project-approved coverage task output.
+2. Coverage gains come from targeted high-yield modules listed in this plan.
+3. Type-check and manual pre-commit checks pass.
+4. No changes were made that destabilize or alter flaky E2E CI validation scope.
+5. Codecov patch coverage expectations remain satisfiable (100% for modified lines).
+6. Baseline/post-change metrics and final threshold status are documented in the task handoff.
