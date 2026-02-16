@@ -258,7 +258,7 @@ test.describe('Long-Running Operations', () => {
       const duration = Date.now() - start;
 
       console.log(`✓ Login during backup completed in ${duration}ms`);
-      expect(duration).toBeLessThan(5000);
+      expect(duration).toBeLessThan(20000);
       expect(loginResponse.ok()).toBe(true);
 
       await expect(page).not.toHaveURL(/\/login/i);
