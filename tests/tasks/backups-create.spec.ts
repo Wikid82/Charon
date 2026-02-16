@@ -311,7 +311,13 @@ test.describe('Backups Page - Creation and List', () => {
       await page.goto('/tasks/backups');
       await waitForLoadingComplete(page);
 
-      const createButton = page.locator(SELECTORS.createBackupButton);
+      const createButton = page.getByRole('button', { name: /create backup/i }).first();
+      const createResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/v1/backups') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201
+      );
 
       // Click create button
       await createButton.click();
@@ -320,7 +326,7 @@ test.describe('Backups Page - Creation and List', () => {
       await expect(createButton).toBeDisabled();
 
       // Wait for API response
-      await waitForAPIResponse(page, '/api/v1/backups', { status: 201 });
+      await createResponsePromise;
 
       // After completion, button should be enabled again
       await expect(createButton).toBeEnabled({ timeout: 5000 });
