@@ -1105,3 +1105,141 @@ func TestAuthHandler_Refresh_Unauthorized(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, res.Code)
 }
+
+func TestAuthHandler_Register_BadRequest(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := setupAuthHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/register", handler.Register)
+
+	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString("not-json"))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusBadRequest, res.Code)
+}
+
+func TestAuthHandler_Logout_InvalidateSessionsFailure(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := setupAuthHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("userID", uint(999999))
+		c.Next()
+	})
+	r.POST("/logout", handler.Logout)
+
+	req := httptest.NewRequest(http.MethodPost, "/logout", http.NoBody)
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusInternalServerError, res.Code)
+	assert.Contains(t, res.Body.String(), "Failed to invalidate session")
+}
+
+func TestAuthHandler_Verify_UsesOriginalHostFallback(t *testing.T) {
+	t.Parallel()
+
+	handler, db := setupAuthHandlerWithDB(t)
+
+	proxyHost := &models.ProxyHost{
+		UUID:               uuid.NewString(),
+		Name:               "Original Host App",
+		DomainNames:        "original-host.example.com",
+		ForwardAuthEnabled: true,
+		Enabled:            true,
+	}
+	require.NoError(t, db.Create(proxyHost).Error)
+
+	user := &models.User{
+		UUID:           uuid.NewString(),
+		Email:          "originalhost@example.com",
+		Name:           "Original Host User",
+		Role:           "user",
+		Enabled:        true,
+		PermissionMode: models.PermissionModeAllowAll,
+	}
+	require.NoError(t, user.SetPassword("password123"))
+	require.NoError(t, db.Create(user).Error)
+
+	token, err := handler.authService.GenerateToken(user)
+	require.NoError(t, err)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/verify", handler.Verify)
+
+	req := httptest.NewRequest(http.MethodGet, "/verify", http.NoBody)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+	req.Header.Set("X-Original-Host", "original-host.example.com")
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusOK, res.Code)
+	assert.Equal(t, "originalhost@example.com", res.Header().Get("X-Forwarded-User"))
+}
+
+func TestAuthHandler_GetAccessibleHosts_DatabaseUnavailable(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := setupAuthHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("userID", uint(1))
+		c.Next()
+	})
+	r.GET("/hosts", handler.GetAccessibleHosts)
+
+	req := httptest.NewRequest(http.MethodGet, "/hosts", http.NoBody)
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusInternalServerError, res.Code)
+	assert.Contains(t, res.Body.String(), "Database not available")
+}
+
+func TestAuthHandler_CheckHostAccess_DatabaseUnavailable(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := setupAuthHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("userID", uint(1))
+		c.Next()
+	})
+	r.GET("/hosts/:hostId/access", handler.CheckHostAccess)
+
+	req := httptest.NewRequest(http.MethodGet, "/hosts/1/access", http.NoBody)
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusInternalServerError, res.Code)
+	assert.Contains(t, res.Body.String(), "Database not available")
+}
+
+func TestAuthHandler_CheckHostAccess_UserNotFound(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := setupAuthHandlerWithDB(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("userID", uint(999999))
+		c.Next()
+	})
+	r.GET("/hosts/:hostId/access", handler.CheckHostAccess)
+
+	req := httptest.NewRequest(http.MethodGet, "/hosts/1/access", http.NoBody)
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusNotFound, res.Code)
+	assert.Contains(t, res.Body.String(), "User not found")
+}

@@ -299,3 +299,32 @@ func TestProxyHostService_validateProxyHost_ValidationErrors(t *testing.T) {
 	err = service.validateProxyHost(&models.ProxyHost{DomainNames: "example.com", ForwardHost: "127.0.0.1", UseDNSChallenge: true})
 	assert.ErrorContains(t, err, "dns provider is required")
 }
+
+func TestProxyHostService_ValidateUniqueDomain_DBError(t *testing.T) {
+	t.Parallel()
+
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	err = service.ValidateUniqueDomain("example.com", 0)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "checking domain uniqueness")
+}
+
+func TestProxyHostService_List_DBError(t *testing.T) {
+	t.Parallel()
+
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = service.List()
+	assert.Error(t, err)
+}
