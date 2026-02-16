@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
@@ -25,6 +26,12 @@ import (
 // setupTestDB creates an in-memory SQLite database for testing.
 func setupDNSProviderTestDB(t *testing.T) (*gorm.DB, *crypto.EncryptionService) {
 	t.Helper()
+
+	// Set encryption key in environment for RotationService
+	// This must match the test key used below to avoid decryption errors
+	testKey := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" // 32-byte key in base64
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", testKey)
+	t.Cleanup(func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY") })
 
 	// Use shared cache memory database with mutex for proper test isolation
 	// This prevents "no such table" errors that occur with :memory: databases
