@@ -33,13 +33,6 @@ export default defineConfig({
       'dist/**',
       'e2e/**', // Playwright E2E tests - run separately
       'tests/**', // Playwright smoke tests - run separately
-      // TEMPORARY QUARANTINE (2026-02-16): pre-existing unrelated flaky/failed suites
-      // Follow-up: re-enable after selector/timer stability fixes in affected tests.
-      'src/components/__tests__/ProxyHostForm-dns.test.tsx',
-      'src/pages/__tests__/Notifications.test.tsx',
-      'src/pages/__tests__/ProxyHosts-coverage.test.tsx',
-      'src/pages/__tests__/ProxyHosts-extra.test.tsx',
-      'src/pages/__tests__/Security.functional.test.tsx',
     ],
     coverage: {
       provider: 'v8',
