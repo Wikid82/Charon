@@ -817,9 +817,37 @@ func TestApplyWithCopyBasedBackup(t *testing.T) {
 	// Verify backup was created with copy-based approach
 	require.FileExists(t, filepath.Join(res.BackupPath, "existing.txt"))
 	require.FileExists(t, filepath.Join(res.BackupPath, "subdir", "nested.txt"))
-
 	// Verify new config was applied
 	require.FileExists(t, filepath.Join(dataDir, "new", "config.yaml"))
+}
+
+func TestIndexURLCandidates_GitHubMirror(t *testing.T) {
+	t.Parallel()
+
+	candidates := indexURLCandidates("https://raw.githubusercontent.com/crowdsecurity/hub/master")
+	require.Len(t, candidates, 2)
+	require.Contains(t, candidates, "https://raw.githubusercontent.com/crowdsecurity/hub/master/.index.json")
+	require.Contains(t, candidates, "https://raw.githubusercontent.com/crowdsecurity/hub/master/api/index.json")
+}
+
+func TestBuildResourceURLs_DeduplicatesExplicitAndBases(t *testing.T) {
+	t.Parallel()
+
+	urls := buildResourceURLs("https://hub.example/preset.tgz", "crowdsecurity/demo", "/%s.tgz", []string{"https://hub.example", "https://hub.example"})
+	require.NotEmpty(t, urls)
+	require.Equal(t, "https://hub.example/preset.tgz", urls[0])
+	require.Len(t, urls, 2)
+}
+
+func TestHubHTTPErrorMethods(t *testing.T) {
+	t.Parallel()
+
+	inner := errors.New("inner")
+	err := hubHTTPError{url: "https://hub.example", statusCode: 404, inner: inner, fallback: true}
+
+	require.Contains(t, err.Error(), "https://hub.example")
+	require.ErrorIs(t, err, inner)
+	require.True(t, err.CanFallback())
 }
 
 func TestBackupExistingHandlesDeviceBusy(t *testing.T) {

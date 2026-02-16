@@ -694,6 +694,52 @@ func TestBackupService_Start(t *testing.T) {
 	service.Stop()
 }
 
+func TestQuoteSQLiteIdentifier(t *testing.T) {
+	t.Parallel()
+
+	quoted, err := quoteSQLiteIdentifier("security_audit")
+	require.NoError(t, err)
+	require.Equal(t, `"security_audit"`, quoted)
+
+	_, err = quoteSQLiteIdentifier("")
+	require.Error(t, err)
+
+	_, err = quoteSQLiteIdentifier("bad-name")
+	require.Error(t, err)
+}
+
+func TestSafeJoinPath_Validation(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+
+	joined, err := SafeJoinPath(base, "backup/file.zip")
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(base, "backup", "file.zip"), joined)
+
+	_, err = SafeJoinPath(base, "../etc/passwd")
+	require.Error(t, err)
+
+	_, err = SafeJoinPath(base, "/abs/path")
+	require.Error(t, err)
+}
+
+func TestSQLiteSnapshotAndCheckpoint(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "snapshot.db")
+	createSQLiteTestDB(t, dbPath)
+
+	require.NoError(t, checkpointSQLiteDatabase(dbPath))
+
+	snapshotPath, cleanup, err := createSQLiteSnapshot(dbPath)
+	require.NoError(t, err)
+	require.FileExists(t, snapshotPath)
+	cleanup()
+	require.NoFileExists(t, snapshotPath)
+}
+
 func TestRunScheduledBackup_CleanupSucceedsWithDeletions(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")

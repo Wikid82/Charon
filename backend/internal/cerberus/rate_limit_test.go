@@ -392,6 +392,37 @@ func TestCerberusRateLimitMiddleware_AdminSecurityControlPlaneBypass(t *testing.
 	}
 }
 
+func TestIsAdminSecurityControlPlaneRequest(t *testing.T) {
+	t.Parallel()
+
+	gin.SetMode(gin.TestMode)
+
+	t.Run("admin role bypasses control plane", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(rec)
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/security/rules", http.NoBody)
+		ctx.Set("role", "admin")
+		assert.True(t, isAdminSecurityControlPlaneRequest(ctx))
+	})
+
+	t.Run("bearer token bypasses control plane", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(rec)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/settings", http.NoBody)
+		req.Header.Set("Authorization", "Bearer token")
+		ctx.Request = req
+		assert.True(t, isAdminSecurityControlPlaneRequest(ctx))
+	})
+
+	t.Run("non control plane path is not bypassed", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(rec)
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts", http.NoBody)
+		ctx.Set("role", "admin")
+		assert.False(t, isAdminSecurityControlPlaneRequest(ctx))
+	})
+}
+
 func TestCerberusRateLimitMiddleware_AdminSettingsBypass(t *testing.T) {
 	cfg := config.SecurityConfig{
 		RateLimitMode:      "enabled",

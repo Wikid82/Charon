@@ -28,6 +28,52 @@ func setupUserHandler(t *testing.T) (*UserHandler, *gorm.DB) {
 	return NewUserHandler(db), db
 }
 
+func TestMapsKeys(t *testing.T) {
+	t.Parallel()
+
+	keys := mapsKeys(map[string]any{"email": "a@example.com", "name": "Alice", "enabled": true})
+	assert.Len(t, keys, 3)
+	assert.Contains(t, keys, "email")
+	assert.Contains(t, keys, "name")
+	assert.Contains(t, keys, "enabled")
+}
+
+func TestUserHandler_actorFromContext(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := setupUserHandler(t)
+
+	rec1 := httptest.NewRecorder()
+	ctx1, _ := gin.CreateTestContext(rec1)
+	req1 := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req1.RemoteAddr = "198.51.100.10:1234"
+	ctx1.Request = req1
+	assert.Equal(t, "198.51.100.10", handler.actorFromContext(ctx1))
+
+	rec2 := httptest.NewRecorder()
+	ctx2, _ := gin.CreateTestContext(rec2)
+	req2 := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	ctx2.Request = req2
+	ctx2.Set("userID", uint(42))
+	assert.Equal(t, "42", handler.actorFromContext(ctx2))
+}
+
+func TestUserHandler_logUserAudit_NoOpBranches(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := setupUserHandler(t)
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+
+	// nil user should be a no-op
+	handler.logUserAudit(ctx, "noop", nil, map[string]any{"x": 1})
+
+	// nil security service should be a no-op
+	handler.securitySvc = nil
+	handler.logUserAudit(ctx, "noop", &models.User{UUID: uuid.NewString(), Email: "user@example.com"}, map[string]any{"x": 1})
+}
+
 func TestUserHandler_GetSetupStatus(t *testing.T) {
 	handler, db := setupUserHandler(t)
 	gin.SetMode(gin.TestMode)

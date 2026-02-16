@@ -710,3 +710,53 @@ func TestMailService_SendInvite_CRLFInjection(t *testing.T) {
 		})
 	}
 }
+
+func TestRejectCRLF(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, rejectCRLF("normal-value"))
+	require.ErrorIs(t, rejectCRLF("bad\r\nvalue"), errEmailHeaderInjection)
+}
+
+func TestNormalizeBaseURLForInvite(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		raw     string
+		want    string
+		wantErr bool
+	}{
+		{name: "valid https", raw: "https://example.com", want: "https://example.com", wantErr: false},
+		{name: "valid http with slash path", raw: "http://example.com/", want: "http://example.com", wantErr: false},
+		{name: "empty", raw: "", wantErr: true},
+		{name: "invalid scheme", raw: "ftp://example.com", wantErr: true},
+		{name: "with path", raw: "https://example.com/path", wantErr: true},
+		{name: "with query", raw: "https://example.com?x=1", wantErr: true},
+		{name: "with fragment", raw: "https://example.com#frag", wantErr: true},
+		{name: "with user info", raw: "https://user@example.com", wantErr: true},
+		{name: "with header injection", raw: "https://example.com\r\nX-Test: 1", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := normalizeBaseURLForInvite(tt.raw)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.ErrorIs(t, err, errInvalidBaseURLForInvite)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestEncodeSubject_RejectsCRLF(t *testing.T) {
+	t.Parallel()
+
+	_, err := encodeSubject("Hello\r\nWorld")
+	require.Error(t, err)
+	require.ErrorIs(t, err, errEmailHeaderInjection)
+}
