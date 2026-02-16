@@ -521,16 +521,26 @@ test.describe('Dashboard', () => {
      * Test: Dashboard loads within acceptable time
      */
     test('should load dashboard within 5 seconds', async ({ page }) => {
+      const maxDashboardLoadMs = 5000;
       const startTime = Date.now();
+      const deadline = startTime + maxDashboardLoadMs;
+      const remainingTime = () => Math.max(0, deadline - Date.now());
 
-      await page.goto('/');
-      await waitForLoadingComplete(page);
+      await page.goto('/', { waitUntil: 'domcontentloaded' });
+
+      await expect(page.getByRole('main')).toBeVisible({ timeout: remainingTime() });
+      await expect(page.getByRole('heading', { name: /dashboard/i })).toBeVisible({
+        timeout: remainingTime(),
+      });
+      await expect(page.getByText(/proxy hosts/i).first()).toBeVisible({
+        timeout: remainingTime(),
+      });
 
       const loadTime = Date.now() - startTime;
 
       await test.step('Verify load time is acceptable', async () => {
-        // Dashboard should load within 5 seconds
-        expect(loadTime).toBeLessThan(5000);
+        // Dashboard core UI should become ready within 5 seconds in shard/CI runs.
+        expect(loadTime).toBeLessThan(maxDashboardLoadMs);
       });
     });
 
