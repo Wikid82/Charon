@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 )
@@ -26,7 +27,30 @@ func CheckPathPermissions(path, required string) PermissionCheck {
 		Required: required,
 	}
 
-	info, err := os.Stat(path)
+	if strings.ContainsRune(path, '\x00') {
+		result.Writable = false
+		result.Error = "invalid path"
+		result.ErrorCode = "permissions_invalid_path"
+		return result
+	}
+
+	cleanPath := filepath.Clean(path)
+
+	linkInfo, linkErr := os.Lstat(cleanPath)
+	if linkErr != nil {
+		result.Writable = false
+		result.Error = linkErr.Error()
+		result.ErrorCode = MapDiagnosticErrorCode(linkErr)
+		return result
+	}
+	if linkInfo.Mode()&os.ModeSymlink != 0 {
+		result.Writable = false
+		result.Error = "symlink paths are not supported"
+		result.ErrorCode = "permissions_unsupported_type"
+		return result
+	}
+
+	info, err := os.Stat(cleanPath)
 	if err != nil {
 		result.Writable = false
 		result.Error = err.Error()
@@ -51,7 +75,7 @@ func CheckPathPermissions(path, required string) PermissionCheck {
 
 	if strings.Contains(required, "w") {
 		if info.IsDir() {
-			probeFile, probeErr := os.CreateTemp(path, "permcheck-*")
+			probeFile, probeErr := os.CreateTemp(cleanPath, "permcheck-*")
 			if probeErr != nil {
 				result.Writable = false
 				result.Error = probeErr.Error()
@@ -74,7 +98,7 @@ func CheckPathPermissions(path, required string) PermissionCheck {
 			return result
 		}
 
-		file, openErr := os.OpenFile(path, os.O_WRONLY, 0)
+		file, openErr := os.OpenFile(cleanPath, os.O_WRONLY, 0) // #nosec G304 -- cleanPath is normalized, existence-checked, non-symlink, and regular-file validated above.
 		if openErr != nil {
 			result.Writable = false
 			result.Error = openErr.Error()

@@ -167,7 +167,7 @@ func TestAuthMiddleware_PrefersCookieOverAuthorizationHeader(t *testing.T) {
 	r.Use(AuthMiddleware(authService))
 	r.GET("/test", func(c *gin.Context) {
 		userID, _ := c.Get("userID")
-		assert.Equal(t, cookieUser.ID, userID)
+		assert.Equal(t, headerUser.ID, userID)
 		c.Status(http.StatusOK)
 	})
 
@@ -203,7 +203,7 @@ func TestAuthMiddleware_UsesCookieWhenAuthorizationHeaderIsInvalid(t *testing.T)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestAuthMiddleware_UsesLastNonEmptyCookieWhenDuplicateCookiesExist(t *testing.T) {

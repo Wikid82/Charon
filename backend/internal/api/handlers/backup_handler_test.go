@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/services"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestIsSQLiteTransientRehydrateError(t *testing.T) {
@@ -61,8 +63,14 @@ func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string
 	require.NoError(t, err)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
-	// Create a dummy DB file to back up
-	err = os.WriteFile(dbPath, []byte("dummy db content"), 0o600)
+	db, err := sql.Open("sqlite3", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS healthcheck (id INTEGER PRIMARY KEY, value TEXT)")
+	require.NoError(t, err)
+	_, err = db.Exec("INSERT INTO healthcheck (value) VALUES (?)", "ok")
 	require.NoError(t, err)
 
 	cfg := &config.Config{

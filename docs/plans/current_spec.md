@@ -1,179 +1,198 @@
-## Backend Coverage Alignment + Buffer Plan
+# PR #666 Patch Coverage Recovery Spec (Approval-Ready)
 
 Date: 2026-02-16
 Owner: Planning Agent
-Status: Active (unit tests + coverage only)
+Status: Draft for Supervisor approval (single coherent plan)
 
-## 1) Goal and Scope
+## 1) Scope Decision (Unified)
 
-Goal:
-- Determine why local backend coverage and CI/Codecov differ.
-- Add enough backend unit tests to create a reliable buffer above the 85% gate.
+### In Scope
+- Backend unit-test additions only, targeting changed patch lines in backend handlers/services/utils.
+- Minimum-risk posture: prioritize test-only additions in files already touched by PR #666 before opening any new test surface.
+- Coverage validation using current backend coverage task/script.
 
-In scope:
-- Backend unit tests only.
-- Coverage measurement/parsing validation.
-- CI-parity validation steps.
+### Out of Scope
+- E2E/Playwright, integration, frontend, Docker, and security scan remediation.
 
-Out of scope:
-- E2E/Playwright.
-- Integration tests.
-- Runtime/security feature changes unrelated to unit coverage.
+### E2E Decision for this task
+- E2E is explicitly **out-of-scope** for this patch-coverage remediation.
+- Rationale: target metric is Codecov patch lines on backend changes; E2E adds runtime risk/cycle time without direct line-level patch closure.
 
-## 2) Research Findings (Current Repo)
+### Scope Reconciliation with Current Implementation (PR #666)
+Confirmed already touched backend test files:
+- `backend/internal/api/handlers/import_handler_test.go`
+- `backend/internal/api/handlers/settings_handler_helpers_test.go`
+- `backend/internal/api/handlers/emergency_handler_test.go`
+- `backend/internal/services/backup_service_test.go`
+- `backend/internal/api/handlers/backup_handler_test.go`
+- `backend/internal/api/handlers/system_permissions_handler_test.go`
+- `backend/internal/api/handlers/notification_provider_handler_validation_test.go`
 
-### 2.1 CI vs local execution path
+Optional/deferred (not yet touched in current remediation pass):
+- `backend/internal/util/permissions_test.go`
+- `backend/internal/services/notification_service_json_test.go`
+- `backend/internal/services/backup_service_rehydrate_test.go`
+- `backend/internal/api/handlers/security_handler_coverage_test.go`
 
-- CI backend coverage path uses `codecov-upload.yml` → `bash scripts/go-test-coverage.sh` → uploads `backend/coverage.txt` with Codecov flag `backend`.
-- Local recommended path (`test-backend-coverage` skill) runs the same script.
+## 2) Single Source of Truth for Success
 
-### 2.2 Metric-basis mismatch (explicit)
+Authoritative success metric:
+- **Codecov PR patch status (`lines`)** is the source of truth for this task.
 
-- `scripts/go-test-coverage.sh` computes the percentage from `go tool cover -func`, whose summary line is `total: (statements) XX.X%`.
-- `codecov.yml` project status for backend is configured with `only: lines`.
-- Therefore:
-  - Local script output is statement coverage.
-  - CI gate shown by Codecov is line coverage.
-  - These are related but not identical metrics and can diverge by about ~0.5-1.5 points in practice.
+Relationship to `codecov.yml`:
+- `coverage.status.patch.default.target: 100%` and `required: false` means patch status is advisory in CI.
+- For this plan, we set an internal quality gate: **patch lines >= 85%** (minimum), preferred **>= 87%** buffer.
+- Local script output (`go tool cover`) remains diagnostic; pass/fail is decided by Codecov patch `lines` after upload.
 
-### 2.3 Likely mismatch drivers in this repo
+## 3) Feasibility Math and Coverage-Line Budget
 
-1. Coverage metric basis:
-  - Local script: statements.
-  - Codecov status: lines.
-2. Exclusion filter differences:
-  - Script excludes only `internal/trace` and `integration` packages.
-  - Codecov ignore list also excludes extra backend paths/files (for example logger/metrics and Docker-only files).
-  - Different include/exclude sets can shift aggregate percentages.
-3. Package-set differences in developer workflows:
-  - Some local checks use `go test ./... -cover` (package percentages) instead of the CI-equivalent script with filtering and upload behavior.
-4. Cache/artifact variance:
-  - Go test cache and Codecov carryforward behavior can hide small swings between runs if not cleaned/verified.
+Given baseline:
+- Patch coverage = `60.84011%`
+- Missing patch lines = `578`
 
-## 3) EARS Requirements
+Derived totals:
+- Let total patch lines = `T`
+- `578 = T * (1 - 0.6084011)` => `T ≈ 1476`
+- Currently covered lines `C0 = 1476 - 578 = 898`
 
-- WHEN backend coverage is evaluated locally, THE SYSTEM SHALL report both statement coverage (from `go tool cover`) and CI-relevant line coverage context (Codecov config basis).
-- WHEN coverage remediation is implemented, THE SYSTEM SHALL prioritize deterministic unit tests in existing test files before adding new complex harnesses.
-- WHEN validation is performed, THE SYSTEM SHALL execute the same backend coverage script used by CI and verify output artifacts (`backend/coverage.txt`, `backend/test-output.txt`).
-- IF local statement coverage is within 0-1 points of the threshold, THEN THE SYSTEM SHALL require additional backend unit tests to produce a safety buffer targeting >=86% CI backend line coverage.
-- WHEN evaluating pass/fail semantics, THE SYSTEM SHALL distinguish the effective Codecov pass condition from the engineering buffer target: with `target: 85%` and `threshold: 1%` in `codecov.yml`, CI may pass below 85% lines depending on Codecov threshold/rounding logic.
+Required for >=85%:
+- `C85 = ceil(0.85 * 1476) = 1255`
+- Additional covered lines required: `1255 - 898 = 357`
 
-## 4) Highest-Yield Backend Test Targets (+1% with minimal risk)
+Budget by phase (line-coverage gain target):
 
-Priority 1 (low risk, deterministic, existing test suites):
+| Phase | Target line gain | Cumulative gain target | Stop/Go threshold |
+|---|---:|---:|---|
+| Phase 1 | +220 | +220 | Stop if <+170; re-scope before Phase 2 |
+| Phase 2 | +100 | +320 | Stop if <+70; activate residual plan |
+| Phase 3 (residual closure) | +45 | +365 | Must reach >=+357 total |
 
-1. `backend/internal/util/permissions.go`
-  - Boost tests around:
-    - `CheckPathPermissions` error branches (permission denied, non-existent path, non-dir path).
-    - `MapSaveErrorCode` and SQLite-path helpers edge mapping.
-  - Why high-yield: package currently low (~71% statements) and logic is pure/deterministic.
+Notes:
+- Planned total gain `+365` gives `+8` lines safety over minimum `+357`.
+- If patch denominator changes due to rebase/new touched lines, recompute budget before continuing.
 
-2. `backend/internal/api/handlers/security_notifications.go`
-  - Extend `security_notifications_test.go` for `normalizeEmailRecipients` branch matrix:
-    - whitespace-only entries,
-    - duplicate/mixed-case addresses,
-    - invalid plus valid mixed payloads,
-    - empty input handling.
-  - Why high-yield: currently very low function coverage (~17.6%) and no external runtime dependency.
+## 4) Target Files/Functions (Concise, Specific)
 
-Priority 2 (moderate risk, still unit-level):
+Primary hotspots (Phase 1 focus, aligned to touched tests first):
+- `backend/internal/api/handlers/system_permissions_handler.go`
+  - `RepairPermissions`, `repairPath`, `normalizePath`, `pathHasSymlink`, `isWithinAllowlist`, `mapRepairErrorCode`
+- `backend/internal/services/backup_service.go`
+  - `RestoreBackup`, `extractDatabaseFromBackup`, `unzipWithSkip`, `RehydrateLiveDatabase`, `GetAvailableSpace`
+- `backend/internal/api/handlers/settings_handler.go`
+  - `UpdateSetting`, `PatchConfig`, `validateAdminWhitelist`, `syncAdminWhitelistWithDB`
+- `backend/internal/api/handlers/import_handler.go`
+  - `GetStatus`, `Upload`, `Commit`, `Cancel`, `safeJoin`
+- `backend/internal/api/handlers/backup_handler.go`
+  - `Restore`, `isSQLiteTransientRehydrateError`
+- `backend/internal/api/handlers/emergency_handler.go`
+  - `SecurityReset`, `disableAllSecurityModules`, `upsertSettingWithRetry`
+- `backend/internal/api/handlers/notification_provider_handler.go`
+  - `isProviderValidationError`, provider validation branches
 
-3. `backend/internal/api/handlers/system_permissions_handler.go`
-  - Add focused tests around `logAudit` non-happy paths (missing actor, nil audit service, error/no-op branches).
-  - Why: currently low (~25%) and can be exercised with request context + mocks.
+Secondary hotspots (Phase 2 focus, optional/deferred expansion):
+- `backend/internal/api/handlers/security_handler.go` (`GetStatus`, `latestConfigApplyState`)
+- `backend/internal/util/permissions.go` (`CheckPathPermissions`, `MapSaveErrorCode`, `MapDiagnosticErrorCode`)
+- `backend/internal/services/notification_service.go` (`sendJSONPayload`, `TestProvider`, `RenderTemplate`)
 
-4. `backend/internal/api/handlers/backup_handler.go`
-  - Add restore-path negative tests in `backup_handler_test.go` using temp files and invalid backup payloads.
-  - Why: function `Restore` is partially covered (~27.6%); additional branch coverage is feasible without integration env.
+## 5) Execution Phases with Strict Stop/Go and De-Scoping Rules
 
-Do not prioritize for this +1% buffer:
-- CrowdSec deep workflows requiring process/network/file orchestration for marginal gain-per-effort.
-- Docker-dependent paths already treated as CI-excluded in Codecov config.
+### Phase 0 - Baseline Lock
+Actions:
+- Run `Test: Backend with Coverage` task (`.github/skills/scripts/skill-runner.sh test-backend-coverage`).
+- Record baseline patch lines from Codecov PR view and local artifact `backend/coverage.txt`.
 
-## 5) Implementation Tasks
+Go gate:
+- Baseline captured and denominator confirmed.
 
-### Phase A — Baseline and mismatch confirmation
+Stop gate:
+- If patch denominator changed by >5% from 1476, pause and recompute budgets before coding.
 
-1. Capture baseline using CI-equivalent script:
-  - `bash scripts/go-test-coverage.sh`
-2. Record:
-  - Script summary line (`total: (statements) ...`).
-  - Computed local statement percentage.
-  - Existing backend Codecov line percentage from PR check.
-3. Document delta (statement vs line) for this branch.
-
-### Phase B — Add targeted backend unit tests
-
-1. Expand tests in:
-  - `backend/internal/util/permissions_test.go`
-  - `backend/internal/api/handlers/security_notifications_test.go`
-2. If additional buffer needed, expand:
+### Phase 1 - High-yield branch closure
+Actions:
+- Extend existing tests only in:
   - `backend/internal/api/handlers/system_permissions_handler_test.go`
+  - `backend/internal/services/backup_service_test.go`
   - `backend/internal/api/handlers/backup_handler_test.go`
-3. Keep changes test-only; no production logic changes unless a test reveals a real bug.
+  - `backend/internal/api/handlers/emergency_handler_test.go`
+  - `backend/internal/api/handlers/settings_handler_helpers_test.go`
+  - `backend/internal/api/handlers/import_handler_test.go`
+  - `backend/internal/api/handlers/notification_provider_handler_validation_test.go`
 
-### Phase C — Validate against CI-equivalent flow
+Go gate:
+- Achieve >= `+170` covered patch lines and no failing backend tests.
 
-1. `bash scripts/go-test-coverage.sh | tee backend/test-output.txt`
-2. `go tool cover -func=backend/coverage.txt | tail -n 1` (record statement total).
-3. Confirm no backend test failures in output (`FAIL` lines).
-4. Push branch and verify Codecov backend status (lines) in PR checks.
+Stop gate:
+- If < `+170`, do not proceed; re-scope to only highest delta-per-test functions.
 
-## 6) Exact Validation Sequence (mirror CI as closely as possible)
+### Phase 2 - Secondary branch fill
+Actions:
+- Extend tests in:
+  - `backend/internal/api/handlers/security_handler_coverage_test.go`
+  - `backend/internal/util/permissions_test.go`
+  - `backend/internal/services/backup_service_rehydrate_test.go`
+  - `backend/internal/services/notification_service_json_test.go`
 
-Run from repository root:
+Go gate:
+- Additional >= `+70` covered patch lines in this phase.
 
-1. Environment parity:
-  - `export GOTOOLCHAIN=auto`
-  - `export CGO_ENABLED=1`
-  - CI Go-version parity check (must match `.github/workflows/codecov-upload.yml`):
-    ```sh
-    CI_GO_VERSION=$(grep -E "^  GO_VERSION:" .github/workflows/codecov-upload.yml | sed -E "s/.*'([^']+)'.*/\1/")
-    LOCAL_GO_VERSION=$(go version | awk '{print $3}' | sed 's/^go//')
-    if [ "$LOCAL_GO_VERSION" != "$CI_GO_VERSION" ]; then
-      echo "Go version mismatch: local=$LOCAL_GO_VERSION ci=$CI_GO_VERSION"
-      exit 1
-    fi
-    ```
-2. Clean stale local artifacts:
-  - `rm -f backend/coverage.txt backend/test-output.txt`
-3. Execute CI-equivalent backend coverage command:
-  - `bash scripts/go-test-coverage.sh 2>&1 | tee backend/test-output.txt`
-4. Verify script metric type and value:
-  - `grep -n 'total:' backend/test-output.txt`
-  - `go tool cover -func=backend/coverage.txt | tail -n 1`
-5. Verify test pass state explicitly:
-  - ```sh
-    if grep -qE '^FAIL[[:space:]]' backend/test-output.txt; then
-      echo 'unexpected fails'
-      exit 1
-    fi
-    ```
-6. CI confirmation:
-  - Open PR and check Codecov backend status (lines) for final gate outcome.
+Stop gate:
+- If < `+70`, skip low-yield areas and move directly to residual-line closure.
 
-## 7) Risks and Mitigations
+### Phase 3 - Residual-line closure (minimum-risk)
+Actions:
+- Work only uncovered/partial lines still shown in Codecov patch details.
+- Add narrow table-driven tests to existing files; no new harness/framework.
 
-Risk 1: Statement/line mismatch remains misunderstood.
-- Mitigation: Always record both local statement summary and Codecov line status in remediation PR notes.
+Go gate:
+- Reach total >= `+357` covered lines and patch >=85%.
 
-Risk 2: Added tests increase flakiness.
-- Mitigation: prioritize deterministic pure/helper paths first (`internal/util`, parsing/normalization helpers).
+Stop gate:
+- If a residual branch requires production refactor, de-scope it and log as follow-up.
 
-Risk 3: Buffer too small for CI variance.
-- Mitigation: target >=86.0 backend in CI line metric rather than barely crossing 85.0.
+### Global de-scope rules (all phases)
+- No production code changes unless a test proves a correctness bug.
+- No new test framework, no integration/E2E expansion, no unrelated cleanup.
+- No edits outside targeted backend test and directly related helper files.
 
-## 8) Acceptance Criteria
+## 6) Current Tasks/Scripts (Deprecated references removed)
 
-1. Investigation completeness:
-  - Plan documents likely mismatch causes: metric basis, exclusions, package-set differences, cache/artifact variance.
-2. Metric clarity:
-  - Plan explicitly states: local script reads Go statement coverage; CI gate evaluates Codecov lines.
-3. Test scope:
-  - Only backend unit tests are changed.
-  - No E2E/integration additions.
-4. Coverage result:
-  - Backend Codecov project status passes with practical buffer target >=86.0% lines (engineering target).
-  - Effective Codecov pass condition is governed by `target: 85%` with `threshold: 1%`, so CI may pass below 85.0% lines depending on Codecov threshold/rounding behavior.
-5. Validation parity:
-  - CI-equivalent script sequence executed and results captured (`backend/coverage.txt`, `backend/test-output.txt`).
+Use these current commands/tasks only:
+- Backend coverage (preferred): `Test: Backend with Coverage`
+  - command: `.github/skills/scripts/skill-runner.sh test-backend-coverage`
+- Equivalent direct script: `bash scripts/go-test-coverage.sh`
+- Optional backend unit quick check: `Test: Backend Unit Tests`
+  - command: `.github/skills/scripts/skill-runner.sh test-backend-unit`
+
+Deprecated tasks are explicitly out-of-plan (for this work):
+- `Security: CodeQL Go Scan (DEPRECATED)`
+- `Security: CodeQL JS Scan (DEPRECATED)`
+
+## 7) Residual Uncovered Lines Handling (Beyond hotspot table)
+
+After each phase, run a residual triage loop:
+1. Export remaining uncovered/partial patch lines from Codecov patch detail.
+2. Classify each residual line into one of:
+   - `validation/error mapping`
+   - `permission/role guard`
+   - `fallback/retry`
+   - `low-value defensive log/telemetry`
+3. Apply closure rule:
+   - First three classes: add targeted tests in existing suite.
+   - Last class: close only if deterministic and cheap; otherwise de-scope with rationale.
+4. Maintain a residual ledger in the PR description:
+   - line(s), owning function, planned test, status (`closed`/`de-scoped`), reason.
+
+Exit condition:
+- No unclassified residual lines remain.
+- Any de-scoped residual lines have explicit follow-up items.
+
+## 8) Acceptance Criteria (Unified)
+
+1. One coherent plan only (this document), no conflicting statuses.
+2. E2E explicitly out-of-scope for this patch-coverage task.
+3. Success is measured by Codecov patch `lines`; local statement output is diagnostic only.
+4. Feasibility math and phase budgets remain explicit and tracked against actual deltas.
+5. All phase stop/go gates enforced; de-scope rules followed.
+6. Only current tasks/scripts are referenced.
+7. Residual uncovered lines are either closed with tests or formally de-scoped with follow-up.
+8. Scope remains reconciled with touched files first; deferred files are only pulled in if phase gates require expansion.

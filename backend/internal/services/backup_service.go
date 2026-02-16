@@ -120,8 +120,7 @@ func createSQLiteSnapshot(dbPath string) (string, func(), error) {
 		return "", nil, fmt.Errorf("close sqlite snapshot file: %w", closeErr)
 	}
 
-	escapedPath := strings.ReplaceAll(tmpPath, "'", "''")
-	if _, err := db.Exec("VACUUM INTO '" + escapedPath + "'"); err != nil {
+	if _, err := db.Exec("VACUUM INTO ?", tmpPath); err != nil {
 		_ = os.Remove(tmpPath)
 		return "", nil, fmt.Errorf("vacuum into sqlite snapshot: %w", err)
 	}
@@ -477,7 +476,7 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 		_ = sourceFile.Close()
 	}()
 
-	destinationFile, err := os.OpenFile(tempRestorePath, os.O_WRONLY|os.O_TRUNC, 0o600)
+	destinationFile, err := os.OpenFile(tempRestorePath, os.O_WRONLY|os.O_TRUNC, 0o600) // #nosec G304 -- tempRestorePath is created by os.CreateTemp in this function
 	if err != nil {
 		return fmt.Errorf("open temporary restore database file: %w", err)
 	}
@@ -621,7 +620,7 @@ func (s *BackupService) extractDatabaseFromBackup(zipPath string) (string, error
 	}
 
 	extractToPath := func(file *zip.File, destinationPath string) error {
-		outFile, err := os.OpenFile(destinationPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+		outFile, err := os.OpenFile(destinationPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- destinationPath is derived from controlled temp file paths
 		if err != nil {
 			return fmt.Errorf("open destination file: %w", err)
 		}
