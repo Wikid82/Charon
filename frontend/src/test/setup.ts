@@ -128,6 +128,7 @@ console.error = (...args: unknown[]) => {
     if (typeof msg === 'string') {
       if (
         msg.includes("The current testing environment is not configured to support act(") ||
+        msg.includes('not wrapped in act(') ||
         msg.includes('Test connection failed') ||
         msg.includes('Connection failed')
       ) {

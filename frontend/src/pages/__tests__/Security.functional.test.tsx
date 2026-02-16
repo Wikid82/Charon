@@ -36,78 +36,79 @@ vi.mock('../../hooks/useNotifications', () => ({
   })),
 }))
 
+const securityTranslations: Record<string, string> = {
+  'security.title': 'Security',
+  'security.description': 'Configure security layers for your reverse proxy',
+  'security.cerberusDashboard': 'Cerberus Dashboard',
+  'security.cerberusActive': 'Active',
+  'security.cerberusDisabled': 'Disabled',
+  'security.cerberusReadyMessage': 'Cerberus is ready to protect your services',
+  'security.cerberusDisabledMessage': 'Enable Cerberus in System Settings to activate security features',
+  'security.featuresUnavailable': 'Security Features Unavailable',
+  'security.featuresUnavailableMessage': 'Enable Cerberus in System Settings to use security features',
+  'security.learnMore': 'Learn More',
+  'security.adminWhitelist': 'Admin Whitelist',
+  'security.adminWhitelistDescription': 'CIDRs that bypass security checks for admin access',
+  'security.commaSeparatedCIDR': 'Comma-separated CIDRs (e.g., 192.168.1.0/24)',
+  'security.generateToken': 'Generate Token',
+  'security.generateTokenTooltip': 'Generate a one-time break-glass token for emergency access',
+  'security.layer1': 'Layer 1',
+  'security.layer2': 'Layer 2',
+  'security.layer3': 'Layer 3',
+  'security.layer4': 'Layer 4',
+  'security.ids': 'IDS',
+  'security.acl': 'ACL',
+  'security.waf': 'WAF',
+  'security.rate': 'Rate',
+  'security.crowdsec': 'CrowdSec',
+  'security.crowdsecDescription': 'IP Reputation',
+  'security.crowdsecProtects': 'Blocks known attackers, botnets, and malicious IPs',
+  'security.crowdsecDisabledDescription': 'Enable to block known malicious IPs',
+  'security.accessControl': 'Access Control',
+  'security.aclDescription': 'IP Allowlists/Blocklists',
+  'security.aclProtects': 'Unauthorized IPs, geo-based attacks',
+  'security.corazaWaf': 'Coraza WAF',
+  'security.wafDescription': 'Request Inspection',
+  'security.wafProtects': 'SQL injection, XSS, RCE',
+  'security.wafDisabledDescription': 'Enable to inspect requests for threats',
+  'security.rateLimiting': 'Rate Limiting',
+  'security.rateLimitDescription': 'Volume Control',
+  'security.rateLimitProtects': 'DDoS attacks, credential stuffing',
+  'security.processStopped': 'Process stopped',
+  'security.enableCerberusFirst': 'Enable Cerberus first',
+  'security.toggleCrowdsec': 'Toggle CrowdSec',
+  'security.toggleAcl': 'Toggle Access Control',
+  'security.toggleWaf': 'Toggle WAF',
+  'security.toggleRateLimit': 'Toggle Rate Limiting',
+  'security.manageLists': 'Manage Lists',
+  'security.auditLogs': 'Audit Logs',
+  'security.notifications': 'Notifications',
+  'security.threeHeadsTurn': 'Three heads turn',
+  'security.cerberusConfigUpdating': 'Cerberus configuration updating',
+  'security.summoningGuardian': 'Summoning the guardian',
+  'security.crowdsecStarting': 'CrowdSec is starting',
+  'security.guardianRests': 'Guardian rests',
+  'security.crowdsecStopping': 'CrowdSec is stopping',
+  'security.strengtheningGuard': 'Strengthening guard',
+  'security.wardsActivating': 'Wards activating',
+  'common.enabled': 'Enabled',
+  'common.disabled': 'Disabled',
+  'common.save': 'Save',
+  'common.configure': 'Configure',
+  'common.docs': 'Docs',
+  'common.error': 'Error',
+  'security.failedToLoadConfiguration': 'Failed to load security configuration',
+}
+
 // Mock i18n translation
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: { pid?: number }) => {
-      const translations: Record<string, string> = {
-        'security.title': 'Security',
-        'security.description': 'Configure security layers for your reverse proxy',
-        'security.cerberusDashboard': 'Cerberus Dashboard',
-        'security.cerberusActive': 'Active',
-        'security.cerberusDisabled': 'Disabled',
-        'security.cerberusReadyMessage': 'Cerberus is ready to protect your services',
-        'security.cerberusDisabledMessage': 'Enable Cerberus in System Settings to activate security features',
-        'security.featuresUnavailable': 'Security Features Unavailable',
-        'security.featuresUnavailableMessage': 'Enable Cerberus in System Settings to use security features',
-        'security.learnMore': 'Learn More',
-        'security.adminWhitelist': 'Admin Whitelist',
-        'security.adminWhitelistDescription': 'CIDRs that bypass security checks for admin access',
-        'security.commaSeparatedCIDR': 'Comma-separated CIDRs (e.g., 192.168.1.0/24)',
-        'security.generateToken': 'Generate Token',
-        'security.generateTokenTooltip': 'Generate a one-time break-glass token for emergency access',
-        'security.layer1': 'Layer 1',
-        'security.layer2': 'Layer 2',
-        'security.layer3': 'Layer 3',
-        'security.layer4': 'Layer 4',
-        'security.ids': 'IDS',
-        'security.acl': 'ACL',
-        'security.waf': 'WAF',
-        'security.rate': 'Rate',
-        'security.crowdsec': 'CrowdSec',
-        'security.crowdsecDescription': 'IP Reputation',
-        'security.crowdsecProtects': 'Blocks known attackers, botnets, and malicious IPs',
-        'security.crowdsecDisabledDescription': 'Enable to block known malicious IPs',
-        'security.accessControl': 'Access Control',
-        'security.aclDescription': 'IP Allowlists/Blocklists',
-        'security.aclProtects': 'Unauthorized IPs, geo-based attacks',
-        'security.corazaWaf': 'Coraza WAF',
-        'security.wafDescription': 'Request Inspection',
-        'security.wafProtects': 'SQL injection, XSS, RCE',
-        'security.wafDisabledDescription': 'Enable to inspect requests for threats',
-        'security.rateLimiting': 'Rate Limiting',
-        'security.rateLimitDescription': 'Volume Control',
-        'security.rateLimitProtects': 'DDoS attacks, credential stuffing',
-        'security.processStopped': 'Process stopped',
-        'security.enableCerberusFirst': 'Enable Cerberus first',
-        'security.toggleCrowdsec': 'Toggle CrowdSec',
-        'security.toggleAcl': 'Toggle Access Control',
-        'security.toggleWaf': 'Toggle WAF',
-        'security.toggleRateLimit': 'Toggle Rate Limiting',
-        'security.manageLists': 'Manage Lists',
-        'security.auditLogs': 'Audit Logs',
-        'security.notifications': 'Notifications',
-        'security.threeHeadsTurn': 'Three heads turn',
-        'security.cerberusConfigUpdating': 'Cerberus configuration updating',
-        'security.summoningGuardian': 'Summoning the guardian',
-        'security.crowdsecStarting': 'CrowdSec is starting',
-        'security.guardianRests': 'Guardian rests',
-        'security.crowdsecStopping': 'CrowdSec is stopping',
-        'security.strengtheningGuard': 'Strengthening guard',
-        'security.wardsActivating': 'Wards activating',
-        'common.enabled': 'Enabled',
-        'common.disabled': 'Disabled',
-        'common.save': 'Save',
-        'common.configure': 'Configure',
-        'common.docs': 'Docs',
-        'common.error': 'Error',
-        'security.failedToLoadConfiguration': 'Failed to load security configuration',
-      }
       // Handle interpolation for runningPid
       if (key === 'security.runningPid' && options?.pid !== undefined) {
         return `Running (pid ${options.pid})`
       }
-      return translations[key] || key
+      return securityTranslations[key] || key
     },
   }),
 }))
@@ -117,17 +118,21 @@ vi.mock('../../components/LiveLogViewer', () => ({
   LiveLogViewer: () => <div data-testid="live-log-viewer">Mocked Live Log Viewer</div>,
 }))
 
+vi.mock('../../components/SecurityNotificationSettingsModal', () => ({
+  SecurityNotificationSettingsModal: () => null,
+}))
+
+vi.mock('../../components/CrowdSecKeyWarning', () => ({
+  CrowdSecKeyWarning: () => null,
+}))
+
 // NOTE: CrowdSecBouncerKeyDisplay mock removed (moved to CrowdSecConfig page)
 
-vi.mock('../../hooks/useSecurity', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../hooks/useSecurity')>()
-  return {
-    ...actual,
-    useSecurityConfig: vi.fn(() => ({ data: { config: { admin_whitelist: '10.0.0.0/8' } } })),
-    useUpdateSecurityConfig: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
-    useGenerateBreakGlassToken: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
-  }
-})
+vi.mock('../../hooks/useSecurity', () => ({
+  useSecurityConfig: vi.fn(() => ({ data: { config: { admin_whitelist: '10.0.0.0/8' } } })),
+  useUpdateSecurityConfig: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useGenerateBreakGlassToken: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+}))
 
 const mockSecurityStatusAllEnabled = {
   cerberus: { enabled: true },
@@ -166,7 +171,6 @@ describe('Security Page - Functional Tests', () => {
     vi.clearAllMocks()
     vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
     vi.mocked(settingsApi.updateSetting).mockResolvedValue()
-    vi.spyOn(window, 'open').mockImplementation(() => null)
   })
 
   const wrapper = ({ children }: { children: React.ReactNode }) => (
@@ -183,12 +187,25 @@ describe('Security Page - Functional Tests', () => {
 
   describe('Page Loading States', () => {
     it('should show skeleton loading state initially', async () => {
-      vi.mocked(securityApi.getSecurityStatus).mockReturnValue(new Promise(() => {}))
+      const deferredStatus: { resolve: (value: typeof mockSecurityStatusAllEnabled) => void } = {
+        resolve: () => {
+          throw new Error('Test setup failed: pending status resolver was not initialized')
+        },
+      }
+      const pendingStatus = new Promise<typeof mockSecurityStatusAllEnabled>((resolve) => {
+        deferredStatus.resolve = resolve
+      })
+      vi.mocked(securityApi.getSecurityStatus).mockReturnValue(pendingStatus)
 
       await renderSecurityPage()
 
       const skeletons = document.querySelectorAll('.animate-pulse')
       expect(skeletons.length).toBeGreaterThan(0)
+
+      deferredStatus.resolve(mockSecurityStatusAllEnabled)
+      await waitFor(() => {
+        expect(screen.getByText(/Cerberus Dashboard/i)).toBeInTheDocument()
+      })
     })
 
     it('should display error message when security status fails to load', async () => {

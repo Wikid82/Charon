@@ -164,7 +164,7 @@ describe('ProxyHosts page extra tests', () => {
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('DelHost')).toBeInTheDocument())
-    const deleteBtn = screen.getByRole('button', { name: 'Delete' })
+    const deleteBtn = screen.getByRole('button', { name: 'Delete proxy host DelHost' })
     await userEvent.click(deleteBtn)
 
     // Confirm deletion in the dialog

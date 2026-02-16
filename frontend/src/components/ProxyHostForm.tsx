@@ -243,7 +243,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   }
 
   const { servers: remoteServers } = useRemoteServers()
+  const safeRemoteServers = Array.isArray(remoteServers) ? remoteServers : []
   const { domains, createDomain } = useDomains()
+  const safeDomains = Array.isArray(domains) ? domains : []
   const { certificates } = useCertificates()
   const { data: securityProfiles } = useSecurityHeaderProfiles()
 
@@ -307,7 +309,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       if (parsed.domain && parsed.domain !== domain) {
         // It's a subdomain, check if the base domain exists
         const baseDomain = parsed.domain
-        const exists = domains.some(d => d.name === baseDomain)
+        const exists = safeDomains.some(d => d.name === baseDomain)
         if (!exists) {
           setPendingDomain(baseDomain)
           setShowDomainPrompt(true)
@@ -315,7 +317,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
         }
       } else if (parsed.domain && parsed.domain === domain) {
          // It is a base domain, check if it exists
-         const exists = domains.some(d => d.name === domain)
+         const exists = safeDomains.some(d => d.name === domain)
          if (!exists) {
             setPendingDomain(domain)
             setShowDomainPrompt(true)
@@ -475,7 +477,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
       // If using a Remote Server, try to use the Host IP and Mapped Public Port
       if (connectionSource !== 'local' && connectionSource !== 'custom') {
-        const server = remoteServers.find(s => s.uuid === connectionSource)
+        const server = safeRemoteServers.find(s => s.uuid === connectionSource)
         if (server) {
           // Use the Remote Server's Host IP (e.g. public/tailscale IP)
           host = server.host
@@ -603,7 +605,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 <SelectContent>
                   <SelectItem value="custom">Custom / Manual</SelectItem>
                   <SelectItem value="local">Local (Docker Socket)</SelectItem>
-                  {remoteServers
+                  {safeRemoteServers
                     .filter(s => s.provider === 'docker' && s.enabled)
                     .map(server => (
                       <SelectItem key={server.uuid} value={server.uuid}>
@@ -660,7 +662,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
           {/* Domain Names */}
           <div className="space-y-4">
-            {domains.length > 0 && (
+            {safeDomains.length > 0 && (
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   Base Domain (Auto-fill)
@@ -670,7 +672,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                     <SelectValue placeholder="Select a base domain" />
                   </SelectTrigger>
                   <SelectContent>
-                    {domains.map(domain => (
+                    {safeDomains.map(domain => (
                       <SelectItem key={domain.uuid} value={domain.name}>
                         {domain.name}
                       </SelectItem>

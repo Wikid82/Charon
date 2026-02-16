@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,31 @@ import (
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
+
+func TestIsSQLiteTransientRehydrateError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil error", err: nil, want: false},
+		{name: "database is locked", err: errors.New("database is locked"), want: true},
+		{name: "database is busy", err: errors.New("database is busy"), want: true},
+		{name: "database table is locked", err: errors.New("database table is locked"), want: true},
+		{name: "table is locked", err: errors.New("table is locked"), want: true},
+		{name: "resource busy", err: errors.New("resource busy"), want: true},
+		{name: "mixed-case transient message", err: errors.New("Database Is Locked"), want: true},
+		{name: "non-transient error", err: errors.New("constraint failed"), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, isSQLiteTransientRehydrateError(tt.err))
+		})
+	}
+}
 
 func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string) {
 	t.Helper()
