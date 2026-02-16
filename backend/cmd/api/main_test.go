@@ -4,7 +4,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/database"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -280,4 +282,75 @@ func TestMain_ResetPasswordCommand_InProcess(t *testing.T) {
 	if updated.FailedLoginAttempts != 0 {
 		t.Fatalf("expected failed login attempts reset to 0, got %d", updated.FailedLoginAttempts)
 	}
+}
+
+func TestMain_DefaultStartupGracefulShutdown_Subprocess(t *testing.T) {
+	if os.Getenv("CHARON_TEST_RUN_MAIN_SERVER") == "1" {
+		os.Args = []string{"charon"}
+
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			process, err := os.FindProcess(os.Getpid())
+			if err == nil {
+				_ = process.Signal(syscall.SIGTERM)
+			}
+		}()
+
+		main()
+		return
+	}
+
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "data", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatalf("mkdir db dir: %v", err)
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestMain_DefaultStartupGracefulShutdown_Subprocess") //nolint:gosec // G204: Test subprocess pattern using os.Args[0] is safe
+	cmd.Dir = tmp
+	cmd.Env = append(os.Environ(),
+		"CHARON_TEST_RUN_MAIN_SERVER=1",
+		"CHARON_DB_PATH="+dbPath,
+		"CHARON_HTTP_PORT=0",
+		"CHARON_EMERGENCY_SERVER_ENABLED=false",
+		"CHARON_CADDY_CONFIG_DIR="+filepath.Join(tmp, "caddy"),
+		"CHARON_IMPORT_DIR="+filepath.Join(tmp, "imports"),
+		"CHARON_IMPORT_CADDYFILE="+filepath.Join(tmp, "imports", "does-not-exist", "Caddyfile"),
+		"CHARON_FRONTEND_DIR="+filepath.Join(tmp, "frontend", "dist"),
+	)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected startup/shutdown to exit 0; err=%v; output=%s", err, string(out))
+	}
+}
+
+func TestMain_DefaultStartupGracefulShutdown_InProcess(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "data", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatalf("mkdir db dir: %v", err)
+	}
+
+	originalArgs := os.Args
+	t.Cleanup(func() { os.Args = originalArgs })
+
+	t.Setenv("CHARON_DB_PATH", dbPath)
+	t.Setenv("CHARON_HTTP_PORT", "0")
+	t.Setenv("CHARON_EMERGENCY_SERVER_ENABLED", "false")
+	t.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tmp, "caddy"))
+	t.Setenv("CHARON_IMPORT_DIR", filepath.Join(tmp, "imports"))
+	t.Setenv("CHARON_IMPORT_CADDYFILE", filepath.Join(tmp, "imports", "does-not-exist", "Caddyfile"))
+	t.Setenv("CHARON_FRONTEND_DIR", filepath.Join(tmp, "frontend", "dist"))
+	os.Args = []string{"charon"}
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		process, err := os.FindProcess(os.Getpid())
+		if err == nil {
+			_ = process.Signal(syscall.SIGTERM)
+		}
+	}()
+
+	main()
 }

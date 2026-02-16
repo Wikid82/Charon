@@ -184,6 +184,132 @@ func TestSetSecureCookie_OriginLoopbackForcesInsecure(t *testing.T) {
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
+func TestIsProduction(t *testing.T) {
+	t.Setenv("CHARON_ENV", "production")
+	assert.True(t, isProduction())
+
+	t.Setenv("CHARON_ENV", "prod")
+	assert.True(t, isProduction())
+
+	t.Setenv("CHARON_ENV", "development")
+	assert.False(t, isProduction())
+}
+
+func TestRequestScheme(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("forwarded proto first value wins", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest("GET", "http://example.com", http.NoBody)
+		req.Header.Set("X-Forwarded-Proto", "HTTPS, http")
+		ctx.Request = req
+
+		assert.Equal(t, "https", requestScheme(ctx))
+	})
+
+	t.Run("tls request", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest("GET", "https://example.com", http.NoBody)
+		req.TLS = &tls.ConnectionState{}
+		ctx.Request = req
+
+		assert.Equal(t, "https", requestScheme(ctx))
+	})
+
+	t.Run("url scheme fallback", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest("GET", "http://example.com", http.NoBody)
+		req.URL.Scheme = "HTTP"
+		ctx.Request = req
+
+		assert.Equal(t, "http", requestScheme(ctx))
+	})
+
+	t.Run("default http fallback", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest("GET", "/", http.NoBody)
+		req.URL.Scheme = ""
+		ctx.Request = req
+
+		assert.Equal(t, "http", requestScheme(ctx))
+	})
+}
+
+func TestHostHelpers(t *testing.T) {
+	t.Run("normalizeHost", func(t *testing.T) {
+		assert.Equal(t, "", normalizeHost("   "))
+		assert.Equal(t, "example.com", normalizeHost("example.com:8080"))
+		assert.Equal(t, "::1", normalizeHost("[::1]:2020"))
+		assert.Equal(t, "localhost", normalizeHost("localhost"))
+	})
+
+	t.Run("originHost", func(t *testing.T) {
+		assert.Equal(t, "", originHost(""))
+		assert.Equal(t, "", originHost("::://bad-url"))
+		assert.Equal(t, "localhost", originHost("http://localhost:8080/path"))
+	})
+
+	t.Run("isLocalHost", func(t *testing.T) {
+		assert.True(t, isLocalHost("localhost"))
+		assert.True(t, isLocalHost("127.0.0.1"))
+		assert.True(t, isLocalHost("::1"))
+		assert.False(t, isLocalHost("example.com"))
+	})
+}
+
+func TestIsLocalRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("forwarded host list includes localhost", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest("GET", "http://example.com", http.NoBody)
+		req.Host = "example.com"
+		req.Header.Set("X-Forwarded-Host", "example.com, localhost:8080")
+		ctx.Request = req
+
+		assert.True(t, isLocalRequest(ctx))
+	})
+
+	t.Run("origin loopback", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest("GET", "http://example.com", http.NoBody)
+		req.Header.Set("Origin", "http://127.0.0.1:3000")
+		ctx.Request = req
+
+		assert.True(t, isLocalRequest(ctx))
+	})
+
+	t.Run("non local request", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest("GET", "http://example.com", http.NoBody)
+		req.Host = "example.com"
+		ctx.Request = req
+
+		assert.False(t, isLocalRequest(ctx))
+	})
+}
+
+func TestClearSecureCookie(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest("POST", "http://example.com/logout", http.NoBody)
+
+	clearSecureCookie(ctx, "auth_token")
+
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	assert.Equal(t, "auth_token", cookies[0].Name)
+	assert.Equal(t, -1, cookies[0].MaxAge)
+}
+
 func TestAuthHandler_Login_Errors(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandler(t)
