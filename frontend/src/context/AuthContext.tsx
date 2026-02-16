@@ -136,7 +136,9 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
         : typeof error === 'object' && error !== null && 'response' in error
           ? (error as { response?: { data?: { error?: string } } }).response?.data?.error || 'Password change failed'
           : 'Password change failed';
-      throw new Error(message);
+      throw new Error(message, {
+        cause: error,
+      });
     }
   };
 

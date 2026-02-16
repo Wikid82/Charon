@@ -42,12 +42,13 @@ function AuditLogDetailModal({
 }) {
   if (!log) return null
 
-  let parsedDetails: Record<string, unknown> = {}
-  try {
-    parsedDetails = JSON.parse(log.details)
-  } catch {
-    parsedDetails = { raw: log.details }
-  }
+  const parsedDetails: Record<string, unknown> = (() => {
+    try {
+      return JSON.parse(log.details)
+    } catch {
+      return { raw: log.details }
+    }
+  })()
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
