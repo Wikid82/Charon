@@ -109,10 +109,8 @@ fi
 
 echo "$TOTAL_LINE"
 
-# Extract total coverage percentage (format: "total: (statements)% (branches)% (functions)% (lines)% XX.X%")
-# Field $3 is the third space-separated token (line count %)
-# We need to remove trailing '%' character
-TOTAL_PERCENT=$(echo "$TOTAL_LINE" | awk '{
+# Extract statement coverage percentage from go tool cover summary line
+STATEMENT_PERCENT=$(echo "$TOTAL_LINE" | awk '{
     if (NF < 3) {
         print "ERROR: Invalid coverage line format" > "/dev/stderr"
         exit 1
@@ -128,50 +126,87 @@ TOTAL_PERCENT=$(echo "$TOTAL_LINE" | awk '{
     print last_field
 }')
 
-if [ -z "$TOTAL_PERCENT" ] || [ "$TOTAL_PERCENT" = "ERROR" ]; then
+if [ -z "$STATEMENT_PERCENT" ] || [ "$STATEMENT_PERCENT" = "ERROR" ]; then
     echo "Error: Could not extract coverage percentage from: $TOTAL_LINE"
     exit 1
 fi
 
 # Validate that extracted value is numeric (allows decimals and integers)
-if ! echo "$TOTAL_PERCENT" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
-    echo "Error: Extracted coverage value is not numeric: '$TOTAL_PERCENT'"
+if ! echo "$STATEMENT_PERCENT" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
+    echo "Error: Extracted coverage value is not numeric: '$STATEMENT_PERCENT'"
     echo "Source line: $TOTAL_LINE"
     exit 1
 fi
 
-echo "Computed coverage: ${TOTAL_PERCENT}% (minimum required ${MIN_COVERAGE}%)"
+# Compute line coverage directly from coverprofile blocks (authoritative gate in this script)
+# Format per line:
+#   file:startLine.startCol,endLine.endCol numStatements count
+LINE_PERCENT=$(awk '
+BEGIN {
+    total_lines = 0
+    covered_lines = 0
+}
+NR == 1 {
+    next
+}
+{
+    split($1, pos, ":")
+    if (length(pos) < 2) {
+        next
+    }
 
-export TOTAL_PERCENT
-export MIN_COVERAGE
+    file = pos[1]
+    split(pos[2], ranges, ",")
+    split(ranges[1], start_parts, ".")
+    split(ranges[2], end_parts, ".")
 
-python3 - <<'PY'
-import os
-import sys
-from decimal import Decimal, InvalidOperation
+    start_line = start_parts[1] + 0
+    end_line = end_parts[1] + 0
+    count = $3 + 0
 
-try:
-    total = Decimal(os.environ['TOTAL_PERCENT'])
-except InvalidOperation as e:
-    print(f"Error: TOTAL_PERCENT is not numeric: '{os.environ['TOTAL_PERCENT']}' ({e})", file=sys.stderr)
-    sys.exit(1)
-except KeyError:
-    print("Error: TOTAL_PERCENT environment variable not set", file=sys.stderr)
-    sys.exit(1)
+    if (start_line <= 0 || end_line <= 0 || end_line < start_line) {
+        next
+    }
 
-try:
-    minimum = Decimal(os.environ['MIN_COVERAGE'])
-except InvalidOperation as e:
-    print(f"Error: MIN_COVERAGE is not numeric: '{os.environ['MIN_COVERAGE']}' ({e})", file=sys.stderr)
-    sys.exit(1)
-except KeyError:
-    print("Error: MIN_COVERAGE environment variable not set", file=sys.stderr)
-    sys.exit(1)
+    for (line = start_line; line <= end_line; line++) {
+        key = file ":" line
+        if (!(key in seen_total)) {
+            seen_total[key] = 1
+            total_lines++
+        }
+        if (count > 0 && !(key in seen_covered)) {
+            seen_covered[key] = 1
+            covered_lines++
+        }
+    }
+}
+END {
+    if (total_lines == 0) {
+        print "0.0"
+        exit 0
+    }
+    printf "%.1f", (covered_lines * 100.0) / total_lines
+}
+' "$COVERAGE_FILE")
 
-if total < minimum:
-    print(f"Coverage {total}% is below required {minimum}% (set CHARON_MIN_COVERAGE or CPM_MIN_COVERAGE to override)", file=sys.stderr)
-    sys.exit(1)
-PY
+if [ -z "$LINE_PERCENT" ]; then
+    echo "Error: Could not compute line coverage from $COVERAGE_FILE"
+    exit 1
+fi
+
+if ! echo "$LINE_PERCENT" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
+    echo "Error: Computed line coverage is not numeric: '$LINE_PERCENT'"
+    exit 1
+fi
+
+echo "Statement coverage: ${STATEMENT_PERCENT}%"
+echo "Line coverage: ${LINE_PERCENT}%"
+echo "Coverage gate (line coverage): minimum required ${MIN_COVERAGE}%"
+
+if awk -v current="$LINE_PERCENT" -v minimum="$MIN_COVERAGE" 'BEGIN { exit !(current + 0 < minimum + 0) }'; then
+    echo "Coverage ${LINE_PERCENT}% is below required ${MIN_COVERAGE}% (set CHARON_MIN_COVERAGE or CPM_MIN_COVERAGE to override)"
+    exit 1
+fi
 
 echo "Coverage requirement met"
 
