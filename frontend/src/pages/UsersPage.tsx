@@ -227,27 +227,25 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
                 )}
               </div>
 
-              {!inviteResult.emailSent && (
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-300">
-                    {t('users.inviteLink')}
-                  </label>
-                  <div className="flex gap-2">
-                    <Input
-                      type="text"
-                      value={inviteResult.inviteUrl || `${window.location.origin}/accept-invite?token=${inviteResult.token}`}
-                      readOnly
-                      className="flex-1 text-sm"
-                    />
-                    <Button onClick={copyInviteLink} aria-label={t('users.copyInviteLink')} title={t('users.copyInviteLink')}>
-                      <Copy className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    {t('users.expires')}: {new Date(inviteResult.expiresAt).toLocaleString()}
-                  </p>
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-300">
+                  {t('users.inviteLink')}
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    value={inviteResult.inviteUrl || `${window.location.origin}/accept-invite?token=${inviteResult.token}`}
+                    readOnly
+                    className="flex-1 text-sm"
+                  />
+                  <Button onClick={copyInviteLink} aria-label={t('users.copyInviteLink')} title={t('users.copyInviteLink')}>
+                    <Copy className="h-4 w-4" />
+                  </Button>
                 </div>
-              )}
+                <p className="text-xs text-gray-500">
+                  {t('users.expires')}: {new Date(inviteResult.expiresAt).toLocaleString()}
+                </p>
+              </div>
 
               <Button onClick={handleClose} className="w-full">
                 {t('users.done')}
