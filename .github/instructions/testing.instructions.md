@@ -75,7 +75,7 @@ For general integration testing without coverage:
 
 ```bash
 # Against Docker container (default)
-cd /projects/Charon npx playwright test --project=firefox --project=firefox --project=webkit
+cd /projects/Charon && npx playwright test --project=chromium --project=firefox --project=webkit
 
 # With explicit base URL
 PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test --project=chromium --project=firefox --project=webkit
