@@ -1,140 +1,179 @@
-## Coverage Scope Refinement Spec (Authoritative)
+## Backend Coverage Alignment + Buffer Plan
 
 Date: 2026-02-16
 Owner: Planning Agent
-Status: Active / Authoritative for this objective only
+Status: Active (unit tests + coverage only)
 
-## 1) Objective
+## 1) Goal and Scope
 
-Narrow scope only:
-- Remove frontend unit-test quarantine execution excludes in
-  `frontend/vitest.config.ts`.
-- Include selected unit-test-related code in coverage accounting by updating
-  `codecov.yml` and `scripts/go-test-coverage.sh`.
-- Keep integration/trace exclusions unchanged.
-- Keep Docker-only backend exclusions unchanged unless a deterministic,
-  CI-testable strategy is explicitly added (not part of this plan).
+Goal:
+- Determine why local backend coverage and CI/Codecov differ.
+- Add enough backend unit tests to create a reliable buffer above the 85% gate.
+
+In scope:
+- Backend unit tests only.
+- Coverage measurement/parsing validation.
+- CI-parity validation steps.
 
 Out of scope:
-- E2E implementation changes.
-- Integration coverage model changes.
-- Backend Docker socket-dependent coverage inclusion.
-- Legacy additive coverage programs not required for this objective.
+- E2E/Playwright.
+- Integration tests.
+- Runtime/security feature changes unrelated to unit coverage.
 
-## 2) Blocker Resolution Mapping
+## 2) Research Findings (Current Repo)
 
-### Supervisor Blocker 1: Correct Codecov line references
+### 2.1 CI vs local execution path
 
-Use actual line numbers from `codecov.yml`:
-- Entry-point ignore lines are `90-92`:
-  - `90`: `backend/cmd/api/**`
-  - `91`: `backend/cmd/seed/**`
-  - `92`: `frontend/src/main.tsx`
+- CI backend coverage path uses `codecov-upload.yml` → `bash scripts/go-test-coverage.sh` → uploads `backend/coverage.txt` with Codecov flag `backend`.
+- Local recommended path (`test-backend-coverage` skill) runs the same script.
 
-### Supervisor Blocker 2: Keep Docker exclusions by default
+### 2.2 Metric-basis mismatch (explicit)
 
-Do **not** remove these ignore entries in this plan:
-- `backend/internal/services/docker_service.go` (line `105`)
-- `backend/internal/api/handlers/docker_handler.go` (line `106`)
+- `scripts/go-test-coverage.sh` computes the percentage from `go tool cover -func`, whose summary line is `total: (statements) XX.X%`.
+- `codecov.yml` project status for backend is configured with `only: lines`.
+- Therefore:
+  - Local script output is statement coverage.
+  - CI gate shown by Codecov is line coverage.
+  - These are related but not identical metrics and can diverge by about ~0.5-1.5 points in practice.
 
-Rationale:
-- They require Docker socket/runtime conditions and are not deterministic in
-  standard CI unit coverage execution.
-- No explicit deterministic CI-testable strategy is introduced in this plan.
+### 2.3 Likely mismatch drivers in this repo
 
-### Supervisor Blocker 3: Remove ambiguity and legacy scope
+1. Coverage metric basis:
+  - Local script: statements.
+  - Codecov status: lines.
+2. Exclusion filter differences:
+  - Script excludes only `internal/trace` and `integration` packages.
+  - Codecov ignore list also excludes extra backend paths/files (for example logger/metrics and Docker-only files).
+  - Different include/exclude sets can shift aggregate percentages.
+3. Package-set differences in developer workflows:
+  - Some local checks use `go test ./... -cover` (package percentages) instead of the CI-equivalent script with filtering and upload behavior.
+4. Cache/artifact variance:
+  - Go test cache and Codecov carryforward behavior can hide small swings between runs if not cleaned/verified.
 
-This document is now authoritative for only the current objective and excludes
-legacy/additive planning content.
+## 3) EARS Requirements
 
-### Supervisor Blocker 4: Add explicit post-change verification checks
+- WHEN backend coverage is evaluated locally, THE SYSTEM SHALL report both statement coverage (from `go tool cover`) and CI-relevant line coverage context (Codecov config basis).
+- WHEN coverage remediation is implemented, THE SYSTEM SHALL prioritize deterministic unit tests in existing test files before adding new complex harnesses.
+- WHEN validation is performed, THE SYSTEM SHALL execute the same backend coverage script used by CI and verify output artifacts (`backend/coverage.txt`, `backend/test-output.txt`).
+- IF local statement coverage is within 0-1 points of the threshold, THEN THE SYSTEM SHALL require additional backend unit tests to produce a safety buffer targeting >=86% CI backend line coverage.
+- WHEN evaluating pass/fail semantics, THE SYSTEM SHALL distinguish the effective Codecov pass condition from the engineering buffer target: with `target: 85%` and `threshold: 1%` in `codecov.yml`, CI may pass below 85% lines depending on Codecov threshold/rounding logic.
 
-Post-change checks now require grep-style assertions proving integration/trace
-exclusions remain and coverage gates still pass.
+## 4) Highest-Yield Backend Test Targets (+1% with minimal risk)
 
-## 3) Exact Planned Changes
+Priority 1 (low risk, deterministic, existing test suites):
 
-### A. Frontend quarantine execution excludes (`frontend/vitest.config.ts`)
+1. `backend/internal/util/permissions.go`
+  - Boost tests around:
+    - `CheckPathPermissions` error branches (permission denied, non-existent path, non-dir path).
+    - `MapSaveErrorCode` and SQLite-path helpers edge mapping.
+  - Why high-yield: package currently low (~71% statements) and logic is pure/deterministic.
 
-Remove only the temporary quarantine entries so tests execute again.
+2. `backend/internal/api/handlers/security_notifications.go`
+  - Extend `security_notifications_test.go` for `normalizeEmailRecipients` branch matrix:
+    - whitespace-only entries,
+    - duplicate/mixed-case addresses,
+    - invalid plus valid mixed payloads,
+    - empty input handling.
+  - Why high-yield: currently very low function coverage (~17.6%) and no external runtime dependency.
 
-Keep existing generic exclusions unchanged (examples):
-- `node_modules/**`
-- `dist/**`
-- `e2e/**`
-- `tests/**`
+Priority 2 (moderate risk, still unit-level):
 
-### B. Backend script coverage exclusions (`scripts/go-test-coverage.sh`)
+3. `backend/internal/api/handlers/system_permissions_handler.go`
+  - Add focused tests around `logAudit` non-happy paths (missing actor, nil audit service, error/no-op branches).
+  - Why: currently low (~25%) and can be exercised with request context + mocks.
 
-From `EXCLUDE_PACKAGES`, remove only:
-- `github.com/Wikid82/charon/backend/cmd/api`
-- `github.com/Wikid82/charon/backend/cmd/seed`
+4. `backend/internal/api/handlers/backup_handler.go`
+  - Add restore-path negative tests in `backup_handler_test.go` using temp files and invalid backup payloads.
+  - Why: function `Restore` is partially covered (~27.6%); additional branch coverage is feasible without integration env.
 
-Keep unchanged:
-- `github.com/Wikid82/charon/backend/internal/trace`
-- `github.com/Wikid82/charon/backend/integration`
+Do not prioritize for this +1% buffer:
+- CrowdSec deep workflows requiring process/network/file orchestration for marginal gain-per-effort.
+- Docker-dependent paths already treated as CI-excluded in Codecov config.
 
-### C. Codecov ignores (`codecov.yml`)
+## 5) Implementation Tasks
 
-Remove from ignore list:
-- `backend/cmd/api/**` (line `90`)
-- `backend/cmd/seed/**` (line `91`)
-- `frontend/src/main.tsx` (line `92`)
+### Phase A — Baseline and mismatch confirmation
 
-Keep unchanged:
-- `backend/internal/trace/**` (line `99`)
-- `backend/integration/**` (line `100`)
-- `backend/internal/services/docker_service.go` (line `105`)
-- `backend/internal/api/handlers/docker_handler.go` (line `106`)
+1. Capture baseline using CI-equivalent script:
+  - `bash scripts/go-test-coverage.sh`
+2. Record:
+  - Script summary line (`total: (statements) ...`).
+  - Computed local statement percentage.
+  - Existing backend Codecov line percentage from PR check.
+3. Document delta (statement vs line) for this branch.
 
-## 4) Verification Plan (Mandatory)
+### Phase B — Add targeted backend unit tests
 
-### A. Static grep-style assertions for preserved exclusions
+1. Expand tests in:
+  - `backend/internal/util/permissions_test.go`
+  - `backend/internal/api/handlers/security_notifications_test.go`
+2. If additional buffer needed, expand:
+  - `backend/internal/api/handlers/system_permissions_handler_test.go`
+  - `backend/internal/api/handlers/backup_handler_test.go`
+3. Keep changes test-only; no production logic changes unless a test reveals a real bug.
 
-Run and expect matches:
+### Phase C — Validate against CI-equivalent flow
 
-```bash
-grep -n 'backend/internal/trace/\*\*' codecov.yml
-grep -n 'backend/integration/\*\*' codecov.yml
-grep -n 'backend/internal/services/docker_service.go' codecov.yml
-grep -n 'backend/internal/api/handlers/docker_handler.go' codecov.yml
-grep -n 'backend/internal/trace' scripts/go-test-coverage.sh
-grep -n 'backend/integration' scripts/go-test-coverage.sh
-```
+1. `bash scripts/go-test-coverage.sh | tee backend/test-output.txt`
+2. `go tool cover -func=backend/coverage.txt | tail -n 1` (record statement total).
+3. Confirm no backend test failures in output (`FAIL` lines).
+4. Push branch and verify Codecov backend status (lines) in PR checks.
 
-Run and expect **no** matches for removed entries:
+## 6) Exact Validation Sequence (mirror CI as closely as possible)
 
-```bash
-grep -n 'backend/cmd/api/\*\*' codecov.yml
-grep -n 'backend/cmd/seed/\*\*' codecov.yml
-grep -n 'frontend/src/main.tsx' codecov.yml
-grep -n 'github.com/Wikid82/charon/backend/cmd/api' scripts/go-test-coverage.sh
-grep -n 'github.com/Wikid82/charon/backend/cmd/seed' scripts/go-test-coverage.sh
-```
+Run from repository root:
 
-### B. Coverage status gate checks
+1. Environment parity:
+  - `export GOTOOLCHAIN=auto`
+  - `export CGO_ENABLED=1`
+  - CI Go-version parity check (must match `.github/workflows/codecov-upload.yml`):
+    ```sh
+    CI_GO_VERSION=$(grep -E "^  GO_VERSION:" .github/workflows/codecov-upload.yml | sed -E "s/.*'([^']+)'.*/\1/")
+    LOCAL_GO_VERSION=$(go version | awk '{print $3}' | sed 's/^go//')
+    if [ "$LOCAL_GO_VERSION" != "$CI_GO_VERSION" ]; then
+      echo "Go version mismatch: local=$LOCAL_GO_VERSION ci=$CI_GO_VERSION"
+      exit 1
+    fi
+    ```
+2. Clean stale local artifacts:
+  - `rm -f backend/coverage.txt backend/test-output.txt`
+3. Execute CI-equivalent backend coverage command:
+  - `bash scripts/go-test-coverage.sh 2>&1 | tee backend/test-output.txt`
+4. Verify script metric type and value:
+  - `grep -n 'total:' backend/test-output.txt`
+  - `go tool cover -func=backend/coverage.txt | tail -n 1`
+5. Verify test pass state explicitly:
+  - ```sh
+    if grep -qE '^FAIL[[:space:]]' backend/test-output.txt; then
+      echo 'unexpected fails'
+      exit 1
+    fi
+    ```
+6. CI confirmation:
+  - Open PR and check Codecov backend status (lines) for final gate outcome.
 
-Required commands:
+## 7) Risks and Mitigations
 
-```bash
-.github/skills/scripts/skill-runner.sh test-frontend-unit
-.github/skills/scripts/skill-runner.sh test-frontend-coverage
-.github/skills/scripts/skill-runner.sh test-backend-unit
-.github/skills/scripts/skill-runner.sh test-backend-coverage
-```
+Risk 1: Statement/line mismatch remains misunderstood.
+- Mitigation: Always record both local statement summary and Codecov line status in remediation PR notes.
 
-Pass criteria:
-- Frontend and backend coverage gates remain green (project thresholds).
-- No regression caused by accidental integration/trace exclusion changes.
+Risk 2: Added tests increase flakiness.
+- Mitigation: prioritize deterministic pure/helper paths first (`internal/util`, parsing/normalization helpers).
 
-## 5) Acceptance Criteria
+Risk 3: Buffer too small for CI variance.
+- Mitigation: target >=86.0 backend in CI line metric rather than barely crossing 85.0.
 
-- Codecov entry-point line references in this plan are corrected to lines
-  `90-92`.
-- Docker service/handler excludes remain in `codecov.yml`.
-- Integration and trace excludes remain unchanged in `codecov.yml` and
-  `scripts/go-test-coverage.sh`.
-- Frontend quarantine execution excludes are removed as planned.
-- Selected unit-test code is included in coverage accounting as planned.
-- Grep-style verification checks are executed and documented.
-- Coverage status gates continue to pass.
+## 8) Acceptance Criteria
+
+1. Investigation completeness:
+  - Plan documents likely mismatch causes: metric basis, exclusions, package-set differences, cache/artifact variance.
+2. Metric clarity:
+  - Plan explicitly states: local script reads Go statement coverage; CI gate evaluates Codecov lines.
+3. Test scope:
+  - Only backend unit tests are changed.
+  - No E2E/integration additions.
+4. Coverage result:
+  - Backend Codecov project status passes with practical buffer target >=86.0% lines (engineering target).
+  - Effective Codecov pass condition is governed by `target: 85%` with `threshold: 1%`, so CI may pass below 85.0% lines depending on Codecov threshold/rounding behavior.
+5. Validation parity:
+  - CI-equivalent script sequence executed and results captured (`backend/coverage.txt`, `backend/test-output.txt`).

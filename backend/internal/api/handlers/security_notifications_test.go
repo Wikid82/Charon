@@ -515,3 +515,62 @@ func TestSecurityNotificationHandler_RouteAliasUpdate(t *testing.T) {
 	assert.Equal(t, originalWriter.Code, aliasWriter.Code)
 	assert.Equal(t, originalWriter.Body.String(), aliasWriter.Body.String())
 }
+
+func TestNormalizeEmailRecipients(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr string
+	}{
+		{
+			name:  "empty input",
+			input: "   ",
+			want:  "",
+		},
+		{
+			name:  "single valid",
+			input: "admin@example.com",
+			want:  "admin@example.com",
+		},
+		{
+			name:  "multiple valid with spaces and blanks",
+			input: " admin@example.com, , ops@example.com ,security@example.com ",
+			want:  "admin@example.com, ops@example.com, security@example.com",
+		},
+		{
+			name:  "duplicates and mixed case preserved",
+			input: "Admin@Example.com, admin@example.com, Admin@Example.com",
+			want:  "Admin@Example.com, admin@example.com, Admin@Example.com",
+		},
+		{
+			name:    "invalid only",
+			input:   "not-an-email",
+			wantErr: "invalid email recipients: not-an-email",
+		},
+		{
+			name:    "mixed invalid and valid",
+			input:   "admin@example.com, bad-address,ops@example.com",
+			wantErr: "invalid email recipients: bad-address",
+		},
+		{
+			name:    "multiple invalids",
+			input:   "bad-address,also-bad",
+			wantErr: "invalid email recipients: bad-address, also-bad",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := normalizeEmailRecipients(tt.input)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Equal(t, tt.wantErr, err.Error())
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

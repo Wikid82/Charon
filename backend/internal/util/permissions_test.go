@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 	"testing"
 )
@@ -54,6 +55,35 @@ func TestMapSaveErrorCode(t *testing.T) {
 func TestIsSQLiteReadOnlyError(t *testing.T) {
 	if !IsSQLiteReadOnlyError(errors.New("SQLITE_READONLY")) {
 		t.Fatalf("expected SQLITE_READONLY to be detected")
+	}
+
+	if !IsSQLiteReadOnlyError(errors.New("read-only database")) {
+		t.Fatalf("expected read-only variant to be detected")
+	}
+
+	if IsSQLiteReadOnlyError(nil) {
+		t.Fatalf("expected nil error to return false")
+	}
+}
+
+func TestIsSQLiteLockedError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "sqlite_busy", err: errors.New("SQLITE_BUSY"), want: true},
+		{name: "database locked", err: errors.New("database locked by transaction"), want: true},
+		{name: "other", err: errors.New("some other failure"), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsSQLiteLockedError(tt.err); got != tt.want {
+				t.Fatalf("IsSQLiteLockedError() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -133,4 +163,29 @@ func TestCheckPathPermissions(t *testing.T) {
 			t.Fatalf("expected writable=false when write permission is not required")
 		}
 	})
+
+	t.Run("unsupported file type", func(t *testing.T) {
+		fifoPath := filepath.Join(t.TempDir(), "perm-fifo")
+		if err := syscall.Mkfifo(fifoPath, 0o600); err != nil {
+			t.Fatalf("create fifo: %v", err)
+		}
+
+		result := CheckPathPermissions(fifoPath, "rw")
+		if result.ErrorCode != "permissions_unsupported_type" {
+			t.Fatalf("expected permissions_unsupported_type, got %q", result.ErrorCode)
+		}
+		if result.Writable {
+			t.Fatalf("expected writable=false for unsupported file type")
+		}
+	})
+}
+
+func TestMapSaveErrorCode_PermissionDeniedText(t *testing.T) {
+	code, ok := MapSaveErrorCode(errors.New("Write failed: Permission Denied"))
+	if !ok {
+		t.Fatalf("expected permission denied text to be recognized")
+	}
+	if code != "permissions_write_denied" {
+		t.Fatalf("expected permissions_write_denied, got %q", code)
+	}
 }
