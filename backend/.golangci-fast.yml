@@ -12,7 +12,7 @@ linters:
     - ineffassign  # Ineffectual assignments
     - unused       # Unused code detection
     - gosec        # Security checks (critical issues only)
-  settings:
+  linters-settings:
     govet:
       enable:
         - shadow
