@@ -1,6 +1,10 @@
 name: Go Benchmark
 
 on:
+  pull_request:
+    branches:
+      - main
+      - development
   workflow_run:
     workflows: ["Docker Build, Publish & Test"]
     types: [completed]
