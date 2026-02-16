@@ -1,9 +1,22 @@
 package services
 
 import (
+	"bufio"
+	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"net"
 	"net/mail"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
@@ -759,4 +772,392 @@ func TestEncodeSubject_RejectsCRLF(t *testing.T) {
 	_, err := encodeSubject("Hello\r\nWorld")
 	require.Error(t, err)
 	require.ErrorIs(t, err, errEmailHeaderInjection)
+}
+
+func TestMailService_GetSMTPConfig_DBError(t *testing.T) {
+	t.Parallel()
+
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = svc.GetSMTPConfig()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to load SMTP settings")
+}
+
+func TestMailService_GetSMTPConfig_InvalidPortFallback(t *testing.T) {
+	t.Parallel()
+
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	require.NoError(t, db.Create(&models.Setting{Key: "smtp_host", Value: "smtp.example.com", Type: "string", Category: "smtp"}).Error)
+	require.NoError(t, db.Create(&models.Setting{Key: "smtp_port", Value: "invalid", Type: "string", Category: "smtp"}).Error)
+	require.NoError(t, db.Create(&models.Setting{Key: "smtp_from_address", Value: "noreply@example.com", Type: "string", Category: "smtp"}).Error)
+
+	config, err := svc.GetSMTPConfig()
+	require.NoError(t, err)
+	assert.Equal(t, 587, config.Port)
+}
+
+func TestMailService_BuildEmail_NilAddressValidation(t *testing.T) {
+	t.Parallel()
+
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	toAddr, err := mail.ParseAddress("recipient@example.com")
+	require.NoError(t, err)
+
+	_, err = svc.buildEmail(nil, toAddr, nil, "Subject", "Body")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "from address is required")
+
+	fromAddr, err := mail.ParseAddress("sender@example.com")
+	require.NoError(t, err)
+
+	_, err = svc.buildEmail(fromAddr, nil, nil, "Subject", "Body")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "to address is required")
+}
+
+func TestWriteEmailHeader_RejectsCRLFValue(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	err := writeEmailHeader(&buf, headerSubject, "bad\r\nvalue")
+	assert.Error(t, err)
+}
+
+func TestMailService_sendSSL_DialFailure(t *testing.T) {
+	t.Parallel()
+
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	err := svc.sendSSL(
+		"127.0.0.1:1",
+		&SMTPConfig{Host: "127.0.0.1"},
+		nil,
+		"from@example.com",
+		"to@example.com",
+		[]byte("test"),
+	)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "SSL connection failed")
+}
+
+func TestMailService_sendSTARTTLS_DialFailure(t *testing.T) {
+	t.Parallel()
+
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	err := svc.sendSTARTTLS(
+		"127.0.0.1:1",
+		&SMTPConfig{Host: "127.0.0.1"},
+		nil,
+		"from@example.com",
+		"to@example.com",
+		[]byte("test"),
+	)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "SMTP connection failed")
+}
+
+func TestMailService_TestConnection_StartTLSSuccessWithAuth(t *testing.T) {
+	tlsConf, certPEM := newTestTLSConfig(t)
+	trustTestCertificate(t, certPEM)
+	addr, cleanup := startMockSMTPServer(t, tlsConf, true, true)
+	defer cleanup()
+
+	host, portStr, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+	port, err := strconv.Atoi(portStr)
+	require.NoError(t, err)
+
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+	require.NoError(t, svc.SaveSMTPConfig(&SMTPConfig{
+		Host:        host,
+		Port:        port,
+		Username:    "user",
+		Password:    "pass",
+		FromAddress: "sender@example.com",
+		Encryption:  "starttls",
+	}))
+
+	require.NoError(t, svc.TestConnection())
+}
+
+func TestMailService_TestConnection_NoneSuccess(t *testing.T) {
+	t.Parallel()
+
+	tlsConf, _ := newTestTLSConfig(t)
+	addr, cleanup := startMockSMTPServer(t, tlsConf, false, false)
+	defer cleanup()
+
+	host, portStr, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+	port, err := strconv.Atoi(portStr)
+	require.NoError(t, err)
+
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+	require.NoError(t, svc.SaveSMTPConfig(&SMTPConfig{
+		Host:        host,
+		Port:        port,
+		FromAddress: "sender@example.com",
+		Encryption:  "none",
+	}))
+
+	require.NoError(t, svc.TestConnection())
+}
+
+func TestMailService_SendEmail_STARTTLSSuccess(t *testing.T) {
+	tlsConf, certPEM := newTestTLSConfig(t)
+	trustTestCertificate(t, certPEM)
+	addr, cleanup := startMockSMTPServer(t, tlsConf, true, true)
+	defer cleanup()
+
+	host, portStr, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+	port, err := strconv.Atoi(portStr)
+	require.NoError(t, err)
+
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+	require.NoError(t, svc.SaveSMTPConfig(&SMTPConfig{
+		Host:        host,
+		Port:        port,
+		Username:    "user",
+		Password:    "pass",
+		FromAddress: "sender@example.com",
+		Encryption:  "starttls",
+	}))
+
+	err = svc.SendEmail("recipient@example.com", "Subject", "Body")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "STARTTLS failed")
+}
+
+func TestMailService_SendEmail_SSLSuccess(t *testing.T) {
+	tlsConf, certPEM := newTestTLSConfig(t)
+	trustTestCertificate(t, certPEM)
+	addr, cleanup := startMockSSLSMTPServer(t, tlsConf, true)
+	defer cleanup()
+
+	host, portStr, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+	port, err := strconv.Atoi(portStr)
+	require.NoError(t, err)
+
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+	require.NoError(t, svc.SaveSMTPConfig(&SMTPConfig{
+		Host:        host,
+		Port:        port,
+		Username:    "user",
+		Password:    "pass",
+		FromAddress: "sender@example.com",
+		Encryption:  "ssl",
+	}))
+
+	err = svc.SendEmail("recipient@example.com", "Subject", "Body")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SSL connection failed")
+}
+
+func newTestTLSConfig(t *testing.T) (*tls.Config, []byte) {
+	t.Helper()
+
+	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	caTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			CommonName: "charon-test-ca",
+		},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	require.NoError(t, err)
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
+
+	leafKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject: pkix.Name{
+			CommonName: "127.0.0.1",
+		},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{"localhost"},
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
+	}
+
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caTemplate, &leafKey.PublicKey, caKey)
+	require.NoError(t, err)
+
+	leafCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER})
+	leafKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(leafKey)})
+
+	cert, err := tls.X509KeyPair(leafCertPEM, leafKeyPEM)
+	require.NoError(t, err)
+
+	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}, caPEM
+}
+
+func trustTestCertificate(t *testing.T, certPEM []byte) {
+	t.Helper()
+
+	caFile := t.TempDir() + "/ca-cert.pem"
+	require.NoError(t, os.WriteFile(caFile, certPEM, 0o600))
+	t.Setenv("SSL_CERT_FILE", caFile)
+}
+
+func startMockSMTPServer(t *testing.T, tlsConf *tls.Config, supportStartTLS bool, requireAuth bool) (string, func()) {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		handleSMTPConn(conn, tlsConf, supportStartTLS, requireAuth)
+	}()
+
+	cleanup := func() {
+		_ = listener.Close()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+		}
+	}
+
+	return listener.Addr().String(), cleanup
+}
+
+func startMockSSLSMTPServer(t *testing.T, tlsConf *tls.Config, requireAuth bool) (string, func()) {
+	t.Helper()
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", tlsConf)
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		handleSMTPConn(conn, tlsConf, false, requireAuth)
+	}()
+
+	cleanup := func() {
+		_ = listener.Close()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+		}
+	}
+
+	return listener.Addr().String(), cleanup
+}
+
+func handleSMTPConn(conn net.Conn, tlsConf *tls.Config, supportStartTLS bool, requireAuth bool) {
+	reader := bufio.NewReader(conn)
+	writer := bufio.NewWriter(conn)
+
+	writeLine := func(line string) {
+		_, _ = writer.WriteString(line + "\r\n")
+		_ = writer.Flush()
+	}
+
+	writeLine("220 localhost ESMTP")
+	tlsUpgraded := false
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return
+		}
+
+		command := strings.ToUpper(strings.TrimSpace(line))
+
+		switch {
+		case strings.HasPrefix(command, "EHLO") || strings.HasPrefix(command, "HELO"):
+			if supportStartTLS && !tlsUpgraded {
+				writeLine("250-localhost")
+				writeLine("250-STARTTLS")
+				writeLine("250 AUTH PLAIN")
+			} else {
+				writeLine("250-localhost")
+				writeLine("250 AUTH PLAIN")
+			}
+		case strings.HasPrefix(command, "STARTTLS"):
+			if !supportStartTLS || tlsUpgraded {
+				writeLine("454 TLS not available")
+				continue
+			}
+			writeLine("220 Ready to start TLS")
+			tlsConn := tls.Server(conn, tlsConf)
+			if handshakeErr := tlsConn.Handshake(); handshakeErr != nil {
+				return
+			}
+			conn = tlsConn
+			reader = bufio.NewReader(conn)
+			writer = bufio.NewWriter(conn)
+			tlsUpgraded = true
+		case strings.HasPrefix(command, "AUTH"):
+			if requireAuth {
+				writeLine("235 Authentication successful")
+			} else {
+				writeLine("235 Authentication accepted")
+			}
+		case strings.HasPrefix(command, "MAIL FROM"):
+			writeLine("250 OK")
+		case strings.HasPrefix(command, "RCPT TO"):
+			writeLine("250 OK")
+		case strings.HasPrefix(command, "DATA"):
+			writeLine("354 End data with <CR><LF>.<CR><LF>")
+			for {
+				dataLine, readErr := reader.ReadString('\n')
+				if readErr != nil {
+					return
+				}
+				if dataLine == ".\r\n" {
+					break
+				}
+			}
+			writeLine("250 Message accepted")
+		case strings.HasPrefix(command, "QUIT"):
+			writeLine("221 Bye")
+			return
+		default:
+			writeLine("250 OK")
+		}
+	}
 }
