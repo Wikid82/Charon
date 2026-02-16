@@ -15,7 +15,25 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
+
+// createTestSQLiteDB creates a minimal valid SQLite database for testing
+func createTestSQLiteDB(dbPath string) error {
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	if err != nil {
+		return err
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = sqlDB.Close() }()
+
+	// Create a simple table to make it a valid database
+	return db.Exec("CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY, data TEXT)").Error
+}
 
 func TestDBHealthHandler_Check_Healthy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -55,9 +73,9 @@ func TestDBHealthHandler_Check_WithBackupService(t *testing.T) {
 	err := os.MkdirAll(dataDir, 0o750) // #nosec G301 -- test directory
 	require.NoError(t, err)
 
-	// Create dummy DB file
+	// Create a valid SQLite database file for backup operations
 	dbPath := filepath.Join(dataDir, "charon.db")
-	err = os.WriteFile(dbPath, []byte("dummy db"), 0o600) // #nosec G306 -- test fixture
+	err = createTestSQLiteDB(dbPath)
 	require.NoError(t, err)
 
 	cfg := &config.Config{DatabasePath: dbPath}
