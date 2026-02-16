@@ -217,6 +217,7 @@ describe('UsersPage', () => {
       email: 'new@example.com',
       role: 'user',
       invite_token: 'test-token-123',
+      invite_url: 'https://charon.example.com/accept-invite?token=test-token-123',
       email_sent: false,
       expires_at: '2024-01-03T00:00:00Z',
     })
@@ -326,6 +327,7 @@ describe('UsersPage', () => {
       email: 'manual@example.com',
       role: 'user',
       invite_token: 'token-123',
+      invite_url: 'https://charon.example.com/accept-invite?token=token-123',
       email_sent: false,
       expires_at: '2025-01-01T00:00:00Z',
     })

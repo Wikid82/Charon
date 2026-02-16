@@ -1331,6 +1331,7 @@ func TestUserHandler_InviteUser_Success(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err, "Failed to unmarshal response")
 	assert.NotEmpty(t, resp["invite_token"])
+	assert.Equal(t, "", resp["invite_url"])
 	// email_sent is false because no SMTP is configured
 	assert.Equal(t, false, resp["email_sent"].(bool))
 
@@ -1454,6 +1455,114 @@ func TestUserHandler_InviteUser_WithSMTPConfigured(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err, "Failed to unmarshal response")
 	assert.NotEmpty(t, resp["invite_token"])
+	assert.Equal(t, "", resp["invite_url"])
+	assert.Equal(t, false, resp["email_sent"].(bool))
+}
+
+func TestUserHandler_InviteUser_WithSMTPAndConfiguredPublicURL_IncludesInviteURL(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	admin := &models.User{
+		UUID:   uuid.NewString(),
+		APIKey: uuid.NewString(),
+		Email:  "admin-publicurl@example.com",
+		Role:   "admin",
+	}
+	db.Create(admin)
+
+	settings := []models.Setting{
+		{Key: "smtp_host", Value: "smtp.example.com", Type: "string", Category: "smtp"},
+		{Key: "smtp_port", Value: "587", Type: "integer", Category: "smtp"},
+		{Key: "smtp_username", Value: "user@example.com", Type: "string", Category: "smtp"},
+		{Key: "smtp_password", Value: "password", Type: "string", Category: "smtp"},
+		{Key: "smtp_from_address", Value: "noreply@example.com", Type: "string", Category: "smtp"},
+		{Key: "app.public_url", Value: "https://charon.example.com", Type: "string", Category: "app"},
+	}
+	for _, setting := range settings {
+		db.Create(&setting)
+	}
+
+	handler.MailService = services.NewMailService(db)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", admin.ID)
+		c.Next()
+	})
+	r.POST("/users/invite", handler.InviteUser)
+
+	body := map[string]any{
+		"email": "smtp-public-url@example.com",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/invite", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	var resp map[string]any
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
+	token := resp["invite_token"].(string)
+	assert.Equal(t, "https://charon.example.com/accept-invite?token="+token, resp["invite_url"])
+	assert.Equal(t, true, resp["email_sent"].(bool))
+}
+
+func TestUserHandler_InviteUser_WithSMTPAndMalformedPublicURL_DoesNotExposeInviteURL(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	admin := &models.User{
+		UUID:   uuid.NewString(),
+		APIKey: uuid.NewString(),
+		Email:  "admin-malformed-publicurl@example.com",
+		Role:   "admin",
+	}
+	db.Create(admin)
+
+	settings := []models.Setting{
+		{Key: "smtp_host", Value: "smtp.example.com", Type: "string", Category: "smtp"},
+		{Key: "smtp_port", Value: "587", Type: "integer", Category: "smtp"},
+		{Key: "smtp_username", Value: "user@example.com", Type: "string", Category: "smtp"},
+		{Key: "smtp_password", Value: "password", Type: "string", Category: "smtp"},
+		{Key: "smtp_from_address", Value: "noreply@example.com", Type: "string", Category: "smtp"},
+		{Key: "app.public_url", Value: "https://charon.example.com/path", Type: "string", Category: "app"},
+	}
+	for _, setting := range settings {
+		db.Create(&setting)
+	}
+
+	handler.MailService = services.NewMailService(db)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", admin.ID)
+		c.Next()
+	})
+	r.POST("/users/invite", handler.InviteUser)
+
+	body := map[string]any{
+		"email": "smtp-malformed-url@example.com",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/invite", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	var resp map[string]any
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
+	assert.NotEmpty(t, resp["invite_token"])
+	assert.Equal(t, "", resp["invite_url"])
+	assert.Equal(t, false, resp["email_sent"].(bool))
 }
 
 func TestUserHandler_InviteUser_WithSMTPConfigured_DefaultAppName(t *testing.T) {

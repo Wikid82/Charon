@@ -524,24 +524,27 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 	})
 
 	// Send invite email asynchronously (non-blocking)
-	// Capture user data BEFORE launching goroutine to prevent race conditions
-	emailSent := true // Set true immediately since email will be sent in background
-	if h.MailService.IsConfigured() {
-		userEmail := user.Email // Capture email before goroutine
+	// Capture the generated invite URL from configured public URL only.
+	inviteURL := ""
+	baseURL, hasConfiguredPublicURL := utils.GetConfiguredPublicURL(h.DB)
+	if hasConfiguredPublicURL {
+		inviteURL = fmt.Sprintf("%s/accept-invite?token=%s", strings.TrimSuffix(baseURL, "/"), inviteToken)
+	}
+
+	// Only mark as sent when SMTP is configured AND invite URL is usable.
+	emailSent := false
+	if h.MailService.IsConfigured() && hasConfiguredPublicURL {
+		emailSent = true
+		userEmail := user.Email
 		userToken := inviteToken
+		appName := getAppName(h.DB)
 
 		go func() {
-			baseURL, ok := utils.GetConfiguredPublicURL(h.DB)
-			if ok {
-				appName := getAppName(h.DB)
-				if err := h.MailService.SendInvite(userEmail, userToken, appName, baseURL); err != nil {
-					// Log failure but don't block response
-					middleware.GetRequestLogger(c).WithField("user_email", userEmail).WithError(err).Error("Failed to send invite email")
-				}
+			if err := h.MailService.SendInvite(userEmail, userToken, appName, baseURL); err != nil {
+				// Log failure but don't block response
+				middleware.GetRequestLogger(c).WithField("user_email", userEmail).WithError(err).Error("Failed to send invite email")
 			}
 		}()
-	} else {
-		emailSent = false
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -550,6 +553,7 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 		"email":        user.Email,
 		"role":         user.Role,
 		"invite_token": inviteToken, // Return token in case email fails
+		"invite_url":   inviteURL,
 		"email_sent":   emailSent,
 		"expires_at":   inviteExpires,
 	})
