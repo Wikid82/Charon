@@ -39,13 +39,15 @@ TEST_OUTPUT_FILE=$(mktemp)
 trap 'rm -f "$TEST_OUTPUT_FILE"' EXIT
 
 if command -v gotestsum &> /dev/null; then
-    if ! gotestsum --format pkgname -- -race -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"; then
-        GO_TEST_STATUS=$?
-    fi
+    set +e
+    gotestsum --format pkgname -- -race -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"
+    GO_TEST_STATUS=$?
+    set -e
 else
-    if ! go test -race -v -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"; then
-        GO_TEST_STATUS=$?
-    fi
+    set +e
+    go test -race -v -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"
+    GO_TEST_STATUS=$?
+    set -e
 fi
 
 if [ "$GO_TEST_STATUS" -ne 0 ]; then
