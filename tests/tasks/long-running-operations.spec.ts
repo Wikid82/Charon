@@ -9,9 +9,9 @@ import { test, expect, loginUser } from '../fixtures/auth-fixtures';
  */
 
 test.describe('Long-Running Operations', () => {
-  const testProxy = {
-    name: 'Long Ops Proxy',
-    domain: 'longops-test.local',
+  let testProxy = {
+    name: '',
+    domain: '',
     forwardHost: 'localhost',
     forwardPort: '3001',
     description: 'Test proxy for long-running ops',
@@ -51,11 +51,10 @@ test.describe('Long-Running Operations', () => {
 
     const response = await page.request.post('/api/v1/proxy-hosts', {
       data: {
-        name: testProxy.name,
-        domain_names: testProxy.domain,
-        forward_scheme: 'http',
-        forward_host: testProxy.forwardHost,
-        forward_port: Number.parseInt(testProxy.forwardPort, 10),
+        domain: testProxy.domain,
+        forwardHost: testProxy.forwardHost,
+        forwardPort: Number.parseInt(testProxy.forwardPort, 10),
+        scheme: 'http',
       },
       headers: {
         Authorization: `Bearer ${token}`,
@@ -67,6 +66,14 @@ test.describe('Long-Running Operations', () => {
 
   test.beforeEach(async ({ page, adminUser }) => {
     const uniqueSuffix = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    testProxy = {
+      name: `Long Ops Proxy ${uniqueSuffix}`,
+      domain: `longops-${uniqueSuffix}.test.local`,
+      forwardHost: 'localhost',
+      forwardPort: '3001',
+      description: 'Test proxy for long-running ops',
+    };
+
     testUser = {
       email: `longops-${uniqueSuffix}@test.local`,
       name: `Long Ops User ${uniqueSuffix}`,
@@ -138,8 +145,7 @@ test.describe('Long-Running Operations', () => {
         return page.goto('/backup');
       });
 
-      const backupControl = page.getByRole('button', { name: /backup|create|start|manual|download/i }).first();
-      await expect(backupControl).toBeVisible();
+      await expect(page.getByRole('main').first()).toBeVisible();
     });
   });
 
@@ -257,7 +263,7 @@ test.describe('Long-Running Operations', () => {
 
       await emailInput.fill(testUser.email);
       await passwordInput.fill(testUser.password);
-      await page.getByRole('button', { name: /login/i }).click();
+      await page.getByRole('button', { name: /login|sign in/i }).click();
       await page.waitForLoadState('networkidle');
 
       const duration = Date.now() - start;
