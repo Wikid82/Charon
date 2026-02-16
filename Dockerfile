@@ -350,7 +350,7 @@ RUN groupadd -g 1000 charon && \
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=e7983894137c5f6e83fac17752164c4e69b1f90cef3041c35921b508385e9005
+ARG GEOLITE2_COUNTRY_SHA256=1cf82f09ce08a6e160d7426fc59fd6c12d56650e7408c832172b2eb9b62cf28d
 RUN mkdir -p /app/data/geoip && \
     if [ -n "$CI" ]; then \
       echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
