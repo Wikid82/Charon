@@ -14,7 +14,7 @@ linters:
     - staticcheck
     - unused
     - errcheck
-  settings:
+  linters-settings:
     gocritic:
       enabled-tags:
         - diagnostic
