@@ -37,6 +37,14 @@ describe('import API', () => {
     expect(result).toEqual(mockResponse);
   });
 
+  it('uploadCaddyfilesMulti accepts empty file arrays', async () => {
+    mockedPost.mockResolvedValue({ data: { preview: { hosts: [], conflicts: [], errors: [] } } });
+
+    const result = await uploadCaddyfilesMulti([]);
+    expect(client.post).toHaveBeenCalledWith('/import/upload-multi', { files: [] });
+    expect(result).toEqual({ preview: { hosts: [], conflicts: [], errors: [] } });
+  });
+
   it('getImportPreview gets preview', async () => {
     const mockResponse = { preview: { hosts: [] } };
     mockedGet.mockResolvedValue({ data: mockResponse });
@@ -70,6 +78,20 @@ describe('import API', () => {
     expect(client.post).toHaveBeenCalledWith('/import/cancel');
   });
 
+  it('forwards commitImport errors', async () => {
+    const error = new Error('commit failed');
+    mockedPost.mockRejectedValue(error);
+
+    await expect(commitImport('uuid-123', {}, {})).rejects.toBe(error);
+  });
+
+  it('forwards cancelImport errors', async () => {
+    const error = new Error('cancel failed');
+    mockedPost.mockRejectedValue(error);
+
+    await expect(cancelImport()).rejects.toBe(error);
+  });
+
   it('getImportStatus gets status', async () => {
     const mockResponse = { has_pending: true };
     mockedGet.mockResolvedValue({ data: mockResponse });
@@ -81,6 +103,13 @@ describe('import API', () => {
 
   it('getImportStatus handles error', async () => {
     mockedGet.mockRejectedValue(new Error('Failed'));
+
+    const result = await getImportStatus();
+    expect(result).toEqual({ has_pending: false });
+  });
+
+  it('getImportStatus returns false on non-Error rejections', async () => {
+    mockedGet.mockRejectedValue('network down');
 
     const result = await getImportStatus();
     expect(result).toEqual({ has_pending: false });

@@ -39,6 +39,15 @@ describe('securityHeadersApi', () => {
     expect(result).toEqual(mockProfile);
   });
 
+  it('getProfile accepts UUID string identifiers', async () => {
+    const mockProfile = { id: 2, uuid: 'profile-uuid', name: 'Profile UUID' };
+    mockedGet.mockResolvedValue({ data: { profile: mockProfile } });
+
+    const result = await securityHeadersApi.getProfile('profile-uuid');
+    expect(client.get).toHaveBeenCalledWith('/security/headers/profiles/profile-uuid');
+    expect(result).toEqual(mockProfile);
+  });
+
   it('createProfile creates a profile', async () => {
     const newProfile = { name: 'New Profile' };
     const mockResponse = { id: 1, ...newProfile };
@@ -64,6 +73,13 @@ describe('securityHeadersApi', () => {
 
     await securityHeadersApi.deleteProfile(1);
     expect(client.delete).toHaveBeenCalledWith('/security/headers/profiles/1');
+  });
+
+  it('forwards API errors from listProfiles', async () => {
+    const error = new Error('backend unavailable');
+    mockedGet.mockRejectedValue(error);
+
+    await expect(securityHeadersApi.listProfiles()).rejects.toBe(error);
   });
 
   it('getPresets returns presets', async () => {
