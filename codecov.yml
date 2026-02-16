@@ -87,9 +87,6 @@ ignore:
   # =========================================================================
   # ENTRY POINTS - Bootstrap code with minimal testable logic
   # =========================================================================
-  - "backend/cmd/api/**"             # Main entry point, CLI handling
-  - "backend/cmd/seed/**"            # Database seeding utility
-  - "frontend/src/main.tsx"          # React bootstrap
 
   # =========================================================================
   # INFRASTRUCTURE PACKAGES - Observability, align with local script

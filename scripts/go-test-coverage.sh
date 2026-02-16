@@ -25,8 +25,6 @@ cd "$BACKEND_DIR"
 # Packages to exclude from coverage (main packages and infrastructure code)
 # These are entrypoints and initialization code that don't benefit from unit tests
 EXCLUDE_PACKAGES=(
-    "github.com/Wikid82/charon/backend/cmd/api"
-    "github.com/Wikid82/charon/backend/cmd/seed"
     "github.com/Wikid82/charon/backend/internal/trace"
     "github.com/Wikid82/charon/backend/integration"
 )
