@@ -39,6 +39,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           CGO_ENABLED: 1
+          CHARON_ENCRYPTION_KEY: ${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}
         run: |
           bash "scripts/go-test-coverage.sh" 2>&1 | tee backend/test-output.txt
           exit "${PIPESTATUS[0]}"
@@ -117,6 +118,7 @@ jobs:
           PERF_MAX_MS_GETSTATUS_P95: 500ms
           PERF_MAX_MS_GETSTATUS_P95_PARALLEL: 1500ms
           PERF_MAX_MS_LISTDECISIONS_P95: 2000ms
+          CHARON_ENCRYPTION_KEY: ${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}
         run: |
           {
             echo "## 🔍 Running performance assertions (TestPerf)"

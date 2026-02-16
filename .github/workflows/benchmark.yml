@@ -41,6 +41,8 @@ jobs:
 
       - name: Run Benchmark
         working-directory: backend
+        env:
+          CHARON_ENCRYPTION_KEY: ${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}
         run: go test -bench=. -benchmem -run='^$' ./... | tee output.txt
 
       - name: Store Benchmark Result
@@ -69,6 +71,7 @@ jobs:
           PERF_MAX_MS_GETSTATUS_P95: 500ms
           PERF_MAX_MS_GETSTATUS_P95_PARALLEL: 1500ms
           PERF_MAX_MS_LISTDECISIONS_P95: 2000ms
+          CHARON_ENCRYPTION_KEY: ${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}
         run: |
           echo "## 🔍 Running performance assertions (TestPerf)" >> "$GITHUB_STEP_SUMMARY"
           go test -run TestPerf -v ./internal/api/handlers -count=1 | tee perf-output.txt
