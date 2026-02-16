@@ -199,15 +199,17 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
     await user.type(screen.getByLabelText(/^Port$/), '8080')
 
     // Select first ACL
-    const aclTrigger = screen.getByRole('combobox', { name: /Access Control List/i })
-    await user.click(aclTrigger)
+    await user.click(screen.getByRole('combobox', { name: /Access Control List/i }))
     await user.click(await screen.findByRole('option', { name: /Office Network/i }))
 
     // Verify first ACL is selected
     expect(screen.getByText('Office Network')).toBeInTheDocument()
 
     // Change to second ACL
-    await user.click(aclTrigger)
+    await waitFor(() => {
+      expect(screen.queryByRole('option', { name: /Office Network/i })).not.toBeInTheDocument()
+    })
+    await user.click(screen.getByRole('combobox', { name: /Access Control List/i }))
     await user.click(await screen.findByRole('option', { name: /VPN Users/i }))
 
     // Verify second ACL is now selected
@@ -243,15 +245,17 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
     await user.type(screen.getByLabelText(/^Port$/), '8080')
 
     // Select an ACL
-    const aclTrigger = screen.getByRole('combobox', { name: /Access Control List/i })
-    await user.click(aclTrigger)
+    await user.click(screen.getByRole('combobox', { name: /Access Control List/i }))
     await user.click(await screen.findByRole('option', { name: /Office Network/i }))
 
     // Verify ACL is selected
     expect(screen.getByText('Office Network')).toBeInTheDocument()
 
     // Remove ACL by selecting "No Access Control"
-    await user.click(aclTrigger)
+    await waitFor(() => {
+      expect(screen.queryByRole('option', { name: /Office Network/i })).not.toBeInTheDocument()
+    })
+    await user.click(screen.getByRole('combobox', { name: /Access Control List/i }))
     await user.click(await screen.findByRole('option', { name: /No Access Control/i }))
 
     // Submit and verify ACL is null
