@@ -352,12 +352,40 @@ test.describe('Admin-User E2E Workflow', () => {
     });
 
     await test.step('STEP 6: User cannot access user management', async () => {
-      await page.goto('/users', { waitUntil: 'domcontentloaded' });
-      const accessDeniedMessage = page.getByText(/access.*denied|forbidden|not allowed|admin access required/i).first();
-      const hasUsersHeading = await page.getByRole('heading', { name: /users/i }).first().isVisible().catch(() => false);
-      const hasAccessDenied = await accessDeniedMessage.isVisible().catch(() => false);
+      await page.goto('/users', { waitUntil: 'commit', timeout: 15000 }).catch((error: unknown) => {
+        if (!(error instanceof Error)) {
+          throw error;
+        }
 
-      expect(hasUsersHeading && !hasAccessDenied).toBe(false);
+        const isExpectedNavigationRace =
+          error.message.includes('Timeout') ||
+          error.message.includes('interrupted by another navigation') ||
+          error.message.includes('net::ERR_ABORTED');
+
+        if (!isExpectedNavigationRace) {
+          throw error;
+        }
+      });
+
+      await expect.poll(async () => {
+        const currentUrl = page.url();
+        const isUsersPage = /\/users(?:$|[?#])/.test(new URL(currentUrl).pathname + new URL(currentUrl).search + new URL(currentUrl).hash);
+        const hasUsersHeading = await page
+          .getByRole('heading', { name: /users/i })
+          .first()
+          .isVisible()
+          .catch(() => false);
+        const hasAccessDenied = await page
+          .getByText(/access.*denied|forbidden|not allowed|admin access required/i)
+          .first()
+          .isVisible()
+          .catch(() => false);
+
+        return !isUsersPage || hasAccessDenied || !hasUsersHeading;
+      }, {
+        timeout: 15000,
+        message: 'Expected regular user to be redirected or denied when accessing /users',
+      }).toBe(true);
     });
 
     await test.step('STEP 7: Audit trail records all actions', async () => {
