@@ -54,6 +54,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
   const [selectedHosts, setSelectedHosts] = useState<number[]>([])
   const [inviteResult, setInviteResult] = useState<{
     token: string
+    inviteUrl: string
     emailSent: boolean
     expiresAt: string
   } | null>(null)
@@ -125,6 +126,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
       queryClient.invalidateQueries({ queryKey: ['users'] })
       setInviteResult({
         token: data.invite_token,
+        inviteUrl: data.invite_url,
         emailSent: data.email_sent,
         expiresAt: data.expires_at,
       })
@@ -140,10 +142,24 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
     },
   })
 
-  const copyInviteLink = () => {
+  const copyInviteLink = async () => {
     if (inviteResult?.token) {
-      const link = `${window.location.origin}/accept-invite?token=${inviteResult.token}`
-      navigator.clipboard.writeText(link)
+      const link = inviteResult.inviteUrl || `${window.location.origin}/accept-invite?token=${inviteResult.token}`
+
+      try {
+        await navigator.clipboard.writeText(link)
+      } catch {
+        const textarea = document.createElement('textarea')
+        textarea.value = link
+        textarea.setAttribute('readonly', 'true')
+        textarea.style.position = 'absolute'
+        textarea.style.left = '-9999px'
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+      }
+
       toast.success(t('users.inviteLinkCopied'))
     }
   }
@@ -219,7 +235,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
                   <div className="flex gap-2">
                     <Input
                       type="text"
-                      value={`${window.location.origin}/accept-invite?token=${inviteResult.token}`}
+                      value={inviteResult.inviteUrl || `${window.location.origin}/accept-invite?token=${inviteResult.token}`}
                       readOnly
                       className="flex-1 text-sm"
                     />
