@@ -440,11 +440,22 @@ func TestUpdateAcquisitionConfig(t *testing.T) {
 
 // TestGetLAPIKey tests the getLAPIKey helper
 func TestGetLAPIKey(t *testing.T) {
-	// getLAPIKey is a package-level function that reads from environment/global state
-	// For now, just exercise the function
-	key := getLAPIKey()
-	// Key will be empty in test environment, but function is exercised
-	_ = key
+	t.Setenv("CROWDSEC_API_KEY", "")
+	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "")
+	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "")
+	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "")
+	t.Setenv("CPM_SECURITY_CROWDSEC_API_KEY", "")
+
+	assert.Equal(t, "", getLAPIKey())
+
+	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "fallback-key")
+	assert.Equal(t, "fallback-key", getLAPIKey())
+
+	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "priority-key")
+	assert.Equal(t, "priority-key", getLAPIKey())
+
+	t.Setenv("CROWDSEC_API_KEY", "top-priority-key")
+	assert.Equal(t, "top-priority-key", getLAPIKey())
 }
 
 // NOTE: Removed duplicate TestIsCerberusEnabled - covered by existing test files

@@ -265,3 +265,37 @@ func TestProxyHostService_EmptyDomain(t *testing.T) {
 	err := service.ValidateUniqueDomain("", 0)
 	assert.NoError(t, err)
 }
+
+func TestProxyHostService_DBAccessorAndLookupErrors(t *testing.T) {
+	t.Parallel()
+
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+
+	assert.Equal(t, db, service.DB())
+
+	_, err := service.GetByID(999999)
+	assert.Error(t, err)
+
+	_, err = service.GetByUUID("missing-uuid")
+	assert.Error(t, err)
+}
+
+func TestProxyHostService_validateProxyHost_ValidationErrors(t *testing.T) {
+	t.Parallel()
+
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+
+	err := service.validateProxyHost(&models.ProxyHost{DomainNames: "", ForwardHost: "127.0.0.1"})
+	assert.ErrorContains(t, err, "domain names is required")
+
+	err = service.validateProxyHost(&models.ProxyHost{DomainNames: "example.com", ForwardHost: ""})
+	assert.ErrorContains(t, err, "forward host is required")
+
+	err = service.validateProxyHost(&models.ProxyHost{DomainNames: "example.com", ForwardHost: "invalid$host"})
+	assert.ErrorContains(t, err, "forward host must be a valid IP address or hostname")
+
+	err = service.validateProxyHost(&models.ProxyHost{DomainNames: "example.com", ForwardHost: "127.0.0.1", UseDNSChallenge: true})
+	assert.ErrorContains(t, err, "dns provider is required")
+}

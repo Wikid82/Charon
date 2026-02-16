@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
+	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
@@ -1022,6 +1022,84 @@ func TestAuthHandler_Me_RequiresUserContext(t *testing.T) {
 	r.GET("/me", handler.Me)
 
 	req := httptest.NewRequest(http.MethodGet, "/me", http.NoBody)
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusUnauthorized, res.Code)
+}
+
+func TestAuthHandler_HelperFunctions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("requestScheme prefers forwarded proto", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
+		req.Header.Set("X-Forwarded-Proto", "HTTPS, http")
+		ctx.Request = req
+		assert.Equal(t, "https", requestScheme(ctx))
+	})
+
+	t.Run("normalizeHost strips brackets and port", func(t *testing.T) {
+		assert.Equal(t, "::1", normalizeHost("[::1]:443"))
+		assert.Equal(t, "example.com", normalizeHost("example.com:8080"))
+	})
+
+	t.Run("originHost returns empty for invalid url", func(t *testing.T) {
+		assert.Equal(t, "", originHost("://bad"))
+		assert.Equal(t, "example.com", originHost("https://example.com/path"))
+	})
+
+	t.Run("isLocalHost and isLocalRequest", func(t *testing.T) {
+		assert.True(t, isLocalHost("localhost"))
+		assert.True(t, isLocalHost("127.0.0.1"))
+		assert.False(t, isLocalHost("example.com"))
+
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest(http.MethodGet, "http://service.internal", http.NoBody)
+		req.Host = "service.internal:8080"
+		req.Header.Set("X-Forwarded-Host", "example.com, localhost:8080")
+		ctx.Request = req
+		assert.True(t, isLocalRequest(ctx))
+	})
+}
+
+func TestAuthHandler_Refresh(t *testing.T) {
+	t.Parallel()
+
+	handler, db := setupAuthHandler(t)
+
+	user := &models.User{UUID: uuid.NewString(), Email: "refresh@example.com", Name: "Refresh User", Role: "user", Enabled: true}
+	require.NoError(t, user.SetPassword("password123"))
+	require.NoError(t, db.Create(user).Error)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/refresh", func(c *gin.Context) {
+		c.Set("userID", user.ID)
+		handler.Refresh(c)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/refresh", http.NoBody)
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusOK, res.Code)
+	assert.Contains(t, res.Body.String(), "token")
+	cookies := res.Result().Cookies()
+	assert.NotEmpty(t, cookies)
+}
+
+func TestAuthHandler_Refresh_Unauthorized(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := setupAuthHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/refresh", handler.Refresh)
+
+	req := httptest.NewRequest(http.MethodPost, "/refresh", http.NoBody)
 	res := httptest.NewRecorder()
 	r.ServeHTTP(res, req)
 

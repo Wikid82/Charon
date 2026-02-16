@@ -263,3 +263,140 @@ Done is achieved only when all are true:
 4. No changes were made that destabilize or alter flaky E2E CI validation scope.
 5. Codecov patch coverage expectations remain satisfiable (100% for modified lines).
 6. Baseline/post-change metrics and final threshold status are documented in the task handoff.
+
+## 12) Backend Patch-Coverage Remediation (Additive, Frontend Plan Intact)
+
+Date: 2026-02-16
+Owner: Planning Agent
+Scope: Add backend-only remediation to recover Codecov patch coverage for changed backend lines while preserving existing frontend unit-test coverage work.
+
+### 12.1 Objective and Constraints
+
+- Raise backend patch coverage by targeting missing/partial changed lines from Codecov Patch view.
+- Preserve all existing frontend coverage plan content and execution order; this section is additive only.
+- No E2E requirement for this backend remediation section.
+- Source of truth for prioritization and totals is the provided Codecov patch report.
+
+### 12.2 Codecov Patch Snapshot (Source of Truth)
+
+Current patch coverage: **58.78378%**
+
+Files with missing/partial changed lines:
+
+| Priority | File | Patch % | Missing | Partial |
+|---|---|---:|---:|---:|
+| 1 | `backend/internal/services/mail_service.go` | 0.00% | 22 | 0 |
+| 2 | `backend/internal/crowdsec/hub_sync.go` | 0.00% | 10 | 6 |
+| 3 | `backend/internal/api/handlers/auth_handler.go` | 0.00% | 15 | 0 |
+| 4 | `backend/internal/services/backup_service.go` | 0.00% | 5 | 3 |
+| 5 | `backend/internal/services/proxyhost_service.go` | 55.88% | 14 | 1 |
+| 6 | `backend/internal/api/handlers/crowdsec_handler.go` | 30.00% | 9 | 5 |
+| 7 | `backend/internal/api/handlers/user_handler.go` | 72.09% | 6 | 6 |
+| 8 | `backend/internal/services/log_service.go` | 73.91% | 6 | 6 |
+| 9 | `backend/internal/api/handlers/import_handler.go` | 67.85% | 3 | 6 |
+| 10 | `backend/internal/cerberus/rate_limit.go` | 93.33% | 3 | 3 |
+
+Execution rule: **zero-coverage files are first-pass mandatory** for fastest patch gain.
+
+### 12.3 Explicit Patch-Triage Table (Exact Range Placeholders + Test Targets)
+
+Populate exact ranges from local Codecov Patch output before/while implementing tests.
+
+| File | Codecov exact missing/partial range placeholders (fill from local output) | Mapped backend test file target(s) | Planned test focus for those exact ranges | Status |
+|---|---|---|---|---|
+| `backend/internal/services/mail_service.go` | Missing: `L<mail-m1>-L<mail-m2>`, `L<mail-m3>-L<mail-m4>` | `backend/internal/services/mail_service_test.go` | happy path send/build; SMTP/auth error path; boundary for empty recipient/template vars | Open |
+| `backend/internal/crowdsec/hub_sync.go` | Missing: `L<hub-m1>-L<hub-m2>`; Partial: `L<hub-p1>-L<hub-p2>` | `backend/internal/crowdsec/hub_sync_test.go` | happy sync success; HTTP/non-200 + decode/network errors; boundary/partial branch on optional fields and empty decisions list | Open |
+| `backend/internal/api/handlers/auth_handler.go` | Missing: `L<auth-m1>-L<auth-m2>`, `L<auth-m3>-L<auth-m4>` | `backend/internal/api/handlers/auth_handler_test.go` | happy login/refresh/logout response; invalid payload/credentials error path; boundary on missing token/cookie/header branches | Open |
+| `backend/internal/services/backup_service.go` | Missing: `L<backup-m1>-L<backup-m2>`; Partial: `L<backup-p1>-L<backup-p2>` | `backend/internal/services/backup_service_test.go` | happy backup/restore flow; fs/io/sql error path; boundary/partial for empty backup set and retention edge | Open |
+| `backend/internal/services/proxyhost_service.go` | Missing: `L<proxyhost-m1>-L<proxyhost-m2>`; Partial: `L<proxyhost-p1>-L<proxyhost-p2>` | `backend/internal/services/proxyhost_service_test.go` | happy create/update/delete/list; validation/duplicate/not-found error path; boundary/partial for optional TLS/security toggles | Open |
+| `backend/internal/api/handlers/crowdsec_handler.go` | Missing: `L<crowdsec-handler-m1>-L<crowdsec-handler-m2>`; Partial: `L<crowdsec-handler-p1>-L<crowdsec-handler-p2>` | `backend/internal/api/handlers/crowdsec_handler_test.go` | happy config/get/update actions; bind/service error path; boundary/partial on query params and empty payload behavior | Open |
+| `backend/internal/api/handlers/user_handler.go` | Missing: `L<user-handler-m1>-L<user-handler-m2>`; Partial: `L<user-handler-p1>-L<user-handler-p2>` | `backend/internal/api/handlers/user_handler_test.go` | happy list/create/update/delete; validation/permission/not-found errors; boundary/partial for pagination/filter defaults | Open |
+| `backend/internal/services/log_service.go` | Missing: `L<log-service-m1>-L<log-service-m2>`; Partial: `L<log-service-p1>-L<log-service-p2>` | `backend/internal/services/log_service_test.go` | happy read/stream/filter; source/read failure path; boundary/partial for empty logs and limit/offset branches | Open |
+| `backend/internal/api/handlers/import_handler.go` | Missing: `L<import-handler-m1>-L<import-handler-m2>`; Partial: `L<import-handler-p1>-L<import-handler-p2>` | `backend/internal/api/handlers/import_handler_test.go` | happy import start/status; bind/parse/service failure path; boundary/partial for unsupported type/empty payload | Open |
+| `backend/internal/cerberus/rate_limit.go` | Missing: `L<rate-limit-m1>-L<rate-limit-m2>`; Partial: `L<rate-limit-p1>-L<rate-limit-p2>` | `backend/internal/cerberus/rate_limit_test.go` | happy allow path; blocked/over-limit error path; boundary/partial for burst/window thresholds | Open |
+
+Patch triage completion rule:
+- Replace placeholders with exact Codecov ranges and keep one-to-one mapping between each range and at least one concrete test case.
+- Do not close this remediation until every listed placeholder range is replaced and verified as covered.
+
+### 12.4 Backend Test Strategy by File (Happy + Error + Boundary/Partial)
+
+#### Wave 1 — Zero-Coverage First (fastest patch gain)
+
+1. `backend/internal/services/mail_service.go` (0.00%, 22 missing)
+   - Happy: successful send/build with valid config.
+   - Error: transport/auth/template failures.
+   - Boundary/partial: empty optional fields, nil config branches.
+
+2. `backend/internal/crowdsec/hub_sync.go` (0.00%, 10 missing + 6 partial)
+   - Happy: successful hub sync and update path.
+   - Error: HTTP error, non-2xx response, malformed payload.
+   - Boundary/partial: empty decision set, optional/legacy field branches.
+
+3. `backend/internal/api/handlers/auth_handler.go` (0.00%, 15 missing)
+   - Happy: valid auth request returns expected status/body.
+   - Error: bind/validation/service auth failures.
+   - Boundary/partial: missing header/cookie/token branches.
+
+4. `backend/internal/services/backup_service.go` (0.00%, 5 missing + 3 partial)
+   - Happy: backup create/list/restore success branch.
+   - Error: filesystem/database operation failures.
+   - Boundary/partial: empty backup inventory and retention-window edges.
+
+#### Wave 2 — Mid-Coverage Expansion
+
+5. `backend/internal/services/proxyhost_service.go` (55.88%, 14 missing + 1 partial)
+6. `backend/internal/api/handlers/crowdsec_handler.go` (30.00%, 9 missing + 5 partial)
+
+For both:
+- Happy path operation success.
+- Error path for validation/bind/service failures.
+- Boundary/partial branches for optional flags/default values.
+
+#### Wave 3 — High-Coverage Tail Cleanup
+
+7. `backend/internal/api/handlers/user_handler.go` (72.09%, 6 missing + 6 partial)
+8. `backend/internal/services/log_service.go` (73.91%, 6 missing + 6 partial)
+9. `backend/internal/api/handlers/import_handler.go` (67.85%, 3 missing + 6 partial)
+10. `backend/internal/cerberus/rate_limit.go` (93.33%, 3 missing + 3 partial)
+
+For all:
+- Close remaining missing branches first.
+- Then resolve partials with targeted boundary tests matching exact triaged ranges.
+
+### 12.5 Concrete Run Sequence (Backend Coverage + Targeted Tests + Re-run)
+
+Use this execution order for each wave:
+
+1. Baseline backend coverage (project-approved):
+   - VS Code task: `Test: Backend with Coverage` (if present)
+   - Script: `scripts/go-test-coverage.sh`
+
+2. Targeted package-level test runs for quick feedback:
+   - `cd /projects/Charon/backend && go test -cover ./internal/services -run 'Mail|Backup|ProxyHost|Log'`
+   - `cd /projects/Charon/backend && go test -cover ./internal/crowdsec -run 'HubSync'`
+   - `cd /projects/Charon/backend && go test -cover ./internal/api/handlers -run 'Auth|CrowdSec|User|Import'`
+   - `cd /projects/Charon/backend && go test -cover ./internal/cerberus -run 'RateLimit'`
+
+3. Full backend coverage re-run after each wave:
+   - `scripts/go-test-coverage.sh`
+
+4. Patch verification loop:
+   - Re-open Codecov Patch view.
+   - Replace remaining placeholders with exact unresolved ranges.
+   - Add next targeted tests for those exact ranges.
+   - Re-run Step 2 and Step 3 until all patch ranges are covered.
+
+5. Final validation:
+   - `cd /projects/Charon/backend && go test ./...`
+   - `scripts/go-test-coverage.sh`
+   - Confirm Codecov patch coverage for backend modified lines reaches 100%.
+
+### 12.6 Acceptance Criteria (Backend Remediation Section)
+
+- Patch-triage table is fully populated with exact Codecov ranges (no placeholders left).
+- Zero-coverage files (`mail_service.go`, `hub_sync.go`, `auth_handler.go`, `backup_service.go`) are covered first.
+- Each file has tests for happy path, error path, and boundary/partial branches.
+- Concrete run sequence executed: baseline -> targeted go test -> coverage re-run -> patch verify loop.
+- Existing frontend unit-test coverage plan remains unchanged and intact.
+- No E2E requirement is introduced in this backend remediation section.

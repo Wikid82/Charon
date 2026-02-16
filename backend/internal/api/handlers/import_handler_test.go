@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -110,6 +111,80 @@ func addAdminMiddleware(router *gin.Engine) {
 	router.Use(func(c *gin.Context) {
 		setAdminContext(c)
 		c.Next()
+	})
+}
+
+func TestImportHandler_GetStatus_MountCommittedUnchanged(t *testing.T) {
+	t.Parallel()
+
+	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+		mountDir := t.TempDir()
+		mountPath := filepath.Join(mountDir, "mounted.caddyfile")
+		require.NoError(t, os.WriteFile(mountPath, []byte("example.com { respond \"ok\" }"), 0o600))
+
+		committedAt := time.Now()
+		require.NoError(t, tx.Create(&models.ImportSession{
+			UUID:        "committed-1",
+			SourceFile:  mountPath,
+			Status:      "committed",
+			CommittedAt: &committedAt,
+		}).Error)
+
+		require.NoError(t, os.Chtimes(mountPath, committedAt.Add(-1*time.Minute), committedAt.Add(-1*time.Minute)))
+
+		handler, _, _ := setupTestHandler(t, tx)
+		handler.mountPath = mountPath
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/import/status", http.NoBody)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var body map[string]any
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		assert.Equal(t, false, body["has_pending"])
+	})
+}
+
+func TestImportHandler_GetStatus_MountModifiedAfterCommit(t *testing.T) {
+	t.Parallel()
+
+	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+		mountDir := t.TempDir()
+		mountPath := filepath.Join(mountDir, "mounted.caddyfile")
+		require.NoError(t, os.WriteFile(mountPath, []byte("example.com { respond \"ok\" }"), 0o600))
+
+		committedAt := time.Now().Add(-10 * time.Minute)
+		require.NoError(t, tx.Create(&models.ImportSession{
+			UUID:        "committed-2",
+			SourceFile:  mountPath,
+			Status:      "committed",
+			CommittedAt: &committedAt,
+		}).Error)
+
+		require.NoError(t, os.Chtimes(mountPath, time.Now(), time.Now()))
+
+		handler, _, _ := setupTestHandler(t, tx)
+		handler.mountPath = mountPath
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/import/status", http.NoBody)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var body map[string]any
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		assert.Equal(t, true, body["has_pending"])
 	})
 }
 

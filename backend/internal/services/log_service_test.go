@@ -166,3 +166,29 @@ func TestLogService(t *testing.T) {
 	assert.Equal(t, int64(1), total)
 	assert.Equal(t, "5.6.7.8", results[0].Request.RemoteIP)
 }
+
+func TestLogService_logDirsAndSymlinkDedup(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	logsDir := filepath.Join(dataDir, "logs")
+	caddyLogsDir := filepath.Join(dataDir, "caddy-logs")
+	require.NoError(t, os.MkdirAll(logsDir, 0o750))
+	require.NoError(t, os.MkdirAll(caddyLogsDir, 0o750))
+
+	cfg := &config.Config{DatabasePath: filepath.Join(dataDir, "charon.db"), CaddyLogDir: caddyLogsDir}
+	service := NewLogService(cfg)
+
+	accessPath := filepath.Join(logsDir, "access.log")
+	require.NoError(t, os.WriteFile(accessPath, []byte("{}\n"), 0o600))
+	require.NoError(t, os.Symlink(accessPath, filepath.Join(logsDir, "cpmp.log")))
+
+	t.Setenv("CHARON_CADDY_ACCESS_LOG", filepath.Join(caddyLogsDir, "access-caddy.log"))
+	dirs := service.logDirs()
+	assert.Contains(t, dirs, logsDir)
+	assert.Contains(t, dirs, caddyLogsDir)
+
+	logs, err := service.ListLogs()
+	require.NoError(t, err)
+	assert.Len(t, logs, 1)
+	assert.Equal(t, "access.log", logs[0].Name)
+}
