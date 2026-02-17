@@ -151,7 +151,7 @@
       "matchBaseBranches": ["development"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "automerge": false,
-      "minimumReleaseAge": "30 days"
+      "minimumReleaseAge": "14 days"
     },
     {
       "description": "Preserve your custom Caddy patch labels but allow them to group into the weekly PR",
