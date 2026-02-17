@@ -2,10 +2,7 @@ name: Go Benchmark
 
 on:
   pull_request:
-    branches:
-      - main
-      - development
-      - feature/**
+  push:
   workflow_dispatch:
 
 concurrency:
