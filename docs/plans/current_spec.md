@@ -1,198 +1,145 @@
-# PR #666 Patch Coverage Recovery Spec (Approval-Ready)
+# CI Encryption-Key Investigation and Remediation Plan
 
-Date: 2026-02-16
-Owner: Planning Agent
-Status: Draft for Supervisor approval (single coherent plan)
+## Context
+- Date: 2026-02-17
+- Scope: CI failures where backend jobs report encryption key not picked up.
+- In-scope files:
+  - `.github/workflows/quality-checks.yml`
+  - `.github/workflows/codecov-upload.yml`
+  - `scripts/go-test-coverage.sh`
+  - `backend/internal/crypto/rotation_service.go`
+  - `backend/internal/services/dns_provider_service.go`
+  - `backend/internal/services/credential_service.go`
 
-## 1) Scope Decision (Unified)
+## Problem Statement
+CI backend tests can fail late and ambiguously when `CHARON_ENCRYPTION_KEY` is missing or malformed. The root causes are context-dependent secret availability, missing preflight validation, and drift between workflow intent and implementation.
 
-### In Scope
-- Backend unit-test additions only, targeting changed patch lines in backend handlers/services/utils.
-- Minimum-risk posture: prioritize test-only additions in files already touched by PR #666 before opening any new test surface.
-- Coverage validation using current backend coverage task/script.
+## Research Findings
 
-### Out of Scope
-- E2E/Playwright, integration, frontend, Docker, and security scan remediation.
+### Workflow Surface and Risks
+| Workflow | Job | Key-sensitive step | Current key source | Main risk |
+|---|---|---|---|---|
+| `.github/workflows/quality-checks.yml` | `backend-quality` | `Run Go tests`, `Run Perf Asserts` | `${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}` | Empty/malformed input not preflighted |
+| `.github/workflows/codecov-upload.yml` | `backend-codecov` | `Run Go tests with coverage` | `${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}` | Same key-risk as above |
 
-### E2E Decision for this task
-- E2E is explicitly **out-of-scope** for this patch-coverage remediation.
-- Rationale: target metric is Codecov patch lines on backend changes; E2E adds runtime risk/cycle time without direct line-level patch closure.
+### Backend Failure Surface
+- `backend/internal/crypto/rotation_service.go`
+  - `NewRotationService(db *gorm.DB)` hard-fails if `CHARON_ENCRYPTION_KEY` is empty.
+- `backend/internal/services/dns_provider_service.go`
+  - `NewDNSProviderService(...)` depends on `NewRotationService(...)` and can degrade to warning-based behavior when key input is bad.
+- `backend/internal/services/credential_service.go`
+  - `NewCredentialService(...)` has the same dependency pattern.
 
-### Scope Reconciliation with Current Implementation (PR #666)
-Confirmed already touched backend test files:
-- `backend/internal/api/handlers/import_handler_test.go`
-- `backend/internal/api/handlers/settings_handler_helpers_test.go`
-- `backend/internal/api/handlers/emergency_handler_test.go`
-- `backend/internal/services/backup_service_test.go`
-- `backend/internal/api/handlers/backup_handler_test.go`
-- `backend/internal/api/handlers/system_permissions_handler_test.go`
-- `backend/internal/api/handlers/notification_provider_handler_validation_test.go`
+### Script Failure Mode
+- `scripts/go-test-coverage.sh` currently uses `set -euo pipefail` but does not pre-validate key shape before `go test`.
+- Empty secret expressions become late runtime failures instead of deterministic preflight failures.
 
-Optional/deferred (not yet touched in current remediation pass):
-- `backend/internal/util/permissions_test.go`
-- `backend/internal/services/notification_service_json_test.go`
-- `backend/internal/services/backup_service_rehydrate_test.go`
-- `backend/internal/api/handlers/security_handler_coverage_test.go`
+## Supervisor-Required Constraints (Preserved)
+1. `pull_request_target` SHALL NOT be used for secret-bearing backend test execution on untrusted code (fork PRs and Dependabot PRs).
+2. Same-repo `pull_request` and `workflow_dispatch` SHALL require `CHARON_ENCRYPTION_KEY_TEST`; missing secret SHALL fail fast (no fallback).
+3. Fork PRs and Dependabot PRs SHALL use workflow-only ephemeral key fallback for backend test execution.
+4. Key material SHALL NEVER be logged.
+5. Resolved key SHALL be masked before any potential output path.
+6. `GITHUB_ENV` propagation SHALL use safe delimiter write pattern.
+7. Workflow layer SHALL own key resolution/fallback.
+8. Script layer SHALL only validate and fail fast; it SHALL NOT generate fallback keys.
+9. Anti-drift guard SHALL be added so trigger comments and trigger blocks remain aligned.
+10. Known drift SHALL be corrected: comment in `quality-checks.yml` about `codecov-upload.yml` trigger behavior must match actual triggers.
 
-## 2) Single Source of Truth for Success
+## EARS Requirements
 
-Authoritative success metric:
-- **Codecov PR patch status (`lines`)** is the source of truth for this task.
+### Ubiquitous
+- THE SYSTEM SHALL fail fast with explicit diagnostics when encryption-key input is required and unavailable or malformed.
+- THE SYSTEM SHALL prevent secret-value exposure in logs, summaries, and artifacts.
 
-Relationship to `codecov.yml`:
-- `coverage.status.patch.default.target: 100%` and `required: false` means patch status is advisory in CI.
-- For this plan, we set an internal quality gate: **patch lines >= 85%** (minimum), preferred **>= 87%** buffer.
-- Local script output (`go tool cover`) remains diagnostic; pass/fail is decided by Codecov patch `lines` after upload.
+### Event-driven
+- WHEN workflow context is trusted (same-repo `pull_request` or `workflow_dispatch`), THE SYSTEM SHALL require `secrets.CHARON_ENCRYPTION_KEY_TEST`.
+- WHEN workflow context is untrusted (fork PR or Dependabot PR), THE SYSTEM SHALL generate ephemeral key material in workflow preflight only.
+- WHEN workflow context is untrusted, THE SYSTEM SHALL NOT use `pull_request_target` for secret-bearing backend tests.
 
-## 3) Feasibility Math and Coverage-Line Budget
+### Unwanted behavior
+- IF `CHARON_ENCRYPTION_KEY` is empty, non-base64, or decoded length is not 32 bytes, THEN THE SYSTEM SHALL stop before running tests.
+- IF trigger comments diverge from workflow triggers, THEN THE SYSTEM SHALL fail anti-drift validation.
 
-Given baseline:
-- Patch coverage = `60.84011%`
-- Missing patch lines = `578`
+## Technical Design
 
-Derived totals:
-- Let total patch lines = `T`
-- `578 = T * (1 - 0.6084011)` => `T ≈ 1476`
-- Currently covered lines `C0 = 1476 - 578 = 898`
+### Workflow Contract
+Both backend jobs (`backend-quality`, `backend-codecov`) implement the same preflight sequence:
+1. `Resolve encryption key for backend tests`
+2. `Fail fast when required encryption secret is missing`
+3. `Validate encryption key format`
 
-Required for >=85%:
-- `C85 = ceil(0.85 * 1476) = 1255`
-- Additional covered lines required: `1255 - 898 = 357`
+### Preflight Resolution Algorithm
+1. Detect fork PR context via `github.event.pull_request.head.repo.fork`.
+2. Detect Dependabot PR context (actor/repo metadata check).
+3. Trusted context: require `secrets.CHARON_ENCRYPTION_KEY_TEST`; fail immediately if empty.
+4. Untrusted context: generate ephemeral key (`openssl rand -base64 32`) in workflow only.
+5. Mask resolved key via `::add-mask::`.
+6. Export via delimiter-based `GITHUB_ENV` write:
+   - `CHARON_ENCRYPTION_KEY<<EOF`
+   - `<value>`
+   - `EOF`
 
-Budget by phase (line-coverage gain target):
+### Script Validation Contract
+`scripts/go-test-coverage.sh` adds strict preflight validation:
+- Present and non-empty.
+- Base64 decodable.
+- Decoded length exactly 32 bytes.
 
-| Phase | Target line gain | Cumulative gain target | Stop/Go threshold |
-|---|---:|---:|---|
-| Phase 1 | +220 | +220 | Stop if <+170; re-scope before Phase 2 |
-| Phase 2 | +100 | +320 | Stop if <+70; activate residual plan |
-| Phase 3 (residual closure) | +45 | +365 | Must reach >=+357 total |
+Script constraints:
+- SHALL NOT generate keys.
+- SHALL NOT select key source.
+- SHALL only validate and fail fast with deterministic error messages.
 
-Notes:
-- Planned total gain `+365` gives `+8` lines safety over minimum `+357`.
-- If patch denominator changes due to rebase/new touched lines, recompute budget before continuing.
+### Error Handling Matrix
+| Condition | Detection layer | Outcome |
+|---|---|---|
+| Trusted context + missing secret | Workflow preflight | Immediate failure with explicit message |
+| Untrusted context + no secret access | Workflow preflight | Ephemeral key path (masked) |
+| Malformed key | Script preflight | Immediate failure before `go test` |
+| Trigger/comment drift | Workflow consistency guard | CI failure until synchronized |
 
-## 4) Target Files/Functions (Concise, Specific)
+## Implementation Plan
 
-Primary hotspots (Phase 1 focus, aligned to touched tests first):
-- `backend/internal/api/handlers/system_permissions_handler.go`
-  - `RepairPermissions`, `repairPath`, `normalizePath`, `pathHasSymlink`, `isWithinAllowlist`, `mapRepairErrorCode`
-- `backend/internal/services/backup_service.go`
-  - `RestoreBackup`, `extractDatabaseFromBackup`, `unzipWithSkip`, `RehydrateLiveDatabase`, `GetAvailableSpace`
-- `backend/internal/api/handlers/settings_handler.go`
-  - `UpdateSetting`, `PatchConfig`, `validateAdminWhitelist`, `syncAdminWhitelistWithDB`
-- `backend/internal/api/handlers/import_handler.go`
-  - `GetStatus`, `Upload`, `Commit`, `Cancel`, `safeJoin`
-- `backend/internal/api/handlers/backup_handler.go`
-  - `Restore`, `isSQLiteTransientRehydrateError`
-- `backend/internal/api/handlers/emergency_handler.go`
-  - `SecurityReset`, `disableAllSecurityModules`, `upsertSettingWithRetry`
-- `backend/internal/api/handlers/notification_provider_handler.go`
-  - `isProviderValidationError`, provider validation branches
+### Phase 1: Workflow Hardening
+- Update `.github/workflows/quality-checks.yml` and `.github/workflows/codecov-upload.yml` with identical key-resolution and key-validation steps.
+- Enforce trusted-context fail-fast and untrusted-context fallback boundaries.
+- Add explicit prohibition notes and controls preventing `pull_request_target` migration for secret-bearing tests.
 
-Secondary hotspots (Phase 2 focus, optional/deferred expansion):
-- `backend/internal/api/handlers/security_handler.go` (`GetStatus`, `latestConfigApplyState`)
-- `backend/internal/util/permissions.go` (`CheckPathPermissions`, `MapSaveErrorCode`, `MapDiagnosticErrorCode`)
-- `backend/internal/services/notification_service.go` (`sendJSONPayload`, `TestProvider`, `RenderTemplate`)
+### Phase 2: Script Preflight Hardening
+- Update `scripts/go-test-coverage.sh` to validate key presence/format/length before tests.
+- Preserve existing coverage behavior; only harden pre-test guard path.
 
-## 5) Execution Phases with Strict Stop/Go and De-Scoping Rules
+### Phase 3: Anti-Drift Enforcement
+- Define one canonical backend-key-bootstrap contract path.
+- Add consistency check that enforces trigger/comment parity between `quality-checks.yml` and `codecov-upload.yml`.
+- Fix known push-only comment mismatch in `quality-checks.yml`.
 
-### Phase 0 - Baseline Lock
-Actions:
-- Run `Test: Backend with Coverage` task (`.github/skills/scripts/skill-runner.sh test-backend-coverage`).
-- Record baseline patch lines from Codecov PR view and local artifact `backend/coverage.txt`.
+## Validation Plan
+Run these scenarios:
+1. Same-repo PR with valid secret.
+2. Same-repo PR with missing secret (must fail fast).
+3. Same-repo PR with malformed secret (must fail fast before tests).
+4. Fork PR with no secret access (must use ephemeral fallback).
+5. Dependabot PR with no secret access (must use ephemeral fallback, no `pull_request_target`).
+6. `workflow_dispatch` with valid secret.
 
-Go gate:
-- Baseline captured and denominator confirmed.
+Expected results:
+- No late ambiguous key-init failures.
+- No secret material logged.
+- Deterministic and attributable failure messages.
+- Trigger docs and trigger config remain synchronized.
 
-Stop gate:
-- If patch denominator changed by >5% from 1476, pause and recompute budgets before coding.
+## Acceptance Criteria
+- Backend jobs in `quality-checks.yml` and `codecov-upload.yml` no longer fail ambiguously on encryption-key pickup.
+- Trusted contexts fail fast if `CHARON_ENCRYPTION_KEY_TEST` is missing.
+- Untrusted contexts use workflow-only ephemeral fallback.
+- `scripts/go-test-coverage.sh` enforces deterministic key preflight checks.
+- `pull_request_target` is explicitly prohibited for secret-bearing backend tests on untrusted code.
+- Never-log-key-material and safe `GITHUB_ENV` propagation are implemented.
+- Workflow/script responsibility boundary is enforced.
+- Anti-drift guard is present and known trigger-comment mismatch is resolved.
 
-### Phase 1 - High-yield branch closure
-Actions:
-- Extend existing tests only in:
-  - `backend/internal/api/handlers/system_permissions_handler_test.go`
-  - `backend/internal/services/backup_service_test.go`
-  - `backend/internal/api/handlers/backup_handler_test.go`
-  - `backend/internal/api/handlers/emergency_handler_test.go`
-  - `backend/internal/api/handlers/settings_handler_helpers_test.go`
-  - `backend/internal/api/handlers/import_handler_test.go`
-  - `backend/internal/api/handlers/notification_provider_handler_validation_test.go`
-
-Go gate:
-- Achieve >= `+170` covered patch lines and no failing backend tests.
-
-Stop gate:
-- If < `+170`, do not proceed; re-scope to only highest delta-per-test functions.
-
-### Phase 2 - Secondary branch fill
-Actions:
-- Extend tests in:
-  - `backend/internal/api/handlers/security_handler_coverage_test.go`
-  - `backend/internal/util/permissions_test.go`
-  - `backend/internal/services/backup_service_rehydrate_test.go`
-  - `backend/internal/services/notification_service_json_test.go`
-
-Go gate:
-- Additional >= `+70` covered patch lines in this phase.
-
-Stop gate:
-- If < `+70`, skip low-yield areas and move directly to residual-line closure.
-
-### Phase 3 - Residual-line closure (minimum-risk)
-Actions:
-- Work only uncovered/partial lines still shown in Codecov patch details.
-- Add narrow table-driven tests to existing files; no new harness/framework.
-
-Go gate:
-- Reach total >= `+357` covered lines and patch >=85%.
-
-Stop gate:
-- If a residual branch requires production refactor, de-scope it and log as follow-up.
-
-### Global de-scope rules (all phases)
-- No production code changes unless a test proves a correctness bug.
-- No new test framework, no integration/E2E expansion, no unrelated cleanup.
-- No edits outside targeted backend test and directly related helper files.
-
-## 6) Current Tasks/Scripts (Deprecated references removed)
-
-Use these current commands/tasks only:
-- Backend coverage (preferred): `Test: Backend with Coverage`
-  - command: `.github/skills/scripts/skill-runner.sh test-backend-coverage`
-- Equivalent direct script: `bash scripts/go-test-coverage.sh`
-- Optional backend unit quick check: `Test: Backend Unit Tests`
-  - command: `.github/skills/scripts/skill-runner.sh test-backend-unit`
-
-Deprecated tasks are explicitly out-of-plan (for this work):
-- `Security: CodeQL Go Scan (DEPRECATED)`
-- `Security: CodeQL JS Scan (DEPRECATED)`
-
-## 7) Residual Uncovered Lines Handling (Beyond hotspot table)
-
-After each phase, run a residual triage loop:
-1. Export remaining uncovered/partial patch lines from Codecov patch detail.
-2. Classify each residual line into one of:
-   - `validation/error mapping`
-   - `permission/role guard`
-   - `fallback/retry`
-   - `low-value defensive log/telemetry`
-3. Apply closure rule:
-   - First three classes: add targeted tests in existing suite.
-   - Last class: close only if deterministic and cheap; otherwise de-scope with rationale.
-4. Maintain a residual ledger in the PR description:
-   - line(s), owning function, planned test, status (`closed`/`de-scoped`), reason.
-
-Exit condition:
-- No unclassified residual lines remain.
-- Any de-scoped residual lines have explicit follow-up items.
-
-## 8) Acceptance Criteria (Unified)
-
-1. One coherent plan only (this document), no conflicting statuses.
-2. E2E explicitly out-of-scope for this patch-coverage task.
-3. Success is measured by Codecov patch `lines`; local statement output is diagnostic only.
-4. Feasibility math and phase budgets remain explicit and tracked against actual deltas.
-5. All phase stop/go gates enforced; de-scope rules followed.
-6. Only current tasks/scripts are referenced.
-7. Residual uncovered lines are either closed with tests or formally de-scoped with follow-up.
-8. Scope remains reconciled with touched files first; deferred files are only pulled in if phase gates require expansion.
+## Handoff to Supervisor
+- This document is intentionally single-scope and restricted to CI encryption-key investigation/remediation.
+- Legacy multi-topic coverage planning content has been removed from this file to maintain coherence.
