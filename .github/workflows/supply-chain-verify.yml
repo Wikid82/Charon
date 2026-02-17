@@ -1,26 +1,18 @@
 name: Supply Chain Verification
 
 on:
-  release:
-    types: [published]
-
-  # Triggered after docker-build workflow completes
-  # Note: workflow_run can only chain 3 levels deep; we're at level 2 (safe)
-  #
-  # IMPORTANT: No branches filter here by design
-  # GitHub Actions limitation: branches filter in workflow_run only matches the default branch.
-  # Without a filter, this workflow triggers for ALL branches where docker-build completes,
-  # providing proper supply chain verification coverage for feature branches and PRs.
-  # Security: The workflow file must exist on the branch to execute, preventing untrusted code.
-  workflow_run:
-    workflows: ["Docker Build, Publish & Test"]
-    types: [completed]
-
-  schedule:
-    # Run weekly on Mondays at 00:00 UTC
-    - cron: '0 0 * * 1'
-
   workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 1' # Mondays 00:00 UTC
+  workflow_run:
+    workflows:
+      - Docker Build, Publish & Test
+    types:
+      - completed
+  release:
+    types:
+      - published
+      - prereleased
 
 permissions:
   contents: read
@@ -34,13 +26,15 @@ jobs:
   verify-sbom:
     name: Verify SBOM
     runs-on: ubuntu-latest
+    outputs:
+      image_exists: ${{ steps.image-check.outputs.exists }}
     # Only run on scheduled scans for main branch, or if workflow_run completed successfully
     # Critical Fix #5: Exclude PR builds to prevent duplicate verification (now handled inline in docker-build.yml)
     if: |
       (github.event_name != 'schedule' || github.ref == 'refs/heads/main') &&
       (github.event_name != 'workflow_run' ||
-        (github.event.workflow_run.conclusion == 'success' &&
-         github.event.workflow_run.event != 'pull_request'))
+        (github.event.workflow_run.event != 'pull_request' &&
+         (github.event.workflow_run.status != 'completed' || github.event.workflow_run.conclusion == 'success')))
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -78,7 +72,7 @@ jobs:
                 TAG="pr-${PR_NUMBER}"
               else
                 # Fallback to SHA-based tag if PR number not available
-                TAG="sha-$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)"
+                TAG="sha-$(echo "${{ github.event.workflow_run.head_sha }}" | cut -c1-7)"
               fi
             else
               # For feature branches and other pushes, sanitize branch name for Docker tag
@@ -88,7 +82,7 @@ jobs:
           else
             TAG="latest"
           fi
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Determined image tag: ${TAG}"
 
       - name: Check Image Availability
@@ -100,15 +94,15 @@ jobs:
           echo "Checking if image exists: ${IMAGE}"
 
           # Authenticate with GHCR using GitHub token
-          echo "${GH_TOKEN}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${GH_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-          if docker manifest inspect ${IMAGE} >/dev/null 2>&1; then
+          if docker manifest inspect "${IMAGE}" >/dev/null 2>&1; then
             echo "✅ Image exists and is accessible"
-            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "⚠️ Image not found - likely not built yet"
             echo "This is normal for PR workflows before docker-build completes"
-            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       # Generate SBOM using official Anchore action (auto-updated by Renovate)
@@ -155,21 +149,21 @@ jobs:
           # Check jq availability
           if ! command -v jq &> /dev/null; then
             echo "❌ jq is not available"
-            echo "valid=false" >> $GITHUB_OUTPUT
+            echo "valid=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
           # Check file exists
           if [[ ! -f sbom-verify.cyclonedx.json ]]; then
             echo "❌ SBOM file does not exist"
-            echo "valid=false" >> $GITHUB_OUTPUT
+            echo "valid=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # Check file is non-empty
           if [[ ! -s sbom-verify.cyclonedx.json ]]; then
             echo "❌ SBOM file is empty"
-            echo "valid=false" >> $GITHUB_OUTPUT
+            echo "valid=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -178,7 +172,7 @@ jobs:
             echo "❌ SBOM file contains invalid JSON"
             echo "SBOM content:"
             cat sbom-verify.cyclonedx.json
-            echo "valid=false" >> $GITHUB_OUTPUT
+            echo "valid=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -194,16 +188,16 @@ jobs:
 
           if [[ "${BOMFORMAT}" != "CycloneDX" ]]; then
             echo "❌ Invalid bomFormat: expected 'CycloneDX', got '${BOMFORMAT}'"
-            echo "valid=false" >> $GITHUB_OUTPUT
+            echo "valid=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           if [[ "${COMPONENTS}" == "0" ]]; then
             echo "⚠️ SBOM has no components - may indicate incomplete scan"
-            echo "valid=partial" >> $GITHUB_OUTPUT
+            echo "valid=partial" >> "$GITHUB_OUTPUT"
           else
             echo "✅ SBOM is valid with ${COMPONENTS} components"
-            echo "valid=true" >> $GITHUB_OUTPUT
+            echo "valid=true" >> "$GITHUB_OUTPUT"
           fi
 
           echo "SBOM Format: ${BOMFORMAT}"
@@ -213,16 +207,16 @@ jobs:
 
           if [[ "${BOMFORMAT}" != "CycloneDX" ]]; then
             echo "❌ Invalid bomFormat: expected 'CycloneDX', got '${BOMFORMAT}'"
-            echo "valid=false" >> $GITHUB_OUTPUT
+            echo "valid=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           if [[ "${COMPONENTS}" == "0" ]]; then
             echo "⚠️ SBOM has no components - may indicate incomplete scan"
-            echo "valid=partial" >> $GITHUB_OUTPUT
+            echo "valid=partial" >> "$GITHUB_OUTPUT"
           else
             echo "✅ SBOM is valid with ${COMPONENTS} components"
-            echo "valid=true" >> $GITHUB_OUTPUT
+            echo "valid=true" >> "$GITHUB_OUTPUT"
           fi
 
       # Scan for vulnerabilities using official Anchore action (auto-updated by Renovate)
@@ -268,10 +262,12 @@ jobs:
           fi
 
           # Store for PR comment
-          echo "CRITICAL_VULNS=${CRITICAL}" >> $GITHUB_ENV
-          echo "HIGH_VULNS=${HIGH}" >> $GITHUB_ENV
-          echo "MEDIUM_VULNS=${MEDIUM}" >> $GITHUB_ENV
-          echo "LOW_VULNS=${LOW}" >> $GITHUB_ENV
+          {
+            echo "CRITICAL_VULNS=${CRITICAL}"
+            echo "HIGH_VULNS=${HIGH}"
+            echo "MEDIUM_VULNS=${MEDIUM}"
+            echo "LOW_VULNS=${LOW}"
+          } >> "$GITHUB_ENV"
 
       - name: Parse Vulnerability Details
         if: steps.validate-sbom.outputs.valid == 'true'
@@ -331,22 +327,24 @@ jobs:
       - name: Report Skipped Scan
         if: steps.image-check.outputs.exists != 'true' || steps.validate-sbom.outputs.valid != 'true'
         run: |
-          echo "## ⚠️ Vulnerability Scan Skipped" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## ⚠️ Vulnerability Scan Skipped"
+            echo ""
 
-          if [[ "${{ steps.image-check.outputs.exists }}" != "true" ]]; then
-            echo "**Reason**: Docker image not available yet" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "This is expected for PR workflows. The image will be scanned" >> $GITHUB_STEP_SUMMARY
-            echo "after it's built by the docker-build workflow." >> $GITHUB_STEP_SUMMARY
-          elif [[ "${{ steps.validate-sbom.outputs.valid }}" != "true" ]]; then
-            echo "**Reason**: SBOM validation failed" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Check the 'Validate SBOM File' step for details." >> $GITHUB_STEP_SUMMARY
-          fi
+            if [[ "${{ steps.image-check.outputs.exists }}" != "true" ]]; then
+              echo "**Reason**: Docker image not available yet"
+              echo ""
+              echo "This is expected for PR workflows. The image will be scanned"
+              echo "after it's built by the docker-build workflow."
+            elif [[ "${{ steps.validate-sbom.outputs.valid }}" != "true" ]]; then
+              echo "**Reason**: SBOM validation failed"
+              echo ""
+              echo "Check the 'Validate SBOM File' step for details."
+            fi
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Workflow completed successfully (scan skipped)" >> $GITHUB_STEP_SUMMARY
+            echo ""
+            echo "✅ Workflow completed successfully (scan skipped)"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Determine PR Number
         id: pr-number
@@ -470,8 +468,6 @@ jobs:
           "
 
                 if [[ -f critical-vulns.txt && -s critical-vulns.txt ]]; then
-                  # Count lines in the file
-                  CRIT_COUNT=$(wc -l < critical-vulns.txt)
                   COMMENT_BODY+="$(cat critical-vulns.txt)"
 
                   # If more than 20, add truncation message
@@ -602,6 +598,15 @@ jobs:
           echo "Generated comment body:"
           cat /tmp/comment-body.txt
 
+      - name: Find Existing PR Comment
+        id: find-comment
+        if: steps.pr-number.outputs.result != ''
+        uses: peter-evans/find-comment@v3.2.0
+        with:
+          issue-number: ${{ steps.pr-number.outputs.result }}
+          comment-author: 'github-actions[bot]'
+          body-includes: '<!-- supply-chain-security-comment -->'
+
       - name: Update or Create PR Comment
         if: steps.pr-number.outputs.result != ''
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9  # v5.0.0
@@ -609,8 +614,7 @@ jobs:
           issue-number: ${{ steps.pr-number.outputs.result }}
           body-path: /tmp/comment-body.txt
           edit-mode: replace
-          comment-author: 'github-actions[bot]'
-          body-includes: '<!-- supply-chain-security-comment -->'
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
 
   verify-docker-image:
     name: Verify Docker Image Supply Chain
@@ -640,7 +644,7 @@ jobs:
         id: tag
         run: |
           TAG="${{ github.event.release.tag_name }}"
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Verify Cosign Signature with Rekor Fallback
         env:
@@ -649,7 +653,7 @@ jobs:
           echo "Verifying Cosign signature for ${IMAGE}..."
 
           # Try with Rekor
-          if cosign verify ${IMAGE} \
+          if cosign verify "${IMAGE}" \
             --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" 2>&1; then
             echo "✅ Cosign signature verified (with Rekor)"
@@ -657,7 +661,7 @@ jobs:
             echo "⚠️ Rekor verification failed, trying offline verification..."
 
             # Fallback: verify without Rekor
-            if cosign verify ${IMAGE} \
+            if cosign verify "${IMAGE}" \
               --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
               --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
               --insecure-ignore-tlog 2>&1; then
@@ -670,11 +674,11 @@ jobs:
           fi
 
       - name: Verify Docker Hub Image Signature
-        if: steps.image-check.outputs.exists == 'true'
+        if: needs.verify-sbom.outputs.image_exists == 'true'
         continue-on-error: true
         run: |
           echo "Verifying Docker Hub image signature..."
-          cosign verify docker.io/wikid82/charon:${{ steps.tag.outputs.tag }} \
+          cosign verify "docker.io/wikid82/charon:${{ steps.tag.outputs.tag }}" \
             --certificate-identity-regexp="https://github.com/Wikid82/Charon" \
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" && \
           echo "✅ Docker Hub signature verified" || \
@@ -719,7 +723,7 @@ jobs:
           6. Re-run build if signatures/provenance are missing
           EOF
 
-          cat verification-report.md >> $GITHUB_STEP_SUMMARY
+          cat verification-report.md >> "$GITHUB_STEP_SUMMARY"
 
   verify-release-artifacts:
     name: Verify Release Artifacts
@@ -740,9 +744,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG=${{ github.event.release.tag_name }}
+          TAG="${{ github.event.release.tag_name }}"
           mkdir -p ./release-assets
-          gh release download ${TAG} --dir ./release-assets || {
+          gh release download "${TAG}" --dir ./release-assets || {
             echo "⚠️ No release assets found or download failed"
             exit 0
           }
@@ -767,11 +771,11 @@ jobs:
             fi
 
             if [[ -f "$artifact" ]]; then
-              echo "Verifying: $(basename $artifact)"
+              echo "Verifying: $(basename "$artifact")"
 
               # Check if signature files exist
               if [[ ! -f "${artifact}.sig" ]] || [[ ! -f "${artifact}.pem" ]]; then
-                echo "⚠️ No signature files found for $(basename $artifact)"
+                echo "⚠️ No signature files found for $(basename "$artifact")"
                 FAILED_COUNT=$((FAILED_COUNT + 1))
                 continue
               fi

@@ -64,11 +64,14 @@ export const LogTable: React.FC<LogTableProps> = ({ logs, isLoading }) => {
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm">
                 {log.status > 0 && (
-                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full
+                  <span
+                    className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full
                     ${log.status >= 500 ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' :
                       log.status >= 400 ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
                       log.status >= 300 ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
-                      'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'}`}>
+                      'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'}`}
+                    data-testid={`status-${log.status}`}
+                  >
                     {log.status}
                   </span>
                 )}

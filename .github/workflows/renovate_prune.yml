@@ -4,8 +4,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '0 3 * * *'   # daily at 03:00 UTC
-  pull_request:
-    types: [closed]      # also run when any PR is closed (makes pruning near-real-time)
 
 permissions:
   contents: write       # required to delete branch refs
@@ -26,10 +24,10 @@ jobs:
         run: |
           if [ -n "${{ secrets.GITHUB_TOKEN }}" ]; then
             echo "Using GITHUB_TOKEN" >&2
-            echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
+            echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> "$GITHUB_ENV"
           else
             echo "Using CHARON_TOKEN fallback" >&2
-            echo "GITHUB_TOKEN=${{ secrets.CHARON_TOKEN }}" >> $GITHUB_ENV
+            echo "GITHUB_TOKEN=${{ secrets.CHARON_TOKEN }}" >> "$GITHUB_ENV"
           fi
       - name: Prune renovate branches
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8

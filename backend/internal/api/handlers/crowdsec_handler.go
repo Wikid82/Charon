@@ -84,6 +84,71 @@ const (
 	bouncerName    = "caddy-bouncer"
 )
 
+func (h *CrowdsecHandler) bouncerKeyPath() string {
+	if h != nil && strings.TrimSpace(h.DataDir) != "" {
+		return filepath.Join(h.DataDir, "bouncer_key")
+	}
+	if path := strings.TrimSpace(os.Getenv("CHARON_CROWDSEC_BOUNCER_KEY_PATH")); path != "" {
+		return path
+	}
+	return bouncerKeyFile
+}
+
+func getAcquisitionConfigPath() string {
+	if path := strings.TrimSpace(os.Getenv("CHARON_CROWDSEC_ACQUIS_PATH")); path != "" {
+		return path
+	}
+	return "/etc/crowdsec/acquis.yaml"
+}
+
+func resolveAcquisitionConfigPath() (string, error) {
+	rawPath := strings.TrimSpace(getAcquisitionConfigPath())
+	if rawPath == "" {
+		return "", errors.New("acquisition config path is empty")
+	}
+
+	if strings.Contains(rawPath, "\x00") {
+		return "", errors.New("acquisition config path contains null byte")
+	}
+
+	if !filepath.IsAbs(rawPath) {
+		return "", errors.New("acquisition config path must be absolute")
+	}
+
+	for _, segment := range strings.Split(filepath.ToSlash(rawPath), "/") {
+		if segment == ".." {
+			return "", errors.New("acquisition config path must not contain traversal segments")
+		}
+	}
+
+	return filepath.Clean(rawPath), nil
+}
+
+func readAcquisitionConfig(absPath string) ([]byte, error) {
+	cleanPath := filepath.Clean(absPath)
+	dirPath := filepath.Dir(cleanPath)
+	fileName := filepath.Base(cleanPath)
+
+	if fileName == "." || fileName == string(filepath.Separator) {
+		return nil, errors.New("acquisition config filename is invalid")
+	}
+
+	file, err := os.DirFS(dirPath).Open(fileName)
+	if err != nil {
+		return nil, fmt.Errorf("open acquisition config: %w", err)
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return nil, fmt.Errorf("read acquisition config: %w", err)
+	}
+
+	return content, nil
+}
+
 // ConfigArchiveValidator validates CrowdSec configuration archives.
 type ConfigArchiveValidator struct {
 	MaxSize             int64    // Maximum compressed size (50MB default)
@@ -404,8 +469,8 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 				Enabled:      true,
 				CrowdSecMode: "local",
 			}
-			if err := h.DB.Create(&cfg).Error; err != nil {
-				logger.Log().WithError(err).Error("Failed to create SecurityConfig")
+			if createErr := h.DB.Create(&cfg).Error; createErr != nil {
+				logger.Log().WithError(createErr).Error("Failed to create SecurityConfig")
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
 				return
 			}
@@ -754,7 +819,8 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 	// Walk the DataDir and add files to the archive
 	err := filepath.Walk(h.DataDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			logger.Log().WithError(err).Warnf("failed to access path %s during export walk", path)
+			return nil // Skip files we cannot access
 		}
 		if info.IsDir() {
 			return nil
@@ -798,13 +864,18 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 
 // ListFiles returns a flat list of files under the CrowdSec DataDir.
 func (h *CrowdsecHandler) ListFiles(c *gin.Context) {
-	var files []string
+	files := []string{}
 	if _, err := os.Stat(h.DataDir); os.IsNotExist(err) {
 		c.JSON(http.StatusOK, gin.H{"files": files})
 		return
 	}
 	err := filepath.Walk(h.DataDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			// Permission errors (e.g. lost+found) should not abort the walk
+			if os.IsPermission(err) {
+				logger.Log().WithError(err).WithField("path", path).Debug("Skipping inaccessible path during list")
+				return filepath.SkipDir
+			}
 			return err
 		}
 		if !info.IsDir() {
@@ -1118,11 +1189,11 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		if cached, err := h.Hub.Cache.Load(ctx, slug); err == nil {
 			logger.Log().WithField("slug", util.SanitizeForLog(slug)).WithField("cache_key", cached.CacheKey).WithField("archive_path", cached.ArchivePath).WithField("preview_path", cached.PreviewPath).Info("preset found in cache")
 			// Verify files still exist
-			if _, err := os.Stat(cached.ArchivePath); err != nil {
-				logger.Log().WithError(err).WithField("archive_path", cached.ArchivePath).Error("cached archive file missing")
+			if _, statErr := os.Stat(cached.ArchivePath); statErr != nil {
+				logger.Log().WithError(statErr).WithField("archive_path", cached.ArchivePath).Error("cached archive file missing")
 			}
-			if _, err := os.Stat(cached.PreviewPath); err != nil {
-				logger.Log().WithError(err).WithField("preview_path", cached.PreviewPath).Error("cached preview file missing")
+			if _, statErr := os.Stat(cached.PreviewPath); statErr != nil {
+				logger.Log().WithError(statErr).WithField("preview_path", cached.PreviewPath).Error("cached preview file missing")
 			}
 		} else {
 			logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(slug)).Warn("preset not found in cache before apply")
@@ -1454,8 +1525,8 @@ func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 		return
 	}
 	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to close response body")
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Warn("Failed to close response body")
 		}
 	}()
 
@@ -1711,10 +1782,11 @@ func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string)
 func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 	h.registrationMutex.Lock()
 	defer h.registrationMutex.Unlock()
+	keyPath := h.bouncerKeyPath()
 
 	response := KeyStatusResponse{
 		BouncerName: bouncerName,
-		KeyFilePath: bouncerKeyFile,
+		KeyFilePath: keyPath,
 	}
 
 	// Check for rejected env key first
@@ -1727,7 +1799,7 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 
 	// Determine current key source and status
 	envKey := getBouncerAPIKeyFromEnv()
-	fileKey := readKeyFromFile(bouncerKeyFile)
+	fileKey := readKeyFromFile(keyPath)
 
 	switch {
 	case envKey != "" && !h.envKeyRejected:
@@ -1754,7 +1826,9 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 		// No key available
 		response.KeySource = "none"
 		response.Valid = false
-		response.Message = "No CrowdSec API key configured. Start CrowdSec to auto-generate one."
+		if response.Message == "" {
+			response.Message = "No CrowdSec API key configured. Start CrowdSec to auto-generate one."
+		}
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -1765,6 +1839,7 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string, error) {
 	h.registrationMutex.Lock()
 	defer h.registrationMutex.Unlock()
+	keyPath := h.bouncerKeyPath()
 
 	// Priority 1: Check environment variables
 	envKey := getBouncerAPIKeyFromEnv()
@@ -1788,14 +1863,14 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string
 	}
 
 	// Priority 2: Check persistent key file
-	fileKey := readKeyFromFile(bouncerKeyFile)
+	fileKey := readKeyFromFile(keyPath)
 	if fileKey != "" {
 		// Test key against LAPI (not just bouncer name)
 		if h.testKeyAgainstLAPI(ctx, fileKey) {
-			logger.Log().WithField("source", "file").WithField("file", bouncerKeyFile).WithField("masked_key", maskAPIKey(fileKey)).Info("CrowdSec bouncer authentication successful")
+			logger.Log().WithField("source", "file").WithField("file", keyPath).WithField("masked_key", maskAPIKey(fileKey)).Info("CrowdSec bouncer authentication successful")
 			return "", nil // Key valid
 		}
-		logger.Log().WithField("file", bouncerKeyFile).WithField("masked_key", maskAPIKey(fileKey)).Warn("File-stored API key failed LAPI authentication, will re-register")
+		logger.Log().WithField("file", keyPath).WithField("masked_key", maskAPIKey(fileKey)).Warn("File-stored API key failed LAPI authentication, will re-register")
 	}
 
 	// No valid key found - register new bouncer
@@ -1851,6 +1926,8 @@ func (h *CrowdsecHandler) validateBouncerKey(ctx context.Context) bool {
 
 // registerAndSaveBouncer registers a new bouncer and saves the key to file.
 func (h *CrowdsecHandler) registerAndSaveBouncer(ctx context.Context) (string, error) {
+	keyPath := h.bouncerKeyPath()
+
 	// Delete existing bouncer if present (stale registration)
 	deleteCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	_, _ = h.CmdExec.Execute(deleteCtx, "cscli", "bouncers", "delete", bouncerName)
@@ -1871,7 +1948,7 @@ func (h *CrowdsecHandler) registerAndSaveBouncer(ctx context.Context) (string, e
 	}
 
 	// Save key to persistent file
-	if err := saveKeyToFile(bouncerKeyFile, apiKey); err != nil {
+	if err := saveKeyToFile(keyPath, apiKey); err != nil {
 		logger.Log().WithError(err).Warn("Failed to save bouncer key to file")
 		// Continue - key is still valid for this session
 	}
@@ -1913,6 +1990,8 @@ func validateAPIKeyFormat(key string) bool {
 // logBouncerKeyBanner logs the bouncer key with a formatted banner.
 // Security: API key is masked to prevent exposure in logs (CWE-312).
 func (h *CrowdsecHandler) logBouncerKeyBanner(apiKey string) {
+	keyPath := h.bouncerKeyPath()
+
 	banner := `
 ════════════════════════════════════════════════════════════════════
 🔐 CrowdSec Bouncer Registered Successfully
@@ -1928,7 +2007,7 @@ Saved To:     %s
 ════════════════════════════════════════════════════════════════════`
 	// Security: Mask API key to prevent cleartext exposure in logs
 	maskedKey := maskAPIKey(apiKey)
-	logger.Log().Infof(banner, bouncerName, maskedKey, bouncerKeyFile)
+	logger.Log().Infof(banner, bouncerName, maskedKey, keyPath)
 }
 
 // getBouncerAPIKeyFromEnv retrieves the bouncer API key from environment variables.
@@ -1991,24 +2070,26 @@ func saveKeyToFile(path string, key string) error {
 // GET /api/v1/admin/crowdsec/bouncer
 func (h *CrowdsecHandler) GetBouncerInfo(c *gin.Context) {
 	ctx := c.Request.Context()
+	keyPath := h.bouncerKeyPath()
 
 	info := BouncerInfo{
 		Name:     bouncerName,
-		FilePath: bouncerKeyFile,
+		FilePath: keyPath,
 	}
 
 	// Determine key source
 	envKey := getBouncerAPIKeyFromEnv()
-	fileKey := readKeyFromFile(bouncerKeyFile)
+	fileKey := readKeyFromFile(keyPath)
 
 	var fullKey string
-	if envKey != "" {
+	switch {
+	case envKey != "":
 		info.KeySource = "env_var"
 		fullKey = envKey
-	} else if fileKey != "" {
+	case fileKey != "":
 		info.KeySource = "file"
 		fullKey = fileKey
-	} else {
+	default:
 		info.KeySource = "none"
 	}
 
@@ -2028,13 +2109,15 @@ func (h *CrowdsecHandler) GetBouncerInfo(c *gin.Context) {
 // GetBouncerKey returns the full bouncer key (for copy to clipboard).
 // GET /api/v1/admin/crowdsec/bouncer/key
 func (h *CrowdsecHandler) GetBouncerKey(c *gin.Context) {
+	keyPath := h.bouncerKeyPath()
+
 	envKey := getBouncerAPIKeyFromEnv()
 	if envKey != "" {
 		c.JSON(http.StatusOK, gin.H{"key": envKey, "source": "env_var"})
 		return
 	}
 
-	fileKey := readKeyFromFile(bouncerKeyFile)
+	fileKey := readKeyFromFile(keyPath)
 	if fileKey != "" {
 		c.JSON(http.StatusOK, gin.H{"key": fileKey, "source": "file"})
 		return
@@ -2289,11 +2372,16 @@ func (h *CrowdsecHandler) RegisterBouncer(c *gin.Context) {
 // GetAcquisitionConfig returns the current CrowdSec acquisition configuration.
 // GET /api/v1/admin/crowdsec/acquisition
 func (h *CrowdsecHandler) GetAcquisitionConfig(c *gin.Context) {
-	acquisPath := "/etc/crowdsec/acquis.yaml"
-
-	content, err := os.ReadFile(acquisPath)
+	acquisPath, err := resolveAcquisitionConfigPath()
 	if err != nil {
-		if os.IsNotExist(err) {
+		logger.Log().WithError(err).Warn("Invalid acquisition config path")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid acquisition config path"})
+		return
+	}
+
+	content, err := readAcquisitionConfig(acquisPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "acquisition config not found", "path": acquisPath})
 			return
 		}
@@ -2319,7 +2407,12 @@ func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
 		return
 	}
 
-	acquisPath := "/etc/crowdsec/acquis.yaml"
+	acquisPath, err := resolveAcquisitionConfigPath()
+	if err != nil {
+		logger.Log().WithError(err).Warn("Invalid acquisition config path")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid acquisition config path"})
+		return
+	}
 
 	// Create backup of existing config if it exists
 	var backupPath string

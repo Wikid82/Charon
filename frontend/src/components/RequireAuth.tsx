@@ -4,14 +4,19 @@ import { useAuth } from '../hooks/useAuth';
 import { LoadingOverlay } from './LoadingStates';
 
 const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const location = useLocation();
 
   if (isLoading) {
     return <LoadingOverlay message="Authenticating..." />;  // Consistent loading UX
   }
 
-  if (!isAuthenticated) {
+  // Check both context state AND localStorage for token
+  // This prevents access if either check fails (defense in depth)
+  const hasToken = localStorage.getItem('charon_auth_token');
+  const hasUser = user !== null;
+
+  if (!isAuthenticated || !hasToken || !hasUser) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 

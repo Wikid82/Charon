@@ -45,6 +45,18 @@ func TestIsIPInCIDRList(t *testing.T) {
 			list:     "192.168.0.0/16",
 			expected: false,
 		},
+		{
+			name:     "IPv6 loopback match",
+			ip:       "::1",
+			list:     "::1",
+			expected: true,
+		},
+		{
+			name:     "IPv6 loopback CIDR match",
+			ip:       "::1",
+			list:     "::1/128",
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {

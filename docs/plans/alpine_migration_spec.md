@@ -138,7 +138,7 @@ grype alpine:3.23 --only-fixed --fail-on critical,high
 #### musl vs glibc Compatibility
 
 **Charon Application Profile:**
-- **Language:** Go 1.25.6 (static binaries with CGO_ENABLED=1 for SQLite)
+- **Language:** go 1.25.7 (static binaries with CGO_ENABLED=1 for SQLite)
 - **C Dependencies:** SQLite (libsqlite3-dev)
 - **Go Stdlib Features:** Standard library calls only (net, crypto, http)
 

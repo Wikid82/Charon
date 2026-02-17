@@ -18,6 +18,42 @@ run_as_charon() {
     fi
 }
 
+get_group_by_gid() {
+    if command -v getent >/dev/null 2>&1; then
+        getent group "$1" 2>/dev/null || true
+    else
+        awk -F: -v gid="$1" '$3==gid {print $0}' /etc/group 2>/dev/null || true
+    fi
+}
+
+create_group_with_gid() {
+    local gid="$1"
+    local name="$2"
+
+    if command -v addgroup >/dev/null 2>&1; then
+        addgroup -g "$gid" "$name" 2>/dev/null || true
+        return
+    fi
+
+    if command -v groupadd >/dev/null 2>&1; then
+        groupadd -g "$gid" "$name" 2>/dev/null || true
+    fi
+}
+
+add_user_to_group() {
+    local user="$1"
+    local group="$2"
+
+    if command -v addgroup >/dev/null 2>&1; then
+        addgroup "$user" "$group" 2>/dev/null || true
+        return
+    fi
+
+    if command -v usermod >/dev/null 2>&1; then
+        usermod -aG "$group" "$user" 2>/dev/null || true
+    fi
+}
+
 # ============================================================================
 # Volume Permission Handling for Non-Root User
 # ============================================================================
@@ -89,18 +125,19 @@ if [ -S "/var/run/docker.sock" ] && is_root; then
     DOCKER_SOCK_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "")
     if [ -n "$DOCKER_SOCK_GID" ] && [ "$DOCKER_SOCK_GID" != "0" ]; then
         # Check if a group with this GID exists
-        if ! getent group "$DOCKER_SOCK_GID" >/dev/null 2>&1; then
+        GROUP_ENTRY=$(get_group_by_gid "$DOCKER_SOCK_GID")
+        if [ -z "$GROUP_ENTRY" ]; then
             echo "Docker socket detected (gid=$DOCKER_SOCK_GID) - creating docker group and adding charon user..."
             # Create docker group with the socket's GID
-            groupadd -g "$DOCKER_SOCK_GID" docker 2>/dev/null || true
+            create_group_with_gid "$DOCKER_SOCK_GID" docker
             # Add charon user to the docker group
-            usermod -aG docker charon 2>/dev/null || true
+            add_user_to_group charon docker
             echo "Docker integration enabled for charon user"
         else
             # Group exists, just add charon to it
-            GROUP_NAME=$(getent group "$DOCKER_SOCK_GID" | cut -d: -f1)
+            GROUP_NAME=$(echo "$GROUP_ENTRY" | cut -d: -f1)
             echo "Docker socket detected (gid=$DOCKER_SOCK_GID, group=$GROUP_NAME) - adding charon user..."
-            usermod -aG "$GROUP_NAME" charon 2>/dev/null || true
+            add_user_to_group charon "$GROUP_NAME"
             echo "Docker integration enabled for charon user"
         fi
     fi
@@ -152,22 +189,42 @@ if command -v cscli >/dev/null; then
     # Initialize persistent config if key files are missing
     if [ ! -f "$CS_CONFIG_DIR/config.yaml" ]; then
         echo "Initializing persistent CrowdSec configuration..."
+
+        # Check if .dist has content
         if [ -d "/etc/crowdsec.dist" ] && [ -n "$(ls -A /etc/crowdsec.dist 2>/dev/null)" ]; then
-            cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/" || {
+            echo "Copying config from /etc/crowdsec.dist..."
+            if ! cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/"; then
                 echo "ERROR: Failed to copy config from /etc/crowdsec.dist"
+                echo "DEBUG: Contents of /etc/crowdsec.dist:"
+                ls -la /etc/crowdsec.dist/
                 exit 1
-            }
-            echo "Successfully initialized config from .dist directory"
+            fi
+
+            # Verify critical files were copied
+            if [ ! -f "$CS_CONFIG_DIR/config.yaml" ]; then
+                echo "ERROR: config.yaml was not copied to $CS_CONFIG_DIR"
+                echo "DEBUG: Contents of $CS_CONFIG_DIR after copy:"
+                ls -la "$CS_CONFIG_DIR/"
+                exit 1
+            fi
+            echo "✓ Successfully initialized config from .dist directory"
         elif [ -d "/etc/crowdsec" ] && [ ! -L "/etc/crowdsec" ] && [ -n "$(ls -A /etc/crowdsec 2>/dev/null)" ]; then
-            cp -r /etc/crowdsec/* "$CS_CONFIG_DIR/" || {
-                echo "ERROR: Failed to copy config from /etc/crowdsec"
+            echo "Copying config from /etc/crowdsec (fallback)..."
+            if ! cp -r /etc/crowdsec/* "$CS_CONFIG_DIR/"; then
+                echo "ERROR: Failed to copy config from /etc/crowdsec (fallback)"
                 exit 1
-            }
-            echo "Successfully initialized config from /etc/crowdsec"
+            fi
+            echo "✓ Successfully initialized config from /etc/crowdsec"
         else
-            echo "ERROR: No config source found (neither .dist nor /etc/crowdsec available)"
+            echo "ERROR: No config source found!"
+            echo "DEBUG: /etc/crowdsec.dist contents:"
+            ls -la /etc/crowdsec.dist/ 2>/dev/null || echo "  (directory not found or empty)"
+            echo "DEBUG: /etc/crowdsec contents:"
+            ls -la /etc/crowdsec 2>/dev/null || echo "  (directory not found or empty)"
             exit 1
         fi
+    else
+        echo "✓ Persistent config already exists: $CS_CONFIG_DIR/config.yaml"
     fi
 
     # Verify symlink exists (created at build time)
@@ -175,10 +232,24 @@ if command -v cscli >/dev/null; then
     # Non-root users cannot create symlinks in /etc, so this must be done at build time
     if [ -L "/etc/crowdsec" ]; then
         echo "CrowdSec config symlink verified: /etc/crowdsec -> $CS_CONFIG_DIR"
+
+        # Verify the symlink target is accessible and has config.yaml
+        if [ ! -f "/etc/crowdsec/config.yaml" ]; then
+            echo "ERROR: /etc/crowdsec/config.yaml is not accessible via symlink"
+            echo "DEBUG: Symlink target verification:"
+            ls -la /etc/crowdsec 2>/dev/null || echo "  (symlink broken or missing)"
+            echo "DEBUG: Directory contents:"
+            ls -la "$CS_CONFIG_DIR/" 2>/dev/null | head -10 || echo "  (directory not found)"
+            exit 1
+        fi
+        echo "✓ /etc/crowdsec/config.yaml is accessible via symlink"
     else
-        echo "WARNING: /etc/crowdsec symlink not found. This may indicate a build issue."
+        echo "ERROR: /etc/crowdsec symlink not found"
         echo "Expected: /etc/crowdsec -> /app/data/crowdsec/config"
-        # Try to continue anyway - config may still work if CrowdSec uses CFG env var
+        echo "This indicates a critical build-time issue. Symlink must be created at build time as root."
+        echo "DEBUG: Directory check:"
+        ls -la /etc/ | grep crowdsec || echo "  (no crowdsec entry found)"
+        exit 1
     fi
 
     # Create/update acquisition config for Caddy logs

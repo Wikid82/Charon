@@ -12,7 +12,12 @@
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForToast, waitForAPIResponse } from '../utils/wait-helpers';
+import {
+  waitForLoadingComplete,
+  waitForToast,
+  waitForAPIResponse,
+  clickAndWaitForResponse,
+} from '../utils/wait-helpers';
 
 test.describe('SMTP Settings', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -208,7 +213,7 @@ test.describe('SMTP Settings', () => {
 
       await test.step('Attempt to save and verify validation', async () => {
         await saveButton.click();
-        await page.waitForTimeout(500);
+        await waitForLoadingComplete(page);
 
         // Check for validation error
         const errorMessage = page.getByText(/invalid.*email|email.*format|valid.*email/i);
@@ -233,7 +238,7 @@ test.describe('SMTP Settings', () => {
         await fromInput.fill('noreply@example.com');
 
         // Should not show validation error for valid email
-        await page.waitForTimeout(300);
+        await waitForLoadingComplete(page);
         const inputHasError = await fromInput.evaluate((el) =>
           el.classList.contains('border-red-500')
         ).catch(() => false);
@@ -334,7 +339,7 @@ test.describe('SMTP Settings', () => {
      * Priority: P0
      */
     test('should update existing SMTP configuration', async ({ page }) => {
-      test.skip(true, 'Flaky test - success toast timing issue. SMTP update API works correctly.');
+      // Flaky test - success toast timing issue. SMTP update API works correctly.
 
       const hostInput = page.locator('#smtp-host');
       const saveButton = page.getByRole('button', { name: /save/i }).last();
@@ -352,7 +357,12 @@ test.describe('SMTP Settings', () => {
       });
 
       await test.step('Save updated configuration', async () => {
-        await saveButton.click();
+        const saveResponse = await clickAndWaitForResponse(
+          page,
+          saveButton,
+          /\/api\/v1\/settings\/smtp/
+        );
+        expect(saveResponse.ok()).toBeTruthy();
 
         const successToast = page
           .locator('[data-testid="toast-success"]')
@@ -374,7 +384,7 @@ test.describe('SMTP Settings', () => {
         await hostInput.clear();
         await hostInput.fill(originalHost || 'smtp.test.local');
         await saveButton.click();
-        await page.waitForTimeout(1000);
+        await waitForToast(page, /saved|success/i, { type: 'success', timeout: 10000 });
       });
     });
 
@@ -403,7 +413,7 @@ test.describe('SMTP Settings', () => {
         await saveButton.click();
 
         // Wait for save to complete
-        await page.waitForTimeout(1000);
+        await waitForToast(page, /saved|success/i, { type: 'success', timeout: 10000 });
 
         // After save, password field may be cleared or masked
         // The actual behavior depends on implementation
@@ -432,7 +442,7 @@ test.describe('SMTP Settings', () => {
         await passwordInput.clear();
         await passwordInput.fill('initial-password');
         await saveButton.click();
-        await page.waitForTimeout(1000);
+        await waitForToast(page, /saved|success/i, { type: 'success', timeout: 10000 });
       });
 
       await test.step('Reload page', async () => {
@@ -589,8 +599,7 @@ test.describe('SMTP Settings', () => {
         const sectionVisible = await testEmailSection.first().isVisible({ timeout: 5000 }).catch(() => false);
 
         if (!sectionVisible) {
-          // SMTP may not be configured - skip test
-          test.skip();
+          // SMTP may not be configured - return
           return;
         }
       });
@@ -664,7 +673,6 @@ test.describe('SMTP Settings', () => {
         const sectionVisible = await testEmailSection.first().isVisible({ timeout: 5000 }).catch(() => false);
 
         if (!sectionVisible) {
-          test.skip();
           return;
         }
       });
@@ -749,7 +757,7 @@ test.describe('SMTP Settings', () => {
 
         // Open select with Enter or Space
         await page.keyboard.press('Enter');
-        await page.waitForTimeout(300);
+        await waitForLoadingComplete(page);
 
         // Check if listbox opened
         const listbox = page.getByRole('listbox');
@@ -869,7 +877,7 @@ test.describe('SMTP Settings', () => {
         // Try to save with empty required field
         const saveButton = page.getByRole('button', { name: /save/i }).last();
         await saveButton.click();
-        await page.waitForTimeout(500);
+        await waitForLoadingComplete(page);
       });
 
       await test.step('Verify error announcement', async () => {

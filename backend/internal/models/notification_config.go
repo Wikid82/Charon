@@ -9,14 +9,16 @@ import (
 
 // NotificationConfig stores configuration for security notifications.
 type NotificationConfig struct {
-	ID              string    `gorm:"primaryKey" json:"id"`
-	Enabled         bool      `json:"enabled"`
-	MinLogLevel     string    `json:"min_log_level"` // error, warn, info, debug
-	WebhookURL      string    `json:"webhook_url"`
-	NotifyWAFBlocks bool      `json:"notify_waf_blocks"`
-	NotifyACLDenies bool      `json:"notify_acl_denies"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID                  string    `gorm:"primaryKey" json:"id"`
+	Enabled             bool      `json:"enabled"`
+	MinLogLevel         string    `json:"min_log_level"` // error, warn, info, debug
+	WebhookURL          string    `json:"webhook_url"`
+	NotifyWAFBlocks     bool      `json:"notify_waf_blocks"`
+	NotifyACLDenies     bool      `json:"notify_acl_denies"`
+	NotifyRateLimitHits bool      `json:"notify_rate_limit_hits"`
+	EmailRecipients     string    `json:"email_recipients"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 // BeforeCreate sets the ID if not already set.

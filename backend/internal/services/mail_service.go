@@ -371,7 +371,7 @@ func (s *MailService) buildEmail(fromAddr, toAddr, replyToAddr *mail.Address, su
 	return msg.Bytes(), nil
 }
 
-func parseEmailAddressForHeader(field emailHeaderName, raw string) (*mail.Address, error) {
+func parseEmailAddressForHeader(_ emailHeaderName, raw string) (*mail.Address, error) {
 	if raw == "" {
 		return nil, errors.New("email address is empty")
 	}
@@ -388,7 +388,7 @@ func parseEmailAddressForHeader(field emailHeaderName, raw string) (*mail.Addres
 	return addr, nil
 }
 
-func formatEmailAddressForHeader(field emailHeaderName, addr *mail.Address) (string, error) {
+func formatEmailAddressForHeader(_ emailHeaderName, addr *mail.Address) (string, error) {
 	if addr == nil {
 		return "", errors.New("email address is nil")
 	}
@@ -441,8 +441,8 @@ func (s *MailService) sendSSL(addr string, config *SMTPConfig, auth smtp.Auth, f
 		return fmt.Errorf("SSL connection failed: %w", err)
 	}
 	defer func() {
-		if err := conn.Close(); err != nil {
-			logger.Log().WithError(err).Warn("failed to close tls conn")
+		if closeErr := conn.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Warn("failed to close tls conn")
 		}
 	}()
 
@@ -451,23 +451,23 @@ func (s *MailService) sendSSL(addr string, config *SMTPConfig, auth smtp.Auth, f
 		return fmt.Errorf("failed to create SMTP client: %w", err)
 	}
 	defer func() {
-		if err := client.Close(); err != nil {
-			logger.Log().WithError(err).Warn("failed to close smtp client")
+		if closeErr := client.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Warn("failed to close smtp client")
 		}
 	}()
 
 	if auth != nil {
-		if err := client.Auth(auth); err != nil {
-			return fmt.Errorf("authentication failed: %w", err)
+		if authErr := client.Auth(auth); authErr != nil {
+			return fmt.Errorf("authentication failed: %w", authErr)
 		}
 	}
 
-	if err := client.Mail(fromEnvelope); err != nil {
-		return fmt.Errorf("MAIL FROM failed: %w", err)
+	if mailErr := client.Mail(fromEnvelope); mailErr != nil {
+		return fmt.Errorf("MAIL FROM failed: %w", mailErr)
 	}
 
-	if err := client.Rcpt(toEnvelope); err != nil {
-		return fmt.Errorf("RCPT TO failed: %w", err)
+	if rcptErr := client.Rcpt(toEnvelope); rcptErr != nil {
+		return fmt.Errorf("RCPT TO failed: %w", rcptErr)
 	}
 
 	w, err := client.Data()
@@ -477,8 +477,8 @@ func (s *MailService) sendSSL(addr string, config *SMTPConfig, auth smtp.Auth, f
 
 	// Security Note: msg built by buildEmail() with header/body sanitization
 	// See buildEmail() for injection protection details
-	if _, err := w.Write(msg); err != nil {
-		return fmt.Errorf("failed to write message: %w", err)
+	if _, writeErr := w.Write(msg); writeErr != nil {
+		return fmt.Errorf("failed to write message: %w", writeErr)
 	}
 
 	if err := w.Close(); err != nil {
@@ -495,8 +495,8 @@ func (s *MailService) sendSTARTTLS(addr string, config *SMTPConfig, auth smtp.Au
 		return fmt.Errorf("SMTP connection failed: %w", err)
 	}
 	defer func() {
-		if err := client.Close(); err != nil {
-			logger.Log().WithError(err).Warn("failed to close smtp client")
+		if closeErr := client.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Warn("failed to close smtp client")
 		}
 	}()
 
@@ -505,22 +505,22 @@ func (s *MailService) sendSTARTTLS(addr string, config *SMTPConfig, auth smtp.Au
 		MinVersion: tls.VersionTLS12,
 	}
 
-	if err := client.StartTLS(tlsConfig); err != nil {
-		return fmt.Errorf("STARTTLS failed: %w", err)
+	if startTLSErr := client.StartTLS(tlsConfig); startTLSErr != nil {
+		return fmt.Errorf("STARTTLS failed: %w", startTLSErr)
 	}
 
 	if auth != nil {
-		if err := client.Auth(auth); err != nil {
-			return fmt.Errorf("authentication failed: %w", err)
+		if authErr := client.Auth(auth); authErr != nil {
+			return fmt.Errorf("authentication failed: %w", authErr)
 		}
 	}
 
-	if err := client.Mail(fromEnvelope); err != nil {
-		return fmt.Errorf("MAIL FROM failed: %w", err)
+	if mailErr := client.Mail(fromEnvelope); mailErr != nil {
+		return fmt.Errorf("MAIL FROM failed: %w", mailErr)
 	}
 
-	if err := client.Rcpt(toEnvelope); err != nil {
-		return fmt.Errorf("RCPT TO failed: %w", err)
+	if rcptErr := client.Rcpt(toEnvelope); rcptErr != nil {
+		return fmt.Errorf("RCPT TO failed: %w", rcptErr)
 	}
 
 	w, err := client.Data()

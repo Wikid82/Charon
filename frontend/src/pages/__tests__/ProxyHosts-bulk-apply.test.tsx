@@ -30,6 +30,9 @@ vi.mock('../../api/proxyHosts', () => ({
 vi.mock('../../api/certificates', () => ({ getCertificates: vi.fn() }));
 vi.mock('../../api/accessLists', () => ({ accessListsApi: { list: vi.fn() } }));
 vi.mock('../../api/settings', () => ({ getSettings: vi.fn() }));
+vi.mock('../../hooks/useSecurityHeaders', () => ({
+  useSecurityHeaderProfiles: vi.fn(() => ({ data: [], isLoading: false, error: null })),
+}));
 
 const mockProxyHosts = [
   createMockProxyHost({ uuid: 'host-1', name: 'Test Host 1', domain_names: 'test1.example.com', forward_host: '192.168.1.10' }),

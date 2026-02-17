@@ -147,8 +147,8 @@ func CheckLAPIHealth(lapiURL string) bool {
 		return checkDecisionsEndpoint(ctx, lapiURL)
 	}
 	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to close response body")
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Warn("Failed to close response body")
 		}
 	}()
 
@@ -194,8 +194,8 @@ func GetLAPIVersion(ctx context.Context, lapiURL string) (string, error) {
 		return "", fmt.Errorf("version request failed: %w", err)
 	}
 	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to close response body")
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Warn("Failed to close response body")
 		}
 	}()
 

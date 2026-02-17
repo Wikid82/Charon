@@ -222,7 +222,7 @@ func TestEmergencyTokenService_Validate_EnvironmentFallback(t *testing.T) {
 	assert.Nil(t, tokenRecord, "Env var tokens return nil record")
 }
 
-func TestEmergencyTokenService_Validate_DatabaseTakesPrecedence(t *testing.T) {
+func TestEmergencyTokenService_Validate_EnvironmentBreakGlassFallback(t *testing.T) {
 	db := setupEmergencyTokenTestDB(t)
 	svc := NewEmergencyTokenService(db)
 
@@ -239,9 +239,9 @@ func TestEmergencyTokenService_Validate_DatabaseTakesPrecedence(t *testing.T) {
 	_, err = svc.Validate(dbResp.Token)
 	assert.NoError(t, err)
 
-	// Environment token should NOT validate (database takes precedence)
+	// Environment token should still validate as break-glass fallback
 	_, err = svc.Validate(envToken)
-	assert.Error(t, err)
+	assert.NoError(t, err)
 }
 
 func TestEmergencyTokenService_GetStatus(t *testing.T) {

@@ -122,7 +122,7 @@ graph TB
 
 | Component | Technology | Version | Purpose |
 |-----------|-----------|---------|---------|
-| **Language** | Go | 1.25.6 | Primary backend language |
+| **Language** | Go | 1.26.0 | Primary backend language |
 | **HTTP Framework** | Gin | Latest | Routing, middleware, HTTP handling |
 | **Database** | SQLite | 3.x | Embedded database |
 | **ORM** | GORM | Latest | Database abstraction layer |
@@ -816,7 +816,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Build backend
-FROM golang:1.25-bookworm AS backend-builder
+FROM golang:1.26-bookworm AS backend-builder
 WORKDIR /app/backend
 COPY backend/go.* ./
 RUN go mod download
@@ -870,6 +870,11 @@ CMD ["/app/charon"]
 | `CHARON_ENV` | Environment (production/development) | `production` | No |
 | `CHARON_ENCRYPTION_KEY` | 32-byte base64 key for credential encryption | Auto-generated | No |
 | `CHARON_EMERGENCY_TOKEN` | 64-char hex for break-glass access | None | Optional |
+| `CHARON_CADDY_CONFIG_ROOT` | Caddy autosave config root | `/config` | No |
+| `CHARON_CADDY_LOG_DIR` | Caddy log directory | `/var/log/caddy` | No |
+| `CHARON_CROWDSEC_LOG_DIR` | CrowdSec log directory | `/var/log/crowdsec` | No |
+| `CHARON_PLUGINS_DIR` | DNS provider plugin directory | `/app/plugins` | No |
+| `CHARON_SINGLE_CONTAINER_MODE` | Enables permission repair endpoints | `true` | No |
 | `CROWDSEC_API_KEY` | CrowdSec cloud API key | None | Optional |
 | `SMTP_HOST` | SMTP server for notifications | None | Optional |
 | `SMTP_PORT` | SMTP port | `587` | Optional |
@@ -923,7 +928,7 @@ services:
 
 1. **Prerequisites:**
    ```bash
-   - Go 1.25+ (backend development)
+   - Go 1.26+ (backend development)
    - Node.js 23+ and npm (frontend development)
    - Docker 24+ (E2E testing)
    - SQLite 3.x (database)

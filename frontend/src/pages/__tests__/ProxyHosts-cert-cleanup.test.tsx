@@ -39,6 +39,9 @@ vi.mock('../../api/accessLists', () => ({ accessListsApi: { list: vi.fn() } }))
 vi.mock('../../api/settings', () => ({ getSettings: vi.fn() }))
 vi.mock('../../api/backups', () => ({ createBackup: vi.fn() }))
 vi.mock('../../api/uptime', () => ({ getMonitors: vi.fn() }))
+vi.mock('../../hooks/useSecurityHeaders', () => ({
+  useSecurityHeaderProfiles: vi.fn(() => ({ data: [], isLoading: false, error: null })),
+}))
 
 const createQueryClient = () => new QueryClient({
   defaultOptions: {

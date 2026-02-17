@@ -8,7 +8,7 @@
  * - Delete certificate with confirmation and backup
  * - Certificate status indicators and sorting
  *
- * @see /projects/Charon/docs/plans/current_spec.md - Phase 2
+ * @see /projects/Charon/docs/plans/current_spec.md
  */
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
@@ -25,22 +25,30 @@ import {
 import {
   letsEncryptCertificate,
   customCertificateMock,
-  selfSignedTestCert,
   expiredCertificate,
   expiringCertificate,
   invalidCertificates,
   generateCertificate,
   type CertificateConfig,
 } from '../fixtures/certificates';
-import { generateUniqueId, generateDomain } from '../fixtures/test-data';
+import { generateUniqueId } from '../fixtures/test-data';
 
 test.describe('SSL Certificates - CRUD Operations', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page);
-    // Navigate to certificates page
-    await page.goto('/certificates');
-    await waitForLoadingComplete(page);
+    // Navigate to certificates page (retry once on transient failures)
+    for (let i = 0; i < 2; i++) {
+      try {
+        await page.goto('/certificates');
+        await waitForLoadingComplete(page);
+        break;
+      } catch (err) {
+        if (i === 1) throw err;
+        // short backoff and retry
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
   });
 
   // Helper to get the Add Certificate button
@@ -95,13 +103,14 @@ test.describe('SSL Certificates - CRUD Operations', () => {
         // Wait for page to fully load
         await waitForLoadingComplete(page);
 
-        const emptyCellMessage = page.getByText(/no.*certificates.*found/i);
         const table = page.getByRole('table');
+        const emptyState = page.getByText(/no.*certificates.*found/i);
 
-        const hasEmptyMessage = await emptyCellMessage.isVisible().catch(() => false);
-        const hasTable = await table.isVisible().catch(() => false);
-
-        expect(hasEmptyMessage || hasTable).toBeTruthy();
+        await expect(async () => {
+          const hasTable = await table.count() > 0 && await table.first().isVisible();
+          const hasEmpty = await emptyState.count() > 0 && await emptyState.first().isVisible();
+          expect(hasTable || hasEmpty).toBeTruthy();
+        }).toPass({ timeout: 10000 });
       });
     });
 
@@ -114,10 +123,11 @@ test.describe('SSL Certificates - CRUD Operations', () => {
         const table = page.getByRole('table');
         const emptyState = page.getByText(/no.*certificates.*found/i);
 
-        const hasTable = await table.isVisible().catch(() => false);
-        const hasEmpty = await emptyState.isVisible().catch(() => false);
-
-        expect(hasTable || hasEmpty).toBeTruthy();
+        await expect(async () => {
+          const hasTable = await table.count() > 0 && await table.first().isVisible();
+          const hasEmpty = await emptyState.count() > 0 && await emptyState.first().isVisible();
+          expect(hasTable || hasEmpty).toBeTruthy();
+        }).toPass({ timeout: 10000 });
       });
     });
 
@@ -179,7 +189,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
       });
     });
 
-    test('should show staging badge for Let\'s Encrypt staging certificates', async ({ page }) => {
+    test('should show staging badge for Let\'s Encrypt staging certificates', { retries: 1 }, async ({ page }) => {
       await test.step('Check for staging badges', async () => {
         const stagingBadge = page.locator('span').filter({ hasText: /staging/i });
         const badgeCount = await stagingBadge.count();
@@ -262,7 +272,9 @@ test.describe('SSL Certificates - CRUD Operations', () => {
         const nameInput = dialog.locator('input').first();
         await expect(nameInput).toBeVisible();
 
-        // Close dialog
+        // Close dialog (guard visibility/enabled to avoid transient flakiness)
+        await expect(getCancelButton(page)).toBeVisible({ timeout: 3000 });
+        await expect(getCancelButton(page)).toBeEnabled({ timeout: 3000 });
         await getCancelButton(page).click();
       });
     });
@@ -305,6 +317,8 @@ test.describe('SSL Certificates - CRUD Operations', () => {
       });
 
       await test.step('Close dialog', async () => {
+        await expect(getCancelButton(page)).toBeVisible({ timeout: 3000 });
+        await expect(getCancelButton(page)).toBeEnabled({ timeout: 3000 });
         await getCancelButton(page).click();
       });
     });
@@ -326,6 +340,8 @@ test.describe('SSL Certificates - CRUD Operations', () => {
       });
 
       await test.step('Close dialog', async () => {
+        await expect(getCancelButton(page)).toBeVisible({ timeout: 3000 });
+        await expect(getCancelButton(page)).toBeEnabled({ timeout: 3000 });
         await getCancelButton(page).click();
       });
     });
@@ -453,62 +469,92 @@ test.describe('SSL Certificates - CRUD Operations', () => {
   });
 
   test.describe('Certificate Details', () => {
+    const getEmptyState = (page: import('@playwright/test').Page) =>
+      page.locator('tbody tr td[colspan], tbody tr td').filter({ hasText: /no.*certificates.*found/i }).first();
+
+    const findDataRow = async (page: import('@playwright/test').Page) => {
+      const rows = page.locator('tbody tr');
+      const rowCount = await rows.count();
+
+      for (let i = 0; i < rowCount; i += 1) {
+        const row = rows.nth(i);
+        const cellCount = await row.locator('td').count();
+        if (cellCount >= 4) {
+          return row;
+        }
+      }
+
+      return null;
+    };
+
+    const getDataRowOrEmpty = async (page: import('@playwright/test').Page) => {
+      await waitForLoadingComplete(page);
+
+      const emptyState = getEmptyState(page);
+
+      await expect
+        .poll(async () => {
+          const dataRow = await findDataRow(page);
+          if (dataRow) return 'data';
+          if (await emptyState.isVisible().catch(() => false)) return 'empty';
+          return 'pending';
+        }, { timeout: 15000 })
+        .not.toBe('pending');
+
+      if (await emptyState.isVisible().catch(() => false)) {
+        return null;
+      }
+
+      return findDataRow(page);
+    };
+
     test('should display certificate domain in table', async ({ page }) => {
       await test.step('Check for domain column', async () => {
-        const table = page.getByRole('table');
-        const hasTable = await table.isVisible().catch(() => false);
+        const firstRow = await getDataRowOrEmpty(page);
 
-        if (hasTable) {
-          const rows = page.locator('tbody tr');
-          const rowCount = await rows.count();
-
-          if (rowCount > 0) {
-            // Domain should be visible in the row
-            const firstRow = rows.first();
-            const domainCell = firstRow.locator('td').nth(1); // Domain is second column
-            await expect(domainCell).toBeVisible();
-          }
+        if (!firstRow) {
+          const emptyState = getEmptyState(page);
+          await expect(emptyState).toBeVisible();
+          return;
         }
+
+        // Domain should be visible in the row
+        const domainCell = firstRow.locator('td').nth(1); // Domain is second column
+        await expect(domainCell).toBeVisible();
       });
     });
 
     test('should display certificate issuer', async ({ page }) => {
       await test.step('Check for issuer column', async () => {
-        const table = page.getByRole('table');
-        const hasTable = await table.isVisible().catch(() => false);
+        const firstRow = await getDataRowOrEmpty(page);
 
-        if (hasTable) {
-          const rows = page.locator('tbody tr');
-          const rowCount = await rows.count();
-
-          if (rowCount > 0) {
-            const firstRow = rows.first();
-            const issuerCell = firstRow.locator('td').nth(2); // Issuer is third column
-            await expect(issuerCell).toBeVisible();
-          }
+        if (!firstRow) {
+          const emptyState = getEmptyState(page);
+          await expect(emptyState).toBeVisible();
+          return;
         }
+
+        const issuerCell = firstRow.locator('td').nth(2); // Issuer is third column
+        await expect(issuerCell).toBeVisible();
       });
     });
 
     test('should display expiry date', async ({ page }) => {
       await test.step('Check for expiry column', async () => {
-        const table = page.getByRole('table');
-        const hasTable = await table.isVisible().catch(() => false);
+        const firstRow = await getDataRowOrEmpty(page);
 
-        if (hasTable) {
-          const rows = page.locator('tbody tr');
-          const rowCount = await rows.count();
-
-          if (rowCount > 0) {
-            const firstRow = rows.first();
-            const expiryCell = firstRow.locator('td').nth(3); // Expires is fourth column
-            await expect(expiryCell).toBeVisible();
-
-            // Should contain a date format
-            const expiryText = await expiryCell.textContent();
-            expect(expiryText).toBeTruthy();
-          }
+        if (!firstRow) {
+          const emptyState = getEmptyState(page);
+          await expect(emptyState).toBeVisible();
+          return;
         }
+
+        const expiryCell = firstRow.locator('td').nth(3); // Expires is fourth column
+        await expect(expiryCell).toBeVisible();
+
+        // Should contain a date format
+        const expiryText = await expiryCell.textContent();
+        expect(expiryText).toBeTruthy();
       });
     });
 
@@ -915,19 +961,16 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should navigate between Certificates and Proxy Hosts', async ({ page }) => {
       await test.step('Navigate to Proxy Hosts', async () => {
         await page.goto('/proxy-hosts');
-        await waitForLoadingComplete(page);
-
-        const heading = page.getByRole('heading', { name: /proxy.*hosts/i });
+        const heading = page.getByRole('heading', { name: /^proxy hosts$/i });
+        await expect(heading).toBeVisible({ timeout: 10000 });
         const hasHeading = await heading.isVisible({ timeout: 5000 }).catch(() => false);
         expect(hasHeading || true).toBeTruthy();
       });
 
       await test.step('Navigate back to Certificates', async () => {
         await page.goto('/certificates');
-        await waitForLoadingComplete(page);
-
         const heading = page.getByRole('heading', { name: /certificates/i });
-        await expect(heading).toBeVisible({ timeout: 5000 });
+        await expect(heading).toBeVisible({ timeout: 10000 });
       });
     });
   });

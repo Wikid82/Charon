@@ -502,6 +502,8 @@ This checklist provides a granular set of criteria for reviewing GitHub Actions 
 
 This section provides an expanded guide to diagnosing and resolving frequent problems encountered when working with GitHub Actions workflows.
 
+Note: If workflow logs are not accessible via MCP web fetch due to missing auth, retrieve logs with the authenticated `gh` CLI.
+
 ### **1. Workflow Not Triggering or Jobs/Steps Skipping Unexpectedly**
 - **Root Causes:** Mismatched `on` triggers, incorrect `paths` or `branches` filters, erroneous `if` conditions, or `concurrency` limitations.
 - **Actionable Steps:**

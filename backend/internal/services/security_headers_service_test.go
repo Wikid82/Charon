@@ -1,10 +1,12 @@
 package services
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -329,4 +331,42 @@ func TestApplyPreset_MultipleProfiles(t *testing.T) {
 	var count int64
 	db.Model(&models.SecurityHeaderProfile{}).Count(&count)
 	assert.Equal(t, int64(2), count)
+}
+
+func TestEnsurePresetsExist_CreateError(t *testing.T) {
+	db := setupSecurityHeadersServiceDB(t)
+	service := NewSecurityHeadersService(db)
+
+	cbName := "test:create-error"
+	err := db.Callback().Create().Before("gorm:create").Register(cbName, func(tx *gorm.DB) {
+		_ = tx.AddError(fmt.Errorf("forced create error"))
+	})
+	assert.NoError(t, err)
+	t.Cleanup(func() {
+		_ = db.Callback().Create().Remove(cbName)
+	})
+
+	err = service.EnsurePresetsExist()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create preset")
+}
+
+func TestEnsurePresetsExist_SaveError(t *testing.T) {
+	db := setupSecurityHeadersServiceDB(t)
+	service := NewSecurityHeadersService(db)
+
+	require.NoError(t, service.EnsurePresetsExist())
+
+	cbName := "test:update-error"
+	err := db.Callback().Update().Before("gorm:update").Register(cbName, func(tx *gorm.DB) {
+		_ = tx.AddError(fmt.Errorf("forced update error"))
+	})
+	assert.NoError(t, err)
+	t.Cleanup(func() {
+		_ = db.Callback().Update().Remove(cbName)
+	})
+
+	err = service.EnsurePresetsExist()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to update preset")
 }

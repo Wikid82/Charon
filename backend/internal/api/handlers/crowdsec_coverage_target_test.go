@@ -185,6 +185,10 @@ func TestCheckLAPIHealthRequest(t *testing.T) {
 
 // TestGetLAPIKeyFromEnv tests environment variable lookup
 func TestGetLAPIKeyLookup(t *testing.T) {
+	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "")
+	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "")
+	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "")
+	t.Setenv("CPM_SECURITY_CROWDSEC_API_KEY", "")
 	// Test that getLAPIKey checks multiple env vars
 	// Set one and verify it's found
 	t.Setenv("CROWDSEC_API_KEY", "test-key-123")
@@ -195,9 +199,11 @@ func TestGetLAPIKeyLookup(t *testing.T) {
 
 // TestGetLAPIKeyEmpty tests no env vars set
 func TestGetLAPIKeyEmpty(t *testing.T) {
-	// Ensure no env vars are set
-	_ = os.Unsetenv("CROWDSEC_API_KEY")
-	_ = os.Unsetenv("CROWDSEC_BOUNCER_API_KEY")
+	t.Setenv("CROWDSEC_API_KEY", "")
+	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "")
+	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "")
+	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "")
+	t.Setenv("CPM_SECURITY_CROWDSEC_API_KEY", "")
 
 	key := getLAPIKey()
 	require.Equal(t, "", key)
@@ -205,6 +211,10 @@ func TestGetLAPIKeyEmpty(t *testing.T) {
 
 // TestGetLAPIKeyAlternative tests alternative env var
 func TestGetLAPIKeyAlternative(t *testing.T) {
+	t.Setenv("CROWDSEC_API_KEY", "")
+	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "")
+	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "")
+	t.Setenv("CPM_SECURITY_CROWDSEC_API_KEY", "")
 	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "bouncer-key-456")
 
 	key := getLAPIKey()

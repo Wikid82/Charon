@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -239,16 +240,28 @@ func (h *EmergencyHandler) disableAllSecurityModules() ([]string, error) {
 			Type:     "bool",
 		}
 
-		if err := h.db.Where(models.Setting{Key: key}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
+		if err := h.upsertSettingWithRetry(&setting); err != nil {
 			return disabledModules, fmt.Errorf("failed to disable %s: %w", key, err)
 		}
 		disabledModules = append(disabledModules, key)
+	}
+
+	// Clear admin whitelist to prevent bypass persistence after reset
+	adminWhitelistSetting := models.Setting{
+		Key:      "security.admin_whitelist",
+		Value:    "",
+		Category: "security",
+		Type:     "string",
+	}
+	if err := h.upsertSettingWithRetry(&adminWhitelistSetting); err != nil {
+		return disabledModules, fmt.Errorf("failed to clear admin whitelist: %w", err)
 	}
 
 	// Also update the SecurityConfig record if it exists
 	var securityConfig models.SecurityConfig
 	if err := h.db.Where("name = ?", "default").First(&securityConfig).Error; err == nil {
 		securityConfig.Enabled = false
+		securityConfig.AdminWhitelist = ""
 		securityConfig.WAFMode = "disabled"
 		securityConfig.RateLimitMode = "disabled"
 		securityConfig.RateLimitEnable = false
@@ -259,7 +272,51 @@ func (h *EmergencyHandler) disableAllSecurityModules() ([]string, error) {
 		}
 	}
 
+	if err := h.db.Where("action = ?", "block").Delete(&models.SecurityDecision{}).Error; err != nil {
+		log.WithError(err).Warn("Failed to clear block security decisions during emergency reset")
+	}
+
 	return disabledModules, nil
+}
+
+func (h *EmergencyHandler) upsertSettingWithRetry(setting *models.Setting) error {
+	const maxAttempts = 20
+
+	_ = h.db.Exec("PRAGMA busy_timeout = 5000").Error
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err := h.db.Where(models.Setting{Key: setting.Key}).Assign(*setting).FirstOrCreate(setting).Error
+		if err == nil {
+			return nil
+		}
+
+		isTransientLock := isTransientSQLiteError(err)
+		if isTransientLock && attempt < maxAttempts {
+			wait := time.Duration(attempt) * 50 * time.Millisecond
+			if wait > time.Second {
+				wait = time.Second
+			}
+			time.Sleep(wait)
+			continue
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+func isTransientSQLiteError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "database is locked") ||
+		strings.Contains(errMsg, "database table is locked") ||
+		strings.Contains(errMsg, "database is busy") ||
+		strings.Contains(errMsg, "busy") ||
+		strings.Contains(errMsg, "locked")
 }
 
 // logAudit logs an emergency action to the security audit trail

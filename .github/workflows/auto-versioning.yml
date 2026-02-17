@@ -8,11 +8,13 @@ name: Auto Versioning and Release
 # ⚠️  Major version bumps are intentionally disabled in automation to prevent accidents.
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types: [completed]
     branches: [ main ]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: false  # Don't cancel in-progress releases
 
 permissions:
@@ -21,11 +23,13 @@ permissions:
 jobs:
   version:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Calculate Semantic Version
         id: semver
@@ -62,22 +66,22 @@ jobs:
           VERSION_NO_V="${RAW#v}"
           TAG="v${VERSION_NO_V}"
           echo "Determined tag: $TAG"
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Check for existing GitHub Release
         id: check_release
         run: |
-          TAG=${{ steps.determine_tag.outputs.tag }}
+          TAG="${{ steps.determine_tag.outputs.tag }}"
           echo "Checking for release for tag: ${TAG}"
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: token ${GITHUB_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}") || true
           if [ "${STATUS}" = "200" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "ℹ️  Release already exists for tag: ${TAG}"
           else
-            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "exists=false" >> "$GITHUB_OUTPUT"
             echo "✅ No existing release found for tag: ${TAG}"
           fi
         env:

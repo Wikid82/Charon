@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,10 +24,23 @@ import (
 // setupAuditTestDB creates an in-memory SQLite database for security audit tests
 func setupAuditTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+	dsn := filepath.Join(t.TempDir(), "security_handler_audit_test.db") + "?_busy_timeout=5000&_journal_mode=WAL"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	require.NoError(t, err)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+
+	t.Cleanup(func() {
+		if sqlDB != nil {
+			_ = sqlDB.Close()
+		}
+	})
+
 	require.NoError(t, db.AutoMigrate(
 		&models.SecurityConfig{},
 		&models.SecurityRuleSet{},

@@ -17,6 +17,9 @@ import { toast } from 'react-hot-toast'
 vi.mock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn() }))
 vi.mock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn() }))
 vi.mock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn() }))
+vi.mock('../../hooks/useSecurityHeaders', () => ({
+  useSecurityHeaderProfiles: vi.fn(() => ({ data: [], isLoading: false, error: null })),
+}))
 vi.mock('../../api/settings', () => ({ getSettings: vi.fn() }))
 vi.mock('../../api/uptime', () => ({ getMonitors: vi.fn() }))
 vi.mock('../../api/backups', () => ({ createBackup: vi.fn() }))
@@ -161,7 +164,7 @@ describe('ProxyHosts page extra tests', () => {
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('DelHost')).toBeInTheDocument())
-    const deleteBtn = screen.getByRole('button', { name: 'Delete' })
+    const deleteBtn = screen.getByRole('button', { name: 'Delete proxy host DelHost' })
     await userEvent.click(deleteBtn)
 
     // Confirm deletion in the dialog

@@ -185,6 +185,9 @@ func TestCredentialHandler_Get(t *testing.T) {
 	created, err := credService.Create(testContext(), provider.ID, createReq)
 	require.NoError(t, err)
 
+	// Give SQLite time to release locks
+	time.Sleep(10 * time.Millisecond)
+
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%d", provider.ID, created.ID)
 	req, _ := http.NewRequest("GET", url, nil)
 	w := httptest.NewRecorder()

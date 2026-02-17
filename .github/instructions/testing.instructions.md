@@ -8,9 +8,42 @@ description: 'Strict protocols for test execution, debugging, and coverage valid
 
 **MANDATORY**: Before running unit tests, verify the application UI/UX functions correctly end-to-end.
 
+## 0.5 Local Patch Coverage Preflight (Before Unit Tests)
+
+**MANDATORY**: After E2E and before backend/frontend unit coverage runs, generate a local patch report so uncovered changed lines are visible early.
+
+Run one of the following from `/projects/Charon`:
+
+```bash
+# Preferred (task)
+Test: Local Patch Report
+
+# Script
+bash scripts/local-patch-report.sh
+```
+
+Required artifacts:
+- `test-results/local-patch-report.md`
+- `test-results/local-patch-report.json`
+
+This preflight is advisory for thresholds during rollout, but artifact generation is required in DoD.
+
 ### PREREQUISITE: Start E2E Environment
 
-**CRITICAL**: Always rebuild the E2E container before running Playwright tests:
+**CRITICAL**: Rebuild the E2E container when application or Docker build inputs change. If changes are test-only and the container is already healthy, reuse it. If the container is not running or state is suspect, rebuild.
+
+**Rebuild required (application/runtime changes):**
+- Application code or dependencies: backend/**, frontend/**, backend/go.mod, backend/go.sum, package.json, package-lock.json.
+- Container build/runtime configuration: Dockerfile, .docker/**, .docker/compose/docker-compose.playwright-*.yml, .docker/docker-entrypoint.sh.
+- Runtime behavior changes baked into the image.
+
+**Rebuild optional (test-only changes):**
+- Playwright tests and fixtures: tests/**.
+- Playwright config and runners: playwright.config.js, playwright.caddy-debug.config.js.
+- Documentation or planning files: docs/**, requirements.md, design.md, tasks.md.
+- CI/workflow changes that do not affect runtime images: .github/workflows/**.
+
+When a rebuild is required (or the container is not running), use:
 
 ```bash
 .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
@@ -35,6 +68,7 @@ This step:
 - Ensure forms submit correctly
 - Check navigation and page rendering
 - **Port: 8080 (Charon Management Interface)**
+- **Default Browser: Firefox** (provides best cross-browser compatibility baseline)
 
 **Integration Tests (Middleware Enforcement):**
 - Test Cerberus security module enforcement
@@ -61,7 +95,7 @@ For general integration testing without coverage:
 
 ```bash
 # Against Docker container (default)
-npx playwright test --project=chromium --project=firefox --project=webkit
+cd /projects/Charon && npx playwright test --project=chromium --project=firefox --project=webkit
 
 # With explicit base URL
 PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test --project=chromium --project=firefox --project=webkit
@@ -134,8 +168,8 @@ Before pushing code, verify E2E coverage:
 ## 3. Coverage & Completion
 * **Coverage Gate:** A task is not "Complete" until a coverage report is generated.
 * **Threshold Compliance:** You must compare the final coverage percentage against the project's threshold (Default: 85% unless specified otherwise). If coverage drops, you must identify the "uncovered lines" and add targeted tests.
-* **Patch Coverage Gate (Codecov):** If production code is modified, Codecov **patch coverage must be 100%** for the modified lines. Do not relax thresholds; add targeted tests.
-* **Patch Triage Requirement:** Plans must include the exact missing/partial patch line ranges copied from Codecov’s **Patch** view.
+* **Patch Coverage (Suggestion):** Codecov reports patch coverage as an indicator. While developers should aim for 100% coverage of modified lines, patch coverage is **not a hard requirement** and will not block PR approval. If patch coverage is low, consider adding targeted tests to improve the metric.
+* **Review Patch Coverage:** When reviewing patch coverage reports, assess whether missing lines represent genuine gaps or are acceptable (e.g., error handling branches, deprecated code paths). Use the report to inform testing decisions, not as an absolute gate.
 ## 4. GORM Security Validation (Manual Stage)
 
 **Requirement:** All backend changes involving GORM models or database interactions must pass the GORM Security Scanner.

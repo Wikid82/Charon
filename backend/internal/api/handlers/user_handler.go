@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/utils"
@@ -21,13 +23,44 @@ import (
 type UserHandler struct {
 	DB          *gorm.DB
 	MailService *services.MailService
+	securitySvc *services.SecurityService
 }
 
 func NewUserHandler(db *gorm.DB) *UserHandler {
 	return &UserHandler{
 		DB:          db,
 		MailService: services.NewMailService(db),
+		securitySvc: services.NewSecurityService(db),
 	}
+}
+
+func (h *UserHandler) actorFromContext(c *gin.Context) string {
+	if userID, ok := c.Get("userID"); ok {
+		return fmt.Sprintf("%v", userID)
+	}
+	return c.ClientIP()
+}
+
+func (h *UserHandler) logUserAudit(c *gin.Context, action string, user *models.User, details map[string]any) {
+	if h.securitySvc == nil || user == nil {
+		return
+	}
+
+	detailsJSON, err := json.Marshal(details)
+	if err != nil {
+		detailsJSON = []byte("{}")
+	}
+
+	_ = h.securitySvc.LogAudit(&models.SecurityAudit{
+		Actor:         h.actorFromContext(c),
+		Action:        action,
+		EventCategory: "user",
+		ResourceID:    &user.ID,
+		ResourceUUID:  user.UUID,
+		Details:       string(detailsJSON),
+		IPAddress:     c.ClientIP(),
+		UserAgent:     c.Request.UserAgent(),
+	})
 }
 
 func (h *UserHandler) RegisterRoutes(r *gin.RouterGroup) {
@@ -365,6 +398,11 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
+	h.logUserAudit(c, "user_create", &user, map[string]any{
+		"target_email": user.Email,
+		"target_role":  user.Role,
+	})
+
 	c.JSON(http.StatusCreated, gin.H{
 		"id":    user.ID,
 		"uuid":  user.UUID,
@@ -451,23 +489,23 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 	}
 
 	err = h.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&user).Error; err != nil {
-			return err
+		if txErr := tx.Create(&user).Error; txErr != nil {
+			return txErr
 		}
 
 		// Explicitly disable user (bypass GORM's default:true)
-		if err := tx.Model(&user).Update("enabled", false).Error; err != nil {
-			return err
+		if txErr := tx.Model(&user).Update("enabled", false).Error; txErr != nil {
+			return txErr
 		}
 
 		// Add permitted hosts if specified
 		if len(req.PermittedHosts) > 0 {
 			var hosts []models.ProxyHost
-			if err := tx.Where("id IN ?", req.PermittedHosts).Find(&hosts).Error; err != nil {
-				return err
+			if findErr := tx.Where("id IN ?", req.PermittedHosts).Find(&hosts).Error; findErr != nil {
+				return findErr
 			}
-			if err := tx.Model(&user).Association("PermittedHosts").Replace(hosts); err != nil {
-				return err
+			if assocErr := tx.Model(&user).Association("PermittedHosts").Replace(hosts); assocErr != nil {
+				return assocErr
 			}
 		}
 
@@ -479,16 +517,34 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 		return
 	}
 
-	// Try to send invite email
+	h.logUserAudit(c, "user_invite", &user, map[string]any{
+		"target_email":  user.Email,
+		"target_role":   user.Role,
+		"invite_status": user.InviteStatus,
+	})
+
+	// Send invite email asynchronously (non-blocking)
+	// Capture the generated invite URL from configured public URL only.
+	inviteURL := ""
+	baseURL, hasConfiguredPublicURL := utils.GetConfiguredPublicURL(h.DB)
+	if hasConfiguredPublicURL {
+		inviteURL = fmt.Sprintf("%s/accept-invite?token=%s", strings.TrimSuffix(baseURL, "/"), inviteToken)
+	}
+
+	// Only mark as sent when SMTP is configured AND invite URL is usable.
 	emailSent := false
-	if h.MailService.IsConfigured() {
-		baseURL, ok := utils.GetConfiguredPublicURL(h.DB)
-		if ok {
-			appName := getAppName(h.DB)
-			if err := h.MailService.SendInvite(user.Email, inviteToken, appName, baseURL); err == nil {
-				emailSent = true
+	if h.MailService.IsConfigured() && hasConfiguredPublicURL {
+		emailSent = true
+		userEmail := user.Email
+		userToken := inviteToken
+		appName := getAppName(h.DB)
+
+		go func() {
+			if err := h.MailService.SendInvite(userEmail, userToken, appName, baseURL); err != nil {
+				// Log failure but don't block response
+				middleware.GetRequestLogger(c).WithField("user_email", userEmail).WithError(err).Error("Failed to send invite email")
 			}
-		}
+		}()
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -497,6 +553,7 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 		"email":        user.Email,
 		"role":         user.Role,
 		"invite_token": inviteToken, // Return token in case email fails
+		"invite_url":   inviteURL,
 		"email_sent":   emailSent,
 		"expires_at":   inviteExpires,
 	})
@@ -599,10 +656,11 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 
 // UpdateUserRequest represents the request body for updating a user.
 type UpdateUserRequest struct {
-	Name    string `json:"name"`
-	Email   string `json:"email"`
-	Role    string `json:"role"`
-	Enabled *bool  `json:"enabled"`
+	Name     string  `json:"name"`
+	Email    string  `json:"email"`
+	Password *string `json:"password" binding:"omitempty,min=8"`
+	Role     string  `json:"role"`
+	Enabled  *bool   `json:"enabled"`
 }
 
 // UpdateUser updates an existing user (admin only).
@@ -621,7 +679,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	}
 
 	var user models.User
-	if err := h.DB.First(&user, id).Error; err != nil {
+	if findErr := h.DB.First(&user, id).Error; findErr != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
@@ -653,6 +711,16 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		updates["role"] = req.Role
 	}
 
+	if req.Password != nil {
+		if err := user.SetPassword(*req.Password); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+			return
+		}
+		updates["password_hash"] = user.PasswordHash
+		updates["failed_login_attempts"] = 0
+		updates["locked_until"] = nil
+	}
+
 	if req.Enabled != nil {
 		updates["enabled"] = *req.Enabled
 	}
@@ -662,9 +730,23 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
 			return
 		}
+
+		h.logUserAudit(c, "user_update", &user, map[string]any{
+			"target_email": user.Email,
+			"target_role":  user.Role,
+			"fields":       mapsKeys(updates),
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "User updated successfully"})
+}
+
+func mapsKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 // DeleteUser deletes a user (admin only).
@@ -691,7 +773,7 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 	}
 
 	var user models.User
-	if err := h.DB.First(&user, id).Error; err != nil {
+	if findErr := h.DB.First(&user, id).Error; findErr != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
@@ -706,6 +788,11 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete user"})
 		return
 	}
+
+	h.logUserAudit(c, "user_delete", &user, map[string]any{
+		"target_email": user.Email,
+		"target_role":  user.Role,
+	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "User deleted successfully"})
 }
@@ -732,7 +819,7 @@ func (h *UserHandler) ResendInvite(c *gin.Context) {
 	}
 
 	var user models.User
-	if err := h.DB.First(&user, id).Error; err != nil {
+	if findErr := h.DB.First(&user, id).Error; findErr != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
@@ -801,33 +888,33 @@ func (h *UserHandler) UpdateUserPermissions(c *gin.Context) {
 	}
 
 	var user models.User
-	if err := h.DB.First(&user, id).Error; err != nil {
+	if findErr := h.DB.First(&user, id).Error; findErr != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 
 	var req UpdateUserPermissionsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
 
 	err = h.DB.Transaction(func(tx *gorm.DB) error {
 		// Update permission mode
-		if err := tx.Model(&user).Update("permission_mode", req.PermissionMode).Error; err != nil {
-			return err
+		if txErr := tx.Model(&user).Update("permission_mode", req.PermissionMode).Error; txErr != nil {
+			return txErr
 		}
 
 		// Update permitted hosts
 		var hosts []models.ProxyHost
 		if len(req.PermittedHosts) > 0 {
-			if err := tx.Where("id IN ?", req.PermittedHosts).Find(&hosts).Error; err != nil {
-				return err
+			if findErr := tx.Where("id IN ?", req.PermittedHosts).Find(&hosts).Error; findErr != nil {
+				return findErr
 			}
 		}
 
-		if err := tx.Model(&user).Association("PermittedHosts").Replace(hosts); err != nil {
-			return err
+		if assocErr := tx.Model(&user).Association("PermittedHosts").Replace(hosts); assocErr != nil {
+			return assocErr
 		}
 
 		return nil
@@ -925,6 +1012,11 @@ func (h *UserHandler) AcceptInvite(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to accept invite"})
 		return
 	}
+
+	h.logUserAudit(c, "user_invite_accept", &user, map[string]any{
+		"target_email":  user.Email,
+		"invite_status": "accepted",
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Invite accepted successfully",

@@ -1,4 +1,4 @@
-import { useState, type FC } from 'react';
+import { useEffect, useState, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, NotificationProvider, getExternalTemplates, previewExternalTemplate, ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate, NotificationTemplate } from '../api/notifications';
@@ -6,6 +6,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
+import { toast } from '../utils/toast';
 
 // supportsJSONTemplates returns true if the provider type can use JSON templates
 const supportsJSONTemplates = (providerType: string | undefined): boolean => {
@@ -24,29 +25,39 @@ const supportsJSONTemplates = (providerType: string | undefined): boolean => {
   }
 };
 
+const defaultProviderValues: Partial<NotificationProvider> = {
+  type: 'discord',
+  enabled: true,
+  config: '',
+  template: 'minimal',
+  notify_proxy_hosts: true,
+  notify_remote_servers: true,
+  notify_domains: true,
+  notify_certs: true,
+  notify_uptime: true,
+};
+
 const ProviderForm: FC<{
   initialData?: Partial<NotificationProvider>;
   onClose: () => void;
   onSubmit: (data: Partial<NotificationProvider>) => void;
 }> = ({ initialData, onClose, onSubmit }) => {
   const { t } = useTranslation();
-  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm({
-    defaultValues: initialData || {
-      type: 'discord',
-      enabled: true,
-      config: '',
-      template: 'minimal',
-      notify_proxy_hosts: true,
-      notify_remote_servers: true,
-      notify_domains: true,
-      notify_certs: true,
-      notify_uptime: true
-    }
+  const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm({
+    defaultValues: defaultProviderValues,
   });
 
   const [testStatus, setTestStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [previewContent, setPreviewContent] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Reset form state per open/edit to avoid event checkbox leakage between runs.
+    reset(initialData ? { ...defaultProviderValues, ...initialData } : defaultProviderValues);
+    setTestStatus('idle');
+    setPreviewContent(null);
+    setPreviewError(null);
+  }, [initialData, reset]);
 
   const testMutation = useMutation({
     mutationFn: testProvider,
@@ -95,14 +106,30 @@ const ProviderForm: FC<{
     setValue('config', templateStr);
   };
 
+  // Client-side URL validation keeps the form open and prevents navigation on invalid input.
+  const validateUrl = (value: string | undefined) => {
+    if (!value) return true;
+    try {
+      const parsed = new URL(value);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return t('notificationProviders.invalidUrl');
+      }
+      return true;
+    } catch {
+      return t('notificationProviders.invalidUrl');
+    }
+  };
+
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.providerName')}</label>
+        <label htmlFor="provider-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.providerName')}</label>
         <input
+          id="provider-name"
           {...register('name', { required: t('errors.required') as string })}
           data-testid="provider-name"
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
+          aria-invalid={errors.name ? 'true' : 'false'}
         />
         {errors.name && <span className="text-red-500 text-xs">{errors.name.message as string}</span>}
       </div>
@@ -124,13 +151,24 @@ const ProviderForm: FC<{
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.urlWebhook')}</label>
+        <label htmlFor="provider-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.urlWebhook')}</label>
         <input
-          {...register('url', { required: t('notificationProviders.urlRequired') as string })}
+          id="provider-url"
+          {...register('url', {
+            required: t('notificationProviders.urlRequired') as string,
+            validate: validateUrl,
+          })}
           data-testid="provider-url"
           placeholder="https://discord.com/api/webhooks/..."
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
+          className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm ${errors.url ? 'border-red-500' : ''}`}
+          aria-invalid={errors.url ? 'true' : 'false'}
+          aria-describedby={errors.url ? 'provider-url-error' : undefined}
         />
+        {errors.url && (
+          <span id="provider-url-error" data-testid="provider-url-error" className="text-red-500 text-xs">
+            {errors.url.message as string}
+          </span>
+        )}
         {!supportsJSONTemplates(type) && (
           <p className="text-xs text-gray-500 mt-1">
             {t('notificationProviders.shoutrrrHelp')} <a href="https://containrrr.dev/shoutrrr/" target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">{t('common.docs')}</a>.
@@ -222,7 +260,7 @@ const ProviderForm: FC<{
           onClick={handlePreview}
           disabled={testMutation.isPending}
           data-testid="provider-preview-btn"
-          className="min-w-[80px]"
+          className="min-w-20"
         >
           {t('notificationProviders.preview')}
         </Button>
@@ -232,7 +270,7 @@ const ProviderForm: FC<{
           onClick={handleTest}
           disabled={testMutation.isPending}
           data-testid="provider-test-btn"
-          className="min-w-[80px]"
+          className="min-w-20"
         >
           {testMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> :
            testStatus === 'success' ? <Check className="w-4 h-4 text-green-500 mx-auto" /> :
@@ -281,29 +319,29 @@ const TemplateForm: FC<{
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('common.name')}</label>
-        <input {...register('name', { required: true })} className="mt-1 block w-full rounded-md" />
+        <label htmlFor="template-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('common.name')}</label>
+        <input id="template-name" data-testid="template-name" {...register('name', { required: true })} className="mt-1 block w-full rounded-md" />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('common.description')}</label>
-        <input {...register('description')} className="mt-1 block w-full rounded-md" />
+        <label htmlFor="template-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('common.description')}</label>
+        <input id="template-description" data-testid="template-description" {...register('description')} className="mt-1 block w-full rounded-md" />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.templateType')}</label>
-        <select {...register('template')} className="mt-1 block w-full rounded-md">
+        <label htmlFor="template-type" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.templateType')}</label>
+        <select id="template-type" data-testid="template-type" {...register('template')} className="mt-1 block w-full rounded-md">
           <option value="minimal">{t('notificationProviders.minimal')}</option>
           <option value="detailed">{t('notificationProviders.detailed')}</option>
           <option value="custom">{t('notificationProviders.custom')}</option>
         </select>
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.configJson')}</label>
-        <textarea {...register('config')} rows={6} className="mt-1 block w-full font-mono text-xs rounded-md" />
+        <label htmlFor="template-config" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.configJson')}</label>
+        <textarea id="template-config" data-testid="template-config" {...register('config')} rows={6} className="mt-1 block w-full font-mono text-xs rounded-md" />
       </div>
       <div className="flex justify-end gap-2">
-        <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
-        <Button type="button" variant="secondary" onClick={handlePreview}>{t('notificationProviders.preview')}</Button>
-        <Button type="submit">{t('common.save')}</Button>
+        <Button variant="secondary" onClick={onClose} data-testid="template-cancel-btn">{t('common.cancel')}</Button>
+        <Button type="button" variant="secondary" onClick={handlePreview} data-testid="template-preview-btn">{t('notificationProviders.preview')}</Button>
+        <Button type="submit" data-testid="template-save-btn">{t('common.save')}</Button>
       </div>
       {previewErr && <div className="text-sm text-red-600">{previewErr}</div>}
       {preview && (
@@ -323,13 +361,14 @@ const Notifications: FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [managingTemplates, setManagingTemplates] = useState(false);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [updateIndicatorId, setUpdateIndicatorId] = useState<string | null>(null);
 
   const { data: providers, isLoading } = useQuery({
     queryKey: ['notificationProviders'],
     queryFn: getProviders,
   });
 
-  const { data: externalTemplates } = useQuery({ queryKey: ['externalTemplates'], queryFn: getExternalTemplates });
+  const { data: externalTemplates, isLoading: externalTemplatesLoading } = useQuery({ queryKey: ['externalTemplates'], queryFn: getExternalTemplates });
 
   const createMutation = useMutation({
     mutationFn: createProvider,
@@ -341,11 +380,20 @@ const Notifications: FC = () => {
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<NotificationProvider> }) => updateProvider(id, data),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['notificationProviders'] });
       setEditingId(null);
+      // Keep a deterministic update indicator for UI feedback and E2E stability.
+      setUpdateIndicatorId(variables.id);
+      toast.success(t('common.saved'));
     },
   });
+
+  useEffect(() => {
+    if (!updateIndicatorId) return;
+    const timer = window.setTimeout(() => setUpdateIndicatorId(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [updateIndicatorId]);
 
   const deleteMutation = useMutation({
     mutationFn: deleteProvider,
@@ -431,19 +479,34 @@ const Notifications: FC = () => {
           )}
 
           {/* List of templates */}
-          <div className="grid gap-3">
+          <div className="grid gap-3" data-testid="external-templates-list">
+            {externalTemplatesLoading && (
+              <div className="text-sm text-gray-500" data-testid="external-templates-loading">
+                {t('common.loading')}
+              </div>
+            )}
             {externalTemplates?.map((t_template: ExternalTemplate) => (
-              <Card key={t_template.id} className="p-4 flex justify-between items-start">
+              <Card
+                key={t_template.id}
+                className="p-4 flex justify-between items-start"
+                data-testid={`external-template-row-${t_template.id}`}
+              >
                 <div>
                   <h4 className="font-medium text-gray-900 dark:text-white">{t_template.name}</h4>
                   <p className="text-sm text-gray-500 mt-1">{t_template.description}</p>
                   <pre className="mt-2 text-xs font-mono bg-gray-50 dark:bg-gray-800 p-2 rounded max-h-44 overflow-auto">{t_template.config}</pre>
                 </div>
                 <div className="flex flex-col gap-2 ml-4">
-                  <Button size="sm" variant="secondary" onClick={() => setEditingTemplateId(t_template.id)}>
+                  <Button size="sm" variant="secondary" onClick={() => setEditingTemplateId(t_template.id)} data-testid={`external-template-edit-${t_template.id}`}>
                     <Edit2 className="w-4 h-4" />
                   </Button>
-                  <Button size="sm" variant="danger" onClick={() => { if (confirm(t('notificationProviders.deleteTemplateConfirm'))) deleteTemplateMutation.mutate(t_template.id); }}>
+                  {/* Stable test hook for async template list rendering. */}
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    data-testid={`external-template-delete-${t_template.id}`}
+                    onClick={() => { if (confirm(t('notificationProviders.deleteTemplateConfirm'))) deleteTemplateMutation.mutate(t_template.id); }}
+                  >
                     <Trash2 className="w-4 h-4" />
                   </Button>
                 </div>
@@ -468,7 +531,7 @@ const Notifications: FC = () => {
 
       <div className="grid gap-4">
         {providers?.map((provider) => (
-          <Card key={provider.id} className="p-4">
+          <Card key={provider.id} className="p-4" data-testid={`provider-row-${provider.id}`}>
             {editingId === provider.id ? (
               <ProviderForm
                 initialData={provider}
@@ -483,6 +546,11 @@ const Notifications: FC = () => {
                   </div>
                   <div>
                     <h3 className="font-medium text-gray-900 dark:text-white">{provider.name}</h3>
+                    {updateIndicatorId === provider.id && (
+                      <span className="text-xs text-green-600" data-testid={`provider-update-indicator-${provider.id}`}>
+                        {t('common.saved')}
+                      </span>
+                    )}
                     <div className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
                       <span className="uppercase text-xs font-bold bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded">
                         {provider.type}

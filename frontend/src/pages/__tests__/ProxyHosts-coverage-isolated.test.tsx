@@ -79,6 +79,10 @@ describe('ProxyHosts page - coverage targets (isolated)', () => {
 
     vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [] })) }))
 
+    vi.doMock('../../hooks/useSecurityHeaders', () => ({
+      useSecurityHeaderProfiles: vi.fn(() => ({ data: [], isLoading: false, error: null }))
+    }))
+
     vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({ 'ui.domain_link_behavior': 'new_window' })) }))
 
     // Import page after mocks are in place

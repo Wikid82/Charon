@@ -700,8 +700,8 @@ func TestSignatureWorkflowEndToEnd(t *testing.T) {
 	}
 
 	// Step 4: Modify the plugin file (simulating tampering)
-	if err := os.WriteFile(pluginFile, []byte("TAMPERED CONTENT"), 0o600); err != nil { // #nosec G306 -- test fixture
-		t.Fatalf("failed to tamper plugin: %v", err)
+	if writeErr := os.WriteFile(pluginFile, []byte("TAMPERED CONTENT"), 0o600); writeErr != nil { // #nosec G306 -- test fixture
+		t.Fatalf("failed to tamper plugin: %v", writeErr)
 	}
 
 	// Step 5: Try to load again - should fail signature check now

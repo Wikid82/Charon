@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -94,6 +96,218 @@ func TestSetSecureCookie_HTTP_Lax(t *testing.T) {
 	c := cookies[0]
 	assert.False(t, c.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, c.SameSite)
+}
+
+func TestSetSecureCookie_ForwardedHTTPS_LocalhostForcesInsecure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	_ = os.Setenv("CHARON_ENV", "production")
+	defer func() { _ = os.Unsetenv("CHARON_ENV") }()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://localhost:8080/login", http.NoBody)
+	req.Host = "localhost:8080"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.False(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
+func TestSetSecureCookie_ForwardedHTTPS_LoopbackForcesInsecure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	_ = os.Setenv("CHARON_ENV", "production")
+	defer func() { _ = os.Unsetenv("CHARON_ENV") }()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://127.0.0.1:8080/login", http.NoBody)
+	req.Host = "127.0.0.1:8080"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.False(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
+func TestSetSecureCookie_ForwardedHostLocalhostForcesInsecure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	_ = os.Setenv("CHARON_ENV", "production")
+	defer func() { _ = os.Unsetenv("CHARON_ENV") }()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://charon.local/login", http.NoBody)
+	req.Host = "charon.internal:8080"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Host", "localhost:8080")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.False(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
+func TestSetSecureCookie_OriginLoopbackForcesInsecure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	_ = os.Setenv("CHARON_ENV", "production")
+	defer func() { _ = os.Unsetenv("CHARON_ENV") }()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://service.internal/login", http.NoBody)
+	req.Host = "service.internal:8080"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("Origin", "http://127.0.0.1:8080")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.False(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
+func TestIsProduction(t *testing.T) {
+	t.Setenv("CHARON_ENV", "production")
+	assert.True(t, isProduction())
+
+	t.Setenv("CHARON_ENV", "prod")
+	assert.True(t, isProduction())
+
+	t.Setenv("CHARON_ENV", "development")
+	assert.False(t, isProduction())
+}
+
+func TestRequestScheme(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("forwarded proto first value wins", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest("GET", "http://example.com", http.NoBody)
+		req.Header.Set("X-Forwarded-Proto", "HTTPS, http")
+		ctx.Request = req
+
+		assert.Equal(t, "https", requestScheme(ctx))
+	})
+
+	t.Run("tls request", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest("GET", "https://example.com", http.NoBody)
+		req.TLS = &tls.ConnectionState{}
+		ctx.Request = req
+
+		assert.Equal(t, "https", requestScheme(ctx))
+	})
+
+	t.Run("url scheme fallback", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest("GET", "http://example.com", http.NoBody)
+		req.URL.Scheme = "HTTP"
+		ctx.Request = req
+
+		assert.Equal(t, "http", requestScheme(ctx))
+	})
+
+	t.Run("default http fallback", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest("GET", "/", http.NoBody)
+		req.URL.Scheme = ""
+		ctx.Request = req
+
+		assert.Equal(t, "http", requestScheme(ctx))
+	})
+}
+
+func TestHostHelpers(t *testing.T) {
+	t.Run("normalizeHost", func(t *testing.T) {
+		assert.Equal(t, "", normalizeHost("   "))
+		assert.Equal(t, "example.com", normalizeHost("example.com:8080"))
+		assert.Equal(t, "::1", normalizeHost("[::1]:2020"))
+		assert.Equal(t, "localhost", normalizeHost("localhost"))
+	})
+
+	t.Run("originHost", func(t *testing.T) {
+		assert.Equal(t, "", originHost(""))
+		assert.Equal(t, "", originHost("::://bad-url"))
+		assert.Equal(t, "localhost", originHost("http://localhost:8080/path"))
+	})
+
+	t.Run("isLocalHost", func(t *testing.T) {
+		assert.True(t, isLocalHost("localhost"))
+		assert.True(t, isLocalHost("127.0.0.1"))
+		assert.True(t, isLocalHost("::1"))
+		assert.False(t, isLocalHost("example.com"))
+	})
+}
+
+func TestIsLocalRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("forwarded host list includes localhost", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest("GET", "http://example.com", http.NoBody)
+		req.Host = "example.com"
+		req.Header.Set("X-Forwarded-Host", "example.com, localhost:8080")
+		ctx.Request = req
+
+		assert.True(t, isLocalRequest(ctx))
+	})
+
+	t.Run("origin loopback", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest("GET", "http://example.com", http.NoBody)
+		req.Header.Set("Origin", "http://127.0.0.1:3000")
+		ctx.Request = req
+
+		assert.True(t, isLocalRequest(ctx))
+	})
+
+	t.Run("non local request", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest("GET", "http://example.com", http.NoBody)
+		req.Host = "example.com"
+		ctx.Request = req
+
+		assert.False(t, isLocalRequest(ctx))
+	})
+}
+
+func TestClearSecureCookie(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest("POST", "http://example.com/logout", http.NoBody)
+
+	clearSecureCookie(ctx, "auth_token")
+
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	assert.Equal(t, "auth_token", cookies[0].Name)
+	assert.Equal(t, -1, cookies[0].MaxAge)
 }
 
 func TestAuthHandler_Login_Errors(t *testing.T) {
@@ -869,4 +1083,317 @@ func TestAuthHandler_CheckHostAccess_Denied(t *testing.T) {
 	var resp map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["can_access"])
+}
+
+func TestAuthHandler_Logout_InvalidatesBearerSession(t *testing.T) {
+	t.Parallel()
+	handler, db := setupAuthHandler(t)
+
+	user := &models.User{
+		UUID:    uuid.NewString(),
+		Email:   "logout-session@example.com",
+		Name:    "Logout Session",
+		Role:    "admin",
+		Enabled: true,
+	}
+	_ = user.SetPassword("password123")
+	require.NoError(t, db.Create(user).Error)
+
+	r := gin.New()
+	r.POST("/auth/login", handler.Login)
+	protected := r.Group("/")
+	protected.Use(middleware.AuthMiddleware(handler.authService))
+	protected.POST("/auth/logout", handler.Logout)
+	protected.GET("/auth/me", handler.Me)
+
+	loginBody, _ := json.Marshal(map[string]string{
+		"email":    "logout-session@example.com",
+		"password": "password123",
+	})
+	loginReq := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewBuffer(loginBody))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginRes := httptest.NewRecorder()
+	r.ServeHTTP(loginRes, loginReq)
+	require.Equal(t, http.StatusOK, loginRes.Code)
+
+	var loginPayload map[string]string
+	require.NoError(t, json.Unmarshal(loginRes.Body.Bytes(), &loginPayload))
+	token := loginPayload["token"]
+	require.NotEmpty(t, token)
+
+	meReq := httptest.NewRequest(http.MethodGet, "/auth/me", http.NoBody)
+	meReq.Header.Set("Authorization", "Bearer "+token)
+	meRes := httptest.NewRecorder()
+	r.ServeHTTP(meRes, meReq)
+	require.Equal(t, http.StatusOK, meRes.Code)
+
+	logoutReq := httptest.NewRequest(http.MethodPost, "/auth/logout", http.NoBody)
+	logoutReq.Header.Set("Authorization", "Bearer "+token)
+	logoutRes := httptest.NewRecorder()
+	r.ServeHTTP(logoutRes, logoutReq)
+	require.Equal(t, http.StatusOK, logoutRes.Code)
+
+	meAfterLogoutReq := httptest.NewRequest(http.MethodGet, "/auth/me", http.NoBody)
+	meAfterLogoutReq.Header.Set("Authorization", "Bearer "+token)
+	meAfterLogoutRes := httptest.NewRecorder()
+	r.ServeHTTP(meAfterLogoutRes, meAfterLogoutReq)
+	require.Equal(t, http.StatusUnauthorized, meAfterLogoutRes.Code)
+}
+
+func TestAuthHandler_Me_RequiresUserContext(t *testing.T) {
+	t.Parallel()
+	handler, _ := setupAuthHandler(t)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/me", handler.Me)
+
+	req := httptest.NewRequest(http.MethodGet, "/me", http.NoBody)
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusUnauthorized, res.Code)
+}
+
+func TestAuthHandler_HelperFunctions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("requestScheme prefers forwarded proto", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
+		req.Header.Set("X-Forwarded-Proto", "HTTPS, http")
+		ctx.Request = req
+		assert.Equal(t, "https", requestScheme(ctx))
+	})
+
+	t.Run("requestScheme uses tls when forwarded proto missing", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
+		req.TLS = &tls.ConnectionState{}
+		ctx.Request = req
+		assert.Equal(t, "https", requestScheme(ctx))
+	})
+
+	t.Run("requestScheme uses request url scheme when available", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
+		req.URL.Scheme = "HTTP"
+		ctx.Request = req
+		assert.Equal(t, "http", requestScheme(ctx))
+	})
+
+	t.Run("requestScheme defaults to http when request url is nil", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
+		req.URL = nil
+		ctx.Request = req
+		assert.Equal(t, "http", requestScheme(ctx))
+	})
+
+	t.Run("normalizeHost strips brackets and port", func(t *testing.T) {
+		assert.Equal(t, "::1", normalizeHost("[::1]:443"))
+		assert.Equal(t, "example.com", normalizeHost("example.com:8080"))
+	})
+
+	t.Run("originHost returns empty for invalid url", func(t *testing.T) {
+		assert.Equal(t, "", originHost("://bad"))
+		assert.Equal(t, "example.com", originHost("https://example.com/path"))
+	})
+
+	t.Run("isLocalHost and isLocalRequest", func(t *testing.T) {
+		assert.True(t, isLocalHost("localhost"))
+		assert.True(t, isLocalHost("127.0.0.1"))
+		assert.False(t, isLocalHost("example.com"))
+
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		req := httptest.NewRequest(http.MethodGet, "http://service.internal", http.NoBody)
+		req.Host = "service.internal:8080"
+		req.Header.Set("X-Forwarded-Host", "example.com, localhost:8080")
+		ctx.Request = req
+		assert.True(t, isLocalRequest(ctx))
+	})
+}
+
+func TestAuthHandler_Refresh(t *testing.T) {
+	t.Parallel()
+
+	handler, db := setupAuthHandler(t)
+
+	user := &models.User{UUID: uuid.NewString(), Email: "refresh@example.com", Name: "Refresh User", Role: "user", Enabled: true}
+	require.NoError(t, user.SetPassword("password123"))
+	require.NoError(t, db.Create(user).Error)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/refresh", func(c *gin.Context) {
+		c.Set("userID", user.ID)
+		handler.Refresh(c)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/refresh", http.NoBody)
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusOK, res.Code)
+	assert.Contains(t, res.Body.String(), "token")
+	cookies := res.Result().Cookies()
+	assert.NotEmpty(t, cookies)
+}
+
+func TestAuthHandler_Refresh_Unauthorized(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := setupAuthHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/refresh", handler.Refresh)
+
+	req := httptest.NewRequest(http.MethodPost, "/refresh", http.NoBody)
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusUnauthorized, res.Code)
+}
+
+func TestAuthHandler_Register_BadRequest(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := setupAuthHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/register", handler.Register)
+
+	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString("not-json"))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusBadRequest, res.Code)
+}
+
+func TestAuthHandler_Logout_InvalidateSessionsFailure(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := setupAuthHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("userID", uint(999999))
+		c.Next()
+	})
+	r.POST("/logout", handler.Logout)
+
+	req := httptest.NewRequest(http.MethodPost, "/logout", http.NoBody)
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusInternalServerError, res.Code)
+	assert.Contains(t, res.Body.String(), "Failed to invalidate session")
+}
+
+func TestAuthHandler_Verify_UsesOriginalHostFallback(t *testing.T) {
+	t.Parallel()
+
+	handler, db := setupAuthHandlerWithDB(t)
+
+	proxyHost := &models.ProxyHost{
+		UUID:               uuid.NewString(),
+		Name:               "Original Host App",
+		DomainNames:        "original-host.example.com",
+		ForwardAuthEnabled: true,
+		Enabled:            true,
+	}
+	require.NoError(t, db.Create(proxyHost).Error)
+
+	user := &models.User{
+		UUID:           uuid.NewString(),
+		Email:          "originalhost@example.com",
+		Name:           "Original Host User",
+		Role:           "user",
+		Enabled:        true,
+		PermissionMode: models.PermissionModeAllowAll,
+	}
+	require.NoError(t, user.SetPassword("password123"))
+	require.NoError(t, db.Create(user).Error)
+
+	token, err := handler.authService.GenerateToken(user)
+	require.NoError(t, err)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/verify", handler.Verify)
+
+	req := httptest.NewRequest(http.MethodGet, "/verify", http.NoBody)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+	req.Header.Set("X-Original-Host", "original-host.example.com")
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusOK, res.Code)
+	assert.Equal(t, "originalhost@example.com", res.Header().Get("X-Forwarded-User"))
+}
+
+func TestAuthHandler_GetAccessibleHosts_DatabaseUnavailable(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := setupAuthHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("userID", uint(1))
+		c.Next()
+	})
+	r.GET("/hosts", handler.GetAccessibleHosts)
+
+	req := httptest.NewRequest(http.MethodGet, "/hosts", http.NoBody)
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusInternalServerError, res.Code)
+	assert.Contains(t, res.Body.String(), "Database not available")
+}
+
+func TestAuthHandler_CheckHostAccess_DatabaseUnavailable(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := setupAuthHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("userID", uint(1))
+		c.Next()
+	})
+	r.GET("/hosts/:hostId/access", handler.CheckHostAccess)
+
+	req := httptest.NewRequest(http.MethodGet, "/hosts/1/access", http.NoBody)
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusInternalServerError, res.Code)
+	assert.Contains(t, res.Body.String(), "Database not available")
+}
+
+func TestAuthHandler_CheckHostAccess_UserNotFound(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := setupAuthHandlerWithDB(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("userID", uint(999999))
+		c.Next()
+	})
+	r.GET("/hosts/:hostId/access", handler.CheckHostAccess)
+
+	req := httptest.NewRequest(http.MethodGet, "/hosts/1/access", http.NoBody)
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, req)
+
+	assert.Equal(t, http.StatusNotFound, res.Code)
+	assert.Contains(t, res.Body.String(), "User not found")
 }

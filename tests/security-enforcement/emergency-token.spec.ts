@@ -209,9 +209,10 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     });
 
     if (!statusCheck.ok()) {
-      console.log('⚠️ Could not verify security status - API not accessible');
-      testInfo.skip(true, 'Could not verify security status - API not accessible');
-      return;
+      console.log('⚠️ Could not verify security status - API not accessible, continuing test anyway');
+      // Changed from testInfo.skip() to allow test to run and identify root cause
+      // testInfo.skip(true, 'Could not verify security status - API not accessible');
+      // return;
     }
 
     let statusData = await statusCheck.json();
@@ -237,9 +238,10 @@ test.describe('Emergency Token Break Glass Protocol', () => {
       statusData = await statusCheck.json();
 
       if (!statusData.acl?.enabled) {
-        console.log('⚠️ Could not re-enable ACL - skipping test');
-        testInfo.skip(true, 'ACL could not be re-enabled after parallel test interference');
-        return;
+        console.log('⚠️ Could not re-enable ACL - continuing test anyway');
+        // Changed from testInfo.skip() to allow test to run and identify root cause
+        // testInfo.skip(true, 'ACL could not be re-enabled after parallel test interference');
+        // return;
       }
       console.log('  ✓ ACL re-enabled successfully');
     }

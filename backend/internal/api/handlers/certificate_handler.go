@@ -87,8 +87,8 @@ func (h *CertificateHandler) Upload(c *gin.Context) {
 		return
 	}
 	defer func() {
-		if err := certSrc.Close(); err != nil {
-			logger.Log().WithError(err).Warn("failed to close certificate file")
+		if errClose := certSrc.Close(); errClose != nil {
+			logger.Log().WithError(errClose).Warn("failed to close certificate file")
 		}
 	}()
 
@@ -98,8 +98,8 @@ func (h *CertificateHandler) Upload(c *gin.Context) {
 		return
 	}
 	defer func() {
-		if err := keySrc.Close(); err != nil {
-			logger.Log().WithError(err).Warn("failed to close key file")
+		if errClose := keySrc.Close(); errClose != nil {
+			logger.Log().WithError(errClose).Warn("failed to close key file")
 		}
 	}()
 

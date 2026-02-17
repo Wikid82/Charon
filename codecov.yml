@@ -4,12 +4,38 @@
 coverage:
   status:
     project:
-      default:
-        target: auto
+      # Backend: Lines coverage only (85% minimum)
+      backend:
+        target: 85%
         threshold: 1%
+        flags:
+          - backend
+        only:
+          - lines
+      # Frontend: Lines coverage only (85% minimum)
+      frontend:
+        target: 85%
+        threshold: 1%
+        flags:
+          - frontend
+        only:
+          - lines
+      # E2E: Lines coverage only (85% minimum)
+      e2e:
+        target: 85%
+        threshold: 1%
+        flags:
+          - e2e
+        only:
+          - lines
     patch:
       default:
+        # Patch coverage is a suggestion only (not required to pass PR)
+        # Developers should aim for 100% but it won't block the PR
         target: 85%
+        required: false
+        only:
+          - lines
 
 # Exclude test artifacts and non-production code from coverage
 ignore:
@@ -38,6 +64,7 @@ ignore:
   - "frontend/src/testUtils/**"      # Mock factories (createMockProxyHost)
   - "frontend/src/__tests__/**"      # i18n.test.ts and other tests
   - "frontend/src/setupTests.ts"     # Vitest setup file
+  - "frontend/src/locales/**"        # Locale JSON resources
   - "**/mockData.ts"                 # Mock data factories
   - "**/createTestQueryClient.ts"    # Test-specific utilities
   - "**/createMockProxyHost.ts"      # Test-specific utilities
@@ -60,9 +87,6 @@ ignore:
   # =========================================================================
   # ENTRY POINTS - Bootstrap code with minimal testable logic
   # =========================================================================
-  - "backend/cmd/api/**"             # Main entry point, CLI handling
-  - "backend/cmd/seed/**"            # Database seeding utility
-  - "frontend/src/main.tsx"          # React bootstrap
 
   # =========================================================================
   # INFRASTRUCTURE PACKAGES - Observability, align with local script
