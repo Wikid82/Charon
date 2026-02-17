@@ -370,3 +370,78 @@ CONDITIONAL
 ### Local Backend Status for PR #666
 
 - **Overall investigation status: FAIL (reproduced backend CI-like failures locally).**
+
+## PR #666 CI-Only Backend Failure Deep Dive Addendum - 2026-02-17
+
+### Exact CI Failure Evidence
+
+- Source: GitHub Actions run `22087372370`, job `63824895671` (`backend-quality`).
+- Exact failing assertion extracted from job logs:
+	- `--- FAIL: TestFetchIndexFallbackHTTP`
+	- `open testdata/hub_index.json: no such file or directory`
+
+### CI-Parity Local Matrix Executed
+
+All commands were run from `/projects/Charon` or `/projects/Charon/backend` with a valid 32-byte base64 `CHARON_ENCRYPTION_KEY`.
+
+1. `bash scripts/go-test-coverage.sh`
+2. `go test ./... -race -count=1 -shuffle=on -v`
+3. `go test ./... -race -count=1 -shuffle=on -v -p 1`
+4. `go test ./... -race -count=1 -shuffle=on -v -p 4`
+
+### Reproduction Outcomes
+
+- CI-specific missing fixture (`testdata/hub_index.json`) was confirmed in CI logs.
+- Local targeted stress for the CI-failing test (`internal/crowdsec` `TestFetchIndexFallbackHTTP`) passed repeatedly (10/10).
+- Full matrix runs repeatedly surfaced lock/closure instability outside the single CI assertion:
+	- `database table is locked`
+	- `sql: database is closed`
+- Representative failing packages in parity reruns:
+	- `internal/api/handlers`
+	- `internal/config`
+	- `internal/services`
+	- `internal/caddy` (deterministic fallback-env-key test failure in local matrix)
+
+### Root Cause (Evidence-Based)
+
+Primary root cause is **test isolation breakdown under race+shuffle execution**, not encryption-key preflight:
+
+1. **SQLite cross-test contamination/contention**
+	- Shared DB state patterns caused row leakage and lock events under shuffled execution.
+
+2. **Process-level environment variable contamination**
+	- CrowdSec env-key tests depended on mutable global env without full reset, causing order-sensitive behavior.
+
+3. **Separate CI-only fixture-path issue**
+	- CI log shows missing `testdata/hub_index.json` for `TestFetchIndexFallbackHTTP`, which did not reproduce locally.
+
+### Low-Risk Fixes Applied During Investigation
+
+1. `backend/internal/api/handlers/notification_handler_test.go`
+	- Reworked test DB setup from shared in-memory sqlite to per-test sqlite file in `t.TempDir()` with WAL + busy timeout.
+	- Updated tests to call `setupNotificationTestDB(t)`.
+
+2. `backend/internal/api/handlers/crowdsec_bouncer_test.go`
+	- Hardened `TestGetBouncerAPIKeyFromEnv` to reset all supported env keys per subtest before setting case-specific values.
+
+3. `backend/internal/api/handlers/crowdsec_coverage_target_test.go`
+	- Added explicit reset of all relevant CrowdSec env keys in `TestGetLAPIKeyLookup`, `TestGetLAPIKeyEmpty`, and `TestGetLAPIKeyAlternative`.
+
+### Post-Fix Verification
+
+- Targeted suites stabilized after fixes:
+	- Notification handler list flake (row leakage) no longer reproduced in repeated stress loops.
+	- CrowdSec env-key tests remained stable in repeated shuffled runs.
+- Broad matrix remained unstable with additional pre-existing failures (`sql: database is closed`/`database table is locked`) across multiple packages.
+
+### Final Parity Status
+
+- **Scoped fix validation**: PASS (targeted flaky tests stabilized).
+- **Full CI-parity matrix**: FAIL (broader baseline instability remains; not fully resolved in this pass).
+
+### Recommended Next Fix Plan (No Sleep/Retry Band-Aids)
+
+1. Enforce per-test DB isolation in remaining backend test helpers still using shared sqlite state.
+2. Eliminate global mutable env leakage by standardizing full-key reset in all env-sensitive tests.
+3. Fix CI fixture path robustness for `TestFetchIndexFallbackHTTP` (`testdata` resolution independent of working directory).
+4. Re-run parity matrix (`coverage`, `race+shuffle`, `-p 1`, `-p 4`) after each isolation patch batch.
