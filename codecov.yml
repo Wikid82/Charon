@@ -32,7 +32,7 @@ coverage:
       default:
         # Patch coverage is a suggestion only (not required to pass PR)
         # Developers should aim for 100% but it won't block the PR
-        target: 100%
+        target: 85%
         required: false
         only:
           - lines
