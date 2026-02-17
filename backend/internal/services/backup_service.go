@@ -83,6 +83,8 @@ type BackupService struct {
 	DatabaseName  string
 	Cron          *cron.Cron
 	restoreDBPath string
+	createBackup  func() (string, error)
+	cleanupOld    func(int) (int, error)
 }
 
 func checkpointSQLiteDatabase(dbPath string) error {
@@ -152,6 +154,8 @@ func NewBackupService(cfg *config.Config) *BackupService {
 		DatabaseName: filepath.Base(cfg.DatabasePath),
 		Cron:         cron.New(),
 	}
+	s.createBackup = s.CreateBackup
+	s.cleanupOld = s.CleanupOldBackups
 
 	// Schedule daily backup at 3 AM
 	_, err := s.Cron.AddFunc("0 3 * * *", s.RunScheduledBackup)
@@ -183,13 +187,23 @@ func (s *BackupService) Stop() {
 
 func (s *BackupService) RunScheduledBackup() {
 	logger.Log().Info("Starting scheduled backup")
-	if name, err := s.CreateBackup(); err != nil {
+	createBackup := s.CreateBackup
+	if s.createBackup != nil {
+		createBackup = s.createBackup
+	}
+
+	cleanupOld := s.CleanupOldBackups
+	if s.cleanupOld != nil {
+		cleanupOld = s.cleanupOld
+	}
+
+	if name, err := createBackup(); err != nil {
 		logger.Log().WithError(err).Error("Scheduled backup failed")
 	} else {
 		logger.Log().WithField("backup", name).Info("Scheduled backup created")
 
 		// Clean up old backups after successful creation
-		if deleted, err := s.CleanupOldBackups(DefaultBackupRetention); err != nil {
+		if deleted, err := cleanupOld(DefaultBackupRetention); err != nil {
 			logger.Log().WithError(err).Warn("Failed to cleanup old backups")
 		} else if deleted > 0 {
 			logger.Log().WithField("deleted_count", deleted).Info("Cleaned up old backups")
