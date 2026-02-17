@@ -18,11 +18,91 @@ env:
   GOTOOLCHAIN: auto
 
 jobs:
+  codecov-trigger-parity-guard:
+    name: Codecov Trigger/Comment Parity Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Enforce Codecov trigger and comment parity
+        run: |
+          bash scripts/ci/check-codecov-trigger-parity.sh
+
   backend-quality:
     name: Backend (Go)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      # SECURITY: Do not switch this workflow to pull_request_target for backend tests.
+      # Untrusted code paths (fork PRs and Dependabot PRs) must never receive repository secrets.
+      - name: Resolve encryption key for backend tests
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_FORK: ${{ github.event.pull_request.head.repo.fork }}
+          WORKFLOW_SECRET_KEY: ${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}
+        run: |
+          set -euo pipefail
+
+          is_same_repo_pr=false
+          if [[ "$EVENT_NAME" == "pull_request" && -n "${PR_HEAD_REPO:-}" && "$PR_HEAD_REPO" == "$REPO" ]]; then
+            is_same_repo_pr=true
+          fi
+
+          is_workflow_dispatch=false
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            is_workflow_dispatch=true
+          fi
+
+          is_dependabot_pr=false
+          if [[ "$EVENT_NAME" == "pull_request" && "$ACTOR" == "dependabot[bot]" ]]; then
+            is_dependabot_pr=true
+          fi
+
+          is_fork_pr=false
+          if [[ "$EVENT_NAME" == "pull_request" && "${PR_HEAD_FORK:-false}" == "true" ]]; then
+            is_fork_pr=true
+          fi
+
+          is_untrusted=false
+          if [[ "$is_fork_pr" == "true" || "$is_dependabot_pr" == "true" ]]; then
+            is_untrusted=true
+          fi
+
+          is_trusted=false
+          if [[ "$is_untrusted" == "false" && ( "$is_same_repo_pr" == "true" || "$is_workflow_dispatch" == "true" ) ]]; then
+            is_trusted=true
+          fi
+
+          resolved_key=""
+          if [[ "$is_trusted" == "true" ]]; then
+            if [[ -z "${WORKFLOW_SECRET_KEY:-}" ]]; then
+              echo "::error title=Missing required secret::Trusted backend CI context requires CHARON_ENCRYPTION_KEY_TEST. Add repository secret CHARON_ENCRYPTION_KEY_TEST."
+              exit 1
+            fi
+            resolved_key="$WORKFLOW_SECRET_KEY"
+          elif [[ "$is_untrusted" == "true" ]]; then
+            resolved_key="$(openssl rand -base64 32)"
+          else
+            echo "::error title=Unsupported event context::Unable to classify trust for backend key resolution (event=${EVENT_NAME})."
+            exit 1
+          fi
+
+          if [[ -z "$resolved_key" ]]; then
+            echo "::error title=Key resolution failure::Resolved encryption key is empty."
+            exit 1
+          fi
+
+          echo "::add-mask::$resolved_key"
+          {
+            echo "CHARON_ENCRYPTION_KEY<<__CHARON_EOF__"
+            echo "$resolved_key"
+            echo "__CHARON_EOF__"
+          } >> "$GITHUB_ENV"
 
       - name: Set up Go
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
@@ -39,7 +119,6 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           CGO_ENABLED: 1
-          CHARON_ENCRYPTION_KEY: ${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}
         run: |
           bash "scripts/go-test-coverage.sh" 2>&1 | tee backend/test-output.txt
           exit "${PIPESTATUS[0]}"
@@ -64,7 +143,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Codecov upload moved to `codecov-upload.yml` which is push-only.
+      # Codecov upload moved to `codecov-upload.yml` (pull_request + workflow_dispatch).
 
 
       - name: Run golangci-lint
@@ -118,7 +197,6 @@ jobs:
           PERF_MAX_MS_GETSTATUS_P95: 500ms
           PERF_MAX_MS_GETSTATUS_P95_PARALLEL: 1500ms
           PERF_MAX_MS_LISTDECISIONS_P95: 2000ms
-          CHARON_ENCRYPTION_KEY: ${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}
         run: |
           {
             echo "## 🔍 Running performance assertions (TestPerf)"
@@ -212,7 +290,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Codecov upload moved to `codecov-upload.yml` which is push-only.
+      # Codecov upload moved to `codecov-upload.yml` (pull_request + workflow_dispatch).
 
 
 
