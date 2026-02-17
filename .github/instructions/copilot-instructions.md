@@ -135,7 +135,13 @@ Before marking an implementation task as complete, perform the following in orde
     - **Base URL**: Uses `PLAYWRIGHT_BASE_URL` or default from `playwright.config.js`
     - All E2E tests must pass before proceeding to unit tests
 
-2. **Security Scans** (MANDATORY - Zero Tolerance):
+2. **Local Patch Coverage Preflight** (MANDATORY - Run Before Unit/Coverage Tests):
+    - **Run**: VS Code task `Test: Local Patch Report` or `bash scripts/local-patch-report.sh` from repo root.
+    - **Purpose**: Surface exact changed files and uncovered changed lines before adding/refining unit tests.
+    - **Required Artifacts**: `test-results/local-patch-report.md` and `test-results/local-patch-report.json`.
+    - **Expected Behavior**: Report may warn (non-blocking rollout), but artifact generation is mandatory.
+
+3. **Security Scans** (MANDATORY - Zero Tolerance):
     - **CodeQL Go Scan**: Run VS Code task "Security: CodeQL Go Scan (CI-Aligned)" OR `pre-commit run codeql-go-scan --all-files`
         - Must use `security-and-quality` suite (CI-aligned)
         - **Zero high/critical (error-level) findings allowed**
@@ -157,12 +163,12 @@ Before marking an implementation task as complete, perform the following in orde
         - Database creation: `--threads=0 --overwrite`
         - Analysis: `--sarif-add-baseline-file-info`
 
-3. **Pre-Commit Triage**: Run `pre-commit run --all-files`.
+4. **Pre-Commit Triage**: Run `pre-commit run --all-files`.
     - If errors occur, **fix them immediately**.
     - If logic errors occur, analyze and propose a fix.
     - Do not output code that violates pre-commit standards.
 
-4. **Staticcheck BLOCKING Validation**: Pre-commit hooks automatically run fast linters including staticcheck.
+5. **Staticcheck BLOCKING Validation**: Pre-commit hooks automatically run fast linters including staticcheck.
     - **CRITICAL:** Staticcheck errors are BLOCKING - you MUST fix them before commit succeeds.
     - Manual verification: Run VS Code task "Lint: Staticcheck (Fast)" or `make lint-fast`
     - To check only staticcheck: `make lint-staticcheck-only`
@@ -170,7 +176,7 @@ Before marking an implementation task as complete, perform the following in orde
     - If pre-commit fails: Fix the reported issues, then retry commit
     - **Do NOT** use `--no-verify` to bypass this check unless emergency hotfix
 
-5. **Coverage Testing** (MANDATORY - Non-negotiable):
+6. **Coverage Testing** (MANDATORY - Non-negotiable):
     - **Overall Coverage**: Minimum 85% coverage is MANDATORY and will fail the PR if not met.
     - **Patch Coverage**: Developers should aim for 100% coverage of modified lines (Codecov Patch view). If patch coverage is incomplete, add targeted tests. However, patch coverage is a suggestion and will not block PR approval.
     - **Backend Changes**: Run the VS Code task "Test: Backend with Coverage" or execute `scripts/go-test-coverage.sh`.
@@ -184,21 +190,21 @@ Before marking an implementation task as complete, perform the following in orde
     - **Critical**: Coverage tests are NOT run by default pre-commit hooks (they are in manual stage for performance). You MUST run them explicitly via VS Code tasks or scripts before completing any task.
     - **Why**: CI enforces coverage in GitHub Actions. Local verification prevents CI failures and maintains code quality.
 
-6. **Type Safety** (Frontend only):
+7. **Type Safety** (Frontend only):
     - Run the VS Code task "Lint: TypeScript Check" or execute `cd frontend && npm run type-check`.
     - Fix all type errors immediately. This is non-negotiable.
     - This check is also in manual stage for performance but MUST be run before completion.
 
-7. **Verify Build**: Ensure the backend compiles and the frontend builds without errors.
+8. **Verify Build**: Ensure the backend compiles and the frontend builds without errors.
     - Backend: `cd backend && go build ./...`
     - Frontend: `cd frontend && npm run build`
 
-8. **Fixed and New Code Testing**:
+9. **Fixed and New Code Testing**:
     - Ensure all existing and new unit tests pass with zero failures.
     - When failures and errors are found, deep-dive into root causes. Using the correct `subAgent`, update the working plan, review the implementation, and fix the issues.
     - No issue is out of scope for investigation and resolution. All issues must be addressed before task completion.
 
-9. **Clean Up**: Ensure no debug print statements or commented-out blocks remain.
+10. **Clean Up**: Ensure no debug print statements or commented-out blocks remain.
     - Remove `console.log`, `fmt.Println`, and similar debugging statements.
     - Delete commented-out code blocks.
     - Remove unused imports.
