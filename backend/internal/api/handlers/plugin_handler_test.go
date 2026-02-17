@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/builtin" // Auto-register DNS providers
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPluginHandler_NewPluginHandler(t *testing.T) {
@@ -740,9 +743,11 @@ func TestPluginHandler_DisablePlugin_MultipleProviders(t *testing.T) {
 func TestPluginHandler_ReloadPlugins_WithErrors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
-	// Use a path that will cause directory permission errors
-	// (in reality, LoadAllPlugins handles errors gracefully)
-	pluginLoader := services.NewPluginLoaderService(db, "/root/restricted", nil)
+
+	// Create a regular file and use it as pluginDir to force os.ReadDir error deterministically.
+	pluginDirPath := filepath.Join(t.TempDir(), "plugins-as-file")
+	require.NoError(t, os.WriteFile(pluginDirPath, []byte("not-a-directory"), 0o600))
+	pluginLoader := services.NewPluginLoaderService(db, pluginDirPath, nil)
 
 	handler := NewPluginHandler(db, pluginLoader)
 
@@ -753,9 +758,8 @@ func TestPluginHandler_ReloadPlugins_WithErrors(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// LoadAllPlugins returns nil for missing directories, so this should succeed
-	// with 0 plugins loaded
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "Failed to reload plugins")
 }
 
 func TestPluginHandler_ListPlugins_FailedPluginWithLoadedAt(t *testing.T) {
