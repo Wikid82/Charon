@@ -508,3 +508,57 @@ func TestCerberusRateLimitMiddleware_AdminNonSecurityPathStillLimited(t *testing
 	r.ServeHTTP(w2, req)
 	assert.Equal(t, http.StatusTooManyRequests, w2.Code)
 }
+
+func TestIsAdminSecurityControlPlaneRequest_UsesDecodedRawPath(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/security%2Frules", http.NoBody)
+	req.URL.Path = "/api/v1/security%2Frules"
+	req.URL.RawPath = "/api/v1/security%2Frules"
+	req.Header.Set("Authorization", "Bearer token")
+	ctx.Request = req
+
+	assert.True(t, isAdminSecurityControlPlaneRequest(ctx))
+}
+
+func TestNewRateLimitMiddleware_UsesWindowFallbackWhenNonPositive(t *testing.T) {
+	mw := NewRateLimitMiddleware(1, 0, 1)
+
+	r := gin.New()
+	r.Use(mw)
+	r.GET("/", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "10.10.10.10:1234"
+
+	w1 := httptest.NewRecorder()
+	r.ServeHTTP(w1, req)
+	assert.Equal(t, http.StatusOK, w1.Code)
+
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, req)
+	assert.Equal(t, http.StatusTooManyRequests, w2.Code)
+}
+
+func TestNewRateLimitMiddleware_BypassesControlPlaneBearerRequests(t *testing.T) {
+	mw := NewRateLimitMiddleware(1, 1, 1)
+
+	r := gin.New()
+	r.Use(mw)
+	r.GET("/api/v1/settings", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	for i := 0; i < 3; i++ {
+		req, _ := http.NewRequest(http.MethodGet, "/api/v1/settings", nil)
+		req.RemoteAddr = "10.10.10.11:1234"
+		req.Header.Set("Authorization", "Bearer admin-token")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	}
+}
