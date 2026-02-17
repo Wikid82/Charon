@@ -24,7 +24,7 @@ jobs:
   benchmark:
     name: Performance Regression Check
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event.workflow_run.conclusion == 'success' }}
     # Grant write permissions for storing benchmark results (only used on push via step condition)
     # Note: GitHub Actions doesn't support dynamic expressions in permissions block
     permissions:
