@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -287,10 +289,12 @@ func TestMain_ResetPasswordCommand_InProcess(t *testing.T) {
 func TestMain_DefaultStartupGracefulShutdown_Subprocess(t *testing.T) {
 	if os.Getenv("CHARON_TEST_RUN_MAIN_SERVER") == "1" {
 		os.Args = []string{"charon"}
+		signalPort := os.Getenv("CHARON_TEST_SIGNAL_PORT")
 
 		go func() {
-			// Increased from 500ms to 1000ms for Go 1.26.0 signal handling changes
-			time.Sleep(1000 * time.Millisecond)
+			if signalPort != "" {
+				_ = waitForTCPReady("127.0.0.1:"+signalPort, 10*time.Second)
+			}
 			process, err := os.FindProcess(os.Getpid())
 			if err == nil {
 				_ = process.Signal(syscall.SIGTERM)
@@ -303,6 +307,10 @@ func TestMain_DefaultStartupGracefulShutdown_Subprocess(t *testing.T) {
 
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "data", "test.db")
+	httpPort, err := findFreeTCPPort()
+	if err != nil {
+		t.Fatalf("find free http port: %v", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o750); err != nil {
 		t.Fatalf("mkdir db dir: %v", err)
 	}
@@ -312,7 +320,8 @@ func TestMain_DefaultStartupGracefulShutdown_Subprocess(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"CHARON_TEST_RUN_MAIN_SERVER=1",
 		"CHARON_DB_PATH="+dbPath,
-		"CHARON_HTTP_PORT=0",
+		"CHARON_HTTP_PORT="+httpPort,
+		"CHARON_TEST_SIGNAL_PORT="+httpPort,
 		"CHARON_EMERGENCY_SERVER_ENABLED=false",
 		"CHARON_CADDY_CONFIG_DIR="+filepath.Join(tmp, "caddy"),
 		"CHARON_IMPORT_DIR="+filepath.Join(tmp, "imports"),
@@ -329,6 +338,10 @@ func TestMain_DefaultStartupGracefulShutdown_Subprocess(t *testing.T) {
 func TestMain_DefaultStartupGracefulShutdown_InProcess(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "data", "test.db")
+	httpPort, err := findFreeTCPPort()
+	if err != nil {
+		t.Fatalf("find free http port: %v", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o750); err != nil {
 		t.Fatalf("mkdir db dir: %v", err)
 	}
@@ -337,7 +350,7 @@ func TestMain_DefaultStartupGracefulShutdown_InProcess(t *testing.T) {
 	t.Cleanup(func() { os.Args = originalArgs })
 
 	t.Setenv("CHARON_DB_PATH", dbPath)
-	t.Setenv("CHARON_HTTP_PORT", "0")
+	t.Setenv("CHARON_HTTP_PORT", httpPort)
 	t.Setenv("CHARON_EMERGENCY_SERVER_ENABLED", "false")
 	t.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tmp, "caddy"))
 	t.Setenv("CHARON_IMPORT_DIR", filepath.Join(tmp, "imports"))
@@ -346,7 +359,7 @@ func TestMain_DefaultStartupGracefulShutdown_InProcess(t *testing.T) {
 	os.Args = []string{"charon"}
 
 	go func() {
-		time.Sleep(500 * time.Millisecond)
+		_ = waitForTCPReady("127.0.0.1:"+httpPort, 10*time.Second)
 		process, err := os.FindProcess(os.Getpid())
 		if err == nil {
 			_ = process.Signal(syscall.SIGTERM)
@@ -354,4 +367,37 @@ func TestMain_DefaultStartupGracefulShutdown_InProcess(t *testing.T) {
 	}()
 
 	main()
+}
+
+func findFreeTCPPort() (string, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", fmt.Errorf("listen free port: %w", err)
+	}
+	defer func() {
+		_ = listener.Close()
+	}()
+
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		return "", fmt.Errorf("unexpected listener addr type: %T", listener.Addr())
+	}
+
+	return fmt.Sprintf("%d", addr.Port), nil
+}
+
+func waitForTCPReady(address string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", address, 100*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	return fmt.Errorf("timed out waiting for TCP readiness at %s", address)
 }
