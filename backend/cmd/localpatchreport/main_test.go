@@ -243,7 +243,7 @@ func TestGitDiffAndWriters(t *testing.T) {
 		Baseline:    "origin/main...HEAD",
 		GeneratedAt: "2026-02-17T00:00:00Z",
 		Mode:        "warn",
-		Thresholds: thresholdJSON{Overall: 90, Backend: 85, Frontend: 85},
+		Thresholds:  thresholdJSON{Overall: 90, Backend: 85, Frontend: 85},
 		ThresholdSources: thresholdSourcesJSON{
 			Overall:  "default",
 			Backend:  "default",
@@ -258,7 +258,7 @@ func TestGitDiffAndWriters(t *testing.T) {
 			UncoveredChangedLines:     2,
 			UncoveredChangedLineRange: []string{"10-11"},
 		}},
-		Warnings: []string{"warning one"},
+		Warnings:  []string{"warning one"},
 		Artifacts: artifactsJSON{Markdown: "test-results/report.md", JSON: "test-results/report.json"},
 	}
 
