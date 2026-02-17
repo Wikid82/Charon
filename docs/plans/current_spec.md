@@ -54,6 +54,7 @@ Both artifacts are mandatory per run. Missing either artifact is a failed local 
 - Local patch report does not fail DoD on low patch coverage during initial rollout.
 - Local runner emits warnings (stdout + markdown/json status fields) when thresholds are not met.
 - DoD requires the report to run and artifacts to exist, even in warning mode.
+- Execution and final merge checks in this plan follow this same warn-mode policy during rollout.
 
 ### Threshold Defaults and Source Precedence
 
@@ -121,6 +122,10 @@ Minimum JSON fields:
   - `patch_coverage_pct`
   - `status` (`pass` | `warn`)
 - `backend` and `frontend` objects with same coverage counters and status
+- `files_needing_coverage` (required array for execution baselines), where each item includes at minimum:
+   - `path`
+   - `uncovered_changed_lines`
+   - `patch_coverage_pct`
 - `artifacts` with emitted file paths
 
 Minimum Markdown sections:
@@ -243,3 +248,198 @@ jq -r '.baseline' test-results/local-patch-report.json
 - [ ] Concrete script + task wiring tasks are present and executable.
 - [ ] Validation commands are present and reproducible.
 - [ ] Stale unrelated placeholder gates are removed from this active spec.
+
+## 10) Concrete Execution Plan — Patch Gap Closure (PR Merge Objective)
+
+Single-scope objective: close current patch gaps for this PR merge by adding targeted tests and iterating local patch reports until changed-line coverage is merge-ready under DoD.
+
+### Authoritative Gap Baseline (2026-02-17)
+
+Use this list as the only planning baseline for this execution cycle:
+
+- `backend/cmd/localpatchreport/main.go`: 0%, 200 uncovered changed lines, ranges `46-59`, `61-73`, `75-79`, `81-85`, `87-96`, `98-123`, `125-156`, `158-165`, `167-172`, `175-179`, `182-187`, `190-198`, `201-207`, `210-219`, `222-254`, `257-264`, `267-269`
+- `frontend/src/pages/UsersPage.tsx`: 30.8%, 9 uncovered (`152-160`)
+- `frontend/src/pages/CrowdSecConfig.tsx`: 36.8%, 12 uncovered (`975-977`, `1220`, `1248-1249`, `1281-1282`, `1316`, `1324-1325`, `1335`)
+- `frontend/src/pages/DNSProviders.tsx`: 70.6%, 10 uncovered
+- `frontend/src/pages/AuditLogs.tsx`: 75.0%, 1 uncovered
+- `frontend/src/components/ProxyHostForm.tsx`: 75.5%, 12 uncovered
+- `backend/internal/api/middleware/auth.go`: 86.4%, 3 uncovered
+- `frontend/src/pages/Notifications.tsx`: 88.9%, 3 uncovered
+- `backend/internal/cerberus/rate_limit.go`: 91.9%, 12 uncovered
+
+### DoD Entry Gate (Mandatory Before Phase 1)
+
+All execution phases are blocked until this gate is completed in order:
+
+1) E2E first:
+
+```bash
+cd /projects/Charon && npx playwright test --project=firefox
+```
+
+2) Local patch preflight (baseline refresh trigger):
+
+```bash
+cd /projects/Charon && bash scripts/local-patch-report.sh
+```
+
+3) Baseline refresh checkpoint (must pass before phase execution):
+
+```bash
+cd /projects/Charon && jq -r '.files_needing_coverage[].path' test-results/local-patch-report.json | sort > /tmp/charon-baseline-files.txt
+cd /projects/Charon && while read -r f; do git diff --name-only origin/main...HEAD -- "$f" | grep -qx "$f" || echo "baseline file missing from current diff: $f"; done < /tmp/charon-baseline-files.txt
+```
+
+4) If checkpoint output is non-empty, refresh this baseline list to match the latest `test-results/local-patch-report.json` before starting Phase 1.
+
+### Ordered Phases (Highest Impact First)
+
+#### Phase 1 — Backend Local Patch Report CLI (Highest Delta)
+
+Targets:
+- `backend/cmd/localpatchreport/main.go` (all listed uncovered ranges)
+
+Suggested test file:
+- `backend/cmd/localpatchreport/main_test.go`
+
+Test focus:
+- argument parsing and mode selection
+- coverage input validation paths
+- baseline/diff resolution flow
+- report generation branches (markdown/json)
+- warning/error branches for missing inputs and malformed coverage
+
+Pass criteria:
+- maximize reduction of uncovered changed lines in `backend/cmd/localpatchreport/main.go` from the `200` baseline, with priority on highest-impact uncovered ranges and no new uncovered changed lines introduced
+- backend targeted test command passes
+
+Targeted test command:
+
+```bash
+cd /projects/Charon/backend && go test ./cmd/localpatchreport -coverprofile=coverage.txt
+```
+
+#### Phase 2 — Frontend Lowest-Coverage, Highest-Uncovered Pages
+
+Targets:
+- `frontend/src/pages/CrowdSecConfig.tsx` (`975-977`, `1220`, `1248-1249`, `1281-1282`, `1316`, `1324-1325`, `1335`)
+- `frontend/src/pages/UsersPage.tsx` (`152-160`)
+- `frontend/src/pages/DNSProviders.tsx` (10 uncovered changed lines)
+
+Suggested test files:
+- `frontend/src/pages/__tests__/CrowdSecConfig.patch-gap.test.tsx`
+- `frontend/src/pages/__tests__/UsersPage.patch-gap.test.tsx`
+- `frontend/src/pages/__tests__/DNSProviders.patch-gap.test.tsx`
+
+Test focus:
+- branch/error-state rendering tied to uncovered lines
+- conditional action handlers and callback guards
+- edge-case interaction states not hit by existing tests
+
+Pass criteria:
+- maximize reduction of changed-line gaps for the three targets, prioritize highest-impact uncovered lines first, and avoid introducing new uncovered changed lines
+- frontend targeted test command passes
+
+Targeted test command:
+
+```bash
+cd /projects/Charon/frontend && npm run test:coverage -- src/pages/__tests__/CrowdSecConfig.patch-gap.test.tsx src/pages/__tests__/UsersPage.patch-gap.test.tsx src/pages/__tests__/DNSProviders.patch-gap.test.tsx
+```
+
+#### Phase 3 — Backend Residual Middleware/Security Gaps
+
+Targets:
+- `backend/internal/api/middleware/auth.go` (3 uncovered changed lines)
+- `backend/internal/cerberus/rate_limit.go` (12 uncovered changed lines)
+
+Suggested test targets/files:
+- extend `backend/internal/api/middleware/auth_test.go`
+- extend `backend/internal/cerberus/rate_limit_test.go`
+
+Test focus:
+- auth middleware edge branches (token/context failure paths)
+- rate-limit boundary and deny/allow branch coverage
+
+Pass criteria:
+- maximize reduction of changed-line gaps for both backend files, prioritize highest-impact uncovered lines first, and avoid introducing new uncovered changed lines
+- backend targeted test command passes
+
+Targeted test command:
+
+```bash
+cd /projects/Charon/backend && go test ./internal/api/middleware ./internal/cerberus -coverprofile=coverage.txt
+```
+
+#### Phase 4 — Frontend Component + Residual Page Gaps
+
+Targets:
+- `frontend/src/components/ProxyHostForm.tsx` (12 uncovered changed lines)
+- `frontend/src/pages/AuditLogs.tsx` (1 uncovered changed line)
+- `frontend/src/pages/Notifications.tsx` (3 uncovered changed lines)
+
+Suggested test files:
+- `frontend/src/components/__tests__/ProxyHostForm.patch-gap.test.tsx`
+- `frontend/src/pages/__tests__/AuditLogs.patch-gap.test.tsx`
+- `frontend/src/pages/__tests__/Notifications.patch-gap.test.tsx`
+
+Test focus:
+- form branch paths and validation fallbacks
+- single-line residual branch in audit logs
+- notification branch handling for low-frequency states
+
+Pass criteria:
+- maximize reduction of changed-line gaps for all three targets, prioritize highest-impact uncovered lines first, and avoid introducing new uncovered changed lines
+- frontend targeted test command passes
+
+Targeted test command:
+
+```bash
+cd /projects/Charon/frontend && npm run test:coverage -- src/components/__tests__/ProxyHostForm.patch-gap.test.tsx src/pages/__tests__/AuditLogs.patch-gap.test.tsx src/pages/__tests__/Notifications.patch-gap.test.tsx
+```
+
+### Execution Commands
+
+Run from repository root unless stated otherwise.
+
+1) Backend coverage:
+
+```bash
+cd backend && go test ./... -coverprofile=coverage.txt
+```
+
+2) Frontend coverage:
+
+```bash
+cd frontend && npm run test:coverage
+```
+
+3) Local patch report iteration:
+
+```bash
+bash scripts/local-patch-report.sh
+```
+
+4) Iteration loop (repeat until all target gaps are closed):
+
+```bash
+cd backend && go test ./... -coverprofile=coverage.txt
+cd /projects/Charon/frontend && npm run test:coverage
+cd /projects/Charon && bash scripts/local-patch-report.sh
+```
+
+### Phase Completion Checks
+
+- After each phase, rerun `bash scripts/local-patch-report.sh` and confirm that only the next planned target set remains uncovered.
+- Do not advance phases when a phase target still shows uncovered changed lines.
+
+### Final Merge-Ready Gate (DoD-Aligned, Warn-Mode Rollout)
+
+This PR is merge-ready only when all conditions are true:
+
+- local patch report runs in warn mode and required artifacts are generated
+- practical merge objective: drive a significant reduction in authoritative baseline uncovered changed lines in this PR, prioritizing highest-impact files; `0` remains aspirational and is not a warn-mode merge blocker
+- required artifacts exist and are current:
+   - `test-results/local-patch-report.md`
+   - `test-results/local-patch-report.json`
+- backend and frontend coverage commands complete successfully
+- DoD checks remain satisfied (E2E first, local patch report preflight, required security/coverage/type/build validations)

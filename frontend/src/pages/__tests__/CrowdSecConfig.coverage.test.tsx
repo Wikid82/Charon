@@ -1,5 +1,5 @@
 import { AxiosError } from 'axios'
-import { screen, waitFor, act, cleanup, within } from '@testing-library/react'
+import { screen, waitFor, act, cleanup, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient } from '@tanstack/react-query'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -288,6 +288,45 @@ describe('CrowdSecConfig coverage', () => {
     await waitFor(() => expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('Backup: /tmp/backup.tar.gz'))
   })
 
+  it('supports keyboard selection for preset cards (Enter and Space)', async () => {
+    vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValueOnce({
+      presets: [
+        {
+          slug: CROWDSEC_PRESETS[0].slug,
+          title: CROWDSEC_PRESETS[0].title,
+          summary: CROWDSEC_PRESETS[0].description,
+          source: 'hub',
+          requires_hub: false,
+          available: true,
+          cached: false,
+          cache_key: 'cache-a',
+        },
+        {
+          slug: CROWDSEC_PRESETS[1].slug,
+          title: CROWDSEC_PRESETS[1].title,
+          summary: CROWDSEC_PRESETS[1].description,
+          source: 'hub',
+          requires_hub: false,
+          available: true,
+          cached: false,
+          cache_key: 'cache-b',
+        },
+      ],
+    })
+
+    await renderPage()
+
+    const firstCard = await screen.findByRole('button', { name: new RegExp(CROWDSEC_PRESETS[0].title, 'i') })
+    const secondCard = await screen.findByRole('button', { name: new RegExp(CROWDSEC_PRESETS[1].title, 'i') })
+
+    firstCard.focus()
+    await userEvent.keyboard('{Enter}')
+    secondCard.focus()
+    await userEvent.keyboard(' ')
+
+    await waitFor(() => expect(presetsApi.pullCrowdsecPreset).toHaveBeenCalledTimes(2))
+  })
+
   it('falls back to local apply on 501 and covers validation/hub/offline branches', async () => {
     vi.mocked(crowdsecApi.writeCrowdsecFile).mockResolvedValue({})
     vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(501, 'not implemented'))
@@ -458,6 +497,79 @@ describe('CrowdSecConfig coverage', () => {
     const confirmModal = screen.getByText('Confirm Unban').closest('div') as HTMLElement
     await userEvent.click(within(confirmModal).getByRole('button', { name: 'Unban' }))
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('unban fail'))
+  })
+
+  it('supports ban modal click and keyboard interactions', async () => {
+    await renderPage()
+
+    await userEvent.click(screen.getByRole('button', { name: /Ban IP/ }))
+    expect(await screen.findByText('Ban IP Address')).toBeInTheDocument()
+
+    const banDialog = screen.getByRole('dialog', { name: 'Ban IP Address' })
+    const banOverlay = banDialog.parentElement?.querySelector('[class*="bg-black/60"]') as HTMLElement
+    fireEvent.click(banOverlay)
+    await waitFor(() => expect(screen.queryByText('Ban IP Address')).not.toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: /Ban IP/ }))
+    const modalContainer = screen.getByRole('dialog', { name: 'Ban IP Address' })
+    const ipInput = within(modalContainer).getByPlaceholderText('192.168.1.100')
+    await userEvent.type(ipInput, '9.9.9.9')
+
+    await userEvent.keyboard('{Control>}{Enter}{/Control}')
+    await waitFor(() => expect(crowdsecApi.banIP).toHaveBeenCalledWith('9.9.9.9', '24h', ''))
+
+    await userEvent.click(screen.getByRole('button', { name: /Ban IP/ }))
+    const secondModalContainer = screen.getByRole('dialog', { name: 'Ban IP Address' })
+    const secondIpInput = within(secondModalContainer).getByPlaceholderText('192.168.1.100')
+    await userEvent.type(secondIpInput, '8.8.8.8')
+    await userEvent.keyboard('{Enter}')
+    await waitFor(() => expect(crowdsecApi.banIP).toHaveBeenCalledWith('8.8.8.8', '24h', ''))
+
+    await userEvent.click(screen.getByRole('button', { name: /Ban IP/ }))
+    const thirdModalContainer = screen.getByRole('dialog', { name: 'Ban IP Address' })
+    const thirdIpInput = within(thirdModalContainer).getByPlaceholderText('192.168.1.100')
+    await userEvent.type(thirdIpInput, '8.8.8.8')
+    const reasonInput = within(thirdModalContainer).getByLabelText('Reason')
+    await userEvent.type(reasonInput, 'manual reason{Enter}')
+    await waitFor(() => expect(crowdsecApi.banIP).toHaveBeenCalledWith('8.8.8.8', '24h', 'manual reason'))
+  })
+
+  it('supports unban modal overlay, Escape, Enter, and cancel button', async () => {
+    vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValueOnce({
+      decisions: [
+        { id: '1', ip: '7.7.7.7', reason: 'bot', duration: '24h', created_at: '2024-01-01T00:00:00Z', source: 'manual' },
+      ],
+    })
+
+    await renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: 'Unban' }))
+    expect(await screen.findByText('Confirm Unban')).toBeInTheDocument()
+
+    const unbanDialog = screen.getByRole('dialog', { name: 'Confirm Unban' })
+    const unbanOverlay = unbanDialog.parentElement?.querySelector('[class*="bg-black/60"]') as HTMLElement
+    fireEvent.click(unbanOverlay)
+    await waitFor(() => expect(screen.queryByText('Confirm Unban')).not.toBeInTheDocument())
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Unban' }))
+    expect(await screen.findByText('Confirm Unban')).toBeInTheDocument()
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByText('Confirm Unban')).not.toBeInTheDocument())
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Unban' }))
+    expect(await screen.findByText('Confirm Unban')).toBeInTheDocument()
+    await userEvent.keyboard('{Enter}')
+    await waitFor(() => expect(crowdsecApi.unbanIP).toHaveBeenCalledWith('7.7.7.7'))
+
+    vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValueOnce({
+      decisions: [
+        { id: '1', ip: '7.7.7.7', reason: 'bot', duration: '24h', created_at: '2024-01-01T00:00:00Z', source: 'manual' },
+      ],
+    })
+    await renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: 'Unban' }))
+    const confirmContainer = screen.getByRole('dialog', { name: 'Confirm Unban' })
+    await userEvent.click(within(confirmContainer).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByText('Confirm Unban')).not.toBeInTheDocument())
   })
 
   it('bans and unbans IPs with overlay messaging', async () => {

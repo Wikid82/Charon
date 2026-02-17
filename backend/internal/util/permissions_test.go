@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"testing"
 )
@@ -187,5 +188,49 @@ func TestMapSaveErrorCode_PermissionDeniedText(t *testing.T) {
 	}
 	if code != "permissions_write_denied" {
 		t.Fatalf("expected permissions_write_denied, got %q", code)
+	}
+}
+
+func TestCheckPathPermissions_NullBytePath(t *testing.T) {
+	result := CheckPathPermissions("bad\x00path", "rw")
+	if result.ErrorCode != "permissions_invalid_path" {
+		t.Fatalf("expected permissions_invalid_path, got %q", result.ErrorCode)
+	}
+	if result.Writable {
+		t.Fatalf("expected writable=false for null-byte path")
+	}
+}
+
+func TestCheckPathPermissions_SymlinkPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink test is environment-dependent on windows")
+	}
+
+	tmpDir := t.TempDir()
+	target := filepath.Join(tmpDir, "target.txt")
+	if err := os.WriteFile(target, []byte("ok"), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	link := filepath.Join(tmpDir, "target-link.txt")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink not available in this environment: %v", err)
+	}
+
+	result := CheckPathPermissions(link, "rw")
+	if result.ErrorCode != "permissions_unsupported_type" {
+		t.Fatalf("expected permissions_unsupported_type, got %q", result.ErrorCode)
+	}
+	if result.Writable {
+		t.Fatalf("expected writable=false for symlink path")
+	}
+}
+
+func TestMapSaveErrorCode_ReadOnlyFilesystem(t *testing.T) {
+	code, ok := MapSaveErrorCode(syscall.EROFS)
+	if !ok {
+		t.Fatalf("expected readonly filesystem to be recognized")
+	}
+	if code != "permissions_db_readonly" {
+		t.Fatalf("expected permissions_db_readonly, got %q", code)
 	}
 }

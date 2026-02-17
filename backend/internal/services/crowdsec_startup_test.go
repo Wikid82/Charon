@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -539,6 +540,30 @@ func TestReconcileCrowdSecOnStartup_CreateConfigDBError(t *testing.T) {
 	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir, cmdExec)
 
 	// Should not start if SecurityConfig creation fails
+	assert.False(t, exec.startCalled)
+}
+
+func TestReconcileCrowdSecOnStartup_CreateConfigCallbackError(t *testing.T) {
+	db := setupCrowdsecTestDB(t)
+	binPath, dataDir, cleanup := setupCrowdsecTestFixtures(t)
+	defer cleanup()
+
+	cbName := "test:force-create-config-error"
+	err := db.Callback().Create().Before("gorm:create").Register(cbName, func(tx *gorm.DB) {
+		if tx.Statement != nil && tx.Statement.Schema != nil && tx.Statement.Schema.Name == "SecurityConfig" {
+			_ = tx.AddError(fmt.Errorf("forced security config create error"))
+		}
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = db.Callback().Create().Remove(cbName)
+	})
+
+	exec := &smartMockCrowdsecExecutor{startPid: 99999}
+	cmdExec := &mockCommandExecutor{}
+
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir, cmdExec)
+
 	assert.False(t, exec.startCalled)
 }
 

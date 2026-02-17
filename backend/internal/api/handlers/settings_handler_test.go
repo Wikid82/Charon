@@ -28,6 +28,14 @@ type mockCaddyConfigManager struct {
 	calls     int
 }
 
+type mockCacheInvalidator struct {
+	calls int
+}
+
+func (m *mockCacheInvalidator) InvalidateCache() {
+	m.calls++
+}
+
 func (m *mockCaddyConfigManager) ApplyConfig(ctx context.Context) error {
 	m.calls++
 	if m.applyFunc != nil {
@@ -357,6 +365,132 @@ func TestSettingsHandler_UpdateSetting_SecurityKeyApplyFailureReturnsError(t *te
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Equal(t, 1, mgr.calls)
+}
+
+func TestSettingsHandler_UpdateSetting_NonAdminForbidden(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "user")
+		c.Next()
+	})
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{"key": "security.waf.enabled", "value": "true"}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestSettingsHandler_UpdateSetting_InvalidAdminWhitelist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{
+		"key":   "security.admin_whitelist",
+		"value": "invalid-cidr-without-prefix",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "Invalid admin_whitelist")
+}
+
+func TestSettingsHandler_UpdateSetting_SecurityKeyInvalidatesCache(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	mgr := &mockCaddyConfigManager{}
+	inv := &mockCacheInvalidator{}
+	handler := handlers.NewSettingsHandlerWithDeps(db, mgr, inv, nil, "")
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{
+		"key":   "security.rate_limit.enabled",
+		"value": "true",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, 1, inv.calls)
+	assert.Equal(t, 1, mgr.calls)
+}
+
+func TestSettingsHandler_PatchConfig_InvalidAdminWhitelist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.PATCH("/config", handler.PatchConfig)
+
+	payload := map[string]any{
+		"security": map[string]any{
+			"admin_whitelist": "bad-cidr",
+		},
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPatch, "/config", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "Invalid admin_whitelist")
+}
+
+func TestSettingsHandler_PatchConfig_ReloadFailureReturns500(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	mgr := &mockCaddyConfigManager{applyFunc: func(context.Context) error {
+		return fmt.Errorf("reload failed")
+	}}
+	inv := &mockCacheInvalidator{}
+	handler := handlers.NewSettingsHandlerWithDeps(db, mgr, inv, nil, "")
+	router := newAdminRouter()
+	router.PATCH("/config", handler.PatchConfig)
+
+	payload := map[string]any{
+		"security": map[string]any{
+			"waf": map[string]any{"enabled": true},
+		},
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPatch, "/config", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, 1, inv.calls)
+	assert.Equal(t, 1, mgr.calls)
+	assert.Contains(t, w.Body.String(), "Failed to reload configuration")
 }
 
 func TestSettingsHandler_PatchConfig_SyncsAdminWhitelist(t *testing.T) {

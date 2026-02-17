@@ -10,15 +10,29 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 type stubPermissionChecker struct{}
+
+type fakeNoStatFileInfo struct{}
+
+func (fakeNoStatFileInfo) Name() string       { return "fake" }
+func (fakeNoStatFileInfo) Size() int64        { return 0 }
+func (fakeNoStatFileInfo) Mode() os.FileMode  { return 0 }
+func (fakeNoStatFileInfo) ModTime() time.Time { return time.Time{} }
+func (fakeNoStatFileInfo) IsDir() bool        { return false }
+func (fakeNoStatFileInfo) Sys() any           { return nil }
 
 func (stubPermissionChecker) Check(path, required string) util.PermissionCheck {
 	return util.PermissionCheck{
@@ -192,6 +206,12 @@ func TestSystemPermissionsHandler_PathHasSymlink(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestSystemPermissionsHandler_NewDefaultsCheckerToOSChecker(t *testing.T) {
+	h := NewSystemPermissionsHandler(config.Config{}, nil, nil)
+	require.NotNil(t, h)
+	require.NotNil(t, h.checker)
+}
+
 func TestSystemPermissionsHandler_RepairPermissions_DisabledWhenNotSingleContainer(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -289,6 +309,132 @@ func TestSystemPermissionsHandler_RepairPermissions_Success(t *testing.T) {
 	require.NotEqual(t, "error", payload.Paths[0].Status)
 }
 
+func TestSystemPermissionsHandler_RepairPermissions_NonAdmin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := NewSystemPermissionsHandler(config.Config{SingleContainer: true}, nil, stubPermissionChecker{})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("role", "user")
+	c.Request = httptest.NewRequest(http.MethodPost, "/system/permissions/repair", bytes.NewBufferString(`{"paths":["/tmp"]}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.RepairPermissions(c)
+
+	require.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestSystemPermissionsHandler_RepairPermissions_InvalidJSONWhenRoot(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("test requires root execution")
+	}
+
+	gin.SetMode(gin.TestMode)
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o750))
+
+	h := NewSystemPermissionsHandler(config.Config{
+		SingleContainer: true,
+		DatabasePath:    filepath.Join(dataDir, "charon.db"),
+		ConfigRoot:      dataDir,
+		CaddyLogDir:     dataDir,
+		CrowdSecLogDir:  dataDir,
+	}, nil, stubPermissionChecker{})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("role", "admin")
+	c.Request = httptest.NewRequest(http.MethodPost, "/system/permissions/repair", bytes.NewBufferString(`{"paths":`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.RepairPermissions(c)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestSystemPermissionsHandler_DefaultPathsAndAllowlistRoots(t *testing.T) {
+	h := NewSystemPermissionsHandler(config.Config{
+		DatabasePath:   "/app/data/charon.db",
+		ConfigRoot:     "/app/config",
+		CaddyLogDir:    "/var/log/caddy",
+		CrowdSecLogDir: "/var/log/crowdsec",
+		PluginsDir:     "/app/plugins",
+	}, nil, stubPermissionChecker{})
+
+	paths := h.defaultPaths()
+	require.Len(t, paths, 11)
+	require.Equal(t, "/app/data", paths[0].Path)
+	require.Equal(t, "/app/plugins", paths[len(paths)-1].Path)
+
+	roots := h.allowlistRoots()
+	require.Equal(t, []string{"/app/data", "/app/config", "/var/log/caddy", "/var/log/crowdsec"}, roots)
+}
+
+func TestSystemPermissionsHandler_IsOwnedByFalseWhenSysNotStat(t *testing.T) {
+	owned := isOwnedBy(fakeNoStatFileInfo{}, os.Geteuid(), os.Getegid())
+	require.False(t, owned)
+}
+
+func TestSystemPermissionsHandler_IsWithinAllowlist_RelErrorBranch(t *testing.T) {
+	tmp := t.TempDir()
+	inAllow := filepath.Join(tmp, "a", "b")
+	require.NoError(t, os.MkdirAll(inAllow, 0o750))
+
+	badRoot := string([]byte{'/', 0, 'x'})
+	allowed := isWithinAllowlist(inAllow, []string{badRoot, tmp})
+	require.True(t, allowed)
+}
+
+func TestSystemPermissionsHandler_IsWithinAllowlist_AllRelErrorsReturnFalse(t *testing.T) {
+	badRoot1 := string([]byte{'/', 0, 'x'})
+	badRoot2 := string([]byte{'/', 0, 'y'})
+	allowed := isWithinAllowlist("/tmp/some/path", []string{badRoot1, badRoot2})
+	require.False(t, allowed)
+}
+
+func TestSystemPermissionsHandler_LogAudit_PersistsAuditWithUserID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SecurityAudit{}))
+
+	securitySvc := services.NewSecurityService(db)
+	h := NewSystemPermissionsHandler(config.Config{}, securitySvc, stubPermissionChecker{})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("role", "admin")
+	c.Set("userID", 42)
+	c.Request = httptest.NewRequest(http.MethodGet, "/system/permissions", http.NoBody)
+
+	require.NotPanics(t, func() {
+		h.logAudit(c, "permissions_diagnostics", "ok", "", 2)
+	})
+}
+
+func TestSystemPermissionsHandler_LogAudit_PersistsAuditWithUnknownActor(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SecurityAudit{}))
+
+	securitySvc := services.NewSecurityService(db)
+	h := NewSystemPermissionsHandler(config.Config{}, securitySvc, stubPermissionChecker{})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("role", "admin")
+	c.Request = httptest.NewRequest(http.MethodGet, "/system/permissions", http.NoBody)
+
+	require.NotPanics(t, func() {
+		h.logAudit(c, "permissions_diagnostics", "ok", "", 1)
+	})
+}
+
 func TestSystemPermissionsHandler_RepairPath_Branches(t *testing.T) {
 	h := NewSystemPermissionsHandler(config.Config{}, nil, stubPermissionChecker{})
 	allowRoot := t.TempDir()
@@ -359,4 +505,88 @@ func TestSystemPermissionsHandler_RepairPath_Branches(t *testing.T) {
 		require.Equal(t, "permissions_repair_skipped", result.ErrorCode)
 		require.Equal(t, "0600", result.ModeAfter)
 	})
+}
+
+func TestSystemPermissionsHandler_OSChecker_Check(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("test expects root-owned temp paths in CI")
+	}
+
+	tmp := t.TempDir()
+	filePath := filepath.Join(tmp, "check.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("ok"), 0o600))
+
+	checker := OSChecker{}
+	result := checker.Check(filePath, "rw")
+	require.Equal(t, filePath, result.Path)
+	require.Equal(t, "rw", result.Required)
+	require.True(t, result.Exists)
+}
+
+func TestSystemPermissionsHandler_RepairPermissions_InvalidRequestBody_Root(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("test requires root execution")
+	}
+
+	gin.SetMode(gin.TestMode)
+
+	tmp := t.TempDir()
+	dataDir := filepath.Join(tmp, "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o750))
+
+	h := NewSystemPermissionsHandler(config.Config{
+		SingleContainer: true,
+		DatabasePath:    filepath.Join(dataDir, "charon.db"),
+		ConfigRoot:      dataDir,
+		CaddyLogDir:     dataDir,
+		CrowdSecLogDir:  dataDir,
+		PluginsDir:      filepath.Join(tmp, "plugins"),
+	}, nil, stubPermissionChecker{})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set("role", "admin")
+	c.Request = httptest.NewRequest(http.MethodPost, "/system/permissions/repair", bytes.NewBufferString(`{"group_mode":true}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.RepairPermissions(c)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestSystemPermissionsHandler_RepairPath_LstatInvalidArgument(t *testing.T) {
+	h := NewSystemPermissionsHandler(config.Config{}, nil, stubPermissionChecker{})
+	allowRoot := t.TempDir()
+
+	result := h.repairPath("/tmp/\x00invalid", false, []string{allowRoot})
+	require.Equal(t, "error", result.Status)
+	require.Equal(t, "permissions_repair_failed", result.ErrorCode)
+}
+
+func TestSystemPermissionsHandler_RepairPath_RepairedBranch(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("test requires root execution")
+	}
+
+	h := NewSystemPermissionsHandler(config.Config{}, nil, stubPermissionChecker{})
+	allowRoot := t.TempDir()
+	targetFile := filepath.Join(allowRoot, "needs-repair.txt")
+	require.NoError(t, os.WriteFile(targetFile, []byte("ok"), 0o600))
+
+	result := h.repairPath(targetFile, true, []string{allowRoot})
+	require.Equal(t, "repaired", result.Status)
+	require.Equal(t, "0660", result.ModeAfter)
+
+	info, err := os.Stat(targetFile)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o660), info.Mode().Perm())
+}
+
+func TestSystemPermissionsHandler_NormalizePath_ParentRefBranches(t *testing.T) {
+	clean, code := normalizePath("/../etc")
+	require.Equal(t, "/etc", clean)
+	require.Empty(t, code)
+
+	clean, code = normalizePath("/var/../etc")
+	require.Equal(t, "/etc", clean)
+	require.Empty(t, code)
 }

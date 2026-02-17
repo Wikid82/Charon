@@ -2,6 +2,7 @@ package services
 
 import (
 	"archive/zip"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,6 +16,18 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
+
+func TestCreateSQLiteSnapshot_InvalidDBPath(t *testing.T) {
+	badPath := filepath.Join(t.TempDir(), "missing-parent", "missing.db")
+	_, _, err := createSQLiteSnapshot(badPath)
+	require.Error(t, err)
+}
+
+func TestCheckpointSQLiteDatabase_InvalidDBPath(t *testing.T) {
+	badPath := filepath.Join(t.TempDir(), "missing-parent", "missing.db")
+	err := checkpointSQLiteDatabase(badPath)
+	require.Error(t, err)
+}
 
 func TestBackupService_RehydrateLiveDatabase(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -119,4 +132,123 @@ func TestBackupService_RehydrateLiveDatabase_FromBackupWithWAL(t *testing.T) {
 	require.NoError(t, db.Find(&restoredUsers).Error)
 	require.Len(t, restoredUsers, 1)
 	assert.Equal(t, "restore-from-wal@example.com", restoredUsers[0].Email)
+}
+
+func TestBackupService_ExtractDatabaseFromBackup_WALCheckpointFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	zipPath := filepath.Join(tmpDir, "with-invalid-wal.zip")
+
+	zipFile, err := os.Create(zipPath) //nolint:gosec
+	require.NoError(t, err)
+	writer := zip.NewWriter(zipFile)
+
+	dbEntry, err := writer.Create("charon.db")
+	require.NoError(t, err)
+	_, err = dbEntry.Write([]byte("not-a-valid-sqlite-db"))
+	require.NoError(t, err)
+
+	walEntry, err := writer.Create("charon.db-wal")
+	require.NoError(t, err)
+	_, err = walEntry.Write([]byte("not-a-valid-wal"))
+	require.NoError(t, err)
+
+	require.NoError(t, writer.Close())
+	require.NoError(t, zipFile.Close())
+
+	svc := &BackupService{DatabaseName: "charon.db"}
+	_, err = svc.extractDatabaseFromBackup(zipPath)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "checkpoint extracted sqlite wal")
+}
+
+func TestBackupService_RehydrateLiveDatabase_InvalidRestoreDB(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o700))
+
+	activeDBPath := filepath.Join(dataDir, "charon.db")
+	activeDB, err := gorm.Open(sqlite.Open(activeDBPath), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, activeDB.Exec("CREATE TABLE IF NOT EXISTS healthcheck (id INTEGER PRIMARY KEY, value TEXT)").Error)
+
+	invalidRestorePath := filepath.Join(tmpDir, "invalid-restore.sqlite")
+	require.NoError(t, os.WriteFile(invalidRestorePath, []byte("invalid sqlite content"), 0o600))
+
+	svc := &BackupService{
+		DataDir:       dataDir,
+		DatabaseName:  "charon.db",
+		restoreDBPath: invalidRestorePath,
+	}
+
+	err = svc.RehydrateLiveDatabase(activeDB)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "attach restored database")
+}
+
+func TestBackupService_RehydrateLiveDatabase_InvalidTableIdentifier(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o700))
+
+	activeDBPath := filepath.Join(dataDir, "charon.db")
+	activeDB, err := gorm.Open(sqlite.Open(activeDBPath), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, activeDB.Exec("CREATE TABLE \"bad-name\" (id INTEGER PRIMARY KEY, value TEXT)").Error)
+
+	restoreDBPath := filepath.Join(tmpDir, "restore.sqlite")
+	restoreDB, err := gorm.Open(sqlite.Open(restoreDBPath), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, restoreDB.Exec("CREATE TABLE \"bad-name\" (id INTEGER PRIMARY KEY, value TEXT)").Error)
+	require.NoError(t, restoreDB.Exec("INSERT INTO \"bad-name\" (value) VALUES (?)", "ok").Error)
+
+	svc := &BackupService{
+		DataDir:       dataDir,
+		DatabaseName:  "charon.db",
+		restoreDBPath: restoreDBPath,
+	}
+
+	err = svc.RehydrateLiveDatabase(activeDB)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "quote table identifier")
+}
+
+func TestBackupService_CreateSQLiteSnapshot_TempDirInvalid(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "charon.db")
+	createSQLiteTestDB(t, dbPath)
+
+	originalTmp := os.Getenv("TMPDIR")
+	t.Setenv("TMPDIR", filepath.Join(tmpDir, "nonexistent-tmp"))
+	defer func() {
+		_ = os.Setenv("TMPDIR", originalTmp)
+	}()
+
+	_, _, err := createSQLiteSnapshot(dbPath)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "create sqlite snapshot file")
+}
+
+func TestBackupService_RunScheduledBackup_CreateBackupAndCleanupHooks(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o700))
+
+	cfg := &config.Config{DatabasePath: filepath.Join(dataDir, "charon.db")}
+	service := NewBackupService(cfg)
+	defer service.Stop()
+
+	createCalls := 0
+	cleanupCalls := 0
+	service.createBackup = func() (string, error) {
+		createCalls++
+		return fmt.Sprintf("backup-%d.zip", createCalls), nil
+	}
+	service.cleanupOld = func(keep int) (int, error) {
+		cleanupCalls++
+		return 1, nil
+	}
+
+	service.RunScheduledBackup()
+	require.Equal(t, 1, createCalls)
+	require.Equal(t, 1, cleanupCalls)
 }

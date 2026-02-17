@@ -399,6 +399,45 @@ func TestCertificateHandler_Upload_MissingKeyFile(t *testing.T) {
 	}
 }
 
+func TestCertificateHandler_Upload_MissingKeyFile_MultipartWithCert(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	svc := services.NewCertificateService("/tmp", db)
+	h := NewCertificateHandler(svc, nil, nil)
+	r.POST("/api/certificates", h.Upload)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("name", "testcert")
+	part, createErr := writer.CreateFormFile("certificate_file", "cert.pem")
+	if createErr != nil {
+		t.Fatalf("failed to create form file: %v", createErr)
+	}
+	_, _ = part.Write([]byte("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----"))
+	_ = writer.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/certificates", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d, body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "key_file") {
+		t.Fatalf("expected error message about key_file, got: %s", w.Body.String())
+	}
+}
+
 // Test Upload handler success path using a mock CertificateService
 func TestCertificateHandler_Upload_Success(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { act } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -731,6 +731,33 @@ describe('ProxyHostForm', () => {
       expect(blockExploitsCheckbox).toBeChecked()
       await userEvent.click(blockExploitsCheckbox)
       expect(blockExploitsCheckbox).not.toBeChecked()
+
+      // Toggle HSTS Subdomains (default is true)
+      const hstsSubdomainsCheckbox = screen.getByLabelText('HSTS Subdomains')
+      expect(hstsSubdomainsCheckbox).toBeChecked()
+      await userEvent.click(hstsSubdomainsCheckbox)
+      expect(hstsSubdomainsCheckbox).not.toBeChecked()
+    })
+
+    it('submits updated hsts_subdomains flag', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByPlaceholderText('My Service'), 'HSTS Toggle')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'hsts.existing.com')
+      await userEvent.type(screen.getByLabelText(/^Host$/), '192.168.1.10')
+
+      const hstsSubdomainsCheckbox = screen.getByLabelText('HSTS Subdomains')
+      await userEvent.click(hstsSubdomainsCheckbox)
+
+      await userEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+          hsts_subdomains: false,
+        }))
+      })
     })
   })
 
@@ -896,6 +923,25 @@ describe('ProxyHostForm', () => {
           security_header_profile_id: 100,
         }))
       })
+    })
+
+    it('renders and selects non-preset security header profile options', async () => {
+      const { useSecurityHeaderProfiles } = await import('../../hooks/useSecurityHeaders')
+      vi.mocked(useSecurityHeaderProfiles).mockReturnValue({
+        data: [
+          { id: 100, name: 'Strict Profile', description: 'Very strict', security_score: 90, is_preset: true, preset_type: 'strict' },
+          { id: 101, name: 'Custom Profile', description: 'Custom profile', security_score: 70, is_preset: false },
+        ],
+        isLoading: false,
+        error: null,
+      } as unknown as ReturnType<typeof useSecurityHeaderProfiles>)
+
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await selectComboboxOption(/Security Headers/i, 'Custom Profile (Score: 70/100)')
+      expect(screen.getByRole('combobox', { name: /Security Headers/i })).toHaveTextContent('Custom Profile')
     })
   })
 
@@ -1072,6 +1118,34 @@ describe('ProxyHostForm', () => {
   })
 
   describe('Port Input Handling', () => {
+    it('shows required-port validation branch when submit is triggered with empty port', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByPlaceholderText('My Service'), 'Port Required')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'required.existing.com')
+      await userEvent.type(screen.getByLabelText(/^Host$/), '192.168.1.100')
+
+      const portInput = screen.getByLabelText(/^Port$/) as HTMLInputElement
+      await userEvent.clear(portInput)
+
+      const setCustomValiditySpy = vi.spyOn(HTMLInputElement.prototype, 'setCustomValidity')
+      const reportValiditySpy = vi.spyOn(HTMLInputElement.prototype, 'reportValidity').mockReturnValue(false)
+
+      const form = document.querySelector('form') as HTMLFormElement
+      fireEvent.submit(form)
+
+      await waitFor(() => {
+        expect(setCustomValiditySpy).toHaveBeenCalledWith('Port is required')
+        expect(reportValiditySpy).toHaveBeenCalled()
+        expect(mockOnSubmit).not.toHaveBeenCalled()
+      })
+
+      setCustomValiditySpy.mockRestore()
+      reportValiditySpy.mockRestore()
+    })
+
     it('validates port number range', async () => {
       await renderWithClientAct(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
@@ -1091,6 +1165,87 @@ describe('ProxyHostForm', () => {
 
       expect(portInput).toBeInvalid()
       expect(mockOnSubmit).not.toHaveBeenCalled()
+    })
+
+    it('shows out-of-range validation branch when submit is triggered with invalid port', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByPlaceholderText('My Service'), 'Port Range Branch')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'range.existing.com')
+      await userEvent.type(screen.getByLabelText(/^Host$/), '192.168.1.100')
+
+      const portInput = screen.getByLabelText(/^Port$/) as HTMLInputElement
+      await userEvent.clear(portInput)
+      await userEvent.type(portInput, '70000')
+
+      const setCustomValiditySpy = vi.spyOn(HTMLInputElement.prototype, 'setCustomValidity')
+      const reportValiditySpy = vi.spyOn(HTMLInputElement.prototype, 'reportValidity').mockReturnValue(false)
+
+      const form = document.querySelector('form') as HTMLFormElement
+      fireEvent.submit(form)
+
+      await waitFor(() => {
+        expect(setCustomValiditySpy).toHaveBeenCalledWith('Port must be between 1 and 65535')
+        expect(reportValiditySpy).toHaveBeenCalled()
+        expect(mockOnSubmit).not.toHaveBeenCalled()
+      })
+
+      setCustomValiditySpy.mockRestore()
+      reportValiditySpy.mockRestore()
+    })
+  })
+
+  describe('Remote Server Container Mapping', () => {
+    it('allows selecting a remote docker source option', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await selectComboboxOption('Source', 'Local Docker Registry (localhost)')
+
+      expect(screen.getByRole('combobox', { name: 'Source' })).toHaveTextContent('Local Docker Registry')
+    })
+
+    it('maps remote docker container to remote host and public port', async () => {
+      const { useDocker } = await import('../../hooks/useDocker')
+      vi.mocked(useDocker).mockReturnValue({
+        containers: [
+          {
+            id: 'remote-container-1',
+            names: ['remote-app'],
+            image: 'nginx:latest',
+            state: 'running',
+            status: 'Up 1 hour',
+            network: 'bridge',
+            ip: '172.18.0.10',
+            ports: [{ private_port: 80, public_port: 18080, type: 'tcp' }],
+          },
+        ],
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByLabelText(/^Name/), 'Remote Mapping')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'remote.existing.com')
+
+      await selectComboboxOption('Source', 'Local Docker Registry (localhost)')
+      await selectComboboxOption('Containers', 'remote-app (nginx:latest)')
+
+      await userEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+          forward_host: 'localhost',
+          forward_port: 18080,
+        }))
+      })
     })
   })
 

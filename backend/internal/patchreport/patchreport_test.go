@@ -86,6 +86,18 @@ func TestResolveThreshold(t *testing.T) {
 	}
 }
 
+func TestResolveThreshold_WithNilLookupUsesOSLookupEnv(t *testing.T) {
+	t.Setenv("PATCH_THRESHOLD_TEST", "91.2")
+
+	resolved := ResolveThreshold("PATCH_THRESHOLD_TEST", 85.0, nil)
+	if resolved.Value != 91.2 {
+		t.Fatalf("expected env value 91.2, got %.1f", resolved.Value)
+	}
+	if resolved.Source != "env" {
+		t.Fatalf("expected source env, got %s", resolved.Source)
+	}
+}
+
 func TestParseUnifiedDiffChangedLines(t *testing.T) {
 	t.Parallel()
 
@@ -114,6 +126,26 @@ index 3333333..4444444 100644
 
 	assertHasLines(t, backendChanged, "backend/internal/app.go", []int{11, 12})
 	assertHasLines(t, frontendChanged, "frontend/src/App.tsx", []int{21, 22})
+}
+
+func TestParseUnifiedDiffChangedLines_InvalidHunkStartReturnsError(t *testing.T) {
+	t.Parallel()
+
+	diff := `diff --git a/backend/internal/app.go b/backend/internal/app.go
+index 1111111..2222222 100644
+--- a/backend/internal/app.go
++++ b/backend/internal/app.go
+@@ -1,1 +abc,2 @@
++line
+`
+
+	backendChanged, frontendChanged, err := ParseUnifiedDiffChangedLines(diff)
+	if err != nil {
+		t.Fatalf("expected graceful handling for invalid hunk, got error: %v", err)
+	}
+	if len(backendChanged) != 0 || len(frontendChanged) != 0 {
+		t.Fatalf("expected no changed lines for invalid hunk, got backend=%v frontend=%v", backendChanged, frontendChanged)
+	}
 }
 
 func TestBackendChangedLineCoverageComputation(t *testing.T) {
@@ -347,6 +379,30 @@ func TestComputeFilesNeedingCoverage_IncludesUncoveredAndSortsDeterministically(
 	}
 }
 
+func TestComputeFilesNeedingCoverage_IncludesFullyCoveredWhenThresholdAbove100(t *testing.T) {
+	t.Parallel()
+
+	changed := FileLineSet{
+		"backend/internal/fully.go": {10: {}, 11: {}},
+	}
+	coverage := CoverageData{
+		Executable: FileLineSet{
+			"backend/internal/fully.go": {10: {}, 11: {}},
+		},
+		Covered: FileLineSet{
+			"backend/internal/fully.go": {10: {}, 11: {}},
+		},
+	}
+
+	details := ComputeFilesNeedingCoverage(changed, coverage, 101)
+	if len(details) != 1 {
+		t.Fatalf("expected 1 file detail when threshold is 101, got %d", len(details))
+	}
+	if details[0].PatchCoveragePct != 100.0 {
+		t.Fatalf("expected 100%% patch coverage detail, got %.1f", details[0].PatchCoveragePct)
+	}
+}
+
 func TestMergeFileCoverageDetails_SortsWorstCoverageThenPath(t *testing.T) {
 	t.Parallel()
 
@@ -369,5 +425,115 @@ func TestMergeFileCoverageDetails_SortsWorstCoverageThenPath(t *testing.T) {
 	want := "backend/internal/w.go,frontend/src/a.ts,frontend/src/z.ts"
 	if got != want {
 		t.Fatalf("unexpected merged order: got %s want %s", got, want)
+	}
+}
+
+func TestParseCoverageRange_ErrorBranches(t *testing.T) {
+	t.Parallel()
+
+	_, _, _, err := parseCoverageRange("missing-colon")
+	if err == nil {
+		t.Fatal("expected error for missing colon")
+	}
+
+	_, _, _, err = parseCoverageRange("file.go:10.1")
+	if err == nil {
+		t.Fatal("expected error for missing end coordinate")
+	}
+
+	_, _, _, err = parseCoverageRange("file.go:bad.1,10.1")
+	if err == nil {
+		t.Fatal("expected error for bad start line")
+	}
+
+	_, _, _, err = parseCoverageRange("file.go:10.1,9.1")
+	if err == nil {
+		t.Fatal("expected error for reversed range")
+	}
+}
+
+func TestSortedWarnings_FiltersBlanksAndSorts(t *testing.T) {
+	t.Parallel()
+
+	sorted := SortedWarnings([]string{"z warning", "", "  ", "a warning"})
+	got := strings.Join(sorted, ",")
+	want := "a warning,z warning"
+	if got != want {
+		t.Fatalf("unexpected warnings ordering: got %q want %q", got, want)
+	}
+}
+
+func TestNormalizePathsAndRanges(t *testing.T) {
+	t.Parallel()
+
+	if got := normalizeGoCoveragePath("internal/service.go"); got != "backend/internal/service.go" {
+		t.Fatalf("unexpected normalized go path: %s", got)
+	}
+
+	if got := normalizeGoCoveragePath("/tmp/work/backend/internal/service.go"); got != "backend/internal/service.go" {
+		t.Fatalf("unexpected backend extraction path: %s", got)
+	}
+
+	frontend := normalizeFrontendCoveragePaths("/tmp/work/frontend/src/App.tsx")
+	if len(frontend) == 0 {
+		t.Fatal("expected frontend normalized paths")
+	}
+
+	ranges := formatLineRanges([]int{1, 2, 3, 7, 9, 10})
+	gotRanges := strings.Join(ranges, ",")
+	wantRanges := "1-3,7,9-10"
+	if gotRanges != wantRanges {
+		t.Fatalf("unexpected ranges: got %q want %q", gotRanges, wantRanges)
+	}
+}
+
+func TestScopeCoverageMergeAndStatus(t *testing.T) {
+	t.Parallel()
+
+	merged := MergeScopeCoverage(
+		ScopeCoverage{ChangedLines: 4, CoveredLines: 3},
+		ScopeCoverage{ChangedLines: 0, CoveredLines: 0},
+	)
+
+	if merged.ChangedLines != 4 || merged.CoveredLines != 3 || merged.PatchCoveragePct != 75.0 {
+		t.Fatalf("unexpected merged scope: %+v", merged)
+	}
+
+	if status := ApplyStatus(merged, 70); status.Status != "pass" {
+		t.Fatalf("expected pass status, got %s", status.Status)
+	}
+}
+
+func TestParseCoverageProfiles_InvalidPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := ParseGoCoverageProfile("   ")
+	if err == nil {
+		t.Fatal("expected go profile path validation error")
+	}
+
+	_, err = ParseLCOVProfile("\t")
+	if err == nil {
+		t.Fatal("expected lcov profile path validation error")
+	}
+}
+
+func TestNormalizeFrontendCoveragePaths_EmptyInput(t *testing.T) {
+	t.Parallel()
+
+	paths := normalizeFrontendCoveragePaths("   ")
+	if len(paths) == 0 {
+		t.Fatalf("expected normalized fallback paths, got %#v", paths)
+	}
+}
+
+func TestAddLine_IgnoresInvalidInputs(t *testing.T) {
+	t.Parallel()
+
+	set := make(FileLineSet)
+	addLine(set, "", 10)
+	addLine(set, "backend/internal/x.go", 0)
+	if len(set) != 0 {
+		t.Fatalf("expected no entries for invalid addLine input, got %#v", set)
 	}
 }

@@ -1551,3 +1551,100 @@ func TestSafeJoinPath(t *testing.T) {
 		assert.Equal(t, "/data/backups/backup.2024.01.01.zip", path)
 	})
 }
+
+func TestBackupService_RehydrateLiveDatabase_NilHandle(t *testing.T) {
+	tmpDir := t.TempDir()
+	svc := &BackupService{DataDir: tmpDir, DatabaseName: "charon.db"}
+
+	err := svc.RehydrateLiveDatabase(nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "database handle is required")
+}
+
+func TestBackupService_RehydrateLiveDatabase_MissingSource(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o700))
+
+	dbPath := filepath.Join(dataDir, "charon.db")
+	createSQLiteTestDB(t, dbPath)
+
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	require.NoError(t, err)
+
+	svc := &BackupService{
+		DataDir:       dataDir,
+		DatabaseName:  "charon.db",
+		restoreDBPath: filepath.Join(tmpDir, "missing-restore.sqlite"),
+	}
+
+	require.NoError(t, os.Remove(dbPath))
+	err = svc.RehydrateLiveDatabase(db)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "restored database file missing")
+}
+
+func TestBackupService_ExtractDatabaseFromBackup_MissingDBEntry(t *testing.T) {
+	tmpDir := t.TempDir()
+	zipPath := filepath.Join(tmpDir, "missing-db-entry.zip")
+
+	zipFile, err := os.Create(zipPath) //nolint:gosec
+	require.NoError(t, err)
+	writer := zip.NewWriter(zipFile)
+
+	entry, err := writer.Create("not-charon.db")
+	require.NoError(t, err)
+	_, err = entry.Write([]byte("placeholder"))
+	require.NoError(t, err)
+
+	require.NoError(t, writer.Close())
+	require.NoError(t, zipFile.Close())
+
+	svc := &BackupService{DatabaseName: "charon.db"}
+	_, err = svc.extractDatabaseFromBackup(zipPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "database entry charon.db not found")
+}
+
+func TestBackupService_RestoreBackup_ReplacesStagedRestoreSnapshot(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	backupDir := filepath.Join(tmpDir, "backups")
+	require.NoError(t, os.MkdirAll(dataDir, 0o700))
+	require.NoError(t, os.MkdirAll(backupDir, 0o700))
+
+	createBackupZipWithDB := func(name string, content []byte) string {
+		path := filepath.Join(backupDir, name)
+		zipFile, err := os.Create(path) //nolint:gosec
+		require.NoError(t, err)
+		writer := zip.NewWriter(zipFile)
+		entry, err := writer.Create("charon.db")
+		require.NoError(t, err)
+		_, err = entry.Write(content)
+		require.NoError(t, err)
+		require.NoError(t, writer.Close())
+		require.NoError(t, zipFile.Close())
+		return path
+	}
+
+	createBackupZipWithDB("backup-one.zip", []byte("one"))
+	createBackupZipWithDB("backup-two.zip", []byte("two"))
+
+	svc := &BackupService{
+		DataDir:       dataDir,
+		BackupDir:     backupDir,
+		DatabaseName:  "charon.db",
+		restoreDBPath: "",
+	}
+
+	require.NoError(t, svc.RestoreBackup("backup-one.zip"))
+	firstRestore := svc.restoreDBPath
+	assert.NotEmpty(t, firstRestore)
+	assert.FileExists(t, firstRestore)
+
+	require.NoError(t, svc.RestoreBackup("backup-two.zip"))
+	secondRestore := svc.restoreDBPath
+	assert.NotEqual(t, firstRestore, secondRestore)
+	assert.NoFileExists(t, firstRestore)
+	assert.FileExists(t, secondRestore)
+}
