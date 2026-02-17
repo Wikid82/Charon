@@ -144,20 +144,25 @@ The task is not complete until ALL of the following pass with zero issues:
     - **Base URL**: Uses `PLAYWRIGHT_BASE_URL` or default from `playwright.config.js`
     - All E2E tests must pass before proceeding to unit tests
 
-2. **Coverage Tests (MANDATORY - Verify Explicitly)**:
+2. **Local Patch Coverage Preflight (MANDATORY - Before Unit/Coverage Tests)**:
+    - Ensure the local patch report is run first via VS Code task `Test: Local Patch Report` or `bash scripts/local-patch-report.sh`.
+    - Verify both artifacts exist: `test-results/local-patch-report.md` and `test-results/local-patch-report.json`.
+    - Use this report to identify changed files needing coverage before running backend/frontend coverage suites.
+
+3. **Coverage Tests (MANDATORY - Verify Explicitly)**:
     - **Backend**: Ensure `Backend_Dev` ran VS Code task "Test: Backend with Coverage" or `scripts/go-test-coverage.sh`
     - **Frontend**: Ensure `Frontend_Dev` ran VS Code task "Test: Frontend with Coverage" or `scripts/frontend-test-coverage.sh`
     - **Why**: These are in manual stage of pre-commit for performance. Subagents MUST run them via VS Code tasks or scripts.
     - Minimum coverage: 85% for both backend and frontend.
     - All tests must pass with zero failures.
 
-3. **Type Safety (Frontend)**:
+4. **Type Safety (Frontend)**:
     - Ensure `Frontend_Dev` ran VS Code task "Lint: TypeScript Check" or `npm run type-check`
     - **Why**: This check is in manual stage of pre-commit for performance. Subagents MUST run it explicitly.
 
-4. **Pre-commit Hooks**: Ensure `QA_Security` ran `pre-commit run --all-files` (fast hooks only; coverage was verified in step 2)
+5. **Pre-commit Hooks**: Ensure `QA_Security` ran `pre-commit run --all-files` (fast hooks only; coverage was verified in step 3)
 
-5. **Security Scans**: Ensure `QA_Security` ran the following with zero Critical or High severity issues:
+6. **Security Scans**: Ensure `QA_Security` ran the following with zero Critical or High severity issues:
    - **Trivy Filesystem Scan**: Fast scan of source code and dependencies
    - **Docker Image Scan (MANDATORY)**: Comprehensive scan of built Docker image
      - **Critical Gap**: This scan catches vulnerabilities that Trivy misses:
@@ -171,9 +176,9 @@ The task is not complete until ALL of the following pass with zero issues:
    - **CodeQL Scans**: Static analysis for Go and JavaScript
    - **QA_Security Requirements**: Must run BOTH Trivy and Docker Image scans, compare results, and block approval if image scan reveals additional vulnerabilities not caught by Trivy
 
-6. **Linting**: All language-specific linters must pass
+7. **Linting**: All language-specific linters must pass
 
-7: **Provide Detailed Commit Message**: Write a comprehensive commit message following the format and rules outlined in `.github/instructions/commit-message.instructions.md`. The message must be meaningful without viewing the diff and should explain the behavior changes, reasons for the change, and any important side effects or considerations.
+8: **Provide Detailed Commit Message**: Write a comprehensive commit message following the format and rules outlined in `.github/instructions/commit-message.instructions.md`. The message must be meaningful without viewing the diff and should explain the behavior changes, reasons for the change, and any important side effects or considerations.
 
 **Your Role**: You delegate implementation to subagents, but YOU are responsible for verifying they completed the Definition of Done. Do not accept "DONE" from a subagent until you have confirmed they ran coverage tests, type checks, and security scans explicitly.
 

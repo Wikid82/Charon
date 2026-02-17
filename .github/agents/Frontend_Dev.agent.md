@@ -40,6 +40,9 @@ You are a SENIOR REACT/TYPESCRIPT ENGINEER with deep expertise in:
    - Add proper error boundaries and loading states
 
 3. **Testing**:
+   - **Run local patch preflight first**: Execute VS Code task `Test: Local Patch Report` or `bash scripts/local-patch-report.sh` before unit/coverage test runs.
+   - Confirm artifacts exist: `test-results/local-patch-report.md` and `test-results/local-patch-report.json`.
+   - Use the report's file-level uncovered list to prioritize frontend test additions.
    - Write unit tests with Vitest and Testing Library
    - Cover edge cases and error states
    - Run tests with `npm test` in `frontend/` directory

@@ -8,6 +8,26 @@ description: 'Strict protocols for test execution, debugging, and coverage valid
 
 **MANDATORY**: Before running unit tests, verify the application UI/UX functions correctly end-to-end.
 
+## 0.5 Local Patch Coverage Preflight (Before Unit Tests)
+
+**MANDATORY**: After E2E and before backend/frontend unit coverage runs, generate a local patch report so uncovered changed lines are visible early.
+
+Run one of the following from `/projects/Charon`:
+
+```bash
+# Preferred (task)
+Test: Local Patch Report
+
+# Script
+bash scripts/local-patch-report.sh
+```
+
+Required artifacts:
+- `test-results/local-patch-report.md`
+- `test-results/local-patch-report.json`
+
+This preflight is advisory for thresholds during rollout, but artifact generation is required in DoD.
+
 ### PREREQUISITE: Start E2E Environment
 
 **CRITICAL**: Rebuild the E2E container when application or Docker build inputs change. If changes are test-only and the container is already healthy, reuse it. If the container is not running or state is suspect, rebuild.
