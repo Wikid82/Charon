@@ -374,6 +374,37 @@ describe('<AuditLogs />', () => {
     })
   })
 
+  it('falls back to raw details when details are not valid JSON', async () => {
+    const invalidDetailsLog = {
+      ...mockAuditLogs[0],
+      uuid: 'raw-details-log',
+      details: 'not-json',
+    }
+
+    vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
+      logs: [invalidDetailsLog],
+      total: 1,
+      page: 1,
+      limit: 50,
+    })
+
+    renderWithProviders(<AuditLogs />)
+
+    await waitFor(() => {
+      expect(screen.getByText('admin@example.com')).toBeInTheDocument()
+    })
+
+    const row = screen.getByText('admin@example.com').closest('tr')
+    if (row) {
+      fireEvent.click(row)
+    }
+
+    await waitFor(() => {
+      expect(screen.getByText('Audit Log Details')).toBeInTheDocument()
+      expect(screen.getByText(/"raw": "not-json"/)).toBeInTheDocument()
+    })
+  })
+
   it('shows filter count badge', async () => {
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
       logs: [],

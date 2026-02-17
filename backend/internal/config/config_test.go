@@ -130,6 +130,28 @@ func TestGetEnvAny(t *testing.T) {
 	assert.Equal(t, "fallback", result) // Empty strings are treated as not set
 }
 
+func TestGetEnvIntAny(t *testing.T) {
+	t.Run("returns fallback when unset", func(t *testing.T) {
+		assert.Equal(t, 42, getEnvIntAny(42, "MISSING_INT_A", "MISSING_INT_B"))
+	})
+
+	t.Run("returns parsed value from first key", func(t *testing.T) {
+		t.Setenv("TEST_INT_A", "123")
+		assert.Equal(t, 123, getEnvIntAny(42, "TEST_INT_A", "TEST_INT_B"))
+	})
+
+	t.Run("returns parsed value from second key", func(t *testing.T) {
+		t.Setenv("TEST_INT_A", "")
+		t.Setenv("TEST_INT_B", "77")
+		assert.Equal(t, 77, getEnvIntAny(42, "TEST_INT_A", "TEST_INT_B"))
+	})
+
+	t.Run("returns fallback when parse fails", func(t *testing.T) {
+		t.Setenv("TEST_INT_BAD", "not-a-number")
+		assert.Equal(t, 42, getEnvIntAny(42, "TEST_INT_BAD"))
+	})
+}
+
 func TestLoad_SecurityConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))

@@ -11,6 +11,120 @@ summary: "Definition of Done validation results, including coverage, security sc
 post_date: "2026-02-10"
 ---
 
+## Current Branch QA/Security Audit - 2026-02-17
+
+### Patch Coverage Push Handoff (Latest Local Report)
+
+- Source: `test-results/local-patch-report.json`
+- Generated: `2026-02-17T18:40:46Z`
+- Mode: **warn**
+- Summary:
+	- Overall patch coverage: **85.4%** (threshold 90%) → **warn**
+	- Backend patch coverage: **85.1%** (threshold 85%) → **pass**
+	- Frontend patch coverage: **91.0%** (threshold 85%) → **pass**
+- Current warn-mode trigger:
+	- Overall is below threshold by **4.6 points**; rollout remains non-blocking while artifacts are still required.
+- Key files still needing patch coverage (highest handoff priority):
+	- `backend/internal/services/mail_service.go` — 20.8% patch coverage, 19 uncovered changed lines
+	- `frontend/src/pages/UsersPage.tsx` — 30.8% patch coverage, 9 uncovered changed lines
+	- `backend/internal/crowdsec/hub_sync.go` — 37.5% patch coverage, 10 uncovered changed lines
+	- `backend/internal/services/security_service.go` — 46.4% patch coverage, 15 uncovered changed lines
+	- `backend/internal/api/handlers/backup_handler.go` — 53.6% patch coverage, 26 uncovered changed lines
+	- `backend/internal/api/handlers/import_handler.go` — 67.5% patch coverage, 26 uncovered changed lines
+	- `backend/internal/api/handlers/settings_handler.go` — 73.6% patch coverage, 24 uncovered changed lines
+	- `backend/internal/util/permissions.go` — 74.4% patch coverage, 34 uncovered changed lines
+
+### 1) E2E Ordering Requirement and Evidence
+
+- Status: **FAIL (missing current-cycle evidence)**
+- Requirement: E2E must run before unit coverage and local patch preflight.
+- Evidence found this cycle:
+	- Local patch preflight was run (`bash scripts/local-patch-report.sh`).
+	- No fresh Playwright execution artifact/report was found for this cycle before the preflight.
+- Conclusion: Ordering proof is not satisfied for this audit cycle.
+
+### 2) Local Patch Preflight Artifacts (Presence + Validity)
+
+- Status: **PASS (warn-mode valid)**
+- Artifacts present:
+	- `test-results/local-patch-report.md`
+	- `test-results/local-patch-report.json`
+- Generated: `2026-02-17T18:40:46Z`
+- Validity summary:
+	- Overall patch coverage: `85.4%` (**warn**, threshold `90%`)
+	- Backend patch coverage: `85.1%` (**pass**, threshold `85%`)
+	- Frontend patch coverage: `91.0%` (**pass**, threshold `85%`)
+
+### 3) Backend/Frontend Coverage Status and Thresholds
+
+- Threshold baseline: **85% minimum** (project QA/testing instructions)
+- Backend coverage (current artifact `backend/coverage.txt`): **87.0%** → **PASS**
+- Frontend line coverage (current artifact `frontend/coverage/lcov.info`): **74.70%** (`LH=1072`, `LF=1435`) → **FAIL**
+- Note: Frontend coverage is currently below required threshold and blocks merge readiness.
+
+### 4) Fast Lint / Pre-commit Status
+
+- Command run: `pre-commit run --all-files`
+- Status: **FAIL**
+- Failing gate: `golangci-lint-fast`
+- Current blocker categories from output:
+	- `errcheck`: unchecked `AddError` return values in tests
+	- `gosec`: test file permission/path safety findings
+	- `unused`: unused helper functions in tests
+
+### 5) Security Scans Required by DoD (This Cycle)
+
+- **Go vulnerability scan (`security-scan-go-vuln`)**: **PASS** (`No vulnerabilities found`)
+- **GORM security scan (`security-scan-gorm --check`)**: **PASS** (0 critical/high/medium; info-only suggestions)
+- **CodeQL (CI-aligned via skill)**: **PASS (non-blocking)**
+	- Go SARIF: `5` results (non-error/non-warning categories in this run)
+	- JavaScript SARIF: `0` results
+- **Trivy filesystem scan (`security-scan-trivy`)**: **FAIL**
+	- Reported security issues, including Dockerfile misconfiguration (`DS-0002`: container user should not be root)
+- **Docker image scan (`security-scan-docker-image`)**: **FAIL**
+	- Vulnerabilities found: `0 critical`, `1 high`, `9 medium`, `1 low`
+	- High finding: `GHSA-69x3-g4r3-p962` in `github.com/slackhq/nebula@v1.9.7` (fixed in `1.10.3`)
+
+### 6) Merge-Readiness Summary (Blockers + Exact Next Commands)
+
+- Merge readiness: **NOT READY**
+
+#### Explicit blockers
+
+1. Missing E2E-first ordering evidence for this cycle.
+2. Frontend coverage below threshold (`74.70% < 85%`).
+3. Fast pre-commit/lint failing (`golangci-lint-fast`).
+4. Security scans failing:
+	 - Trivy filesystem scan
+	 - Docker image scan (1 High vulnerability)
+
+#### Exact next commands
+
+```bash
+cd /projects/Charon && .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+cd /projects/Charon && npx playwright test --project=firefox
+cd /projects/Charon && bash scripts/local-patch-report.sh
+
+cd /projects/Charon && .github/skills/scripts/skill-runner.sh test-frontend-coverage
+cd /projects/Charon && pre-commit run --all-files
+
+cd /projects/Charon && .github/skills/scripts/skill-runner.sh security-scan-trivy vuln,secret,misconfig json
+cd /projects/Charon && .github/skills/scripts/skill-runner.sh security-scan-docker-image
+cd /projects/Charon && .github/skills/scripts/skill-runner.sh security-scan-codeql all summary
+```
+
+#### Re-check command set after fixes
+
+```bash
+cd /projects/Charon && npx playwright test --project=firefox
+cd /projects/Charon && bash scripts/local-patch-report.sh
+cd /projects/Charon && .github/skills/scripts/skill-runner.sh test-frontend-coverage
+cd /projects/Charon && pre-commit run --all-files
+cd /projects/Charon && .github/skills/scripts/skill-runner.sh security-scan-go-vuln
+cd /projects/Charon && .github/skills/scripts/skill-runner.sh security-scan-gorm --check
+cd /projects/Charon && .github/skills/scripts/skill-runner.sh security-scan-codeql all summary
+```
+
 ## Validation Checklist
 
 - Phase 1 - E2E Tests: PASS (provided: notification tests now pass)

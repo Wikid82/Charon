@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/testutil"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -867,6 +868,117 @@ func TestImportHandler_Commit_InvalidSessionUUID_BranchCoverage(t *testing.T) {
 
 		require.Equal(t, http.StatusBadRequest, w.Code)
 		assert.Contains(t, w.Body.String(), "invalid session_uuid")
+	})
+}
+
+func TestImportHandler_Upload_NoImportableHosts_WithImportsDetected(t *testing.T) {
+	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+		handler, _, mockImport := setupTestHandler(t, tx)
+
+		mockImport.importResult = &caddy.ImportResult{
+			Hosts: []caddy.ParsedHost{{
+				DomainNames: "file.example.com",
+				Warnings:    []string{"file_server detected"},
+			}},
+		}
+		handler.importerservice = &mockImporterAdapter{mockImport}
+
+		reqBody := map[string]string{
+			"content":  "import sites/*.caddyfile",
+			"filename": "Caddyfile",
+		}
+		body, _ := json.Marshal(reqBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/upload", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "imports detected")
+	})
+}
+
+func TestImportHandler_Upload_NoImportableHosts_NoImportsNoFileServer(t *testing.T) {
+	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+		handler, _, mockImport := setupTestHandler(t, tx)
+
+		mockImport.importResult = &caddy.ImportResult{
+			Hosts: []caddy.ParsedHost{{
+				DomainNames: "noop.example.com",
+			}},
+		}
+		handler.importerservice = &mockImporterAdapter{mockImport}
+
+		reqBody := map[string]string{
+			"content":  "noop.example.com { respond \"ok\" }",
+			"filename": "Caddyfile",
+		}
+		body, _ := json.Marshal(reqBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/upload", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "no sites found in uploaded Caddyfile")
+	})
+}
+
+func TestImportHandler_Commit_OverwriteAndRenameFlows(t *testing.T) {
+	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+		handler, _, mockImport := setupTestHandler(t, tx)
+		handler.proxyHostSvc = services.NewProxyHostService(tx)
+
+		mockImport.importResult = &caddy.ImportResult{
+			Hosts: []caddy.ParsedHost{
+				{DomainNames: "rename.example.com", ForwardScheme: "http", ForwardHost: "rename-host", ForwardPort: 9000},
+			},
+		}
+		handler.importerservice = &mockImporterAdapter{mockImport}
+
+		uploadPath := filepath.Join(handler.importDir, "uploads", "overwrite-rename.caddyfile")
+		require.NoError(t, os.MkdirAll(filepath.Dir(uploadPath), 0o700))
+		require.NoError(t, os.WriteFile(uploadPath, []byte("placeholder"), 0o600))
+
+		commitBody := map[string]any{
+			"session_uuid": "overwrite-rename",
+			"resolutions": map[string]string{
+				"rename.example.com": "rename",
+			},
+			"names": map[string]string{
+				"rename.example.com": "Renamed Host",
+			},
+		}
+		body, _ := json.Marshal(commitBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/commit", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "\"created\":1")
+
+		var renamed models.ProxyHost
+		require.NoError(t, tx.Where("domain_names = ?", "rename.example.com-imported").First(&renamed).Error)
+		assert.Equal(t, "Renamed Host", renamed.Name)
 	})
 }
 

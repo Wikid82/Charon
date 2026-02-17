@@ -16,6 +16,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"gorm.io/gorm"
 )
 
 // Tests for UpdateConfig handler to improve coverage (currently 46%)
@@ -771,4 +772,206 @@ func TestSecurityHandler_Enable_WithExactIPWhitelist(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestSecurityHandler_GetStatus_BackwardCompatibilityOverrides(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}, &models.CaddyConfig{}))
+
+	require.NoError(t, db.Create(&models.SecurityConfig{
+		Name:          "default",
+		Enabled:       true,
+		WAFMode:       "block",
+		RateLimitMode: "enabled",
+		CrowdSecMode:  "local",
+	}).Error)
+
+	seed := []models.Setting{
+		{Key: "security.cerberus.enabled", Value: "false", Category: "security", Type: "bool"},
+		{Key: "security.crowdsec.mode", Value: "external", Category: "security", Type: "string"},
+		{Key: "security.waf.enabled", Value: "true", Category: "security", Type: "bool"},
+		{Key: "security.rate_limit.enabled", Value: "true", Category: "security", Type: "bool"},
+		{Key: "security.acl.enabled", Value: "true", Category: "security", Type: "bool"},
+	}
+	for _, setting := range seed {
+		require.NoError(t, db.Create(&setting).Error)
+	}
+
+	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	router := gin.New()
+	router.GET("/security/status", handler.GetStatus)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/security/status", http.NoBody)
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+
+	cerberus := resp["cerberus"].(map[string]any)
+	require.Equal(t, false, cerberus["enabled"])
+
+	crowdsec := resp["crowdsec"].(map[string]any)
+	require.Equal(t, "disabled", crowdsec["mode"])
+	require.Equal(t, false, crowdsec["enabled"])
+}
+
+func TestSecurityHandler_AddWAFExclusion_InvalidExistingJSONStillAdds(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", WAFExclusions: "{"}).Error)
+
+	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
+
+	body := `{"rule_id":942100,"target":"ARGS:user","description":"test"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/security/waf/exclusions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestSecurityHandler_ToggleSecurityModule_SnapshotSettingsError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/security/waf/enable", handler.EnableWAF)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/security/waf/enable", http.NoBody)
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Contains(t, w.Body.String(), "Failed to update security module")
+}
+
+func TestSecurityHandler_ToggleSecurityModule_SnapshotSecurityConfigError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
+	require.NoError(t, db.Exec("DROP TABLE security_configs").Error)
+
+	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/security/waf/enable", handler.EnableWAF)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/security/waf/enable", http.NoBody)
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Contains(t, w.Body.String(), "Failed to update security module")
+}
+
+func TestSecurityHandler_SnapshotAndRestoreHelpers(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
+
+	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	require.NoError(t, db.Create(&models.Setting{Key: "k1", Value: "v1", Category: "security", Type: "string"}).Error)
+
+	snapshots, err := handler.snapshotSettings([]string{"k1", "k1", "k2"})
+	require.NoError(t, err)
+	require.Len(t, snapshots, 2)
+	require.True(t, snapshots["k1"].exists)
+	require.False(t, snapshots["k2"].exists)
+
+	require.NoError(t, handler.restoreSettings(map[string]settingSnapshot{
+		"k1": snapshots["k1"],
+		"k2": snapshots["k2"],
+	}))
+
+	require.NoError(t, db.Exec("DROP TABLE settings").Error)
+	err = handler.restoreSettings(map[string]settingSnapshot{
+		"k1": snapshots["k1"],
+	})
+	require.Error(t, err)
+}
+
+func TestSecurityHandler_DefaultSecurityConfigStateHelpers(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
+
+	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+
+	exists, enabled, err := handler.snapshotDefaultSecurityConfigState()
+	require.NoError(t, err)
+	require.False(t, exists)
+	require.False(t, enabled)
+
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: true}).Error)
+	exists, enabled, err = handler.snapshotDefaultSecurityConfigState()
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.True(t, enabled)
+
+	require.NoError(t, handler.restoreDefaultSecurityConfigState(true, false))
+	var cfg models.SecurityConfig
+	require.NoError(t, db.Where("name = ?", "default").First(&cfg).Error)
+	require.False(t, cfg.Enabled)
+
+	require.NoError(t, handler.restoreDefaultSecurityConfigState(false, false))
+	err = db.Where("name = ?", "default").First(&cfg).Error
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+}
+
+func TestSecurityHandler_EnsureSecurityConfigEnabled_Helper(t *testing.T) {
+	handler := &SecurityHandler{db: nil}
+	err := handler.ensureSecurityConfigEnabled()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "database not configured")
+
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: false}).Error)
+
+	handler = NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	require.NoError(t, handler.ensureSecurityConfigEnabled())
+
+	var cfg models.SecurityConfig
+	require.NoError(t, db.Where("name = ?", "default").First(&cfg).Error)
+	require.True(t, cfg.Enabled)
+}
+
+func TestLatestConfigApplyState_Helper(t *testing.T) {
+	state := latestConfigApplyState(nil)
+	require.Equal(t, false, state["available"])
+
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.CaddyConfig{}))
+
+	state = latestConfigApplyState(db)
+	require.Equal(t, false, state["available"])
+
+	require.NoError(t, db.Create(&models.CaddyConfig{Success: true}).Error)
+	state = latestConfigApplyState(db)
+	require.Equal(t, true, state["available"])
+	require.Equal(t, "applied", state["status"])
 }

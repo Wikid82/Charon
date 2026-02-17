@@ -198,6 +198,30 @@ func TestAccessListService_GetByUUID(t *testing.T) {
 	})
 }
 
+func TestAccessListService_GetByID_DBError(t *testing.T) {
+	db := setupTestDB(t)
+	service := NewAccessListService(db)
+
+	sqlDB, err := db.DB()
+	assert.NoError(t, err)
+	assert.NoError(t, sqlDB.Close())
+
+	_, err = service.GetByID(1)
+	assert.Error(t, err)
+}
+
+func TestAccessListService_GetByUUID_DBError(t *testing.T) {
+	db := setupTestDB(t)
+	service := NewAccessListService(db)
+
+	sqlDB, err := db.DB()
+	assert.NoError(t, err)
+	assert.NoError(t, sqlDB.Close())
+
+	_, err = service.GetByUUID("any")
+	assert.Error(t, err)
+}
+
 func TestAccessListService_List(t *testing.T) {
 	db := setupTestDB(t)
 	service := NewAccessListService(db)

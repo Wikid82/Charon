@@ -192,3 +192,23 @@ func TestLogService_logDirsAndSymlinkDedup(t *testing.T) {
 	assert.Len(t, logs, 1)
 	assert.Equal(t, "access.log", logs[0].Name)
 }
+
+func TestLogService_logDirs_SkipsDotAndEmpty(t *testing.T) {
+	t.Setenv("CHARON_CADDY_ACCESS_LOG", filepath.Join(t.TempDir(), "caddy", "access.log"))
+
+	service := &LogService{LogDir: ".", CaddyLogDir: ""}
+	dirs := service.logDirs()
+
+	require.Len(t, dirs, 1)
+	assert.NotEqual(t, ".", dirs[0])
+}
+
+func TestLogService_ListLogs_ReadDirError(t *testing.T) {
+	tmpDir := t.TempDir()
+	notDir := filepath.Join(tmpDir, "not-a-dir")
+	require.NoError(t, os.WriteFile(notDir, []byte("x"), 0o600))
+
+	service := &LogService{LogDir: notDir}
+	_, err := service.ListLogs()
+	require.Error(t, err)
+}

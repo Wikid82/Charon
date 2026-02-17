@@ -198,4 +198,102 @@ describe('Notifications', () => {
     const resetNotifyProxyHosts = screen.getByTestId('notify-proxy-hosts') as HTMLInputElement
     expect(resetNotifyProxyHosts.checked).toBe(true)
   })
+
+  it('renders external template loading and rows when templates are present', async () => {
+    const template = {
+      id: 'template-1',
+      name: 'Ops Payload',
+      description: 'Template for ops alerts',
+      template: 'custom' as const,
+      config: '{"text":"{{.Message}}"}',
+      created_at: '2024-01-01T00:00:00Z',
+      updated_at: '2024-01-01T00:00:00Z',
+    }
+
+    vi.mocked(notificationsApi.getExternalTemplates).mockReturnValue(new Promise(() => {}))
+    const { unmount } = renderWithQueryClient(<Notifications />)
+    await userEvent.click(await screen.findByRole('button', { name: 'notificationProviders.manageTemplates' }))
+    expect(screen.getByTestId('external-templates-loading')).toBeInTheDocument()
+    unmount()
+
+    vi.mocked(notificationsApi.getExternalTemplates).mockResolvedValue([template])
+    renderWithQueryClient(<Notifications />)
+    await userEvent.click(await screen.findByRole('button', { name: 'notificationProviders.manageTemplates' }))
+
+    expect(await screen.findByTestId('external-template-row-template-1')).toBeInTheDocument()
+    expect(screen.getByText('Ops Payload')).toBeInTheDocument()
+  })
+
+  it('opens external template editor and deletes template on confirm', async () => {
+    const template = {
+      id: 'template-2',
+      name: 'Security Payload',
+      description: 'Template for security alerts',
+      template: 'custom' as const,
+      config: '{"text":"{{.Message}}"}',
+      created_at: '2024-01-01T00:00:00Z',
+      updated_at: '2024-01-01T00:00:00Z',
+    }
+
+    vi.mocked(notificationsApi.getExternalTemplates).mockResolvedValue([template])
+    vi.mocked(notificationsApi.deleteExternalTemplate).mockResolvedValue(undefined)
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+    await user.click(await screen.findByRole('button', { name: 'notificationProviders.manageTemplates' }))
+
+    const row = await screen.findByTestId('external-template-row-template-2')
+    expect(row).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('external-template-edit-template-2'))
+    await waitFor(() => {
+      expect((screen.getByTestId('template-name') as HTMLInputElement).value).toBe('Security Payload')
+    })
+
+    await user.click(screen.getByTestId('external-template-delete-template-2'))
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenCalled()
+      expect(notificationsApi.deleteExternalTemplate).toHaveBeenCalledWith('template-2')
+    })
+
+    confirmSpy.mockRestore()
+  })
+
+  it('renders external template action buttons and skips delete when confirm is cancelled', async () => {
+    const template = {
+      id: 'template-cancel',
+      name: 'Cancel Delete Template',
+      description: 'Template used for cancel delete branch',
+      template: 'custom' as const,
+      config: '{"text":"{{.Message}}"}',
+      created_at: '2024-01-01T00:00:00Z',
+      updated_at: '2024-01-01T00:00:00Z',
+    }
+
+    vi.mocked(notificationsApi.getExternalTemplates).mockResolvedValue([template])
+    vi.mocked(notificationsApi.deleteExternalTemplate).mockResolvedValue(undefined)
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+    await user.click(await screen.findByRole('button', { name: 'notificationProviders.manageTemplates' }))
+
+    expect(await screen.findByTestId('external-template-row-template-cancel')).toBeInTheDocument()
+
+    const editButton = screen.getByTestId('external-template-edit-template-cancel')
+    const deleteButton = screen.getByTestId('external-template-delete-template-cancel')
+
+    await user.click(editButton)
+    await waitFor(() => {
+      expect((screen.getByTestId('template-name') as HTMLInputElement).value).toBe('Cancel Delete Template')
+    })
+
+    await user.click(deleteButton)
+
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(notificationsApi.deleteExternalTemplate).not.toHaveBeenCalled()
+
+    confirmSpy.mockRestore()
+  })
 })

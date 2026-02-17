@@ -6,6 +6,7 @@ import DNSProviders from '../DNSProviders'
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
 import { useDNSProviders, useDNSProviderMutations, type DNSProvider } from '../../hooks/useDNSProviders'
 import { getChallenge } from '../../api/manualChallenge'
+import { toast } from '../../utils/toast'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -55,8 +56,20 @@ vi.mock('../../components/DNSProviderForm', () => ({
 }))
 
 vi.mock('../../components/dns-providers', () => ({
-  ManualDNSChallenge: ({ challenge }: { challenge: { fqdn: string } }) => (
-    <section data-testid="manual-dns-challenge">{challenge.fqdn}</section>
+  ManualDNSChallenge: ({
+    challenge,
+    onComplete,
+    onCancel,
+  }: {
+    challenge: { fqdn: string }
+    onComplete: () => void
+    onCancel: () => void
+  }) => (
+    <section data-testid="manual-dns-challenge">
+      <div>{challenge.fqdn}</div>
+      <button type="button" onClick={onComplete}>complete-manual</button>
+      <button type="button" onClick={onCancel}>cancel-manual</button>
+    </section>
   ),
 }))
 
@@ -140,5 +153,59 @@ describe('DNSProviders page state behavior', () => {
     await user.click(screen.getByRole('button', { name: 'dnsProvider.manual.title' }))
 
     expect(await screen.findByTestId('manual-dns-challenge')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'complete-manual' }))
+    await waitFor(() => {
+      expect(getChallenge).toHaveBeenCalledTimes(2)
+    })
+
+    await user.click(screen.getByRole('button', { name: 'cancel-manual' }))
+    await waitFor(() => {
+      expect(screen.queryByTestId('manual-dns-challenge')).not.toBeInTheDocument()
+    })
+  })
+
+  it('re-evaluates manual challenge visibility after completion refresh', async () => {
+    vi.mocked(getChallenge)
+      .mockResolvedValueOnce({
+        id: 'active',
+        status: 'pending',
+        fqdn: '_acme-challenge.example.com',
+        value: 'token',
+        ttl: 300,
+        created_at: '2026-02-15T00:00:00Z',
+        expires_at: '2026-02-15T00:10:00Z',
+        dns_propagated: false,
+      })
+      .mockRejectedValueOnce(new Error('challenge missing after refresh'))
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<DNSProviders />)
+
+    await user.click(screen.getByRole('button', { name: 'dnsProvider.manual.title' }))
+    expect(await screen.findByTestId('manual-dns-challenge')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'complete-manual' }))
+
+    await waitFor(() => {
+      expect(getChallenge).toHaveBeenCalledTimes(2)
+      expect(screen.queryByTestId('manual-dns-challenge')).not.toBeInTheDocument()
+    })
+  })
+
+  it('shows no provider toast when manual challenge is requested without providers', async () => {
+    vi.mocked(useDNSProviders).mockReturnValue({
+      data: [],
+      isLoading: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useDNSProviders>)
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<DNSProviders />)
+
+    await user.click(screen.getByRole('button', { name: 'dnsProvider.manual.title' }))
+
+    expect(toast.error).toHaveBeenCalledWith('dnsProviders.noProviders')
+    expect(getChallenge).not.toHaveBeenCalled()
   })
 })
