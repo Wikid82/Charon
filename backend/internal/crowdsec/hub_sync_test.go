@@ -72,7 +72,7 @@ func makeTarGz(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
-//go:embed testdata/hub_index.json testdata/hub_index_html.html
+//go:embed testdata/hub_index_fixture.json testdata/hub_index_html.html
 var hubTestFixtures embed.FS
 
 func readFixture(t *testing.T, name string) string {
@@ -102,7 +102,7 @@ func TestFetchIndexFallbackHTTP(t *testing.T) {
 	exec := &recordingExec{errors: map[string]error{"cscli hub list -o json": fmt.Errorf("boom")}}
 	cacheDir := t.TempDir()
 	svc := NewHubService(exec, nil, cacheDir)
-	indexBody := readFixture(t, "hub_index.json")
+	indexBody := readFixture(t, "hub_index_fixture.json")
 	hubServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != defaultHubIndexPath {
 			http.NotFound(w, r)
