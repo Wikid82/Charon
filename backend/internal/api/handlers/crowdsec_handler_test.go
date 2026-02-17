@@ -1032,8 +1032,8 @@ func TestRegisterBouncerExecutionError(t *testing.T) {
 // ============================================
 
 func TestGetAcquisitionConfigNotFound(t *testing.T) {
-	t.Parallel()
 	gin.SetMode(gin.TestMode)
+	t.Setenv("CHARON_CROWDSEC_ACQUIS_PATH", filepath.Join(t.TempDir(), "missing-acquis.yaml"))
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1043,24 +1043,11 @@ func TestGetAcquisitionConfigNotFound(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/acquisition", http.NoBody)
 	r.ServeHTTP(w, req)
 
-	// Test behavior depends on whether /etc/crowdsec/acquis.yaml exists in test environment
-	// If file exists: 200 with content
-	// If file doesn't exist: 404
-	require.True(t, w.Code == http.StatusOK || w.Code == http.StatusNotFound,
-		"expected 200 or 404, got %d", w.Code)
-
-	if w.Code == http.StatusNotFound {
-		require.Contains(t, w.Body.String(), "not found")
-	} else {
-		var resp map[string]any
-		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-		require.Contains(t, resp, "content")
-		require.Equal(t, "/etc/crowdsec/acquis.yaml", resp["path"])
-	}
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Contains(t, w.Body.String(), "not found")
 }
 
 func TestGetAcquisitionConfigSuccess(t *testing.T) {
-	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
 	// Create a temp acquis.yaml to test with
@@ -1077,6 +1064,7 @@ labels:
 `
 	acquisPath := filepath.Join(acquisDir, "acquis.yaml")
 	require.NoError(t, os.WriteFile(acquisPath, []byte(acquisContent), 0o600)) // #nosec G306 -- test fixture
+	t.Setenv("CHARON_CROWDSEC_ACQUIS_PATH", acquisPath)
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", tmpDir)
 	r := gin.New()
@@ -1087,11 +1075,11 @@ labels:
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/acquisition", http.NoBody)
 	r.ServeHTTP(w, req)
 
-	// The handler uses a hardcoded path /etc/crowdsec/acquis.yaml
-	// In test environments where this file exists, it returns 200
-	// Otherwise, it returns 404
-	require.True(t, w.Code == http.StatusOK || w.Code == http.StatusNotFound,
-		"expected 200 or 404, got %d", w.Code)
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, acquisPath, resp["path"])
+	require.Equal(t, acquisContent, resp["content"])
 }
 
 // ============================================
@@ -4299,55 +4287,28 @@ func TestReadKeyFromFile_Trimming(t *testing.T) {
 
 // TestGetBouncerAPIKeyFromEnv_Priority verifies environment variable priority order.
 func TestGetBouncerAPIKeyFromEnv_Priority(t *testing.T) {
-	t.Parallel()
-
-	// Clear all possible env vars first
-	envVars := []string{
-		"CROWDSEC_API_KEY",
-		"CROWDSEC_BOUNCER_API_KEY",
-		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
-		"CHARON_SECURITY_CROWDSEC_API_KEY",
-		"CPM_SECURITY_CROWDSEC_API_KEY",
-	}
-	for _, key := range envVars {
-		if err := os.Unsetenv(key); err != nil {
-			t.Logf("Warning: failed to unset env var %s: %v", key, err)
-		}
-	}
+	// Not parallel: this test mutates process environment
+	t.Setenv("CROWDSEC_API_KEY", "")
+	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "")
+	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "")
+	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "")
+	t.Setenv("CPM_SECURITY_CROWDSEC_API_KEY", "")
 
 	// Test priority order (first match wins)
-	if err := os.Setenv("CROWDSEC_API_KEY", "key1"); err != nil {
-		t.Fatalf("Failed to set environment variable: %v", err)
-	}
-	defer func() {
-		if err := os.Unsetenv("CROWDSEC_API_KEY"); err != nil {
-			t.Logf("Warning: failed to unset environment variable: %v", err)
-		}
-	}()
+	t.Setenv("CROWDSEC_API_KEY", "key1")
 
 	result := getBouncerAPIKeyFromEnv()
 	require.Equal(t, "key1", result)
 
 	// Clear first and test second priority
-	if err := os.Unsetenv("CROWDSEC_API_KEY"); err != nil {
-		t.Logf("Warning: failed to unset CROWDSEC_API_KEY: %v", err)
-	}
-	if err := os.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "key2"); err != nil {
-		t.Fatalf("Failed to set CHARON_SECURITY_CROWDSEC_API_KEY: %v", err)
-	}
-	defer func() {
-		if err := os.Unsetenv("CHARON_SECURITY_CROWDSEC_API_KEY"); err != nil {
-			t.Logf("Warning: failed to unset CHARON_SECURITY_CROWDSEC_API_KEY: %v", err)
-		}
-	}()
+	t.Setenv("CROWDSEC_API_KEY", "")
+	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "key2")
 
 	result = getBouncerAPIKeyFromEnv()
 	require.Equal(t, "key2", result)
 
 	// Test empty result when no env vars set
-	if err := os.Unsetenv("CHARON_SECURITY_CROWDSEC_API_KEY"); err != nil {
-		t.Logf("Warning: failed to unset CHARON_SECURITY_CROWDSEC_API_KEY: %v", err)
-	}
+	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "")
 	result = getBouncerAPIKeyFromEnv()
 	require.Empty(t, result, "Should return empty string when no env vars set")
 }
