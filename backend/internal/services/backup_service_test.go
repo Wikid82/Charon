@@ -20,6 +20,11 @@ func createSQLiteTestDB(t *testing.T, dbPath string) {
 
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
 	require.NoError(t, db.Exec("CREATE TABLE IF NOT EXISTS healthcheck (id INTEGER PRIMARY KEY, value TEXT)").Error)
 	require.NoError(t, db.Exec("INSERT INTO healthcheck (value) VALUES (?)", "ok").Error)
 }
@@ -485,21 +490,23 @@ func TestRunScheduledBackup_CleanupFails(t *testing.T) {
 	service := NewBackupService(cfg)
 	defer service.Stop() // Prevent goroutine leaks
 
-	// Create a backup first
-	_, err := service.CreateBackup()
-	require.NoError(t, err)
+	createCalled := false
+	cleanupCalled := false
+	service.createBackup = func() (string, error) {
+		createCalled = true
+		return "backup_2026-01-01_00-00-00.zip", nil
+	}
+	service.cleanupOld = func(keep int) (int, error) {
+		cleanupCalled = true
+		assert.Equal(t, DefaultBackupRetention, keep)
+		return 0, fmt.Errorf("forced cleanup failure")
+	}
 
-	// Make backup directory read-only to cause cleanup to fail
-	_ = os.Chmod(service.BackupDir, 0o444) // #nosec G302 -- Intentionally testing permission error handling
-
-	// Should not panic when cleanup fails
+	// Should not panic when cleanup fails.
 	service.RunScheduledBackup()
-	_ = os.Chmod(service.BackupDir, 0o755) // #nosec G302 -- Restore dir permissions before assertions
 
-	// Backup creation should have succeeded despite cleanup failure
-	backups, err := service.ListBackups()
-	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(backups), 1)
+	assert.True(t, createCalled)
+	assert.True(t, cleanupCalled)
 }
 
 func TestGetLastBackupTime_ListBackupsError(t *testing.T) {
