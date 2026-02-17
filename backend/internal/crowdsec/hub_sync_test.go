@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"embed"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +13,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -72,12 +72,12 @@ func makeTarGz(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
+//go:embed testdata/hub_index.json testdata/hub_index_html.html
+var hubTestFixtures embed.FS
+
 func readFixture(t *testing.T, name string) string {
 	t.Helper()
-	_, currentFile, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	// #nosec G304 -- Test reads from testdata directory with known fixture names
-	data, err := os.ReadFile(filepath.Join(filepath.Dir(currentFile), "testdata", name))
+	data, err := hubTestFixtures.ReadFile(filepath.Join("testdata", name))
 	require.NoError(t, err)
 	return string(data)
 }
