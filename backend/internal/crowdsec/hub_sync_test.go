@@ -96,7 +96,6 @@ func TestFetchIndexFallbackHTTP(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping network I/O test in short mode")
 	}
-	t.Parallel()
 	exec := &recordingExec{errors: map[string]error{"cscli hub list -o json": fmt.Errorf("boom")}}
 	cacheDir := t.TempDir()
 	svc := NewHubService(exec, nil, cacheDir)
