@@ -293,3 +293,81 @@ func TestValidateReadablePath(t *testing.T) {
 		}
 	})
 }
+
+func TestComputeFilesNeedingCoverage_IncludesUncoveredAndSortsDeterministically(t *testing.T) {
+	t.Parallel()
+
+	changed := FileLineSet{
+		"backend/internal/b.go": {1: {}, 2: {}},
+		"backend/internal/a.go": {1: {}, 2: {}},
+		"backend/internal/c.go": {1: {}, 2: {}},
+	}
+
+	coverage := CoverageData{
+		Executable: FileLineSet{
+			"backend/internal/a.go": {1: {}, 2: {}},
+			"backend/internal/b.go": {1: {}, 2: {}},
+			"backend/internal/c.go": {1: {}, 2: {}},
+		},
+		Covered: FileLineSet{
+			"backend/internal/a.go": {1: {}},
+			"backend/internal/c.go": {1: {}, 2: {}},
+		},
+	}
+
+	details := ComputeFilesNeedingCoverage(changed, coverage, 40)
+	if len(details) != 2 {
+		t.Fatalf("expected 2 files needing coverage, got %d", len(details))
+	}
+
+	if details[0].Path != "backend/internal/b.go" {
+		t.Fatalf("expected first file to be backend/internal/b.go, got %s", details[0].Path)
+	}
+	if details[0].PatchCoveragePct != 0.0 {
+		t.Fatalf("expected first file coverage 0.0, got %.1f", details[0].PatchCoveragePct)
+	}
+	if details[0].UncoveredChangedLines != 2 {
+		t.Fatalf("expected first file uncovered lines 2, got %d", details[0].UncoveredChangedLines)
+	}
+	if strings.Join(details[0].UncoveredChangedLineRange, ",") != "1-2" {
+		t.Fatalf("expected first file uncovered ranges 1-2, got %v", details[0].UncoveredChangedLineRange)
+	}
+
+	if details[1].Path != "backend/internal/a.go" {
+		t.Fatalf("expected second file to be backend/internal/a.go, got %s", details[1].Path)
+	}
+	if details[1].PatchCoveragePct != 50.0 {
+		t.Fatalf("expected second file coverage 50.0, got %.1f", details[1].PatchCoveragePct)
+	}
+	if details[1].UncoveredChangedLines != 1 {
+		t.Fatalf("expected second file uncovered lines 1, got %d", details[1].UncoveredChangedLines)
+	}
+	if strings.Join(details[1].UncoveredChangedLineRange, ",") != "2" {
+		t.Fatalf("expected second file uncovered range 2, got %v", details[1].UncoveredChangedLineRange)
+	}
+}
+
+func TestMergeFileCoverageDetails_SortsWorstCoverageThenPath(t *testing.T) {
+	t.Parallel()
+
+	merged := MergeFileCoverageDetails(
+		[]FileCoverageDetail{
+			{Path: "frontend/src/z.ts", PatchCoveragePct: 50.0},
+			{Path: "frontend/src/a.ts", PatchCoveragePct: 50.0},
+		},
+		[]FileCoverageDetail{
+			{Path: "backend/internal/w.go", PatchCoveragePct: 0.0},
+		},
+	)
+
+	if len(merged) != 3 {
+		t.Fatalf("expected 3 merged items, got %d", len(merged))
+	}
+
+	orderedPaths := []string{merged[0].Path, merged[1].Path, merged[2].Path}
+	got := strings.Join(orderedPaths, ",")
+	want := "backend/internal/w.go,frontend/src/a.ts,frontend/src/z.ts"
+	if got != want {
+		t.Fatalf("unexpected merged order: got %s want %s", got, want)
+	}
+}
