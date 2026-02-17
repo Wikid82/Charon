@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - development
+      - feature/*
   workflow_run:
     workflows: ["Docker Build, Publish & Test"]
     types: [completed]
