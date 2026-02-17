@@ -13,6 +13,7 @@
   ],
   "timezone": "America/New_York",
   "dependencyDashboard": true,
+  "dependencyDashboardApproval": true,
   "prConcurrentLimit": 10,
   "prHourlyLimit": 0,
   "labels": [
@@ -28,10 +29,6 @@
   "vulnerabilityAlerts": {
     "enabled": true
   },
-
-  "schedule": [
-    "before 8am on monday"
-  ],
 
   "rangeStrategy": "bump",
   "automerge": false,
@@ -53,12 +50,12 @@
     },
     {
       "customType": "regex",
-      "description": "Track Debian base image digest in Dockerfile for security updates",
+      "description": "Track Alpine base image digest in Dockerfile for security updates",
       "managerFilePatterns": ["/^Dockerfile$/"],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=docker\\s+depName=debian.*\\nARG CADDY_IMAGE=debian:(?<currentValue>trixie-slim@sha256:[a-f0-9]+)"
+        "#\\s*renovate:\\s*datasource=docker\\s+depName=alpine.*\\nARG CADDY_IMAGE=alpine:(?<currentValue>[^\\s@]+@sha256:[a-f0-9]+)"
       ],
-      "depNameTemplate": "debian",
+      "depNameTemplate": "alpine",
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
     },
@@ -140,19 +137,21 @@
         "pin",
         "digest"
       ],
-      "groupName": "weekly-non-major-updates"
+      "groupName": "non-major-updates"
     },
-    {
-      "description": "Feature branches: Always require manual approval",
-      "matchBaseBranches": ["feature/*"],
-      "automerge": false
+        {
+      "description": "Feature branches: Auto-merge non-major updates after proven stable",
+      "matchBaseBranches": ["feature/**"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "automerge": false,
+      "minimumReleaseAge": "7 days"
     },
     {
       "description": "Development branch: Auto-merge non-major updates after proven stable",
       "matchBaseBranches": ["development"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "automerge": true,
-      "minimumReleaseAge": "3 days"
+      "automerge": false,
+      "minimumReleaseAge": "30 days"
     },
     {
       "description": "Preserve your custom Caddy patch labels but allow them to group into the weekly PR",
