@@ -33,6 +33,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
 
       # SECURITY: Do not switch this workflow to pull_request_target for backend tests.
       # Untrusted code paths (fork PRs and Dependabot PRs) must never receive repository secrets.
