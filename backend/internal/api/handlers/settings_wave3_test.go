@@ -13,7 +13,7 @@ func setupSettingsWave3DB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}, &models.SecurityAudit{}))
 	return db
 }
 

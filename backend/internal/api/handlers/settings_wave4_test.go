@@ -60,6 +60,18 @@ func settingKeyFromCreateCallback(tx *gorm.DB) string {
 	}
 }
 
+func attachDeterministicSecurityService(t *testing.T, h *SettingsHandler, db *gorm.DB) {
+	t.Helper()
+
+	securitySvc := services.NewSecurityService(db)
+	h.SecuritySvc = securitySvc
+
+	t.Cleanup(func() {
+		securitySvc.Flush()
+		securitySvc.Close()
+	})
+}
+
 func performUpdateSettingRequest(t *testing.T, h *SettingsHandler, payload map[string]any) *httptest.ResponseRecorder {
 	t.Helper()
 	g := gin.New()
@@ -108,7 +120,7 @@ func TestSettingsHandlerWave4_UpdateSetting_ACLPathsPermissionErrors(t *testing.
 		})
 
 		h := NewSettingsHandler(db)
-		h.SecuritySvc = services.NewSecurityService(db)
+		attachDeterministicSecurityService(t, h, db)
 		h.DataRoot = "/app/data"
 
 		w := performUpdateSettingRequest(t, h, map[string]any{
@@ -151,7 +163,7 @@ func TestSettingsHandlerWave4_UpdateSetting_GenericSaveError(t *testing.T) {
 	})
 
 	h := NewSettingsHandler(db)
-	h.SecuritySvc = services.NewSecurityService(db)
+	attachDeterministicSecurityService(t, h, db)
 	h.DataRoot = "/app/data"
 
 	w := performUpdateSettingRequest(t, h, map[string]any{
@@ -166,7 +178,7 @@ func TestSettingsHandlerWave4_UpdateSetting_GenericSaveError(t *testing.T) {
 func TestSettingsHandlerWave4_PatchConfig_InvalidAdminWhitelistFromSync(t *testing.T) {
 	db := setupSettingsWave3DB(t)
 	h := NewSettingsHandler(db)
-	h.SecuritySvc = services.NewSecurityService(db)
+	attachDeterministicSecurityService(t, h, db)
 	h.DataRoot = "/app/data"
 
 	w := performPatchConfigRequest(t, h, map[string]any{

@@ -80,9 +80,7 @@ on:
         default: false
         type: boolean
   pull_request:
-    branches:
-      - main
-      - development
+  push:
 
 env:
   NODE_VERSION: '20'
