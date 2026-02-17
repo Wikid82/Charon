@@ -189,3 +189,184 @@ CONDITIONAL
 
 - Residual risk: quarantined suites are temporarily excluded from full coverage runs and may mask regressions in those specific areas.
 - Follow-up action: restore quarantined suites after stabilizing selectors/timer handling and addressing worker instability; remove temporary excludes in `frontend/vitest.config.ts` in the same remediation PR.
+
+## CI Encryption-Key Remediation Audit - 2026-02-17
+
+### Scope Reviewed
+
+- `.github/workflows/quality-checks.yml`
+- `.github/workflows/codecov-upload.yml`
+- `scripts/go-test-coverage.sh`
+- `scripts/ci/check-codecov-trigger-parity.sh`
+
+### Commands Executed and Outcomes
+
+1. **Required pre-commit fast hooks**
+	- Command: `cd /projects/Charon && pre-commit run --all-files`
+	- Result: **PASS**
+	- Notes: `check yaml`, `shellcheck`, `actionlint`, fast Go linters, and frontend checks all passed in this run.
+
+2. **Targeted workflow/script validation**
+	- Command: `cd /projects/Charon && python3 - <<'PY' ... yaml.safe_load(...) ... PY`
+	- Result: **PASS** (`quality-checks.yml`, `codecov-upload.yml` parsed successfully)
+	- Command: `cd /projects/Charon && actionlint .github/workflows/quality-checks.yml .github/workflows/codecov-upload.yml`
+	- Result: **PASS**
+	- Command: `cd /projects/Charon && bash -n scripts/go-test-coverage.sh scripts/ci/check-codecov-trigger-parity.sh`
+	- Result: **PASS**
+	- Command: `cd /projects/Charon && shellcheck scripts/go-test-coverage.sh scripts/ci/check-codecov-trigger-parity.sh`
+	- Result: **INFO finding** (SC2016 in expected-comment string), non-blocking under warning-level policy
+	- Command: `cd /projects/Charon && shellcheck -S warning scripts/go-test-coverage.sh scripts/ci/check-codecov-trigger-parity.sh`
+	- Result: **PASS**
+	- Command: `cd /projects/Charon && bash scripts/ci/check-codecov-trigger-parity.sh`
+	- Result: **PASS** (`Codecov trigger/comment parity check passed`)
+
+3. **Security scans feasible in this environment**
+	- Command (task): `Security: Go Vulnerability Check`
+	- Result: **PASS** (`No vulnerabilities found`)
+	- Command (task): `Security: CodeQL Go Scan (CI-Aligned) [~60s]`
+	- Result: **COMPLETED** (SARIF generated: `codeql-results-go.sarif`)
+	- Command (task): `Security: CodeQL JS Scan (CI-Aligned) [~90s]`
+	- Result: **COMPLETED** (SARIF generated: `codeql-results-js.sarif`)
+	- Command: `cd /projects/Charon && pre-commit run --hook-stage manual codeql-check-findings --all-files`
+	- Result: **PASS** (hook reported no HIGH/CRITICAL)
+	- Command (task): `Security: Scan Docker Image (Local)`
+	- Result: **FAIL** (1 High vulnerability, 0 Critical; GHSA-69x3-g4r3-p962 in `github.com/slackhq/nebula@v1.9.7`, fixed in 1.10.3)
+	- Command (MCP tool): Trivy filesystem scan via `mcp_trivy_mcp_scan_filesystem`
+	- Result: **NOT FEASIBLE LOCALLY** (tool returned `failed to scan project`)
+	- Nearest equivalent validation: CI-aligned CodeQL scans + Go vuln check + local Docker image SBOM/Grype scan task.
+
+4. **Coverage script encryption-key preflight validation**
+	- Command: `env -u CHARON_ENCRYPTION_KEY bash scripts/go-test-coverage.sh`
+	- Result: **PASS (expected failure path)** exit 1 with missing-key message
+	- Command: `CHARON_ENCRYPTION_KEY='@@not-base64@@' bash scripts/go-test-coverage.sh`
+	- Result: **PASS (expected failure path)** exit 1 with base64 validation message
+	- Command: `CHARON_ENCRYPTION_KEY='c2hvcnQ=' bash scripts/go-test-coverage.sh`
+	- Result: **PASS (expected failure path)** exit 1 with decoded-length validation message
+	- Command: `CHARON_ENCRYPTION_KEY="$(openssl rand -base64 32)" timeout 8 bash scripts/go-test-coverage.sh`
+	- Result: **PASS (preflight success path)** no preflight key error before timeout (exit 124 due test timeout guard)
+
+### Security Findings Snapshot
+
+- `codeql-results-js.sarif`: 0 results
+- `codeql-results-go.sarif`: 5 results (`go/path-injection` x4, `go/cookie-secure-not-set` x1)
+- `grype-results.json`: 1 High, 0 Critical
+
+### Residual Risks
+
+- Docker image scan currently reports one High severity vulnerability (GHSA-69x3-g4r3-p962).
+- Trivy MCP filesystem scanner could not run in this environment; equivalent checks were used, but Trivy parity is not fully proven locally.
+- CodeQL manual findings gate reported PASS while raw Go SARIF contains security-query results; this discrepancy should be reconciled in follow-up tooling validation.
+
+### QA Verdict (This Audit)
+
+- **NOT APPROVED** for security sign-off due unresolved High-severity vulnerability in local Docker image scan and unresolved scanner-parity discrepancy.
+- **APPROVED** for functional remediation behavior of encryption-key preflight and anti-drift checks.
+
+## Focused Backend CI Failure Investigation (PR #666) - 2026-02-17
+
+### Scope
+
+- Objective: reproduce failing backend CI tests locally with CI-parity commands and classify root cause.
+- Workflow correlation targets:
+	- `.github/workflows/quality-checks.yml` → `backend-quality` job
+	- `.github/workflows/codecov-upload.yml` → `backend-codecov` job
+
+### CI Parity Observed
+
+- Both workflows resolve `CHARON_ENCRYPTION_KEY` before backend tests.
+- Both workflows run backend coverage via:
+	- `CGO_ENABLED=1 bash scripts/go-test-coverage.sh 2>&1 | tee backend/test-output.txt`
+- Local investigation mirrored these commands and environment expectations.
+
+### Encryption Key Trusted-Context Simulation
+
+- Command: `export CHARON_ENCRYPTION_KEY="$(openssl rand -base64 32)"`
+- Validation: `charon_key_decoded_bytes=32`
+- Classification: **not an encryption-key preflight failure** in this run.
+
+### Commands Executed and Outcomes
+
+1. **Coverage script (CI parity)**
+	 - Command: `cd /projects/Charon && CGO_ENABLED=1 bash scripts/go-test-coverage.sh`
+	 - Log: `docs/reports/artifacts/pr666-go-test-coverage.log`
+	 - Result: **FAIL**
+
+2. **Verbose backend package sweep (requested)**
+	 - Command: `cd /projects/Charon/backend && CGO_ENABLED=1 go test ./... -count=1 -v`
+	 - Log: `docs/reports/artifacts/pr666-go-test-all-v.log`
+	 - Result: **PASS**
+
+3. **Targeted reruns for failing areas (`-race -count=1 -v`)**
+	 - `./internal/api/handlers` (package rerun): `docs/reports/artifacts/pr666-target-handlers-race.log` → **PASS**
+	 - `./internal/crowdsec` (package rerun): `docs/reports/artifacts/pr666-target-crowdsec-race.log` → **PASS**
+	 - `./internal/services` (package rerun): `docs/reports/artifacts/pr666-target-services-race.log` → **FAIL**
+	 - Isolated test reruns:
+		 - `./internal/api/handlers -run 'TestSecurityHandler_UpsertRuleSet_XSSInContent|TestSecurityHandler_UpsertDeleteTriggersApplyConfig'` → **FAIL** (`XSSInContent`), `ApplyConfig` pass
+		 - `./internal/crowdsec -run 'TestHeartbeatPoller_ConcurrentSafety'` → **FAIL** (data race)
+		 - `./internal/services -run 'TestSecurityService_LogAudit_ChannelFullFallsBackToSyncWrite|TestCredentialService_Delete'` → **FAIL** (`LogAudit...`), `CredentialService_Delete` pass in isolation
+
+### Exact Failing Tests (from coverage CI-parity run)
+
+- `TestSecurityHandler_UpsertRuleSet_XSSInContent`
+- `TestSecurityHandler_UpsertDeleteTriggersApplyConfig`
+- `TestHeartbeatPoller_ConcurrentSafety`
+- `TestSecurityService_LogAudit_ChannelFullFallsBackToSyncWrite`
+- `TestCredentialService_Delete`
+
+### Key Error Snippets
+
+- `TestSecurityHandler_UpsertRuleSet_XSSInContent`
+	- `expected: 200 actual: 500`
+	- `"{\"error\":\"failed to list rule sets\"}" does not contain "\\u003cscript\\u003e"`
+
+- `TestSecurityHandler_UpsertDeleteTriggersApplyConfig`
+	- `database table is locked`
+	- `timed out waiting for manager ApplyConfig /load post on delete`
+
+- `TestHeartbeatPoller_ConcurrentSafety`
+	- `WARNING: DATA RACE`
+	- `testing.go:1712: race detected during execution of test`
+
+- `TestSecurityService_LogAudit_ChannelFullFallsBackToSyncWrite`
+	- `no such table: security_audits`
+	- expected audit fallback marker `"sync-fallback"`, got empty value
+
+- `TestCredentialService_Delete` (coverage run)
+	- `database table is locked`
+	- Note: passes in isolated rerun, indicating contention/order sensitivity.
+
+### Failure Classification
+
+- **Encryption key preflight**: Not the cause (valid 32-byte base64 key verified).
+- **Environment mismatch**: Not primary; same core commands as CI reproduced failures.
+- **Flaky/contention-sensitive tests**: Present (`database table is locked`, timeout waiting for apply-config side-effect).
+- **Real logic/concurrency regressions**: Present:
+	- Confirmed race in `TestHeartbeatPoller_ConcurrentSafety`.
+	- Deterministic missing-table failure in `TestSecurityService_LogAudit_ChannelFullFallsBackToSyncWrite`.
+	- Deterministic handler regression in `TestSecurityHandler_UpsertRuleSet_XSSInContent` under isolated rerun.
+
+### Most Probable Root Cause
+
+- Mixed failure mode dominated by **concurrency and test-isolation defects** in backend tests:
+	- race condition in heartbeat poller lifecycle,
+	- incomplete DB/migration setup assumptions in some tests,
+	- SQLite table-lock contention under broader coverage/race execution.
+
+### Minimal Proper Next Fix Recommendation
+
+1. **Fix race first (highest confidence, highest impact):**
+	 - Guard `HeartbeatPoller` start/stop shared state with synchronization (mutex/atomic + single lifecycle transition).
+
+2. **Fix deterministic schema dependency in services test:**
+	 - Ensure `security_audits` table migration/setup is guaranteed in `TestSecurityService_LogAudit_ChannelFullFallsBackToSyncWrite` before assertions.
+
+3. **Stabilize handler/service DB write contention:**
+	 - Isolate SQLite DB per test (or serialized critical sections) for tests that perform concurrent writes and apply-config side effects.
+
+4. **Re-run CI-parity sequence after fixes:**
+	 - `CGO_ENABLED=1 bash scripts/go-test-coverage.sh`
+	 - `cd backend && CGO_ENABLED=1 go test ./... -count=1 -v`
+
+### Local Backend Status for PR #666
+
+- **Overall investigation status: FAIL (reproduced backend CI-like failures locally).**
