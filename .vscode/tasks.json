@@ -126,6 +126,61 @@
             "problemMatcher": []
         },
         {
+            "label": "Test: Local Patch Report",
+            "type": "shell",
+            "command": "bash scripts/local-patch-report.sh",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: Coverage Inputs for Local Patch Report",
+            "type": "shell",
+            "dependsOn": [
+                "Test: Backend with Coverage",
+                "Test: Frontend Coverage (Vitest)"
+            ],
+            "dependsOrder": "sequence",
+            "command": "echo 'Coverage inputs for local patch report complete'",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: Backend DoD + Local Patch Report",
+            "type": "shell",
+            "dependsOn": [
+                "Test: Backend with Coverage",
+                "Test: Local Patch Report"
+            ],
+            "dependsOrder": "sequence",
+            "command": "echo 'Backend DoD + local patch report complete'",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: Frontend DoD + Local Patch Report",
+            "type": "shell",
+            "dependsOn": [
+                "Test: Frontend Coverage (Vitest)",
+                "Test: Local Patch Report"
+            ],
+            "dependsOrder": "sequence",
+            "command": "echo 'Frontend DoD + local patch report complete'",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: Full DoD Unit + Local Patch Report",
+            "type": "shell",
+            "dependsOn": [
+                "Test: Coverage Inputs for Local Patch Report",
+                "Test: Local Patch Report"
+            ],
+            "dependsOrder": "sequence",
+            "command": "echo 'Full DoD + local patch report complete'",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
             "label": "Test: E2E Playwright (FireFox)",
             "type": "shell",
             "command": "npm run e2e",
