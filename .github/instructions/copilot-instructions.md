@@ -123,6 +123,21 @@ Before proposing ANY code change or fix, you must build a mental map of the feat
 - **Beta**: `feature/beta-release` always builds.
 - **History-Rewrite PRs**: If a PR touches files in `scripts/history-rewrite/` or `docs/plans/history_rewrite.md`, the PR description MUST include the history-rewrite checklist from `.github/PULL_REQUEST_TEMPLATE/history-rewrite.md`. This is enforced by CI.
 
+## PR Sizing & Decomposition
+
+- **Default Rule**: Prefer smaller, reviewable PRs over one large PR when work spans multiple domains.
+- **Split into Multiple PRs When**:
+    - The change touches backend + frontend + infrastructure/security in one effort
+    - The estimated diff is large enough to reduce review quality or increase rollback risk
+    - The work can be delivered in independently testable slices without breaking behavior
+    - A foundational refactor is needed before feature delivery
+- **Suggested PR Sequence**:
+    1. Foundation PR (types/contracts/refactors, no behavior change)
+    2. Backend PR (API/model/service changes + tests)
+    3. Frontend PR (UI integration + tests)
+    4. Hardening PR (security/CI/docs/follow-up fixes)
+- **Per-PR Requirement**: Every PR must remain deployable, pass DoD checks, and include a clear dependency note on prior PRs.
+
 ## ✅ Task Completion Protocol (Definition of Done)
 
 Before marking an implementation task as complete, perform the following in order:
