@@ -24,15 +24,16 @@ const (
 // HeartbeatPoller periodically checks console enrollment status and updates the last heartbeat timestamp.
 // It automatically transitions enrollment from pending_acceptance to enrolled when the console confirms enrollment.
 type HeartbeatPoller struct {
-	db       *gorm.DB
-	exec     EnvCommandExecutor
-	dataDir  string
-	interval time.Duration
-	stopCh   chan struct{}
-	wg       sync.WaitGroup
-	running  atomic.Bool
-	stopOnce sync.Once
-	mu       sync.Mutex // Protects concurrent access to enrollment record
+	db          *gorm.DB
+	exec        EnvCommandExecutor
+	dataDir     string
+	interval    time.Duration
+	stopCh      chan struct{}
+	wg          sync.WaitGroup
+	running     atomic.Bool
+	stopOnce    sync.Once
+	lifecycleMu sync.Mutex
+	mu          sync.Mutex // Protects concurrent access to enrollment record
 }
 
 // NewHeartbeatPoller creates a new HeartbeatPoller with the default 5-minute interval.
@@ -59,10 +60,16 @@ func (p *HeartbeatPoller) IsRunning() bool {
 // Start begins the background polling loop.
 // It is safe to call multiple times; subsequent calls are no-ops if already running.
 func (p *HeartbeatPoller) Start() {
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+
 	if !p.running.CompareAndSwap(false, true) {
 		// Already running, skip
 		return
 	}
+
+	p.stopCh = make(chan struct{})
+	p.stopOnce = sync.Once{}
 
 	p.wg.Add(1)
 	go p.poll()
@@ -73,6 +80,9 @@ func (p *HeartbeatPoller) Start() {
 // Stop signals the poller to stop and waits for graceful shutdown.
 // It is safe to call multiple times; subsequent calls are no-ops.
 func (p *HeartbeatPoller) Stop() {
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+
 	if !p.running.Load() {
 		return
 	}
@@ -96,6 +106,7 @@ func (p *HeartbeatPoller) Stop() {
 	}
 
 	p.running.Store(false)
+	p.stopCh = nil
 	logger.Log().Info("heartbeat poller stopped")
 }
 

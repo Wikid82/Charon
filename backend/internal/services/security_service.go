@@ -34,6 +34,10 @@ type SecurityService struct {
 
 // NewSecurityService returns a SecurityService using the provided DB
 func NewSecurityService(db *gorm.DB) *SecurityService {
+	if db != nil {
+		_ = db.AutoMigrate(&models.SecurityAudit{})
+	}
+
 	s := &SecurityService{
 		db:        db,
 		auditChan: make(chan *models.SecurityAudit, 100), // Buffered channel with capacity 100
