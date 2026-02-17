@@ -5,6 +5,7 @@ import { toast } from '../utils/toast'
 import { getBackups, createBackup, restoreBackup, deleteBackup, BackupFile } from '../api/backups'
 import { getSettings, updateSetting } from '../api/settings'
 import { Download, RotateCcw, Plus, Archive, Trash2, Save } from 'lucide-react'
+import { useAuth } from '../hooks/useAuth'
 import { PageShell } from '../components/layout/PageShell'
 import {
   Button,
@@ -33,6 +34,7 @@ const formatSize = (bytes: number): string => {
 
 export default function Backups() {
   const { t } = useTranslation()
+  const { user } = useAuth()
   const queryClient = useQueryClient()
   const [interval, setInterval] = useState('7')
   const [retention, setRetention] = useState('30')
@@ -191,13 +193,15 @@ export default function Backups() {
     },
   ]
 
-  // Header actions
-  const headerActions = (
+  const canCreateBackup = user?.role === 'admin' || user?.role === 'user'
+
+  // Header actions (visible only to admin and user roles)
+  const headerActions = canCreateBackup ? (
     <Button onClick={() => createMutation.mutate()} isLoading={createMutation.isPending}>
       <Plus className="w-4 h-4 mr-2" />
       {t('backups.createBackup')}
     </Button>
-  )
+  ) : null
 
   return (
     <PageShell
@@ -245,10 +249,14 @@ export default function Backups() {
           icon={<Archive className="h-12 w-12" />}
           title={t('backups.noBackups')}
           description={t('backups.noBackupsDescription')}
-          action={{
-            label: t('backups.createBackup'),
-            onClick: () => createMutation.mutate(),
-          }}
+          action={
+            canCreateBackup
+              ? {
+                  label: t('backups.createBackup'),
+                  onClick: () => createMutation.mutate(),
+                }
+              : undefined
+          }
           data-testid="empty-state"
         />
       ) : (
@@ -262,10 +270,14 @@ export default function Backups() {
               icon={<Archive className="h-12 w-12" />}
               title={t('backups.noBackups')}
               description={t('backups.noBackupsDescription')}
-              action={{
-                label: t('backups.createBackup'),
-                onClick: () => createMutation.mutate(),
-              }}
+              action={
+                canCreateBackup
+                  ? {
+                      label: t('backups.createBackup'),
+                      onClick: () => createMutation.mutate(),
+                    }
+                  : undefined
+              }
             />
           }
         />

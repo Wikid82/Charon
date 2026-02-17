@@ -1,5 +1,5 @@
 /**
- * Backup & Restore E2E Tests (Phase 6.5)
+ * Backup & Restore E2E Tests
  *
  * Tests for complete backup and restore workflows including
  * scheduling, verification, and disaster recovery scenarios.

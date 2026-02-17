@@ -1,5 +1,5 @@
 // @ts-check
-import { test, expect } from '@bgotink/playwright-coverage';
+import { test, expect } from './fixtures/test';
 
 test('has title', async ({ page }) => {
   await page.goto('https://playwright.dev/');

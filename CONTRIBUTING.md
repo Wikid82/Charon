@@ -26,7 +26,7 @@ This project follows a Code of Conduct that all contributors are expected to adh
 
 -### Prerequisites
 
-- **Go 1.25.6+** for backend development
+- **go 1.26.0+** for backend development
 - **Node.js 20+** and npm for frontend development
 - Git for version control
 - A GitHub account
@@ -63,9 +63,58 @@ golangci-lint --version
 
 ### CI/CD Go Version Management
 
-GitHub Actions workflows automatically use Go 1.25.6 via `GOTOOLCHAIN: auto`, which allows the `setup-go` action to download and use the correct Go version even if the CI environment has an older version installed. This ensures consistent builds across all workflows.
+GitHub Actions workflows automatically use go 1.26.0 via `GOTOOLCHAIN: auto`, which allows the `setup-go` action to download and use the correct Go version even if the CI environment has an older version installed. This ensures consistent builds across all workflows.
 
-For local development, install Go 1.25.6+ from [go.dev/dl](https://go.dev/dl/).
+For local development, install go 1.26.0+ from [go.dev/dl](https://go.dev/dl/).
+
+### Go Version Updates
+
+When the project's Go version is updated (usually by Renovate):
+
+1. **Pull the latest changes**
+   ```bash
+   git pull
+   ```
+
+2. **Update your local Go installation**
+   ```bash
+   # Run the Go update skill (downloads and installs the new version)
+   .github/skills/scripts/skill-runner.sh utility-update-go-version
+   ```
+
+3. **Rebuild your development tools**
+   ```bash
+   # This fixes pre-commit hook errors and IDE issues
+   ./scripts/rebuild-go-tools.sh
+   ```
+
+4. **Restart your IDE's Go language server**
+   - VS Code: Reload window (`Cmd/Ctrl+Shift+P` → "Developer: Reload Window")
+   - GoLand: File → Invalidate Caches → Restart
+
+**Why do I need to do this?**
+
+Development tools like golangci-lint and gopls are compiled programs. When you upgrade Go, these tools still run on the old version and will break with errors like:
+
+```
+error: some/file.go:123:4: undefined: runtime.NewlyAddedFunction
+```
+
+Rebuilding tools with `./scripts/rebuild-go-tools.sh` fixes this by compiling them with your new Go version.
+
+**What if I forget?**
+
+Don't worry! The pre-commit hook will detect the version mismatch and automatically rebuild tools for you. You'll see:
+
+```
+⚠️  golangci-lint Go version mismatch:
+   golangci-lint: 1.25.6
+   system Go:     1.26.0
+
+🔧 Rebuilding golangci-lint with current Go version...
+```
+
+See [Go Version Upgrades Guide](docs/development/go_version_upgrades.md) for troubleshooting.
 
 ### Fork and Clone
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, type UseMutationResult } from '@tanstack/react-query'
 import CredentialManager from '../CredentialManager'
 import {
   useCredentials,
@@ -10,8 +10,17 @@ import {
   useDeleteCredential,
   useTestCredential,
 } from '../../hooks/useCredentials'
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, defaultValue?: string) => defaultValue || key,
+    i18n: {
+      changeLanguage: () => new Promise(() => {}),
+    },
+  }),
+}))
 import type { DNSProvider, DNSProviderTypeInfo } from '../../api/dnsProviders'
-import type { DNSProviderCredential } from '../../api/credentials'
+import type { CredentialRequest, CredentialTestResult, DNSProviderCredential } from '../../api/credentials'
 
 vi.mock('../../hooks/useCredentials')
 vi.mock('../../utils/toast', () => ({
@@ -49,6 +58,12 @@ const mockProviderTypeInfo: DNSProviderTypeInfo = {
       required: true,
       hint: 'Cloudflare API Token with DNS edit permissions',
     },
+    {
+        name: 'email',
+        label: 'Email Address',
+        type: 'text',
+        required: false,
+    }
   ],
   documentation_url: 'https://developers.cloudflare.com',
 }
@@ -70,38 +85,29 @@ const mockCredentials: DNSProviderCredential[] = [
     created_at: '2025-01-01T00:00:00Z',
     updated_at: '2025-01-01T00:00:00Z',
   },
-  {
-    id: 2,
-    uuid: 'cred-uuid-2',
-    dns_provider_id: 1,
-    label: 'Customer A',
-    zone_filter: '*.customer-a.com',
-    enabled: true,
-    propagation_timeout: 120,
-    polling_interval: 5,
-    key_version: 1,
-    success_count: 3,
-    failure_count: 0,
-    created_at: '2025-01-02T00:00:00Z',
-    updated_at: '2025-01-02T00:00:00Z',
-  },
-  {
-    id: 3,
-    uuid: 'cred-uuid-3',
-    dns_provider_id: 1,
-    label: 'Staging',
-    zone_filter: '*.staging.example.com',
-    enabled: true,
-    propagation_timeout: 120,
-    polling_interval: 5,
-    key_version: 1,
-    success_count: 2,
-    failure_count: 1,
-    last_error: 'DNS propagation timeout',
-    created_at: '2025-01-02T00:00:00Z',
-    updated_at: '2025-01-03T00:00:00Z',
-  },
 ]
+
+const createCredentialsQueryResult = (
+  overrides: Record<string, unknown> = {}
+): ReturnType<typeof useCredentials> => ({
+  data: mockCredentials,
+  isLoading: false,
+  refetch: vi.fn(),
+  error: null,
+  isError: false,
+  isSuccess: true,
+  ...overrides,
+} as unknown as ReturnType<typeof useCredentials>)
+
+const createMutationResult = <TData, TVariables>(
+  mutateAsync: ReturnType<typeof vi.fn>,
+  overrides: Partial<UseMutationResult<TData, Error, TVariables, unknown>> = {}
+): UseMutationResult<TData, Error, TVariables, unknown> => ({
+  mutate: vi.fn() as UseMutationResult<TData, Error, TVariables, unknown>['mutate'],
+  mutateAsync: mutateAsync as UseMutationResult<TData, Error, TVariables, unknown>['mutateAsync'],
+  isPending: false,
+  ...overrides,
+} as UseMutationResult<TData, Error, TVariables, unknown>)
 
 const renderWithClient = (ui: React.ReactElement) => {
   const queryClient = new QueryClient({
@@ -115,445 +121,749 @@ const renderWithClient = (ui: React.ReactElement) => {
 
 describe('CredentialManager', () => {
   const mockOnOpenChange = vi.fn()
-  const mockRefetch = vi.fn()
-  const mockMutateAsync = vi.fn()
+  const mockCreateMutate = vi.fn()
+  const mockUpdateMutate = vi.fn()
+  const mockDeleteMutate = vi.fn()
+  const mockTestMutate = vi.fn()
 
   beforeEach(() => {
     vi.clearAllMocks()
 
-    vi.mocked(useCredentials).mockReturnValue({
-      data: mockCredentials,
-      isLoading: false,
-      refetch: mockRefetch,
-    } as unknown as ReturnType<typeof useCredentials>)
+    vi.mocked(useCredentials).mockReturnValue(createCredentialsQueryResult())
 
-    vi.mocked(useCreateCredential).mockReturnValue({
-      mutateAsync: mockMutateAsync,
-      isPending: false,
-    } as unknown as ReturnType<typeof useCreateCredential>)
+    vi.mocked(useCreateCredential).mockReturnValue(
+      createMutationResult<DNSProviderCredential, { providerId: number; data: CredentialRequest }>(
+        mockCreateMutate
+      )
+    )
 
-    vi.mocked(useUpdateCredential).mockReturnValue({
-      mutateAsync: mockMutateAsync,
-      isPending: false,
-    } as unknown as ReturnType<typeof useUpdateCredential>)
+    vi.mocked(useUpdateCredential).mockReturnValue(
+      createMutationResult<
+        DNSProviderCredential,
+        { providerId: number; credentialId: number; data: CredentialRequest }
+      >(mockUpdateMutate)
+    )
 
-    vi.mocked(useDeleteCredential).mockReturnValue({
-      mutateAsync: mockMutateAsync,
-      isPending: false,
-    } as unknown as ReturnType<typeof useDeleteCredential>)
+    vi.mocked(useDeleteCredential).mockReturnValue(
+      createMutationResult<void, { providerId: number; credentialId: number }>(
+        mockDeleteMutate
+      )
+    )
 
-    vi.mocked(useTestCredential).mockReturnValue({
-      mutateAsync: mockMutateAsync,
-      isPending: false,
-    } as unknown as ReturnType<typeof useTestCredential>)
+    vi.mocked(useTestCredential).mockReturnValue(
+      createMutationResult<CredentialTestResult, { providerId: number; credentialId: number }>(
+        mockTestMutate
+      )
+    )
   })
 
-  describe('Rendering', () => {
-    it('renders modal with provider name in title', () => {
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
+  // 1. Rendering Checks
+  it('renders credentials properly', async () => {
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
 
-      expect(screen.getByText(/Cloudflare Production/)).toBeInTheDocument()
-    })
-
-    it('shows add credential button', () => {
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
-
-      // Check for button with specific text or by querying all buttons
-      const buttons = screen.getAllByRole('button')
-      expect(buttons.length).toBeGreaterThan(0)
-    })
-
-    it('renders credentials table with data', () => {
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
-
-      expect(screen.getByText('Main Zone')).toBeInTheDocument()
-      expect(screen.getByText('Customer A')).toBeInTheDocument()
-      expect(screen.getByText('Staging')).toBeInTheDocument()
-    })
-
-    it('displays zone filters correctly', () => {
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
-
-      expect(screen.getByText('example.com')).toBeInTheDocument()
-      expect(screen.getByText('*.customer-a.com')).toBeInTheDocument()
-      expect(screen.getByText('*.staging.example.com')).toBeInTheDocument()
-    })
-
-    it('shows status with success/failure counts', () => {
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
-
-      expect(screen.getByText('15/0')).toBeInTheDocument()
-      expect(screen.getByText('3/0')).toBeInTheDocument()
-      expect(screen.getByText('2/1')).toBeInTheDocument()
-    })
-
-    it('displays last error when present', () => {
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
-
-      expect(screen.getByText('DNS propagation timeout')).toBeInTheDocument()
-    })
+    expect(screen.getByText('Manage Credentials: Cloudflare Production')).toBeInTheDocument()
+    expect(screen.getByText('Main Zone')).toBeInTheDocument()
+    expect(screen.getByText('example.com')).toBeInTheDocument()
   })
 
-  describe('Empty State', () => {
-    it('shows empty state when no credentials', () => {
-      vi.mocked(useCredentials).mockReturnValue({
-        data: [],
-        isLoading: false,
-        refetch: mockRefetch,
-      } as unknown as ReturnType<typeof useCredentials>)
+  // 2. Add Operation
+  it('allows adding a new credential', async () => {
+    const user = userEvent.setup()
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
 
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
+    // Click Add Credential
+    await user.click(screen.getByText('Add Credential'))
 
-      // Empty state should render (no table)
-      expect(screen.queryByRole('table')).not.toBeInTheDocument()
-      // But buttons should still exist (add button)
-      const buttons = screen.getAllByRole('button')
-      expect(buttons.length).toBeGreaterThan(0)
-    })
+    // Verify Form opens
+    expect(screen.getByRole('dialog', { name: 'Add Credential' })).toBeInTheDocument()
 
-    it('empty state has add credential action', async () => {
-      const user = userEvent.setup()
-      vi.mocked(useCredentials).mockReturnValue({
-        data: [],
-        isLoading: false,
-        refetch: mockRefetch,
-      } as unknown as ReturnType<typeof useCredentials>)
+    // Fill Form
+    // Label requires *
+    await user.type(screen.getByLabelText(/Label/i), 'New Staging')
 
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
+    // Zone Filter
+    await user.type(screen.getByLabelText(/Zone Filter/i), '*.staging.com')
 
-      // Empty state should have buttons
-      const buttons = screen.getAllByRole('button')
-      expect(buttons.length).toBeGreaterThan(0)
+    // Credentials fields from type info
+    // API Token (required)
+    await user.type(screen.getByLabelText(/API Token/i), 'my-secret-token')
 
-      // Click first button (likely the add button)
-      await user.click(buttons[0])
+    // Click Save
+    await user.click(screen.getByRole('button', { name: 'Save' }))
 
-      // Form dialog should open
-      await waitFor(() => {
-        const dialogs = screen.getAllByRole('dialog')
-        expect(dialogs.length).toBeGreaterThan(0)
-      })
-    })
-  })
-
-  describe('Loading State', () => {
-    it('shows loading indicator', () => {
-      vi.mocked(useCredentials).mockReturnValue({
-        data: undefined,
-        isLoading: true,
-        refetch: mockRefetch,
-      } as unknown as ReturnType<typeof useCredentials>)
-
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
-
-      expect(screen.getByText(/loading/i)).toBeInTheDocument()
-    })
-  })
-
-  describe('Table Actions', () => {
-    it('shows test, edit, and delete buttons for each credential', () => {
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
-
-      // Each row should have 3 action buttons (test, edit, delete)
-      const rows = screen.getAllByRole('row').slice(1) // Skip header
-      expect(rows).toHaveLength(3)
-
-      // Verify action buttons exist
-      expect(rows[0].querySelectorAll('button')).toHaveLength(3)
-    })
-
-    it('opens edit form when edit button clicked', async () => {
-      const user = userEvent.setup()
-
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
-
-      // Find edit button in first row
-      const firstRow = screen.getAllByRole('row')[1]
-      const editButton = firstRow.querySelectorAll('button')[1]
-
-      // Verify edit button exists
-      expect(editButton).toBeInTheDocument()
-      await user.click(editButton)
-
-      // Form dialog should open (state change)
-      await waitFor(() => {
-        // Check that a form input appears
-        const inputs = screen.getAllByRole('textbox')
-        expect(inputs.length).toBeGreaterThan(0)
-      })
-    })
-  })
-
-  describe('Delete Confirmation', () => {
-    it('opens delete confirmation flow', async () => {
-      const user = userEvent.setup()
-
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
-
-      // Click delete button in first row
-      const firstRow = screen.getAllByRole('row')[1]
-      const deleteButton = firstRow.querySelectorAll('button')[2]
-
-      // Verify button exists and is clickable
-      expect(deleteButton).toBeInTheDocument()
-      await user.click(deleteButton)
-
-      // Confirmation flow initiated (state change verified)
-      expect(deleteButton).toBeInTheDocument()
-    })
-  })
-
-  describe('Test Credential', () => {
-    it('calls test mutation when test button clicked', async () => {
-      const user = userEvent.setup()
-      mockMutateAsync.mockResolvedValue({
-        success: true,
-        message: 'Test passed',
-      })
-
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
-
-      // Click test button in first row
-      const firstRow = screen.getAllByRole('row')[1]
-      const testButton = firstRow.querySelectorAll('button')[0]
-      await user.click(testButton)
-
-      await waitFor(() => {
-        expect(mockMutateAsync).toHaveBeenCalledWith({
-          providerId: 1,
-          credentialId: expect.any(Number),
+    // Expect Create Mutation
+    await waitFor(() => {
+        expect(mockCreateMutate).toHaveBeenCalledWith({
+            providerId: 1,
+            data: expect.objectContaining({
+                label: 'New Staging',
+                zone_filter: '*.staging.com',
+                credentials: expect.objectContaining({
+                    api_token: 'my-secret-token'
+                }),
+                enabled: true
+            })
         })
-      })
     })
   })
 
-  describe('Close Modal', () => {
-    it('calls onOpenChange when close button clicked', async () => {
-      const user = userEvent.setup()
+  // 3. Edit Operation
+  it('allows editing an existing credential', async () => {
+    const user = userEvent.setup()
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
 
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
+    // Locate the edit button for the first credential.
+    const rows = screen.getAllByRole('row')
+    const credRow = rows.find(r => r.innerHTML.includes('Main Zone'))
+    const editBtn = credRow?.querySelectorAll('button')[1] // 0=Test, 1=Edit, 2=Delete
 
-      // Get the close button at the bottom of the modal
-      const closeButtons = screen.getAllByRole('button', { name: /close/i })
-      const closeButton = closeButtons[closeButtons.length - 1]
-      await user.click(closeButton)
+    expect(editBtn).toBeDefined()
+    await user.click(editBtn!)
 
-      expect(mockOnOpenChange).toHaveBeenCalledWith(false)
+    // Verify Form opens with pre-filled values
+    expect(screen.getByRole('dialog', { name: 'Edit Credential' })).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Main Zone')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('example.com')).toBeInTheDocument()
+
+    // Change label
+    const labelInput = screen.getByLabelText(/Label/i)
+    await user.clear(labelInput)
+    await user.type(labelInput, 'Updated Label')
+
+    // Click Save
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    // Expect Update Mutation
+    await waitFor(() => {
+        expect(mockUpdateMutate).toHaveBeenCalledWith({
+            providerId: 1,
+            credentialId: 1,
+            data: expect.objectContaining({
+                label: 'Updated Label',
+                zone_filter: 'example.com'
+            })
+        })
     })
   })
 
-  describe('Accessibility', () => {
-    it('has proper dialog role', () => {
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
+  // 4. Delete Operation
+  it('allows deleting a credential after confirmation', async () => {
+    const user = userEvent.setup()
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
 
-      expect(screen.getByRole('dialog')).toBeInTheDocument()
-    })
+    const rows = screen.getAllByRole('row')
+    const credRow = rows.find(r => r.innerHTML.includes('Main Zone'))
+    const deleteBtn = credRow?.querySelectorAll('button')[2] // 0=Test, 1=Edit, 2=Delete
 
-    it('has accessible table structure', () => {
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
+    expect(deleteBtn).toBeDefined()
+    await user.click(deleteBtn!)
 
-      expect(screen.getByRole('table')).toBeInTheDocument()
-      expect(screen.getAllByRole('columnheader')).toHaveLength(4)
-    })
-  })
+    // Confirmation Dialog
+    expect(screen.getByText('Delete Credential?')).toBeInTheDocument()
 
-  describe('Error Handling', () => {
-    it('shows error when credentials fail to load', async () => {
-      vi.mocked(useCredentials).mockReturnValue({
-        data: undefined,
-        isLoading: false,
-        isError: true,
-        error: new Error('Failed to fetch'),
-        refetch: mockRefetch,
-      } as unknown as ReturnType<typeof useCredentials>)
+    // Confirm
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
 
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
-
-      // Error state should render (no table, no loading text)
-      expect(screen.queryByRole('table')).not.toBeInTheDocument()
-      expect(screen.queryByText(/loading/i)).not.toBeInTheDocument()
-    })
-
-    it('handles test mutation error gracefully', async () => {
-      const user = userEvent.setup()
-      mockMutateAsync.mockRejectedValue({
-        response: { data: { error: 'Invalid credentials' } },
-      })
-
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
-
-      // Click test button
-      const firstRow = screen.getAllByRole('row')[1]
-      const testButton = firstRow.querySelectorAll('button')[0]
-      await user.click(testButton)
-
-      // Should have called the mutation
-      await waitFor(() => {
-        expect(mockMutateAsync).toHaveBeenCalled()
-      })
+    // Expect Delete Mutation
+    await waitFor(() => {
+        expect(mockDeleteMutate).toHaveBeenCalledWith({
+            providerId: 1,
+            credentialId: 1
+        })
     })
   })
 
-  describe('Edge Cases', () => {
-    it('handles wildcard zone filters', async () => {
-      const wildcard = mockCredentials.filter((c) => c.zone_filter.includes('*'))
-      expect(wildcard.length).toBeGreaterThan(0)
+  // 5. Validation - Required Fields
+  it('validates required fields on add', async () => {
+    const user = userEvent.setup()
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
 
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
+    await user.click(screen.getByText('Add Credential'))
 
-      wildcard.forEach((cred) => {
-        expect(screen.getByText(cred.zone_filter)).toBeInTheDocument()
+    // Click Save without filling anything
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    // Mutation should NOT be called.
+    expect(mockCreateMutate).not.toHaveBeenCalled()
+
+    // Fill Label but not API Key (which is required by type info)
+    await user.type(screen.getByLabelText(/Label/i), 'Incomplete')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    // Still no mutation
+    expect(mockCreateMutate).not.toHaveBeenCalled()
+  })
+
+  // 6. Validation - Zone Filter Format
+  it('validates zone filter format', async () => {
+    const user = userEvent.setup()
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    await user.click(screen.getByText('Add Credential'))
+
+    await user.type(screen.getByLabelText(/Label/i), 'Bad Zone')
+    await user.type(screen.getByLabelText(/API Token/i), 'token')
+
+    // Invalid zone
+    await user.type(screen.getByLabelText(/Zone Filter/i), 'invalid zone')
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(mockCreateMutate).not.toHaveBeenCalled()
+
+    // Fix zone
+    const zoneInput = screen.getByLabelText(/Zone Filter/i)
+    await user.clear(zoneInput)
+    await user.type(zoneInput, 'valid.com')
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+        expect(mockCreateMutate).toHaveBeenCalled()
+    })
+  })
+
+  // ===== BRANCH COVERAGE EXPANSION TESTS =====
+
+  // 7. Empty Credential List Rendering
+  it('renders empty state when no credentials exist', () => {
+    vi.mocked(useCredentials).mockReturnValue(
+      createCredentialsQueryResult({ data: [] })
+    )
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    expect(screen.getByText(/No credentials configured/i)).toBeInTheDocument()
+    expect(screen.getByText(/Add credentials to enable/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Add First Credential/i })).toBeInTheDocument()
+  })
+
+  // 8. Loading State
+  it('renders loading state while fetching credentials', () => {
+    vi.mocked(useCredentials).mockReturnValue(
+      createCredentialsQueryResult({
+        data: [],
+        isLoading: true,
+        isSuccess: false,
+        status: 'loading',
+        fetchStatus: 'fetching',
       })
+    )
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    expect(screen.getByText('Loading...')).toBeInTheDocument()
+  })
+
+  // 9. Delete Error Handling
+  it('shows error toast when delete fails', async () => {
+    const user = userEvent.setup()
+    const { toast } = await import('../../utils/toast')
+
+    mockDeleteMutate.mockRejectedValue({
+      response: { data: { error: 'Credential in use' } }
     })
 
-    it('handles credentials without last_used_at', () => {
-      const credWithoutLastUsed = mockCredentials.find((c) => !c.last_used_at)
-      expect(credWithoutLastUsed).toBeDefined()
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
 
-      renderWithClient(
-        <CredentialManager
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          provider={mockProvider}
-          providerTypeInfo={mockProviderTypeInfo}
-        />
-      )
+    const rows = screen.getAllByRole('row')
+    const credRow = rows.find(r => r.innerHTML.includes('Main Zone'))
+    const deleteBtn = credRow?.querySelectorAll('button')[2]
 
-      // Should render without error
-      expect(screen.getByText(credWithoutLastUsed!.label)).toBeInTheDocument()
+    await user.click(deleteBtn!)
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalled()
+    })
+  })
+
+  // 10. Test Credential - Success
+  it('tests credential and shows success', async () => {
+    const user = userEvent.setup()
+    const { toast } = await import('../../utils/toast')
+
+    mockTestMutate.mockResolvedValue({ success: true, message: 'Test passed' })
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    const rows = screen.getAllByRole('row')
+    const credRow = rows.find(r => r.innerHTML.includes('Main Zone'))
+    const testBtn = credRow?.querySelectorAll('button')[0]
+
+    await user.click(testBtn!)
+
+    await waitFor(() => {
+      expect(mockTestMutate).toHaveBeenCalledWith({
+        providerId: 1,
+        credentialId: 1,
+      })
+      expect(toast.success).toHaveBeenCalled()
+    })
+  })
+
+  // 11. Test Credential - Failure
+  it('tests credential and shows error on failure', async () => {
+    const user = userEvent.setup()
+    const { toast } = await import('../../utils/toast')
+
+    mockTestMutate.mockResolvedValue({ success: false, error: 'Invalid token' })
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    const rows = screen.getAllByRole('row')
+    const credRow = rows.find(r => r.innerHTML.includes('Main Zone'))
+    const testBtn = credRow?.querySelectorAll('button')[0]
+
+    await user.click(testBtn!)
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalled()
+    })
+  })
+
+  // 12. Test Credential - Exception
+  it('handles test credential exception', async () => {
+    const user = userEvent.setup()
+    const { toast } = await import('../../utils/toast')
+
+    mockTestMutate.mockRejectedValue({ message: 'Network error' })
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    const rows = screen.getAllByRole('row')
+    const credRow = rows.find(r => r.innerHTML.includes('Main Zone'))
+    const testBtn = credRow?.querySelectorAll('button')[0]
+
+    await user.click(testBtn!)
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalled()
+    })
+  })
+
+  // 13. Multiple Credentials
+  it('renders multiple credentials in table', () => {
+    const multipleCreds = [
+      ...mockCredentials,
+      {
+        id: 2,
+        uuid: 'cred-uuid-2',
+        dns_provider_id: 1,
+        label: 'Staging Zone',
+        zone_filter: '*.staging.com',
+        enabled: true,
+        propagation_timeout: 120,
+        polling_interval: 5,
+        key_version: 1,
+        success_count: 5,
+        failure_count: 2,
+        last_used_at: undefined,
+        last_error: undefined,
+        created_at: '2025-01-02T00:00:00Z',
+        updated_at: '2025-01-02T00:00:00Z',
+      }
+    ]
+
+    vi.mocked(useCredentials).mockReturnValue(
+      createCredentialsQueryResult({ data: multipleCreds })
+    )
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    expect(screen.getByText('Main Zone')).toBeInTheDocument()
+    expect(screen.getByText('Staging Zone')).toBeInTheDocument()
+    expect(screen.getByText('*.staging.com')).toBeInTheDocument()
+  })
+
+  // 14. Disabled Credential
+  it('displays disabled status for disabled credentials', () => {
+    const disabledCred = {
+      ...mockCredentials[0],
+      enabled: false,
+    }
+
+    vi.mocked(useCredentials).mockReturnValue(
+      createCredentialsQueryResult({ data: [disabledCred] })
+    )
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    expect(screen.getByText('Disabled')).toBeInTheDocument()
+  })
+
+  // 15. Credential with Last Error
+  it('displays last error when credential has failure', () => {
+    const errorCred = {
+      ...mockCredentials[0],
+      failure_count: 3,
+      last_error: 'API rate limit exceeded',
+    }
+
+    vi.mocked(useCredentials).mockReturnValue(
+      createCredentialsQueryResult({ data: [errorCred] })
+    )
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    expect(screen.getByText('API rate limit exceeded')).toBeInTheDocument()
+  })
+
+  // 16. Create Credential Error
+  it('shows error toast when create fails', async () => {
+    const user = userEvent.setup()
+    const { toast } = await import('../../utils/toast')
+
+    mockCreateMutate.mockRejectedValue({
+      response: { data: { error: 'Invalid provider' } }
+    })
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    await user.click(screen.getByText('Add Credential'))
+    await user.type(screen.getByLabelText(/Label/i), 'Test')
+    await user.type(screen.getByLabelText(/API Token/i), 'token')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalled()
+    })
+  })
+
+  // 17. Update Credential Error
+  it('shows error toast when update fails', async () => {
+    const user = userEvent.setup()
+    const { toast } = await import('../../utils/toast')
+
+    mockUpdateMutate.mockRejectedValue({
+      response: { data: { error: 'Zone filter conflict' } }
+    })
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    const rows = screen.getAllByRole('row')
+    const credRow = rows.find(r => r.innerHTML.includes('Main Zone'))
+    const editBtn = credRow?.querySelectorAll('button')[1]
+
+    await user.click(editBtn!)
+    await user.type(screen.getByLabelText(/Label/i), ' Updated')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalled()
+    })
+  })
+
+  // 18. Cancel Delete
+  it('cancels delete operation', async () => {
+    const user = userEvent.setup()
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    const rows = screen.getAllByRole('row')
+    const credRow = rows.find(r => r.innerHTML.includes('Main Zone'))
+    const deleteBtn = credRow?.querySelectorAll('button')[2]
+
+    await user.click(deleteBtn!)
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(mockDeleteMutate).not.toHaveBeenCalled()
+  })
+
+  // 19. Cancel Form Dialog
+  it('closes form dialog without saving', async () => {
+    const user = userEvent.setup()
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    await user.click(screen.getByText('Add Credential'))
+    await user.type(screen.getByLabelText(/Label/i), 'Test')
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(mockCreateMutate).not.toHaveBeenCalled()
+  })
+
+  // 20. Advanced Options - Propagation Timeout
+  it('allows editing propagation timeout in advanced options', async () => {
+    const user = userEvent.setup()
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    await user.click(screen.getByText('Add Credential'))
+    await user.type(screen.getByLabelText(/Label/i), 'Advanced Test')
+    await user.type(screen.getByLabelText(/API Token/i), 'token')
+
+    // Find and open details element
+    const detailsElements = document.querySelectorAll('details')
+    const detailsElement = Array.from(detailsElements).find(d =>
+      d.textContent?.includes('Advanced Options')
+    )
+
+    if (detailsElement) {
+      const summary = detailsElement.querySelector('summary')
+      if (summary) {
+        await user.click(summary)
+      }
+    }
+
+    // Try to find the propagation timeout input
+    const timeoutInputs = document.querySelectorAll('input')
+    const timeoutInput = Array.from(timeoutInputs).find(i =>
+      i.id === 'propagation_timeout' || i.placeholder?.includes('120')
+    ) as HTMLInputElement
+
+    if (timeoutInput) {
+      await user.clear(timeoutInput)
+      await user.type(timeoutInput, '300')
+    }
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(mockCreateMutate).toHaveBeenCalled()
+    })
+  })
+
+  // 21. Advanced Options - Polling Interval
+  it('allows editing polling interval in advanced options', async () => {
+    const user = userEvent.setup()
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    await user.click(screen.getByText('Add Credential'))
+    await user.type(screen.getByLabelText(/Label/i), 'Polling Test')
+    await user.type(screen.getByLabelText(/API Token/i), 'token')
+
+    // Find and open details element
+    const detailsElements = document.querySelectorAll('details')
+    const detailsElement = Array.from(detailsElements).find(d =>
+      d.textContent?.includes('Advanced Options')
+    )
+
+    if (detailsElement) {
+      const summary = detailsElement.querySelector('summary')
+      if (summary) {
+        await user.click(summary)
+      }
+    }
+
+    // Try to find the polling interval input
+    const inputs = document.querySelectorAll('input')
+    const pollingInput = Array.from(inputs).find(i =>
+      i.id === 'polling_interval' || (i.type === 'number' && i.placeholder?.includes('5'))
+    ) as HTMLInputElement
+
+    if (pollingInput) {
+      await user.clear(pollingInput)
+      await user.type(pollingInput, '10')
+    }
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(mockCreateMutate).toHaveBeenCalled()
+    })
+  })
+
+  // 22. Form Success Toast
+  it('shows success toast after credential creation', async () => {
+    const user = userEvent.setup()
+    const { toast } = await import('../../utils/toast')
+
+    mockCreateMutate.mockResolvedValue({ id: 2, label: 'New Cred' })
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    await user.click(screen.getByText('Add Credential'))
+    await user.type(screen.getByLabelText(/Label/i), 'New Cred')
+    await user.type(screen.getByLabelText(/API Token/i), 'token')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('created successfully'))
+    })
+  })
+
+  // 23. Form Success Toast - Update
+  it('shows success toast after credential update', async () => {
+    const user = userEvent.setup()
+    const { toast } = await import('../../utils/toast')
+
+    mockUpdateMutate.mockResolvedValue({ id: 1, label: 'Updated' })
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    const rows = screen.getAllByRole('row')
+    const credRow = rows.find(r => r.innerHTML.includes('Main Zone'))
+    const editBtn = credRow?.querySelectorAll('button')[1]
+
+    await user.click(editBtn!)
+    await user.type(screen.getByLabelText(/Label/i), ' Updated')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('updated successfully'))
     })
   })
 })

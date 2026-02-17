@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -47,6 +49,82 @@ func requestScheme(c *gin.Context) string {
 	return "http"
 }
 
+func normalizeHost(rawHost string) string {
+	host := strings.TrimSpace(rawHost)
+	if host == "" {
+		return ""
+	}
+
+	if strings.Contains(host, ":") {
+		if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+			host = parsedHost
+		}
+	}
+
+	return strings.Trim(host, "[]")
+}
+
+func originHost(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+
+	return normalizeHost(parsedURL.Host)
+}
+
+func isLocalHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return true
+	}
+
+	return false
+}
+
+func isLocalRequest(c *gin.Context) bool {
+	candidates := []string{}
+
+	if c.Request != nil {
+		candidates = append(candidates, normalizeHost(c.Request.Host))
+
+		if c.Request.URL != nil {
+			candidates = append(candidates, normalizeHost(c.Request.URL.Host))
+		}
+
+		candidates = append(candidates,
+			originHost(c.Request.Header.Get("Origin")),
+			originHost(c.Request.Header.Get("Referer")),
+		)
+	}
+
+	if forwardedHost := c.GetHeader("X-Forwarded-Host"); forwardedHost != "" {
+		parts := strings.Split(forwardedHost, ",")
+		for _, part := range parts {
+			candidates = append(candidates, normalizeHost(part))
+		}
+	}
+
+	for _, host := range candidates {
+		if host == "" {
+			continue
+		}
+
+		if isLocalHost(host) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // setSecureCookie sets an auth cookie with security best practices
 // - HttpOnly: prevents JavaScript access (XSS protection)
 // - Secure: derived from request scheme to allow HTTP/IP logins when needed
@@ -56,6 +134,11 @@ func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
 	secure := isProduction() && scheme == "https"
 	sameSite := http.SameSiteStrictMode
 	if scheme != "https" {
+		sameSite = http.SameSiteLaxMode
+	}
+
+	if isLocalRequest(c) {
+		secure = false
 		sameSite = http.SameSiteLaxMode
 	}
 
@@ -126,15 +209,63 @@ func (h *AuthHandler) Register(c *gin.Context) {
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
+	if userIDValue, exists := c.Get("userID"); exists {
+		if userID, ok := userIDValue.(uint); ok && userID > 0 {
+			if err := h.authService.InvalidateSessions(userID); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to invalidate session"})
+				return
+			}
+		}
+	}
+
 	clearSecureCookie(c, "auth_token")
 	c.JSON(http.StatusOK, gin.H{"message": "Logged out"})
 }
 
+// Refresh creates a new token for the authenticated user.
+// Must be called with a valid existing token.
+// Supports long-running test sessions by allowing token refresh before expiry.
+func (h *AuthHandler) Refresh(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	user, err := h.authService.GetUserByID(userID.(uint))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	token, err := h.authService.GenerateToken(user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
+
+	// Set secure cookie and return new token
+	setSecureCookie(c, "auth_token", token, 3600*24)
+
+	c.JSON(http.StatusOK, gin.H{"token": token})
+}
+
 func (h *AuthHandler) Me(c *gin.Context) {
-	userID, _ := c.Get("userID")
+	userIDValue, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	userID, ok := userIDValue.(uint)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
 	role, _ := c.Get("role")
 
-	u, err := h.authService.GetUserByID(userID.(uint))
+	u, err := h.authService.GetUserByID(userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
@@ -192,17 +323,15 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 func (h *AuthHandler) Verify(c *gin.Context) {
 	// Extract token from cookie or Authorization header
 	var tokenString string
-
-	// Try cookie first (most common for browser requests)
-	if cookie, err := c.Cookie("auth_token"); err == nil && cookie != "" {
-		tokenString = cookie
+	authHeader := c.GetHeader("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		tokenString = strings.TrimPrefix(authHeader, "Bearer ")
 	}
 
-	// Fall back to Authorization header
+	// Fall back to cookie (most common for browser requests)
 	if tokenString == "" {
-		authHeader := c.GetHeader("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer ") {
-			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+		if cookie, err := c.Cookie("auth_token"); err == nil && cookie != "" {
+			tokenString = cookie
 		}
 	}
 
@@ -214,16 +343,8 @@ func (h *AuthHandler) Verify(c *gin.Context) {
 	}
 
 	// Validate token
-	claims, err := h.authService.ValidateToken(tokenString)
+	user, _, err := h.authService.AuthenticateToken(tokenString)
 	if err != nil {
-		c.Header("X-Auth-Redirect", "/login")
-		c.AbortWithStatus(http.StatusUnauthorized)
-		return
-	}
-
-	// Get user details
-	user, err := h.authService.GetUserByID(claims.UserID)
-	if err != nil || !user.Enabled {
 		c.Header("X-Auth-Redirect", "/login")
 		c.AbortWithStatus(http.StatusUnauthorized)
 		return
@@ -270,15 +391,14 @@ func (h *AuthHandler) Verify(c *gin.Context) {
 func (h *AuthHandler) VerifyStatus(c *gin.Context) {
 	// Extract token
 	var tokenString string
-
-	if cookie, err := c.Cookie("auth_token"); err == nil && cookie != "" {
-		tokenString = cookie
+	authHeader := c.GetHeader("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		tokenString = strings.TrimPrefix(authHeader, "Bearer ")
 	}
 
 	if tokenString == "" {
-		authHeader := c.GetHeader("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer ") {
-			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+		if cookie, err := c.Cookie("auth_token"); err == nil && cookie != "" {
+			tokenString = cookie
 		}
 	}
 
@@ -289,16 +409,8 @@ func (h *AuthHandler) VerifyStatus(c *gin.Context) {
 		return
 	}
 
-	claims, err := h.authService.ValidateToken(tokenString)
+	user, _, err := h.authService.AuthenticateToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"authenticated": false,
-		})
-		return
-	}
-
-	user, err := h.authService.GetUserByID(claims.UserID)
-	if err != nil || !user.Enabled {
 		c.JSON(http.StatusOK, gin.H{
 			"authenticated": false,
 		})

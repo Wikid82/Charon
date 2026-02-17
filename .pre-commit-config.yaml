@@ -14,6 +14,19 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
         args: ['--maxkb=2500']
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        name: shellcheck
+        exclude: '^(frontend/(coverage|dist|node_modules|\.vite)/|test-results|codeql-agent-results)/'
+        args: ['--severity=error']
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.10
+    hooks:
+      - id: actionlint
+        name: actionlint (GitHub Actions)
+        files: '^\.github/workflows/.*\.ya?ml$'
   - repo: local
     hooks:
       - id: dockerfile-check

@@ -34,6 +34,7 @@ func TestImportHandler_Commit_InvalidJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/import/commit", bytes.NewBufferString("invalid"))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -54,6 +55,7 @@ func TestImportHandler_Commit_InvalidSessionUUID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/import/commit", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -76,6 +78,7 @@ func TestImportHandler_Commit_SessionNotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/import/commit", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -351,6 +354,7 @@ func TestBackupHandler_List_DBError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 
 	h.List(c)
 
@@ -368,6 +372,7 @@ func TestImportHandler_UploadMulti_InvalidJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/import/upload-multi", bytes.NewBufferString("invalid"))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -390,6 +395,7 @@ func TestImportHandler_UploadMulti_MissingCaddyfile(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/import/upload-multi", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -413,6 +419,7 @@ func TestImportHandler_UploadMulti_EmptyContent(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/import/upload-multi", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -437,6 +444,7 @@ func TestImportHandler_UploadMulti_PathTraversal(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/import/upload-multi", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -525,6 +533,7 @@ func TestImportHandler_Upload_InvalidJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/import/upload", bytes.NewBufferString("not json"))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -545,6 +554,7 @@ func TestImportHandler_Upload_EmptyContent(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/import/upload", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -583,6 +593,7 @@ func TestBackupHandler_List_ServiceError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("GET", "/backups", http.NoBody)
 
 	h.List(c)
@@ -611,6 +622,7 @@ func TestBackupHandler_Delete_PathTraversal(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Params = gin.Params{{Key: "filename", Value: "../../../etc/passwd"}}
 	c.Request = httptest.NewRequest("DELETE", "/backups/../../../etc/passwd", http.NoBody)
 
@@ -659,6 +671,7 @@ func TestBackupHandler_Delete_InternalError2(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Params = gin.Params{{Key: "filename", Value: "test.zip"}}
 	c.Request = httptest.NewRequest("DELETE", "/backups/test.zip", http.NoBody)
 
@@ -773,6 +786,7 @@ func TestBackupHandler_Create_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/backups", http.NoBody)
 
 	h.Create(c)
@@ -818,6 +832,7 @@ func TestSettingsHandler_UpdateSetting_InvalidJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("PUT", "/settings/test", bytes.NewBufferString("invalid"))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -893,6 +908,7 @@ func TestImportHandler_UploadMulti_ValidCaddyfile(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/import/upload-multi", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -918,6 +934,7 @@ func TestImportHandler_UploadMulti_SubdirFile(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/import/upload-multi", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 

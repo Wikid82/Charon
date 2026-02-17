@@ -51,13 +51,13 @@ func TestDeleteCertificate_InUse(t *testing.T) {
 	}
 
 	// Migrate minimal models
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
 	// Create certificate
 	cert := models.SSLCertificate{UUID: "test-cert", Name: "example-cert", Provider: "custom", Domains: "example.com"}
-	if err := db.Create(&cert).Error; err != nil {
+	if err = db.Create(&cert).Error; err != nil {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
@@ -84,19 +84,27 @@ func toStr(id uint) string {
 
 // Test that deleting a certificate NOT in use creates a backup and deletes successfully
 func TestDeleteCertificate_CreatesBackup(t *testing.T) {
-	// Add _txlock=immediate to prevent lock contention during rapid backup + delete operations
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared&_txlock=immediate", t.Name())), &gorm.Config{})
+	// Use a file-backed DB with busy timeout and single connection to avoid
+	// lock contention with CertificateService background sync.
+	dbPath := t.TempDir() + "/cert_create_backup.db"
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1", dbPath)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("failed to access sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
 	// Create certificate
 	cert := models.SSLCertificate{UUID: "test-cert-backup-success", Name: "deletable-cert", Provider: "custom", Domains: "delete.example.com"}
-	if err := db.Create(&cert).Error; err != nil {
+	if err = db.Create(&cert).Error; err != nil {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
@@ -144,13 +152,13 @@ func TestDeleteCertificate_BackupFailure(t *testing.T) {
 		t.Fatalf("failed to open db: %v", err)
 	}
 
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
 	// Create certificate
 	cert := models.SSLCertificate{UUID: "test-cert-backup-fails", Name: "deletable-cert", Provider: "custom", Domains: "delete-fail.example.com"}
-	if err := db.Create(&cert).Error; err != nil {
+	if err = db.Create(&cert).Error; err != nil {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
@@ -192,13 +200,13 @@ func TestDeleteCertificate_InUse_NoBackup(t *testing.T) {
 		t.Fatalf("failed to open db: %v", err)
 	}
 
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
 	// Create certificate
 	cert := models.SSLCertificate{UUID: "test-cert-in-use-no-backup", Name: "in-use-cert", Provider: "custom", Domains: "inuse.example.com"}
-	if err := db.Create(&cert).Error; err != nil {
+	if err = db.Create(&cert).Error; err != nil {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
@@ -282,7 +290,7 @@ func TestCertificateHandler_List(t *testing.T) {
 		t.Fatalf("failed to open db: %v", err)
 	}
 
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -310,7 +318,7 @@ func TestCertificateHandler_Upload_MissingName(t *testing.T) {
 		t.Fatalf("failed to open db: %v", err)
 	}
 
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -338,7 +346,7 @@ func TestCertificateHandler_Upload_MissingCertFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -369,7 +377,7 @@ func TestCertificateHandler_Upload_MissingKeyFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -391,13 +399,52 @@ func TestCertificateHandler_Upload_MissingKeyFile(t *testing.T) {
 	}
 }
 
+func TestCertificateHandler_Upload_MissingKeyFile_MultipartWithCert(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	svc := services.NewCertificateService("/tmp", db)
+	h := NewCertificateHandler(svc, nil, nil)
+	r.POST("/api/certificates", h.Upload)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("name", "testcert")
+	part, createErr := writer.CreateFormFile("certificate_file", "cert.pem")
+	if createErr != nil {
+		t.Fatalf("failed to create form file: %v", createErr)
+	}
+	_, _ = part.Write([]byte("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----"))
+	_ = writer.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/certificates", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d, body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "key_file") {
+		t.Fatalf("expected error message about key_file, got: %s", w.Body.String())
+	}
+}
+
 // Test Upload handler success path using a mock CertificateService
 func TestCertificateHandler_Upload_Success(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -475,7 +522,7 @@ func TestDeleteCertificate_InvalidID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -501,7 +548,7 @@ func TestDeleteCertificate_ZeroID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -527,7 +574,7 @@ func TestDeleteCertificate_LowDiskSpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -563,11 +610,20 @@ func TestDeleteCertificate_LowDiskSpace(t *testing.T) {
 
 // Test Delete with disk space check failure (warning but continue)
 func TestDeleteCertificate_DiskSpaceCheckError(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	// Use isolated file-backed DB to avoid lock flakiness from shared in-memory
+	// connections and background sync.
+	dbPath := t.TempDir() + "/cert_disk_space_error.db"
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1", dbPath)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("failed to access sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -613,7 +669,7 @@ func TestDeleteCertificate_UsageCheckError(t *testing.T) {
 	}
 
 	// Only migrate SSLCertificate, not ProxyHost - this will cause usage check to fail
-	if err := db.AutoMigrate(&models.SSLCertificate{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -647,7 +703,7 @@ func TestDeleteCertificate_NotificationRateLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.NotificationProvider{}); err != nil {
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.NotificationProvider{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 

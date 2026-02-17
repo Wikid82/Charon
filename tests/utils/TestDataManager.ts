@@ -28,7 +28,7 @@
  * ```
  */
 
-import { APIRequestContext } from '@playwright/test';
+import { APIRequestContext, type APIResponse, request as playwrightRequest } from '@playwright/test';
 import * as crypto from 'crypto';
 
 /**
@@ -162,6 +162,7 @@ export class TestDataManager {
   private resources: ManagedResource[] = [];
   private namespace: string;
   private request: APIRequestContext;
+  private baseURLPromise: Promise<string> | null = null;
 
   /**
    * Creates a new TestDataManager instance
@@ -176,6 +177,33 @@ export class TestDataManager {
       : `test-${crypto.randomUUID()}`;
   }
 
+  private async getBaseURL(): Promise<string> {
+    if (this.baseURLPromise) {
+      return await this.baseURLPromise;
+    }
+
+    this.baseURLPromise = (async () => {
+      const envBaseURL = process.env.PLAYWRIGHT_BASE_URL;
+      if (envBaseURL) {
+        try {
+          return new URL(envBaseURL).origin;
+        } catch {
+          return envBaseURL;
+        }
+      }
+
+      try {
+        const response = await this.request.get('/api/v1/health');
+        return new URL(response.url()).origin;
+      } catch {
+        // Default matches playwright.config.js non-coverage baseURL
+        return 'http://127.0.0.1:8080';
+      }
+    })();
+
+    return await this.baseURLPromise;
+  }
+
   /**
    * Sanitizes a test name for use in identifiers
    * Keeps it short to avoid overly long domain names
@@ -186,6 +214,67 @@ export class TestDataManager {
       .replace(/[^a-z0-9]/g, '-')
       .replace(/-+/g, '-')  // Collapse multiple dashes
       .substring(0, 15);  // Keep short to avoid long domains
+  }
+
+  private async postWithRetry(
+    url: string,
+    data: Record<string, unknown>,
+    options: {
+      maxAttempts?: number;
+      baseDelayMs?: number;
+      retryStatuses?: number[];
+    } = {}
+  ): Promise<APIResponse> {
+    const maxAttempts = options.maxAttempts ?? 4;
+    const baseDelayMs = options.baseDelayMs ?? 300;
+    const retryStatuses = options.retryStatuses ?? [429];
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const response = await this.request.post(url, { data });
+      if (!retryStatuses.includes(response.status()) || attempt === maxAttempts) {
+        return response;
+      }
+
+      const retryAfterHeader = response.headers()['retry-after'];
+      const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : Number.NaN;
+      const backoffMs = Number.isFinite(retryAfterSeconds)
+        ? retryAfterSeconds * 1000
+        : Math.round(baseDelayMs * Math.pow(2, attempt - 1));
+
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
+
+    return this.request.post(url, { data });
+  }
+
+  private async deleteWithRetry(
+    url: string,
+    options: {
+      maxAttempts?: number;
+      baseDelayMs?: number;
+      retryStatuses?: number[];
+    } = {}
+  ): Promise<APIResponse> {
+    const maxAttempts = options.maxAttempts ?? 4;
+    const baseDelayMs = options.baseDelayMs ?? 300;
+    const retryStatuses = options.retryStatuses ?? [429];
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const response = await this.request.delete(url);
+      if (!retryStatuses.includes(response.status()) || attempt === maxAttempts) {
+        return response;
+      }
+
+      const retryAfterHeader = response.headers()['retry-after'];
+      const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : Number.NaN;
+      const backoffMs = Number.isFinite(retryAfterSeconds)
+        ? retryAfterSeconds * 1000
+        : Math.round(baseDelayMs * Math.pow(2, attempt - 1));
+
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
+
+    return this.request.delete(url);
   }
 
   /**
@@ -272,8 +361,10 @@ export class TestDataManager {
       payload.country_codes = data.countryCodes;
     }
 
-    const response = await this.request.post('/api/v1/access-lists', {
-      data: payload,
+    const response = await this.postWithRetry('/api/v1/access-lists', payload, {
+      maxAttempts: 4,
+      baseDelayMs: 300,
+      retryStatuses: [429],
     });
 
     if (!response.ok()) {
@@ -380,8 +471,12 @@ export class TestDataManager {
    * @param data - User configuration
    * @returns Created user details including auth token
    */
-  async createUser(data: UserData): Promise<UserResult> {
-    const namespacedEmail = `${this.namespace}+${data.email}`;
+  async createUser(
+    data: UserData,
+    options: { useNamespace?: boolean } = {}
+  ): Promise<UserResult> {
+    const useNamespace = options.useNamespace !== false;
+    const namespacedEmail = useNamespace ? `${this.namespace}+${data.email}` : data.email;
     const namespaced = {
       name: data.name,
       email: namespacedEmail,
@@ -389,8 +484,10 @@ export class TestDataManager {
       role: data.role,
     };
 
-    const response = await this.request.post('/api/v1/users', {
-      data: namespaced,
+    const response = await this.postWithRetry('/api/v1/users', namespaced, {
+      maxAttempts: 4,
+      baseDelayMs: 300,
+      retryStatuses: [429],
     });
 
     if (!response.ok()) {
@@ -405,20 +502,36 @@ export class TestDataManager {
       createdAt: new Date(),
     });
 
-    // Automatically log in the user and return token
-    const loginResponse = await this.request.post('/api/v1/auth/login', {
-      data: { email: namespacedEmail, password: data.password },
+    // Automatically log in the user and return token.
+    //
+    // IMPORTANT: Do NOT log in using the manager's request context.
+    // The request context is expected to remain admin-authenticated so later
+    // operations (and automatic cleanup) can delete resources regardless of
+    // the created user's role.
+    const loginContext = await playwrightRequest.newContext({
+      baseURL: await this.getBaseURL(),
+      extraHTTPHeaders: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
     });
 
-    if (!loginResponse.ok()) {
-      // User created but login failed - still return user info
-      console.warn(`User created but login failed: ${await loginResponse.text()}`);
-      return { id: result.id, email: namespacedEmail, token: '' };
+    try {
+      const loginResponse = await loginContext.post('/api/v1/auth/login', {
+        data: { email: namespacedEmail, password: data.password },
+      });
+
+      if (!loginResponse.ok()) {
+        // User created but login failed - still return user info
+        console.warn(`User created but login failed: ${await loginResponse.text()}`);
+        return { id: result.id, email: namespacedEmail, token: '' };
+      }
+
+      const { token } = await loginResponse.json();
+      return { id: result.id, email: namespacedEmail, token };
+    } finally {
+      await loginContext.dispose();
     }
-
-    const { token } = await loginResponse.json();
-
-    return { id: result.id, email: namespacedEmail, token };
   }
 
   /**
@@ -462,7 +575,11 @@ export class TestDataManager {
     };
 
     const endpoint = endpoints[resource.type];
-    const response = await this.request.delete(endpoint);
+    const response = await this.deleteWithRetry(endpoint, {
+      maxAttempts: 4,
+      baseDelayMs: 300,
+      retryStatuses: [429],
+    });
 
     // 404 is acceptable - resource may have been deleted by another test
     if (!response.ok() && response.status() !== 404) {

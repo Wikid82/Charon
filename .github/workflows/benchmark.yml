@@ -1,26 +1,19 @@
 name: Go Benchmark
 
 on:
-  push:
-    branches:
-      - main
-      - development
-    paths:
-      - 'backend/**'
   pull_request:
     branches:
       - main
       - development
-    paths:
-      - 'backend/**'
+      - feature/**
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.25.6'
+  GO_VERSION: '1.26.0'
   GOTOOLCHAIN: auto
 
 # Minimal permissions at workflow level; write permissions granted at job level for push only
@@ -31,6 +24,7 @@ jobs:
   benchmark:
     name: Performance Regression Check
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event.workflow_run.conclusion == 'success' }}
     # Grant write permissions for storing benchmark results (only used on push via step condition)
     # Note: GitHub Actions doesn't support dynamic expressions in permissions block
     permissions:
@@ -38,6 +32,8 @@ jobs:
       deployments: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
@@ -47,12 +43,14 @@ jobs:
 
       - name: Run Benchmark
         working-directory: backend
+        env:
+          CHARON_ENCRYPTION_KEY: ${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}
         run: go test -bench=. -benchmem -run='^$' ./... | tee output.txt
 
       - name: Store Benchmark Result
         # Only store results on pushes to main - PRs just run benchmarks without storage
         # This avoids gh-pages branch errors and permission issues on fork PRs
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'
         # Security: Pinned to full SHA for supply chain security
         uses: benchmark-action/github-action-benchmark@4e0b38bc48375986542b13c0d8976b7b80c60c00 # v1
         with:
@@ -75,7 +73,8 @@ jobs:
           PERF_MAX_MS_GETSTATUS_P95: 500ms
           PERF_MAX_MS_GETSTATUS_P95_PARALLEL: 1500ms
           PERF_MAX_MS_LISTDECISIONS_P95: 2000ms
+          CHARON_ENCRYPTION_KEY: ${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}
         run: |
-          echo "## 🔍 Running performance assertions (TestPerf)" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔍 Running performance assertions (TestPerf)" >> "$GITHUB_STEP_SUMMARY"
           go test -run TestPerf -v ./internal/api/handlers -count=1 | tee perf-output.txt
-          exit ${PIPESTATUS[0]}
+          exit "${PIPESTATUS[0]}"

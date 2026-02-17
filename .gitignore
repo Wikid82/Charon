@@ -297,3 +297,16 @@ test-data/**
 docs/reports/gorm-scan-*.txt
 frontend/trivy-results.json
 docs/plans/current_spec_notes.md
+tests/etc/passwd
+trivy-image-report.json
+trivy-fs-report.json
+backend/# Tools Configuration.md
+docs/plans/requirements.md
+docs/plans/design.md
+docs/plans/tasks.md
+frontend/coverage_output.txt
+frontend/temp**
+playwright-output/**
+validation-evidence/**
+.github/agents/# Tools Configuration.md
+docs/plans/codecove_patch_report.md

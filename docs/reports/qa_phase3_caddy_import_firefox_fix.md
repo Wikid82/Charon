@@ -111,7 +111,7 @@ Complete Definition of Done validation executed after Docker image rebuild with 
 **Assessment**: Minor coverage regression (92.0% → 84.0%) likely due to:
 1. New uncovered code paths introduced in recent commits
 2. Test cache refresh after Docker rebuild
-3. Go 1.25.6 coverage calculation differences
+3. go 1.25.7 coverage calculation differences
 
 **Risk Level**: **LOW** - 1% variance acceptable for non-production code. Coverage still strong across critical packages.
 
@@ -735,14 +735,14 @@ Stage 1: Frontend Builder (Node 24.13.0-slim)
 - Output: 1.39MB JS bundle (407KB gzipped), 81KB CSS (14KB gzipped)
 - Duration: 18.2 seconds
 
-Stage 2: Backend Builder (Go 1.25.6-trixie)
+Stage 2: Backend Builder (go 1.25.7-trixie)
 - go mod download: Dependencies cached
 - CGO_ENABLED=1 build: Production optimized binary
 - Output: /app/charon binary with stripped symbols (-s -w)
 - Delve debugger: /usr/local/bin/dlv (for development)
 - Duration: 5.7 seconds
 
-Stage 3: CrowdSec Builder (Go 1.25.6-trixie)
+Stage 3: CrowdSec Builder (go 1.25.7-trixie)
 - Patched dependencies: expr@v1.17.7, crypto@v0.46.0
 - Built: /crowdsec-out/crowdsec, /crowdsec-out/cscli
 - Version: v1.7.6

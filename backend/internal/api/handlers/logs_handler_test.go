@@ -80,17 +80,22 @@ func TestLogsLifecycle(t *testing.T) {
 	var logs []services.LogFile
 	err := json.Unmarshal(resp.Body.Bytes(), &logs)
 	require.NoError(t, err)
-	require.Len(t, logs, 2) // access.log and cpmp.log
+	require.GreaterOrEqual(t, len(logs), 2)
 
-	// Verify content of one log file
-	found := false
+	hasAccess := false
+	hasCharon := false
 	for _, l := range logs {
 		if l.Name == "access.log" {
-			found = true
+			hasAccess = true
+			require.Greater(t, l.Size, int64(0))
+		}
+		if l.Name == "charon.log" {
+			hasCharon = true
 			require.Greater(t, l.Size, int64(0))
 		}
 	}
-	require.True(t, found)
+	require.True(t, hasAccess)
+	require.True(t, hasCharon)
 
 	// 2. Read log
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log?limit=2", http.NoBody)

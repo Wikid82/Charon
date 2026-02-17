@@ -15,7 +15,7 @@ on:
       default: "false"
 
 env:
-  GO_VERSION: '1.25.6'
+  GO_VERSION: '1.26.0'
   NODE_VERSION: '24.12.0'
   GOTOOLCHAIN: auto
   GHCR_REGISTRY: ghcr.io
@@ -57,7 +57,7 @@ jobs:
           # Check if there are differences between remote branches
           if git diff --quiet origin/nightly origin/development; then
             echo "No changes to sync from development to nightly"
-            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
           else
             echo "Syncing changes from development to nightly"
             # Fast-forward merge development into nightly
@@ -68,7 +68,7 @@ jobs:
             }
             # Force push to handle cases where nightly diverged from development
             git push --force origin nightly
-            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
   build-and-push-nightly:
@@ -93,7 +93,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set lowercase image name
-        run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> $GITHUB_ENV
+        run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3.7.0
@@ -133,7 +133,7 @@ jobs:
 
       - name: Build and push Docker image
         id: build
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -151,8 +151,8 @@ jobs:
 
       - name: Record nightly image digest
         run: |
-          echo "## 🧾 Nightly Image Digest" >> $GITHUB_STEP_SUMMARY
-          echo "- ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+          echo "## 🧾 Nightly Image Digest" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Generate SBOM
         uses: anchore/sbom-action@28d71544de8eaf1b958d335707167c5f783590ad  # v0.22.2
@@ -176,7 +176,7 @@ jobs:
       - name: Sign GHCR Image
         run: |
           echo "Signing GHCR nightly image with keyless signing..."
-          cosign sign --yes ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          cosign sign --yes "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
           echo "✅ GHCR nightly image signed successfully"
 
       # Sign Docker Hub image with keyless signing (Sigstore/Fulcio)
@@ -184,7 +184,7 @@ jobs:
         if: env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Signing Docker Hub nightly image with keyless signing..."
-          cosign sign --yes ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          cosign sign --yes "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
           echo "✅ Docker Hub nightly image signed successfully"
 
       # Attach SBOM to Docker Hub image
@@ -192,7 +192,7 @@ jobs:
         if: env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Attaching SBOM to Docker Hub nightly image..."
-          cosign attach sbom --sbom sbom-nightly.json ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          cosign attach sbom --sbom sbom-nightly.json "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
           echo "✅ SBOM attached to Docker Hub nightly image"
 
   test-nightly-image:
@@ -209,7 +209,7 @@ jobs:
           ref: nightly
 
       - name: Set lowercase image name
-        run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> $GITHUB_ENV
+        run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
@@ -219,13 +219,13 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull nightly image
-        run: docker pull ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}
+        run: docker pull "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}"
 
       - name: Run container smoke test
         run: |
           docker run --name charon-nightly -d \
             -p 8080:8080 \
-            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}
+            "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}"
 
           # Wait for container to start
           sleep 10
@@ -263,7 +263,7 @@ jobs:
           ref: nightly
 
       - name: Set lowercase image name
-        run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> $GITHUB_ENV
+        run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
 
       - name: Download SBOM
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
@@ -278,14 +278,14 @@ jobs:
           severity-cutoff: high
 
       - name: Scan with Trivy
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8  # 0.33.1
+        uses: aquasecurity/trivy-action@c1824fd6edce30d7ab345a9989de00bbd46ef284  # 0.34.0
         with:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-and-push-nightly.outputs.digest }}
           format: 'sarif'
           output: 'trivy-nightly.sarif'
 
       - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@45cbd0c69e560cd9e7cd7f8c32362050c9b7ded2  # v4.32.2
+        uses: github/codeql-action/upload-sarif@9e907b5e64f6b83e7804b09294d44122997950d6  # v4.32.3
         with:
           sarif_file: 'trivy-nightly.sarif'
           category: 'trivy-nightly'

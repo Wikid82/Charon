@@ -31,14 +31,14 @@ func OptionalAuth(authService *services.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		claims, err := authService.ValidateToken(tokenString)
+		user, _, err := authService.AuthenticateToken(tokenString)
 		if err != nil {
 			c.Next()
 			return
 		}
 
-		c.Set("userID", claims.UserID)
-		c.Set("role", claims.Role)
+		c.Set("userID", user.ID)
+		c.Set("role", user.Role)
 		c.Next()
 	}
 }

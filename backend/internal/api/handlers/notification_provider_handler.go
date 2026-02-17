@@ -13,11 +13,17 @@ import (
 )
 
 type NotificationProviderHandler struct {
-	service *services.NotificationService
+	service         *services.NotificationService
+	securityService *services.SecurityService
+	dataRoot        string
 }
 
 func NewNotificationProviderHandler(service *services.NotificationService) *NotificationProviderHandler {
-	return &NotificationProviderHandler{service: service}
+	return NewNotificationProviderHandlerWithDeps(service, nil, "")
+}
+
+func NewNotificationProviderHandlerWithDeps(service *services.NotificationService, securityService *services.SecurityService, dataRoot string) *NotificationProviderHandler {
+	return &NotificationProviderHandler{service: service, securityService: securityService, dataRoot: dataRoot}
 }
 
 func (h *NotificationProviderHandler) List(c *gin.Context) {
@@ -30,6 +36,10 @@ func (h *NotificationProviderHandler) List(c *gin.Context) {
 }
 
 func (h *NotificationProviderHandler) Create(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	var provider models.NotificationProvider
 	if err := c.ShouldBindJSON(&provider); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -38,8 +48,11 @@ func (h *NotificationProviderHandler) Create(c *gin.Context) {
 
 	if err := h.service.CreateProvider(&provider); err != nil {
 		// If it's a validation error from template parsing, return 400
-		if strings.Contains(err.Error(), "invalid custom template") || strings.Contains(err.Error(), "rendered template") || strings.Contains(err.Error(), "failed to parse template") || strings.Contains(err.Error(), "failed to render template") {
+		if isProviderValidationError(err) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if respondPermissionError(c, h.securityService, "notification_provider_save_failed", err, h.dataRoot) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create provider"})
@@ -49,6 +62,10 @@ func (h *NotificationProviderHandler) Create(c *gin.Context) {
 }
 
 func (h *NotificationProviderHandler) Update(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	id := c.Param("id")
 	var provider models.NotificationProvider
 	if err := c.ShouldBindJSON(&provider); err != nil {
@@ -58,8 +75,11 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 	provider.ID = id
 
 	if err := h.service.UpdateProvider(&provider); err != nil {
-		if strings.Contains(err.Error(), "invalid custom template") || strings.Contains(err.Error(), "rendered template") || strings.Contains(err.Error(), "failed to parse template") || strings.Contains(err.Error(), "failed to render template") {
+		if isProviderValidationError(err) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if respondPermissionError(c, h.securityService, "notification_provider_save_failed", err, h.dataRoot) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update provider"})
@@ -68,9 +88,29 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, provider)
 }
 
+func isProviderValidationError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "invalid custom template") ||
+		strings.Contains(errMsg, "rendered template") ||
+		strings.Contains(errMsg, "failed to parse template") ||
+		strings.Contains(errMsg, "failed to render template") ||
+		strings.Contains(errMsg, "invalid Discord webhook URL")
+}
+
 func (h *NotificationProviderHandler) Delete(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	id := c.Param("id")
 	if err := h.service.DeleteProvider(id); err != nil {
+		if respondPermissionError(c, h.securityService, "notification_provider_delete_failed", err, h.dataRoot) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete provider"})
 		return
 	}

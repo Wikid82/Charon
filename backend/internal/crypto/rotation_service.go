@@ -227,8 +227,8 @@ func (rs *RotationService) rotateProviderCredentials(ctx context.Context, provid
 
 	// Validate that decrypted data is valid JSON
 	var credentials map[string]string
-	if err := json.Unmarshal(plaintext, &credentials); err != nil {
-		return fmt.Errorf("invalid credential format after decryption: %w", err)
+	if unmarshalErr := json.Unmarshal(plaintext, &credentials); unmarshalErr != nil {
+		return fmt.Errorf("invalid credential format after decryption: %w", unmarshalErr)
 	}
 
 	// Re-encrypt with next key

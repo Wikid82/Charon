@@ -24,8 +24,54 @@ func setupUserHandler(t *testing.T) (*UserHandler, *gorm.DB) {
 	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
-	_ = db.AutoMigrate(&models.User{}, &models.Setting{})
+	_ = db.AutoMigrate(&models.User{}, &models.Setting{}, &models.SecurityAudit{})
 	return NewUserHandler(db), db
+}
+
+func TestMapsKeys(t *testing.T) {
+	t.Parallel()
+
+	keys := mapsKeys(map[string]any{"email": "a@example.com", "name": "Alice", "enabled": true})
+	assert.Len(t, keys, 3)
+	assert.Contains(t, keys, "email")
+	assert.Contains(t, keys, "name")
+	assert.Contains(t, keys, "enabled")
+}
+
+func TestUserHandler_actorFromContext(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := setupUserHandler(t)
+
+	rec1 := httptest.NewRecorder()
+	ctx1, _ := gin.CreateTestContext(rec1)
+	req1 := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req1.RemoteAddr = "198.51.100.10:1234"
+	ctx1.Request = req1
+	assert.Equal(t, "198.51.100.10", handler.actorFromContext(ctx1))
+
+	rec2 := httptest.NewRecorder()
+	ctx2, _ := gin.CreateTestContext(rec2)
+	req2 := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	ctx2.Request = req2
+	ctx2.Set("userID", uint(42))
+	assert.Equal(t, "42", handler.actorFromContext(ctx2))
+}
+
+func TestUserHandler_logUserAudit_NoOpBranches(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := setupUserHandler(t)
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+
+	// nil user should be a no-op
+	handler.logUserAudit(ctx, "noop", nil, map[string]any{"x": 1})
+
+	// nil security service should be a no-op
+	handler.securitySvc = nil
+	handler.logUserAudit(ctx, "noop", &models.User{UUID: uuid.NewString(), Email: "user@example.com"}, map[string]any{"x": 1})
 }
 
 func TestUserHandler_GetSetupStatus(t *testing.T) {
@@ -399,7 +445,7 @@ func setupUserHandlerWithProxyHosts(t *testing.T) (*UserHandler, *gorm.DB) {
 	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
-	_ = db.AutoMigrate(&models.User{}, &models.Setting{}, &models.ProxyHost{})
+	_ = db.AutoMigrate(&models.User{}, &models.Setting{}, &models.ProxyHost{}, &models.SecurityAudit{})
 	return NewUserHandler(db), db
 }
 
@@ -473,11 +519,12 @@ func TestUserHandler_CreateUser_NonAdmin(t *testing.T) {
 }
 
 func TestUserHandler_CreateUser_Admin(t *testing.T) {
-	handler, _ := setupUserHandlerWithProxyHosts(t)
+	handler, db := setupUserHandlerWithProxyHosts(t)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
+		c.Set("userID", uint(99))
 		c.Next()
 	})
 	r.POST("/users", handler.CreateUser)
@@ -494,6 +541,11 @@ func TestUserHandler_CreateUser_Admin(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
+	handler.securitySvc.Flush()
+
+	var audit models.SecurityAudit
+	require.NoError(t, db.Where("action = ? AND event_category = ?", "user_create", "user").First(&audit).Error)
+	assert.Equal(t, "99", audit.Actor)
 }
 
 func TestUserHandler_CreateUser_InvalidJSON(t *testing.T) {
@@ -737,6 +789,7 @@ func TestUserHandler_UpdateUser_Success(t *testing.T) {
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
+		c.Set("userID", uint(11))
 		c.Next()
 	})
 	r.PUT("/users/:id", handler.UpdateUser)
@@ -752,6 +805,48 @@ func TestUserHandler_UpdateUser_Success(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	handler.securitySvc.Flush()
+
+	var audit models.SecurityAudit
+	require.NoError(t, db.Where("action = ? AND event_category = ?", "user_update", "user").First(&audit).Error)
+	assert.Equal(t, user.UUID, audit.ResourceUUID)
+}
+
+func TestUserHandler_UpdateUser_PasswordReset(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	user := &models.User{UUID: uuid.NewString(), Email: "reset@example.com", Name: "Reset User", Role: "user"}
+	require.NoError(t, user.SetPassword("oldpassword123"))
+	lockUntil := time.Now().Add(10 * time.Minute)
+	user.FailedLoginAttempts = 4
+	user.LockedUntil = &lockUntil
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	body := map[string]any{
+		"password": "newpassword123",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("PUT", "/users/1", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var updated models.User
+	db.First(&updated, user.ID)
+	assert.True(t, updated.CheckPassword("newpassword123"))
+	assert.False(t, updated.CheckPassword("oldpassword123"))
+	assert.Equal(t, 0, updated.FailedLoginAttempts)
+	assert.Nil(t, updated.LockedUntil)
 }
 
 func TestUserHandler_DeleteUser_NonAdmin(t *testing.T) {
@@ -826,6 +921,11 @@ func TestUserHandler_DeleteUser_Success(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	handler.securitySvc.Flush()
+
+	var audit models.SecurityAudit
+	require.NoError(t, db.Where("action = ? AND event_category = ?", "user_delete", "user").First(&audit).Error)
+	assert.Equal(t, user.UUID, audit.ResourceUUID)
 }
 
 func TestUserHandler_DeleteUser_CannotDeleteSelf(t *testing.T) {
@@ -1144,12 +1244,17 @@ func TestUserHandler_AcceptInvite_Success(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	handler.securitySvc.Flush()
 
 	// Verify user was updated
 	var updated models.User
 	db.First(&updated, user.ID)
 	assert.Equal(t, "accepted", updated.InviteStatus)
 	assert.True(t, updated.Enabled)
+
+	var audit models.SecurityAudit
+	require.NoError(t, db.Where("action = ? AND event_category = ?", "user_invite_accept", "user").First(&audit).Error)
+	assert.Equal(t, user.UUID, audit.ResourceUUID)
 }
 
 func TestGenerateSecureToken(t *testing.T) {
@@ -1266,11 +1371,13 @@ func TestUserHandler_InviteUser_Success(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
+	handler.securitySvc.Flush()
 
 	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err, "Failed to unmarshal response")
 	assert.NotEmpty(t, resp["invite_token"])
+	assert.Equal(t, "", resp["invite_url"])
 	// email_sent is false because no SMTP is configured
 	assert.Equal(t, false, resp["email_sent"].(bool))
 
@@ -1279,6 +1386,10 @@ func TestUserHandler_InviteUser_Success(t *testing.T) {
 	db.Where("email = ?", "newinvite@example.com").First(&user)
 	assert.Equal(t, "pending", user.InviteStatus)
 	assert.False(t, user.Enabled)
+
+	var audit models.SecurityAudit
+	require.NoError(t, db.Where("action = ? AND event_category = ?", "user_invite", "user").First(&audit).Error)
+	assert.Equal(t, user.UUID, audit.ResourceUUID)
 }
 
 func TestUserHandler_InviteUser_WithPermittedHosts(t *testing.T) {
@@ -1390,6 +1501,114 @@ func TestUserHandler_InviteUser_WithSMTPConfigured(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err, "Failed to unmarshal response")
 	assert.NotEmpty(t, resp["invite_token"])
+	assert.Equal(t, "", resp["invite_url"])
+	assert.Equal(t, false, resp["email_sent"].(bool))
+}
+
+func TestUserHandler_InviteUser_WithSMTPAndConfiguredPublicURL_IncludesInviteURL(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	admin := &models.User{
+		UUID:   uuid.NewString(),
+		APIKey: uuid.NewString(),
+		Email:  "admin-publicurl@example.com",
+		Role:   "admin",
+	}
+	db.Create(admin)
+
+	settings := []models.Setting{
+		{Key: "smtp_host", Value: "smtp.example.com", Type: "string", Category: "smtp"},
+		{Key: "smtp_port", Value: "587", Type: "integer", Category: "smtp"},
+		{Key: "smtp_username", Value: "user@example.com", Type: "string", Category: "smtp"},
+		{Key: "smtp_password", Value: "password", Type: "string", Category: "smtp"},
+		{Key: "smtp_from_address", Value: "noreply@example.com", Type: "string", Category: "smtp"},
+		{Key: "app.public_url", Value: "https://charon.example.com", Type: "string", Category: "app"},
+	}
+	for _, setting := range settings {
+		db.Create(&setting)
+	}
+
+	handler.MailService = services.NewMailService(db)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", admin.ID)
+		c.Next()
+	})
+	r.POST("/users/invite", handler.InviteUser)
+
+	body := map[string]any{
+		"email": "smtp-public-url@example.com",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/invite", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	var resp map[string]any
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
+	token := resp["invite_token"].(string)
+	assert.Equal(t, "https://charon.example.com/accept-invite?token="+token, resp["invite_url"])
+	assert.Equal(t, true, resp["email_sent"].(bool))
+}
+
+func TestUserHandler_InviteUser_WithSMTPAndMalformedPublicURL_DoesNotExposeInviteURL(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	admin := &models.User{
+		UUID:   uuid.NewString(),
+		APIKey: uuid.NewString(),
+		Email:  "admin-malformed-publicurl@example.com",
+		Role:   "admin",
+	}
+	db.Create(admin)
+
+	settings := []models.Setting{
+		{Key: "smtp_host", Value: "smtp.example.com", Type: "string", Category: "smtp"},
+		{Key: "smtp_port", Value: "587", Type: "integer", Category: "smtp"},
+		{Key: "smtp_username", Value: "user@example.com", Type: "string", Category: "smtp"},
+		{Key: "smtp_password", Value: "password", Type: "string", Category: "smtp"},
+		{Key: "smtp_from_address", Value: "noreply@example.com", Type: "string", Category: "smtp"},
+		{Key: "app.public_url", Value: "https://charon.example.com/path", Type: "string", Category: "app"},
+	}
+	for _, setting := range settings {
+		db.Create(&setting)
+	}
+
+	handler.MailService = services.NewMailService(db)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", admin.ID)
+		c.Next()
+	})
+	r.POST("/users/invite", handler.InviteUser)
+
+	body := map[string]any{
+		"email": "smtp-malformed-url@example.com",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/invite", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	var resp map[string]any
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err, "Failed to unmarshal response")
+	assert.NotEmpty(t, resp["invite_token"])
+	assert.Equal(t, "", resp["invite_url"])
+	assert.Equal(t, false, resp["email_sent"].(bool))
 }
 
 func TestUserHandler_InviteUser_WithSMTPConfigured_DefaultAppName(t *testing.T) {

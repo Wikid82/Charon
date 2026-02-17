@@ -503,6 +503,7 @@ export default function ProxyHosts() {
       cell: (host) => (
         <Switch
           checked={host.enabled}
+          aria-label={`${host.enabled ? 'Disable' : 'Enable'} proxy host ${host.name || host.domain_names}`}
           onCheckedChange={(checked) => updateHost(host.uuid, { enabled: checked })}
         />
       ),
@@ -516,6 +517,7 @@ export default function ProxyHosts() {
           <Button
             variant="ghost"
             size="sm"
+            aria-label={`Edit proxy host ${host.name || host.domain_names}`}
             onClick={(e) => {
               e.stopPropagation()
               handleEdit(host)
@@ -527,6 +529,7 @@ export default function ProxyHosts() {
             variant="ghost"
             size="sm"
             className="text-error hover:text-error hover:bg-error/10"
+            aria-label={`Delete proxy host ${host.name || host.domain_names}`}
             onClick={(e) => {
               e.stopPropagation()
               handleDelete(host.uuid)
@@ -647,9 +650,16 @@ export default function ProxyHosts() {
             <DialogHeader>
               <DialogTitle>{t('proxyHosts.deleteConfirmTitle')}</DialogTitle>
               <DialogDescription>
-                {t('proxyHosts.deleteConfirmMessage', { name: hostToDelete?.name || hostToDelete?.domain_names }).split('<strong>').map((part, i) =>
-                  i === 0 ? part : <><strong key={i}>{part.split('</strong>')[0]}</strong>{part.split('</strong>')[1]}</>
-                )}
+                {t('proxyHosts.deleteConfirmMessage', { name: hostToDelete?.name || hostToDelete?.domain_names }).split('<strong>').map((part, i) => {
+                  if (i === 0) return part
+                  const [strongText, rest] = part.split('</strong>')
+                  return (
+                    <span key={i}>
+                      <strong>{strongText}</strong>
+                      {rest}
+                    </span>
+                  )
+                })}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
@@ -675,9 +685,16 @@ export default function ProxyHosts() {
             <DialogHeader>
               <DialogTitle>{t('proxyHosts.bulkApplyTitle')}</DialogTitle>
               <DialogDescription>
-                {t('proxyHosts.bulkApplyDescription', { count: selectedHosts.size }).split('<strong>').map((part, i) =>
-                  i === 0 ? part : <><strong key={i} className="text-brand-400">{part.split('</strong>')[0]}</strong>{part.split('</strong>')[1]}</>
-                )}
+                {t('proxyHosts.bulkApplyDescription', { count: selectedHosts.size }).split('<strong>').map((part, i) => {
+                  if (i === 0) return part
+                  const [strongText, rest] = part.split('</strong>')
+                  return (
+                    <span key={i}>
+                      <strong className="text-brand-400">{strongText}</strong>
+                      {rest}
+                    </span>
+                  )
+                })}
               </DialogDescription>
             </DialogHeader>
 
@@ -879,9 +896,16 @@ export default function ProxyHosts() {
             <DialogHeader>
               <DialogTitle>{t('proxyHosts.applyACLTitle')}</DialogTitle>
               <DialogDescription>
-                {t('proxyHosts.applyACLDescription', { count: selectedHosts.size }).split('<strong>').map((part, i) =>
-                  i === 0 ? part : <><strong key={i} className="text-brand-400">{part.split('</strong>')[0]}</strong>{part.split('</strong>')[1]}</>
-                )}
+                {t('proxyHosts.applyACLDescription', { count: selectedHosts.size }).split('<strong>').map((part, i) => {
+                  if (i === 0) return part
+                  const [strongText, rest] = part.split('</strong>')
+                  return (
+                    <span key={i}>
+                      <strong className="text-brand-400">{strongText}</strong>
+                      {rest}
+                    </span>
+                  )
+                })}
               </DialogDescription>
             </DialogHeader>
 

@@ -28,26 +28,91 @@ mkdir -p coverage/.tmp
 npm run test:coverage -- --run
 
 SUMMARY_FILE="coverage/coverage-summary.json"
+LCOV_FILE="coverage/lcov.info"
 
 if [ ! -f "$SUMMARY_FILE" ]; then
     echo "Error: Coverage summary file not found at $SUMMARY_FILE"
     exit 1
 fi
 
-# Extract total statements percentage using python
-TOTAL_PERCENT=$(python3 -c "import json; print(json.load(open('$SUMMARY_FILE'))['total']['statements']['pct'])")
+if [ ! -f "$LCOV_FILE" ]; then
+    echo "Error: LCOV coverage file not found at $LCOV_FILE"
+    exit 1
+fi
 
-echo "Computed frontend coverage: ${TOTAL_PERCENT}% (minimum required ${MIN_COVERAGE}%)"
+# Extract coverage metrics and validate
+LINES_PERCENT=$(python3 - <<'PY'
+import json
+import sys
+
+try:
+    with open('coverage/coverage-summary.json') as f:
+        summary = json.load(f)
+except (json.JSONDecodeError, KeyError, FileNotFoundError) as e:
+    print(f"Error: Failed to read coverage-summary.json: {e}", file=sys.stderr)
+    sys.exit(1)
+
+if 'total' not in summary:
+    print("Error: 'total' key not found in coverage-summary.json", file=sys.stderr)
+    sys.exit(1)
+
+total = summary['total']
+metrics = ['statements', 'branches', 'functions', 'lines']
+for metric in metrics:
+    if metric not in total:
+        print(f"Error: '{metric}' metric missing from coverage summary", file=sys.stderr)
+        sys.exit(1)
+    if not isinstance(total[metric], dict) or 'pct' not in total[metric]:
+        print(f"Error: '{metric}' metric missing 'pct' field", file=sys.stderr)
+        sys.exit(1)
+
+def fmt(metric):
+    return f"{metric['pct']}% ({metric['covered']}/{metric['total']})"
+
+# Print summary to stderr (won't be captured as LINES_PERCENT)
+print("Frontend coverage summary:", file=sys.stderr)
+print(f"  Statements: {fmt(total['statements'])}", file=sys.stderr)
+print(f"  Branches:   {fmt(total['branches'])}", file=sys.stderr)
+print(f"  Functions:  {fmt(total['functions'])}", file=sys.stderr)
+print(f"  Lines:      {fmt(total['lines'])}", file=sys.stderr)
+
+lines_pct = total['lines']['pct']
+if not isinstance(lines_pct, (int, float)):
+    print(f"Error: Coverage percentage is not numeric: {lines_pct}", file=sys.stderr)
+    sys.exit(1)
+
+# Print only the numeric value to stdout (captured into LINES_PERCENT)
+print(lines_pct)
+PY
+)
 
 python3 - <<PY
-import os, sys
-from decimal import Decimal
+import sys
+from decimal import Decimal, InvalidOperation
 
-total = Decimal('$TOTAL_PERCENT')
-minimum = Decimal('$MIN_COVERAGE')
+lines_percent = """$LINES_PERCENT""".strip()
+min_coverage = """$MIN_COVERAGE""".strip()
+
+if not lines_percent:
+    print("Error: Failed to extract coverage percentage from coverage-summary.json", file=sys.stderr)
+    sys.exit(1)
+
+try:
+    total = Decimal(lines_percent)
+except InvalidOperation as e:
+    print(f"Error: Coverage value is not numeric: '{lines_percent}' ({e})", file=sys.stderr)
+    sys.exit(1)
+
+try:
+    minimum = Decimal(min_coverage)
+except InvalidOperation as e:
+    print(f"Error: Minimum coverage value is not numeric: '{min_coverage}' ({e})", file=sys.stderr)
+    print("       Set CHARON_MIN_COVERAGE or CPM_MIN_COVERAGE to a numeric percentage value.", file=sys.stderr)
+    sys.exit(1)
+
+status = "PASS" if total >= minimum else "FAIL"
+print(f"Coverage gate: {status} (lines {total}% vs minimum {minimum}%)")
 if total < minimum:
     print(f"Frontend coverage {total}% is below required {minimum}% (set CHARON_MIN_COVERAGE or CPM_MIN_COVERAGE to override)", file=sys.stderr)
     sys.exit(1)
 PY
-
-echo "Frontend coverage requirement met"

@@ -122,7 +122,7 @@ graph TB
 
 | Component | Technology | Version | Purpose |
 |-----------|-----------|---------|---------|
-| **Language** | Go | 1.25.6 | Primary backend language |
+| **Language** | Go | 1.26.0 | Primary backend language |
 | **HTTP Framework** | Gin | Latest | Routing, middleware, HTTP handling |
 | **Database** | SQLite | 3.x | Embedded database |
 | **ORM** | GORM | Latest | Database abstraction layer |
@@ -751,7 +751,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Build backend
-FROM golang:1.25-bookworm AS backend-builder
+FROM golang:1.26-bookworm AS backend-builder
 WORKDIR /app/backend
 COPY backend/go.* ./
 RUN go mod download
@@ -858,7 +858,7 @@ services:
 
 1. **Prerequisites:**
    ```bash
-   - Go 1.25+ (backend development)
+   - Go 1.26+ (backend development)
    - Node.js 23+ and npm (frontend development)
    - Docker 24+ (E2E testing)
    - SQLite 3.x (database)
@@ -970,7 +970,7 @@ Closes #123
 **Execution:**
 ```bash
 # Run against Docker container
-npx playwright test --project=chromium
+cd /projects/Charon npx playwright test --project=firefox
 
 # Run with coverage (Vite dev server)
 .github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage

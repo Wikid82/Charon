@@ -467,6 +467,7 @@
     "providerName": "名称",
     "urlWebhook": "URL / Webhook",
     "urlRequired": "URL是必填项",
+    "invalidUrl": "请输入以 http:// 或 https:// 开头的有效 URL",
     "genericWebhook": "通用 Webhook (Shoutrrr)",
     "customWebhook": "自定义 Webhook (JSON)",
     "shoutrrrHelp": "有关 Shoutrrr 格式，请参阅",

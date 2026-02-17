@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,6 +27,11 @@ func TestNotificationTemplateHandler_CRUDAndPreview(t *testing.T) {
 	h := NewNotificationTemplateHandler(svc)
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
 	api := r.Group("/api/v1")
 	api.GET("/notifications/templates", h.List)
 	api.POST("/notifications/templates", h.Create)
@@ -89,6 +95,11 @@ func TestNotificationTemplateHandler_Create_InvalidJSON(t *testing.T) {
 	svc := services.NewNotificationService(db)
 	h := NewNotificationTemplateHandler(svc)
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
 	r.POST("/api/templates", h.Create)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/templates", strings.NewReader(`{invalid}`))
@@ -105,6 +116,11 @@ func TestNotificationTemplateHandler_Update_InvalidJSON(t *testing.T) {
 	svc := services.NewNotificationService(db)
 	h := NewNotificationTemplateHandler(svc)
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
 	r.PUT("/api/templates/:id", h.Update)
 
 	req := httptest.NewRequest(http.MethodPut, "/api/templates/test-id", strings.NewReader(`{invalid}`))
@@ -121,6 +137,11 @@ func TestNotificationTemplateHandler_Preview_InvalidJSON(t *testing.T) {
 	svc := services.NewNotificationService(db)
 	h := NewNotificationTemplateHandler(svc)
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
 	r.POST("/api/templates/preview", h.Preview)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/templates/preview", strings.NewReader(`{invalid}`))
@@ -128,4 +149,151 @@ func TestNotificationTemplateHandler_Preview_InvalidJSON(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestNotificationTemplateHandler_AdminRequired(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
+	svc := services.NewNotificationService(db)
+	h := NewNotificationTemplateHandler(svc)
+
+	r := gin.New()
+	r.POST("/api/templates", h.Create)
+	r.PUT("/api/templates/:id", h.Update)
+	r.DELETE("/api/templates/:id", h.Delete)
+
+	createReq := httptest.NewRequest(http.MethodPost, "/api/templates", strings.NewReader(`{"name":"x","config":"{}"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+	r.ServeHTTP(createW, createReq)
+	require.Equal(t, http.StatusForbidden, createW.Code)
+
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/templates/test-id", strings.NewReader(`{"name":"x","config":"{}"}`))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateW := httptest.NewRecorder()
+	r.ServeHTTP(updateW, updateReq)
+	require.Equal(t, http.StatusForbidden, updateW.Code)
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/templates/test-id", http.NoBody)
+	deleteW := httptest.NewRecorder()
+	r.ServeHTTP(deleteW, deleteReq)
+	require.Equal(t, http.StatusForbidden, deleteW.Code)
+}
+
+func TestNotificationTemplateHandler_List_DBError(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
+	svc := services.NewNotificationService(db)
+	h := NewNotificationTemplateHandler(svc)
+
+	r := gin.New()
+	r.GET("/api/templates", h.List)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/templates", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestNotificationTemplateHandler_WriteOps_DBError(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
+	svc := services.NewNotificationService(db)
+	h := NewNotificationTemplateHandler(svc)
+
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
+	r.POST("/api/templates", h.Create)
+	r.PUT("/api/templates/:id", h.Update)
+	r.DELETE("/api/templates/:id", h.Delete)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	createReq := httptest.NewRequest(http.MethodPost, "/api/templates", strings.NewReader(`{"name":"x","config":"{}"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+	r.ServeHTTP(createW, createReq)
+	require.Equal(t, http.StatusInternalServerError, createW.Code)
+
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/templates/test-id", strings.NewReader(`{"id":"test-id","name":"x","config":"{}"}`))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateW := httptest.NewRecorder()
+	r.ServeHTTP(updateW, updateReq)
+	require.Equal(t, http.StatusInternalServerError, updateW.Code)
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/templates/test-id", http.NoBody)
+	deleteW := httptest.NewRecorder()
+	r.ServeHTTP(deleteW, deleteReq)
+	require.Equal(t, http.StatusInternalServerError, deleteW.Code)
+}
+
+func TestNotificationTemplateHandler_WriteOps_PermissionErrorResponse(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
+
+	createHook := "test_notification_template_permission_create"
+	updateHook := "test_notification_template_permission_update"
+	deleteHook := "test_notification_template_permission_delete"
+
+	require.NoError(t, db.Callback().Create().Before("gorm:create").Register(createHook, func(tx *gorm.DB) {
+		_ = tx.AddError(fmt.Errorf("permission denied"))
+	}))
+	require.NoError(t, db.Callback().Update().Before("gorm:update").Register(updateHook, func(tx *gorm.DB) {
+		_ = tx.AddError(fmt.Errorf("permission denied"))
+	}))
+	require.NoError(t, db.Callback().Delete().Before("gorm:delete").Register(deleteHook, func(tx *gorm.DB) {
+		_ = tx.AddError(fmt.Errorf("permission denied"))
+	}))
+	t.Cleanup(func() {
+		_ = db.Callback().Create().Remove(createHook)
+		_ = db.Callback().Update().Remove(updateHook)
+		_ = db.Callback().Delete().Remove(deleteHook)
+	})
+
+	svc := services.NewNotificationService(db)
+	h := NewNotificationTemplateHandler(svc)
+
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
+	r.POST("/api/templates", h.Create)
+	r.PUT("/api/templates/:id", h.Update)
+	r.DELETE("/api/templates/:id", h.Delete)
+
+	createReq := httptest.NewRequest(http.MethodPost, "/api/templates", strings.NewReader(`{"name":"x","config":"{}"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+	r.ServeHTTP(createW, createReq)
+	require.Equal(t, http.StatusInternalServerError, createW.Code)
+	require.Contains(t, createW.Body.String(), "permissions_write_denied")
+
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/templates/test-id", strings.NewReader(`{"id":"test-id","name":"x","config":"{}"}`))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateW := httptest.NewRecorder()
+	r.ServeHTTP(updateW, updateReq)
+	require.Equal(t, http.StatusInternalServerError, updateW.Code)
+	require.Contains(t, updateW.Body.String(), "permissions_write_denied")
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/templates/test-id", http.NoBody)
+	deleteW := httptest.NewRecorder()
+	r.ServeHTTP(deleteW, deleteReq)
+	require.Equal(t, http.StatusInternalServerError, deleteW.Code)
+	require.Contains(t, deleteW.Body.String(), "permissions_write_denied")
 }

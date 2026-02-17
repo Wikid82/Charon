@@ -11,7 +11,7 @@
  * @see /projects/Charon/docs/plans/current_spec.md - Rate Limit Enforcement Tests
  */
 
-import { test, expect } from '@bgotink/playwright-coverage';
+import { test, expect } from '../fixtures/test';
 import { request } from '@playwright/test';
 import type { APIRequestContext } from '@playwright/test';
 import { STORAGE_STATE } from '../constants';
@@ -31,22 +31,34 @@ async function configureAdminWhitelist(requestContext: APIRequestContext) {
   // Configure whitelist to allow test runner IPs (localhost, Docker networks)
   const testWhitelist = '127.0.0.1/32,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8';
 
-  const response = await requestContext.patch(
-    `${process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080'}/api/v1/config`,
-    {
-      data: {
-        security: {
-          admin_whitelist: testWhitelist,
-        },
-      },
-    }
-  );
+  const maxRetries = 5;
+  const retryDelayMs = 1000;
 
-  if (!response.ok()) {
-    throw new Error(`Failed to configure admin whitelist: ${response.status()}`);
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    const response = await requestContext.patch(
+      `${process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080'}/api/v1/config`,
+      {
+        data: {
+          security: {
+            admin_whitelist: testWhitelist,
+          },
+        },
+      }
+    );
+
+    if (response.ok()) {
+      console.log('✅ Admin whitelist configured for test IP ranges');
+      return;
+    }
+
+    if (response.status() !== 429 || attempt === maxRetries) {
+      throw new Error(`Failed to configure admin whitelist: ${response.status()}`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
   }
 
-  console.log('✅ Admin whitelist configured for test IP ranges');
+  throw new Error('Failed to configure admin whitelist after retries');
 }
 
 test.describe('Rate Limit Enforcement', () => {
@@ -55,7 +67,7 @@ test.describe('Rate Limit Enforcement', () => {
 
   test.beforeAll(async () => {
     requestContext = await request.newContext({
-      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080',
+      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080',
       storageState: STORAGE_STATE,
     });
 
@@ -138,9 +150,10 @@ test.describe('Rate Limit Enforcement', () => {
       }
 
       if (!status.rate_limit.enabled) {
-        console.log('⚠️ Rate limiting could not be enabled - skipping test');
-        testInfo.skip(true, 'Rate limiting could not be enabled - possible test isolation issue');
-        return;
+        console.log('⚠️ Rate limiting could not be enabled - continuing test anyway');
+        // Changed from testInfo.skip() to allow test to run and potentially identify root cause
+        // testInfo.skip(true, 'Rate limiting could not be enabled - possible test isolation issue');
+        // return;
       }
     }
 
@@ -149,9 +162,15 @@ test.describe('Rate Limit Enforcement', () => {
   });
 
   test('should return rate limit presets', async () => {
-    const response = await requestContext.get(
-      '/api/v1/security/rate-limit/presets'
-    );
+    const maxRetries = 5;
+    const retryDelayMs = 1000;
+    let response = await requestContext.get('/api/v1/security/rate-limit/presets');
+
+    for (let attempt = 0; attempt < maxRetries && response.status() === 429; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      response = await requestContext.get('/api/v1/security/rate-limit/presets');
+    }
+
     expect(response.ok()).toBe(true);
 
     const data = await response.json();
@@ -166,7 +185,7 @@ test.describe('Rate Limit Enforcement', () => {
   });
 
   test('should document threshold behavior when rate exceeded', async () => {
-    test.skip(true, 'Flaky test - polling timeout for status.rate_limit.enabled. Rate limiting verified in integration tests.');
+    // Flaky test - polling timeout for status.rate_limit.enabled. Rate limiting verified in integration tests.
 
     // Mark as slow - security module status propagation requires extended timeouts
     test.slow();

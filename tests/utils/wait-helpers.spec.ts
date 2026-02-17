@@ -1,5 +1,5 @@
 /**
- * Unit tests for wait-helpers.ts - Phase 2.1: Semantic Wait Helpers
+ * Unit tests for wait-helpers.ts - Semantic Wait Helpers
  *
  * These tests verify the behavior of deterministic wait utilities
  * that replace arbitrary `page.waitForTimeout()` calls.
@@ -14,7 +14,7 @@ import {
   waitForNavigation,
 } from './wait-helpers';
 
-test.describe('wait-helpers - Phase 2.1 Semantic Wait Functions', () => {
+test.describe('wait-helpers - Semantic Wait Functions', () => {
   test.describe('waitForDialog', () => {
     test('should wait for dialog to be visible and interactive', async ({ page }) => {
       // Create a test page with dialog
@@ -142,10 +142,10 @@ test.describe('wait-helpers - Phase 2.1 Semantic Wait Functions', () => {
       `);
 
       await page.click('#enable-field');
-      await waitForFormFields(page, '#test-field', { shouldBeEnabled: true });
+      await waitForFormFields(page, '#test-field', { shouldBeEnabled: true, timeout: 2000 });
 
       const field = page.locator('#test-field');
-      await expect(field).toBeEnabled();
+      await expect(field).toBeEnabled({ timeout: 2000 });
     });
 
     test('should handle disabled fields when shouldBeEnabled is false', async ({ page }) => {
@@ -282,16 +282,24 @@ test.describe('wait-helpers - Phase 2.1 Semantic Wait Functions', () => {
 
   test.describe('waitForNavigation', () => {
     test('should wait for URL change with string match', async ({ page }) => {
+      await page.route('**/test-page', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/html',
+          body: '<h1>New Page</h1>',
+        });
+      });
+
       await page.goto('about:blank');
       await page.setContent(`
-        <a href="data:text/html,<h1>New Page</h1>" id="nav-link">Navigate</a>
+        <a href="http://127.0.0.1:8080/test-page" id="nav-link">Navigate</a>
       `);
 
       const link = page.locator('#nav-link');
       await link.click();
 
       // Wait for navigation to complete
-      await waitForNavigation(page, /data:text\/html/);
+      await waitForNavigation(page, /\/test-page$/);
 
       // Verify new page loaded
       await expect(page.locator('h1')).toHaveText('New Page');

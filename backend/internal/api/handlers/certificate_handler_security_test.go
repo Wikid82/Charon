@@ -152,10 +152,18 @@ func TestCertificateHandler_Delete_DiskSpaceCheck(t *testing.T) {
 
 // TestCertificateHandler_Delete_NotificationRateLimiting tests rate limiting
 func TestCertificateHandler_Delete_NotificationRateLimiting(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	dbPath := t.TempDir() + "/cert_notification_rate_limit.db"
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1", dbPath)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("failed to access sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 
 	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)

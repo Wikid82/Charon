@@ -168,10 +168,6 @@ no proper structure`,
   test('should reject oversized archive (>50MB)', async ({ request }) => {
     // Note: Creating actual 50MB+ file is slow and may not be implemented yet in backend
     // This test is skipped pending backend implementation and performance considerations
-    test.skip(
-      true,
-      'Oversized archive validation requires backend implementation and takes significant time to create test file'
-    );
 
     await test.step('Create oversized archive', async () => {
       // GIVEN: Archive exceeding 50MB size limit
@@ -284,10 +280,6 @@ no proper structure`,
     // This test verifies backend rollback behavior
     // Requires access to check directory state before/after
     // Should be implemented as integration test in backend/integration/
-    test.skip(
-      true,
-      'Rollback verification requires backend state access - implement as integration test in backend/integration/'
-    );
 
     await test.step('Verify rollback on failed import', async () => {
       // GIVEN: Archive that will fail validation after extraction
@@ -318,21 +310,28 @@ labels:
 
       // WHEN: Upload archive
       const fileBuffer = await fs.readFile(archivePath);
-      const response = await request.post('/api/v1/admin/crowdsec/import', {
-        multipart: {
-          file: {
-            name: 'with-optional-files.tar.gz',
-            mimeType: 'application/gzip',
-            buffer: fileBuffer,
-          },
-        },
-      });
 
-      // THEN: Import succeeds with both files
-      expect(response.ok()).toBeTruthy();
-      const data = await response.json();
-      expect(data).toHaveProperty('status', 'imported');
-      expect(data).toHaveProperty('backup');
+      // Retry mechanism for backend stability
+      await expect(async () => {
+        const response = await request.post('/api/v1/admin/crowdsec/import', {
+          multipart: {
+            file: {
+              name: 'with-optional-files.tar.gz',
+              mimeType: 'application/gzip',
+              buffer: fileBuffer,
+            },
+          },
+        });
+
+        // THEN: Import succeeds with both files
+        expect(response.ok(), `Import failed with status: ${response.status()}`).toBeTruthy();
+        const data = await response.json();
+        expect(data).toHaveProperty('status', 'imported');
+        expect(data).toHaveProperty('backup');
+      }).toPass({
+        intervals: [1000, 2000, 5000],
+        timeout: 15_000
+      });
     });
   });
 

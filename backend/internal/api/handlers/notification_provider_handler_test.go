@@ -26,6 +26,11 @@ func setupNotificationProviderTest(t *testing.T) (*gin.Engine, *gorm.DB) {
 	handler := handlers.NewNotificationProviderHandler(service)
 
 	r := gin.Default()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
 	api := r.Group("/api/v1")
 	providers := api.Group("/notifications/providers")
 	providers.GET("", handler.List)
@@ -226,4 +231,38 @@ func TestNotificationProviderHandler_Preview(t *testing.T) {
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestNotificationProviderHandler_CreateRejectsDiscordIPHost(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	provider := models.NotificationProvider{
+		Name: "Discord IP",
+		Type: "discord",
+		URL:  "https://203.0.113.10/api/webhooks/123456/token_abc",
+	}
+	body, _ := json.Marshal(provider)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "invalid Discord webhook URL")
+	assert.Contains(t, w.Body.String(), "IP address hosts are not allowed")
+}
+
+func TestNotificationProviderHandler_CreateAcceptsDiscordHostname(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	provider := models.NotificationProvider{
+		Name: "Discord Host",
+		Type: "discord",
+		URL:  "https://discord.com/api/webhooks/123456/token_abc",
+	}
+	body, _ := json.Marshal(provider)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
 }

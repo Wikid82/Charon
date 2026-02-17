@@ -10,8 +10,8 @@ import * as crowdsecApi from '../../api/crowdsec'
 import * as backupsApi from '../../api/backups'
 import * as presetsApi from '../../api/presets'
 import * as featureFlagsApi from '../../api/featureFlags'
-import * as consoleApi from '../../api/consoleEnrollment'
 import { CROWDSEC_PRESETS } from '../../data/crowdsecPresets'
+import type { ConsoleEnrollmentStatus } from '../../api/consoleEnrollment'
 
 vi.mock('../../api/security')
 vi.mock('../../api/crowdsec')
@@ -19,7 +19,28 @@ vi.mock('../../api/backups')
 vi.mock('../../api/settings')
 vi.mock('../../api/presets')
 vi.mock('../../api/featureFlags')
-vi.mock('../../api/consoleEnrollment')
+vi.mock('../../components/CrowdSecBouncerKeyDisplay', () => ({
+  CrowdSecBouncerKeyDisplay: () => null,
+}))
+const consoleStatusMock = vi.fn<() => ConsoleEnrollmentStatus>(() => ({ status: 'not_enrolled', key_present: false }))
+const enrollConsoleMock = vi.fn()
+const clearConsoleEnrollmentMock = vi.fn()
+
+vi.mock('../../hooks/useConsoleEnrollment', () => ({
+  useConsoleStatus: vi.fn(() => ({
+    data: consoleStatusMock(),
+    isLoading: false,
+    isRefetching: false,
+  })),
+  useEnrollConsole: vi.fn(() => ({
+    mutateAsync: enrollConsoleMock,
+    isPending: false,
+  })),
+  useClearConsoleEnrollment: vi.fn(() => ({
+    mutate: clearConsoleEnrollmentMock,
+    isPending: false,
+  })),
+}))
 
 const createQueryClient = () => new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
 const renderWithProviders = (ui: React.ReactNode) => {
@@ -70,8 +91,8 @@ describe('CrowdSecConfig', () => {
     vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
       'feature.crowdsec.console_enrollment': false,
     })
-    vi.mocked(consoleApi.getConsoleStatus).mockResolvedValue({ status: 'not_enrolled', key_present: false })
-    vi.mocked(consoleApi.enrollConsole).mockResolvedValue({ status: 'enrolling', key_present: true })
+    consoleStatusMock.mockReturnValue({ status: 'not_enrolled', key_present: false })
+    enrollConsoleMock.mockResolvedValue({ status: 'enrolling', key_present: true })
   })
 
   it('exports config when clicking Export', async () => {
@@ -146,14 +167,14 @@ describe('CrowdSecConfig', () => {
     // Should show validation errors for missing fields
     const errors = await screen.findAllByTestId('console-enroll-error')
     expect(errors.length).toBeGreaterThan(0)
-    expect(consoleApi.enrollConsole).not.toHaveBeenCalled()
+    expect(enrollConsoleMock).not.toHaveBeenCalled()
   })
 
   it('submits console enrollment payload with snake_case fields', async () => {
     vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({ 'feature.crowdsec.console_enrollment': true })
     vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } })
     vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
-    vi.mocked(consoleApi.enrollConsole).mockResolvedValue({ status: 'enrolled', key_present: true, agent_name: 'agent-one', tenant: 'tenant-inc' })
+    enrollConsoleMock.mockResolvedValue({ status: 'enrolled', key_present: true, agent_name: 'agent-one', tenant: 'tenant-inc' })
 
     renderWithProviders(<CrowdSecConfig />)
 
@@ -165,7 +186,7 @@ describe('CrowdSecConfig', () => {
     await userEvent.click(screen.getByTestId('console-ack-checkbox'))
     await userEvent.click(screen.getByTestId('console-enroll-btn'))
 
-    await waitFor(() => expect(consoleApi.enrollConsole).toHaveBeenCalledWith({
+    await waitFor(() => expect(enrollConsoleMock).toHaveBeenCalledWith({
       enrollment_key: 'secret-1234567890',
       agent_name: 'agent-one',
       tenant: 'tenant-inc',
@@ -179,7 +200,7 @@ describe('CrowdSecConfig', () => {
     vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({ 'feature.crowdsec.console_enrollment': true })
     vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } })
     vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
-    vi.mocked(consoleApi.getConsoleStatus).mockResolvedValue({ status: 'enrolled', key_present: true, agent_name: 'a1', tenant: 't1', last_heartbeat_at: '2024-01-01T00:00:00Z' })
+    consoleStatusMock.mockReturnValue({ status: 'enrolled', key_present: true, agent_name: 'a1', tenant: 't1', last_heartbeat_at: '2024-01-01T00:00:00Z' })
 
     renderWithProviders(<CrowdSecConfig />)
 
@@ -190,8 +211,7 @@ describe('CrowdSecConfig', () => {
     vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({ 'feature.crowdsec.console_enrollment': true })
     vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } })
     vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
-    vi.mocked(consoleApi.getConsoleStatus).mockResolvedValueOnce({ status: 'failed', key_present: true, last_error: 'network' })
-    vi.mocked(consoleApi.getConsoleStatus).mockResolvedValue({ status: 'enrolled', key_present: true })
+    consoleStatusMock.mockReturnValue({ status: 'failed', key_present: true, last_error: 'network' })
 
     renderWithProviders(<CrowdSecConfig />)
 
@@ -199,12 +219,12 @@ describe('CrowdSecConfig', () => {
     await userEvent.type(screen.getByTestId('console-enrollment-token'), 'another-secret-123456')
     await userEvent.click(screen.getByTestId('console-ack-checkbox'))
     await userEvent.click(screen.getByTestId('console-retry-btn'))
-    await waitFor(() => expect(consoleApi.enrollConsole).toHaveBeenCalledWith(expect.objectContaining({ force: true })))
+    await waitFor(() => expect(enrollConsoleMock).toHaveBeenCalledWith(expect.objectContaining({ force: true })))
 
     await waitFor(() => expect(screen.getByTestId('console-rotate-btn')).not.toBeDisabled())
     await userEvent.type(screen.getByTestId('console-enrollment-token'), 'rotate-token-987654321')
     await userEvent.click(screen.getByTestId('console-rotate-btn'))
-    await waitFor(() => expect(consoleApi.enrollConsole).toHaveBeenCalledWith(expect.objectContaining({
+    await waitFor(() => expect(enrollConsoleMock).toHaveBeenCalledWith(expect.objectContaining({
       enrollment_key: 'rotate-token-987654321',
       force: true,
     })))

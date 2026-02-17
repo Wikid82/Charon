@@ -33,10 +33,12 @@ func (s *SecurityNotificationService) GetSettings() (*models.NotificationConfig,
 	if err == gorm.ErrRecordNotFound {
 		// Return default config if none exists
 		return &models.NotificationConfig{
-			Enabled:         false,
-			MinLogLevel:     "error",
-			NotifyWAFBlocks: true,
-			NotifyACLDenies: true,
+			Enabled:             false,
+			MinLogLevel:         "error",
+			NotifyWAFBlocks:     true,
+			NotifyACLDenies:     true,
+			NotifyRateLimitHits: true,
+			EmailRecipients:     "",
 		}, nil
 	}
 	return &config, err

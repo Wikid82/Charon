@@ -139,12 +139,12 @@ func (s *ConsoleEnrollmentService) Enroll(ctx context.Context, req ConsoleEnroll
 
 	// CRITICAL: Check that LAPI is running before attempting enrollment
 	// Console enrollment requires an active LAPI connection to register with crowdsec.net
-	if err := s.checkLAPIAvailable(ctx); err != nil {
-		return ConsoleEnrollmentStatus{}, err
+	if checkErr := s.checkLAPIAvailable(ctx); checkErr != nil {
+		return ConsoleEnrollmentStatus{}, checkErr
 	}
 
-	if err := s.ensureCAPIRegistered(ctx); err != nil {
-		return ConsoleEnrollmentStatus{}, err
+	if ensureErr := s.ensureCAPIRegistered(ctx); ensureErr != nil {
+		return ConsoleEnrollmentStatus{}, ensureErr
 	}
 
 	s.mu.Lock()

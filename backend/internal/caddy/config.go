@@ -143,8 +143,8 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			// If provider uses multi-credentials, create separate policies per domain
 			if dnsConfig.UseMultiCredentials && len(dnsConfig.ZoneCredentials) > 0 {
 				// Get provider plugin from registry
-				provider, ok := dnsprovider.Global().Get(dnsConfig.ProviderType)
-				if !ok {
+				provider, providerOK := dnsprovider.Global().Get(dnsConfig.ProviderType)
+				if !providerOK {
 					logger.Log().WithField("provider_type", dnsConfig.ProviderType).Warn("DNS provider type not found in registry")
 					continue
 				}

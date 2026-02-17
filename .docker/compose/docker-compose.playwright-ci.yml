@@ -27,7 +27,7 @@ services:
   # Charon Application - Core E2E Testing Service
   # =============================================================================
   charon-app:
-    # CI provides CHARON_E2E_IMAGE_TAG=charon:e2e-test (locally built image)
+    # CI provides CHARON_E2E_IMAGE_TAG=charon:e2e-test (retagged from shared digest)
     # Local development uses the default fallback value
     image: ${CHARON_E2E_IMAGE_TAG:-charon:e2e-test}
     container_name: charon-playwright

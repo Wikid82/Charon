@@ -86,8 +86,8 @@ func (h *DNSProviderHandler) Get(c *gin.Context) {
 // Creates a new DNS provider with encrypted credentials.
 func (h *DNSProviderHandler) Create(c *gin.Context) {
 	var req services.CreateDNSProviderRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
 
@@ -131,8 +131,8 @@ func (h *DNSProviderHandler) Update(c *gin.Context) {
 	}
 
 	var req services.UpdateDNSProviderRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
 
@@ -221,8 +221,8 @@ func (h *DNSProviderHandler) Test(c *gin.Context) {
 // Tests DNS provider credentials without saving them.
 func (h *DNSProviderHandler) TestCredentials(c *gin.Context) {
 	var req services.CreateDNSProviderRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
 

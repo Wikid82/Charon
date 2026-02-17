@@ -229,7 +229,7 @@ test.describe('Import Caddyfile - Wizard', () => {
   test.describe('Page Layout', () => {
     test('should display import page with correct heading', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       await expect(page.locator(SELECTORS.pageTitle)).toContainText(/import/i);
@@ -237,7 +237,7 @@ test.describe('Import Caddyfile - Wizard', () => {
 
     test('should show upload section with wizard steps', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Verify upload section is visible
@@ -260,7 +260,7 @@ test.describe('Import Caddyfile - Wizard', () => {
   test.describe('File Upload', () => {
     test('should display file upload dropzone', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Verify dropzone/file input is present
@@ -274,6 +274,7 @@ test.describe('Import Caddyfile - Wizard', () => {
 
     test('should accept valid Caddyfile via file upload', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
 
       // Mock import API
       await page.route('**/api/v1/import/upload', async (route) => {
@@ -290,7 +291,7 @@ test.describe('Import Caddyfile - Wizard', () => {
         }
       });
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Upload file
@@ -312,7 +313,7 @@ test.describe('Import Caddyfile - Wizard', () => {
       // Mock all import API endpoints using the helper
       await setupImportMocks(page, mockPreviewSuccess);
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Paste content into textarea
@@ -332,7 +333,7 @@ test.describe('Import Caddyfile - Wizard', () => {
 
     test('should show error for empty content submission', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Ensure textarea is empty
@@ -355,7 +356,7 @@ test.describe('Import Caddyfile - Wizard', () => {
       // Use the complete mock helper to avoid missing endpoints
       await setupImportMocks(page, mockPreviewSuccess);
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Paste content and submit
@@ -381,7 +382,7 @@ test.describe('Import Caddyfile - Wizard', () => {
         });
       });
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Paste invalid content
@@ -398,7 +399,7 @@ test.describe('Import Caddyfile - Wizard', () => {
       // Set up all import mocks
       await setupImportMocks(page, mockPreviewSuccess);
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Upload and parse
@@ -424,7 +425,7 @@ test.describe('Import Caddyfile - Wizard', () => {
       // Set up import mocks with warnings response
       await setupImportMocks(page, mockPreviewWithWarnings);
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Paste content with issues
@@ -447,7 +448,7 @@ test.describe('Import Caddyfile - Wizard', () => {
       // Set up all import mocks
       await setupImportMocks(page, mockPreviewSuccess);
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Parse content
@@ -472,7 +473,7 @@ test.describe('Import Caddyfile - Wizard', () => {
       // Set up import mocks with conflicts response
       await setupImportMocks(page, mockPreviewWithConflicts);
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Parse content
@@ -490,7 +491,7 @@ test.describe('Import Caddyfile - Wizard', () => {
       // Set up import mocks with conflicts response
       await setupImportMocks(page, mockPreviewWithConflicts);
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Parse content
@@ -515,7 +516,7 @@ test.describe('Import Caddyfile - Wizard', () => {
       // Set up all import mocks
       await setupImportMocks(page, mockPreviewSuccess);
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Parse content
@@ -561,7 +562,7 @@ test.describe('Import Caddyfile - Wizard', () => {
         });
       });
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Parse content
@@ -596,7 +597,7 @@ test.describe('Import Caddyfile - Wizard', () => {
         });
       });
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Parse and go to review
@@ -623,7 +624,7 @@ test.describe('Import Caddyfile - Wizard', () => {
       // Set up import mocks with commit error
       await setupImportMocks(page, mockPreviewSuccess, { commitError: true });
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Parse and go to review
@@ -659,7 +660,7 @@ test.describe('Import Caddyfile - Wizard', () => {
         });
       });
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Parse and go to review
@@ -707,7 +708,7 @@ test.describe('Import Caddyfile - Wizard', () => {
         await route.fulfill({ status: 200, json: mockPreviewSuccess });
       });
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Import banner should be visible
@@ -728,7 +729,7 @@ test.describe('Import Caddyfile - Wizard', () => {
         await route.fulfill({ status: 204 });
       });
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page);
 
       // Parse and go to review

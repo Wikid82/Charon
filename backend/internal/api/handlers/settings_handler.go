@@ -33,6 +33,8 @@ type SettingsHandler struct {
 	MailService  *services.MailService
 	CaddyManager CaddyConfigManager // For triggering config reload on security settings change
 	Cerberus     CacheInvalidator   // For invalidating cache on security settings change
+	SecuritySvc  *services.SecurityService
+	DataRoot     string
 }
 
 func NewSettingsHandler(db *gorm.DB) *SettingsHandler {
@@ -43,12 +45,14 @@ func NewSettingsHandler(db *gorm.DB) *SettingsHandler {
 }
 
 // NewSettingsHandlerWithDeps creates a SettingsHandler with all dependencies for config reload
-func NewSettingsHandlerWithDeps(db *gorm.DB, caddyMgr CaddyConfigManager, cerberus CacheInvalidator) *SettingsHandler {
+func NewSettingsHandlerWithDeps(db *gorm.DB, caddyMgr CaddyConfigManager, cerberus CacheInvalidator, securitySvc *services.SecurityService, dataRoot string) *SettingsHandler {
 	return &SettingsHandler{
 		DB:           db,
 		MailService:  services.NewMailService(db),
 		CaddyManager: caddyMgr,
 		Cerberus:     cerberus,
+		SecuritySvc:  securitySvc,
+		DataRoot:     dataRoot,
 	}
 }
 
@@ -78,6 +82,10 @@ type UpdateSettingRequest struct {
 
 // UpdateSetting updates or creates a setting.
 func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	var req UpdateSettingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -105,6 +113,9 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 
 	// Upsert
 	if err := h.DB.Where(models.Setting{Key: req.Key}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
+		if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save setting"})
 		return
 	}
@@ -117,6 +128,9 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 			Type:     "bool",
 		}
 		if err := h.DB.Where(models.Setting{Key: cerberusSetting.Key}).Assign(cerberusSetting).FirstOrCreate(&cerberusSetting).Error; err != nil {
+			if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
 			return
 		}
@@ -127,10 +141,16 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 			Type:     "bool",
 		}
 		if err := h.DB.Where(models.Setting{Key: legacyCerberus.Key}).Assign(legacyCerberus).FirstOrCreate(&legacyCerberus).Error; err != nil {
+			if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
 			return
 		}
 		if err := h.ensureSecurityConfigEnabled(); err != nil {
+			if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
 			return
 		}
@@ -140,6 +160,9 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 		if err := h.syncAdminWhitelist(req.Value); err != nil {
 			if errors.Is(err, services.ErrInvalidAdminCIDR) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid admin_whitelist"})
+				return
+			}
+			if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
 				return
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security config"})
@@ -154,18 +177,18 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 			h.Cerberus.InvalidateCache()
 		}
 
-		// Trigger async Caddy config reload (doesn't block HTTP response)
+		// Trigger sync Caddy config reload so callers can rely on deterministic applied state
 		if h.CaddyManager != nil {
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+			defer cancel()
 
-				if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
-					logger.Log().WithError(err).Warn("Failed to reload Caddy config after security setting change")
-				} else {
-					logger.Log().WithField("setting_key", req.Key).Info("Caddy config reloaded after security setting change")
-				}
-			}()
+			if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
+				logger.Log().WithError(err).Warn("Failed to reload Caddy config after security setting change")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload configuration"})
+				return
+			}
+
+			logger.Log().WithField("setting_key", req.Key).Info("Caddy config reloaded after security setting change")
 		}
 	}
 
@@ -176,9 +199,7 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 // PATCH /api/v1/config
 // Requires admin authentication
 func (h *SettingsHandler) PatchConfig(c *gin.Context) {
-	role, _ := c.Get("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 
@@ -202,46 +223,49 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 		updates["feature.cerberus.enabled"] = "true"
 	}
 
-	// Validate and apply each update
-	for key, value := range updates {
-		// Special validation for admin_whitelist (CIDR format)
-		if key == "security.admin_whitelist" {
-			if err := validateAdminWhitelist(value); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid admin_whitelist: %v", err)})
-				return
+	if err := h.DB.Transaction(func(tx *gorm.DB) error {
+		for key, value := range updates {
+			if key == "security.admin_whitelist" {
+				if err := validateAdminWhitelist(value); err != nil {
+					return fmt.Errorf("invalid admin_whitelist: %w", err)
+				}
+			}
+
+			setting := models.Setting{
+				Key:      key,
+				Value:    value,
+				Category: strings.Split(key, ".")[0],
+				Type:     "string",
+			}
+
+			if err := tx.Where(models.Setting{Key: key}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
+				return fmt.Errorf("save setting %s: %w", key, err)
 			}
 		}
 
-		// Upsert setting
-		setting := models.Setting{
-			Key:      key,
-			Value:    value,
-			Category: strings.Split(key, ".")[0],
-			Type:     "string",
-		}
-
-		if err := h.DB.Where(models.Setting{Key: key}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to save setting %s", key)})
-			return
-		}
-	}
-
-	if hasAdminWhitelist {
-		if err := h.syncAdminWhitelist(adminWhitelist); err != nil {
-			if errors.Is(err, services.ErrInvalidAdminCIDR) {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid admin_whitelist"})
-				return
+		if hasAdminWhitelist {
+			if err := h.syncAdminWhitelistWithDB(tx, adminWhitelist); err != nil {
+				return err
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security config"})
-			return
 		}
-	}
 
-	if aclEnabled {
-		if err := h.ensureSecurityConfigEnabled(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
+		if aclEnabled {
+			if err := h.ensureSecurityConfigEnabledWithDB(tx); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}); err != nil {
+		if errors.Is(err, services.ErrInvalidAdminCIDR) || strings.Contains(err.Error(), "invalid admin_whitelist") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid admin_whitelist"})
 			return
 		}
+		if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
+		return
 	}
 
 	// Trigger cache invalidation and Caddy reload for security settings
@@ -259,24 +283,27 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 			h.Cerberus.InvalidateCache()
 		}
 
-		// Trigger async Caddy config reload
+		// Trigger sync Caddy config reload so callers can rely on deterministic applied state
 		if h.CaddyManager != nil {
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+			defer cancel()
 
-				if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
-					logger.Log().WithError(err).Warn("Failed to reload Caddy config after security settings change")
-				} else {
-					logger.Log().Info("Caddy config reloaded after security settings change")
-				}
-			}()
+			if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
+				logger.Log().WithError(err).Warn("Failed to reload Caddy config after security settings change")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload configuration"})
+				return
+			}
+
+			logger.Log().Info("Caddy config reloaded after security settings change")
 		}
 	}
 
 	// Return current config state
 	var settings []models.Setting
 	if err := h.DB.Find(&settings).Error; err != nil {
+		if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated config"})
 		return
 	}
@@ -291,19 +318,23 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 }
 
 func (h *SettingsHandler) ensureSecurityConfigEnabled() error {
+	return h.ensureSecurityConfigEnabledWithDB(h.DB)
+}
+
+func (h *SettingsHandler) ensureSecurityConfigEnabledWithDB(db *gorm.DB) error {
 	var cfg models.SecurityConfig
-	err := h.DB.Where("name = ?", "default").First(&cfg).Error
+	err := db.Where("name = ?", "default").First(&cfg).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			cfg = models.SecurityConfig{Name: "default", Enabled: true}
-			return h.DB.Create(&cfg).Error
+			return db.Create(&cfg).Error
 		}
 		return err
 	}
 	if cfg.Enabled {
 		return nil
 	}
-	return h.DB.Model(&cfg).Update("enabled", true).Error
+	return db.Model(&cfg).Update("enabled", true).Error
 }
 
 // flattenConfig converts nested map to flat key-value pairs with dot notation
@@ -348,7 +379,11 @@ func validateAdminWhitelist(whitelist string) error {
 }
 
 func (h *SettingsHandler) syncAdminWhitelist(whitelist string) error {
-	securitySvc := services.NewSecurityService(h.DB)
+	return h.syncAdminWhitelistWithDB(h.DB, whitelist)
+}
+
+func (h *SettingsHandler) syncAdminWhitelistWithDB(db *gorm.DB, whitelist string) error {
+	securitySvc := services.NewSecurityService(db)
 	cfg, err := securitySvc.Get()
 	if err != nil {
 		if err != services.ErrSecurityConfigNotFound {
@@ -408,9 +443,7 @@ func MaskPasswordForTest(password string) string {
 
 // UpdateSMTPConfig updates the SMTP configuration.
 func (h *SettingsHandler) UpdateSMTPConfig(c *gin.Context) {
-	role, _ := c.Get("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 
@@ -436,6 +469,9 @@ func (h *SettingsHandler) UpdateSMTPConfig(c *gin.Context) {
 	}
 
 	if err := h.MailService.SaveSMTPConfig(config); err != nil {
+		if respondPermissionError(c, h.SecuritySvc, "smtp_save_failed", err, h.DataRoot) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save SMTP configuration: " + err.Error()})
 		return
 	}
@@ -445,9 +481,7 @@ func (h *SettingsHandler) UpdateSMTPConfig(c *gin.Context) {
 
 // TestSMTPConfig tests the SMTP connection.
 func (h *SettingsHandler) TestSMTPConfig(c *gin.Context) {
-	role, _ := c.Get("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 
@@ -467,9 +501,7 @@ func (h *SettingsHandler) TestSMTPConfig(c *gin.Context) {
 
 // SendTestEmail sends a test email to verify the SMTP configuration.
 func (h *SettingsHandler) SendTestEmail(c *gin.Context) {
-	role, _ := c.Get("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 
@@ -515,9 +547,7 @@ func (h *SettingsHandler) SendTestEmail(c *gin.Context) {
 
 // ValidatePublicURL validates a URL is properly formatted for use as the application URL.
 func (h *SettingsHandler) ValidatePublicURL(c *gin.Context) {
-	role, _ := c.Get("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 
@@ -559,10 +589,7 @@ func (h *SettingsHandler) ValidatePublicURL(c *gin.Context) {
 // 3. Runtime protection: ssrfSafeDialer validates IPs again at connection time
 // This multi-layer approach satisfies both static analysis (CodeQL) and runtime security.
 func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
-	// Admin-only access check
-	role, exists := c.Get("role")
-	if !exists || role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 

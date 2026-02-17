@@ -39,7 +39,7 @@ curl -s -X POST -H "Content-Type: application/json" \
         "rate_limit_requests": 3,
         "rate_limit_window_sec": 10,
         "rate_limit_burst": 1,
-        "admin_whitelist": "0.0.0.0/0"
+        "admin_whitelist": "127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
     }' \
     -b /tmp/debug-cookie \
     http://localhost:8280/api/v1/security/config | jq .

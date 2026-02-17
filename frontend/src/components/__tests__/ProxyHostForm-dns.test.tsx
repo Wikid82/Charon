@@ -51,7 +51,15 @@ vi.mock('../../hooks/useSecurity', () => ({
 
 vi.mock('../../hooks/useSecurityHeaders', () => ({
   useSecurityHeaderProfiles: vi.fn(() => ({
-    profiles: [],
+    data: [],
+    isLoading: false,
+    error: null,
+  })),
+}))
+
+vi.mock('../../hooks/useAccessLists', () => ({
+  useAccessLists: vi.fn(() => ({
+    data: [],
     isLoading: false,
     error: null,
   })),
@@ -79,6 +87,30 @@ vi.mock('../../hooks/useDNSProviders', () => ({
     isLoading: false,
     isError: false,
   })),
+}))
+
+vi.mock('../../hooks/useDNSDetection', () => ({
+  useDetectDNSProvider: vi.fn(() => ({
+    mutateAsync: vi.fn().mockResolvedValue({
+      domain: 'example.com',
+      detected: false,
+      nameservers: [],
+      confidence: 'none',
+    }),
+    isPending: false,
+    data: undefined,
+    reset: vi.fn(),
+  })),
+}))
+
+vi.mock('../../api/dnsDetection', () => ({
+  detectDNSProvider: vi.fn().mockResolvedValue({
+    domain: 'example.com',
+    detected: false,
+    nameservers: [],
+    confidence: 'none',
+  }),
+  getDetectionPatterns: vi.fn().mockResolvedValue([]),
 }))
 
 vi.mock('../../api/proxyHosts', () => ({
