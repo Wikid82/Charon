@@ -72,6 +72,11 @@ jobs:
             is_workflow_dispatch=true
           fi
 
+          is_push_event=false
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            is_push_event=true
+          fi
+
           is_dependabot_pr=false
           if [[ "$EVENT_NAME" == "pull_request" && "$ACTOR" == "dependabot[bot]" ]]; then
             is_dependabot_pr=true
@@ -88,7 +93,7 @@ jobs:
           fi
 
           is_trusted=false
-          if [[ "$is_untrusted" == "false" && ( "$is_same_repo_pr" == "true" || "$is_workflow_dispatch" == "true" ) ]]; then
+          if [[ "$is_untrusted" == "false" && ( "$is_same_repo_pr" == "true" || "$is_workflow_dispatch" == "true" || "$is_push_event" == "true" ) ]]; then
             is_trusted=true
           fi
 
