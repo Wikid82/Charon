@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -73,8 +74,10 @@ func makeTarGz(t *testing.T, files map[string]string) []byte {
 
 func readFixture(t *testing.T, name string) string {
 	t.Helper()
+	_, currentFile, _, ok := runtime.Caller(0)
+	require.True(t, ok)
 	// #nosec G304 -- Test reads from testdata directory with known fixture names
-	data, err := os.ReadFile(filepath.Join("testdata", name))
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(currentFile), "testdata", name))
 	require.NoError(t, err)
 	return string(data)
 }
