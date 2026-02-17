@@ -10,6 +10,7 @@ on:
         required: false
         type: string
   pull_request:
+  push:
 
 # Prevent race conditions when PR is updated mid-test
 # Cancels old test runs when new build completes with different SHA
