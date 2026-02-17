@@ -431,7 +431,7 @@ func TestUpdateAcquisitionConfig(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	newConfig := "# New acquisition config\nsource: file\nfilename: /var/log/new.log\n"
-	payload := map[string]string{"config": newConfig}
+	payload := map[string]string{"content": newConfig}
 	payloadBytes, _ := json.Marshal(payload)
 
 	w := httptest.NewRecorder()
