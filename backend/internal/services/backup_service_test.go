@@ -90,9 +90,9 @@ func TestBackupService_Restore_ZipSlip(t *testing.T) {
 	// Setup temp dirs
 	tmpDir := t.TempDir()
 	service := &BackupService{
-		DataDir:       filepath.Join(tmpDir, "data"),
-		BackupDir:     filepath.Join(tmpDir, "backups"),
-		DatabaseName:  "charon.db",
+		DataDir:      filepath.Join(tmpDir, "data"),
+		BackupDir:    filepath.Join(tmpDir, "backups"),
+		DatabaseName: "charon.db",
 	}
 	_ = os.MkdirAll(service.BackupDir, 0o700)
 
@@ -490,11 +490,11 @@ func TestRunScheduledBackup_CleanupFails(t *testing.T) {
 	require.NoError(t, err)
 
 	// Make backup directory read-only to cause cleanup to fail
-	_ = os.Chmod(service.BackupDir, 0o444)                    // #nosec G302 -- Intentionally testing permission error handling
-	defer func() { _ = os.Chmod(service.BackupDir, 0o755) }() // #nosec G302 -- Restore dir permissions after test
+	_ = os.Chmod(service.BackupDir, 0o444) // #nosec G302 -- Intentionally testing permission error handling
 
 	// Should not panic when cleanup fails
 	service.RunScheduledBackup()
+	_ = os.Chmod(service.BackupDir, 0o755) // #nosec G302 -- Restore dir permissions before assertions
 
 	// Backup creation should have succeeded despite cleanup failure
 	backups, err := service.ListBackups()
