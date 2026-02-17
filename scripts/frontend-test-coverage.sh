@@ -28,9 +28,15 @@ mkdir -p coverage/.tmp
 npm run test:coverage -- --run
 
 SUMMARY_FILE="coverage/coverage-summary.json"
+LCOV_FILE="coverage/lcov.info"
 
 if [ ! -f "$SUMMARY_FILE" ]; then
     echo "Error: Coverage summary file not found at $SUMMARY_FILE"
+    exit 1
+fi
+
+if [ ! -f "$LCOV_FILE" ]; then
+    echo "Error: LCOV coverage file not found at $LCOV_FILE"
     exit 1
 fi
 

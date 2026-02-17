@@ -18,6 +18,7 @@ help:
 	@echo "  dev                    - Run both backend and frontend in dev mode (requires tmux)"
 	@echo "  go-check               - Verify backend build readiness (runs scripts/check_go_build.sh)"
 	@echo "  gopls-logs             - Collect gopls diagnostics (runs scripts/gopls_collect.sh)"
+	@echo "  local-patch-report     - Generate local patch coverage report"
 	@echo ""
 	@echo "Security targets:"
 	@echo "  security-scan          - Quick security scan (govulncheck on Go deps)"
@@ -135,6 +136,9 @@ go-check:
 
 gopls-logs:
 	./scripts/gopls_collect.sh
+
+local-patch-report:
+	bash scripts/local-patch-report.sh
 
 # Security scanning targets
 security-scan:

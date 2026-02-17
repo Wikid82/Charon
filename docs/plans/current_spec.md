@@ -1,145 +1,245 @@
-# CI Encryption-Key Investigation and Remediation Plan
+## Local Pre-CI Patch Report (Single Scope)
 
-## Context
-- Date: 2026-02-17
-- Scope: CI failures where backend jobs report encryption key not picked up.
-- In-scope files:
-  - `.github/workflows/quality-checks.yml`
-  - `.github/workflows/codecov-upload.yml`
-  - `scripts/go-test-coverage.sh`
-  - `backend/internal/crypto/rotation_service.go`
-  - `backend/internal/services/dns_provider_service.go`
-  - `backend/internal/services/credential_service.go`
+Date: 2026-02-17
+Scope: Add a local pre-CI patch report to Definition of Done (DoD) unit-testing flow for both backend and frontend.
 
-## Problem Statement
-CI backend tests can fail late and ambiguously when `CHARON_ENCRYPTION_KEY` is missing or malformed. The root causes are context-dependent secret availability, missing preflight validation, and drift between workflow intent and implementation.
+## 1) Objective
 
-## Research Findings
+Add one executable local workflow that computes patch coverage from current branch changes and publishes a consolidated report before CI runs.
 
-### Workflow Surface and Risks
-| Workflow | Job | Key-sensitive step | Current key source | Main risk |
-|---|---|---|---|---|
-| `.github/workflows/quality-checks.yml` | `backend-quality` | `Run Go tests`, `Run Perf Asserts` | `${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}` | Empty/malformed input not preflighted |
-| `.github/workflows/codecov-upload.yml` | `backend-codecov` | `Run Go tests with coverage` | `${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}` | Same key-risk as above |
+The report must consume backend and frontend coverage inputs, use `origin/main...HEAD` as the patch baseline, and produce human-readable and machine-readable artifacts in `test-results/`.
 
-### Backend Failure Surface
-- `backend/internal/crypto/rotation_service.go`
-  - `NewRotationService(db *gorm.DB)` hard-fails if `CHARON_ENCRYPTION_KEY` is empty.
-- `backend/internal/services/dns_provider_service.go`
-  - `NewDNSProviderService(...)` depends on `NewRotationService(...)` and can degrade to warning-based behavior when key input is bad.
-- `backend/internal/services/credential_service.go`
-  - `NewCredentialService(...)` has the same dependency pattern.
+## 2) In Scope / Out of Scope
 
-### Script Failure Mode
-- `scripts/go-test-coverage.sh` currently uses `set -euo pipefail` but does not pre-validate key shape before `go test`.
-- Empty secret expressions become late runtime failures instead of deterministic preflight failures.
+### In Scope
 
-## Supervisor-Required Constraints (Preserved)
-1. `pull_request_target` SHALL NOT be used for secret-bearing backend test execution on untrusted code (fork PRs and Dependabot PRs).
-2. Same-repo `pull_request` and `workflow_dispatch` SHALL require `CHARON_ENCRYPTION_KEY_TEST`; missing secret SHALL fail fast (no fallback).
-3. Fork PRs and Dependabot PRs SHALL use workflow-only ephemeral key fallback for backend test execution.
-4. Key material SHALL NEVER be logged.
-5. Resolved key SHALL be masked before any potential output path.
-6. `GITHUB_ENV` propagation SHALL use safe delimiter write pattern.
-7. Workflow layer SHALL own key resolution/fallback.
-8. Script layer SHALL only validate and fail fast; it SHALL NOT generate fallback keys.
-9. Anti-drift guard SHALL be added so trigger comments and trigger blocks remain aligned.
-10. Known drift SHALL be corrected: comment in `quality-checks.yml` about `codecov-upload.yml` trigger behavior must match actual triggers.
+- Local patch report generation.
+- Backend + frontend DoD unit-testing integration.
+- VS Code task wiring for repeatable local execution.
+- Non-blocking warning policy for initial rollout.
 
-## EARS Requirements
+### Out of Scope
 
-### Ubiquitous
-- THE SYSTEM SHALL fail fast with explicit diagnostics when encryption-key input is required and unavailable or malformed.
-- THE SYSTEM SHALL prevent secret-value exposure in logs, summaries, and artifacts.
+- CI gate changes.
+- Encryption-key or unrelated reliability/security remediation.
+- Historical Codecov placeholder gates and unrelated patch-closure matrices.
 
-### Event-driven
-- WHEN workflow context is trusted (same-repo `pull_request` or `workflow_dispatch`), THE SYSTEM SHALL require `secrets.CHARON_ENCRYPTION_KEY_TEST`.
-- WHEN workflow context is untrusted (fork PR or Dependabot PR), THE SYSTEM SHALL generate ephemeral key material in workflow preflight only.
-- WHEN workflow context is untrusted, THE SYSTEM SHALL NOT use `pull_request_target` for secret-bearing backend tests.
+## 3) Required Inputs and Baseline
 
-### Unwanted behavior
-- IF `CHARON_ENCRYPTION_KEY` is empty, non-base64, or decoded length is not 32 bytes, THEN THE SYSTEM SHALL stop before running tests.
-- IF trigger comments diverge from workflow triggers, THEN THE SYSTEM SHALL fail anti-drift validation.
+### Coverage Inputs
 
-## Technical Design
+- Backend coverage profile: `backend/coverage.txt`
+- Frontend coverage profile: `frontend/coverage/lcov.info`
 
-### Workflow Contract
-Both backend jobs (`backend-quality`, `backend-codecov`) implement the same preflight sequence:
-1. `Resolve encryption key for backend tests`
-2. `Fail fast when required encryption secret is missing`
-3. `Validate encryption key format`
+### Diff Baseline
 
-### Preflight Resolution Algorithm
-1. Detect fork PR context via `github.event.pull_request.head.repo.fork`.
-2. Detect Dependabot PR context (actor/repo metadata check).
-3. Trusted context: require `secrets.CHARON_ENCRYPTION_KEY_TEST`; fail immediately if empty.
-4. Untrusted context: generate ephemeral key (`openssl rand -base64 32`) in workflow only.
-5. Mask resolved key via `::add-mask::`.
-6. Export via delimiter-based `GITHUB_ENV` write:
-   - `CHARON_ENCRYPTION_KEY<<EOF`
-   - `<value>`
-   - `EOF`
+- Git diff range: `origin/main...HEAD`
 
-### Script Validation Contract
-`scripts/go-test-coverage.sh` adds strict preflight validation:
-- Present and non-empty.
-- Base64 decodable.
-- Decoded length exactly 32 bytes.
+### Preconditions
 
-Script constraints:
-- SHALL NOT generate keys.
-- SHALL NOT select key source.
-- SHALL only validate and fail fast with deterministic error messages.
+- `origin/main` is fetchable locally.
+- Backend and frontend coverage artifacts exist before report generation.
 
-### Error Handling Matrix
-| Condition | Detection layer | Outcome |
-|---|---|---|
-| Trusted context + missing secret | Workflow preflight | Immediate failure with explicit message |
-| Untrusted context + no secret access | Workflow preflight | Ephemeral key path (masked) |
-| Malformed key | Script preflight | Immediate failure before `go test` |
-| Trigger/comment drift | Workflow consistency guard | CI failure until synchronized |
+## 4) Required Output Artifacts
 
-## Implementation Plan
+- Markdown report: `test-results/local-patch-report.md`
+- JSON report: `test-results/local-patch-report.json`
 
-### Phase 1: Workflow Hardening
-- Update `.github/workflows/quality-checks.yml` and `.github/workflows/codecov-upload.yml` with identical key-resolution and key-validation steps.
-- Enforce trusted-context fail-fast and untrusted-context fallback boundaries.
-- Add explicit prohibition notes and controls preventing `pull_request_target` migration for secret-bearing tests.
+Both artifacts are mandatory per run. Missing either artifact is a failed local report run.
 
-### Phase 2: Script Preflight Hardening
-- Update `scripts/go-test-coverage.sh` to validate key presence/format/length before tests.
-- Preserve existing coverage behavior; only harden pre-test guard path.
+## 5) Initial Policy (Rollout)
 
-### Phase 3: Anti-Drift Enforcement
-- Define one canonical backend-key-bootstrap contract path.
-- Add consistency check that enforces trigger/comment parity between `quality-checks.yml` and `codecov-upload.yml`.
-- Fix known push-only comment mismatch in `quality-checks.yml`.
+### Initial Policy (Non-Blocking)
 
-## Validation Plan
-Run these scenarios:
-1. Same-repo PR with valid secret.
-2. Same-repo PR with missing secret (must fail fast).
-3. Same-repo PR with malformed secret (must fail fast before tests).
-4. Fork PR with no secret access (must use ephemeral fallback).
-5. Dependabot PR with no secret access (must use ephemeral fallback, no `pull_request_target`).
-6. `workflow_dispatch` with valid secret.
+- Local patch report does not fail DoD on low patch coverage during initial rollout.
+- Local runner emits warnings (stdout + markdown/json status fields) when thresholds are not met.
+- DoD requires the report to run and artifacts to exist, even in warning mode.
 
-Expected results:
-- No late ambiguous key-init failures.
-- No secret material logged.
-- Deterministic and attributable failure messages.
-- Trigger docs and trigger config remain synchronized.
+### Threshold Defaults and Source Precedence
 
-## Acceptance Criteria
-- Backend jobs in `quality-checks.yml` and `codecov-upload.yml` no longer fail ambiguously on encryption-key pickup.
-- Trusted contexts fail fast if `CHARON_ENCRYPTION_KEY_TEST` is missing.
-- Untrusted contexts use workflow-only ephemeral fallback.
-- `scripts/go-test-coverage.sh` enforces deterministic key preflight checks.
-- `pull_request_target` is explicitly prohibited for secret-bearing backend tests on untrusted code.
-- Never-log-key-material and safe `GITHUB_ENV` propagation are implemented.
-- Workflow/script responsibility boundary is enforced.
-- Anti-drift guard is present and known trigger-comment mismatch is resolved.
+- Coverage thresholds are resolved with this precedence:
+   1. Environment variables (highest precedence)
+   2. Built-in defaults (fallback)
+- Threshold environment variables:
+   - `CHARON_OVERALL_PATCH_COVERAGE_MIN`
+   - `CHARON_BACKEND_PATCH_COVERAGE_MIN`
+   - `CHARON_FRONTEND_PATCH_COVERAGE_MIN`
+- Built-in defaults for this rollout:
+   - Overall patch coverage minimum: `90`
+   - Backend patch coverage minimum: `85`
+   - Frontend patch coverage minimum: `85`
+- Parsing/validation:
+   - Values must be numeric percentages in `[0, 100]`.
+   - Invalid env values are ignored with a warning, and the corresponding default is used.
 
-## Handoff to Supervisor
-- This document is intentionally single-scope and restricted to CI encryption-key investigation/remediation.
-- Legacy multi-topic coverage planning content has been removed from this file to maintain coherence.
+### Future Policy (Optional Hard Gate)
+
+- Optional future switch to hard gate (non-zero exit on threshold breach).
+- Gate behavior is controlled by a dedicated flag/env (to be added during implementation).
+- Hard-gate enablement is explicitly deferred and not part of this rollout.
+
+## 6) Technical Specification
+
+### 6.1 Script
+
+Implement a new local report script:
+
+- Path: `scripts/local-patch-report.sh`
+- Responsibilities:
+  1. Validate required inputs exist (`backend/coverage.txt`, `frontend/coverage/lcov.info`).
+  2. Resolve patch files/lines from `origin/main...HEAD`.
+  3. Correlate changed lines with backend/frontend coverage data.
+  4. Compute patch summary by component and overall.
+   5. Resolve thresholds using env-var-first precedence, then defaults (`90/85/85`).
+   6. Evaluate statuses against resolved thresholds:
+       - `overall.status=pass` when `overall.patch_coverage_pct >= overall_threshold`, else `warn`.
+       - `backend.status=pass` when `backend.patch_coverage_pct >= backend_threshold`, else `warn`.
+       - `frontend.status=pass` when `frontend.patch_coverage_pct >= frontend_threshold`, else `warn`.
+   7. Emit warning status when any scope is below its resolved threshold.
+   8. Write required outputs:
+     - `test-results/local-patch-report.md`
+     - `test-results/local-patch-report.json`
+
+### 6.2 Report Contract
+
+Minimum JSON fields:
+
+- `baseline`: `origin/main...HEAD`
+- `generated_at`
+- `mode`: `warn` (initial rollout)
+- `thresholds`:
+   - `overall_patch_coverage_min`
+   - `backend_patch_coverage_min`
+   - `frontend_patch_coverage_min`
+- `threshold_sources`:
+   - `overall` (`env` | `default`)
+   - `backend` (`env` | `default`)
+   - `frontend` (`env` | `default`)
+- `overall`:
+  - `changed_lines`
+  - `covered_lines`
+  - `patch_coverage_pct`
+  - `status` (`pass` | `warn`)
+- `backend` and `frontend` objects with same coverage counters and status
+- `artifacts` with emitted file paths
+
+Minimum Markdown sections:
+
+- Run metadata (timestamp, baseline)
+- Input paths used
+- Resolved thresholds and their sources (env/default)
+- Coverage summary table (overall/backend/frontend)
+- Warning section (if any)
+- Artifact paths
+
+### 6.3 Task Wiring
+
+Add VS Code task entries in `.vscode/tasks.json`:
+
+1. `Test: Local Patch Report`
+   - Runs report generation script only.
+2. `Test: Backend DoD + Local Patch Report`
+   - Runs backend unit test coverage flow, then local patch report.
+3. `Test: Frontend DoD + Local Patch Report`
+   - Runs frontend unit test coverage flow, then local patch report.
+4. `Test: Full DoD Unit + Local Patch Report`
+   - Runs backend + frontend unit coverage flows, then local patch report.
+
+Task behavior:
+
+- Reuse existing coverage scripts/tasks where available.
+- Keep command order deterministic: coverage generation first, patch report second.
+
+## 7) Implementation Tasks
+
+### Phase 1 — Script Foundation
+
+- [ ] Create `scripts/local-patch-report.sh`.
+- [ ] Add input validation + clear error messages.
+- [ ] Add diff parsing for `origin/main...HEAD`.
+
+### Phase 2 — Coverage Correlation
+
+- [ ] Parse backend `coverage.txt` and map covered lines.
+- [ ] Parse frontend `coverage/lcov.info` and map covered lines.
+- [ ] Compute per-scope and overall patch coverage counters.
+
+### Phase 3 — Artifact Emission
+
+- [ ] Generate `test-results/local-patch-report.json` with required schema.
+- [ ] Generate `test-results/local-patch-report.md` with summary + warnings.
+- [ ] Ensure `test-results/` creation if missing.
+
+### Phase 4 — Task Wiring
+
+- [ ] Add `Test: Local Patch Report` to `.vscode/tasks.json`.
+- [ ] Add backend/frontend/full DoD task variants with report execution.
+- [ ] Verify tasks run successfully from workspace root.
+
+### Phase 5 — Documentation Alignment
+
+- [ ] Update DoD references in applicable docs/instructions only where this local report is now required.
+- [ ] Remove stale references to unrelated placeholder gates in active plan context.
+
+## 8) Validation Commands
+
+Run from repository root unless noted.
+
+1. Generate backend coverage input:
+
+```bash
+cd backend && go test ./... -coverprofile=coverage.txt
+```
+
+2. Generate frontend coverage input:
+
+```bash
+cd frontend && npm run test:coverage
+```
+
+3. Generate local patch report directly:
+
+```bash
+./scripts/local-patch-report.sh
+```
+
+4. Generate local patch report via task:
+
+```bash
+# VS Code task: Test: Local Patch Report
+```
+
+5. Validate artifacts exist:
+
+```bash
+test -f test-results/local-patch-report.md
+test -f test-results/local-patch-report.json
+```
+
+6. Validate baseline recorded in JSON:
+
+```bash
+jq -r '.baseline' test-results/local-patch-report.json
+# expected: origin/main...HEAD
+```
+
+## 9) Acceptance Criteria
+
+- [ ] Plan remains single-scope: local pre-CI patch report for DoD unit testing only.
+- [ ] Inputs are explicit and used:
+  - [ ] `backend/coverage.txt`
+  - [ ] `frontend/coverage/lcov.info`
+  - [ ] `origin/main...HEAD`
+- [ ] Outputs are generated on every successful run:
+  - [ ] `test-results/local-patch-report.md`
+  - [ ] `test-results/local-patch-report.json`
+- [ ] Initial policy is non-blocking warning mode.
+- [ ] Default thresholds are explicit:
+   - [ ] Overall patch coverage: `90`
+   - [ ] Backend patch coverage: `85`
+   - [ ] Frontend patch coverage: `85`
+- [ ] Threshold source precedence is explicit: env vars first, then defaults.
+- [ ] Future hard-gate mode is documented as optional and deferred.
+- [ ] Concrete script + task wiring tasks are present and executable.
+- [ ] Validation commands are present and reproducible.
+- [ ] Stale unrelated placeholder gates are removed from this active spec.
