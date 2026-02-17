@@ -398,6 +398,9 @@ func TestGetAcquisitionConfig(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
+	acquisPath := filepath.Join(tmpDir, "acquis.yaml")
+	require.NoError(t, os.WriteFile(acquisPath, []byte("source: file\n"), 0o600))
+	t.Setenv("CHARON_CROWDSEC_ACQUIS_PATH", acquisPath)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
@@ -409,8 +412,7 @@ func TestGetAcquisitionConfig(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/acquisition", http.NoBody)
 	r.ServeHTTP(w, req)
 
-	// Endpoint should exist
-	assert.NotEqual(t, http.StatusNotFound, w.Code, "Endpoint should be registered")
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 // TestUpdateAcquisitionConfig tests the UpdateAcquisitionConfig handler
@@ -418,6 +420,9 @@ func TestUpdateAcquisitionConfig(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
+	acquisPath := filepath.Join(tmpDir, "acquis.yaml")
+	require.NoError(t, os.WriteFile(acquisPath, []byte("source: file\n"), 0o600))
+	t.Setenv("CHARON_CROWDSEC_ACQUIS_PATH", acquisPath)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
@@ -434,8 +439,7 @@ func TestUpdateAcquisitionConfig(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 
-	// Endpoint should exist
-	assert.NotEqual(t, http.StatusNotFound, w.Code, "Endpoint should be registered")
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 // TestGetLAPIKey tests the getLAPIKey helper
