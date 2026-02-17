@@ -403,3 +403,27 @@ func TestAuthMiddleware_RejectsTokenAfterSessionInvalidation(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
+
+func TestExtractAuthCookieToken_ReturnsEmptyWhenRequestNil(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = nil
+
+	token := extractAuthCookieToken(ctx)
+	assert.Equal(t, "", token)
+}
+
+func TestExtractAuthCookieToken_IgnoresNonAuthCookies(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+
+	req, err := http.NewRequest("GET", "/", http.NoBody)
+	require.NoError(t, err)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "abc"})
+	ctx.Request = req
+
+	token := extractAuthCookieToken(ctx)
+	assert.Equal(t, "", token)
+}
