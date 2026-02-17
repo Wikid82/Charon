@@ -443,3 +443,130 @@ This PR is merge-ready only when all conditions are true:
    - `test-results/local-patch-report.json`
 - backend and frontend coverage commands complete successfully
 - DoD checks remain satisfied (E2E first, local patch report preflight, required security/coverage/type/build validations)
+
+---
+
+## Flaky Test Stabilization Plan: `TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath` (2026-02-17)
+
+### 1) Scope and Objective
+
+Stabilize backend flake in `backend/internal/api/handlers/settings_wave4_test.go` for:
+
+- `TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath`
+
+Scope is limited to this flaky path and directly adjacent test/lifecycle hardening required to make behavior deterministic across CI contexts.
+
+### 2) Investigation Findings (Root Cause)
+
+Evidence from CI and local repro (`go test -race -count=20 -run 'TestSettingsHandlerWave4_UpdateSetting_ACLPathsPermissionErrors|TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath' ./internal/api/handlers`):
+
+- Race is reported by Go race detector during execution of `TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath`.
+- Conflicting operations:
+   - **Read path**: background goroutine from `services.NewSecurityService()` performing `db.Create()` in `persistAuditWithRetry()` / `processAuditEvents()`.
+   - **Write path**: test cleanup removing GORM create callback (`db.Callback().Create().Remove(...)`) in `registerCreatePermissionDeniedHook` cleanup.
+- This race is triggered by preceding test `TestSettingsHandlerWave4_UpdateSetting_ACLPathsPermissionErrors`, which creates a `SecurityService` (spawns goroutine) and does not shut it down before callback cleanup mutates callback registry.
+
+Primary cause is **shared mutable callback registry + still-running background audit goroutine** (order-dependent teardown), not business logic in `PatchConfig` itself.
+
+### 3) Dependency Map (Files and Symbols)
+
+#### Test path
+
+- `backend/internal/api/handlers/settings_wave4_test.go`
+   - `TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath`
+   - `TestSettingsHandlerWave4_UpdateSetting_ACLPathsPermissionErrors`
+   - `registerCreatePermissionDeniedHook`
+   - `setupSettingsWave3DB`
+
+#### Handler/runtime path
+
+- `backend/internal/api/handlers/settings_handler.go`
+   - `PatchConfig`
+   - `UpdateSetting`
+- `backend/internal/api/handlers/permission_helpers.go`
+   - `respondPermissionError`
+   - `logPermissionAudit`
+- `backend/internal/services/security_service.go`
+   - `NewSecurityService`
+   - `LogAudit`
+   - `processAuditEvents`
+   - `Close`
+   - `Flush`
+
+#### CI execution context
+
+- `scripts/go-test-coverage.sh` (always runs backend tests with `-race`)
+- `.github/workflows/codecov-upload.yml` (uses `scripts/go-test-coverage.sh` for both push and PR)
+
+### 4) Flake Vector Assessment
+
+- **Timing/Goroutines**: High confidence root cause. Background audit goroutine outlives test branch and races with callback registry mutation.
+- **Shared state/global hooks**: High confidence root cause. GORM callback registry is mutable shared state per DB instance.
+- **Order dependence**: High confidence root cause. Preceding wave4 permission-error test influences subsequent test via asynchronous cleanup timing.
+- **DB locking/no-such-table noise**: Secondary contributor (observed `security_audits` missing logs), but not primary failure trigger.
+- **Env vars (PR vs push)**: Low confidence as root cause for this test; same script and `-race` path are used in both contexts.
+- **Log buffering**: Not a primary root cause; race detector output indicates memory race in callback internals.
+
+### 5) Stabilization Strategy (Minimal and Deterministic)
+
+#### Recommended approach
+
+1. **Deterministic lifecycle shutdown for `SecurityService` in wave4 permission-error test**
+    - In `TestSettingsHandlerWave4_UpdateSetting_ACLPathsPermissionErrors`, explicitly manage the service used for `h.SecuritySvc` and register teardown to flush/close it before callback removal side effects complete.
+    - Ensure cleanup order prevents callback registry mutation while audit goroutine is still active.
+
+2. **Reduce unnecessary async audit side effects in this wave4 path**
+    - For tests that only assert HTTP permission error response (not audit persistence), avoid creating live async service when not required by assertion semantics.
+    - Keep behavior coverage for response contract while eliminating unnecessary goroutine work in this flaky sequence.
+
+3. **Harden test DB schema for adjacent audit paths**
+    - In `setupSettingsWave3DB`, include `models.SecurityAudit` migration to remove noisy `no such table: security_audits` writes from concurrent worker paths.
+    - This reduces background retry/noise and improves determinism under race mode.
+
+4. **Guard callback hook helper usage**
+    - Keep callback registration/removal confined to narrow tests and avoid overlap with asynchronous writers on same DB handle.
+    - Maintain unique callback naming per test branch to prevent accidental collisions when future subtests are added.
+
+### 6) EARS Requirements
+
+- WHEN wave4 permission-error tests register temporary GORM callbacks, THE SYSTEM SHALL ensure all asynchronous `SecurityService` audit workers are fully stopped before callback removal occurs.
+- WHEN `TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath` runs with `-race`, THE SYSTEM SHALL complete without data race reports.
+- IF a test path uses `SecurityService.LogAudit`, THEN the test DB setup SHALL include required audit schema to avoid asynchronous write failures due to missing tables.
+- WHILE running backend coverage in CI contexts (push and PR), THE SYSTEM SHALL produce deterministic pass/fail outcomes for this test sequence.
+
+### 7) Implementation Tasks (Single-Scope)
+
+1. Update `backend/internal/api/handlers/settings_wave4_test.go`
+    - Add explicit `SecurityService` lifecycle management in `TestSettingsHandlerWave4_UpdateSetting_ACLPathsPermissionErrors`.
+    - Ensure teardown ordering is deterministic relative to callback cleanup.
+    - Keep `TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath` assertions unchanged (status + reload/cache call counts).
+
+2. Update `backend/internal/api/handlers/settings_wave3_test.go`
+    - Extend `setupSettingsWave3DB` migrations to include `models.SecurityAudit`.
+
+3. Validation
+    - Targeted race test loop:
+       - `cd backend && CHARON_ENCRYPTION_KEY="$(openssl rand -base64 32)" go test -race -count=50 -run 'TestSettingsHandlerWave4_UpdateSetting_ACLPathsPermissionErrors|TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath' ./internal/api/handlers`
+    - Targeted package race pass:
+       - `cd backend && CHARON_ENCRYPTION_KEY="$(openssl rand -base64 32)" go test -race -run 'TestSettingsHandlerWave4_' ./internal/api/handlers`
+    - Standard backend CI-equivalent coverage command:
+       - `bash scripts/go-test-coverage.sh`
+
+### 8) PR Slicing Strategy
+
+- **Decision**: Single PR (small, isolated, low blast radius).
+- **Trigger rationale**: Changes are constrained to wave4 settings tests and adjacent test helper DB schema.
+- **Slice PR-1**:
+   - Scope: lifecycle/order hardening + helper schema migration only.
+   - Files:
+      - `backend/internal/api/handlers/settings_wave4_test.go`
+      - `backend/internal/api/handlers/settings_wave3_test.go`
+   - Validation gate: no race detector output in targeted loop; package tests stable under `-race`; no assertion behavior drift in target flaky test.
+- **Rollback**: Revert PR-1 if unintended changes appear in broader handlers suite; no production code path changes expected.
+
+### 9) Acceptance Criteria
+
+- `TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath` is stable under repeated `-race` runs.
+- No race detector warnings involving GORM callback compile/remove and `SecurityService` audit goroutine in this test sequence.
+- Test remains behaviorally equivalent (same API contract and assertions).
+- Scope remains limited to this flaky test sequence and adjacent stabilization only.
