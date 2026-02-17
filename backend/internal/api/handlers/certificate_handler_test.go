@@ -84,11 +84,19 @@ func toStr(id uint) string {
 
 // Test that deleting a certificate NOT in use creates a backup and deletes successfully
 func TestDeleteCertificate_CreatesBackup(t *testing.T) {
-	// Add _txlock=immediate to prevent lock contention during rapid backup + delete operations
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared&_txlock=immediate", t.Name())), &gorm.Config{})
+	// Use a file-backed DB with busy timeout and single connection to avoid
+	// lock contention with CertificateService background sync.
+	dbPath := t.TempDir() + "/cert_create_backup.db"
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1", dbPath)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("failed to access sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 
 	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
@@ -563,10 +571,19 @@ func TestDeleteCertificate_LowDiskSpace(t *testing.T) {
 
 // Test Delete with disk space check failure (warning but continue)
 func TestDeleteCertificate_DiskSpaceCheckError(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	// Use isolated file-backed DB to avoid lock flakiness from shared in-memory
+	// connections and background sync.
+	dbPath := t.TempDir() + "/cert_disk_space_error.db"
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1", dbPath)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("failed to access sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
