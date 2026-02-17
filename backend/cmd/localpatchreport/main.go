@@ -31,16 +31,17 @@ type artifactsJSON struct {
 }
 
 type reportJSON struct {
-	Baseline         string                    `json:"baseline"`
-	GeneratedAt      string                    `json:"generated_at"`
-	Mode             string                    `json:"mode"`
-	Thresholds       thresholdJSON             `json:"thresholds"`
-	ThresholdSources thresholdSourcesJSON      `json:"threshold_sources"`
-	Overall          patchreport.ScopeCoverage `json:"overall"`
-	Backend          patchreport.ScopeCoverage `json:"backend"`
-	Frontend         patchreport.ScopeCoverage `json:"frontend"`
-	Warnings         []string                  `json:"warnings,omitempty"`
-	Artifacts        artifactsJSON             `json:"artifacts"`
+	Baseline             string                           `json:"baseline"`
+	GeneratedAt          string                           `json:"generated_at"`
+	Mode                 string                           `json:"mode"`
+	Thresholds           thresholdJSON                    `json:"thresholds"`
+	ThresholdSources     thresholdSourcesJSON             `json:"threshold_sources"`
+	Overall              patchreport.ScopeCoverage        `json:"overall"`
+	Backend              patchreport.ScopeCoverage        `json:"backend"`
+	Frontend             patchreport.ScopeCoverage        `json:"frontend"`
+	FilesNeedingCoverage []patchreport.FileCoverageDetail `json:"files_needing_coverage,omitempty"`
+	Warnings             []string                         `json:"warnings,omitempty"`
+	Artifacts            artifactsJSON                    `json:"artifacts"`
 }
 
 func main() {
@@ -102,6 +103,9 @@ func main() {
 	backendScope := patchreport.ComputeScopeCoverage(backendChanged, backendCoverage)
 	frontendScope := patchreport.ComputeScopeCoverage(frontendChanged, frontendCoverage)
 	overallScope := patchreport.MergeScopeCoverage(backendScope, frontendScope)
+	backendFilesNeedingCoverage := patchreport.ComputeFilesNeedingCoverage(backendChanged, backendCoverage, backendThreshold.Value)
+	frontendFilesNeedingCoverage := patchreport.ComputeFilesNeedingCoverage(frontendChanged, frontendCoverage, frontendThreshold.Value)
+	filesNeedingCoverage := patchreport.MergeFileCoverageDetails(backendFilesNeedingCoverage, frontendFilesNeedingCoverage)
 
 	backendScope = patchreport.ApplyStatus(backendScope, backendThreshold.Value)
 	frontendScope = patchreport.ApplyStatus(frontendScope, frontendThreshold.Value)
@@ -136,10 +140,11 @@ func main() {
 			Backend:  backendThreshold.Source,
 			Frontend: frontendThreshold.Source,
 		},
-		Overall:  overallScope,
-		Backend:  backendScope,
-		Frontend: frontendScope,
-		Warnings: warnings,
+		Overall:              overallScope,
+		Backend:              backendScope,
+		Frontend:             frontendScope,
+		FilesNeedingCoverage: filesNeedingCoverage,
+		Warnings:             warnings,
 		Artifacts: artifactsJSON{
 			Markdown: relOrAbs(repoRoot, mdOutPath),
 			JSON:     relOrAbs(repoRoot, jsonOutPath),
@@ -245,6 +250,20 @@ func writeMarkdown(path string, report reportJSON, backendCoveragePath, frontend
 	builder.WriteString(scopeRow("Backend", report.Backend))
 	builder.WriteString(scopeRow("Frontend", report.Frontend))
 	builder.WriteString("\n")
+
+	if len(report.FilesNeedingCoverage) > 0 {
+		builder.WriteString("## Files Needing Coverage\n\n")
+		builder.WriteString("| Path | Patch Coverage (%) | Uncovered Changed Lines | Uncovered Changed Line Ranges |\n")
+		builder.WriteString("|---|---:|---:|---|\n")
+		for _, fileCoverage := range report.FilesNeedingCoverage {
+			ranges := "-"
+			if len(fileCoverage.UncoveredChangedLineRange) > 0 {
+				ranges = strings.Join(fileCoverage.UncoveredChangedLineRange, ", ")
+			}
+			builder.WriteString(fmt.Sprintf("| `%s` | %.1f | %d | %s |\n", fileCoverage.Path, fileCoverage.PatchCoveragePct, fileCoverage.UncoveredChangedLines, ranges))
+		}
+		builder.WriteString("\n")
+	}
 
 	if len(report.Warnings) > 0 {
 		builder.WriteString("## Warnings\n\n")

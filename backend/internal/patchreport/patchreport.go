@@ -27,6 +27,13 @@ type ScopeCoverage struct {
 	Status           string  `json:"status"`
 }
 
+type FileCoverageDetail struct {
+	Path                      string   `json:"path"`
+	PatchCoveragePct          float64  `json:"patch_coverage_pct"`
+	UncoveredChangedLines     int      `json:"uncovered_changed_lines"`
+	UncoveredChangedLineRange []string `json:"uncovered_changed_line_ranges,omitempty"`
+}
+
 type ThresholdResolution struct {
 	Value   float64
 	Source  string
@@ -344,6 +351,70 @@ func ApplyStatus(scope ScopeCoverage, minThreshold float64) ScopeCoverage {
 	return scope
 }
 
+func ComputeFilesNeedingCoverage(changedLines FileLineSet, coverage CoverageData, minThreshold float64) []FileCoverageDetail {
+	details := make([]FileCoverageDetail, 0, len(changedLines))
+
+	for filePath, lines := range changedLines {
+		executable, ok := coverage.Executable[filePath]
+		if !ok {
+			continue
+		}
+
+		coveredLines := coverage.Covered[filePath]
+		executableChanged := 0
+		coveredChanged := 0
+		uncoveredLines := make([]int, 0, len(lines))
+
+		for lineNo := range lines {
+			if _, executableLine := executable[lineNo]; !executableLine {
+				continue
+			}
+			executableChanged++
+			if _, isCovered := coveredLines[lineNo]; isCovered {
+				coveredChanged++
+			} else {
+				uncoveredLines = append(uncoveredLines, lineNo)
+			}
+		}
+
+		if executableChanged == 0 {
+			continue
+		}
+
+		patchCoveragePct := roundToOneDecimal(float64(coveredChanged) * 100 / float64(executableChanged))
+		uncoveredCount := executableChanged - coveredChanged
+		if uncoveredCount == 0 && patchCoveragePct >= minThreshold {
+			continue
+		}
+
+		sort.Ints(uncoveredLines)
+		details = append(details, FileCoverageDetail{
+			Path:                      filePath,
+			PatchCoveragePct:          patchCoveragePct,
+			UncoveredChangedLines:     uncoveredCount,
+			UncoveredChangedLineRange: formatLineRanges(uncoveredLines),
+		})
+	}
+
+	sortFileCoverageDetails(details)
+	return details
+}
+
+func MergeFileCoverageDetails(groups ...[]FileCoverageDetail) []FileCoverageDetail {
+	count := 0
+	for _, group := range groups {
+		count += len(group)
+	}
+
+	merged := make([]FileCoverageDetail, 0, count)
+	for _, group := range groups {
+		merged = append(merged, group...)
+	}
+
+	sortFileCoverageDetails(merged)
+	return merged
+}
+
 func SortedWarnings(warnings []string) []string {
 	filtered := make([]string, 0, len(warnings))
 	for _, warning := range warnings {
@@ -464,6 +535,47 @@ func addLine(set FileLineSet, filePath string, lineNo int) {
 
 func roundToOneDecimal(value float64) float64 {
 	return float64(int(value*10+0.5)) / 10
+}
+
+func formatLineRanges(lines []int) []string {
+	if len(lines) == 0 {
+		return nil
+	}
+
+	ranges := make([]string, 0, len(lines))
+	start := lines[0]
+	end := lines[0]
+
+	for index := 1; index < len(lines); index++ {
+		lineNo := lines[index]
+		if lineNo == end+1 {
+			end = lineNo
+			continue
+		}
+
+		ranges = append(ranges, formatLineRange(start, end))
+		start = lineNo
+		end = lineNo
+	}
+
+	ranges = append(ranges, formatLineRange(start, end))
+	return ranges
+}
+
+func formatLineRange(start, end int) string {
+	if start == end {
+		return strconv.Itoa(start)
+	}
+	return fmt.Sprintf("%d-%d", start, end)
+}
+
+func sortFileCoverageDetails(details []FileCoverageDetail) {
+	sort.Slice(details, func(left, right int) bool {
+		if details[left].PatchCoveragePct != details[right].PatchCoveragePct {
+			return details[left].PatchCoveragePct < details[right].PatchCoveragePct
+		}
+		return details[left].Path < details[right].Path
+	})
 }
 
 func validateReadablePath(rawPath string) (string, error) {
