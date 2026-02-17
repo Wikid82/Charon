@@ -22,9 +22,7 @@ name: Docker Build, Publish & Test
 
 on:
   pull_request:
-    branches:
-      - main
-      - development
+  push:
   workflow_dispatch:
 
 concurrency:
