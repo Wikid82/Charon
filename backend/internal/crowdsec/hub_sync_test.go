@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -99,16 +100,19 @@ func TestFetchIndexFallbackHTTP(t *testing.T) {
 	exec := &recordingExec{errors: map[string]error{"cscli hub list -o json": fmt.Errorf("boom")}}
 	cacheDir := t.TempDir()
 	svc := NewHubService(exec, nil, cacheDir)
-	svc.HubBaseURL = "http://example.com"
 	indexBody := readFixture(t, "hub_index.json")
-	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		if req.URL.String() == "http://example.com"+defaultHubIndexPath {
-			resp := newResponse(http.StatusOK, indexBody)
-			resp.Header.Set("Content-Type", "application/json")
-			return resp, nil
+	hubServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != defaultHubIndexPath {
+			http.NotFound(w, r)
+			return
 		}
-		return newResponse(http.StatusNotFound, ""), nil
-	})}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(indexBody))
+	}))
+	defer hubServer.Close()
+
+	svc.HubBaseURL = hubServer.URL
+	svc.HTTPClient = hubServer.Client()
 
 	idx, err := svc.FetchIndex(context.Background())
 	require.NoError(t, err)
