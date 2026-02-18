@@ -381,6 +381,46 @@ func TestEmergencySecurityReset_ClearsBlockDecisions(t *testing.T) {
 	assert.Equal(t, "allow", remaining[0].Action)
 }
 
+func TestEmergencySecurityReset_MiddlewarePrevalidatedBypass(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	handler := NewEmergencyHandler(db)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/v1/emergency/security-reset", func(c *gin.Context) {
+		c.Set("emergency_bypass", true)
+		handler.SecurityReset(c)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestEmergencySecurityReset_MiddlewareBypass_ResetFailure(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	handler := NewEmergencyHandler(db)
+
+	stdDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, stdDB.Close())
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/v1/emergency/security-reset", func(c *gin.Context) {
+		c.Set("emergency_bypass", true)
+		handler.SecurityReset(c)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 func TestLogEnhancedAudit(t *testing.T) {
 	// Setup
 	db := setupEmergencyTestDB(t)

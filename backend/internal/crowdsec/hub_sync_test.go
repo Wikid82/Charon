@@ -1713,6 +1713,41 @@ func TestHubHTTPErrorCanFallback(t *testing.T) {
 	})
 }
 
+func TestHubServiceFetchWithFallbackStopsOnNonFallbackError(t *testing.T) {
+	t.Parallel()
+
+	svc := NewHubService(nil, nil, t.TempDir())
+	attempts := 0
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		return newResponse(http.StatusBadRequest, "bad request"), nil
+	})}
+
+	_, _, err := svc.fetchWithFallback(context.Background(), []string{"https://hub.crowdsec.net/a", "https://raw.githubusercontent.com/crowdsecurity/hub/master/b"})
+	require.Error(t, err)
+	require.Equal(t, 1, attempts)
+}
+
+func TestHubServiceFetchWithFallbackRetriesWhenErrorCanFallback(t *testing.T) {
+	t.Parallel()
+
+	svc := NewHubService(nil, nil, t.TempDir())
+	attempts := 0
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		if attempts == 1 {
+			return newResponse(http.StatusServiceUnavailable, "unavailable"), nil
+		}
+		return newResponse(http.StatusOK, "ok"), nil
+	})}
+
+	data, used, err := svc.fetchWithFallback(context.Background(), []string{"https://hub.crowdsec.net/a", "https://raw.githubusercontent.com/crowdsecurity/hub/master/b"})
+	require.NoError(t, err)
+	require.Equal(t, "ok", string(data))
+	require.Equal(t, "https://raw.githubusercontent.com/crowdsecurity/hub/master/b", used)
+	require.Equal(t, 2, attempts)
+}
+
 // TestValidateHubURL_EdgeCases tests additional edge cases for SSRF protection
 func TestValidateHubURL_EdgeCases(t *testing.T) {
 	t.Parallel()

@@ -19,6 +19,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/network"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 // CommandExecutor defines the minimal command execution interface we need for cscli calls.
@@ -564,19 +565,19 @@ func (s *HubService) Pull(ctx context.Context, slug string) (PullResult, error) 
 
 	previewText, err := s.fetchPreview(pullCtx, previewCandidates)
 	if err != nil {
-		logger.Log().WithError(err).WithField("slug", cleanSlug).Warn("failed to download preview, falling back to archive inspection")
+		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(cleanSlug)).Warn("failed to download preview, falling back to archive inspection")
 		previewText = s.peekFirstYAML(archiveBytes)
 	}
 
-	logger.Log().WithField("slug", cleanSlug).WithField("etag", entry.Etag).WithField("archive_size", len(archiveBytes)).WithField("preview_size", len(previewText)).WithField("hub_endpoint", archiveURL).Info("storing preset in cache")
+	logger.Log().WithField("slug", util.SanitizeForLog(cleanSlug)).WithField("etag", util.SanitizeForLog(entry.Etag)).WithField("archive_size", len(archiveBytes)).WithField("preview_size", len(previewText)).WithField("hub_endpoint", util.SanitizeForLog(archiveURL)).Info("storing preset in cache")
 
 	cachedMeta, err := s.Cache.Store(pullCtx, cleanSlug, entry.Etag, "hub", previewText, archiveBytes)
 	if err != nil {
-		logger.Log().WithError(err).WithField("slug", cleanSlug).Error("failed to store preset in cache")
+		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(cleanSlug)).Error("failed to store preset in cache")
 		return PullResult{}, fmt.Errorf("cache store: %w", err)
 	}
 
-	logger.Log().WithField("slug", cachedMeta.Slug).WithField("cache_key", cachedMeta.CacheKey).WithField("archive_path", cachedMeta.ArchivePath).WithField("preview_path", cachedMeta.PreviewPath).Info("preset successfully cached")
+	logger.Log().WithField("slug", util.SanitizeForLog(cachedMeta.Slug)).WithField("cache_key", util.SanitizeForLog(cachedMeta.CacheKey)).WithField("archive_path", util.SanitizeForLog(cachedMeta.ArchivePath)).WithField("preview_path", util.SanitizeForLog(cachedMeta.PreviewPath)).Info("preset successfully cached")
 
 	return PullResult{Meta: cachedMeta, Preview: previewText}, nil
 }
@@ -604,7 +605,7 @@ func (s *HubService) Apply(ctx context.Context, slug string) (ApplyResult, error
 	if metaErr == nil {
 		archive, archiveReadErr = os.ReadFile(meta.ArchivePath)
 		if archiveReadErr != nil {
-			logger.Log().WithError(archiveReadErr).WithField("archive_path", meta.ArchivePath).
+			logger.Log().WithField("error", util.SanitizeForLog(archiveReadErr.Error())).WithField("archive_path", util.SanitizeForLog(meta.ArchivePath)).
 				Warn("failed to read cached archive before backup")
 		}
 	}
@@ -626,7 +627,7 @@ func (s *HubService) Apply(ctx context.Context, slug string) (ApplyResult, error
 			result.UsedCSCLI = true
 			return result, nil
 		}
-		logger.Log().WithField("slug", cleanSlug).WithError(cscliErr).Warn("cscli install failed; attempting cache fallback")
+		logger.Log().WithField("slug", util.SanitizeForLog(cleanSlug)).WithField("error", util.SanitizeForLog(cscliErr.Error())).Warn("cscli install failed; attempting cache fallback")
 	}
 
 	// Handle cache miss OR failed archive read - need to refresh cache
@@ -638,7 +639,7 @@ func (s *HubService) Apply(ctx context.Context, slug string) (ApplyResult, error
 		refreshed, refreshErr := s.refreshCache(applyCtx, cleanSlug, originalErr)
 		if refreshErr != nil {
 			_ = s.rollback(backupPath)
-			logger.Log().WithError(refreshErr).WithField("slug", cleanSlug).WithField("backup_path", backupPath).Warn("cache refresh failed; rolled back backup")
+			logger.Log().WithField("error", util.SanitizeForLog(refreshErr.Error())).WithField("slug", util.SanitizeForLog(cleanSlug)).WithField("backup_path", util.SanitizeForLog(backupPath)).Warn("cache refresh failed; rolled back backup")
 			msg := fmt.Sprintf("load cache for %s: %v", cleanSlug, refreshErr)
 			result.ErrorMessage = msg
 			return result, fmt.Errorf("load cache for %s: %w", cleanSlug, refreshErr)
@@ -712,12 +713,12 @@ func (s *HubService) fetchWithFallback(ctx context.Context, urls []string) (data
 		last = u
 		data, err := s.fetchWithLimitFromURL(ctx, u)
 		if err == nil {
-			logger.Log().WithField("endpoint", u).WithField("fallback_used", attempt > 0).Info("hub fetch succeeded")
+			logger.Log().WithField("endpoint", util.SanitizeForLog(u)).WithField("fallback_used", attempt > 0).Info("hub fetch succeeded")
 			return data, u, nil
 		}
 		errs = append(errs, fmt.Errorf("%s: %w", u, err))
 		if e, ok := err.(interface{ CanFallback() bool }); ok && e.CanFallback() {
-			logger.Log().WithError(err).WithField("endpoint", u).WithField("attempt", attempt+1).Warn("hub fetch failed, attempting fallback")
+			logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("endpoint", util.SanitizeForLog(u)).WithField("attempt", attempt+1).Warn("hub fetch failed, attempting fallback")
 			continue
 		}
 		break
@@ -768,16 +769,16 @@ func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string) ([]b
 
 func (s *HubService) loadCacheMeta(ctx context.Context, slug string) (CachedPreset, error) {
 	if s.Cache == nil {
-		logger.Log().WithField("slug", slug).Error("cache unavailable for apply")
+		logger.Log().WithField("slug", util.SanitizeForLog(slug)).Error("cache unavailable for apply")
 		return CachedPreset{}, fmt.Errorf("cache unavailable for manual apply")
 	}
-	logger.Log().WithField("slug", slug).Debug("attempting to load cached preset metadata")
+	logger.Log().WithField("slug", util.SanitizeForLog(slug)).Debug("attempting to load cached preset metadata")
 	meta, err := s.Cache.Load(ctx, slug)
 	if err != nil {
-		logger.Log().WithError(err).WithField("slug", slug).Warn("failed to load cached preset metadata")
+		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).Warn("failed to load cached preset metadata")
 		return CachedPreset{}, fmt.Errorf("load cache for %s: %w", slug, err)
 	}
-	logger.Log().WithField("slug", meta.Slug).WithField("cache_key", meta.CacheKey).WithField("archive_path", meta.ArchivePath).Info("successfully loaded cached preset metadata")
+	logger.Log().WithField("slug", util.SanitizeForLog(meta.Slug)).WithField("cache_key", util.SanitizeForLog(meta.CacheKey)).WithField("archive_path", util.SanitizeForLog(meta.ArchivePath)).Info("successfully loaded cached preset metadata")
 	return meta, nil
 }
 
@@ -787,10 +788,10 @@ func (s *HubService) refreshCache(ctx context.Context, slug string, metaErr erro
 	}
 	if errors.Is(metaErr, ErrCacheExpired) && s.Cache != nil {
 		if err := s.Cache.Evict(ctx, slug); err != nil {
-			logger.Log().WithError(err).WithField("slug", slug).Warn("failed to evict expired cache before refresh")
+			logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).Warn("failed to evict expired cache before refresh")
 		}
 	}
-	logger.Log().WithError(metaErr).WithField("slug", slug).Info("attempting to repull preset after cache load failure")
+	logger.Log().WithField("error", util.SanitizeForLog(metaErr.Error())).WithField("slug", util.SanitizeForLog(slug)).Info("attempting to repull preset after cache load failure")
 	refreshed, pullErr := s.Pull(ctx, slug)
 	if pullErr != nil {
 		return CachedPreset{}, fmt.Errorf("%w: refresh cache: %v", metaErr, pullErr)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider/custom"
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
@@ -181,7 +182,7 @@ func (s *ManualChallengeService) CreateChallenge(ctx context.Context, req Create
 	}
 
 	logger.Log().WithField("challenge_id", challengeID).
-		WithField("fqdn", req.FQDN).
+		WithField("fqdn", util.SanitizeForLog(req.FQDN)).
 		Info("Created manual DNS challenge")
 
 	return challenge, nil
@@ -208,7 +209,7 @@ func (s *ManualChallengeService) GetChallengeForUser(ctx context.Context, challe
 
 	if challenge.UserID != userID {
 		logger.Log().Warn("Unauthorized challenge access attempt",
-			"challenge_id", challengeID,
+			"challenge_id", util.SanitizeForLog(challengeID),
 			"owner_id", challenge.UserID,
 			"requester_id", userID,
 		)
@@ -283,9 +284,7 @@ func (s *ManualChallengeService) VerifyChallenge(ctx context.Context, challengeI
 			logger.Log().WithError(err).Error("Failed to update challenge status to verified")
 		}
 
-		logger.Log().WithField("challenge_id", challengeID).
-			WithField("fqdn", challenge.FQDN).
-			Info("Manual DNS challenge verified successfully")
+		logger.Log().Info("Manual DNS challenge verified successfully")
 
 		return &VerifyResult{
 			Success:  true,
@@ -352,7 +351,7 @@ func (s *ManualChallengeService) DeleteChallenge(ctx context.Context, challengeI
 		return fmt.Errorf("failed to delete challenge: %w", err)
 	}
 
-	logger.Log().WithField("challenge_id", challengeID).Info("Manual DNS challenge deleted")
+	logger.Log().WithField("challenge_id", util.SanitizeForLog(challengeID)).Info("Manual DNS challenge deleted")
 	return nil
 }
 
@@ -365,7 +364,7 @@ func (s *ManualChallengeService) checkDNSPropagation(ctx context.Context, fqdn, 
 	records, err := s.resolver.LookupTXT(lookupCtx, fqdn)
 	if err != nil {
 		logger.Log().WithError(err).
-			WithField("fqdn", fqdn).
+			WithField("fqdn", util.SanitizeForLog(fqdn)).
 			Debug("DNS TXT lookup failed")
 		return false
 	}
@@ -379,7 +378,7 @@ func (s *ManualChallengeService) checkDNSPropagation(ctx context.Context, fqdn, 
 		}
 	}
 
-	logger.Log().WithField("fqdn", fqdn).
+	logger.Log().WithField("fqdn", util.SanitizeForLog(fqdn)).
 		WithField("found_records", len(records)).
 		Debug("DNS TXT record not found or value mismatch")
 

@@ -76,7 +76,7 @@ func EmergencyBypass(managementCIDRs []string, db *gorm.DB) gin.HandlerFunc {
 		clientIPStr := util.CanonicalizeIPForSecurity(c.ClientIP())
 		clientIP := net.ParseIP(clientIPStr)
 		if clientIP == nil {
-			logger.Log().WithField("ip", clientIPStr).Warn("Emergency bypass: invalid client IP")
+			logger.Log().WithField("ip", util.SanitizeForLog(clientIPStr)).Warn("Emergency bypass: invalid client IP")
 			c.Next()
 			return
 		}
@@ -90,22 +90,22 @@ func EmergencyBypass(managementCIDRs []string, db *gorm.DB) gin.HandlerFunc {
 		}
 
 		if !inManagementNet {
-			logger.Log().WithField("ip", clientIP.String()).Warn("Emergency bypass: IP not in management network")
+			logger.Log().WithField("ip", util.SanitizeForLog(clientIP.String())).Warn("Emergency bypass: IP not in management network")
 			c.Next()
 			return
 		}
 
 		// Timing-safe token comparison
 		if !constantTimeCompare(emergencyToken, providedToken) {
-			logger.Log().WithField("ip", clientIP.String()).Warn("Emergency bypass: invalid token")
+			logger.Log().WithField("ip", util.SanitizeForLog(clientIP.String())).Warn("Emergency bypass: invalid token")
 			c.Next()
 			return
 		}
 
 		// Valid emergency token from authorized source
 		logger.Log().WithFields(map[string]interface{}{
-			"ip":   clientIP.String(),
-			"path": c.Request.URL.Path,
+			"ip":   util.SanitizeForLog(clientIP.String()),
+			"path": util.SanitizeForLog(c.Request.URL.Path),
 		}).Warn("EMERGENCY BYPASS ACTIVE: Request bypassing all security checks")
 
 		// Set flag for downstream handlers to know this is an emergency request

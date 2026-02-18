@@ -2,6 +2,9 @@ package crowdsec
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -166,6 +169,22 @@ func TestHubCacheLoadInvalidSlug(t *testing.T) {
 
 	_, err = cache.Load(context.Background(), "../bad")
 	require.Error(t, err)
+}
+
+func TestHubCacheLoadMetadataReadError(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	cache, err := NewHubCache(baseDir, time.Hour)
+	require.NoError(t, err)
+
+	slugDir := filepath.Join(baseDir, "crowdsecurity", "demo")
+	require.NoError(t, os.MkdirAll(slugDir, 0o750))
+	require.NoError(t, os.Mkdir(filepath.Join(slugDir, "metadata.json"), 0o750))
+
+	_, err = cache.Load(context.Background(), "crowdsecurity/demo")
+	require.Error(t, err)
+	require.False(t, errors.Is(err, ErrCacheMiss))
 }
 
 func TestHubCacheExistsContextCanceled(t *testing.T) {

@@ -240,7 +240,7 @@ func TestGitDiffAndWriters(t *testing.T) {
 	}
 
 	report := reportJSON{
-		Baseline:    "origin/main...HEAD",
+		Baseline:    "origin/development...HEAD",
 		GeneratedAt: "2026-02-17T00:00:00Z",
 		Mode:        "warn",
 		Thresholds:  thresholdJSON{Overall: 90, Backend: 85, Frontend: 85},
@@ -271,7 +271,7 @@ func TestGitDiffAndWriters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read json file: %v", err)
 	}
-	if !strings.Contains(string(jsonBytes), "\"baseline\": \"origin/main...HEAD\"") {
+	if !strings.Contains(string(jsonBytes), "\"baseline\": \"origin/development...HEAD\"") {
 		t.Fatalf("unexpected json content: %s", string(jsonBytes))
 	}
 
@@ -392,7 +392,7 @@ func TestWriteJSONReturnsErrorWhenPathIsDirectory(t *testing.T) {
 func TestWriteMarkdownReturnsErrorWhenPathIsDirectory(t *testing.T) {
 	dir := t.TempDir()
 	report := reportJSON{
-		Baseline:             "origin/main...HEAD",
+		Baseline:             "origin/development...HEAD",
 		GeneratedAt:          "2026-02-17T00:00:00Z",
 		Mode:                 "warn",
 		Thresholds:           thresholdJSON{Overall: 90, Backend: 85, Frontend: 85},
@@ -581,7 +581,7 @@ func TestMain_WarnsForInvalidThresholdEnv(t *testing.T) {
 
 func TestWriteMarkdownIncludesArtifactsSection(t *testing.T) {
 	report := reportJSON{
-		Baseline:         "origin/main...HEAD",
+		Baseline:         "origin/development...HEAD",
 		GeneratedAt:      "2026-02-17T00:00:00Z",
 		Mode:             "warn",
 		Thresholds:       thresholdJSON{Overall: 90, Backend: 85, Frontend: 85},
@@ -707,7 +707,7 @@ func TestAssertFileExistsErrorMessageIncludesLabel(t *testing.T) {
 
 func TestWriteJSONContentIncludesTrailingNewline(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "out.json")
-	report := reportJSON{Baseline: "origin/main...HEAD", GeneratedAt: "2026-02-17T00:00:00Z", Mode: "warn"}
+	report := reportJSON{Baseline: "origin/development...HEAD", GeneratedAt: "2026-02-17T00:00:00Z", Mode: "warn"}
 	if err := writeJSON(path, report); err != nil {
 		t.Fatalf("writeJSON: %v", err)
 	}
@@ -841,7 +841,7 @@ func TestMainStderrForMissingFrontendCoverage(t *testing.T) {
 
 func TestWriteMarkdownWithoutWarningsOrFiles(t *testing.T) {
 	report := reportJSON{
-		Baseline:         "origin/main...HEAD",
+		Baseline:         "origin/development...HEAD",
 		GeneratedAt:      "2026-02-17T00:00:00Z",
 		Mode:             "warn",
 		Thresholds:       thresholdJSON{Overall: 90, Backend: 85, Frontend: 85},
@@ -1026,7 +1026,7 @@ func TestMainProcessHelperWithMalformedArgsExitsNonZero(t *testing.T) {
 
 func TestWriteMarkdownContainsSummaryTable(t *testing.T) {
 	report := reportJSON{
-		Baseline:         "origin/main...HEAD",
+		Baseline:         "origin/development...HEAD",
 		GeneratedAt:      "2026-02-17T00:00:00Z",
 		Mode:             "warn",
 		Thresholds:       thresholdJSON{Overall: 90, Backend: 85, Frontend: 85},

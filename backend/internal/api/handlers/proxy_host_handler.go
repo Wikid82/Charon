@@ -456,7 +456,7 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		logger := middleware.GetRequestLogger(c)
 		// Sanitize user-provided values for log injection protection (CWE-117)
 		safeUUID := sanitizeForLog(uuidStr)
-		logger.WithField("host_uuid", safeUUID).WithField("raw_value", fmt.Sprintf("%v", v)).Debug("Processing security_header_profile_id update")
+		logger.WithField("host_uuid", safeUUID).WithField("raw_value", sanitizeForLog(fmt.Sprintf("%v", v))).Debug("Processing security_header_profile_id update")
 
 		if v == nil {
 			logger.WithField("host_uuid", safeUUID).Debug("Setting security_header_profile_id to nil")
@@ -465,35 +465,35 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 			conversionSuccess := false
 			switch t := v.(type) {
 			case float64:
-				logger.WithField("host_uuid", safeUUID).WithField("type", "float64").WithField("value", t).Debug("Received security_header_profile_id as float64")
+				logger.Debug("Received security_header_profile_id as float64")
 				if id, ok := safeFloat64ToUint(t); ok {
 					host.SecurityHeaderProfileID = &id
 					conversionSuccess = true
-					logger.WithField("host_uuid", safeUUID).WithField("profile_id", id).Info("Successfully converted security_header_profile_id from float64")
+					logger.Info("Successfully converted security_header_profile_id from float64")
 				} else {
-					logger.WithField("host_uuid", safeUUID).WithField("value", t).Warn("Failed to convert security_header_profile_id from float64: value is negative or not a valid uint")
+					logger.Warn("Failed to convert security_header_profile_id from float64: value is negative or not a valid uint")
 				}
 			case int:
-				logger.WithField("host_uuid", safeUUID).WithField("type", "int").WithField("value", t).Debug("Received security_header_profile_id as int")
+				logger.Debug("Received security_header_profile_id as int")
 				if id, ok := safeIntToUint(t); ok {
 					host.SecurityHeaderProfileID = &id
 					conversionSuccess = true
-					logger.WithField("host_uuid", safeUUID).WithField("profile_id", id).Info("Successfully converted security_header_profile_id from int")
+					logger.Info("Successfully converted security_header_profile_id from int")
 				} else {
-					logger.WithField("host_uuid", safeUUID).WithField("value", t).Warn("Failed to convert security_header_profile_id from int: value is negative")
+					logger.Warn("Failed to convert security_header_profile_id from int: value is negative")
 				}
 			case string:
-				logger.WithField("host_uuid", safeUUID).WithField("type", "string").WithField("value", sanitizeForLog(t)).Debug("Received security_header_profile_id as string")
+				logger.Debug("Received security_header_profile_id as string")
 				if n, err := strconv.ParseUint(t, 10, 32); err == nil {
 					id := uint(n)
 					host.SecurityHeaderProfileID = &id
 					conversionSuccess = true
 					logger.WithField("host_uuid", safeUUID).WithField("profile_id", id).Info("Successfully converted security_header_profile_id from string")
 				} else {
-					logger.WithField("host_uuid", safeUUID).WithField("value", sanitizeForLog(t)).WithError(err).Warn("Failed to parse security_header_profile_id from string")
+					logger.Warn("Failed to parse security_header_profile_id from string")
 				}
 			default:
-				logger.WithField("host_uuid", safeUUID).WithField("type", fmt.Sprintf("%T", v)).WithField("value", fmt.Sprintf("%v", v)).Warn("Unsupported type for security_header_profile_id")
+				logger.Warn("Unsupported type for security_header_profile_id")
 			}
 
 			if !conversionSuccess {

@@ -201,7 +201,7 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
     await test.step(`[${browserName}] Paste Caddyfile content`, async () => {
       const textarea = page.locator('textarea');
       await textarea.fill(VALID_CADDYFILE);
-      await expect(textarea).toHaveValue(/example\.com/);
+      await expect(textarea).toHaveValue(/^[\s\S]*example\.com[\s\S]*$/);
     });
 
     let requestSent = false;

@@ -1216,10 +1216,7 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		}
 	}
 
-	log.WithFields(log.Fields{
-		"module":  settingKey,
-		"enabled": enabled,
-	}).Info("Security module toggled")
+	log.Info("Security module toggled")
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
