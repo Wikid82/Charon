@@ -61,7 +61,7 @@ func (h *UptimeHandler) GetHistory(c *gin.Context) {
 
 	history, err := h.service.GetMonitorHistory(id, limit)
 	if err != nil {
-		logger.Log().WithError(err).WithField("monitor_id", id).Error("Failed to get monitor history")
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).WithField("monitor_id", sanitizeForLog(id)).Error("Failed to get monitor history")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get history"})
 		return
 	}
@@ -72,14 +72,14 @@ func (h *UptimeHandler) Update(c *gin.Context) {
 	id := c.Param("id")
 	var updates map[string]any
 	if err := c.ShouldBindJSON(&updates); err != nil {
-		logger.Log().WithError(err).WithField("monitor_id", id).Warn("Invalid JSON payload for monitor update")
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).WithField("monitor_id", sanitizeForLog(id)).Warn("Invalid JSON payload for monitor update")
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	monitor, err := h.service.UpdateMonitor(id, updates)
 	if err != nil {
-		logger.Log().WithError(err).WithField("monitor_id", id).Error("Failed to update monitor")
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).WithField("monitor_id", sanitizeForLog(id)).Error("Failed to update monitor")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -100,7 +100,7 @@ func (h *UptimeHandler) Sync(c *gin.Context) {
 func (h *UptimeHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.service.DeleteMonitor(id); err != nil {
-		logger.Log().WithError(err).WithField("monitor_id", id).Error("Failed to delete monitor")
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).WithField("monitor_id", sanitizeForLog(id)).Error("Failed to delete monitor")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete monitor"})
 		return
 	}
@@ -112,7 +112,7 @@ func (h *UptimeHandler) CheckMonitor(c *gin.Context) {
 	id := c.Param("id")
 	monitor, err := h.service.GetMonitorByID(id)
 	if err != nil {
-		logger.Log().WithError(err).WithField("monitor_id", id).Warn("Monitor not found for check")
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).WithField("monitor_id", sanitizeForLog(id)).Warn("Monitor not found for check")
 		c.JSON(http.StatusNotFound, gin.H{"error": "Monitor not found"})
 		return
 	}

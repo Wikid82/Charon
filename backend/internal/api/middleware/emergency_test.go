@@ -33,6 +33,30 @@ func TestEmergencyBypass_NoToken(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestEmergencyBypass_InvalidClientIP(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Setenv("CHARON_EMERGENCY_TOKEN", "test-token-that-meets-minimum-length-requirement-32-chars")
+
+	router := gin.New()
+	managementCIDRs := []string{"127.0.0.0/8"}
+	router.Use(EmergencyBypass(managementCIDRs, nil))
+
+	router.GET("/test", func(c *gin.Context) {
+		_, exists := c.Get("emergency_bypass")
+		assert.False(t, exists, "Emergency bypass flag should not be set for invalid client IP")
+		c.JSON(http.StatusOK, gin.H{"message": "ok"})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set(EmergencyTokenHeader, "test-token-that-meets-minimum-length-requirement-32-chars")
+	req.RemoteAddr = "invalid-remote-addr"
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
 func TestEmergencyBypass_ValidToken(t *testing.T) {
 	// Test that valid token from allowed IP sets bypass flag
 	gin.SetMode(gin.TestMode)

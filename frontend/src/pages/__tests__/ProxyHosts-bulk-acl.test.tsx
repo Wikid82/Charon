@@ -300,7 +300,7 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
 
     // Select hosts and open modal
     const checkboxes = screen.getAllByRole('checkbox');
-    const user = userEvent.setup()
+    const user = userEvent.setup();
     await user.click(checkboxes[0]);
 
     await waitFor(() => {

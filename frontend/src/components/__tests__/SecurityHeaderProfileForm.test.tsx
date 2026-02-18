@@ -295,7 +295,7 @@ describe('SecurityHeaderProfileForm', () => {
       { wrapper: createWrapper() }
     );
 
-    const reportUriInput = screen.getByPlaceholderText(/example.com\/csp-report/);
+    const reportUriInput = screen.getByPlaceholderText(/^https:\/\/example\.com\/csp-report$/);
     fireEvent.change(reportUriInput, { target: { value: 'https://test.com/report' } });
 
     expect(reportUriInput).toHaveValue('https://test.com/report');
@@ -307,7 +307,7 @@ describe('SecurityHeaderProfileForm', () => {
 
     if(reportOnlySwitch) {
         fireEvent.click(reportOnlySwitch); // Disable
-        expect(screen.queryByPlaceholderText(/example.com\/csp-report/)).not.toBeInTheDocument();
+        expect(screen.queryByPlaceholderText(/^https:\/\/example\.com\/csp-report$/)).not.toBeInTheDocument();
     }
   });
 

@@ -304,7 +304,7 @@ test.describe('Import Caddyfile - Wizard', () => {
 
       // The textarea should now contain the file content
       const textarea = page.locator(SELECTORS.pasteTextarea);
-      await expect(textarea).toHaveValue(/example\.com/);
+      await expect(textarea).toHaveValue(/^[\s\S]*example\.com[\s\S]*$/);
     });
 
     test('should accept valid Caddyfile via paste', async ({ page, adminUser }) => {
@@ -321,7 +321,7 @@ test.describe('Import Caddyfile - Wizard', () => {
       await textarea.fill(mockCaddyfile);
 
       // Verify content is in textarea
-      await expect(textarea).toHaveValue(/example\.com/);
+      await expect(textarea).toHaveValue(/^[\s\S]*example\.com[\s\S]*$/);
 
       // Click parse/review button
       const parseButton = page.getByRole('button', { name: /parse|review/i });

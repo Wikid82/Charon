@@ -125,7 +125,7 @@ func NewRateLimitMiddleware(requests int, windowSec int, burst int) gin.HandlerF
 		limiter := mgr.getLimiter(clientIP, limit, burst)
 
 		if !limiter.Allow() {
-			logger.Log().WithField("ip", clientIP).Warn("Rate limit exceeded (Go middleware)")
+			logger.Log().WithField("ip", util.SanitizeForLog(clientIP)).Warn("Rate limit exceeded (Go middleware)")
 			ctx.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "Too many requests"})
 			return
 		}
@@ -202,7 +202,7 @@ func (c *Cerberus) RateLimitMiddleware() gin.HandlerFunc {
 		limiter := mgr.getLimiter(clientIP, limit, burst)
 
 		if !limiter.Allow() {
-			logger.Log().WithField("ip", clientIP).Warn("Rate limit exceeded (Go middleware)")
+			logger.Log().WithField("ip", util.SanitizeForLog(clientIP)).Warn("Rate limit exceeded (Go middleware)")
 			ctx.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "Too many requests"})
 			return
 		}

@@ -12,6 +12,18 @@ fail() {
   exit 1
 }
 
+ensure_task_command() {
+  local tasks_file="$1"
+  local task_label="$2"
+  local expected_command="$3"
+
+  jq -e \
+    --arg task_label "$task_label" \
+    --arg expected_command "$expected_command" \
+    '.tasks | type == "array" and any(.[]; .label == $task_label and .command == $expected_command)' \
+    "$tasks_file" >/dev/null
+}
+
 ensure_event_branches() {
   local workflow_file="$1"
   local event_name="$2"
@@ -48,16 +60,67 @@ ensure_event_branches() {
   ' "$workflow_file"
 }
 
+ensure_event_branches_with_yq() {
+  local workflow_file="$1"
+  local event_name="$2"
+  shift 2
+  local expected_branches=("$@")
+
+  local expected_json
+  local actual_json
+
+  expected_json="$(printf '%s\n' "${expected_branches[@]}" | jq -R . | jq -s .)"
+
+  if actual_json="$(yq eval -o=json ".on.${event_name}.branches // []" "$workflow_file" 2>/dev/null)"; then
+    :
+  elif actual_json="$(yq -o=json ".on.${event_name}.branches // []" "$workflow_file" 2>/dev/null)"; then
+    :
+  else
+    return 1
+  fi
+
+  jq -e \
+    --argjson expected "$expected_json" \
+    'if type != "array" then false else ((map(tostring) | unique | sort) == ($expected | map(tostring) | unique | sort)) end' \
+    <<<"$actual_json" >/dev/null
+}
+
+ensure_event_branches_semantic() {
+  local workflow_file="$1"
+  local event_name="$2"
+  local fallback_line="$3"
+  shift 3
+  local expected_branches=("$@")
+
+  if command -v yq >/dev/null 2>&1; then
+    if ensure_event_branches_with_yq "$workflow_file" "$event_name" "${expected_branches[@]}"; then
+      return 0
+    fi
+  fi
+
+  ensure_event_branches "$workflow_file" "$event_name" "$fallback_line"
+}
+
 [[ -f "$CODEQL_WORKFLOW" ]] || fail "Missing workflow file: $CODEQL_WORKFLOW"
 [[ -f "$TASKS_FILE" ]] || fail "Missing tasks file: $TASKS_FILE"
 [[ -f "$GO_PRECOMMIT_SCRIPT" ]] || fail "Missing pre-commit script: $GO_PRECOMMIT_SCRIPT"
 [[ -f "$JS_PRECOMMIT_SCRIPT" ]] || fail "Missing pre-commit script: $JS_PRECOMMIT_SCRIPT"
 
-ensure_event_branches "$CODEQL_WORKFLOW" "pull_request" "branches: [main, nightly, development]" || fail "codeql.yml pull_request branches must be [main, nightly, development]"
-ensure_event_branches "$CODEQL_WORKFLOW" "push" "branches: [main, nightly, development]" || fail "codeql.yml push branches must be [main, nightly, development]"
+command -v jq >/dev/null 2>&1 || fail "jq is required for semantic CodeQL parity checks"
+
+ensure_event_branches_semantic \
+  "$CODEQL_WORKFLOW" \
+  "pull_request" \
+  "branches: [main, nightly, development]" \
+  "main" "nightly" "development" || fail "codeql.yml pull_request branches must be [main, nightly, development]"
+ensure_event_branches_semantic \
+  "$CODEQL_WORKFLOW" \
+  "push" \
+  "branches: [main, nightly, development, 'feature/**', 'fix/**']" \
+  "main" "nightly" "development" "feature/**" "fix/**" || fail "codeql.yml push branches must be [main, nightly, development, 'feature/**', 'fix/**']"
 grep -Fq 'queries: security-and-quality' "$CODEQL_WORKFLOW" || fail "codeql.yml must pin init queries to security-and-quality"
-grep -Fq '"label": "Security: CodeQL Go Scan (CI-Aligned) [~60s]"' "$TASKS_FILE" || fail "Missing CI-aligned Go CodeQL task label"
-grep -Fq '"command": "bash scripts/pre-commit-hooks/codeql-go-scan.sh"' "$TASKS_FILE" || fail "CI-aligned Go CodeQL task must invoke scripts/pre-commit-hooks/codeql-go-scan.sh"
+ensure_task_command "$TASKS_FILE" "Security: CodeQL Go Scan (CI-Aligned) [~60s]" "bash scripts/pre-commit-hooks/codeql-go-scan.sh" || fail "Missing or mismatched CI-aligned Go CodeQL task (label+command)"
+ensure_task_command "$TASKS_FILE" "Security: CodeQL JS Scan (CI-Aligned) [~90s]" "bash scripts/pre-commit-hooks/codeql-js-scan.sh" || fail "Missing or mismatched CI-aligned JS CodeQL task (label+command)"
 grep -Fq 'codeql/go-queries:codeql-suites/go-security-and-quality.qls' "$GO_PRECOMMIT_SCRIPT" || fail "Go pre-commit script must use go-security-and-quality suite"
 grep -Fq 'codeql/javascript-queries:codeql-suites/javascript-security-and-quality.qls' "$JS_PRECOMMIT_SCRIPT" || fail "JS pre-commit script must use javascript-security-and-quality suite"
 

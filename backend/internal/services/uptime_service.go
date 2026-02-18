@@ -1089,8 +1089,8 @@ func (s *UptimeService) CreateMonitor(name, urlStr, monitorType string, interval
 
 	logger.Log().WithFields(map[string]any{
 		"monitor_id":   monitor.ID,
-		"monitor_name": monitor.Name,
-		"monitor_type": monitor.Type,
+		"monitor_name": util.SanitizeForLog(monitor.Name),
+		"monitor_type": util.SanitizeForLog(monitor.Type),
 	}).Info("Created new uptime monitor")
 
 	return monitor, nil

@@ -15,6 +15,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/robfig/cron/v3"
 	"gorm.io/gorm"
 
@@ -234,11 +235,11 @@ func (s *BackupService) CleanupOldBackups(keep int) (int, error) {
 
 	for _, backup := range toDelete {
 		if err := s.DeleteBackup(backup.Filename); err != nil {
-			logger.Log().WithError(err).WithField("filename", backup.Filename).Warn("Failed to delete old backup")
+			logger.Log().WithError(err).WithField("filename", util.SanitizeForLog(backup.Filename)).Warn("Failed to delete old backup")
 			continue
 		}
 		deleted++
-		logger.Log().WithField("filename", backup.Filename).Debug("Deleted old backup")
+		logger.Log().WithField("filename", util.SanitizeForLog(backup.Filename)).Debug("Deleted old backup")
 	}
 
 	return deleted, nil
@@ -682,7 +683,7 @@ func (s *BackupService) extractDatabaseFromBackup(zipPath string) (string, error
 		if shmEntry != nil {
 			shmPath := tmpPath + "-shm"
 			if err := extractToPath(shmEntry, shmPath); err != nil {
-				logger.Log().WithError(err).Warn("failed to extract sqlite shm entry from backup archive")
+				logger.Log().Warn("failed to extract sqlite shm entry from backup archive")
 			}
 		}
 

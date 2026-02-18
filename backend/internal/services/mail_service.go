@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"gorm.io/gorm"
 )
 
@@ -613,7 +614,7 @@ func (s *MailService) SendInvite(email, inviteToken, appName, baseURL string) er
 
 	subject := fmt.Sprintf("You've been invited to %s", appName)
 
-	logger.Log().WithField("email", email).Info("Sending invite email")
+	logger.Log().WithField("email", util.SanitizeForLog(email)).Info("Sending invite email")
 	// SendEmail will validate and encode the subject
 	return s.SendEmail(email, subject, body.String())
 }

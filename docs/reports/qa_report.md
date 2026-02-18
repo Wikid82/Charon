@@ -1,15 +1,58 @@
 ---
 post_title: "Definition of Done QA Report"
-author1: "Charon Team"
 post_slug: "definition-of-done-qa-report-2026-02-10"
-microsoft_alias: "charon-team"
 featured_image: "https://wikid82.github.io/charon/assets/images/featured/charon.png"
-categories: ["testing", "security", "ci"]
-tags: ["coverage", "lint", "codeql", "trivy", "grype"]
-ai_note: "true"
+categories:
+	- testing
+	- security
+	- ci
+tags:
+	- coverage
+	- lint
+	- codeql
+	- trivy
+	- grype
 summary: "Definition of Done validation results, including coverage, security scans, linting, and pre-commit checks."
 post_date: "2026-02-10"
 ---
+
+## PR-3 Closure Audit (Config/Docs Hygiene Slice) - 2026-02-18
+
+### Scope and Constraints
+
+- Scope: config/docs hygiene only (ignore/canonicalization/freshness artifacts).
+- User directive honored: full local Playwright E2E was not run; complete E2E deferred to CI.
+
+### Commands Run and Outcomes
+
+1. `git status --short`
+	- Result: shows docs/report artifacts plus config changes (`.codecov.yml` deleted in working tree, `codecov.yml` modified).
+2. `git diff --name-only | grep -E '^(backend/|frontend/|Dockerfile$|\.docker/|scripts/.*\.sh$|go\.mod$|go\.sum$|package\.json$|package-lock\.json$)' || true`
+	- Result: no output (no runtime-impacting paths in current unstaged diff).
+3. `bash scripts/ci/check-codeql-parity.sh`
+	- Result: **PASS** (`CodeQL parity check passed ...`).
+4. `bash scripts/pr718-freshness-gate.sh`
+	- Result: **PASS**; generated:
+	  - `docs/reports/pr718_open_alerts_freshness_20260218T163918Z.json`
+	  - `docs/reports/pr718_open_alerts_freshness_20260218T163918Z.md`
+5. `pre-commit run check-yaml --files codecov.yml`
+	- Result: **PASS**.
+6. `pre-commit run --files .dockerignore codecov.yml docs/reports/pr3_hygiene_scanner_hardening_2026-02-18.md docs/reports/pr718_open_alerts_baseline.json docs/reports/pr718_open_alerts_freshness_20260218T163918Z.json docs/reports/pr718_open_alerts_freshness_20260218T163918Z.md`
+	- Result: **PASS** (applicable hooks passed; non-applicable hooks skipped).
+7. `grep -n '^codecov\.yml$' .dockerignore`
+	- Result: canonical entry present.
+8. `python3` SARIF summary (`codeql-results-go.sarif`, `codeql-results-js.sarif`)
+	- Result: `total=0 error=0 warning=0 note=0` for both artifacts.
+9. `python3` freshness summary (`docs/reports/pr718_open_alerts_freshness_20260218T163918Z.json`)
+	- Result: `baseline_status=present`, `drift_status=no_drift`, `fresh_total=0`, `added=0`, `removed=0`.
+
+### PR-3 Slice Verdict
+
+- Config/docs formatting/lint hooks (relevant to touched files): **PASS**.
+- CodeQL parity/freshness consistency and blocker regression check: **PASS**.
+- Runtime-impacting changes introduced by this slice: **NONE DETECTED**.
+
+**Final PR-3 slice status: PASS**
 
 ## Final Re-check After Blocker Fix - 2026-02-18
 
@@ -34,6 +77,20 @@ post_date: "2026-02-10"
 - `bash scripts/ci/check-codeql-parity.sh` (from repo root) → **PASS** (`CodeQL parity check passed ...`)
 - `Security: CodeQL Go Scan (CI-Aligned) [~60s]` task → **PASS** (task completed)
 - `Security: CodeQL JS Scan (CI-Aligned) [~90s]` task → **PASS** (task completed)
+- `npx playwright test tests/security-enforcement/zzz-caddy-imports/caddy-import-cross-browser.spec.ts --project=chromium --project=firefox --project=webkit` → **PASS** (`19 passed`, no `No tests found`)
+
+### PR-1 Blocker Update (Playwright Test Discovery)
+
+- Previous blocker: `No tests found` for `tests/security-enforcement/zzz-caddy-imports/caddy-import-cross-browser.spec.ts` when run with browser projects.
+- Root cause: browser projects in `playwright.config.js` ignored `**/security-enforcement/**`, excluding this spec from chromium/firefox/webkit discovery.
+- Resolution: browser project `testIgnore` was narrowed to continue excluding security-enforcement tests except this cross-browser import spec.
+- Verification: reran the exact blocker command and it passed (`19 passed`, cross-browser execution succeeded).
+
+### Accepted Risk Clarification
+
+- Accepted-risk identifier/path: `docs/security/SECURITY-EXCEPTION-nebula-v1.9.7.md` (`GHSA-69x3-g4r3-p962`, `github.com/slackhq/nebula@v1.9.7`).
+- Why non-blocking: this High finding is a documented upstream dependency-chain exception (Caddy/CrowdSec bouncer → ipstore → nebula) with no currently compatible upstream fix path in Charon control.
+- Next review trigger: re-open immediately when upstream Caddy dependency chain publishes compatible `nebula >= v1.10.3` support (or if advisory severity/exploitability materially changes).
 
 ### Notes
 
@@ -150,7 +207,7 @@ cd /projects/Charon && .github/skills/scripts/skill-runner.sh security-scan-code
 
 - Backend coverage: 92.0% statements (meets >=85%)
 - Frontend coverage: lines 86.91%, statements 86.4%, functions 82.71%, branches 78.78% (below 88% gate)
-- Evidence: [frontend/coverage.log](frontend/coverage.log)
+- Evidence: [frontend/coverage.log](../../frontend/coverage.log)
 
 ## Type Safety (Frontend)
 
@@ -159,8 +216,8 @@ cd /projects/Charon && .github/skills/scripts/skill-runner.sh security-scan-code
 
 ## Pre-commit Hooks (Fast)
 	- Exception: [docs/security/SECURITY-EXCEPTION-nebula-v1.9.7.md](../security/SECURITY-EXCEPTION-nebula-v1.9.7.md)
-- CodeQL Go scan: PASS (results array empty in [codeql-results-go.sarif](codeql-results-go.sarif))
-- CodeQL JS scan: PASS (results array empty in [codeql-results-js.sarif](codeql-results-js.sarif))
+- CodeQL Go scan: PASS (results array empty in [codeql-results-go.sarif](../../codeql-results-go.sarif))
+- CodeQL JS scan: PASS (results array empty in [codeql-results-js.sarif](../../codeql-results-js.sarif))
 - Trivy filesystem artifacts do not list vulnerabilities.
 - Docker image scan found 1 High severity vulnerability (accepted risk; see [docs/security/SECURITY-EXCEPTION-nebula-v1.9.7.md](../security/SECURITY-EXCEPTION-nebula-v1.9.7.md)).
 - Result: MISMATCH - Docker image scan reveals issues not surfaced by Trivy filesystem artifacts.
@@ -170,7 +227,7 @@ cd /projects/Charon && .github/skills/scripts/skill-runner.sh security-scan-code
 
 ## Blocking Issues and Remediation
 
-- Markdownlint failures in [tests/README.md](tests/README.md#L428-L430). Fix table spacing and re-run markdownlint.
+- Markdownlint failures in [tests/README.md](../../tests/README.md). Fix table spacing and re-run markdownlint.
 - Hadolint failures (DL3059, SC2012). Consolidate consecutive RUN instructions and replace ls usage; re-run hadolint.
 - TypeScript check and pre-commit status not confirmed. Re-run and capture final pass output.
 ## Verdict
@@ -497,6 +554,99 @@ Primary root cause is **test isolation breakdown under race+shuffle execution**,
 
 - **Scoped fix validation**: PASS (targeted flaky tests stabilized).
 - **Full CI-parity matrix**: FAIL (broader baseline instability remains; not fully resolved in this pass).
+
+## CodeQL Hardening Validation - 2026-02-18
+
+### Scope
+
+- `.github/workflows/codeql.yml`
+- `.vscode/tasks.json`
+- `scripts/ci/check-codeql-parity.sh`
+- `scripts/pre-commit-hooks/codeql-js-scan.sh`
+
+### Validation Results
+
+- `actionlint .github/workflows/codeql.yml` -> **PASS** (`ACTIONLINT_OK`)
+- `shellcheck scripts/ci/check-codeql-parity.sh scripts/pre-commit-hooks/codeql-js-scan.sh` -> **PASS** (`SHELLCHECK_OK`)
+- `bash scripts/ci/check-codeql-parity.sh` -> **PASS** (`CodeQL parity check passed ...`, `PARITY_OK`)
+- `pre-commit run --hook-stage manual codeql-check-findings --all-files` -> **PASS** (`Block HIGH/CRITICAL CodeQL Findings...Passed`, `FINDINGS_GATE_OK`)
+
+### JS CI-Aligned Task Scope/Output Check
+
+- Task `Security: CodeQL JS Scan (CI-Aligned) [~90s]` in `.vscode/tasks.json` invokes `bash scripts/pre-commit-hooks/codeql-js-scan.sh` -> **PASS**
+- Script uses `--source-root=.` so repository-wide JavaScript/TypeScript analysis scope includes `tests/` and other TS/JS paths, not only `frontend/` -> **PASS**
+- Script SARIF output remains `--output=codeql-results-js.sarif` -> **PASS**
+
+### Overall Verdict
+
+- **PASS**
+
+### Blockers
+
+- **None** for this validation scope.
+
+## PR-3 Insecure Temporary File Remediation Gate (Targeted) - 2026-02-18
+
+### Scope
+
+- `tests/fixtures/auth-fixtures.ts`
+- `tests/fixtures/token-refresh-validation.spec.ts`
+- `docs/reports/pr3_hygiene_scanner_hardening_2026-02-18.md`
+- User constraint honored: no full local Playwright E2E run.
+
+### Required Checks and Evidence
+
+1. **Targeted Playwright spec execution**
+	 - Command:
+		 `PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_COVERAGE=0 PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox tests/fixtures/token-refresh-validation.spec.ts`
+	 - Environment readiness evidence:
+		 - `docker ps` shows `charon-e2e` healthy.
+		 - `curl -sf http://127.0.0.1:8080/api/v1/health` returned `{"status":"ok",...}`.
+	 - Result: **PASS** (`10 passed`, `9.5s`).
+
+2. **CI-aligned JS CodeQL targeted verification (`js/insecure-temporary-file`)**
+	 - Task: `Security: CodeQL JS Scan (CI-Aligned) [~90s]`
+	 - Artifact: `codeql-results-js.sarif`
+	 - Targeted SARIF verification command (touched paths only):
+		 - Rule: `js/insecure-temporary-file`
+		 - Files: `tests/fixtures/auth-fixtures.ts`, `tests/fixtures/token-refresh-validation.spec.ts`
+	 - Result: **PASS**
+		 - `TOUCHED_MATCHES=0`
+		 - `TOTAL_RESULTS=0`
+
+3. **Basic lint/type sanity for touched files**
+	 - Lint command:
+		 `npx eslint --no-error-on-unmatched-pattern --no-warn-ignored tests/fixtures/auth-fixtures.ts tests/fixtures/token-refresh-validation.spec.ts && echo ESLINT_TOUCHED_OK`
+	 - Lint result: **PASS** (`ESLINT_TOUCHED_OK`)
+	 - Type command:
+		 `npx tsc --pretty false --noEmit --skipLibCheck --target ES2022 --module ESNext --moduleResolution Bundler --types node,@playwright/test tests/fixtures/auth-fixtures.ts tests/fixtures/token-refresh-validation.spec.ts && echo TYPECHECK_OK`
+	 - Type result: **PASS** (`TYPECHECK_OK`)
+
+### Gate Verdict
+
+- **PASS** (targeted QA/Security gate for requested scope)
+
+### Remaining Blockers
+
+- **None** for the requested targeted gate scope.
+
+## PR-3 Closure Addendum - Auth Fixture Token Refresh/Cache Remediation - 2026-02-18
+
+### Objective
+
+- Confirm closure evidence remains present for the targeted `js/insecure-temporary-file` remediation in auth fixture token refresh/cache handling.
+
+### Evidence
+
+- Targeted Playwright verification: `tests/fixtures/token-refresh-validation.spec.ts` -> **PASS** (`10 passed`).
+- CI-aligned JavaScript CodeQL scan task: `Security: CodeQL JS Scan (CI-Aligned) [~90s]` -> **PASS** (exit code `0`).
+- Touched-path CodeQL verification for `js/insecure-temporary-file` -> **PASS** (`TOUCHED_MATCHES=0`).
+- Freshness artifact for PR-3 closure context:
+	- `docs/reports/pr718_open_alerts_freshness_20260218T163918Z.md`
+
+### Closure Status
+
+- PR-3 slice targeted insecure-temp remediation QA evidence: **COMPLETE**.
 
 ### Recommended Next Fix Plan (No Sleep/Retry Band-Aids)
 
