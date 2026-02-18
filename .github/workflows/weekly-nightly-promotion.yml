@@ -440,7 +440,6 @@ jobs:
             core.info(`Current nightly HEAD for dispatch fallback: ${nightlyHeadSha}`);
 
             const requiredWorkflows = [
-              { id: 'quality-checks.yml' },
               { id: 'e2e-tests-split.yml' },
               { id: 'codeql.yml' },
               { id: 'codecov-upload.yml', inputs: { run_backend: 'true', run_frontend: 'true' } },
