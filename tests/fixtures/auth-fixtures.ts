@@ -79,20 +79,53 @@ const TEST_PASSWORD = 'TestPass123!';
 /**
  * Token cache configuration
  */
-const TOKEN_CACHE_DIR = join(tmpdir(), 'charon-test-token-cache');
-const TOKEN_CACHE_FILE = join(TOKEN_CACHE_DIR, 'token.json');
-const TOKEN_LOCK_FILE = join(TOKEN_CACHE_DIR, 'token.lock');
+const TOKEN_CACHE_PREFIX = join(tmpdir(), 'charon-test-token-cache-');
+let tokenCacheDir: string | undefined;
+let tokenCacheCleanupRegistered = false;
 const TOKEN_REFRESH_THRESHOLD = 5 * 60 * 1000; // Refresh 5 min before expiry
 const LOCK_TIMEOUT = 5000; // 5 seconds to acquire lock
+
+function getTokenCacheFilePath(): string {
+  if (!tokenCacheDir) {
+    throw new Error('Token cache directory not initialized');
+  }
+  return join(tokenCacheDir, 'token.json');
+}
+
+function getTokenLockFilePath(): string {
+  if (!tokenCacheDir) {
+    throw new Error('Token cache directory not initialized');
+  }
+  return join(tokenCacheDir, 'token.lock');
+}
+
+async function cleanupTokenCacheDir(): Promise<void> {
+  if (!tokenCacheDir) {
+    return;
+  }
+  try {
+    await fsAsync.rm(tokenCacheDir, { recursive: true, force: true });
+  } catch {
+    // Best-effort cleanup
+  } finally {
+    tokenCacheDir = undefined;
+  }
+}
 
 /**
  * Ensure token cache directory exists
  */
 async function ensureCacheDir(): Promise<void> {
-  try {
-    await fsAsync.mkdir(TOKEN_CACHE_DIR, { recursive: true });
-  } catch (e) {
-    // Directory might already exist, ignore
+  if (!tokenCacheDir) {
+    tokenCacheDir = await fsAsync.mkdtemp(TOKEN_CACHE_PREFIX);
+    await fsAsync.chmod(tokenCacheDir, 0o700);
+  }
+
+  if (!tokenCacheCleanupRegistered) {
+    tokenCacheCleanupRegistered = true;
+    process.once('beforeExit', () => {
+      void cleanupTokenCacheDir();
+    });
   }
 }
 
@@ -100,17 +133,20 @@ async function ensureCacheDir(): Promise<void> {
  * Acquire a file lock with timeout
  */
 async function acquireLock(): Promise<() => Promise<void>> {
+  await ensureCacheDir();
+  const tokenLockFile = getTokenLockFilePath();
   const startTime = Date.now();
   while (true) {
     try {
       // Atomic operation: only succeeds if file doesn't exist
-      await fsAsync.writeFile(TOKEN_LOCK_FILE, process.pid.toString(), {
+      await fsAsync.writeFile(tokenLockFile, process.pid.toString(), {
         flag: 'wx', // Write exclusive (fail if exists)
+        mode: 0o600,
       });
       // Lock acquired
       return async () => {
         try {
-          await fsAsync.unlink(TOKEN_LOCK_FILE);
+          await fsAsync.unlink(tokenLockFile);
         } catch (e) {
           // Already deleted or doesn't exist
         }
@@ -120,18 +156,19 @@ async function acquireLock(): Promise<() => Promise<void>> {
       if (Date.now() - startTime > LOCK_TIMEOUT) {
         // Timeout: break lock (assume previous process crashed)
         try {
-          await fsAsync.unlink(TOKEN_LOCK_FILE);
+          await fsAsync.unlink(tokenLockFile);
         } catch {
           // Ignore deletion errors
         }
         // Try one more time
         try {
-          await fsAsync.writeFile(TOKEN_LOCK_FILE, process.pid.toString(), {
+          await fsAsync.writeFile(tokenLockFile, process.pid.toString(), {
             flag: 'wx',
+            mode: 0o600,
           });
           return async () => {
             try {
-              await fsAsync.unlink(TOKEN_LOCK_FILE);
+              await fsAsync.unlink(tokenLockFile);
             } catch (e) {
               // Already deleted
             }
@@ -155,8 +192,9 @@ async function acquireLock(): Promise<() => Promise<void>> {
 async function readTokenCache(): Promise<TokenCache | null> {
   const release = await acquireLock();
   try {
-    if (existsSync(TOKEN_CACHE_FILE)) {
-      const data = await fsAsync.readFile(TOKEN_CACHE_FILE, 'utf-8');
+    const tokenCacheFile = getTokenCacheFilePath();
+    if (existsSync(tokenCacheFile)) {
+      const data = await fsAsync.readFile(tokenCacheFile, 'utf-8');
       return JSON.parse(data);
     }
   } catch (e) {
@@ -174,12 +212,14 @@ async function saveTokenCache(token: string, expirySeconds: number): Promise<voi
   await ensureCacheDir();
   const release = await acquireLock();
   try {
+    const tokenCacheFile = getTokenCacheFilePath();
     const cache: TokenCache = {
       token,
       expiresAt: Date.now() + expirySeconds * 1000,
     };
-    await fsAsync.writeFile(TOKEN_CACHE_FILE, JSON.stringify(cache), {
+    await fsAsync.writeFile(tokenCacheFile, JSON.stringify(cache), {
       flag: 'w',
+      mode: 0o600,
     });
   } catch (e) {
     // Log error but don't throw (cache is best-effort)
