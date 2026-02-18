@@ -14,9 +14,10 @@ check_sarif() {
     local lang=$2
 
     if [ ! -f "$sarif_file" ]; then
-        echo -e "${YELLOW}⚠️  No SARIF file found: $sarif_file${NC}"
-        echo "Run CodeQL scan first: pre-commit run codeql-$lang-scan --all-files"
-        return 0
+        echo -e "${RED}❌ No SARIF file found: $sarif_file${NC}"
+        echo "Run CodeQL scan first: pre-commit run --hook-stage manual codeql-$lang-scan --all-files"
+        FAILED=1
+        return 1
     fi
 
     echo "🔍 Checking $lang findings..."
@@ -53,7 +54,16 @@ echo "🔒 Checking CodeQL findings..."
 echo ""
 
 check_sarif "codeql-results-go.sarif" "go"
-check_sarif "codeql-results-js.sarif" "js"
+
+# Support both JS artifact names, preferring the CI-aligned canonical file.
+if [ -f "codeql-results-js.sarif" ]; then
+    check_sarif "codeql-results-js.sarif" "js"
+elif [ -f "codeql-results-javascript.sarif" ]; then
+    echo -e "${YELLOW}⚠️  Using legacy JS SARIF artifact name: codeql-results-javascript.sarif${NC}"
+    check_sarif "codeql-results-javascript.sarif" "js"
+else
+    check_sarif "codeql-results-js.sarif" "js"
+fi
 
 if [ $FAILED -eq 1 ]; then
     echo ""
