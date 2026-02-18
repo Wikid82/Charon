@@ -59,7 +59,7 @@ jobs:
         if: matrix.language == 'go'
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
         with:
-          go-version-file: backend/go.mod
+          go-version: 1.26.0
           cache-dependency-path: backend/go.sum
 
       - name: Verify Go toolchain and build
