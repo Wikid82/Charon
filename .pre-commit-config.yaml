@@ -168,6 +168,14 @@ repos:
         verbose: true
         stages: [manual]  # Only runs after CodeQL scans
 
+      - id: codeql-parity-check
+        name: CodeQL Suite/Trigger Parity Guard (Manual)
+        entry: scripts/ci/check-codeql-parity.sh
+        language: script
+        pass_filenames: false
+        verbose: true
+        stages: [manual]
+
       - id: gorm-security-scan
         name: GORM Security Scanner (Manual)
         entry: scripts/pre-commit-hooks/gorm-security-check.sh

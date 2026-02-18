@@ -135,6 +135,16 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 		}
 	}
 
+	normalizedAllowlist := normalizeAllowlist(allowlist)
+	if !isWithinAllowlist(cleanPath, normalizedAllowlist) {
+		return permissionsRepairResult{
+			Path:      cleanPath,
+			Status:    "error",
+			ErrorCode: "permissions_outside_allowlist",
+			Message:   "path outside allowlist",
+		}
+	}
+
 	info, err := os.Lstat(cleanPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -198,7 +208,7 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 		}
 	}
 
-	if !isWithinAllowlist(resolved, allowlist) {
+	if !isWithinAllowlist(resolved, normalizedAllowlist) {
 		return permissionsRepairResult{
 			Path:      cleanPath,
 			Status:    "error",
@@ -356,6 +366,17 @@ func containsParentReference(clean string) bool {
 		return true
 	}
 	return strings.HasSuffix(clean, string(os.PathSeparator)+"..")
+}
+
+func normalizeAllowlist(allowlist []string) []string {
+	normalized := make([]string, 0, len(allowlist))
+	for _, root := range allowlist {
+		if root == "" {
+			continue
+		}
+		normalized = append(normalized, filepath.Clean(root))
+	}
+	return normalized
 }
 
 func pathHasSymlink(path string) (bool, error) {
