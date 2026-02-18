@@ -8,20 +8,20 @@
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [System Architecture](#system-architecture)
-- [Technology Stack](#technology-stack)
-- [Directory Structure](#directory-structure)
-- [Core Components](#core-components)
-- [Security Architecture](#security-architecture)
-- [Data Flow](#data-flow)
-- [Deployment Architecture](#deployment-architecture)
-- [Development Workflow](#development-workflow)
-- [Testing Strategy](#testing-strategy)
-- [Build & Release Process](#build--release-process)
-- [Extensibility](#extensibility)
-- [Known Limitations](#known-limitations)
-- [Maintenance & Updates](#maintenance--updates)
+- Overview
+- System Architecture
+- Technology Stack
+- Directory Structure
+- Core Components
+- Security Architecture
+- Data Flow
+- Deployment Architecture
+- Development Workflow
+- Testing Strategy
+- Build & Release Process
+- Extensibility
+- Known Limitations
+- Maintenance & Updates
 
 ---
 
@@ -1480,14 +1480,14 @@ graph TB
 
 ## Additional Resources
 
-- **[README.md](README.md)** - Project overview and quick start
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines
-- **[docs/features.md](docs/features.md)** - Detailed feature documentation
-- **[docs/api.md](docs/api.md)** - REST API reference
-- **[docs/database-schema.md](docs/database-schema.md)** - Database structure
-- **[docs/cerberus.md](docs/cerberus.md)** - Security suite documentation
-- **[docs/getting-started.md](docs/getting-started.md)** - User guide
-- **[SECURITY.md](SECURITY.md)** - Security policy and vulnerability reporting
+- README.md - Project overview and quick start
+- CONTRIBUTING.md - Contribution guidelines
+- docs/features.md - Detailed feature documentation
+- docs/api.md - REST API reference
+- docs/database-schema.md - Database structure
+- docs/cerberus.md - Security suite documentation
+- docs/getting-started.md - User guide
+- SECURITY.md - Security policy and vulnerability reporting
 
 ---
 
