@@ -97,6 +97,7 @@ jobs:
 
             const workflows = [
               { id: 'e2e-tests-split.yml' },
+              { id: 'quality-checks.yml' },
               { id: 'codecov-upload.yml', inputs: { run_backend: 'true', run_frontend: 'true' } },
               { id: 'security-pr.yml' },
               { id: 'supply-chain-verify.yml' },
