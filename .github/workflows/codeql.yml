@@ -1,12 +1,16 @@
 name: CodeQL - Analyze
 
 on:
+  pull_request:
+    branches: [main, nightly]
+  push:
+    branches: [main, nightly, development]
   workflow_dispatch:
   schedule:
     - cron: '0 3 * * 1' # Mondays 03:00 UTC
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
@@ -23,9 +27,6 @@ jobs:
   analyze:
     name: CodeQL analysis (${{ matrix.language }})
     runs-on: ubuntu-latest
-    # Skip forked PRs where CHARON_TOKEN lacks security-events permissions
-    if: >-
-      (github.event_name != 'workflow_run' || github.event.workflow_run.status != 'completed' || github.event.workflow_run.conclusion == 'success')
     permissions:
       contents: read
       security-events: write
@@ -39,10 +40,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@9e907b5e64f6b83e7804b09294d44122997950d6 # v4
+        uses: github/codeql-action/init@015d8c7cbcbb8e7252a7dccfe81a90aa176260b2 # v4
         with:
           languages: ${{ matrix.language }}
           # Use CodeQL config to exclude documented false positives
@@ -58,10 +59,10 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@9e907b5e64f6b83e7804b09294d44122997950d6 # v4
+        uses: github/codeql-action/autobuild@015d8c7cbcbb8e7252a7dccfe81a90aa176260b2 # v4
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@9e907b5e64f6b83e7804b09294d44122997950d6 # v4
+        uses: github/codeql-action/analyze@015d8c7cbcbb8e7252a7dccfe81a90aa176260b2 # v4
         with:
           category: "/language:${{ matrix.language }}"
 
