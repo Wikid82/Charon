@@ -99,7 +99,7 @@ jobs:
               { id: 'e2e-tests-split.yml' },
               { id: 'codecov-upload.yml', inputs: { run_backend: 'true', run_frontend: 'true' } },
               { id: 'security-pr.yml' },
-              { id: 'supply-chain-pr.yml' },
+              { id: 'supply-chain-verify.yml' },
               { id: 'codeql.yml' },
             ];
 

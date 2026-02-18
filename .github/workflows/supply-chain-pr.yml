@@ -357,7 +357,7 @@ jobs:
           retention-days: 14
 
       - name: Comment on PR
-        if: steps.set-target.outputs.image_name != '' && steps.pr-number.outputs.is_push != 'true'
+        if: steps.set-target.outputs.image_name != '' && steps.pr-number.outputs.is_push != 'true' && steps.pr-number.outputs.pr_number != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

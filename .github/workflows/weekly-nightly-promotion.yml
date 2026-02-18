@@ -444,7 +444,7 @@ jobs:
               { id: 'codeql.yml' },
               { id: 'codecov-upload.yml', inputs: { run_backend: 'true', run_frontend: 'true' } },
               { id: 'security-pr.yml' },
-              { id: 'supply-chain-pr.yml' },
+              { id: 'supply-chain-verify.yml' },
             ];
 
             for (const workflow of requiredWorkflows) {
