@@ -1,115 +1,71 @@
+# =============================================================================
 # Codecov Configuration
-# https://docs.codecov.com/docs/codecov-yaml
+# Require 75% overall coverage, exclude test files and non-source code
+# =============================================================================
 
 coverage:
   status:
     project:
-      # Backend: Lines coverage only (85% minimum)
-      backend:
-        target: 85%
-        threshold: 1%
-        flags:
-          - backend
-        only:
-          - lines
-      # Frontend: Lines coverage only (85% minimum)
-      frontend:
-        target: 85%
-        threshold: 1%
-        flags:
-          - frontend
-        only:
-          - lines
-      # E2E: Lines coverage only (85% minimum)
-      e2e:
-        target: 85%
-        threshold: 1%
-        flags:
-          - e2e
-        only:
-          - lines
-    patch:
       default:
-        # Patch coverage is a suggestion only (not required to pass PR)
-        # Developers should aim for 100% but it won't block the PR
         target: 85%
-        required: false
-        only:
-          - lines
+        threshold: 0%
 
-# Exclude test artifacts and non-production code from coverage
+# Fail CI if Codecov upload/report indicates a problem
+require_ci_to_pass: yes
+
+# -----------------------------------------------------------------------------
+# PR Comment Configuration
+# -----------------------------------------------------------------------------
+comment:
+  # Post coverage report as PR comment
+  require_changes: false
+  require_base: false
+  require_head: true
+  layout: "reach, diff, flags, files"
+  behavior: default
+
+# -----------------------------------------------------------------------------
+# Exclude from coverage reporting
+# -----------------------------------------------------------------------------
 ignore:
-  # =========================================================================
-  # TEST FILES - All test implementations
-  # =========================================================================
-  - "**/*_test.go"           # Go test files
-  - "**/test_*.go"           # Go test files (alternate naming)
-  - "**/*.test.ts"           # TypeScript unit tests
-  - "**/*.test.tsx"          # React component tests
-  - "**/*.spec.ts"           # TypeScript spec tests
-  - "**/*.spec.tsx"          # React spec tests
-  - "**/tests/**"            # Root tests directory (Playwright E2E)
-  - "tests/**"               # Ensure root tests/ is covered
-  - "**/test/**"             # Generic test directories
-  - "**/__tests__/**"        # Jest-style test directories
-  - "**/testdata/**"         # Go test fixtures
-  - "**/mocks/**"            # Mock implementations
-  - "**/test-data/**"        # Test data fixtures
-
-  # =========================================================================
-  # FRONTEND TEST UTILITIES - Test helpers, not production code
-  # =========================================================================
-  - "frontend/src/test/**"           # Test setup (setup.ts, setup.spec.ts)
-  - "frontend/src/test-utils/**"     # Query client helpers (renderWithQueryClient)
-  - "frontend/src/testUtils/**"      # Mock factories (createMockProxyHost)
-  - "frontend/src/__tests__/**"      # i18n.test.ts and other tests
-  - "frontend/src/setupTests.ts"     # Vitest setup file
-  - "frontend/src/locales/**"        # Locale JSON resources
-  - "**/mockData.ts"                 # Mock data factories
-  - "**/createTestQueryClient.ts"    # Test-specific utilities
-  - "**/createMockProxyHost.ts"      # Test-specific utilities
-
-  # =========================================================================
-  # CONFIGURATION FILES - No logic to test
-  # =========================================================================
-  - "**/*.config.js"         # All JavaScript config files
-  - "**/*.config.ts"         # All TypeScript config files
-  - "**/playwright.config.js"
-  - "**/playwright.*.config.js"      # playwright.caddy-debug.config.js
+  # Test files
+  - "**/tests/**"
+  - "**/test/**"
+  - "**/__tests__/**"
+  - "**/test_*.go"
+  - "**/*_test.go"
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/*.spec.ts"
+  - "**/*.spec.tsx"
   - "**/vitest.config.ts"
   - "**/vitest.setup.ts"
-  - "**/vite.config.ts"
-  - "**/tailwind.config.js"
-  - "**/postcss.config.js"
-  - "**/eslint.config.js"
-  - "**/tsconfig*.json"
 
-  # =========================================================================
-  # ENTRY POINTS - Bootstrap code with minimal testable logic
-  # =========================================================================
+  # E2E tests
+  - "**/e2e/**"
+  - "**/integration/**"
 
-  # =========================================================================
-  # INFRASTRUCTURE PACKAGES - Observability, align with local script
-  # =========================================================================
-  - "backend/internal/logger/**"     # Logging infrastructure
-  - "backend/internal/metrics/**"    # Prometheus metrics
-  - "backend/internal/trace/**"      # OpenTelemetry tracing
-  - "backend/integration/**"         # Integration test package
+  # Documentation
+  - "docs/**"
+  - "*.md"
 
-  # =========================================================================
-  # DOCKER-ONLY CODE - Not testable in CI (requires Docker socket)
-  # =========================================================================
-  - "backend/internal/services/docker_service.go"
-  - "backend/internal/api/handlers/docker_handler.go"
+  # CI/CD & Config
+  - ".github/**"
+  - "scripts/**"
+  - "tools/**"
+  - "*.yml"
+  - "*.yaml"
+  - "*.json"
 
-  # =========================================================================
-  # BUILD ARTIFACTS AND DEPENDENCIES
-  # =========================================================================
+  # Frontend build artifacts & dependencies
   - "frontend/node_modules/**"
   - "frontend/dist/**"
   - "frontend/coverage/**"
   - "frontend/test-results/**"
   - "frontend/public/**"
+
+  # Backend non-source files
+  - "backend/cmd/seed/**"
   - "backend/data/**"
   - "backend/coverage/**"
   - "backend/bin/**"
@@ -118,78 +74,73 @@ ignore:
   - "backend/*.html"
   - "backend/codeql-db/**"
 
-  # =========================================================================
-  # PLAYWRIGHT AND E2E INFRASTRUCTURE
-  # =========================================================================
-  - "playwright/**"
-  - "playwright-report/**"
-  - "test-results/**"
-  - "coverage/**"
+  # Docker-only code (not testable in CI)
+  - "backend/internal/services/docker_service.go"
+  - "backend/internal/api/handlers/docker_handler.go"
 
-  # =========================================================================
-  # CI/CD, SCRIPTS, AND TOOLING
-  # =========================================================================
-  - ".github/**"
-  - "scripts/**"
-  - "tools/**"
-  - "docs/**"
-
-  # =========================================================================
-  # CODEQL ARTIFACTS
-  # =========================================================================
+  # CodeQL artifacts
   - "codeql-db/**"
   - "codeql-db-*/**"
   - "codeql-agent-results/**"
   - "codeql-custom-queries-*/**"
   - "*.sarif"
 
-  # =========================================================================
-  # DOCUMENTATION AND METADATA
-  # =========================================================================
-  - "*.md"
-  - "*.json"
-  - "*.yaml"
-  - "*.yml"
+  # Config files (no logic)
+  - "**/tailwind.config.js"
+  - "**/postcss.config.js"
+  - "**/eslint.config.js"
+  - "**/vite.config.ts"
+  - "**/tsconfig*.json"
 
-  # =========================================================================
-  # TYPE DEFINITIONS - No runtime code
-  # =========================================================================
+  # Type definitions only
   - "**/*.d.ts"
-  - "frontend/src/vite-env.d.ts"
 
-  # =========================================================================
-  # DATA AND CONFIG DIRECTORIES
-  # =========================================================================
+  # Import/data directories
   - "import/**"
   - "data/**"
   - ".cache/**"
-  - "configs/**"                     # Runtime config files
+
+  # CrowdSec config files (no logic to test)
   - "configs/crowdsec/**"
 
-flags:
-  backend:
-    paths:
-      - backend/
-    carryforward: true
+  # ==========================================================================
+  # Backend packages excluded from coverage (match go-test-coverage.sh)
+  # These are entrypoints and infrastructure code that don't benefit from
+  # unit tests - they are tested via integration tests instead.
+  # ==========================================================================
 
-  frontend:
-    paths:
-      - frontend/
-    carryforward: true
+  # Main entry points (bootstrap code only)
+  - "backend/cmd/api/**"
 
-  e2e:
-    paths:
-      - frontend/
-    carryforward: true
+  # Infrastructure packages (logging, metrics, tracing)
+  # These are thin wrappers around external libraries with no business logic
+  - "backend/internal/logger/**"
+  - "backend/internal/metrics/**"
+  - "backend/internal/trace/**"
 
-component_management:
-  individual_components:
-    - component_id: backend
-      paths:
-        - backend/**
-    - component_id: frontend
-      paths:
-        - frontend/**
-    - component_id: e2e
-      paths:
-        - frontend/**
+  # Backend test utilities (test infrastructure, not application code)
+  # These files contain testing helpers that take *testing.T and are only
+  # callable from *_test.go files - they cannot be covered by production code
+  - "backend/internal/api/handlers/testdb.go"
+  - "backend/internal/api/handlers/test_helpers.go"
+
+  # DNS provider implementations (tested via integration tests, not unit tests)
+  # These are plugin implementations that interact with external DNS APIs
+  # and are validated through service-level integration tests
+  - "backend/pkg/dnsprovider/builtin/**"
+
+  # ==========================================================================
+  # Frontend test utilities and helpers
+  # These are test infrastructure, not application code
+  # ==========================================================================
+
+  # Test setup and utilities directory
+  - "frontend/src/test/**"
+
+  # Vitest setup files
+  - "frontend/vitest.config.ts"
+  - "frontend/src/setupTests.ts"
+
+  # Playwright E2E config
+  - "frontend/playwright.config.ts"
+  - "frontend/e2e/**"
