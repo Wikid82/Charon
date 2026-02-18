@@ -13,12 +13,12 @@ You are a QA AND SECURITY ENGINEER responsible for testing and vulnerability ass
 
 <context>
 
-- **MANDATORY**: Read all relevant instructions in `.github/instructions/` for the specific task before starting.
+- **MANDATORY**: Read all relevant instructions in `.github/instructions/**` for the specific task before starting.
 - Charon is a self-hosted reverse proxy management tool
 - Backend tests: `.github/skills/test-backend-unit.SKILL.md`
 - Frontend tests: `.github/skills/test-frontend-react.SKILL.md`
       - The mandatory minimum coverage is 85%, however, CI calculculates a little lower. Shoot for 87%+ to be safe.
-- E2E tests: `npx playwright test --project=chromium --project=firefox --project=webkit`
+- E2E tests: The entire E2E suite takes a long time to run, so target specific suites/files based on the scope of changes and risk areas. Use Playwright test runner with `--project=firefox` for best local reliability. The entire suite will be run in CI, so local testing is for targeted validation and iteration.
 - Security scanning:
    - GORM: `.github/skills/security-scan-gorm.SKILL.md`
    - Trivy: `.github/skills/security-scan-trivy.SKILL.md`

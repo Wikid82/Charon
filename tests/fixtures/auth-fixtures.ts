@@ -26,9 +26,6 @@
 import { test as base, expect } from './test';
 import { request as playwrightRequest } from '@playwright/test';
 import { existsSync, readFileSync } from 'fs';
-import { promises as fsAsync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
 import { TestDataManager } from '../utils/TestDataManager';
 import { STORAGE_STATE } from '../constants';
 
@@ -79,154 +76,51 @@ const TEST_PASSWORD = 'TestPass123!';
 /**
  * Token cache configuration
  */
-const TOKEN_CACHE_PREFIX = join(tmpdir(), 'charon-test-token-cache-');
-let tokenCacheDir: string | undefined;
-let tokenCacheCleanupRegistered = false;
+let tokenCache: TokenCache | null = null;
+let tokenCacheQueue: Promise<void> = Promise.resolve();
 const TOKEN_REFRESH_THRESHOLD = 5 * 60 * 1000; // Refresh 5 min before expiry
-const LOCK_TIMEOUT = 5000; // 5 seconds to acquire lock
 
-function getTokenCacheFilePath(): string {
-  if (!tokenCacheDir) {
-    throw new Error('Token cache directory not initialized');
-  }
-  return join(tokenCacheDir, 'token.json');
+/**
+ * Test-only helper to reset token refresh state between tests
+ */
+export function resetTokenRefreshStateForTests(): void {
+  tokenCache = null;
+  tokenCacheQueue = Promise.resolve();
 }
 
-function getTokenLockFilePath(): string {
-  if (!tokenCacheDir) {
-    throw new Error('Token cache directory not initialized');
-  }
-  return join(tokenCacheDir, 'token.lock');
-}
+/**
+ * Execute token cache operations sequentially to avoid refresh storms
+ */
+async function withTokenCacheLock<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = tokenCacheQueue;
+  let releaseLock!: () => void;
+  tokenCacheQueue = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
 
-async function cleanupTokenCacheDir(): Promise<void> {
-  if (!tokenCacheDir) {
-    return;
-  }
+  await previous;
   try {
-    await fsAsync.rm(tokenCacheDir, { recursive: true, force: true });
-  } catch {
-    // Best-effort cleanup
+    return await operation();
   } finally {
-    tokenCacheDir = undefined;
+    releaseLock();
   }
 }
 
 /**
- * Ensure token cache directory exists
- */
-async function ensureCacheDir(): Promise<void> {
-  if (!tokenCacheDir) {
-    tokenCacheDir = await fsAsync.mkdtemp(TOKEN_CACHE_PREFIX);
-    await fsAsync.chmod(tokenCacheDir, 0o700);
-  }
-
-  if (!tokenCacheCleanupRegistered) {
-    tokenCacheCleanupRegistered = true;
-    process.once('beforeExit', () => {
-      void cleanupTokenCacheDir();
-    });
-  }
-}
-
-/**
- * Acquire a file lock with timeout
- */
-async function acquireLock(): Promise<() => Promise<void>> {
-  await ensureCacheDir();
-  const tokenLockFile = getTokenLockFilePath();
-  const startTime = Date.now();
-  while (true) {
-    try {
-      // Atomic operation: only succeeds if file doesn't exist
-      await fsAsync.writeFile(tokenLockFile, process.pid.toString(), {
-        flag: 'wx', // Write exclusive (fail if exists)
-        mode: 0o600,
-      });
-      // Lock acquired
-      return async () => {
-        try {
-          await fsAsync.unlink(tokenLockFile);
-        } catch (e) {
-          // Already deleted or doesn't exist
-        }
-      };
-    } catch (e) {
-      // File already exists (locked by another process)
-      if (Date.now() - startTime > LOCK_TIMEOUT) {
-        // Timeout: break lock (assume previous process crashed)
-        try {
-          await fsAsync.unlink(tokenLockFile);
-        } catch {
-          // Ignore deletion errors
-        }
-        // Try one more time
-        try {
-          await fsAsync.writeFile(tokenLockFile, process.pid.toString(), {
-            flag: 'wx',
-            mode: 0o600,
-          });
-          return async () => {
-            try {
-              await fsAsync.unlink(tokenLockFile);
-            } catch (e) {
-              // Already deleted
-            }
-          };
-        } catch {
-          // Failed to acquire lock after timeout, continue without lock
-          return async () => {
-            // No-op release
-          };
-        }
-      }
-      // Wait a bit and retry
-      await new Promise((r) => setTimeout(r, 10));
-    }
-  }
-}
-
-/**
- * Read token from cache (thread-safe)
+ * Read token from in-memory cache
  */
 async function readTokenCache(): Promise<TokenCache | null> {
-  const release = await acquireLock();
-  try {
-    const tokenCacheFile = getTokenCacheFilePath();
-    if (existsSync(tokenCacheFile)) {
-      const data = await fsAsync.readFile(tokenCacheFile, 'utf-8');
-      return JSON.parse(data);
-    }
-  } catch (e) {
-    // Cache file invalid or missing
-  } finally {
-    await release();
-  }
-  return null;
+  return tokenCache;
 }
 
 /**
- * Write token to cache (thread-safe)
+ * Write token to in-memory cache
  */
 async function saveTokenCache(token: string, expirySeconds: number): Promise<void> {
-  await ensureCacheDir();
-  const release = await acquireLock();
-  try {
-    const tokenCacheFile = getTokenCacheFilePath();
-    const cache: TokenCache = {
-      token,
-      expiresAt: Date.now() + expirySeconds * 1000,
-    };
-    await fsAsync.writeFile(tokenCacheFile, JSON.stringify(cache), {
-      flag: 'w',
-      mode: 0o600,
-    });
-  } catch (e) {
-    // Log error but don't throw (cache is best-effort)
-    console.warn('Failed to save token cache:', e);
-  } finally {
-    await release();
-  }
+  tokenCache = {
+    token,
+    expiresAt: Date.now() + expirySeconds * 1000,
+  };
 }
 
 /**
@@ -285,49 +179,51 @@ export async function refreshTokenIfNeeded(
     return currentToken;
   }
 
-  // Check if cached token is still valid
-  if (!(await isTokenExpired())) {
-    const cache = await readTokenCache();
-    if (cache) {
-      return cache.token;
+  return withTokenCacheLock(async () => {
+    // Check if cached token is still valid
+    if (!(await isTokenExpired())) {
+      const cache = await readTokenCache();
+      if (cache) {
+        return cache.token;
+      }
     }
-  }
 
-  // Token expired or missing - refresh it
-  try {
-    const response = await fetch(`${baseURL}/api/v1/auth/refresh`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${currentToken}`,
-      },
-      body: JSON.stringify({}),
-    });
+    // Token expired or missing - refresh it
+    try {
+      const response = await fetch(`${baseURL}/api/v1/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${currentToken}`,
+        },
+        body: JSON.stringify({}),
+      });
 
-    if (!response.ok) {
-      console.warn(
-        `Token refresh failed: ${response.status} ${response.statusText}`
-      );
+      if (!response.ok) {
+        console.warn(
+          `Token refresh failed: ${response.status} ${response.statusText}`
+        );
+        return currentToken; // Fall back to current token
+      }
+
+      const data = (await response.json()) as { token?: string };
+      const newToken = data.token;
+
+      if (!newToken) {
+        console.warn('Token refresh response missing token field');
+        return currentToken;
+      }
+
+      // Extract expiry from JWT and cache new token
+      const expirySeconds = extractJWTExpiry(newToken);
+      await saveTokenCache(newToken, expirySeconds);
+
+      return newToken;
+    } catch (error) {
+      console.warn('Token refresh error:', error);
       return currentToken; // Fall back to current token
     }
-
-    const data = (await response.json()) as { token?: string };
-    const newToken = data.token;
-
-    if (!newToken) {
-      console.warn('Token refresh response missing token field');
-      return currentToken;
-    }
-
-    // Extract expiry from JWT and cache new token
-    const expirySeconds = extractJWTExpiry(newToken);
-    await saveTokenCache(newToken, expirySeconds);
-
-    return newToken;
-  } catch (error) {
-    console.warn('Token refresh error:', error);
-    return currentToken; // Fall back to current token
-  }
+  });
 }
 
 /**

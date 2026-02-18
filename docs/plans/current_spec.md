@@ -465,6 +465,89 @@ Rollback:
 
 - Revert config-only commit; no application runtime risk.
 
+### PR-3 Addendum — `js/insecure-temporary-file` in auth token cache
+
+#### Scope and intent
+
+This addendum defines the concrete remediation plan for the CodeQL `js/insecure-temporary-file` pattern in `tests/fixtures/auth-fixtures.ts`, focused on token cache logic that currently persists refreshed auth tokens to temporary files (`token.lock`, `token.json`) under OS temp storage.
+
+#### 1) Root cause analysis
+
+- The fixture stores bearer tokens on disk in a temp location, which is unnecessary for test execution and increases secret exposure risk.
+- Even with restrictive permissions and lock semantics, the pattern still relies on filesystem primitives in a shared temp namespace and is flagged as insecure temporary-file usage.
+- The lock/cache design uses predictable filenames (`token.lock`, `token.json`) and file lifecycle management; this creates avoidable risk and complexity for what is effectively process-local test state.
+- The vulnerability is in the storage approach, not only in file flags/permissions; therefore suppression is not an acceptable fix.
+
+#### 2) Recommended proper fix (no suppression)
+
+- Replace file-based token cache + lock with an in-memory cache guarded by an async mutex/serialization helper.
+- Keep existing behavior contract intact:
+  - cached token reuse while valid,
+  - refresh when inside threshold,
+  - safe concurrent calls to `refreshTokenIfNeeded`.
+- Remove all temp-directory/file operations from the token-cache path.
+- Preserve JWT expiry extraction and fallback behavior when refresh fails.
+
+Design target:
+
+- `TokenCache` remains as a module-level in-memory object.
+- Introduce a module-level promise-queue lock helper (single-writer section) to serialize read/update operations.
+- `readTokenCache` / `saveTokenCache` become in-memory helpers only.
+
+#### 3) Exact files/functions to edit
+
+- `tests/fixtures/auth-fixtures.ts`
+  - Remove/replace file-based helpers:
+    - `getTokenCacheFilePath`
+    - `getTokenLockFilePath`
+    - `cleanupTokenCacheDir`
+    - `ensureCacheDir`
+    - `acquireLock`
+  - Refactor:
+    - `readTokenCache` (memory-backed)
+    - `saveTokenCache` (memory-backed)
+    - `refreshTokenIfNeeded` (use in-memory lock path; no filesystem writes)
+  - Remove unused imports/constants tied to temp files (`fs`, `path`, `os`, lock/cache file constants).
+
+- `tests/fixtures/token-refresh-validation.spec.ts`
+  - Update concurrency test intent text from file-lock semantics to in-memory serialized access semantics.
+  - Keep behavioral assertions (valid token, no corruption/no throw under concurrent refresh requests).
+
+- `docs/reports/pr718_open_alerts_freshness_<timestamp>.md` (or latest freshness report in `docs/reports/`)
+  - Add a PR-3 note that the insecure temp-file finding for auth-fixtures moved to memory-backed token caching and is expected to close in next scan.
+
+#### 4) Acceptance criteria
+
+- CodeQL JavaScript scan reports zero `js/insecure-temporary-file` findings for `tests/fixtures/auth-fixtures.ts`.
+- No auth token artifacts (`token.json`, `token.lock`, or `charon-test-token-cache-*`) are created by token refresh tests.
+- `refreshTokenIfNeeded` still supports concurrent calls without token corruption or unhandled errors.
+- `tests/fixtures/token-refresh-validation.spec.ts` passes in targeted execution.
+- No regression to authentication fixture consumers using `refreshTokenIfNeeded`.
+
+#### 5) Targeted verification commands (no full E2E suite)
+
+- Targeted fixture tests:
+  - `cd /projects/Charon && npx playwright test tests/fixtures/token-refresh-validation.spec.ts --project=firefox`
+
+- Targeted static check for removed temp-file pattern:
+  - `cd /projects/Charon && rg "tmpdir\(|token\.lock|token\.json|mkdtemp" tests/fixtures/auth-fixtures.ts`
+
+- Targeted JS security scan (CI-aligned task):
+  - VS Code task: `Security: CodeQL JS Scan (CI-Aligned) [~90s]`
+  - or CLI equivalent: `cd /projects/Charon && pre-commit run --hook-stage manual codeql-js-scan --all-files`
+
+- Targeted freshness evidence generation:
+  - `cd /projects/Charon && ls -1t docs/reports/pr718_open_alerts_freshness_*.md | head -n 1`
+
+#### 6) PR-3 documentation/report updates required
+
+- Keep this addendum in `docs/plans/current_spec.md` as the planning source of truth for the token-cache remediation.
+- Update the latest PR-3 freshness report in `docs/reports/` to include:
+  - finding scope (`js/insecure-temporary-file`, auth fixture token cache),
+  - remediation approach (memory-backed cache, no disk token persistence),
+  - verification evidence references (targeted Playwright + CodeQL JS scan).
+- If PR-3 has a dedicated summary report, include a short “Security Remediation Delta” subsection with before/after status for this rule.
+
 ### Configuration Review and Suggested Updates
 
 #### `.gitignore`
