@@ -71,6 +71,67 @@ jobs:
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
+  trigger-nightly-validation:
+    name: Trigger Nightly Validation Workflows
+    needs: sync-development-to-nightly
+    if: needs.sync-development-to-nightly.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch Missing Nightly Validation Workflows
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const { data: nightlyBranch } = await github.rest.repos.getBranch({
+              owner,
+              repo,
+              branch: 'nightly',
+            });
+            const nightlyHeadSha = nightlyBranch.commit.sha;
+            core.info(`Current nightly HEAD: ${nightlyHeadSha}`);
+
+            const workflows = [
+              { id: 'quality-checks.yml' },
+              { id: 'e2e-tests-split.yml' },
+              { id: 'codecov-upload.yml', inputs: { run_backend: 'true', run_frontend: 'true' } },
+              { id: 'security-pr.yml' },
+              { id: 'supply-chain-pr.yml' },
+              { id: 'codeql.yml' },
+            ];
+
+            for (const workflow of workflows) {
+              const { data: workflowRuns } = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: workflow.id,
+                branch: 'nightly',
+                per_page: 50,
+              });
+
+              const hasRunForHead = workflowRuns.workflow_runs.some(
+                (run) => run.head_sha === nightlyHeadSha,
+              );
+
+              if (hasRunForHead) {
+                core.info(`Skipping dispatch for ${workflow.id}; run already exists for nightly HEAD`);
+                continue;
+              }
+
+              await github.rest.actions.createWorkflowDispatch({
+                owner,
+                repo,
+                workflow_id: workflow.id,
+                ref: 'nightly',
+                ...(workflow.inputs ? { inputs: workflow.inputs } : {}),
+              });
+              core.info(`Dispatched ${workflow.id} on nightly (missing run for HEAD)`);
+            }
+
   build-and-push-nightly:
     needs: sync-development-to-nightly
     runs-on: ubuntu-latest
@@ -285,7 +346,7 @@ jobs:
           output: 'trivy-nightly.sarif'
 
       - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@9e907b5e64f6b83e7804b09294d44122997950d6  # v4.32.3
+        uses: github/codeql-action/upload-sarif@015d8c7cbcbb8e7252a7dccfe81a90aa176260b2  # v4.32.3
         with:
           sarif_file: 'trivy-nightly.sarif'
           category: 'trivy-nightly'
