@@ -27,7 +27,7 @@ Validate that local patch-report workflow is executed in Definition of Done (DoD
   - [ ] `test-results/local-patch-report.md`
   - [ ] `test-results/local-patch-report.json`
 - [ ] Confirm JSON includes:
-  - [ ] `baseline = origin/main...HEAD`
+  - [ ] `baseline = origin/development...HEAD` (or `development...HEAD` when remote ref is unavailable)
   - [ ] `mode = warn`
   - [ ] `overall`, `backend`, `frontend` coverage blocks
   - [ ] `files_needing_coverage` list
