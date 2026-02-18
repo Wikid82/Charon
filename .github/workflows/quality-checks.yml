@@ -3,6 +3,7 @@ name: Quality Checks
 on:
   pull_request:
   push:
+  workflow_dispatch:
 
 
 concurrency:

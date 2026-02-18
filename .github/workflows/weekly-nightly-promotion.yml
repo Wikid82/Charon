@@ -5,8 +5,9 @@ name: Weekly Nightly to Main Promotion
 
 on:
   schedule:
-    # Every Monday at 09:00 UTC (4am EST / 5am EDT)
-    - cron: '0 9 * * 1'
+    # Every Monday at 10:30 UTC (5:30am EST / 6:30am EDT)
+    # Offset from nightly sync (09:00 UTC) to avoid schedule race and allow validation completion.
+    - cron: '30 10 * * 1'
   workflow_dispatch:
     inputs:
       reason:
@@ -61,40 +62,126 @@ jobs:
 
             core.info('Checking nightly branch workflow health...');
 
-            // Get the latest workflow runs on the nightly branch
-            const { data: runs } = await github.rest.actions.listWorkflowRunsForRepo({
+            // Resolve current nightly HEAD SHA and evaluate workflow health for that exact commit.
+            // This prevents stale failures from older nightly runs from blocking promotion.
+            const { data: nightlyBranch } = await github.rest.repos.getBranch({
               owner: context.repo.owner,
               repo: context.repo.repo,
               branch: 'nightly',
-              status: 'completed',
-              per_page: 10,
             });
+            const nightlyHeadSha = nightlyBranch.commit.sha;
+            core.info(`Current nightly HEAD: ${nightlyHeadSha}`);
 
-            if (runs.workflow_runs.length === 0) {
-              core.setOutput('is_healthy', 'true');
+            // Check critical workflows on the current nightly HEAD only.
+            // Nightly build itself is scheduler-driven and not a reliable per-commit gate.
+            const criticalWorkflows = [
+              {
+                workflowFile: 'quality-checks.yml',
+                fallbackNames: ['Quality Checks'],
+              },
+              {
+                workflowFile: 'e2e-tests-split.yml',
+                fallbackNames: ['E2E Tests'],
+              },
+              {
+                workflowFile: 'codeql.yml',
+                fallbackNames: ['CodeQL - Analyze'],
+              },
+            ];
+
+            // Retry window to avoid race conditions where required checks are not yet materialized.
+            const maxAttempts = 6;
+            const waitMs = 20000;
+
+            let branchRuns = [];
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              const { data: completedRuns } = await github.rest.actions.listWorkflowRunsForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                branch: 'nightly',
+                status: 'completed',
+                per_page: 100,
+              });
+
+              branchRuns = completedRuns.workflow_runs;
+
+              const allWorkflowsPresentForHead = criticalWorkflows.every((workflow) => {
+                const workflowPath = `.github/workflows/${workflow.workflowFile}`;
+                return branchRuns.some(
+                  (r) =>
+                    r.head_sha === nightlyHeadSha &&
+                    (
+                      r.path === workflowPath ||
+                      (typeof r.path === 'string' && r.path.endsWith(`/${workflowPath}`)) ||
+                      workflow.fallbackNames.includes(r.name)
+                    ),
+                );
+              });
+
+              if (allWorkflowsPresentForHead) {
+                core.info(`Required workflow runs found for nightly HEAD on attempt ${attempt}`);
+                break;
+              }
+
+              if (attempt < maxAttempts) {
+                core.info(
+                  `Waiting for required runs to appear for nightly HEAD (attempt ${attempt}/${maxAttempts})`,
+                );
+                await new Promise((resolve) => setTimeout(resolve, waitMs));
+              }
+            }
+
+            if (branchRuns.length === 0) {
+              core.setOutput('is_healthy', 'false');
               core.setOutput('latest_run_url', 'No completed runs found');
-              core.setOutput('failure_reason', '');
-              core.info('No completed workflow runs found on nightly - proceeding');
+              core.setOutput('failure_reason', 'No completed workflow runs found on nightly');
+              core.warning('No completed workflow runs found on nightly - blocking promotion');
               return;
             }
 
-            // Check the most recent critical workflows
-            const criticalWorkflows = ['Nightly Build & Package', 'Quality Checks', 'E2E Tests'];
-            const recentRuns = runs.workflow_runs.slice(0, 10);
-
             let hasFailure = false;
             let failureReason = '';
-            let latestRunUrl = recentRuns[0]?.html_url || 'N/A';
+            let latestRunUrl = branchRuns[0]?.html_url || 'N/A';
 
-            for (const workflowName of criticalWorkflows) {
-              const latestRun = recentRuns.find(r => r.name === workflowName);
-              if (latestRun && latestRun.conclusion === 'failure') {
+            for (const workflow of criticalWorkflows) {
+              const workflowPath = `.github/workflows/${workflow.workflowFile}`;
+              core.info(
+                `Evaluating required workflow ${workflow.workflowFile} (path match first, names fallback: ${workflow.fallbackNames.join(', ')})`,
+              );
+
+              const latestRunForHead = branchRuns.find(
+                (r) =>
+                  r.head_sha === nightlyHeadSha &&
+                  (
+                    r.path === workflowPath ||
+                    (typeof r.path === 'string' && r.path.endsWith(`/${workflowPath}`)) ||
+                    workflow.fallbackNames.includes(r.name)
+                  ),
+              );
+
+              if (!latestRunForHead) {
                 hasFailure = true;
-                failureReason = `${workflowName} failed (${latestRun.html_url})`;
-                latestRunUrl = latestRun.html_url;
-                core.warning(`Critical workflow "${workflowName}" has failed`);
+                failureReason = `${workflow.workflowFile} has no completed run for nightly HEAD ${nightlyHeadSha}`;
+                latestRunUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/${workflow.workflowFile}`;
+                core.warning(
+                  `Required workflow ${workflow.workflowFile} has no completed run for current nightly HEAD`,
+                );
                 break;
               }
+
+              if (latestRunForHead.conclusion !== 'success') {
+                hasFailure = true;
+                failureReason = `${workflow.workflowFile} ${latestRunForHead.conclusion} (${latestRunForHead.html_url})`;
+                latestRunUrl = latestRunForHead.html_url;
+                core.warning(
+                  `Required workflow ${workflow.workflowFile} is ${latestRunForHead.conclusion} on nightly HEAD`,
+                );
+                break;
+              }
+
+              core.info(
+                `Required workflow ${workflow.workflowFile} passed for nightly HEAD via run ${latestRunForHead.id}`,
+              );
             }
 
             core.setOutput('is_healthy', hasFailure ? 'false' : 'true');
@@ -328,9 +415,67 @@ jobs:
             core.setOutput('pr_number', prNumber);
             core.setOutput('pr_url', '${{ steps.existing-pr.outputs.pr_url }}');
 
+  trigger-required-checks:
+    name: Trigger Missing Required Checks
+    needs: create-promotion-pr
+    if: needs.create-promotion-pr.outputs.skipped != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch missing required workflows on nightly head
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const { data: nightlyBranch } = await github.rest.repos.getBranch({
+              owner,
+              repo,
+              branch: 'nightly',
+            });
+            const nightlyHeadSha = nightlyBranch.commit.sha;
+            core.info(`Current nightly HEAD for dispatch fallback: ${nightlyHeadSha}`);
+
+            const requiredWorkflows = [
+              { id: 'quality-checks.yml' },
+              { id: 'e2e-tests-split.yml' },
+              { id: 'codeql.yml' },
+              { id: 'codecov-upload.yml', inputs: { run_backend: 'true', run_frontend: 'true' } },
+              { id: 'security-pr.yml' },
+              { id: 'supply-chain-pr.yml' },
+            ];
+
+            for (const workflow of requiredWorkflows) {
+              const { data: runs } = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: workflow.id,
+                branch: 'nightly',
+                per_page: 50,
+              });
+
+              const hasRunForHead = runs.workflow_runs.some((run) => run.head_sha === nightlyHeadSha);
+              if (hasRunForHead) {
+                core.info(`Skipping ${workflow.id}; run already exists for nightly HEAD`);
+                continue;
+              }
+
+              await github.rest.actions.createWorkflowDispatch({
+                owner,
+                repo,
+                workflow_id: workflow.id,
+                ref: 'nightly',
+                ...(workflow.inputs ? { inputs: workflow.inputs } : {}),
+              });
+              core.info(`Dispatched ${workflow.id}; missing for nightly HEAD`);
+            }
+
   notify-on-failure:
     name: Notify on Failure
-    needs: [check-nightly-health, create-promotion-pr]
+    needs: [check-nightly-health, create-promotion-pr, trigger-required-checks]
     runs-on: ubuntu-latest
     if: |
       always() &&
@@ -445,7 +590,7 @@ jobs:
 
   summary:
     name: Workflow Summary
-    needs: [check-nightly-health, create-promotion-pr]
+    needs: [check-nightly-health, create-promotion-pr, trigger-required-checks]
     runs-on: ubuntu-latest
     if: always()
 
