@@ -20,7 +20,7 @@ echo "📦 Creating CodeQL database..."
 codeql database create codeql-db-js \
   --language=javascript \
   --build-mode=none \
-  --source-root=. \
+  --source-root=frontend \
   --codescanning-config=.github/codeql/codeql-config.yml \
   --threads=0 \
   --overwrite
