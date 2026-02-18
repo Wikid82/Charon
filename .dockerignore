@@ -10,7 +10,7 @@
 .gitignore
 .github/
 .pre-commit-config.yaml
-.codecov.yml
+codecov.yml
 .goreleaser.yaml
 .sourcery.yml
 
@@ -184,8 +184,6 @@ codeql-db/
 codeql-db-*/
 codeql-agent-results/
 codeql-custom-queries-*/
-codeql-*.sarif
-codeql-results*.sarif
 .codeql/
 
 # -----------------------------------------------------------------------------
