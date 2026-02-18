@@ -186,6 +186,22 @@ repos:
         verbose: true
         description: "Detects GORM ID leaks and common GORM security mistakes"
 
+      - id: semgrep-scan
+        name: Semgrep Security Scan (Manual)
+        entry: scripts/pre-commit-hooks/semgrep-scan.sh
+        language: script
+        pass_filenames: false
+        verbose: true
+        stages: [manual]  # Manual stage initially (reversible rollout)
+
+      - id: gitleaks-tuned-scan
+        name: Gitleaks Security Scan (Tuned, Manual)
+        entry: scripts/pre-commit-hooks/gitleaks-tuned-scan.sh
+        language: script
+        pass_filenames: false
+        verbose: true
+        stages: [manual]  # Manual stage initially (reversible rollout)
+
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.47.0
     hooks:
