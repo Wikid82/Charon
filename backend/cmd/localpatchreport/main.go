@@ -46,7 +46,7 @@ type reportJSON struct {
 
 func main() {
 	repoRootFlag := flag.String("repo-root", ".", "Repository root path")
-	baselineFlag := flag.String("baseline", "origin/main...HEAD", "Git diff baseline")
+	baselineFlag := flag.String("baseline", "origin/development...HEAD", "Git diff baseline")
 	backendCoverageFlag := flag.String("backend-coverage", "backend/coverage.txt", "Backend Go coverage profile")
 	frontendCoverageFlag := flag.String("frontend-coverage", "frontend/coverage/lcov.info", "Frontend LCOV coverage report")
 	jsonOutFlag := flag.String("json-out", "test-results/local-patch-report.json", "Path to JSON output report")
