@@ -647,3 +647,91 @@ After user approval of this plan:
 2. Execute PR-2 (quality/open findings) second.
 3. Execute PR-3 (hygiene/config hardening) third.
 4. Submit final supervisor review with linked evidence and closure checklist.
+
+## Patch-Coverage Uplift Addendum (CodeQL Remediation Branch)
+
+### Scope
+
+Input baseline (`docs/plans/codecove_patch_report.md`): 18 uncovered patch lines across 9 backend files.
+
+Goal: close uncovered branches with minimal, branch-specific tests only (no broad refactors).
+
+### 1) Exact test files to add/update
+
+- Update `backend/internal/api/handlers/emergency_handler_test.go`
+- Update `backend/internal/api/handlers/proxy_host_handler_update_test.go`
+- Update `backend/internal/crowdsec/hub_sync_test.go`
+- Update `backend/internal/api/handlers/crowdsec_pull_apply_integration_test.go`
+- Update `backend/internal/services/backup_service_wave3_test.go`
+- Update `backend/internal/services/uptime_service_unit_test.go`
+- Update `backend/internal/api/middleware/emergency_test.go`
+- Update `backend/internal/cerberus/cerberus_middleware_test.go`
+- Update `backend/internal/crowdsec/hub_cache_test.go`
+
+### 2) Minimal branch-execution scenarios
+
+#### `backend/internal/api/handlers/emergency_handler.go` (3 lines)
+- Add middleware-prevalidated reset test: set `emergency_bypass=true` in context and assert `SecurityReset` takes middleware path and returns success.
+- Add reset failure-path test: force module-disable failure (closed DB/failed upsert) and assert HTTP 500 path executes.
+
+#### `backend/internal/api/handlers/proxy_host_handler.go` (3 lines)
+- Add update payload case with `security_header_profile_id` as valid string to execute string-conversion success path.
+- Add update payload case with invalid string to execute string parse failure branch.
+- Add update payload case with unsupported type (boolean/object) to execute unsupported-type branch.
+
+#### `backend/internal/crowdsec/hub_sync.go` (3 lines)
+- Add apply scenario where cache metadata exists but archive read fails, forcing refresh path and post-refresh archive read.
+- Add fallback fetch scenario with first endpoint returning fallback-eligible error, second endpoint success.
+- Add fallback-stop scenario with non-fallback error to execute early break path.
+
+#### `backend/internal/api/handlers/crowdsec_handler.go` (2 lines)
+- Add apply test where cached meta exists but archive/preview file stat fails to execute missing-file log branches before apply.
+- Add pull/apply branch case that exercises cache-miss diagnostics and response payload path.
+
+#### `backend/internal/services/backup_service.go` (2 lines)
+- Add unzip-with-skip test with oversized decompressed entry to execute decompression-limit rejection branch.
+- Add unzip-with-skip error-path test that validates extraction abort handling for invalid archive entry flow.
+
+#### `backend/internal/services/uptime_service.go` (2 lines)
+- Add `CreateMonitor` test with `interval<=0` and `max_retries<=0` to execute defaulting branches.
+- Add TCP monitor validation case with invalid `host:port` input to execute TCP validation error path.
+
+#### `backend/internal/api/middleware/emergency.go` (1 line)
+- Add malformed client IP test (`RemoteAddr` unparsable) with token present to execute invalid-IP branch and confirm bypass is not set.
+
+#### `backend/internal/cerberus/cerberus.go` (1 line)
+- Add middleware test with `emergency_bypass=true` in gin context and ACL enabled to execute bypass short-circuit branch.
+
+#### `backend/internal/crowdsec/hub_cache.go` (1 line)
+- Add cache-load test that causes non-ENOENT metadata read failure (e.g., invalid metadata path state) to execute hard read-error branch (not `ErrCacheMiss`).
+
+### 3) Verification commands (targeted + patch report)
+
+Run targeted backend tests only:
+
+```bash
+cd /projects/Charon
+go test ./backend/internal/api/handlers -run 'TestEmergency|TestProxyHostUpdate|TestPullThenApply|TestApplyWithoutPull|TestApplyRollbackWhenCacheMissingAndRepullFails'
+go test ./backend/internal/crowdsec -run 'TestPull|TestApply|TestFetchWith|TestHubCache'
+go test ./backend/internal/services -run 'TestBackupService_UnzipWithSkip|TestCreateMonitor|TestUpdateMonitor|TestDeleteMonitor'
+go test ./backend/internal/api/middleware -run 'TestEmergencyBypass'
+go test ./backend/internal/cerberus -run 'TestMiddleware_'
+```
+
+Generate local patch coverage report artifacts:
+
+```bash
+cd /projects/Charon
+bash scripts/local-patch-report.sh
+```
+
+Expected artifacts:
+- `test-results/local-patch-report.md`
+- `test-results/local-patch-report.json`
+
+### 4) Acceptance criteria
+
+- Patch coverage increases from `79.31034%` to `>= 90%` for this remediation branch.
+- Missing patch lines decrease from `18` to `<= 6` (target `0` if all branches are feasibly testable).
+- All nine listed backend files show reduced missing-line counts in local patch report output.
+- Targeted test commands pass with zero failures.

@@ -2,6 +2,7 @@ package services
 
 import (
 	"archive/zip"
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -89,4 +90,50 @@ func TestBackupService_ExtractDatabaseFromBackup_ExtractWalFailure(t *testing.T)
 	svc := &BackupService{DatabaseName: "charon.db"}
 	_, err = svc.extractDatabaseFromBackup(zipPath)
 	require.Error(t, err)
+}
+
+func TestBackupService_UnzipWithSkip_RejectsPathTraversal(t *testing.T) {
+	tmp := t.TempDir()
+	destDir := filepath.Join(tmp, "data")
+	require.NoError(t, os.MkdirAll(destDir, 0o700))
+
+	zipPath := filepath.Join(tmp, "path-traversal.zip")
+	zipFile := openZipInTempDir(t, tmp, zipPath)
+	writer := zip.NewWriter(zipFile)
+
+	entry, err := writer.Create("../escape.txt")
+	require.NoError(t, err)
+	_, err = entry.Write([]byte("evil"))
+	require.NoError(t, err)
+
+	require.NoError(t, writer.Close())
+	require.NoError(t, zipFile.Close())
+
+	svc := &BackupService{DataDir: destDir, DatabaseName: "charon.db"}
+	err = svc.unzipWithSkip(zipPath, destDir, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid file path in archive")
+}
+
+func TestBackupService_UnzipWithSkip_RejectsExcessiveUncompressedSize(t *testing.T) {
+	tmp := t.TempDir()
+	destDir := filepath.Join(tmp, "data")
+	require.NoError(t, os.MkdirAll(destDir, 0o700))
+
+	zipPath := filepath.Join(tmp, "oversized.zip")
+	zipFile := openZipInTempDir(t, tmp, zipPath)
+	writer := zip.NewWriter(zipFile)
+
+	entry, err := writer.Create("huge.bin")
+	require.NoError(t, err)
+	_, err = entry.Write(bytes.Repeat([]byte("a"), 101*1024*1024))
+	require.NoError(t, err)
+
+	require.NoError(t, writer.Close())
+	require.NoError(t, zipFile.Close())
+
+	svc := &BackupService{DataDir: destDir, DatabaseName: "charon.db"}
+	err = svc.unzipWithSkip(zipPath, destDir, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeded decompression limit")
 }
