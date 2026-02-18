@@ -431,6 +431,34 @@
             "problemMatcher": []
         },
         {
+            "label": "Security: Semgrep Scan (Manual Script)",
+            "type": "shell",
+            "command": "bash scripts/pre-commit-hooks/semgrep-scan.sh",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Security: Semgrep Scan (Manual Hook)",
+            "type": "shell",
+            "command": "pre-commit run --hook-stage manual semgrep-scan --all-files",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Security: Gitleaks Scan (Tuned Manual Script)",
+            "type": "shell",
+            "command": "bash scripts/pre-commit-hooks/gitleaks-tuned-scan.sh",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Security: Gitleaks Scan (Tuned Manual Hook)",
+            "type": "shell",
+            "command": "pre-commit run --hook-stage manual gitleaks-tuned-scan --all-files",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
             "label": "Security: Scan Docker Image (Local)",
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh security-scan-docker-image",
