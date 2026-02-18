@@ -54,10 +54,12 @@ ensure_event_branches() {
 [[ -f "$JS_PRECOMMIT_SCRIPT" ]] || fail "Missing pre-commit script: $JS_PRECOMMIT_SCRIPT"
 
 ensure_event_branches "$CODEQL_WORKFLOW" "pull_request" "branches: [main, nightly, development]" || fail "codeql.yml pull_request branches must be [main, nightly, development]"
-ensure_event_branches "$CODEQL_WORKFLOW" "push" "branches: [main, nightly, development]" || fail "codeql.yml push branches must be [main, nightly, development]"
+ensure_event_branches "$CODEQL_WORKFLOW" "push" "branches: [main, nightly, development, 'feature/**', 'fix/**']" || fail "codeql.yml push branches must be [main, nightly, development, 'feature/**', 'fix/**']"
 grep -Fq 'queries: security-and-quality' "$CODEQL_WORKFLOW" || fail "codeql.yml must pin init queries to security-and-quality"
 grep -Fq '"label": "Security: CodeQL Go Scan (CI-Aligned) [~60s]"' "$TASKS_FILE" || fail "Missing CI-aligned Go CodeQL task label"
 grep -Fq '"command": "bash scripts/pre-commit-hooks/codeql-go-scan.sh"' "$TASKS_FILE" || fail "CI-aligned Go CodeQL task must invoke scripts/pre-commit-hooks/codeql-go-scan.sh"
+grep -Fq '"label": "Security: CodeQL JS Scan (CI-Aligned) [~90s]"' "$TASKS_FILE" || fail "Missing CI-aligned JS CodeQL task label"
+grep -Fq '"command": "bash scripts/pre-commit-hooks/codeql-js-scan.sh"' "$TASKS_FILE" || fail "CI-aligned JS CodeQL task must invoke scripts/pre-commit-hooks/codeql-js-scan.sh"
 grep -Fq 'codeql/go-queries:codeql-suites/go-security-and-quality.qls' "$GO_PRECOMMIT_SCRIPT" || fail "Go pre-commit script must use go-security-and-quality suite"
 grep -Fq 'codeql/javascript-queries:codeql-suites/javascript-security-and-quality.qls' "$JS_PRECOMMIT_SCRIPT" || fail "JS pre-commit script must use javascript-security-and-quality suite"
 
