@@ -301,6 +301,30 @@ describe('CredentialManager', () => {
     })
   })
 
+  it('opens delete confirmation dialog when delete action is clicked', async () => {
+    const user = userEvent.setup()
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    const credentialRow = screen.getByText('Main Zone').closest('tr')
+    expect(credentialRow).not.toBeNull()
+
+    const actionButtons = credentialRow?.querySelectorAll('button')
+    expect(actionButtons?.[2]).toBeDefined()
+
+    await user.click(actionButtons![2])
+
+    expect(await screen.findByRole('dialog', { name: 'Delete Credential?' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+  })
+
   // 5. Validation - Required Fields
   it('validates required fields on add', async () => {
     const user = userEvent.setup()
