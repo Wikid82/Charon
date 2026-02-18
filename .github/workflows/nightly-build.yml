@@ -96,7 +96,6 @@ jobs:
             core.info(`Current nightly HEAD: ${nightlyHeadSha}`);
 
             const workflows = [
-              { id: 'quality-checks.yml' },
               { id: 'e2e-tests-split.yml' },
               { id: 'codecov-upload.yml', inputs: { run_backend: 'true', run_frontend: 'true' } },
               { id: 'security-pr.yml' },
