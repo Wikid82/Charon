@@ -1,12 +1,17 @@
 ---
 post_title: "Definition of Done QA Report"
-author1: "Charon Team"
 post_slug: "definition-of-done-qa-report-2026-02-10"
-microsoft_alias: "charon-team"
 featured_image: "https://wikid82.github.io/charon/assets/images/featured/charon.png"
-categories: ["testing", "security", "ci"]
-tags: ["coverage", "lint", "codeql", "trivy", "grype"]
-ai_note: "true"
+categories:
+	- testing
+	- security
+	- ci
+tags:
+	- coverage
+	- lint
+	- codeql
+	- trivy
+	- grype
 summary: "Definition of Done validation results, including coverage, security scans, linting, and pre-commit checks."
 post_date: "2026-02-10"
 ---
@@ -202,7 +207,7 @@ cd /projects/Charon && .github/skills/scripts/skill-runner.sh security-scan-code
 
 - Backend coverage: 92.0% statements (meets >=85%)
 - Frontend coverage: lines 86.91%, statements 86.4%, functions 82.71%, branches 78.78% (below 88% gate)
-- Evidence: [frontend/coverage.log](frontend/coverage.log)
+- Evidence: [frontend/coverage.log](../../frontend/coverage.log)
 
 ## Type Safety (Frontend)
 
@@ -211,8 +216,8 @@ cd /projects/Charon && .github/skills/scripts/skill-runner.sh security-scan-code
 
 ## Pre-commit Hooks (Fast)
 	- Exception: [docs/security/SECURITY-EXCEPTION-nebula-v1.9.7.md](../security/SECURITY-EXCEPTION-nebula-v1.9.7.md)
-- CodeQL Go scan: PASS (results array empty in [codeql-results-go.sarif](codeql-results-go.sarif))
-- CodeQL JS scan: PASS (results array empty in [codeql-results-js.sarif](codeql-results-js.sarif))
+- CodeQL Go scan: PASS (results array empty in [codeql-results-go.sarif](../../codeql-results-go.sarif))
+- CodeQL JS scan: PASS (results array empty in [codeql-results-js.sarif](../../codeql-results-js.sarif))
 - Trivy filesystem artifacts do not list vulnerabilities.
 - Docker image scan found 1 High severity vulnerability (accepted risk; see [docs/security/SECURITY-EXCEPTION-nebula-v1.9.7.md](../security/SECURITY-EXCEPTION-nebula-v1.9.7.md)).
 - Result: MISMATCH - Docker image scan reveals issues not surfaced by Trivy filesystem artifacts.
@@ -222,7 +227,7 @@ cd /projects/Charon && .github/skills/scripts/skill-runner.sh security-scan-code
 
 ## Blocking Issues and Remediation
 
-- Markdownlint failures in [tests/README.md](tests/README.md#L428-L430). Fix table spacing and re-run markdownlint.
+- Markdownlint failures in [tests/README.md](../../tests/README.md). Fix table spacing and re-run markdownlint.
 - Hadolint failures (DL3059, SC2012). Consolidate consecutive RUN instructions and replace ls usage; re-run hadolint.
 - TypeScript check and pre-commit status not confirmed. Re-run and capture final pass output.
 ## Verdict
