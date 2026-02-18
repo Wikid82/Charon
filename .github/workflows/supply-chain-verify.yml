@@ -79,6 +79,17 @@ jobs:
               # Replace / with - to avoid invalid reference format errors
               TAG=$(echo "${BRANCH}" | tr '/' '-')
             fi
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            BRANCH="${{ github.ref_name }}"
+            if [[ "${BRANCH}" == "main" ]]; then
+              TAG="latest"
+            elif [[ "${BRANCH}" == "development" ]]; then
+              TAG="dev"
+            elif [[ "${BRANCH}" == "nightly" ]]; then
+              TAG="nightly"
+            else
+              TAG=$(echo "${BRANCH}" | tr '/' '-')
+            fi
           else
             TAG="latest"
           fi
