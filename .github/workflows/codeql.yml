@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main, nightly, development]
   push:
-    branches: [main, nightly, development]
+    branches: [main, nightly, development, 'feature/**', 'fix/**']
   workflow_dispatch:
   schedule:
     - cron: '0 3 * * 1' # Mondays 03:00 UTC

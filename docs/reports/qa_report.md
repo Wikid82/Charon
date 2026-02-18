@@ -498,6 +498,36 @@ Primary root cause is **test isolation breakdown under race+shuffle execution**,
 - **Scoped fix validation**: PASS (targeted flaky tests stabilized).
 - **Full CI-parity matrix**: FAIL (broader baseline instability remains; not fully resolved in this pass).
 
+## CodeQL Hardening Validation - 2026-02-18
+
+### Scope
+
+- `.github/workflows/codeql.yml`
+- `.vscode/tasks.json`
+- `scripts/ci/check-codeql-parity.sh`
+- `scripts/pre-commit-hooks/codeql-js-scan.sh`
+
+### Validation Results
+
+- `actionlint .github/workflows/codeql.yml` -> **PASS** (`ACTIONLINT_OK`)
+- `shellcheck scripts/ci/check-codeql-parity.sh scripts/pre-commit-hooks/codeql-js-scan.sh` -> **PASS** (`SHELLCHECK_OK`)
+- `bash scripts/ci/check-codeql-parity.sh` -> **PASS** (`CodeQL parity check passed ...`, `PARITY_OK`)
+- `pre-commit run --hook-stage manual codeql-check-findings --all-files` -> **PASS** (`Block HIGH/CRITICAL CodeQL Findings...Passed`, `FINDINGS_GATE_OK`)
+
+### JS CI-Aligned Task Scope/Output Check
+
+- Task `Security: CodeQL JS Scan (CI-Aligned) [~90s]` in `.vscode/tasks.json` invokes `bash scripts/pre-commit-hooks/codeql-js-scan.sh` -> **PASS**
+- Script uses `--source-root=.` so repository-wide JavaScript/TypeScript analysis scope includes `tests/` and other TS/JS paths, not only `frontend/` -> **PASS**
+- Script SARIF output remains `--output=codeql-results-js.sarif` -> **PASS**
+
+### Overall Verdict
+
+- **PASS**
+
+### Blockers
+
+- **None** for this validation scope.
+
 ### Recommended Next Fix Plan (No Sleep/Retry Band-Aids)
 
 1. Enforce per-test DB isolation in remaining backend test helpers still using shared sqlite state.

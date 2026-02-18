@@ -466,7 +466,7 @@
         {
             "label": "Security: CodeQL JS Scan (CI-Aligned) [~90s]",
             "type": "shell",
-            "command": "rm -rf codeql-db-js && codeql database create codeql-db-js --language=javascript --build-mode=none --source-root=frontend --codescanning-config=.github/codeql/codeql-config.yml --overwrite --threads=0 && codeql database analyze codeql-db-js --format=sarif-latest --output=codeql-results-js.sarif --sarif-add-baseline-file-info --threads=0",
+            "command": "bash scripts/pre-commit-hooks/codeql-js-scan.sh",
             "group": "test",
             "problemMatcher": []
         },
