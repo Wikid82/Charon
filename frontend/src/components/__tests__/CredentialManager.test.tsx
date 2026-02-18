@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider, type UseMutationResult } from '@tanstack/react-query'
 import CredentialManager from '../CredentialManager'
@@ -323,6 +323,34 @@ describe('CredentialManager', () => {
 
     expect(await screen.findByRole('dialog', { name: 'Delete Credential?' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+  })
+
+  it('closes delete confirmation dialog via dialog close button', async () => {
+    const user = userEvent.setup()
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    const credentialRow = screen.getByText('Main Zone').closest('tr')
+    expect(credentialRow).not.toBeNull()
+
+    const actionButtons = credentialRow?.querySelectorAll('button')
+    expect(actionButtons?.[2]).toBeDefined()
+
+    await user.click(actionButtons![2])
+
+    const deleteDialog = await screen.findByRole('dialog', { name: 'Delete Credential?' })
+    await user.click(within(deleteDialog).getByRole('button', { name: 'Close' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Delete Credential?' })).not.toBeInTheDocument()
+    })
   })
 
   // 5. Validation - Required Fields
