@@ -188,7 +188,7 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 				return
 			}
 
-			logger.Log().WithField("setting_key", req.Key).Info("Caddy config reloaded after security setting change")
+			logger.Log().WithField("setting_key", sanitizeForLog(req.Key)).Info("Caddy config reloaded after security setting change")
 		}
 	}
 

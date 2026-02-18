@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -126,7 +127,7 @@ func (s *EmergencyTokenService) Generate(req GenerateRequest) (*GenerateResponse
 	}
 
 	logger.Log().WithFields(map[string]interface{}{
-		"policy":     policy,
+		"policy":     util.SanitizeForLog(policy),
 		"expires_at": expiresAt,
 		"user_id":    req.UserID,
 	}).Info("Emergency token generated")
@@ -301,7 +302,7 @@ func (s *EmergencyTokenService) UpdateExpiration(expirationDays int) (*time.Time
 	}
 
 	logger.Log().WithFields(map[string]interface{}{
-		"policy":     policy,
+		"policy":     util.SanitizeForLog(policy),
 		"expires_at": expiresAt,
 	}).Info("Emergency token expiration updated")
 

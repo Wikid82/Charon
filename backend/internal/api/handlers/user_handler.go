@@ -542,7 +542,7 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 		go func() {
 			if err := h.MailService.SendInvite(userEmail, userToken, appName, baseURL); err != nil {
 				// Log failure but don't block response
-				middleware.GetRequestLogger(c).WithField("user_email", userEmail).WithError(err).Error("Failed to send invite email")
+				middleware.GetRequestLogger(c).WithField("user_email", sanitizeForLog(userEmail)).WithField("error", sanitizeForLog(err.Error())).Error("Failed to send invite email")
 			}
 		}()
 	}
