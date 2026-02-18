@@ -103,11 +103,11 @@ func (c *HubCache) Store(ctx context.Context, slug, etag, source, preview string
 		return CachedPreset{}, fmt.Errorf("marshal metadata: %w", err)
 	}
 	if err := os.WriteFile(metaPath, raw, 0o600); err != nil {
-		logger.Log().WithError(err).WithField("meta_path", util.SanitizeForLog(metaPath)).Error("failed to write metadata file")
+		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("meta_path", util.SanitizeForLog(metaPath)).Error("failed to write metadata file")
 		return CachedPreset{}, fmt.Errorf("write metadata: %w", err)
 	}
 
-	logger.Log().WithField("slug", util.SanitizeForLog(cleanSlug)).WithField("cache_key", cacheKey).WithField("archive_path", util.SanitizeForLog(archivePath)).WithField("preview_path", util.SanitizeForLog(previewPath)).WithField("meta_path", util.SanitizeForLog(metaPath)).Info("preset successfully stored in cache")
+	logger.Log().WithField("slug", util.SanitizeForLog(cleanSlug)).WithField("cache_key", util.SanitizeForLog(cacheKey)).WithField("archive_path", util.SanitizeForLog(archivePath)).WithField("preview_path", util.SanitizeForLog(previewPath)).WithField("meta_path", util.SanitizeForLog(metaPath)).Info("preset successfully stored in cache")
 
 	return meta, nil
 }

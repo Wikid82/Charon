@@ -101,7 +101,7 @@ func (h *BackupHandler) Restore(c *gin.Context) {
 	if err := h.service.RestoreBackup(filename); err != nil {
 		// codeql[go/log-injection] Safe: User input sanitized via util.SanitizeForLog()
 		// which removes control characters (0x00-0x1F, 0x7F) including CRLF
-		middleware.GetRequestLogger(c).WithField("action", "restore_backup").WithField("filename", util.SanitizeForLog(filepath.Base(filename))).WithError(err).Error("Failed to restore backup")
+		middleware.GetRequestLogger(c).WithField("action", "restore_backup").WithField("filename", util.SanitizeForLog(filepath.Base(filename))).WithField("error", util.SanitizeForLog(err.Error())).Error("Failed to restore backup")
 		if os.IsNotExist(err) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Backup not found"})
 			return
