@@ -11,6 +11,44 @@ summary: "Definition of Done validation results, including coverage, security sc
 post_date: "2026-02-10"
 ---
 
+## PR-3 Closure Audit (Config/Docs Hygiene Slice) - 2026-02-18
+
+### Scope and Constraints
+
+- Scope: config/docs hygiene only (ignore/canonicalization/freshness artifacts).
+- User directive honored: full local Playwright E2E was not run; complete E2E deferred to CI.
+
+### Commands Run and Outcomes
+
+1. `git status --short`
+	- Result: shows docs/report artifacts plus config changes (`.codecov.yml` deleted in working tree, `codecov.yml` modified).
+2. `git diff --name-only | grep -E '^(backend/|frontend/|Dockerfile$|\.docker/|scripts/.*\.sh$|go\.mod$|go\.sum$|package\.json$|package-lock\.json$)' || true`
+	- Result: no output (no runtime-impacting paths in current unstaged diff).
+3. `bash scripts/ci/check-codeql-parity.sh`
+	- Result: **PASS** (`CodeQL parity check passed ...`).
+4. `bash scripts/pr718-freshness-gate.sh`
+	- Result: **PASS**; generated:
+	  - `docs/reports/pr718_open_alerts_freshness_20260218T163918Z.json`
+	  - `docs/reports/pr718_open_alerts_freshness_20260218T163918Z.md`
+5. `pre-commit run check-yaml --files codecov.yml`
+	- Result: **PASS**.
+6. `pre-commit run --files .dockerignore codecov.yml docs/reports/pr3_hygiene_scanner_hardening_2026-02-18.md docs/reports/pr718_open_alerts_baseline.json docs/reports/pr718_open_alerts_freshness_20260218T163918Z.json docs/reports/pr718_open_alerts_freshness_20260218T163918Z.md`
+	- Result: **PASS** (applicable hooks passed; non-applicable hooks skipped).
+7. `grep -n '^codecov\.yml$' .dockerignore`
+	- Result: canonical entry present.
+8. `python3` SARIF summary (`codeql-results-go.sarif`, `codeql-results-js.sarif`)
+	- Result: `total=0 error=0 warning=0 note=0` for both artifacts.
+9. `python3` freshness summary (`docs/reports/pr718_open_alerts_freshness_20260218T163918Z.json`)
+	- Result: `baseline_status=present`, `drift_status=no_drift`, `fresh_total=0`, `added=0`, `removed=0`.
+
+### PR-3 Slice Verdict
+
+- Config/docs formatting/lint hooks (relevant to touched files): **PASS**.
+- CodeQL parity/freshness consistency and blocker regression check: **PASS**.
+- Runtime-impacting changes introduced by this slice: **NONE DETECTED**.
+
+**Final PR-3 slice status: PASS**
+
 ## Final Re-check After Blocker Fix - 2026-02-18
 
 ### Scope of This Re-check
@@ -541,6 +579,69 @@ Primary root cause is **test isolation breakdown under race+shuffle execution**,
 ### Blockers
 
 - **None** for this validation scope.
+
+## PR-3 Insecure Temporary File Remediation Gate (Targeted) - 2026-02-18
+
+### Scope
+
+- `tests/fixtures/auth-fixtures.ts`
+- `tests/fixtures/token-refresh-validation.spec.ts`
+- `docs/reports/pr3_hygiene_scanner_hardening_2026-02-18.md`
+- User constraint honored: no full local Playwright E2E run.
+
+### Required Checks and Evidence
+
+1. **Targeted Playwright spec execution**
+	 - Command:
+		 `PLAYWRIGHT_HTML_OPEN=never PLAYWRIGHT_COVERAGE=0 PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox tests/fixtures/token-refresh-validation.spec.ts`
+	 - Environment readiness evidence:
+		 - `docker ps` shows `charon-e2e` healthy.
+		 - `curl -sf http://127.0.0.1:8080/api/v1/health` returned `{"status":"ok",...}`.
+	 - Result: **PASS** (`10 passed`, `9.5s`).
+
+2. **CI-aligned JS CodeQL targeted verification (`js/insecure-temporary-file`)**
+	 - Task: `Security: CodeQL JS Scan (CI-Aligned) [~90s]`
+	 - Artifact: `codeql-results-js.sarif`
+	 - Targeted SARIF verification command (touched paths only):
+		 - Rule: `js/insecure-temporary-file`
+		 - Files: `tests/fixtures/auth-fixtures.ts`, `tests/fixtures/token-refresh-validation.spec.ts`
+	 - Result: **PASS**
+		 - `TOUCHED_MATCHES=0`
+		 - `TOTAL_RESULTS=0`
+
+3. **Basic lint/type sanity for touched files**
+	 - Lint command:
+		 `npx eslint --no-error-on-unmatched-pattern --no-warn-ignored tests/fixtures/auth-fixtures.ts tests/fixtures/token-refresh-validation.spec.ts && echo ESLINT_TOUCHED_OK`
+	 - Lint result: **PASS** (`ESLINT_TOUCHED_OK`)
+	 - Type command:
+		 `npx tsc --pretty false --noEmit --skipLibCheck --target ES2022 --module ESNext --moduleResolution Bundler --types node,@playwright/test tests/fixtures/auth-fixtures.ts tests/fixtures/token-refresh-validation.spec.ts && echo TYPECHECK_OK`
+	 - Type result: **PASS** (`TYPECHECK_OK`)
+
+### Gate Verdict
+
+- **PASS** (targeted QA/Security gate for requested scope)
+
+### Remaining Blockers
+
+- **None** for the requested targeted gate scope.
+
+## PR-3 Closure Addendum - Auth Fixture Token Refresh/Cache Remediation - 2026-02-18
+
+### Objective
+
+- Confirm closure evidence remains present for the targeted `js/insecure-temporary-file` remediation in auth fixture token refresh/cache handling.
+
+### Evidence
+
+- Targeted Playwright verification: `tests/fixtures/token-refresh-validation.spec.ts` -> **PASS** (`10 passed`).
+- CI-aligned JavaScript CodeQL scan task: `Security: CodeQL JS Scan (CI-Aligned) [~90s]` -> **PASS** (exit code `0`).
+- Touched-path CodeQL verification for `js/insecure-temporary-file` -> **PASS** (`TOUCHED_MATCHES=0`).
+- Freshness artifact for PR-3 closure context:
+	- `docs/reports/pr718_open_alerts_freshness_20260218T163918Z.md`
+
+### Closure Status
+
+- PR-3 slice targeted insecure-temp remediation QA evidence: **COMPLETE**.
 
 ### Recommended Next Fix Plan (No Sleep/Retry Band-Aids)
 
