@@ -36,7 +36,7 @@ jobs:
         with:
           ref: nightly
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.CHARON_CI_TRIGGER_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Configure Git
         run: |
@@ -45,6 +45,8 @@ jobs:
 
       - name: Sync development to nightly
         id: sync
+        env:
+          HAS_TRIGGER_TOKEN: ${{ secrets.CHARON_CI_TRIGGER_TOKEN != '' }}
         run: |
           # Fetch both branches to ensure we have the latest remote state
           git fetch origin development
@@ -66,6 +68,9 @@ jobs:
               echo "Fast-forward not possible, resetting nightly to development"
               git reset --hard origin/development
             }
+            if [[ "$HAS_TRIGGER_TOKEN" != "true" ]]; then
+              echo "::warning title=Using GITHUB_TOKEN fallback::Set CHARON_CI_TRIGGER_TOKEN to ensure push-triggered workflows run on nightly."
+            fi
             # Force push to handle cases where nightly diverged from development
             git push --force origin nightly
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
@@ -97,7 +102,6 @@ jobs:
 
             const workflows = [
               { id: 'e2e-tests-split.yml' },
-              { id: 'quality-checks.yml' },
               { id: 'codecov-upload.yml', inputs: { run_backend: 'true', run_frontend: 'true' } },
               { id: 'security-pr.yml' },
               { id: 'supply-chain-verify.yml' },
