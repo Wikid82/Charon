@@ -153,7 +153,7 @@
       "minimumReleaseAge": "14 days"
     },
     {
-      "description": "Preserve your custom Caddy patch labels but allow them to group into the a PR",
+      "description": "Preserve your custom Caddy patch labels but allow them to group into a single PR",
       "matchManagers": ["custom.regex"],
       "matchFileNames": ["Dockerfile"],
       "labels": ["caddy-patch", "security"],
