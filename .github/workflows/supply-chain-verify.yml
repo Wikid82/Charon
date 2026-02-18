@@ -601,7 +601,7 @@ jobs:
       - name: Find Existing PR Comment
         id: find-comment
         if: steps.pr-number.outputs.result != ''
-        uses: peter-evans/find-comment@v3.2.0
+        uses: peter-evans/find-comment@v4.0.0
         with:
           issue-number: ${{ steps.pr-number.outputs.result }}
           comment-author: 'github-actions[bot]'
