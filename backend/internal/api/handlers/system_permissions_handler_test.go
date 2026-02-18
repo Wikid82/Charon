@@ -487,6 +487,14 @@ func TestSystemPermissionsHandler_RepairPath_Branches(t *testing.T) {
 		require.Equal(t, "permissions_outside_allowlist", result.ErrorCode)
 	})
 
+	t.Run("outside allowlist rejected before stat for missing path", func(t *testing.T) {
+		outsideMissing := filepath.Join(t.TempDir(), "missing.txt")
+
+		result := h.repairPath(outsideMissing, false, allowlist)
+		require.Equal(t, "error", result.Status)
+		require.Equal(t, "permissions_outside_allowlist", result.ErrorCode)
+	})
+
 	t.Run("unsupported type rejected", func(t *testing.T) {
 		fifoPath := filepath.Join(allowRoot, "fifo")
 		require.NoError(t, syscall.Mkfifo(fifoPath, 0o600))
@@ -559,7 +567,7 @@ func TestSystemPermissionsHandler_RepairPath_LstatInvalidArgument(t *testing.T) 
 
 	result := h.repairPath("/tmp/\x00invalid", false, []string{allowRoot})
 	require.Equal(t, "error", result.Status)
-	require.Equal(t, "permissions_repair_failed", result.ErrorCode)
+	require.Equal(t, "permissions_outside_allowlist", result.ErrorCode)
 }
 
 func TestSystemPermissionsHandler_RepairPath_RepairedBranch(t *testing.T) {
@@ -589,4 +597,9 @@ func TestSystemPermissionsHandler_NormalizePath_ParentRefBranches(t *testing.T) 
 	clean, code = normalizePath("/var/../etc")
 	require.Equal(t, "/etc", clean)
 	require.Empty(t, code)
+}
+
+func TestSystemPermissionsHandler_NormalizeAllowlist(t *testing.T) {
+	allowlist := normalizeAllowlist([]string{"", "/tmp/data/..", "/var/log/charon"})
+	require.Equal(t, []string{"/tmp", "/var/log/charon"}, allowlist)
 }

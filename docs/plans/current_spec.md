@@ -1,572 +1,135 @@
-## Local Pre-CI Patch Report (Single Scope)
-
-Date: 2026-02-17
-Scope: Add a local pre-CI patch report to Definition of Done (DoD) unit-testing flow for both backend and frontend.
-
-## 1) Objective
-
-Add one executable local workflow that computes patch coverage from current branch changes and publishes a consolidated report before CI runs.
-
-The report must consume backend and frontend coverage inputs, use `origin/main...HEAD` as the patch baseline, and produce human-readable and machine-readable artifacts in `test-results/`.
-
-## 2) In Scope / Out of Scope
-
-### In Scope
-
-- Local patch report generation.
-- Backend + frontend DoD unit-testing integration.
-- VS Code task wiring for repeatable local execution.
-- Non-blocking warning policy for initial rollout.
-
-### Out of Scope
-
-- CI gate changes.
-- Encryption-key or unrelated reliability/security remediation.
-- Historical Codecov placeholder gates and unrelated patch-closure matrices.
-
-## 3) Required Inputs and Baseline
-
-### Coverage Inputs
-
-- Backend coverage profile: `backend/coverage.txt`
-- Frontend coverage profile: `frontend/coverage/lcov.info`
-
-### Diff Baseline
-
-- Git diff range: `origin/main...HEAD`
-
-### Preconditions
-
-- `origin/main` is fetchable locally.
-- Backend and frontend coverage artifacts exist before report generation.
-
-## 4) Required Output Artifacts
-
-- Markdown report: `test-results/local-patch-report.md`
-- JSON report: `test-results/local-patch-report.json`
-
-Both artifacts are mandatory per run. Missing either artifact is a failed local report run.
-
-## 5) Initial Policy (Rollout)
-
-### Initial Policy (Non-Blocking)
-
-- Local patch report does not fail DoD on low patch coverage during initial rollout.
-- Local runner emits warnings (stdout + markdown/json status fields) when thresholds are not met.
-- DoD requires the report to run and artifacts to exist, even in warning mode.
-- Execution and final merge checks in this plan follow this same warn-mode policy during rollout.
-
-### Threshold Defaults and Source Precedence
-
-- Coverage thresholds are resolved with this precedence:
-   1. Environment variables (highest precedence)
-   2. Built-in defaults (fallback)
-- Threshold environment variables:
-   - `CHARON_OVERALL_PATCH_COVERAGE_MIN`
-   - `CHARON_BACKEND_PATCH_COVERAGE_MIN`
-   - `CHARON_FRONTEND_PATCH_COVERAGE_MIN`
-- Built-in defaults for this rollout:
-   - Overall patch coverage minimum: `90`
-   - Backend patch coverage minimum: `85`
-   - Frontend patch coverage minimum: `85`
-- Parsing/validation:
-   - Values must be numeric percentages in `[0, 100]`.
-   - Invalid env values are ignored with a warning, and the corresponding default is used.
-
-### Future Policy (Optional Hard Gate)
-
-- Optional future switch to hard gate (non-zero exit on threshold breach).
-- Gate behavior is controlled by a dedicated flag/env (to be added during implementation).
-- Hard-gate enablement is explicitly deferred and not part of this rollout.
-
-## 6) Technical Specification
-
-### 6.1 Script
-
-Implement a new local report script:
-
-- Path: `scripts/local-patch-report.sh`
-- Responsibilities:
-  1. Validate required inputs exist (`backend/coverage.txt`, `frontend/coverage/lcov.info`).
-  2. Resolve patch files/lines from `origin/main...HEAD`.
-  3. Correlate changed lines with backend/frontend coverage data.
-  4. Compute patch summary by component and overall.
-   5. Resolve thresholds using env-var-first precedence, then defaults (`90/85/85`).
-   6. Evaluate statuses against resolved thresholds:
-       - `overall.status=pass` when `overall.patch_coverage_pct >= overall_threshold`, else `warn`.
-       - `backend.status=pass` when `backend.patch_coverage_pct >= backend_threshold`, else `warn`.
-       - `frontend.status=pass` when `frontend.patch_coverage_pct >= frontend_threshold`, else `warn`.
-   7. Emit warning status when any scope is below its resolved threshold.
-   8. Write required outputs:
-     - `test-results/local-patch-report.md`
-     - `test-results/local-patch-report.json`
-
-### 6.2 Report Contract
-
-Minimum JSON fields:
-
-- `baseline`: `origin/main...HEAD`
-- `generated_at`
-- `mode`: `warn` (initial rollout)
-- `thresholds`:
-   - `overall_patch_coverage_min`
-   - `backend_patch_coverage_min`
-   - `frontend_patch_coverage_min`
-- `threshold_sources`:
-   - `overall` (`env` | `default`)
-   - `backend` (`env` | `default`)
-   - `frontend` (`env` | `default`)
-- `overall`:
-  - `changed_lines`
-  - `covered_lines`
-  - `patch_coverage_pct`
-  - `status` (`pass` | `warn`)
-- `backend` and `frontend` objects with same coverage counters and status
-- `files_needing_coverage` (required array for execution baselines), where each item includes at minimum:
-   - `path`
-   - `uncovered_changed_lines`
-   - `patch_coverage_pct`
-- `artifacts` with emitted file paths
-
-Minimum Markdown sections:
-
-- Run metadata (timestamp, baseline)
-- Input paths used
-- Resolved thresholds and their sources (env/default)
-- Coverage summary table (overall/backend/frontend)
-- Warning section (if any)
-- Artifact paths
-
-### 6.3 Task Wiring
-
-Add VS Code task entries in `.vscode/tasks.json`:
-
-1. `Test: Local Patch Report`
-   - Runs report generation script only.
-2. `Test: Backend DoD + Local Patch Report`
-   - Runs backend unit test coverage flow, then local patch report.
-3. `Test: Frontend DoD + Local Patch Report`
-   - Runs frontend unit test coverage flow, then local patch report.
-4. `Test: Full DoD Unit + Local Patch Report`
-   - Runs backend + frontend unit coverage flows, then local patch report.
-
-Task behavior:
-
-- Reuse existing coverage scripts/tasks where available.
-- Keep command order deterministic: coverage generation first, patch report second.
-
-## 7) Implementation Tasks
-
-### Phase 1 — Script Foundation
-
-- [ ] Create `scripts/local-patch-report.sh`.
-- [ ] Add input validation + clear error messages.
-- [ ] Add diff parsing for `origin/main...HEAD`.
-
-### Phase 2 — Coverage Correlation
-
-- [ ] Parse backend `coverage.txt` and map covered lines.
-- [ ] Parse frontend `coverage/lcov.info` and map covered lines.
-- [ ] Compute per-scope and overall patch coverage counters.
-
-### Phase 3 — Artifact Emission
-
-- [ ] Generate `test-results/local-patch-report.json` with required schema.
-- [ ] Generate `test-results/local-patch-report.md` with summary + warnings.
-- [ ] Ensure `test-results/` creation if missing.
-
-### Phase 4 — Task Wiring
-
-- [ ] Add `Test: Local Patch Report` to `.vscode/tasks.json`.
-- [ ] Add backend/frontend/full DoD task variants with report execution.
-- [ ] Verify tasks run successfully from workspace root.
-
-### Phase 5 — Documentation Alignment
-
-- [ ] Update DoD references in applicable docs/instructions only where this local report is now required.
-- [ ] Remove stale references to unrelated placeholder gates in active plan context.
-
-## 8) Validation Commands
-
-Run from repository root unless noted.
-
-1. Generate backend coverage input:
-
-```bash
-cd backend && go test ./... -coverprofile=coverage.txt
-```
-
-2. Generate frontend coverage input:
-
-```bash
-cd frontend && npm run test:coverage
-```
-
-3. Generate local patch report directly:
-
-```bash
-./scripts/local-patch-report.sh
-```
-
-4. Generate local patch report via task:
-
-```bash
-# VS Code task: Test: Local Patch Report
-```
-
-5. Validate artifacts exist:
-
-```bash
-test -f test-results/local-patch-report.md
-test -f test-results/local-patch-report.json
-```
-
-6. Validate baseline recorded in JSON:
-
-```bash
-jq -r '.baseline' test-results/local-patch-report.json
-# expected: origin/main...HEAD
-```
-
-## 9) Acceptance Criteria
-
-- [ ] Plan remains single-scope: local pre-CI patch report for DoD unit testing only.
-- [ ] Inputs are explicit and used:
-  - [ ] `backend/coverage.txt`
-  - [ ] `frontend/coverage/lcov.info`
-  - [ ] `origin/main...HEAD`
-- [ ] Outputs are generated on every successful run:
-  - [ ] `test-results/local-patch-report.md`
-  - [ ] `test-results/local-patch-report.json`
-- [ ] Initial policy is non-blocking warning mode.
-- [ ] Default thresholds are explicit:
-   - [ ] Overall patch coverage: `90`
-   - [ ] Backend patch coverage: `85`
-   - [ ] Frontend patch coverage: `85`
-- [ ] Threshold source precedence is explicit: env vars first, then defaults.
-- [ ] Future hard-gate mode is documented as optional and deferred.
-- [ ] Concrete script + task wiring tasks are present and executable.
-- [ ] Validation commands are present and reproducible.
-- [ ] Stale unrelated placeholder gates are removed from this active spec.
-
-## 10) Concrete Execution Plan — Patch Gap Closure (PR Merge Objective)
-
-Single-scope objective: close current patch gaps for this PR merge by adding targeted tests and iterating local patch reports until changed-line coverage is merge-ready under DoD.
-
-### Authoritative Gap Baseline (2026-02-17)
-
-Use this list as the only planning baseline for this execution cycle:
-
-- `backend/cmd/localpatchreport/main.go`: 0%, 200 uncovered changed lines, ranges `46-59`, `61-73`, `75-79`, `81-85`, `87-96`, `98-123`, `125-156`, `158-165`, `167-172`, `175-179`, `182-187`, `190-198`, `201-207`, `210-219`, `222-254`, `257-264`, `267-269`
-- `frontend/src/pages/UsersPage.tsx`: 30.8%, 9 uncovered (`152-160`)
-- `frontend/src/pages/CrowdSecConfig.tsx`: 36.8%, 12 uncovered (`975-977`, `1220`, `1248-1249`, `1281-1282`, `1316`, `1324-1325`, `1335`)
-- `frontend/src/pages/DNSProviders.tsx`: 70.6%, 10 uncovered
-- `frontend/src/pages/AuditLogs.tsx`: 75.0%, 1 uncovered
-- `frontend/src/components/ProxyHostForm.tsx`: 75.5%, 12 uncovered
-- `backend/internal/api/middleware/auth.go`: 86.4%, 3 uncovered
-- `frontend/src/pages/Notifications.tsx`: 88.9%, 3 uncovered
-- `backend/internal/cerberus/rate_limit.go`: 91.9%, 12 uncovered
-
-### DoD Entry Gate (Mandatory Before Phase 1)
-
-All execution phases are blocked until this gate is completed in order:
-
-1) E2E first:
-
-```bash
-cd /projects/Charon && npx playwright test --project=firefox
-```
-
-2) Local patch preflight (baseline refresh trigger):
-
-```bash
-cd /projects/Charon && bash scripts/local-patch-report.sh
-```
-
-3) Baseline refresh checkpoint (must pass before phase execution):
-
-```bash
-cd /projects/Charon && jq -r '.files_needing_coverage[].path' test-results/local-patch-report.json | sort > /tmp/charon-baseline-files.txt
-cd /projects/Charon && while read -r f; do git diff --name-only origin/main...HEAD -- "$f" | grep -qx "$f" || echo "baseline file missing from current diff: $f"; done < /tmp/charon-baseline-files.txt
-```
-
-4) If checkpoint output is non-empty, refresh this baseline list to match the latest `test-results/local-patch-report.json` before starting Phase 1.
-
-### Ordered Phases (Highest Impact First)
-
-#### Phase 1 — Backend Local Patch Report CLI (Highest Delta)
-
-Targets:
-- `backend/cmd/localpatchreport/main.go` (all listed uncovered ranges)
-
-Suggested test file:
-- `backend/cmd/localpatchreport/main_test.go`
-
-Test focus:
-- argument parsing and mode selection
-- coverage input validation paths
-- baseline/diff resolution flow
-- report generation branches (markdown/json)
-- warning/error branches for missing inputs and malformed coverage
-
-Pass criteria:
-- maximize reduction of uncovered changed lines in `backend/cmd/localpatchreport/main.go` from the `200` baseline, with priority on highest-impact uncovered ranges and no new uncovered changed lines introduced
-- backend targeted test command passes
-
-Targeted test command:
-
-```bash
-cd /projects/Charon/backend && go test ./cmd/localpatchreport -coverprofile=coverage.txt
-```
-
-#### Phase 2 — Frontend Lowest-Coverage, Highest-Uncovered Pages
-
-Targets:
-- `frontend/src/pages/CrowdSecConfig.tsx` (`975-977`, `1220`, `1248-1249`, `1281-1282`, `1316`, `1324-1325`, `1335`)
-- `frontend/src/pages/UsersPage.tsx` (`152-160`)
-- `frontend/src/pages/DNSProviders.tsx` (10 uncovered changed lines)
-
-Suggested test files:
-- `frontend/src/pages/__tests__/CrowdSecConfig.patch-gap.test.tsx`
-- `frontend/src/pages/__tests__/UsersPage.patch-gap.test.tsx`
-- `frontend/src/pages/__tests__/DNSProviders.patch-gap.test.tsx`
-
-Test focus:
-- branch/error-state rendering tied to uncovered lines
-- conditional action handlers and callback guards
-- edge-case interaction states not hit by existing tests
-
-Pass criteria:
-- maximize reduction of changed-line gaps for the three targets, prioritize highest-impact uncovered lines first, and avoid introducing new uncovered changed lines
-- frontend targeted test command passes
-
-Targeted test command:
-
-```bash
-cd /projects/Charon/frontend && npm run test:coverage -- src/pages/__tests__/CrowdSecConfig.patch-gap.test.tsx src/pages/__tests__/UsersPage.patch-gap.test.tsx src/pages/__tests__/DNSProviders.patch-gap.test.tsx
-```
-
-#### Phase 3 — Backend Residual Middleware/Security Gaps
-
-Targets:
-- `backend/internal/api/middleware/auth.go` (3 uncovered changed lines)
-- `backend/internal/cerberus/rate_limit.go` (12 uncovered changed lines)
-
-Suggested test targets/files:
-- extend `backend/internal/api/middleware/auth_test.go`
-- extend `backend/internal/cerberus/rate_limit_test.go`
-
-Test focus:
-- auth middleware edge branches (token/context failure paths)
-- rate-limit boundary and deny/allow branch coverage
-
-Pass criteria:
-- maximize reduction of changed-line gaps for both backend files, prioritize highest-impact uncovered lines first, and avoid introducing new uncovered changed lines
-- backend targeted test command passes
-
-Targeted test command:
-
-```bash
-cd /projects/Charon/backend && go test ./internal/api/middleware ./internal/cerberus -coverprofile=coverage.txt
-```
-
-#### Phase 4 — Frontend Component + Residual Page Gaps
-
-Targets:
-- `frontend/src/components/ProxyHostForm.tsx` (12 uncovered changed lines)
-- `frontend/src/pages/AuditLogs.tsx` (1 uncovered changed line)
-- `frontend/src/pages/Notifications.tsx` (3 uncovered changed lines)
-
-Suggested test files:
-- `frontend/src/components/__tests__/ProxyHostForm.patch-gap.test.tsx`
-- `frontend/src/pages/__tests__/AuditLogs.patch-gap.test.tsx`
-- `frontend/src/pages/__tests__/Notifications.patch-gap.test.tsx`
-
-Test focus:
-- form branch paths and validation fallbacks
-- single-line residual branch in audit logs
-- notification branch handling for low-frequency states
-
-Pass criteria:
-- maximize reduction of changed-line gaps for all three targets, prioritize highest-impact uncovered lines first, and avoid introducing new uncovered changed lines
-- frontend targeted test command passes
-
-Targeted test command:
-
-```bash
-cd /projects/Charon/frontend && npm run test:coverage -- src/components/__tests__/ProxyHostForm.patch-gap.test.tsx src/pages/__tests__/AuditLogs.patch-gap.test.tsx src/pages/__tests__/Notifications.patch-gap.test.tsx
-```
-
-### Execution Commands
-
-Run from repository root unless stated otherwise.
-
-1) Backend coverage:
-
-```bash
-cd backend && go test ./... -coverprofile=coverage.txt
-```
-
-2) Frontend coverage:
-
-```bash
-cd frontend && npm run test:coverage
-```
-
-3) Local patch report iteration:
-
-```bash
-bash scripts/local-patch-report.sh
-```
-
-4) Iteration loop (repeat until all target gaps are closed):
-
-```bash
-cd backend && go test ./... -coverprofile=coverage.txt
-cd /projects/Charon/frontend && npm run test:coverage
-cd /projects/Charon && bash scripts/local-patch-report.sh
-```
-
-### Phase Completion Checks
-
-- After each phase, rerun `bash scripts/local-patch-report.sh` and confirm that only the next planned target set remains uncovered.
-- Do not advance phases when a phase target still shows uncovered changed lines.
-
-### Final Merge-Ready Gate (DoD-Aligned, Warn-Mode Rollout)
-
-This PR is merge-ready only when all conditions are true:
-
-- local patch report runs in warn mode and required artifacts are generated
-- practical merge objective: drive a significant reduction in authoritative baseline uncovered changed lines in this PR, prioritizing highest-impact files; `0` remains aspirational and is not a warn-mode merge blocker
-- required artifacts exist and are current:
-   - `test-results/local-patch-report.md`
-   - `test-results/local-patch-report.json`
-- backend and frontend coverage commands complete successfully
-- DoD checks remain satisfied (E2E first, local patch report preflight, required security/coverage/type/build validations)
-
----
-
-## Flaky Test Stabilization Plan: `TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath` (2026-02-17)
-
-### 1) Scope and Objective
-
-Stabilize backend flake in `backend/internal/api/handlers/settings_wave4_test.go` for:
-
-- `TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath`
-
-Scope is limited to this flaky path and directly adjacent test/lifecycle hardening required to make behavior deterministic across CI contexts.
-
-### 2) Investigation Findings (Root Cause)
-
-Evidence from CI and local repro (`go test -race -count=20 -run 'TestSettingsHandlerWave4_UpdateSetting_ACLPathsPermissionErrors|TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath' ./internal/api/handlers`):
-
-- Race is reported by Go race detector during execution of `TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath`.
-- Conflicting operations:
-   - **Read path**: background goroutine from `services.NewSecurityService()` performing `db.Create()` in `persistAuditWithRetry()` / `processAuditEvents()`.
-   - **Write path**: test cleanup removing GORM create callback (`db.Callback().Create().Remove(...)`) in `registerCreatePermissionDeniedHook` cleanup.
-- This race is triggered by preceding test `TestSettingsHandlerWave4_UpdateSetting_ACLPathsPermissionErrors`, which creates a `SecurityService` (spawns goroutine) and does not shut it down before callback cleanup mutates callback registry.
-
-Primary cause is **shared mutable callback registry + still-running background audit goroutine** (order-dependent teardown), not business logic in `PatchConfig` itself.
-
-### 3) Dependency Map (Files and Symbols)
-
-#### Test path
-
-- `backend/internal/api/handlers/settings_wave4_test.go`
-   - `TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath`
-   - `TestSettingsHandlerWave4_UpdateSetting_ACLPathsPermissionErrors`
-   - `registerCreatePermissionDeniedHook`
-   - `setupSettingsWave3DB`
-
-#### Handler/runtime path
-
-- `backend/internal/api/handlers/settings_handler.go`
-   - `PatchConfig`
-   - `UpdateSetting`
-- `backend/internal/api/handlers/permission_helpers.go`
-   - `respondPermissionError`
-   - `logPermissionAudit`
-- `backend/internal/services/security_service.go`
-   - `NewSecurityService`
-   - `LogAudit`
-   - `processAuditEvents`
-   - `Close`
-   - `Flush`
-
-#### CI execution context
-
-- `scripts/go-test-coverage.sh` (always runs backend tests with `-race`)
-- `.github/workflows/codecov-upload.yml` (uses `scripts/go-test-coverage.sh` for both push and PR)
-
-### 4) Flake Vector Assessment
-
-- **Timing/Goroutines**: High confidence root cause. Background audit goroutine outlives test branch and races with callback registry mutation.
-- **Shared state/global hooks**: High confidence root cause. GORM callback registry is mutable shared state per DB instance.
-- **Order dependence**: High confidence root cause. Preceding wave4 permission-error test influences subsequent test via asynchronous cleanup timing.
-- **DB locking/no-such-table noise**: Secondary contributor (observed `security_audits` missing logs), but not primary failure trigger.
-- **Env vars (PR vs push)**: Low confidence as root cause for this test; same script and `-race` path are used in both contexts.
-- **Log buffering**: Not a primary root cause; race detector output indicates memory race in callback internals.
-
-### 5) Stabilization Strategy (Minimal and Deterministic)
-
-#### Recommended approach
-
-1. **Deterministic lifecycle shutdown for `SecurityService` in wave4 permission-error test**
-    - In `TestSettingsHandlerWave4_UpdateSetting_ACLPathsPermissionErrors`, explicitly manage the service used for `h.SecuritySvc` and register teardown to flush/close it before callback removal side effects complete.
-    - Ensure cleanup order prevents callback registry mutation while audit goroutine is still active.
-
-2. **Reduce unnecessary async audit side effects in this wave4 path**
-    - For tests that only assert HTTP permission error response (not audit persistence), avoid creating live async service when not required by assertion semantics.
-    - Keep behavior coverage for response contract while eliminating unnecessary goroutine work in this flaky sequence.
-
-3. **Harden test DB schema for adjacent audit paths**
-    - In `setupSettingsWave3DB`, include `models.SecurityAudit` migration to remove noisy `no such table: security_audits` writes from concurrent worker paths.
-    - This reduces background retry/noise and improves determinism under race mode.
-
-4. **Guard callback hook helper usage**
-    - Keep callback registration/removal confined to narrow tests and avoid overlap with asynchronous writers on same DB handle.
-    - Maintain unique callback naming per test branch to prevent accidental collisions when future subtests are added.
-
-### 6) EARS Requirements
-
-- WHEN wave4 permission-error tests register temporary GORM callbacks, THE SYSTEM SHALL ensure all asynchronous `SecurityService` audit workers are fully stopped before callback removal occurs.
-- WHEN `TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath` runs with `-race`, THE SYSTEM SHALL complete without data race reports.
-- IF a test path uses `SecurityService.LogAudit`, THEN the test DB setup SHALL include required audit schema to avoid asynchronous write failures due to missing tables.
-- WHILE running backend coverage in CI contexts (push and PR), THE SYSTEM SHALL produce deterministic pass/fail outcomes for this test sequence.
-
-### 7) Implementation Tasks (Single-Scope)
-
-1. Update `backend/internal/api/handlers/settings_wave4_test.go`
-    - Add explicit `SecurityService` lifecycle management in `TestSettingsHandlerWave4_UpdateSetting_ACLPathsPermissionErrors`.
-    - Ensure teardown ordering is deterministic relative to callback cleanup.
-    - Keep `TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath` assertions unchanged (status + reload/cache call counts).
-
-2. Update `backend/internal/api/handlers/settings_wave3_test.go`
-    - Extend `setupSettingsWave3DB` migrations to include `models.SecurityAudit`.
-
-3. Validation
-    - Targeted race test loop:
-       - `cd backend && CHARON_ENCRYPTION_KEY="$(openssl rand -base64 32)" go test -race -count=50 -run 'TestSettingsHandlerWave4_UpdateSetting_ACLPathsPermissionErrors|TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath' ./internal/api/handlers`
-    - Targeted package race pass:
-       - `cd backend && CHARON_ENCRYPTION_KEY="$(openssl rand -base64 32)" go test -race -run 'TestSettingsHandlerWave4_' ./internal/api/handlers`
-    - Standard backend CI-equivalent coverage command:
-       - `bash scripts/go-test-coverage.sh`
-
-### 8) PR Slicing Strategy
-
-- **Decision**: Single PR (small, isolated, low blast radius).
-- **Trigger rationale**: Changes are constrained to wave4 settings tests and adjacent test helper DB schema.
-- **Slice PR-1**:
-   - Scope: lifecycle/order hardening + helper schema migration only.
-   - Files:
-      - `backend/internal/api/handlers/settings_wave4_test.go`
-      - `backend/internal/api/handlers/settings_wave3_test.go`
-   - Validation gate: no race detector output in targeted loop; package tests stable under `-race`; no assertion behavior drift in target flaky test.
-- **Rollback**: Revert PR-1 if unintended changes appear in broader handlers suite; no production code path changes expected.
-
-### 9) Acceptance Criteria
-
-- `TestSettingsHandlerWave4_PatchConfig_SecurityReloadSuccessLogsPath` is stable under repeated `-race` runs.
-- No race detector warnings involving GORM callback compile/remove and `SecurityService` audit goroutine in this test sequence.
-- Test remains behaviorally equivalent (same API contract and assertions).
-- Scope remains limited to this flaky test sequence and adjacent stabilization only.
+## CodeQL Go Coverage RCA (2026-02-18)
+
+### 1) Observed Evidence (exact commands/workflow paths/config knobs that control scope)
+
+- Local CI-aligned command in VS Code task `Security: CodeQL Go Scan (CI-Aligned) [~60s]`:
+   - `codeql database create codeql-db-go --language=go --source-root=backend --codescanning-config=.github/codeql/codeql-config.yml --overwrite --threads=0`
+   - `codeql database analyze codeql-db-go --additional-packs=codeql-custom-queries-go --format=sarif-latest --output=codeql-results-go.sarif --sarif-add-baseline-file-info --threads=0`
+- Local pre-commit CodeQL Go scan command (`scripts/pre-commit-hooks/codeql-go-scan.sh`):
+   - `codeql database analyze codeql-db-go codeql/go-queries:codeql-suites/go-security-and-quality.qls --format=sarif-latest --output=codeql-results-go.sarif --sarif-add-baseline-file-info --threads=0`
+- Reproduced analyzer output from local run:
+   - `CodeQL scanned 175 out of 436 Go files in this invocation.`
+   - `Path filters have no effect for Go... 'paths' and 'paths-ignore' ... have no effect for this language.`
+- Workflow controlling CI scan: `.github/workflows/codeql.yml`
+   - `on.pull_request.branches: [main, nightly]`
+   - `on.push.branches: [main, nightly, development]`
+   - Uses `github/codeql-action/init` + `autobuild` + `analyze`.
+   - `init` currently does not set `queries`, so suite selection is implicit.
+   - Uses config file `./.github/codeql/codeql-config.yml`.
+- Config file: `.github/codeql/codeql-config.yml`
+   - Only `paths-ignore` entries for coverage/build artifacts; no Go-specific exclusions.
+- Ground-truth file counts:
+   - `find backend -type f -name '*.go' | wc -l` => `436`
+   - `find backend -type f -name '*.go' ! -name '*_test.go' | wc -l` => `177`
+   - `go list -json ./... | jq -s 'map((.GoFiles|length)+(.CgoFiles|length))|add'` => `175`
+- Target file verification:
+   - Local scan output includes extraction of `backend/internal/api/handlers/system_permissions_handler.go`.
+   - SARIF contains `go/path-injection` findings in that file.
+
+### 2) Why 175/436 happens (expected vs misconfiguration)
+
+- **Expected behavior (primary):**
+   - `436` is a raw repository count including `*_test.go` and non-build files.
+   - Go CodeQL analyzes build-resolved files (roughly Go compiler view), not all raw `.go` files.
+   - Build-resolved count is `175`, which exactly matches `go list` compiled files.
+- **Denominator inflation details:**
+   - `259` files are `*_test.go` and are not part of normal build-resolved extraction.
+   - Two non-test files are also excluded from compiled set:
+      - `backend/internal/api/handlers/security_handler_test_fixed.go` (`//go:build ignore`)
+      - `backend/.venv/.../empty_template_main.go` (not in module package graph)
+- **Conclusion:** `175/436` is mostly expected Go extractor semantics, not a direct scope misconfiguration by itself.
+
+### 3) How this could miss findings
+
+- **Build tags / ignored files:**
+   - Files behind build constraints (for example `//go:build ignore`) are excluded from compiled extraction; findings there are missed.
+- **Path filters:**
+   - For Go, `paths` / `paths-ignore` do not reduce extraction scope (confirmed by CodeQL diagnostic).
+   - Therefore `.github/codeql/codeql-config.yml` is not the cause of reduced Go coverage.
+- **Generated or non-module files:**
+   - Files outside the module/package graph (for example under `.venv`) can appear in raw counts but are not analyzed.
+- **Uncompiled packages/files:**
+   - Any code not reachable in package resolution/build context will not be analyzed.
+- **Trigger gaps (CI event coverage):**
+   - `pull_request` only targets `main` and `nightly`; PRs to `development` are not scanned by CodeQL workflow.
+   - `push` only scans `main/nightly/development`; feature-branch pushes are not scanned.
+- **Baseline behavior:**
+   - `--sarif-add-baseline-file-info` adds baseline metadata; it does not itself suppress extraction.
+   - Alert visibility can still appear delayed based on when a qualifying workflow run uploads SARIF.
+- **Local/CI suite drift (explicit evidence):**
+   - CI workflow (`.github/workflows/codeql.yml`) and VS Code CI-aligned task (`.vscode/tasks.json`) use implicit/default suite selection.
+   - Pre-commit Go scan (`scripts/pre-commit-hooks/codeql-go-scan.sh`) pins explicit `go-security-and-quality.qls`.
+
+### 4) Why finding appeared now (most plausible ranked causes with confidence)
+
+1. **Trigger-path visibility gap (Plausible hypothesis, 0.60)**
+   - The code likely existed before, but this remains a hypothesis unless workflow history shows explicit missing qualifying runs for the affected branch/PR path.
+2. **Local/CI command drift labeled as “CI-aligned” (Medium-High, 0.70)**
+   - Different entrypoints use different suite semantics (explicit in pre-commit vs implicit in workflow/task), increasing chance of inconsistent detection timing.
+3. **Query/toolpack evolution over time (Medium, 0.55)**
+    - Updated CodeQL packs/engines can surface dataflow paths not previously reported.
+4. **Extractor file-count misunderstanding (Low, 0.25)**
+    - `175/436` itself did not hide `system_permissions_handler.go`; that file is in the extracted set.
+
+### 5) Prevention controls (local + CI): exact changes to scan commands/workflows/policies
+
+- **CI workflow controls (`.github/workflows/codeql.yml`):**
+   - Expand PR coverage to include `development`:
+      - `on.pull_request.branches: [main, nightly, development]`
+   - Expand push coverage to active delivery branches (or remove push branch filter if acceptable).
+   - Pin query suite explicitly in `init` (avoid implicit defaults):
+      - add `queries: security-and-quality`
+- **Local command controls (make truly CI-aligned):**
+   - Require one canonical local invocation path (single source of truth):
+      - Prefer VS Code task calling `scripts/pre-commit-hooks/codeql-go-scan.sh`.
+   - If task remains standalone, it must pin explicit suite:
+      - `codeql database analyze codeql-db-go codeql/go-queries:codeql-suites/go-security-and-quality.qls --additional-packs=codeql-custom-queries-go ...`
+- **Policy controls:**
+   - Require CodeQL checks as branch-protection gates on `main`, `nightly`, and `development`.
+   - Add a parity check that fails when suite selection diverges across workflow, VS Code local task, and pre-commit script.
+   - Keep reporting both metrics in documentation/logs:
+      - raw `.go` count
+      - compiled/extracted `.go` count (`go list`-derived)
+   - Add metric guardrail: fail the run when extracted compiled Go count diverges from the `go list` compiled baseline beyond approved tolerance.
+
+### 6) Verification checklist
+
+- [ ] Run and record raw vs compiled counts:
+   - `find backend -type f -name '*.go' | wc -l`
+   - `cd backend && go list -json ./... | jq -s 'map((.GoFiles|length)+(.CgoFiles|length))|add'`
+- [ ] Run local CodeQL Go scan and confirm diagnostic line:
+   - `CodeQL scanned X out of Y Go files...`
+- [ ] Compare extraction metric to compiler baseline and fail on unexpected divergence:
+   - baseline: `cd backend && go list -json ./... | jq -s 'map((.GoFiles|length)+(.CgoFiles|length))|add'`
+   - extracted: parse `CodeQL scanned X out of Y Go files...` and assert `X == baseline` (or documented tolerance)
+- [ ] Confirm target file is extracted:
+   - local output includes `Done extracting .../system_permissions_handler.go`
+- [ ] Confirm SARIF includes expected finding for file:
+   - `jq` filter on `system_permissions_handler.go`
+- [ ] Validate CI workflow trigger coverage includes intended PR targets/branches.
+- [ ] Validate workflow and local command both use explicit `security-and-quality` suite.
+
+### 7) PR Slicing Strategy
+
+- **Decision:** Multiple PRs (3), to reduce rollout risk and simplify review.
+- **Trigger reasons:** Cross-domain change (workflow + local tooling + policy), security-sensitive, and high review impact if combined.
+
+- **PR-1: CI Trigger/Suite Hardening**
+   - Scope: `.github/workflows/codeql.yml`
+   - Changes: broaden `pull_request` branch targets, keep/expand push coverage, set explicit `queries: security-and-quality`.
+   - Dependencies: none.
+   - Validation gate: `actionlint` + successful CodeQL run on PR to `development`.
+   - Rollback: revert workflow file only.
+
+- **PR-2: Local Command Convergence**
+   - Scope: `.vscode/tasks.json` and/or canonical script wrapper.
+   - Changes: enforce explicit `go-security-and-quality.qls` in local Go task, keep custom pack additive only.
+   - Dependencies: PR-1 preferred, not hard-required.
+   - Validation gate: local task output shows explicit suite and reproducible SARIF.
+   - Rollback: revert tasks/scripts without affecting CI.
+
+- **PR-3: Governance/Policy Guardrails**
+   - Scope: branch protection requirements + parity check job/documentation.
+   - Changes: require CodeQL checks on `main/nightly/development`; add drift guard.
+   - Dependencies: PR-1 and PR-2.
+   - Validation gate: blocked merge when CodeQL missing/failing or parity check fails.
