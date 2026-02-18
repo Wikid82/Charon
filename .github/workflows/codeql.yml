@@ -92,13 +92,21 @@ jobs:
         uses: github/codeql-action/analyze@9e907b5e64f6b83e7804b09294d44122997950d6 # v4
         with:
           category: "/language:${{ matrix.language }}"
-          output: sarif-results/${{ matrix.language }}.sarif
+          output: sarif-results/${{ matrix.language }}
 
       - name: Check CodeQL Results
         if: always()
         run: |
           set -euo pipefail
-          SARIF_FILE="sarif-results/${{ matrix.language }}.sarif"
+          SARIF_DIR="sarif-results/${{ matrix.language }}"
+
+          if [ ! -d "$SARIF_DIR" ]; then
+            echo "::error::Expected SARIF output directory is missing: $SARIF_DIR"
+            echo "❌ **ERROR:** SARIF output directory is missing: $SARIF_DIR" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          SARIF_FILE="$(find "$SARIF_DIR" -maxdepth 1 -type f -name '*.sarif' | head -n 1 || true)"
 
           {
             echo "## 🔒 CodeQL Security Analysis Results"
@@ -108,7 +116,7 @@ jobs:
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [ ! -r "$SARIF_FILE" ]; then
+          if [ -z "$SARIF_FILE" ] || [ ! -r "$SARIF_FILE" ]; then
             echo "::error::Expected SARIF file is missing or unreadable: $SARIF_FILE"
             echo "❌ **ERROR:** SARIF file is missing or unreadable: $SARIF_FILE" >> "$GITHUB_STEP_SUMMARY"
             exit 1
@@ -147,9 +155,16 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          SARIF_FILE="sarif-results/${{ matrix.language }}.sarif"
+          SARIF_DIR="sarif-results/${{ matrix.language }}"
 
-          if [ ! -r "$SARIF_FILE" ]; then
+          if [ ! -d "$SARIF_DIR" ]; then
+            echo "::error::Expected SARIF output directory is missing: $SARIF_DIR"
+            exit 1
+          fi
+
+          SARIF_FILE="$(find "$SARIF_DIR" -maxdepth 1 -type f -name '*.sarif' | head -n 1 || true)"
+
+          if [ -z "$SARIF_FILE" ] || [ ! -r "$SARIF_FILE" ]; then
             echo "::error::Expected SARIF file is missing or unreadable: $SARIF_FILE"
             exit 1
           fi
