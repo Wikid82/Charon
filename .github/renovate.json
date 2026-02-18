@@ -143,8 +143,7 @@
       "description": "Feature branches: Auto-merge non-major updates after proven stable",
       "matchBaseBranches": ["feature/**"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "automerge": false,
-      "minimumReleaseAge": "7 days"
+      "automerge": false
     },
     {
       "description": "Development branch: Auto-merge non-major updates after proven stable",
