@@ -131,13 +131,14 @@ func isLocalRequest(c *gin.Context) bool {
 // - SameSite: Strict for HTTPS, Lax for HTTP/IP to allow forward-auth redirects
 func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
 	scheme := requestScheme(c)
-	secure := true
+	secure := scheme == "https"
 	sameSite := http.SameSiteStrictMode
 	if scheme != "https" {
 		sameSite = http.SameSiteLaxMode
 	}
 
 	if isLocalRequest(c) {
+		secure = false
 		sameSite = http.SameSiteLaxMode
 	}
 

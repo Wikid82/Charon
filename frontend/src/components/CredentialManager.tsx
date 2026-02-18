@@ -271,7 +271,7 @@ export default function CredentialManager({
 
       {/* Delete Confirmation Dialog */}
       {deleteConfirm !== null && (
-        <Dialog open={deleteConfirm !== null} onOpenChange={() => setDeleteConfirm(null)}>
+        <Dialog open={true} onOpenChange={() => setDeleteConfirm(null)}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{t('credentials.deleteConfirm', 'Delete Credential?')}</DialogTitle>

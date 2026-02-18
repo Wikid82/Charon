@@ -34,6 +34,20 @@ post_date: "2026-02-10"
 - `bash scripts/ci/check-codeql-parity.sh` (from repo root) → **PASS** (`CodeQL parity check passed ...`)
 - `Security: CodeQL Go Scan (CI-Aligned) [~60s]` task → **PASS** (task completed)
 - `Security: CodeQL JS Scan (CI-Aligned) [~90s]` task → **PASS** (task completed)
+- `npx playwright test tests/security-enforcement/zzz-caddy-imports/caddy-import-cross-browser.spec.ts --project=chromium --project=firefox --project=webkit` → **PASS** (`19 passed`, no `No tests found`)
+
+### PR-1 Blocker Update (Playwright Test Discovery)
+
+- Previous blocker: `No tests found` for `tests/security-enforcement/zzz-caddy-imports/caddy-import-cross-browser.spec.ts` when run with browser projects.
+- Root cause: browser projects in `playwright.config.js` ignored `**/security-enforcement/**`, excluding this spec from chromium/firefox/webkit discovery.
+- Resolution: browser project `testIgnore` was narrowed to continue excluding security-enforcement tests except this cross-browser import spec.
+- Verification: reran the exact blocker command and it passed (`19 passed`, cross-browser execution succeeded).
+
+### Accepted Risk Clarification
+
+- Accepted-risk identifier/path: `docs/security/SECURITY-EXCEPTION-nebula-v1.9.7.md` (`GHSA-69x3-g4r3-p962`, `github.com/slackhq/nebula@v1.9.7`).
+- Why non-blocking: this High finding is a documented upstream dependency-chain exception (Caddy/CrowdSec bouncer → ipstore → nebula) with no currently compatible upstream fix path in Charon control.
+- Next review trigger: re-open immediately when upstream Caddy dependency chain publishes compatible `nebula >= v1.10.3` support (or if advisory severity/exploitability materially changes).
 
 ### Notes
 
