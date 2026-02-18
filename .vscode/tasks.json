@@ -459,7 +459,7 @@
         {
             "label": "Security: CodeQL Go Scan (CI-Aligned) [~60s]",
             "type": "shell",
-            "command": "rm -rf codeql-db-go && codeql database create codeql-db-go --language=go --source-root=backend --codescanning-config=.github/codeql/codeql-config.yml --overwrite --threads=0 && codeql database analyze codeql-db-go --additional-packs=codeql-custom-queries-go --format=sarif-latest --output=codeql-results-go.sarif --sarif-add-baseline-file-info --threads=0",
+            "command": "bash scripts/pre-commit-hooks/codeql-go-scan.sh",
             "group": "test",
             "problemMatcher": []
         },
