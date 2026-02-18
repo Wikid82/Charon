@@ -208,6 +208,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Build Caddy for the target architecture with security plugins.
 # Two-stage approach: xcaddy generates go.mod, we patch it, then build from scratch.
 # This ensures the final binary is compiled with fully patched dependencies.
+# NOTE: Keep patching deterministic and explicit. Avoid silent fallbacks.
 # hadolint ignore=SC2016
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
@@ -218,10 +219,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_VERSION} \
             --with github.com/greenpau/caddy-security \
             --with github.com/corazawaf/coraza-caddy/v2 \
-            --with github.com/hslatman/caddy-crowdsec-bouncer \
+            --with github.com/hslatman/caddy-crowdsec-bouncer@v0.10.0 \
             --with github.com/zhangjiayin/caddy-geoip2 \
             --with github.com/mholt/caddy-ratelimit \
-            --output /tmp/caddy-initial || true; \
+            --output /tmp/caddy-initial; \
         # Find the build directory created by xcaddy
         BUILDDIR=$(ls -td /tmp/buildenv_* 2>/dev/null | head -1); \
         if [ ! -d "$BUILDDIR" ] || [ ! -f "$BUILDDIR/go.mod" ]; then \
@@ -236,6 +237,14 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Renovate tracks these via regex manager in renovate.json
         # renovate: datasource=go depName=github.com/expr-lang/expr
         go get github.com/expr-lang/expr@v1.17.7; \
+        # renovate: datasource=go depName=github.com/hslatman/ipstore
+        go get github.com/hslatman/ipstore@v0.4.0; \
+        # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
+        # uses legacy nebula APIs removed in nebula v1.10+, which causes compile
+        # failures in authority/provisioner. Keep this pinned to a known-compatible
+        # v1.9.x release until upstream stack supports nebula v1.10+.
+        # renovate: datasource=go depName=github.com/slackhq/nebula
+        go get github.com/slackhq/nebula@v1.9.7; \
         # Clean up go.mod and ensure all dependencies are resolved
         go mod tidy; \
         echo "Dependencies patched successfully"; \
