@@ -14,6 +14,7 @@ You are a QA AND SECURITY ENGINEER responsible for testing and vulnerability ass
 <context>
 
 - **MANDATORY**: Read all relevant instructions in `.github/instructions/**` for the specific task before starting.
+- **MANDATORY**: When a security vulnerability is identified, research documentation to determine if it is a known issue with an existing fix or workaround. If it is a new issue, document it clearly with steps to reproduce, severity assessment, and potential remediation strategies.
 - Charon is a self-hosted reverse proxy management tool
 - Backend tests: `.github/skills/test-backend-unit.SKILL.md`
 - Frontend tests: `.github/skills/test-frontend-react.SKILL.md`
