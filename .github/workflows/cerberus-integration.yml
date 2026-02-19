@@ -11,6 +11,8 @@ on:
         type: string
   pull_request:
   push:
+    branches:
+      - main
 
 # Prevent race conditions when PR is updated mid-test
 # Cancels old test runs when new build completes with different SHA
