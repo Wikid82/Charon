@@ -129,7 +129,7 @@
 
   "packageRules": [
     {
-      "description": "THE MEGAZORD: Group ALL non-major updates (NPM, Docker, Go, Actions) into one weekly PR",
+      "description": "THE MEGAZORD: Group ALL non-major updates (NPM, Docker, Go, Actions) into one PR",
       "matchPackagePatterns": ["*"],
       "matchUpdateTypes": [
         "minor",
@@ -153,7 +153,7 @@
       "minimumReleaseAge": "14 days"
     },
     {
-      "description": "Preserve your custom Caddy patch labels but allow them to group into the weekly PR",
+      "description": "Preserve your custom Caddy patch labels but allow them to group into a single PR",
       "matchManagers": ["custom.regex"],
       "matchFileNames": ["Dockerfile"],
       "labels": ["caddy-patch", "security"],

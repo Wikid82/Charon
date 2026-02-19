@@ -133,6 +133,34 @@
             "problemMatcher": []
         },
         {
+            "label": "Test: Backend Flaky - Certificate List Stability Loop",
+            "type": "shell",
+            "command": "cd /projects/Charon && mkdir -p test-results/flaky && go test ./backend/internal/api/handlers -run '^TestCertificateHandler_List_WithCertificates$' -count=100 -shuffle=on -parallel=8 -json 2>&1 | tee test-results/flaky/cert-list-stability.jsonl",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: Backend Flaky - Certificate List Race Loop",
+            "type": "shell",
+            "command": "cd /projects/Charon && mkdir -p test-results/flaky && go test -race ./backend/internal/api/handlers -run '^TestCertificateHandler_List_WithCertificates$' -count=30 -shuffle=on -parallel=8 -json 2>&1 | tee test-results/flaky/cert-list-race.jsonl",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: Backend Flaky - Certificate DB Setup Ordering Loop",
+            "type": "shell",
+            "command": "cd /projects/Charon && mkdir -p test-results/flaky && go test ./backend/internal/api/handlers -run '^TestCertificateHandler_DBSetupOrdering$' -count=50 -shuffle=on -parallel=8 -json 2>&1 | tee test-results/flaky/cert-db-setup-ordering.jsonl",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: Backend Flaky - Certificate Handler Focused Regression",
+            "type": "shell",
+            "command": "cd /projects/Charon && mkdir -p test-results/flaky && go test ./backend/internal/api/handlers -run '^TestCertificateHandler_' -count=1 -json 2>&1 | tee test-results/flaky/cert-handler-regression.jsonl",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
             "label": "Test: Coverage Inputs for Local Patch Report",
             "type": "shell",
             "dependsOn": [
