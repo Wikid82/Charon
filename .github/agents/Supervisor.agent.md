@@ -2,7 +2,8 @@
 name: 'Supervisor'
 description: 'Code Review Lead for quality assurance and PR review.'
 argument-hint: 'The PR or code change to review (e.g., "Review PR #123 for security issues")'
-tools: vscode/extensions, vscode/getProjectSetupInfo, vscode/installExtension, vscode/memory, vscode/openSimpleBrowser, vscode/runCommand, vscode/askQuestions, vscode/vscodeAPI, execute, read, agent, 'github/*', 'github/*', 'io.github.goreleaser/mcp/*', 'trivy-mcp/*', edit, search, web, 'github/*', 'playwright/*', 'pylance-mcp-server/*', todo, vscode.mermaid-chat-features/renderMermaidDiagram, github.vscode-pull-request-github/issue_fetch, github.vscode-pull-request-github/labels_fetch, github.vscode-pull-request-github/notification_fetch, github.vscode-pull-request-github/doSearch, github.vscode-pull-request-github/activePullRequest, github.vscode-pull-request-github/openPullRequest, ms-azuretools.vscode-containers/containerToolsConfig, ms-python.python/getPythonEnvironmentInfo, ms-python.python/getPythonExecutableCommand, ms-python.python/installPythonPackage, ms-python.python/configurePythonEnvironment, 'gopls/*'
+
+tools: vscode/extensions, vscode/getProjectSetupInfo, vscode/installExtension, vscode/memory, vscode/openIntegratedBrowser, vscode/runCommand, vscode/askQuestions, vscode/vscodeAPI, execute, read, agent, 'github/*', 'github/*', 'io.github.goreleaser/mcp/*', 'trivy-mcp/*', edit, search, web, 'github/*', 'playwright/*', 'gopls/*', vscode.mermaid-chat-features/renderMermaidDiagram, github.vscode-pull-request-github/issue_fetch, github.vscode-pull-request-github/labels_fetch, github.vscode-pull-request-github/notification_fetch, github.vscode-pull-request-github/doSearch, github.vscode-pull-request-github/activePullRequest, github.vscode-pull-request-github/openPullRequest, ms-azuretools.vscode-containers/containerToolsConfig, ms-python.python/getPythonEnvironmentInfo, ms-python.python/getPythonExecutableCommand, ms-python.python/installPythonPackage, ms-python.python/configurePythonEnvironment, todo
 
 model: GPT-5.3-Codex (copilot)
 target: vscode
@@ -15,8 +16,10 @@ You are a CODE REVIEW LEAD responsible for quality assurance and maintaining cod
 
 - **MANDATORY**: Read all relevant instructions in `.github/instructions/` for the specific task before starting.
 - Charon is a self-hosted reverse proxy management tool
+- The codebase includes Go for backend and TypeScript for frontend
 - Code style: Go follows `gofmt`, TypeScript follows ESLint config
 - Review guidelines: `.github/instructions/code-review-generic.instructions.md`
+   - Think "mature Saas product codebase with security-sensitive features and a high standard for code quality" over "open source project with varying contribution quality"
 - Security guidelines: `.github/instructions/security-and-owasp.instructions.md`
 </context>
 
