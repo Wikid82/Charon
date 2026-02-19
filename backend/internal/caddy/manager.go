@@ -384,8 +384,8 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 					}
 				}
 				if !isActive {
-					if err := removeFileFunc(filePath); err != nil {
-						logger.Log().WithError(err).WithField("path", filePath).Warn("failed to remove stale ruleset file")
+					if removeErr := removeFileFunc(filePath); removeErr != nil {
+						logger.Log().WithError(removeErr).WithField("path", filePath).Warn("failed to remove stale ruleset file")
 					} else {
 						logger.Log().WithField("path", filePath).Info("removed stale ruleset file")
 					}
@@ -424,8 +424,8 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	}
 
 	// Validate before applying
-	if err := validateConfigFunc(generatedConfig); err != nil {
-		return fmt.Errorf("validation failed: %w", err)
+	if validateErr := validateConfigFunc(generatedConfig); validateErr != nil {
+		return fmt.Errorf("validation failed: %w", validateErr)
 	}
 
 	// Save snapshot for rollback

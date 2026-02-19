@@ -1,20 +1,16 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClientProvider } from '@tanstack/react-query'
 import CertificateList from '../CertificateList'
 import { createTestQueryClient } from '../../test/createTestQueryClient'
+import { useCertificates } from '../../hooks/useCertificates'
+import { useProxyHosts } from '../../hooks/useProxyHosts'
+import type { Certificate } from '../../api/certificates'
+import type { ProxyHost } from '../../api/proxyHosts'
 
 vi.mock('../../hooks/useCertificates', () => ({
-  useCertificates: vi.fn(() => ({
-    certificates: [
-      { id: 1, name: 'CustomCert', domain: 'example.com', issuer: 'Custom CA', expires_at: new Date().toISOString(), status: 'expired', provider: 'custom' },
-      { id: 2, name: 'LE Staging', domain: 'staging.example.com', issuer: "Let's Encrypt Staging", expires_at: new Date().toISOString(), status: 'untrusted', provider: 'letsencrypt-staging' },
-      { id: 3, name: 'ActiveCert', domain: 'active.example.com', issuer: 'Custom CA', expires_at: new Date().toISOString(), status: 'valid', provider: 'custom' },
-    ],
-    isLoading: false,
-    error: null,
-  }))
+  useCertificates: vi.fn(),
 }))
 
 vi.mock('../../api/certificates', () => ({
@@ -26,19 +22,7 @@ vi.mock('../../api/backups', () => ({
 }))
 
 vi.mock('../../hooks/useProxyHosts', () => ({
-  useProxyHosts: vi.fn(() => ({
-    hosts: [
-      { uuid: 'h1', name: 'Host1', certificate_id: 3 },
-    ],
-    loading: false,
-    isFetching: false,
-    error: null,
-    createHost: vi.fn(),
-    updateHost: vi.fn(),
-    deleteHost: vi.fn(),
-    bulkUpdateACL: vi.fn(),
-    isBulkUpdating: false,
-  })),
+  useProxyHosts: vi.fn(),
 }))
 
 vi.mock('../../utils/toast', () => ({
@@ -49,6 +33,76 @@ function renderWithClient(ui: React.ReactNode) {
   const qc = createTestQueryClient()
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>)
 }
+
+const createCertificatesValue = (overrides: Partial<ReturnType<typeof useCertificates>> = {}) => {
+  const certificates: Certificate[] = [
+    { id: 1, name: 'CustomCert', domain: 'example.com', issuer: 'Custom CA', expires_at: '2026-03-01T00:00:00Z', status: 'expired', provider: 'custom' },
+    { id: 2, name: 'LE Staging', domain: 'staging.example.com', issuer: "Let's Encrypt Staging", expires_at: '2026-04-01T00:00:00Z', status: 'untrusted', provider: 'letsencrypt-staging' },
+    { id: 3, name: 'ActiveCert', domain: 'active.example.com', issuer: 'Custom CA', expires_at: '2026-02-01T00:00:00Z', status: 'valid', provider: 'custom' },
+    { id: 4, name: 'UnusedValidCert', domain: 'unused.example.com', issuer: 'Custom CA', expires_at: '2026-05-01T00:00:00Z', status: 'valid', provider: 'custom' },
+  ]
+
+  return {
+    certificates,
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+    ...overrides,
+  }
+}
+
+const createProxyHost = (overrides: Partial<ProxyHost> = {}): ProxyHost => ({
+  uuid: 'h1',
+  name: 'Host1',
+  domain_names: 'host1.example.com',
+  forward_scheme: 'http',
+  forward_host: '127.0.0.1',
+  forward_port: 80,
+  ssl_forced: false,
+  http2_support: true,
+  hsts_enabled: false,
+  hsts_subdomains: false,
+  block_exploits: false,
+  websocket_support: false,
+  application: 'none',
+  locations: [],
+  enabled: true,
+  created_at: '2026-02-01T00:00:00Z',
+  updated_at: '2026-02-01T00:00:00Z',
+  certificate_id: 3,
+  ...overrides,
+})
+
+const createProxyHostsValue = (overrides: Partial<ReturnType<typeof useProxyHosts>> = {}): ReturnType<typeof useProxyHosts> => ({
+  hosts: [
+    createProxyHost(),
+  ],
+  loading: false,
+  isFetching: false,
+  error: null,
+  createHost: vi.fn(),
+  updateHost: vi.fn(),
+  deleteHost: vi.fn(),
+  bulkUpdateACL: vi.fn(),
+  bulkUpdateSecurityHeaders: vi.fn(),
+  isCreating: false,
+  isUpdating: false,
+  isDeleting: false,
+  isBulkUpdating: false,
+  ...overrides,
+})
+
+const getRowNames = () =>
+  screen
+    .getAllByRole('row')
+    .slice(1)
+    .map(row => row.querySelector('td')?.textContent?.trim() ?? '')
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  vi.mocked(useCertificates).mockReturnValue(createCertificatesValue())
+  vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsValue())
+})
 
 describe('CertificateList', () => {
   it('deletes custom certificate when confirmed', async () => {
@@ -86,28 +140,54 @@ describe('CertificateList', () => {
     confirmSpy.mockRestore()
   })
 
-  it('blocks deletion when certificate is in use by a proxy host', async () => {
-    const { toast } = await import('../../utils/toast')
+  it('deletes valid custom certificate when not in use', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true)
+    const { deleteCertificate } = await import('../../api/certificates')
+    const { createBackup } = await import('../../api/backups')
     const user = userEvent.setup()
+
     renderWithClient(<CertificateList />)
-    const deleteButtons = await screen.findAllByTitle('Delete Certificate')
-    // Find button corresponding to ActiveCert (id 3)
-    const activeButton = deleteButtons.find(btn => btn.closest('tr')?.querySelector('td')?.textContent?.includes('ActiveCert'))
-    expect(activeButton).toBeTruthy()
-    if (activeButton) await user.click(activeButton)
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('in use')))
+    const rows = await screen.findAllByRole('row')
+    const unusedRow = rows.find(r => r.querySelector('td')?.textContent?.includes('UnusedValidCert')) as HTMLElement
+    expect(unusedRow).toBeTruthy()
+    const unusedButton = unusedRow.querySelector('button[title="Delete Certificate"]') as HTMLButtonElement
+    expect(unusedButton).toBeTruthy()
+    await user.click(unusedButton)
+
+    await waitFor(() => expect(createBackup).toHaveBeenCalled())
+    await waitFor(() => expect(deleteCertificate).toHaveBeenCalledWith(4))
+    confirmSpy.mockRestore()
   })
 
-  it('blocks deletion when certificate status is active (valid/expiring)', async () => {
-    const { toast } = await import('../../utils/toast')
-    const user = userEvent.setup()
+  it('renders empty state when no certificates exist', async () => {
+    vi.mocked(useCertificates).mockReturnValue(createCertificatesValue({ certificates: [] }))
     renderWithClient(<CertificateList />)
-    const deleteButtons = await screen.findAllByTitle('Delete Certificate')
-    // ActiveCert (valid) should block even if not linked – ensure hosts mock links it so previous test covers linkage.
-    // Here, simulate clicking a valid cert button if present
-    const validButton = deleteButtons.find(btn => btn.closest('tr')?.querySelector('td')?.textContent?.includes('ActiveCert'))
-    expect(validButton).toBeTruthy()
-    if (validButton) await user.click(validButton)
-    await waitFor(() => expect(toast.error).toHaveBeenCalled())
+    expect(await screen.findByText('No certificates found.')).toBeInTheDocument()
+  })
+
+  it('shows error state when certificate load fails', async () => {
+    vi.mocked(useCertificates).mockReturnValue(createCertificatesValue({ error: new Error('boom') }))
+    renderWithClient(<CertificateList />)
+    expect(await screen.findByText('Failed to load certificates')).toBeInTheDocument()
+  })
+
+  it('sorts certificates by name and expiry when headers are clicked', async () => {
+    const certificates: Certificate[] = [
+      { id: 10, name: 'Zulu', domain: 'z.example.com', issuer: 'Custom CA', expires_at: '2026-03-01T00:00:00Z', status: 'valid', provider: 'custom' },
+      { id: 11, name: 'Alpha', domain: 'a.example.com', issuer: 'Custom CA', expires_at: '2026-01-01T00:00:00Z', status: 'valid', provider: 'custom' },
+    ]
+
+    const user = userEvent.setup()
+
+    vi.mocked(useCertificates).mockReturnValue(createCertificatesValue({ certificates }))
+    renderWithClient(<CertificateList />)
+
+    expect(getRowNames()).toEqual(['Alpha', 'Zulu'])
+
+    await user.click(screen.getByText('Expires'))
+    expect(getRowNames()).toEqual(['Alpha', 'Zulu'])
+
+    await user.click(screen.getByText('Expires'))
+    expect(getRowNames()).toEqual(['Zulu', 'Alpha'])
   })
 })

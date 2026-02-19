@@ -208,27 +208,31 @@ test.describe('CrowdSec Diagnostics', () => {
     });
 
     test('should optionally report console reachability', async ({ request }) => {
+      // Diagnostic checks involving external connectivity can depend on network conditions
+      test.setTimeout(60000);
+
       await test.step('Check console API reachability', async () => {
-        const response = await request.get('/api/v1/admin/crowdsec/diagnostics/connectivity');
+        await expect(async () => {
+          const response = await request.get('/api/v1/admin/crowdsec/diagnostics/connectivity');
 
-        if (response.status() === 404) {
-          test.info().annotations.push({
-            type: 'skip',
-            description: 'Diagnostics connectivity endpoint not implemented',
-          });
-          return;
-        }
+          if (response.status() === 404) {
+            // If endpoint is not implemented, we pass
+            return;
+          }
 
-        const connectivity = await response.json();
+          expect(response.ok()).toBeTruthy();
 
-        // console_reachable and capi_reachable are optional but valuable
-        if (connectivity.console_reachable !== undefined) {
-          expect(typeof connectivity.console_reachable).toBe('boolean');
-        }
+          const connectivity = await response.json();
 
-        if (connectivity.capi_reachable !== undefined) {
-          expect(typeof connectivity.capi_reachable).toBe('boolean');
-        }
+          // console_reachable and capi_reachable are optional but valuable
+          if (connectivity.console_reachable !== undefined) {
+            expect(typeof connectivity.console_reachable).toBe('boolean');
+          }
+
+          if (connectivity.capi_reachable !== undefined) {
+            expect(typeof connectivity.capi_reachable).toBe('boolean');
+          }
+        }).toPass({ timeout: 30000 });
       });
     });
   });

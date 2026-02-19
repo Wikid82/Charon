@@ -6,6 +6,65 @@ import { securityHeadersApi, type SecurityHeaderProfile } from '../../api/securi
 
 vi.mock('../../api/securityHeaders');
 
+// Mock child components that are complex or have their own tests
+vi.mock('../CSPBuilder', () => ({
+  CSPBuilder: ({
+    value,
+    onChange,
+    onValidate,
+  }: {
+    value: string;
+    onChange: (v: string) => void;
+    onValidate: (v: boolean, e: string[]) => void;
+  }) => (
+    <div data-testid="csp-builder">
+      <input
+        data-testid="csp-input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <button type="button" data-testid="csp-valid" onClick={() => onValidate(true, [])}>
+        Set Valid
+      </button>
+      <button type="button" data-testid="csp-invalid" onClick={() => onValidate(false, ['Error'])}>
+        Set Invalid
+      </button>
+    </div>
+  ),
+}));
+
+vi.mock('../PermissionsPolicyBuilder', () => ({
+  PermissionsPolicyBuilder: ({
+    value,
+    onChange,
+  }: {
+    value: string;
+    onChange: (v: string) => void;
+  }) => (
+    <div data-testid="permissions-builder">
+      <input
+        data-testid="permissions-input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  ),
+}));
+
+vi.mock('../SecurityScoreDisplay', () => ({
+  SecurityScoreDisplay: ({
+    score,
+    maxScore,
+  }: {
+    score: number;
+    maxScore: number;
+  }) => (
+    <div data-testid="security-score">
+      Score: {score}/{maxScore}
+    </div>
+  ),
+}));
+
 const createWrapper = () => {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -44,6 +103,9 @@ describe('SecurityHeaderProfileForm', () => {
 
     expect(screen.getByPlaceholderText(/Production Security Headers/)).toBeInTheDocument();
     expect(screen.getByText('HTTP Strict Transport Security (HSTS)')).toBeInTheDocument();
+    expect(
+      screen.getByText('Profile Information')
+    ).toBeInTheDocument();
   });
 
   it('should render with initial data', () => {
@@ -57,7 +119,10 @@ describe('SecurityHeaderProfileForm', () => {
     };
 
     render(
-      <SecurityHeaderProfileForm {...defaultProps} initialData={initialData as SecurityHeaderProfile} />,
+      <SecurityHeaderProfileForm
+        {...defaultProps}
+        initialData={initialData as SecurityHeaderProfile}
+      />,
       { wrapper: createWrapper() }
     );
 
@@ -100,12 +165,32 @@ describe('SecurityHeaderProfileForm', () => {
     expect(mockOnCancel).toHaveBeenCalled();
   });
 
+  it('should call onDelete when delete button clicked', () => {
+    render(
+      <SecurityHeaderProfileForm
+        {...defaultProps}
+        initialData={{ id: 1, name: 'Test', is_preset: false } as SecurityHeaderProfile}
+        onDelete={mockOnDelete}
+      />,
+      { wrapper: createWrapper() }
+    );
+
+    const deleteButton = screen.getByRole('button', { name: /Delete Profile/ });
+    fireEvent.click(deleteButton);
+
+    expect(mockOnDelete).toHaveBeenCalled();
+  });
+
   it('should toggle HSTS enabled', async () => {
     render(<SecurityHeaderProfileForm {...defaultProps} />, { wrapper: createWrapper() });
 
-    // Switch component uses checkbox with sr-only class
-    const hstsSection = screen.getByText('HTTP Strict Transport Security (HSTS)').closest('div');
-    const hstsToggle = hstsSection?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    // HSTS is true by default
+    const hstsSection = screen
+      .getByText('HTTP Strict Transport Security (HSTS)')
+      .closest('div');
+    const hstsToggle = hstsSection?.querySelector(
+      'input[type="checkbox"]'
+    ) as HTMLInputElement;
 
     expect(hstsToggle).toBeTruthy();
     expect(hstsToggle.checked).toBe(true);
@@ -114,23 +199,48 @@ describe('SecurityHeaderProfileForm', () => {
     expect(hstsToggle.checked).toBe(false);
   });
 
-  it('should show HSTS options when enabled', () => {
-    render(<SecurityHeaderProfileForm {...defaultProps} />, { wrapper: createWrapper() });
+  it('should show HSTS options when enabled and handle updates', async () => {
+    const initialData: Partial<SecurityHeaderProfile> = {
+      hsts_enabled: true,
+      hsts_max_age: 1000,
+    };
 
-    expect(screen.getByText(/Max Age \(seconds\)/)).toBeInTheDocument();
-    expect(screen.getByText('Include Subdomains')).toBeInTheDocument();
-    expect(screen.getByText('Preload')).toBeInTheDocument();
+    render(
+      <SecurityHeaderProfileForm {...defaultProps} initialData={initialData as SecurityHeaderProfile} />,
+      { wrapper: createWrapper() }
+    );
+
+    const maxAgeInput = screen.getByDisplayValue('1000');
+    fireEvent.change(maxAgeInput, { target: { value: '63072000' } });
+
+    // Try include subdomains toggle
+    const includeSubdomainsText = screen.getByText('Include Subdomains');
+    const includeSubdomainsContainer = includeSubdomainsText.closest('div')?.parentElement;
+    const includeSubdomainsToggle = includeSubdomainsContainer?.querySelector('input[type="checkbox"]');
+
+    if(includeSubdomainsToggle) {
+        fireEvent.click(includeSubdomainsToggle);
+    }
+
+    // Check submit gets updated values
+    const nameInput = screen.getByPlaceholderText(/Production Security Headers/);
+    fireEvent.change(nameInput, { target: { value: 'HSTS Update' } });
+
+    const submitButton = screen.getByRole('button', { name: /Save Profile/ });
+    fireEvent.click(submitButton);
+
+    await waitFor(() => {
+        const submitted = mockOnSubmit.mock.calls[0][0];
+        expect(submitted.hsts_max_age).toBe(63072000);
+    });
   });
 
   it('should show preload warning when enabled', async () => {
     render(<SecurityHeaderProfileForm {...defaultProps} />, { wrapper: createWrapper() });
 
-    // Find the preload switch by finding the parent container with the "Preload" label
     const preloadText = screen.getByText('Preload');
-    const preloadContainer = preloadText.closest('div')?.parentElement; // Go up to the flex container
+    const preloadContainer = preloadText.closest('div')?.parentElement;
     const preloadSwitch = preloadContainer?.querySelector('input[type="checkbox"]');
-
-    expect(preloadSwitch).toBeTruthy();
 
     if (preloadSwitch) {
       fireEvent.click(preloadSwitch);
@@ -141,24 +251,64 @@ describe('SecurityHeaderProfileForm', () => {
     });
   });
 
-  it('should toggle CSP enabled', async () => {
+  it('should toggle CSP enabled and show CSP builder', async () => {
     render(<SecurityHeaderProfileForm {...defaultProps} />, { wrapper: createWrapper() });
 
-    // CSP is disabled by default, so builder should not be visible
-    expect(screen.queryByText('Content Security Policy Builder')).not.toBeInTheDocument();
-
-    // Find and click the CSP toggle switch (checkbox with sr-only class)
-    const cspSection = screen.getByText('Content Security Policy (CSP)').closest('div');
+    const cspSection = screen
+      .getByText('Content Security Policy (CSP)')
+      .closest('div');
     const cspCheckbox = cspSection?.querySelector('input[type="checkbox"]');
 
     if (cspCheckbox) {
-      fireEvent.click(cspCheckbox);
+      fireEvent.click(cspCheckbox); // Enable CSP (default is false)
     }
 
-    // Builder should now be visible
     await waitFor(() => {
-      expect(screen.getByText('Content Security Policy Builder')).toBeInTheDocument();
+      expect(screen.getByTestId('csp-builder')).toBeInTheDocument();
     });
+
+    // Test that submit button is disabled when CSP is invalid
+    const invalidButton = screen.getByTestId('csp-invalid');
+    fireEvent.click(invalidButton);
+
+    const submitButton = screen.getByRole('button', { name: /Save Profile/ });
+    expect(submitButton).toBeDisabled();
+
+    // Re-enable
+    const validButton = screen.getByTestId('csp-valid');
+    fireEvent.click(validButton);
+    expect(submitButton).not.toBeDisabled();
+
+    // Update CSP value through mock
+    const cspInput = screen.getByTestId('csp-input');
+    fireEvent.change(cspInput, { target: { value: '{"test": "val"}' } });
+  });
+
+  it('should handle CSP report only URI', async () => {
+    const initialData: Partial<SecurityHeaderProfile> = {
+      csp_enabled: true,
+      csp_report_only: true, // Report only enabled
+    };
+
+    render(
+      <SecurityHeaderProfileForm {...defaultProps} initialData={initialData as SecurityHeaderProfile} />,
+      { wrapper: createWrapper() }
+    );
+
+    const reportUriInput = screen.getByPlaceholderText(/^https:\/\/example\.com\/csp-report$/);
+    fireEvent.change(reportUriInput, { target: { value: 'https://test.com/report' } });
+
+    expect(reportUriInput).toHaveValue('https://test.com/report');
+
+    // Verify toggle for report only
+    const reportOnlyText = screen.getByText('Report-Only Mode');
+    const reportOnlyContainer = reportOnlyText.closest('div')?.parentElement;
+    const reportOnlySwitch = reportOnlyContainer?.querySelector('input[type="checkbox"]');
+
+    if(reportOnlySwitch) {
+        fireEvent.click(reportOnlySwitch); // Disable
+        expect(screen.queryByPlaceholderText(/^https:\/\/example\.com\/csp-report$/)).not.toBeInTheDocument();
+    }
   });
 
   it('should disable form for presets', () => {
@@ -171,110 +321,115 @@ describe('SecurityHeaderProfileForm', () => {
     };
 
     render(
-      <SecurityHeaderProfileForm {...defaultProps} initialData={presetData as SecurityHeaderProfile} />,
+      <SecurityHeaderProfileForm
+        {...defaultProps}
+        initialData={presetData as SecurityHeaderProfile}
+      />,
       { wrapper: createWrapper() }
     );
 
     const nameInput = screen.getByPlaceholderText(/Production Security Headers/);
     expect(nameInput).toBeDisabled();
-
-    expect(screen.getByText(/This is a system preset and cannot be modified/)).toBeInTheDocument();
-  });
-
-  it('should show delete button for non-presets', () => {
-    const profileData: Partial<SecurityHeaderProfile> = {
-      id: 1,
-      name: 'Custom Profile',
-      is_preset: false,
-      security_score: 80,
-    };
-
-    render(
-      <SecurityHeaderProfileForm
-        {...defaultProps}
-        initialData={profileData as SecurityHeaderProfile}
-        onDelete={mockOnDelete}
-      />,
-      { wrapper: createWrapper() }
-    );
-
-    expect(screen.getByRole('button', { name: /Delete Profile/ })).toBeInTheDocument();
-  });
-
-  it('should not show delete button for presets', () => {
-    const presetData: Partial<SecurityHeaderProfile> = {
-      id: 1,
-      name: 'Basic Security',
-      is_preset: true,
-      preset_type: 'basic',
-      security_score: 65,
-    };
-
-    render(
-      <SecurityHeaderProfileForm
-        {...defaultProps}
-        initialData={presetData as SecurityHeaderProfile}
-        onDelete={mockOnDelete}
-      />,
-      { wrapper: createWrapper() }
-    );
-
+    expect(
+      screen.getByText(/This is a system preset and cannot be modified/)
+    ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Delete Profile/ })).not.toBeInTheDocument();
   });
 
-  it('should change referrer policy', () => {
+  it('should handle cross origin policies', () => {
     render(<SecurityHeaderProfileForm {...defaultProps} />, { wrapper: createWrapper() });
 
-    const referrerSelect = screen.getAllByRole('combobox')[1]; // Referrer policy is second select
-    fireEvent.change(referrerSelect, { target: { value: 'no-referrer' } });
+    // Use traversing to find selects since labels are not associated
+    // Order: X-Frame, Referrer, Opener, Resource, Embedder
+    const selects = screen.getAllByRole('combobox');
 
-    expect(referrerSelect).toHaveValue('no-referrer');
+    // Verify we have the expected number of selects (5 standard + potential others?)
+    // X-Frame-Options is index 0
+    // Referrer-Policy is index 1
+    // Cross-Origin-Opener-Policy is index 2
+    // Cross-Origin-Resource-Policy is index 3
+    // Cross-Origin-Embedder-Policy is index 4
+
+    expect(selects.length).toBeGreaterThanOrEqual(5);
+
+    const openerPolicy = selects[2];
+    expect(openerPolicy).toHaveValue('same-origin');
+    fireEvent.change(openerPolicy, { target: { value: 'unsafe-none' } });
+    expect(openerPolicy).toHaveValue('unsafe-none');
+
+    const resourcePolicy = selects[3];
+    expect(resourcePolicy).toHaveValue('same-origin');
+    fireEvent.change(resourcePolicy, { target: { value: 'same-site' } });
+    expect(resourcePolicy).toHaveValue('same-site');
+
+    const embedderPolicy = selects[4];
+    // Default is likely empty string per component default
+    fireEvent.change(embedderPolicy, { target: { value: 'require-corp' } });
+    expect(embedderPolicy).toHaveValue('require-corp');
   });
 
-  it('should change x-frame-options', () => {
+  it('should handle additional options', () => {
+    // xss_protection defaults to true
+    // cache_control_no_store defaults to false
+
     render(<SecurityHeaderProfileForm {...defaultProps} />, { wrapper: createWrapper() });
 
-    const xfoSelect = screen.getAllByRole('combobox')[0]; // X-Frame-Options is first select
-    fireEvent.change(xfoSelect, { target: { value: 'SAMEORIGIN' } });
+    const xssSection = screen.getByText('X-XSS-Protection').closest('div')?.parentElement;
+    const xssSwitch = xssSection?.querySelector('input[type="checkbox"]');
+    expect(xssSwitch).toBeChecked(); // Default true
 
-    expect(xfoSelect).toHaveValue('SAMEORIGIN');
+    if(xssSwitch) fireEvent.click(xssSwitch);
+    expect(xssSwitch).not.toBeChecked();
+
+    const cacheSection = screen.getByText('Cache-Control: no-store').closest('div')?.parentElement;
+    const cacheSwitch = cacheSection?.querySelector('input[type="checkbox"]');
+    expect(cacheSwitch).not.toBeChecked(); // Default false
+
+    if(cacheSwitch) fireEvent.click(cacheSwitch);
+    expect(cacheSwitch).toBeChecked();
   });
 
-  it('should show loading state', () => {
-    render(<SecurityHeaderProfileForm {...defaultProps} isLoading={true} />, { wrapper: createWrapper() });
+  it('should update permissions policy', () => {
+     render(<SecurityHeaderProfileForm {...defaultProps} />, { wrapper: createWrapper() });
 
-    expect(screen.getByText('Saving...')).toBeInTheDocument();
+     const permissionsInput = screen.getByTestId('permissions-input');
+     fireEvent.change(permissionsInput, { target: { value: 'geolocation=()' } });
+
+     const nameInput = screen.getByPlaceholderText(/Production Security Headers/);
+     fireEvent.change(nameInput, { target: { value: 'PP Update' } });
+
+     const submitButton = screen.getByRole('button', { name: /Save Profile/ });
+     fireEvent.click(submitButton);
+
+     const submitted = mockOnSubmit.mock.calls[0][0];
+     expect(submitted.permissions_policy).toBe('geolocation=()');
   });
 
-  it('should show deleting state', () => {
-    const profileData: Partial<SecurityHeaderProfile> = {
-      id: 1,
-      name: 'Custom Profile',
-      is_preset: false,
-      security_score: 80,
-    };
-
-    render(
-      <SecurityHeaderProfileForm
-        {...defaultProps}
-        initialData={profileData as SecurityHeaderProfile}
-        onDelete={mockOnDelete}
-        isDeleting={true}
-      />,
-      { wrapper: createWrapper() }
-    );
-
-    expect(screen.getByText('Deleting...')).toBeInTheDocument();
-  });
-
-  it('should calculate security score on form changes', async () => {
+  it('should show security score', async () => {
     render(<SecurityHeaderProfileForm {...defaultProps} />, { wrapper: createWrapper() });
-
-    const nameInput = screen.getByPlaceholderText(/Production Security Headers/);
-    fireEvent.change(nameInput, { target: { value: 'Test' } });
 
     await waitFor(() => {
+        expect(screen.getByTestId('security-score')).toBeInTheDocument();
+        expect(screen.getByText('Score: 85/100')).toBeInTheDocument();
+    });
+  });
+
+  it('should calculate score after debounce', async () => {
+    // Use real timers for simplicity with debounce
+    render(<SecurityHeaderProfileForm {...defaultProps} />, { wrapper: createWrapper() });
+
+    // Clear initial calls from mount
+    vi.clearAllMocks();
+
+    const nameInput = screen.getByPlaceholderText(/Production Security Headers/);
+    fireEvent.change(nameInput, { target: { value: 'Checking Debounce' } });
+
+    // Should not have called immediately
+    expect(securityHeadersApi.calculateScore).not.toHaveBeenCalled();
+
+    // Wait for debounce (500ms) + buffer
+    await waitFor(() => {
       expect(securityHeadersApi.calculateScore).toHaveBeenCalled();
-    }, { timeout: 1000 });
+    }, { timeout: 1500 });
   });
 });

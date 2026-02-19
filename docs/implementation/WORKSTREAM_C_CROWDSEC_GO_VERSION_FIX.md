@@ -2,7 +2,7 @@
 
 **Date:** 2026-01-10
 **Issue:** CrowdSec binaries built with Go 1.25.1 containing 4 HIGH CVEs
-**Solution:** Pin CrowdSec builder to Go 1.25.5+
+**Solution**: Pin CrowdSec builder to Go 1.26.0+
 
 ## Problem
 
@@ -17,7 +17,7 @@ The CrowdSec builder stage in the Dockerfile was using `golang:1.25-alpine`, whi
 
 ## Solution
 
-Updated the `CrowdSec Builder` stage in the Dockerfile to explicitly pin to Go 1.25.5:
+Updated the `CrowdSec Builder` stage in the Dockerfile to explicitly pin to Go 1.26.0:
 
 ```dockerfile
 # Before:
@@ -63,7 +63,7 @@ After this change, the following validations should be performed:
 
 3. **Expected outcome:**
    - Trivy image scan should report **0 HIGH/CRITICAL** vulnerabilities
-   - CrowdSec binaries should be built with Go 1.25.5+
+   - CrowdSec binaries should be built with Go 1.26.0+
    - All CrowdSec functionality should remain operational
 
 ## Related

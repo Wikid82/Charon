@@ -3,22 +3,21 @@ name: Rate Limit integration
 # Phase 2-3: Build Once, Test Many - Use registry image instead of building
 # This workflow now waits for docker-build.yml to complete and pulls the built image
 on:
-  workflow_run:
-    workflows: ["Docker Build, Publish & Test"]
-    types: [completed]
-    branches: [main, development, 'feature/**']  # Explicit branch filter prevents unexpected triggers
-  # Allow manual trigger for debugging
   workflow_dispatch:
     inputs:
       image_tag:
         description: 'Docker image tag to test (e.g., pr-123-abc1234, latest)'
         required: false
         type: string
+  pull_request:
+  push:
+    branches:
+      - main
 
 # Prevent race conditions when PR is updated mid-test
 # Cancels old test runs when new build completes with different SHA
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.event || github.event_name }}-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -26,203 +25,86 @@ jobs:
     name: Rate Limiting Integration
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Only run if docker-build.yml succeeded, or if manually triggered
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      # Determine the correct image tag based on trigger context
-      # For PRs: pr-{number}-{sha}, For branches: {sanitized-branch}-{sha}
-      - name: Determine image tag
-        id: determine-tag
-        env:
-          EVENT: ${{ github.event.workflow_run.event }}
-          REF: ${{ github.event.workflow_run.head_branch }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
-          MANUAL_TAG: ${{ inputs.image_tag }}
+      - name: Build Docker image (Local)
         run: |
-          # Manual trigger uses provided tag
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            if [[ -n "$MANUAL_TAG" ]]; then
-              echo "tag=${MANUAL_TAG}" >> $GITHUB_OUTPUT
-            else
-              # Default to latest if no tag provided
-              echo "tag=latest" >> $GITHUB_OUTPUT
-            fi
-            echo "source_type=manual" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # Extract 7-character short SHA
-          SHORT_SHA=$(echo "$SHA" | cut -c1-7)
-
-          if [[ "$EVENT" == "pull_request" ]]; then
-            # Use native pull_requests array (no API calls needed)
-            PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number')
-
-            if [[ -z "$PR_NUM" || "$PR_NUM" == "null" ]]; then
-              echo "❌ ERROR: Could not determine PR number"
-              echo "Event: $EVENT"
-              echo "Ref: $REF"
-              echo "SHA: $SHA"
-              echo "Pull Requests JSON: ${{ toJson(github.event.workflow_run.pull_requests) }}"
-              exit 1
-            fi
-
-            # Immutable tag with SHA suffix prevents race conditions
-            echo "tag=pr-${PR_NUM}-${SHORT_SHA}" >> $GITHUB_OUTPUT
-            echo "source_type=pr" >> $GITHUB_OUTPUT
-          else
-            # Branch push: sanitize branch name and append SHA
-            # Sanitization: lowercase, replace / with -, remove special chars
-            SANITIZED=$(echo "$REF" | \
-              tr '[:upper:]' '[:lower:]' | \
-              tr '/' '-' | \
-              sed 's/[^a-z0-9-._]/-/g' | \
-              sed 's/^-//; s/-$//' | \
-              sed 's/--*/-/g' | \
-              cut -c1-121)  # Leave room for -SHORT_SHA (7 chars)
-
-            echo "tag=${SANITIZED}-${SHORT_SHA}" >> $GITHUB_OUTPUT
-            echo "source_type=branch" >> $GITHUB_OUTPUT
-          fi
-
-          echo "sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "Determined image tag: $(cat $GITHUB_OUTPUT | grep tag=)"
-
-      # Pull image from registry with retry logic (dual-source strategy)
-      # Try registry first (fast), fallback to artifact if registry fails
-      - name: Pull Docker image from registry
-        id: pull_image
-        uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
-        with:
-          timeout_minutes: 5
-          max_attempts: 3
-          retry_wait_seconds: 10
-          command: |
-            IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/charon:${{ steps.determine-tag.outputs.tag }}"
-            echo "Pulling image: $IMAGE_NAME"
-            docker pull "$IMAGE_NAME"
-            docker tag "$IMAGE_NAME" charon:local
-            echo "✅ Successfully pulled from registry"
-        continue-on-error: true
-
-      # Fallback: Download artifact if registry pull failed
-      - name: Fallback to artifact download
-        if: steps.pull_image.outcome == 'failure'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHA: ${{ steps.determine-tag.outputs.sha }}
-        run: |
-          echo "⚠️ Registry pull failed, falling back to artifact..."
-
-          # Determine artifact name based on source type
-          if [[ "${{ steps.determine-tag.outputs.source_type }}" == "pr" ]]; then
-            PR_NUM=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number')
-            ARTIFACT_NAME="pr-image-${PR_NUM}"
-          else
-            ARTIFACT_NAME="push-image"
-          fi
-
-          echo "Downloading artifact: $ARTIFACT_NAME"
-          gh run download ${{ github.event.workflow_run.id }} \
-            --name "$ARTIFACT_NAME" \
-            --dir /tmp/docker-image || {
-            echo "❌ ERROR: Artifact download failed!"
-            echo "Available artifacts:"
-            gh run view ${{ github.event.workflow_run.id }} --json artifacts --jq '.artifacts[].name'
-            exit 1
-          }
-
-          docker load < /tmp/docker-image/charon-image.tar
-          docker tag $(docker images --format "{{.Repository}}:{{.Tag}}" | head -1) charon:local
-          echo "✅ Successfully loaded from artifact"
-
-      # Validate image freshness by checking SHA label
-      - name: Validate image SHA
-        env:
-          SHA: ${{ steps.determine-tag.outputs.sha }}
-        run: |
-          LABEL_SHA=$(docker inspect charon:local --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' | cut -c1-7)
-          echo "Expected SHA: $SHA"
-          echo "Image SHA:    $LABEL_SHA"
-
-          if [[ "$LABEL_SHA" != "$SHA" ]]; then
-            echo "⚠️ WARNING: Image SHA mismatch!"
-            echo "Image may be stale. Proceeding with caution..."
-          else
-            echo "✅ Image SHA matches expected commit"
-          fi
+          echo "Building image locally for integration tests..."
+          docker build -t charon:local .
+          echo "✅ Successfully built charon:local"
 
       - name: Run rate limit integration tests
         id: ratelimit-test
         run: |
           chmod +x scripts/rate_limit_integration.sh
           scripts/rate_limit_integration.sh 2>&1 | tee ratelimit-test-output.txt
-          exit ${PIPESTATUS[0]}
+          exit "${PIPESTATUS[0]}"
 
       - name: Dump Debug Info on Failure
         if: failure()
         run: |
-          echo "## 🔍 Debug Information" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 🔍 Debug Information"
+            echo ""
 
-          echo "### Container Status" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          docker ps -a --filter "name=charon" --filter "name=ratelimit" --filter "name=backend" >> $GITHUB_STEP_SUMMARY 2>&1 || true
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Container Status"
+            echo '```'
+            docker ps -a --filter "name=charon" --filter "name=ratelimit" --filter "name=backend" 2>&1 || true
+            echo '```'
+            echo ""
 
-          echo "### Security Config API" >> $GITHUB_STEP_SUMMARY
-          echo '```json' >> $GITHUB_STEP_SUMMARY
-          curl -s http://localhost:8280/api/v1/security/config 2>/dev/null | head -100 >> $GITHUB_STEP_SUMMARY || echo "Could not retrieve security config" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Security Config API"
+            echo '```json'
+            curl -s http://localhost:8280/api/v1/security/config 2>/dev/null | head -100 || echo "Could not retrieve security config"
+            echo '```'
+            echo ""
 
-          echo "### Security Status API" >> $GITHUB_STEP_SUMMARY
-          echo '```json' >> $GITHUB_STEP_SUMMARY
-          curl -s http://localhost:8280/api/v1/security/status 2>/dev/null | head -100 >> $GITHUB_STEP_SUMMARY || echo "Could not retrieve security status" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Security Status API"
+            echo '```json'
+            curl -s http://localhost:8280/api/v1/security/status 2>/dev/null | head -100 || echo "Could not retrieve security status"
+            echo '```'
+            echo ""
 
-          echo "### Caddy Admin Config (rate_limit handlers)" >> $GITHUB_STEP_SUMMARY
-          echo '```json' >> $GITHUB_STEP_SUMMARY
-          curl -s http://localhost:2119/config 2>/dev/null | grep -A 20 '"handler":"rate_limit"' | head -30 >> $GITHUB_STEP_SUMMARY || echo "Could not retrieve Caddy config" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Caddy Admin Config (rate_limit handlers)"
+            echo '```json'
+            curl -s http://localhost:2119/config 2>/dev/null | grep -A 20 '"handler":"rate_limit"' | head -30 || echo "Could not retrieve Caddy config"
+            echo '```'
+            echo ""
 
-          echo "### Charon Container Logs (last 100 lines)" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          docker logs charon-ratelimit-test 2>&1 | tail -100 >> $GITHUB_STEP_SUMMARY || echo "No container logs available" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "### Charon Container Logs (last 100 lines)"
+            echo '```'
+            docker logs charon-ratelimit-test 2>&1 | tail -100 || echo "No container logs available"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Rate Limit Integration Summary
         if: always()
         run: |
-          echo "## ⏱️ Rate Limit Integration Test Results" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ steps.ratelimit-test.outcome }}" == "success" ]; then
-            echo "✅ **All rate limit tests passed**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Test Results:" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            grep -E "✓|=== ALL|HTTP 429|HTTP 200" ratelimit-test-output.txt | head -30 || echo "See logs for details"
-            grep -E "✓|=== ALL|HTTP 429|HTTP 200" ratelimit-test-output.txt | head -30 >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Verified Behaviors:" >> $GITHUB_STEP_SUMMARY
-            echo "- Requests within limit return HTTP 200" >> $GITHUB_STEP_SUMMARY
-            echo "- Requests exceeding limit return HTTP 429" >> $GITHUB_STEP_SUMMARY
-            echo "- Retry-After header present on blocked responses" >> $GITHUB_STEP_SUMMARY
-            echo "- Rate limit window resets correctly" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Rate limit tests failed**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Failure Details:" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            grep -E "✗|FAIL|Error|failed|expected" ratelimit-test-output.txt | head -30 >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
+          {
+            echo "## ⏱️ Rate Limit Integration Test Results"
+            if [ "${{ steps.ratelimit-test.outcome }}" == "success" ]; then
+              echo "✅ **All rate limit tests passed**"
+              echo ""
+              echo "### Test Results:"
+              echo '```'
+              grep -E "✓|=== ALL|HTTP 429|HTTP 200" ratelimit-test-output.txt | head -30 || echo "See logs for details"
+              echo '```'
+              echo ""
+              echo "### Verified Behaviors:"
+              echo "- Requests within limit return HTTP 200"
+              echo "- Requests exceeding limit return HTTP 429"
+              echo "- Retry-After header present on blocked responses"
+              echo "- Rate limit window resets correctly"
+            else
+              echo "❌ **Rate limit tests failed**"
+              echo ""
+              echo "### Failure Details:"
+              echo '```'
+              grep -E "✗|FAIL|Error|failed|expected" ratelimit-test-output.txt | head -30 || echo "See logs for details"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cleanup
         if: always()

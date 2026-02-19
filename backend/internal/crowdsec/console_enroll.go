@@ -22,6 +22,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 const (
@@ -139,12 +140,12 @@ func (s *ConsoleEnrollmentService) Enroll(ctx context.Context, req ConsoleEnroll
 
 	// CRITICAL: Check that LAPI is running before attempting enrollment
 	// Console enrollment requires an active LAPI connection to register with crowdsec.net
-	if err := s.checkLAPIAvailable(ctx); err != nil {
-		return ConsoleEnrollmentStatus{}, err
+	if checkErr := s.checkLAPIAvailable(ctx); checkErr != nil {
+		return ConsoleEnrollmentStatus{}, checkErr
 	}
 
-	if err := s.ensureCAPIRegistered(ctx); err != nil {
-		return ConsoleEnrollmentStatus{}, err
+	if ensureErr := s.ensureCAPIRegistered(ctx); ensureErr != nil {
+		return ConsoleEnrollmentStatus{}, ensureErr
 	}
 
 	s.mu.Lock()
@@ -210,7 +211,7 @@ func (s *ConsoleEnrollmentService) Enroll(ctx context.Context, req ConsoleEnroll
 	// Token is the last positional argument
 	args = append(args, token)
 
-	logger.Log().WithField("tenant", tenant).WithField("agent", agent).WithField("force", req.Force).WithField("correlation_id", rec.LastCorrelationID).WithField("config", configPath).Info("starting crowdsec console enrollment")
+	logger.Log().Info("starting crowdsec console enrollment")
 	out, cmdErr := s.exec.ExecuteWithEnv(cmdCtx, "cscli", args, nil)
 
 	// Log command output for debugging (redacting the token)
@@ -226,11 +227,11 @@ func (s *ConsoleEnrollmentService) Enroll(ctx context.Context, req ConsoleEnroll
 		}
 		rec.LastError = userMessage
 		_ = s.db.WithContext(ctx).Save(rec)
-		logger.Log().WithField("error", redactedErr).WithField("correlation_id", rec.LastCorrelationID).WithField("tenant", tenant).WithField("output", redactedOut).Warn("crowdsec console enrollment failed")
+		logger.Log().WithField("error", util.SanitizeForLog(redactedErr)).WithField("correlation_id", rec.LastCorrelationID).WithField("tenant", util.SanitizeForLog(tenant)).WithField("output", util.SanitizeForLog(redactedOut)).Warn("crowdsec console enrollment failed")
 		return s.statusFromModel(rec), fmt.Errorf("%s", userMessage)
 	}
 
-	logger.Log().WithField("correlation_id", rec.LastCorrelationID).WithField("output", redactedOut).Debug("cscli console enroll command output")
+	logger.Log().WithField("correlation_id", rec.LastCorrelationID).WithField("output", util.SanitizeForLog(redactedOut)).Debug("cscli console enroll command output")
 
 	// Enrollment request was sent successfully, but user must still accept it on crowdsec.net.
 	// cscli console enroll returns exit code 0 when the request is sent, NOT when enrollment is complete.
@@ -243,7 +244,7 @@ func (s *ConsoleEnrollmentService) Enroll(ctx context.Context, req ConsoleEnroll
 		return ConsoleEnrollmentStatus{}, err
 	}
 
-	logger.Log().WithField("tenant", tenant).WithField("agent", agent).WithField("correlation_id", rec.LastCorrelationID).Info("crowdsec console enrollment request sent - pending acceptance on crowdsec.net")
+	logger.Log().WithField("tenant", util.SanitizeForLog(tenant)).WithField("agent", util.SanitizeForLog(agent)).WithField("correlation_id", rec.LastCorrelationID).Info("crowdsec console enrollment request sent - pending acceptance on crowdsec.net")
 	return s.statusFromModel(rec), nil
 }
 

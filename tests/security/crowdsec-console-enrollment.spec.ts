@@ -343,10 +343,7 @@ test.describe('CrowdSec Console Enrollment', () => {
     });
 
     test('should handle LAPI not running error gracefully', async ({ page, request }) => {
-      test.skip(
-        true,
-        'LAPI availability enforced via CrowdSec internal checks. Verified in integration tests (backend/integration/).'
-      );
+      // LAPI availability enforced via CrowdSec internal checks. Verified in integration tests (backend/integration/).
 
       await test.step('Attempt enrollment when LAPI is not running', async () => {
         // This test would verify the error message when LAPI is not available

@@ -225,9 +225,9 @@ func ValidateExternalURL(rawURL string, options ...ValidationOption) (string, er
 
 	// ENHANCEMENT: Port Range Validation
 	if port := u.Port(); port != "" {
-		portNum, err := parsePort(port)
-		if err != nil {
-			return "", fmt.Errorf("invalid port: %w", err)
+		portNum, parseErr := parsePort(port)
+		if parseErr != nil {
+			return "", fmt.Errorf("invalid port: %w", parseErr)
 		}
 		if portNum < 1 || portNum > 65535 {
 			return "", fmt.Errorf("port out of range: %d", portNum)

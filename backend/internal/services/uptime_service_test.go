@@ -88,8 +88,8 @@ func TestUptimeService_CheckAll(t *testing.T) {
 
 	// Wait for HTTP server to be ready by making a test request
 	for i := 0; i < 10; i++ {
-		conn, err := net.DialTimeout("tcp", addr.String(), 100*time.Millisecond)
-		if err == nil {
+		conn, dialErr := net.DialTimeout("tcp", addr.String(), 100*time.Millisecond)
+		if dialErr == nil {
 			_ = conn.Close()
 			break
 		}

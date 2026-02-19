@@ -1,5 +1,5 @@
 /**
- * Proxy + DNS Provider Integration E2E Tests (Phase 6.3)
+ * Proxy + DNS Provider Integration E2E Tests
  *
  * Tests for proxy host and DNS provider integration workflows.
  * Covers DNS provider configuration, ACME DNS-01 challenges, and validation.
@@ -18,17 +18,29 @@
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
 import { generateProxyHost } from '../fixtures/proxy-hosts';
 import {
-  waitForToast,
   waitForLoadingComplete,
   waitForAPIResponse,
-  waitForModal,
-  clickAndWaitForResponse,
+  waitForResourceInUI,
 } from '../utils/wait-helpers';
 
 /**
  * DNS Provider types supported by the system
  */
 type DNSProviderType = 'manual' | 'cloudflare' | 'route53' | 'webhook' | 'rfc2136';
+
+async function navigateToDnsProviders(page: import('@playwright/test').Page): Promise<void> {
+  const providersResponse = waitForAPIResponse(page, /\/api\/v1\/dns-providers/);
+  await page.goto('/dns/providers');
+  await providersResponse;
+  await waitForLoadingComplete(page);
+}
+
+async function navigateToCertificates(page: import('@playwright/test').Page): Promise<void> {
+  const certsResponse = waitForAPIResponse(page, /\/api\/v1\/certificates/);
+  await page.goto('/certificates');
+  await certsResponse;
+  await waitForLoadingComplete(page);
+}
 
 /**
  * Selectors for DNS Provider and Proxy Host pages
@@ -90,14 +102,11 @@ test.describe('Proxy + DNS Provider Integration', () => {
       });
 
       await test.step('Navigate to DNS providers page', async () => {
-        await page.goto('/dns-providers');
-        await waitForLoadingComplete(page);
+        await navigateToDnsProviders(page);
       });
 
       await test.step('Verify DNS provider appears in list', async () => {
-        // The name is namespaced by TestDataManager
-        const content = page.locator('main, table, .content').first();
-        await expect(content).toBeVisible();
+        await waitForResourceInUI(page, /Manual-DNS-Test/i);
       });
     });
 
@@ -120,13 +129,11 @@ test.describe('Proxy + DNS Provider Integration', () => {
       });
 
       await test.step('Navigate to DNS providers', async () => {
-        await page.goto('/dns-providers');
-        await waitForLoadingComplete(page);
+        await navigateToDnsProviders(page);
       });
 
       await test.step('Verify provider is listed', async () => {
-        const content = page.locator('main, table').first();
-        await expect(content).toBeVisible();
+        await waitForResourceInUI(page, /Cloudflare-DNS-Test/i);
       });
     });
 
@@ -146,8 +153,7 @@ test.describe('Proxy + DNS Provider Integration', () => {
       });
 
       await test.step('Navigate to certificates page', async () => {
-        await page.goto('/certificates');
-        await waitForLoadingComplete(page);
+        await navigateToCertificates(page);
       });
 
       await test.step('Verify certificates page loads', async () => {
@@ -177,13 +183,11 @@ test.describe('Proxy + DNS Provider Integration', () => {
       });
 
       await test.step('Navigate to DNS providers', async () => {
-        await page.goto('/dns-providers');
-        await waitForLoadingComplete(page);
+        await navigateToDnsProviders(page);
       });
 
       await test.step('Verify DNS providers page loads', async () => {
-        const content = page.locator('main, .content').first();
-        await expect(content).toBeVisible();
+        await waitForResourceInUI(page, /Connectivity-Test-DNS/i);
       });
     });
 
@@ -203,14 +207,11 @@ test.describe('Proxy + DNS Provider Integration', () => {
       });
 
       await test.step('Navigate to DNS providers', async () => {
-        await page.goto('/dns-providers');
-        await waitForLoadingComplete(page);
+        await navigateToDnsProviders(page);
       });
 
       await test.step('Verify page content', async () => {
-        // Manual providers show instructions for DNS record creation
-        const content = page.locator('main, table, .content').first();
-        await expect(content).toBeVisible();
+        await waitForResourceInUI(page, /Manual-Challenge-DNS/i);
       });
     });
 
@@ -230,8 +231,7 @@ test.describe('Proxy + DNS Provider Integration', () => {
       });
 
       await test.step('Navigate to certificates', async () => {
-        await page.goto('/certificates');
-        await waitForLoadingComplete(page);
+        await navigateToCertificates(page);
       });
 
       await test.step('Verify page loads', async () => {
@@ -259,13 +259,11 @@ test.describe('Proxy + DNS Provider Integration', () => {
       });
 
       await test.step('Navigate to DNS providers', async () => {
-        await page.goto('/dns-providers');
-        await waitForLoadingComplete(page);
+        await navigateToDnsProviders(page);
       });
 
       await test.step('Verify provider in list', async () => {
-        const content = page.locator('main, table').first();
-        await expect(content).toBeVisible();
+        await waitForResourceInUI(page, /Webhook-DNS-Test/i);
       });
     });
   });
@@ -289,11 +287,13 @@ test.describe('Proxy + DNS Provider Integration', () => {
         },
       });
 
+      const updatedName = 'Update-Credentials-DNS-Updated';
+
       await test.step('Update provider credentials via API', async () => {
         const response = await page.request.put(`/api/v1/dns-providers/${providerId}`, {
           data: {
             type: 'cloudflare',
-            name: 'Update-Credentials-DNS-Updated',
+            name: updatedName,
             credentials: {
               api_token: 'updated-token',
             },
@@ -303,13 +303,11 @@ test.describe('Proxy + DNS Provider Integration', () => {
       });
 
       await test.step('Navigate to DNS providers', async () => {
-        await page.goto('/dns-providers');
-        await waitForLoadingComplete(page);
+        await navigateToDnsProviders(page);
       });
 
       await test.step('Verify updated provider', async () => {
-        const content = page.locator('main, table').first();
-        await expect(content).toBeVisible();
+        await waitForResourceInUI(page, updatedName);
       });
     });
 
@@ -327,18 +325,21 @@ test.describe('Proxy + DNS Provider Integration', () => {
       });
 
       await test.step('Navigate to DNS providers', async () => {
-        await page.goto('/dns-providers');
-        await waitForLoadingComplete(page);
+        await navigateToDnsProviders(page);
       });
 
       await test.step('Verify provider exists before deletion', async () => {
-        const content = page.locator('main, table').first();
-        await expect(content).toBeVisible();
+        await waitForResourceInUI(page, /Delete-Test-DNS/i);
       });
 
       await test.step('Delete provider via API', async () => {
         const response = await page.request.delete(`/api/v1/dns-providers/${providerId}`);
         expect(response.ok()).toBeTruthy();
+      });
+
+      await test.step('Verify provider removed from list', async () => {
+        await navigateToDnsProviders(page);
+        await expect(page.getByText(/Delete-Test-DNS/i)).toHaveCount(0);
       });
     });
 
@@ -363,13 +364,12 @@ test.describe('Proxy + DNS Provider Integration', () => {
       });
 
       await test.step('Navigate to DNS providers', async () => {
-        await page.goto('/dns-providers');
-        await waitForLoadingComplete(page);
+        await navigateToDnsProviders(page);
       });
 
       await test.step('Verify providers list', async () => {
-        const content = page.locator('main, table').first();
-        await expect(content).toBeVisible();
+        await waitForResourceInUI(page, /List-Test-DNS-1/i);
+        await waitForResourceInUI(page, /List-Test-DNS-2/i);
       });
 
       await test.step('Verify API returns providers', async () => {

@@ -23,6 +23,11 @@ func setupNotificationCoverageDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+func setAdminContext(c *gin.Context) {
+	c.Set("role", "admin")
+	c.Set("userID", uint(1))
+}
+
 // Notification Handler Tests
 
 func TestNotificationHandler_List_Error(t *testing.T) {
@@ -36,6 +41,9 @@ func TestNotificationHandler_List_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
+	setAdminContext(c)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("GET", "/notifications", http.NoBody)
 
 	h.List(c)
@@ -56,6 +64,7 @@ func TestNotificationHandler_List_UnreadOnly(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("GET", "/notifications?unread=true", http.NoBody)
 
 	h.List(c)
@@ -74,6 +83,7 @@ func TestNotificationHandler_MarkAsRead_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Params = gin.Params{{Key: "id", Value: "test-id"}}
 
 	h.MarkAsRead(c)
@@ -93,6 +103,7 @@ func TestNotificationHandler_MarkAllAsRead_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 
 	h.MarkAllAsRead(c)
 
@@ -113,6 +124,7 @@ func TestNotificationProviderHandler_List_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 
 	h.List(c)
 
@@ -128,6 +140,7 @@ func TestNotificationProviderHandler_Create_InvalidJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/providers", bytes.NewBufferString("invalid json"))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -155,6 +168,7 @@ func TestNotificationProviderHandler_Create_DBError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/providers", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -180,6 +194,7 @@ func TestNotificationProviderHandler_Create_InvalidTemplate(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/providers", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -196,6 +211,7 @@ func TestNotificationProviderHandler_Update_InvalidJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Params = gin.Params{{Key: "id", Value: "test-id"}}
 	c.Request = httptest.NewRequest("PUT", "/providers/test-id", bytes.NewBufferString("invalid"))
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -227,6 +243,7 @@ func TestNotificationProviderHandler_Update_InvalidTemplate(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Params = gin.Params{{Key: "id", Value: provider.ID}}
 	c.Request = httptest.NewRequest("PUT", "/providers/"+provider.ID, bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -255,6 +272,7 @@ func TestNotificationProviderHandler_Update_DBError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Params = gin.Params{{Key: "id", Value: "test-id"}}
 	c.Request = httptest.NewRequest("PUT", "/providers/test-id", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -275,6 +293,7 @@ func TestNotificationProviderHandler_Delete_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Params = gin.Params{{Key: "id", Value: "test-id"}}
 
 	h.Delete(c)
@@ -291,6 +310,7 @@ func TestNotificationProviderHandler_Test_InvalidJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/providers/test", bytes.NewBufferString("invalid"))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -307,6 +327,7 @@ func TestNotificationProviderHandler_Templates(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 
 	h.Templates(c)
 
@@ -324,6 +345,7 @@ func TestNotificationProviderHandler_Preview_InvalidJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/providers/preview", bytes.NewBufferString("invalid"))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -349,6 +371,7 @@ func TestNotificationProviderHandler_Preview_WithData(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/providers/preview", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -371,6 +394,7 @@ func TestNotificationProviderHandler_Preview_InvalidTemplate(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/providers/preview", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -392,6 +416,7 @@ func TestNotificationTemplateHandler_List_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 
 	h.List(c)
 
@@ -407,6 +432,7 @@ func TestNotificationTemplateHandler_Create_BadJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/templates", bytes.NewBufferString("invalid"))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -432,6 +458,7 @@ func TestNotificationTemplateHandler_Create_DBError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/templates", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -448,6 +475,7 @@ func TestNotificationTemplateHandler_Update_BadJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Params = gin.Params{{Key: "id", Value: "test-id"}}
 	c.Request = httptest.NewRequest("PUT", "/templates/test-id", bytes.NewBufferString("invalid"))
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -474,6 +502,7 @@ func TestNotificationTemplateHandler_Update_DBError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Params = gin.Params{{Key: "id", Value: "test-id"}}
 	c.Request = httptest.NewRequest("PUT", "/templates/test-id", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -494,6 +523,7 @@ func TestNotificationTemplateHandler_Delete_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Params = gin.Params{{Key: "id", Value: "test-id"}}
 
 	h.Delete(c)
@@ -510,6 +540,7 @@ func TestNotificationTemplateHandler_Preview_BadJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/templates/preview", bytes.NewBufferString("invalid"))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -531,6 +562,7 @@ func TestNotificationTemplateHandler_Preview_TemplateNotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/templates/preview", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -563,6 +595,7 @@ func TestNotificationTemplateHandler_Preview_WithStoredTemplate(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/templates/preview", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -584,6 +617,7 @@ func TestNotificationTemplateHandler_Preview_InvalidTemplate(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/templates/preview", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 

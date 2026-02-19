@@ -16,12 +16,17 @@ import (
 )
 
 func setupAuthService(t *testing.T) *services.AuthService {
+	authService, _ := setupAuthServiceWithDB(t)
+	return authService
+}
+
+func setupAuthServiceWithDB(t *testing.T) (*services.AuthService, *gorm.DB) {
 	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
 	_ = db.AutoMigrate(&models.User{})
 	cfg := config.Config{JWTSecret: "test-secret"}
-	return services.NewAuthService(db, cfg)
+	return services.NewAuthService(db, cfg), db
 }
 
 func TestAuthMiddleware_MissingHeader(t *testing.T) {
@@ -150,10 +155,37 @@ func TestAuthMiddleware_ValidToken(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestAuthMiddleware_PrefersAuthorizationHeader(t *testing.T) {
+func TestAuthMiddleware_PrefersCookieOverAuthorizationHeader(t *testing.T) {
 	authService := setupAuthService(t)
-	user, _ := authService.Register("header@example.com", "password", "Header User")
-	token, _ := authService.GenerateToken(user)
+	cookieUser, _ := authService.Register("cookie-header@example.com", "password", "Cookie Header User")
+	cookieToken, _ := authService.GenerateToken(cookieUser)
+	headerUser, _ := authService.Register("header@example.com", "password", "Header User")
+	headerToken, _ := authService.GenerateToken(headerUser)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(AuthMiddleware(authService))
+	r.GET("/test", func(c *gin.Context) {
+		userID, _ := c.Get("userID")
+		assert.Equal(t, headerUser.ID, userID)
+		c.Status(http.StatusOK)
+	})
+
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+headerToken)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: cookieToken})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestAuthMiddleware_UsesCookieWhenAuthorizationHeaderIsInvalid(t *testing.T) {
+	authService := setupAuthService(t)
+	user, err := authService.Register("cookie-valid@example.com", "password", "Cookie Valid User")
+	require.NoError(t, err)
+	token, err := authService.GenerateToken(user)
+	require.NoError(t, err)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -164,9 +196,36 @@ func TestAuthMiddleware_PrefersAuthorizationHeader(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req, _ := http.NewRequest("GET", "/test", http.NoBody)
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "stale"})
+	req, err := http.NewRequest("GET", "/test", http.NoBody)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer invalid-token")
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestAuthMiddleware_UsesLastNonEmptyCookieWhenDuplicateCookiesExist(t *testing.T) {
+	authService := setupAuthService(t)
+	user, err := authService.Register("dupecookie@example.com", "password", "Dup Cookie User")
+	require.NoError(t, err)
+	token, err := authService.GenerateToken(user)
+	require.NoError(t, err)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(AuthMiddleware(authService))
+	r.GET("/test", func(c *gin.Context) {
+		userID, _ := c.Get("userID")
+		assert.Equal(t, user.ID, userID)
+		c.Status(http.StatusOK)
+	})
+
+	req, err := http.NewRequest("GET", "/test", http.NoBody)
+	require.NoError(t, err)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: ""})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -265,4 +324,106 @@ func TestAuthMiddleware_PrefersCookieOverQueryParam(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestAuthMiddleware_RejectsDisabledUserToken(t *testing.T) {
+	authService, db := setupAuthServiceWithDB(t)
+	user, err := authService.Register("disabled@example.com", "password", "Disabled User")
+	require.NoError(t, err)
+
+	token, err := authService.GenerateToken(user)
+	require.NoError(t, err)
+
+	require.NoError(t, db.Model(&models.User{}).Where("id = ?", user.ID).Update("enabled", false).Error)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(AuthMiddleware(authService))
+	r.GET("/test", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req, err := http.NewRequest("GET", "/test", http.NoBody)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestAuthMiddleware_RejectsDeletedUserToken(t *testing.T) {
+	authService, db := setupAuthServiceWithDB(t)
+	user, err := authService.Register("deleted@example.com", "password", "Deleted User")
+	require.NoError(t, err)
+
+	token, err := authService.GenerateToken(user)
+	require.NoError(t, err)
+
+	require.NoError(t, db.Delete(&models.User{}, user.ID).Error)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(AuthMiddleware(authService))
+	r.GET("/test", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req, err := http.NewRequest("GET", "/test", http.NoBody)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestAuthMiddleware_RejectsTokenAfterSessionInvalidation(t *testing.T) {
+	authService := setupAuthService(t)
+	user, err := authService.Register("session-invalidated@example.com", "password", "Session Invalidated")
+	require.NoError(t, err)
+
+	token, err := authService.GenerateToken(user)
+	require.NoError(t, err)
+
+	require.NoError(t, authService.InvalidateSessions(user.ID))
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(AuthMiddleware(authService))
+	r.GET("/test", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req, err := http.NewRequest("GET", "/test", http.NoBody)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestExtractAuthCookieToken_ReturnsEmptyWhenRequestNil(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = nil
+
+	token := extractAuthCookieToken(ctx)
+	assert.Equal(t, "", token)
+}
+
+func TestExtractAuthCookieToken_IgnoresNonAuthCookies(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+
+	req, err := http.NewRequest("GET", "/", http.NoBody)
+	require.NoError(t, err)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "abc"})
+	ctx.Request = req
+
+	token := extractAuthCookieToken(ctx)
+	assert.Equal(t, "", token)
 }

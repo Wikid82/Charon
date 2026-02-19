@@ -115,11 +115,11 @@ func TestCalculateUncompressedSize(t *testing.T) {
 		Size:     int64(len(testContent)),
 		Typeflag: tar.TypeReg,
 	}
-	if err := tw.WriteHeader(hdr); err != nil {
-		t.Fatalf("Failed to write tar header: %v", err)
+	if writeHeaderErr := tw.WriteHeader(hdr); writeHeaderErr != nil {
+		t.Fatalf("Failed to write tar header: %v", writeHeaderErr)
 	}
-	if _, err := tw.Write([]byte(testContent)); err != nil {
-		t.Fatalf("Failed to write tar content: %v", err)
+	if _, writeErr := tw.Write([]byte(testContent)); writeErr != nil {
+		t.Fatalf("Failed to write tar content: %v", writeErr)
 	}
 
 	// Add a second file
@@ -130,21 +130,21 @@ func TestCalculateUncompressedSize(t *testing.T) {
 		Size:     int64(len(content2)),
 		Typeflag: tar.TypeReg,
 	}
-	if err := tw.WriteHeader(hdr2); err != nil {
-		t.Fatalf("Failed to write tar header 2: %v", err)
+	if writeHeaderErr := tw.WriteHeader(hdr2); writeHeaderErr != nil {
+		t.Fatalf("Failed to write tar header 2: %v", writeHeaderErr)
 	}
-	if _, err := tw.Write([]byte(content2)); err != nil {
-		t.Fatalf("Failed to write tar content 2: %v", err)
+	if _, writeErr := tw.Write([]byte(content2)); writeErr != nil {
+		t.Fatalf("Failed to write tar content 2: %v", writeErr)
 	}
 
-	if err := tw.Close(); err != nil {
-		t.Fatalf("Failed to close tar writer: %v", err)
+	if closeErr := tw.Close(); closeErr != nil {
+		t.Fatalf("Failed to close tar writer: %v", closeErr)
 	}
-	if err := gw.Close(); err != nil {
-		t.Fatalf("Failed to close gzip writer: %v", err)
+	if closeErr := gw.Close(); closeErr != nil {
+		t.Fatalf("Failed to close gzip writer: %v", closeErr)
 	}
-	if err := f.Close(); err != nil {
-		t.Fatalf("Failed to close file: %v", err)
+	if closeErr := f.Close(); closeErr != nil {
+		t.Fatalf("Failed to close file: %v", closeErr)
 	}
 
 	// Test calculateUncompressedSize
@@ -206,22 +206,22 @@ func TestListArchiveContents(t *testing.T) {
 			Size:     int64(len(file.content)),
 			Typeflag: tar.TypeReg,
 		}
-		if err := tw.WriteHeader(hdr); err != nil {
-			t.Fatalf("Failed to write tar header for %s: %v", file.name, err)
+		if writeHeaderErr := tw.WriteHeader(hdr); writeHeaderErr != nil {
+			t.Fatalf("Failed to write tar header for %s: %v", file.name, writeHeaderErr)
 		}
-		if _, err := tw.Write([]byte(file.content)); err != nil {
-			t.Fatalf("Failed to write tar content for %s: %v", file.name, err)
+		if _, writeErr := tw.Write([]byte(file.content)); writeErr != nil {
+			t.Fatalf("Failed to write tar content for %s: %v", file.name, writeErr)
 		}
 	}
 
-	if err := tw.Close(); err != nil {
-		t.Fatalf("Failed to close tar writer: %v", err)
+	if closeErr := tw.Close(); closeErr != nil {
+		t.Fatalf("Failed to close tar writer: %v", closeErr)
 	}
-	if err := gw.Close(); err != nil {
-		t.Fatalf("Failed to close gzip writer: %v", err)
+	if closeErr := gw.Close(); closeErr != nil {
+		t.Fatalf("Failed to close gzip writer: %v", closeErr)
 	}
-	if err := f.Close(); err != nil {
-		t.Fatalf("Failed to close file: %v", err)
+	if closeErr := f.Close(); closeErr != nil {
+		t.Fatalf("Failed to close file: %v", closeErr)
 	}
 
 	// Test listArchiveContents
@@ -316,8 +316,8 @@ func TestConfigArchiveValidator_Validate(t *testing.T) {
 	// Test unsupported format
 	unsupportedPath := filepath.Join(tmpDir, "test.rar")
 	// #nosec G306 -- Test file permissions, not security-critical
-	if err := os.WriteFile(unsupportedPath, []byte("dummy"), 0644); err != nil {
-		t.Fatalf("Failed to create dummy file: %v", err)
+	if writeErr := os.WriteFile(unsupportedPath, []byte("dummy"), 0644); writeErr != nil {
+		t.Fatalf("Failed to create dummy file: %v", writeErr)
 	}
 	err = validator.Validate(unsupportedPath)
 	if err == nil {
@@ -348,21 +348,21 @@ func createTestTarGz(t *testing.T, path string, files []struct {
 			Size:     int64(len(file.content)),
 			Typeflag: tar.TypeReg,
 		}
-		if err := tw.WriteHeader(hdr); err != nil {
-			t.Fatalf("Failed to write tar header for %s: %v", file.name, err)
+		if writeHeaderErr := tw.WriteHeader(hdr); writeHeaderErr != nil {
+			t.Fatalf("Failed to write tar header for %s: %v", file.name, writeHeaderErr)
 		}
-		if _, err := tw.Write([]byte(file.content)); err != nil {
-			t.Fatalf("Failed to write tar content for %s: %v", file.name, err)
+		if _, writeErr := tw.Write([]byte(file.content)); writeErr != nil {
+			t.Fatalf("Failed to write tar content for %s: %v", file.name, writeErr)
 		}
 	}
 
-	if err := tw.Close(); err != nil {
-		t.Fatalf("Failed to close tar writer: %v", err)
+	if closeErr := tw.Close(); closeErr != nil {
+		t.Fatalf("Failed to close tar writer: %v", closeErr)
 	}
-	if err := gw.Close(); err != nil {
-		t.Fatalf("Failed to close gzip writer: %v", err)
+	if closeErr := gw.Close(); closeErr != nil {
+		t.Fatalf("Failed to close gzip writer: %v", closeErr)
 	}
-	if err := f.Close(); err != nil {
-		t.Fatalf("Failed to close file: %v", err)
+	if closeErr := f.Close(); closeErr != nil {
+		t.Fatalf("Failed to close file: %v", closeErr)
 	}
 }

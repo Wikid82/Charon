@@ -1,4 +1,5 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within, fireEvent } from '@testing-library/react'
+import { act } from 'react'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import UsersPage from '../UsersPage'
@@ -216,6 +217,7 @@ describe('UsersPage', () => {
       email: 'new@example.com',
       role: 'user',
       invite_token: 'test-token-123',
+      invite_url: 'https://charon.example.com/accept-invite?token=test-token-123',
       email_sent: false,
       expires_at: '2024-01-03T00:00:00Z',
     })
@@ -325,6 +327,7 @@ describe('UsersPage', () => {
       email: 'manual@example.com',
       role: 'user',
       invite_token: 'token-123',
+      invite_url: 'https://charon.example.com/accept-invite?token=token-123',
       email_sent: false,
       expires_at: '2025-01-01T00:00:00Z',
     })
@@ -360,7 +363,118 @@ describe('UsersPage', () => {
     }
   })
 
+  it('uses textarea fallback copy when clipboard API fails', async () => {
+    vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+    vi.mocked(usersApi.inviteUser).mockResolvedValue({
+      id: 6,
+      uuid: 'invitee-fallback',
+      email: 'fallback@example.com',
+      role: 'user',
+      invite_token: 'token-fallback',
+      invite_url: 'https://charon.example.com/accept-invite?token=token-fallback',
+      email_sent: false,
+      expires_at: '2025-01-01T00:00:00Z',
+    })
+
+    const originalDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+    Object.defineProperty(navigator, 'clipboard', {
+      get: () => undefined,
+      configurable: true,
+    })
+
+    const appendSpy = vi.spyOn(document.body, 'appendChild')
+    const removeSpy = vi.spyOn(document.body, 'removeChild')
+    Object.defineProperty(document, 'execCommand', {
+      value: vi.fn(),
+      configurable: true,
+      writable: true,
+    })
+
+    renderWithQueryClient(<UsersPage />)
+
+    const user = userEvent.setup()
+    await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /Invite User/i }))
+    await user.type(screen.getByPlaceholderText('user@example.com'), 'fallback@example.com')
+    await user.click(screen.getByRole('button', { name: /^Send Invite$/i }))
+
+    await screen.findByDisplayValue(/accept-invite\?token=token-fallback/)
+    await user.click(screen.getByRole('button', { name: /copy invite link/i }))
+
+    await waitFor(() => {
+      expect(appendSpy).toHaveBeenCalled()
+      expect(toast.success).toHaveBeenCalledWith('Invite link copied to clipboard')
+    })
+
+    appendSpy.mockRestore()
+    removeSpy.mockRestore()
+
+    if (originalDescriptor) {
+      Object.defineProperty(navigator, 'clipboard', originalDescriptor)
+    } else {
+      delete (navigator as unknown as { clipboard?: unknown }).clipboard
+    }
+  })
+
+  it('uses textarea fallback copy when clipboard writeText rejects', async () => {
+    vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+    vi.mocked(usersApi.inviteUser).mockResolvedValue({
+      id: 7,
+      uuid: 'invitee-reject',
+      email: 'reject@example.com',
+      role: 'user',
+      invite_token: 'token-reject',
+      invite_url: 'https://charon.example.com/accept-invite?token=token-reject',
+      email_sent: false,
+      expires_at: '2025-01-01T00:00:00Z',
+    })
+
+    const writeText = vi.fn().mockRejectedValue(new Error('clipboard denied'))
+    const originalDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+    Object.defineProperty(navigator, 'clipboard', {
+      get: () => ({ writeText }),
+      configurable: true,
+    })
+
+    const appendSpy = vi.spyOn(document.body, 'appendChild')
+    const removeSpy = vi.spyOn(document.body, 'removeChild')
+    Object.defineProperty(document, 'execCommand', {
+      value: vi.fn().mockReturnValue(true),
+      configurable: true,
+      writable: true,
+    })
+
+    renderWithQueryClient(<UsersPage />)
+
+    const user = userEvent.setup()
+    await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /Invite User/i }))
+    await user.type(screen.getByPlaceholderText('user@example.com'), 'reject@example.com')
+    await user.click(screen.getByRole('button', { name: /^Send Invite$/i }))
+
+    await screen.findByDisplayValue(/accept-invite\?token=token-reject/)
+    await user.click(screen.getByRole('button', { name: /copy invite link/i }))
+
+    await waitFor(() => {
+      expect(appendSpy).toHaveBeenCalled()
+      expect(toast.success).toHaveBeenCalledWith('Invite link copied to clipboard')
+    })
+
+    appendSpy.mockRestore()
+    removeSpy.mockRestore()
+
+    if (originalDescriptor) {
+      Object.defineProperty(navigator, 'clipboard', originalDescriptor)
+    } else {
+      delete (navigator as unknown as { clipboard?: unknown }).clipboard
+    }
+  })
+
   describe('URL Preview in InviteModal', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
     it('shows URL preview when valid email is entered', async () => {
       vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
       vi.mocked(client.post).mockResolvedValue({
@@ -405,21 +519,30 @@ describe('UsersPage', () => {
       })
 
       renderWithQueryClient(<UsersPage />)
-
       const user = userEvent.setup()
+
       await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
+      await waitFor(() => expect(screen.getByPlaceholderText('user@example.com')).toBeInTheDocument())
 
-      const emailInput = screen.getByPlaceholderText('user@example.com')
-      await user.type(emailInput, 'test@example.com')
+      vi.useFakeTimers()
 
-      // Wait 600ms to ensure debounce has completed
-      await new Promise(resolve => setTimeout(resolve, 600))
+      try {
+        const emailInput = screen.getByPlaceholderText('user@example.com')
+        fireEvent.change(emailInput, { target: { value: 'test@example.com' } })
 
-      await waitFor(() => {
+        // Verify not called immediately
+        expect(client.post).not.toHaveBeenCalled()
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(550)
+        })
+
         expect(client.post).toHaveBeenCalledTimes(1)
         expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })
-      }, { timeout: 1000 })
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('replaces sample token with ellipsis in preview', async () => {
@@ -491,7 +614,9 @@ describe('UsersPage', () => {
       const emailInput = screen.getByPlaceholderText('user@example.com')
       await user.type(emailInput, 'invalid')
 
-      await new Promise(resolve => setTimeout(resolve, 600))
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 600))
+      })
 
       // Preview should not be fetched or displayed
       expect(client.post).not.toHaveBeenCalled()
@@ -511,7 +636,9 @@ describe('UsersPage', () => {
       await user.type(emailInput, 'test@example.com')
 
       // Wait for debounce
-      await new Promise(resolve => setTimeout(resolve, 600))
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 600))
+      })
 
       await waitFor(() => {
         expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })

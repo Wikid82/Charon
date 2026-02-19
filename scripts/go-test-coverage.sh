@@ -13,6 +13,26 @@ BACKEND_DIR="$ROOT_DIR/backend"
 COVERAGE_FILE="$BACKEND_DIR/coverage.txt"
 MIN_COVERAGE="${CHARON_MIN_COVERAGE:-${CPM_MIN_COVERAGE:-85}}"
 
+if [[ -z "${CHARON_ENCRYPTION_KEY:-}" ]]; then
+    echo "Error: CHARON_ENCRYPTION_KEY is required for backend tests."
+    echo "Set CHARON_ENCRYPTION_KEY to a base64-encoded 32-byte key before running this script."
+    exit 1
+fi
+
+DECODED_KEY_HEX=""
+if ! DECODED_KEY_HEX=$(printf '%s' "$CHARON_ENCRYPTION_KEY" | base64 --decode 2>/dev/null | od -An -tx1 -v | tr -d ' \n'); then
+    echo "Error: CHARON_ENCRYPTION_KEY is not valid base64."
+    echo "Provide a base64-encoded key whose decoded length is exactly 32 bytes."
+    exit 1
+fi
+
+DECODED_KEY_BYTES=$(( ${#DECODED_KEY_HEX} / 2 ))
+if [[ "$DECODED_KEY_BYTES" -ne 32 ]]; then
+    echo "Error: CHARON_ENCRYPTION_KEY decoded length is ${DECODED_KEY_BYTES} bytes; expected 32 bytes."
+    echo "Regenerate key (example): openssl rand -base64 32"
+    exit 1
+fi
+
 # Perf asserts are sensitive to -race overhead; loosen defaults for hook runs
 export PERF_MAX_MS_GETSTATUS_P95="${PERF_MAX_MS_GETSTATUS_P95:-25ms}"
 export PERF_MAX_MS_GETSTATUS_P95_PARALLEL="${PERF_MAX_MS_GETSTATUS_P95_PARALLEL:-50ms}"
@@ -25,13 +45,8 @@ cd "$BACKEND_DIR"
 # Packages to exclude from coverage (main packages and infrastructure code)
 # These are entrypoints and initialization code that don't benefit from unit tests
 EXCLUDE_PACKAGES=(
-    "github.com/Wikid82/charon/backend/cmd/api"
-    "github.com/Wikid82/charon/backend/cmd/seed"
-    "github.com/Wikid82/charon/backend/internal/logger"
-    "github.com/Wikid82/charon/backend/internal/metrics"
     "github.com/Wikid82/charon/backend/internal/trace"
     "github.com/Wikid82/charon/backend/integration"
-    "github.com/Wikid82/charon/backend/pkg/dnsprovider/builtin"
 )
 
 # Try to run tests to produce coverage file; some toolchains may return a non-zero
@@ -44,13 +59,15 @@ TEST_OUTPUT_FILE=$(mktemp)
 trap 'rm -f "$TEST_OUTPUT_FILE"' EXIT
 
 if command -v gotestsum &> /dev/null; then
-    if ! gotestsum --format pkgname -- -race -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"; then
-        GO_TEST_STATUS=$?
-    fi
+    set +e
+    gotestsum --format pkgname -- -race -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"
+    GO_TEST_STATUS=$?
+    set -e
 else
-    if ! go test -race -v -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"; then
-        GO_TEST_STATUS=$?
-    fi
+    set +e
+    go test -race -v -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"
+    GO_TEST_STATUS=$?
+    set -e
 fi
 
 if [ "$GO_TEST_STATUS" -ne 0 ]; then
@@ -104,26 +121,114 @@ COVERAGE_OUTPUT=$(timeout 180 go tool cover -func="$COVERAGE_FILE" 2>&1) || {
 
 # Extract and display the summary line (total coverage)
 TOTAL_LINE=$(echo "$COVERAGE_OUTPUT" | awk '/^total:/ {line=$0} END {print line}')
+
+if [ -z "$TOTAL_LINE" ]; then
+    echo "Error: Coverage report missing 'total:' line"
+    echo "Coverage output:"
+    echo "$COVERAGE_OUTPUT"
+    exit 1
+fi
+
 echo "$TOTAL_LINE"
 
-# Extract total coverage percentage
-TOTAL_PERCENT=$(echo "$TOTAL_LINE" | awk '{print substr($3, 1, length($3)-1)}')
+# Extract statement coverage percentage from go tool cover summary line
+STATEMENT_PERCENT=$(echo "$TOTAL_LINE" | awk '{
+    if (NF < 3) {
+        print "ERROR: Invalid coverage line format" > "/dev/stderr"
+        exit 1
+    }
+    # Extract last field and remove trailing %
+    last_field = $NF
+    if (last_field !~ /^[0-9]+(\.[0-9]+)?%$/) {
+        printf "ERROR: Last field is not a valid percentage: %s\n", last_field > "/dev/stderr"
+        exit 1
+    }
+    # Remove trailing %
+    gsub(/%$/, "", last_field)
+    print last_field
+}')
 
-echo "Computed coverage: ${TOTAL_PERCENT}% (minimum required ${MIN_COVERAGE}%)"
+if [ -z "$STATEMENT_PERCENT" ] || [ "$STATEMENT_PERCENT" = "ERROR" ]; then
+    echo "Error: Could not extract coverage percentage from: $TOTAL_LINE"
+    exit 1
+fi
 
-export TOTAL_PERCENT
-export MIN_COVERAGE
+# Validate that extracted value is numeric (allows decimals and integers)
+if ! echo "$STATEMENT_PERCENT" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
+    echo "Error: Extracted coverage value is not numeric: '$STATEMENT_PERCENT'"
+    echo "Source line: $TOTAL_LINE"
+    exit 1
+fi
 
-python3 - <<'PY'
-import os, sys
-from decimal import Decimal
+# Compute line coverage directly from coverprofile blocks (authoritative gate in this script)
+# Format per line:
+#   file:startLine.startCol,endLine.endCol numStatements count
+LINE_PERCENT=$(awk '
+BEGIN {
+    total_lines = 0
+    covered_lines = 0
+}
+NR == 1 {
+    next
+}
+{
+    split($1, pos, ":")
+    if (length(pos) < 2) {
+        next
+    }
 
-total = Decimal(os.environ['TOTAL_PERCENT'])
-minimum = Decimal(os.environ['MIN_COVERAGE'])
-if total < minimum:
-    print(f"Coverage {total}% is below required {minimum}% (set CHARON_MIN_COVERAGE or CPM_MIN_COVERAGE to override)", file=sys.stderr)
-    sys.exit(1)
-PY
+    file = pos[1]
+    split(pos[2], ranges, ",")
+    split(ranges[1], start_parts, ".")
+    split(ranges[2], end_parts, ".")
+
+    start_line = start_parts[1] + 0
+    end_line = end_parts[1] + 0
+    count = $3 + 0
+
+    if (start_line <= 0 || end_line <= 0 || end_line < start_line) {
+        next
+    }
+
+    for (line = start_line; line <= end_line; line++) {
+        key = file ":" line
+        if (!(key in seen_total)) {
+            seen_total[key] = 1
+            total_lines++
+        }
+        if (count > 0 && !(key in seen_covered)) {
+            seen_covered[key] = 1
+            covered_lines++
+        }
+    }
+}
+END {
+    if (total_lines == 0) {
+        print "0.0"
+        exit 0
+    }
+    printf "%.1f", (covered_lines * 100.0) / total_lines
+}
+' "$COVERAGE_FILE")
+
+if [ -z "$LINE_PERCENT" ]; then
+    echo "Error: Could not compute line coverage from $COVERAGE_FILE"
+    exit 1
+fi
+
+if ! echo "$LINE_PERCENT" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
+    echo "Error: Computed line coverage is not numeric: '$LINE_PERCENT'"
+    exit 1
+fi
+
+echo "Statement coverage: ${STATEMENT_PERCENT}%"
+echo "Line coverage: ${LINE_PERCENT}%"
+echo "Coverage gate (line coverage): minimum required ${MIN_COVERAGE}%"
+
+if awk -v current="$LINE_PERCENT" -v minimum="$MIN_COVERAGE" 'BEGIN { exit !(current + 0 < minimum + 0) }'; then
+    echo "Coverage ${LINE_PERCENT}% is below required ${MIN_COVERAGE}% (set CHARON_MIN_COVERAGE or CPM_MIN_COVERAGE to override)"
+    exit 1
+fi
 
 echo "Coverage requirement met"
 

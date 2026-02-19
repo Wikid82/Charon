@@ -272,6 +272,7 @@ export default function SecurityHeaders() {
                     variant="outline"
                     size="sm"
                     onClick={() => setShowDeleteConfirm(profile)}
+                    aria-label={t('common.delete')}
                   >
                     <Trash2 className="w-3 h-3" />
                   </Button>

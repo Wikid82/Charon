@@ -4,22 +4,40 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
+
+// createValidSQLiteDB creates a minimal valid SQLite database for backup testing
+func createValidSQLiteDB(t *testing.T, dbPath string) error {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	if err != nil {
+		return err
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = sqlDB.Close() }()
+
+	// Create a simple table to make it a valid database
+	return db.Exec("CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY, data TEXT)").Error
+}
 
 // Use a real BackupService, but point it at tmpDir for isolation
 
 func TestBackupHandlerQuick(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tmpDir := t.TempDir()
-	// prepare a fake "database" so CreateBackup can find it
+	// Create a valid SQLite database for backup operations
 	dbPath := filepath.Join(tmpDir, "db.sqlite")
-	if err := os.WriteFile(dbPath, []byte("db"), 0o600); err != nil {
+	if err := createValidSQLiteDB(t, dbPath); err != nil {
 		t.Fatalf("failed to create tmp db: %v", err)
 	}
 
@@ -27,6 +45,10 @@ func TestBackupHandlerQuick(t *testing.T) {
 	h := NewBackupHandler(svc)
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		setAdminContext(c)
+		c.Next()
+	})
 	// register routes used
 	r.GET("/backups", h.List)
 	r.POST("/backups", h.Create)

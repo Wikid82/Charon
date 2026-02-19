@@ -17,13 +17,41 @@ import (
 )
 
 type LogService struct {
-	LogDir string
+	LogDir      string
+	CaddyLogDir string
 }
 
 func NewLogService(cfg *config.Config) *LogService {
 	// Assuming logs are in data/logs relative to app root
 	logDir := filepath.Join(filepath.Dir(cfg.DatabasePath), "logs")
-	return &LogService{LogDir: logDir}
+	return &LogService{LogDir: logDir, CaddyLogDir: cfg.CaddyLogDir}
+}
+
+func (s *LogService) logDirs() []string {
+	seen := make(map[string]bool)
+	var dirs []string
+
+	addDir := func(dir string) {
+		clean := filepath.Clean(dir)
+		if clean == "." || clean == "" {
+			return
+		}
+		if !seen[clean] {
+			seen[clean] = true
+			dirs = append(dirs, clean)
+		}
+	}
+
+	addDir(s.LogDir)
+	if s.CaddyLogDir != "" {
+		addDir(s.CaddyLogDir)
+	}
+
+	if accessLogPath := os.Getenv("CHARON_CADDY_ACCESS_LOG"); accessLogPath != "" {
+		addDir(filepath.Dir(accessLogPath))
+	}
+
+	return dirs
 }
 
 type LogFile struct {
@@ -33,42 +61,44 @@ type LogFile struct {
 }
 
 func (s *LogService) ListLogs() ([]LogFile, error) {
-	entries, err := os.ReadDir(s.LogDir)
-	if err != nil {
-		// If directory doesn't exist, return empty list instead of error
-		if os.IsNotExist(err) {
-			return []LogFile{}, nil
-		}
-		return nil, err
-	}
-
 	var logs []LogFile
 	seen := make(map[string]bool)
-	for _, entry := range entries {
-		hasLogExtension := strings.HasSuffix(entry.Name(), ".log") || strings.Contains(entry.Name(), ".log.")
-		if entry.IsDir() || !hasLogExtension {
-			continue
-		}
-
-		info, err := entry.Info()
+	for _, dir := range s.logDirs() {
+		entries, err := os.ReadDir(dir)
 		if err != nil {
-			continue
-		}
-		// Handle symlinks + deduplicate files (e.g., charon.log and cpmp.log (legacy name) pointing to same file)
-		entryPath := filepath.Join(s.LogDir, entry.Name())
-		resolved, err := filepath.EvalSymlinks(entryPath)
-		if err == nil {
-			if seen[resolved] {
+			if os.IsNotExist(err) {
 				continue
 			}
-			seen[resolved] = true
+			return nil, err
 		}
-		logs = append(logs, LogFile{
-			Name:    entry.Name(),
-			Size:    info.Size(),
-			ModTime: info.ModTime().Format(time.RFC3339),
-		})
+
+		for _, entry := range entries {
+			hasLogExtension := strings.HasSuffix(entry.Name(), ".log") || strings.Contains(entry.Name(), ".log.")
+			if entry.IsDir() || !hasLogExtension {
+				continue
+			}
+
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			// Handle symlinks + deduplicate files (e.g., charon.log and cpmp.log (legacy name) pointing to same file)
+			entryPath := filepath.Join(dir, entry.Name())
+			resolved, err := filepath.EvalSymlinks(entryPath)
+			if err == nil {
+				if seen[resolved] {
+					continue
+				}
+				seen[resolved] = true
+			}
+			logs = append(logs, LogFile{
+				Name:    entry.Name(),
+				Size:    info.Size(),
+				ModTime: info.ModTime().Format(time.RFC3339),
+			})
+		}
 	}
+
 	return logs, nil
 }
 
@@ -78,17 +108,21 @@ func (s *LogService) GetLogPath(filename string) (string, error) {
 	if filename != cleanName {
 		return "", fmt.Errorf("invalid filename: path traversal attempt detected")
 	}
-	path := filepath.Join(s.LogDir, cleanName)
-	if !strings.HasPrefix(path, filepath.Clean(s.LogDir)) {
-		return "", fmt.Errorf("invalid filename: path traversal attempt detected")
+
+	for _, dir := range s.logDirs() {
+		baseDir := filepath.Clean(dir)
+		path := filepath.Join(baseDir, cleanName)
+		if !strings.HasPrefix(path, baseDir+string(os.PathSeparator)) {
+			continue
+		}
+
+		// Verify file exists
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
 	}
 
-	// Verify file exists
-	if _, err := os.Stat(path); err != nil {
-		return "", err
-	}
-
-	return path, nil
+	return "", os.ErrNotExist
 }
 
 // QueryLogs parses and filters logs from a specific file

@@ -244,3 +244,22 @@ func TestMiddleware_ACLDisabledDoesNotBlock(t *testing.T) {
 	// Disabled ACL should not block
 	require.False(t, ctx.IsAborted())
 }
+
+func TestMiddleware_EmergencyBypassSkipsChecks(t *testing.T) {
+	t.Parallel()
+
+	db := setupDB(t)
+	c := cerberus.New(config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled"}, db)
+
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, "/admin/secure", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	ctx.Request = req
+	ctx.Set("emergency_bypass", true)
+
+	mw := c.Middleware()
+	mw(ctx)
+
+	require.False(t, ctx.IsAborted(), "middleware should short-circuit when emergency_bypass=true")
+}

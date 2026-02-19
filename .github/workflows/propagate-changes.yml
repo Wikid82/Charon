@@ -1,13 +1,13 @@
 name: Propagate Changes Between Branches
 
 on:
-  push:
-    branches:
-      - main
-      - development
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types: [completed]
+    branches: [ main, development ]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: false
 
 env:
@@ -22,7 +22,10 @@ jobs:
   propagate:
     name: Create PR to synchronize branches
     runs-on: ubuntu-latest
-    if: github.actor != 'github-actions[bot]' && github.event.pusher != null
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'development')
     steps:
       - name: Set up Node (for github-script)
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -31,9 +34,31 @@ jobs:
 
       - name: Propagate Changes
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          CURRENT_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          CURRENT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         with:
           script: |
-            const currentBranch = context.ref.replace('refs/heads/', '');
+            const currentBranch = process.env.CURRENT_BRANCH || context.ref.replace('refs/heads/', '');
+            let excludedBranch = null;
+
+            // Loop Prevention: Identify if this commit is from a merged PR
+            try {
+                const associatedPRs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                  commit_sha: process.env.CURRENT_SHA || context.sha,
+              });
+
+              // If the commit comes from a PR, we identify the source branch
+              // so we don't try to merge changes back into it immediately.
+              if (associatedPRs.data.length > 0) {
+                excludedBranch = associatedPRs.data[0].head.ref;
+                core.info(`Commit ${process.env.CURRENT_SHA || context.sha} is associated with PR #${associatedPRs.data[0].number} coming from '${excludedBranch}'. This branch will be excluded from propagation to prevent loops.`);
+              }
+            } catch (err) {
+              core.warning(`Failed to check associated PRs: ${err.message}`);
+            }
 
             async function createPR(src, base) {
               if (src === base) return;
@@ -147,24 +172,37 @@ jobs:
 
             if (currentBranch === 'main') {
               // Main -> Development
-              await createPR('main', 'development');
+              // Only propagate if development is not the source (loop prevention)
+              if (excludedBranch !== 'development') {
+                await createPR('main', 'development');
+              } else {
+                core.info('Push originated from development (excluded). Skipping propagation back to development.');
+              }
             } else if (currentBranch === 'development') {
-              // Development -> Feature branches (direct, no nightly intermediary)
+              // Development -> Feature/Hotfix branches (The Pittsburgh Model)
+              // We propagate changes from dev DOWN to features/hotfixes so they stay up to date.
+
               const branches = await github.paginate(github.rest.repos.listBranches, {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
               });
 
-              const featureBranches = branches
+              // Filter for feature/* and hotfix/* branches using regex
+              // AND exclude the branch that just got merged in (if any)
+              const targetBranches = branches
                 .map(b => b.name)
-                .filter(name => name.startsWith('feature/'));
+                .filter(name => {
+                  const isTargetType = /^feature\/|^hotfix\//.test(name);
+                  const isExcluded = (name === excludedBranch);
+                  return isTargetType && !isExcluded;
+                });
 
-              core.info(`Found ${featureBranches.length} feature branches: ${featureBranches.join(', ')}`);
+              core.info(`Found ${targetBranches.length} target branches (excluding '${excludedBranch || 'none'}'): ${targetBranches.join(', ')}`);
 
-              for (const featureBranch of featureBranches) {
-                await createPR('development', featureBranch);
+              for (const targetBranch of targetBranches) {
+                await createPR('development', targetBranch);
               }
             }
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
+            env:
+              GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}

@@ -4,19 +4,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 func TestCertificateHandler_List_DBError(t *testing.T) {
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db := OpenTestDB(t)
 	// Don't migrate to cause error
 
 	gin.SetMode(gin.TestMode)
@@ -34,8 +31,7 @@ func TestCertificateHandler_List_DBError(t *testing.T) {
 }
 
 func TestCertificateHandler_Delete_InvalidID(t *testing.T) {
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	_ = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
+	db := OpenTestDBWithMigrations(t)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -52,9 +48,7 @@ func TestCertificateHandler_Delete_InvalidID(t *testing.T) {
 }
 
 func TestCertificateHandler_Delete_NotFound(t *testing.T) {
-	// Use unique in-memory DB per test to avoid SQLite locking issues in parallel test runs
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	_ = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
+	db := OpenTestDBWithMigrations(t)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -71,9 +65,7 @@ func TestCertificateHandler_Delete_NotFound(t *testing.T) {
 }
 
 func TestCertificateHandler_Delete_NoBackupService(t *testing.T) {
-	// Use unique in-memory DB per test to avoid SQLite locking issues in parallel test runs
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	_ = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
+	db := OpenTestDBWithMigrations(t)
 
 	// Create certificate
 	cert := models.SSLCertificate{UUID: "test-cert-no-backup", Name: "no-backup-cert", Provider: "custom", Domains: "nobackup.example.com"}
@@ -83,17 +75,6 @@ func TestCertificateHandler_Delete_NoBackupService(t *testing.T) {
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
-	// Wait for background sync goroutine to complete to avoid race with -race flag
-	// NewCertificateService spawns a goroutine that immediately queries the DB
-	// which can race with our test HTTP request. Give it time to complete.
-	// In real usage, this isn't an issue because the server starts before receiving requests.
-	// Alternative would be to add a WaitGroup to CertificateService, but that's overkill for tests.
-	// A simple sleep is acceptable here as it's test-only code.
-	// 100ms is more than enough for the goroutine to finish its initial sync.
-	// This is the minimum reliable wait time based on empirical testing with -race flag.
-	// The goroutine needs to: acquire mutex, stat directory, query DB, release mutex.
-	// On CI runners, this can take longer than on local dev machines.
-	time.Sleep(200 * time.Millisecond)
 
 	// No backup service
 	h := NewCertificateHandler(svc, nil, nil)
@@ -108,8 +89,7 @@ func TestCertificateHandler_Delete_NoBackupService(t *testing.T) {
 }
 
 func TestCertificateHandler_Delete_CheckUsageDBError(t *testing.T) {
-	// Use unique in-memory DB per test to avoid SQLite locking issues in parallel test runs
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db := OpenTestDB(t)
 	// Only migrate SSLCertificate, not ProxyHost to cause error when checking usage
 	_ = db.AutoMigrate(&models.SSLCertificate{})
 
@@ -132,9 +112,7 @@ func TestCertificateHandler_Delete_CheckUsageDBError(t *testing.T) {
 }
 
 func TestCertificateHandler_List_WithCertificates(t *testing.T) {
-	// Use unique in-memory DB per test to avoid SQLite locking issues in parallel test runs
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	_ = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
+	db := OpenTestDBWithMigrations(t)
 
 	// Create certificates
 	db.Create(&models.SSLCertificate{UUID: "cert-1", Name: "Cert 1", Provider: "custom", Domains: "one.example.com"})
@@ -159,8 +137,7 @@ func TestCertificateHandler_List_WithCertificates(t *testing.T) {
 func TestCertificateHandler_Delete_ZeroID(t *testing.T) {
 	// Tests the ID=0 validation check (line 149-152 in certificate_handler.go)
 	// DELETE /api/certificates/0 should return 400 Bad Request
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	_ = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
+	db := OpenTestDBWithMigrations(t)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -175,4 +152,38 @@ func TestCertificateHandler_Delete_ZeroID(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "invalid id")
+}
+
+func TestCertificateHandler_DBSetupOrdering(t *testing.T) {
+	db := OpenTestDBWithMigrations(t)
+
+	var certTableCount int64
+	if err := db.Raw("SELECT count(*) FROM sqlite_master WHERE type='table' AND name = ?", "ssl_certificates").Scan(&certTableCount).Error; err != nil {
+		t.Fatalf("failed to verify ssl_certificates table: %v", err)
+	}
+	if certTableCount != 1 {
+		t.Fatalf("expected ssl_certificates table to exist before service initialization")
+	}
+
+	var proxyHostsTableCount int64
+	if err := db.Raw("SELECT count(*) FROM sqlite_master WHERE type='table' AND name = ?", "proxy_hosts").Scan(&proxyHostsTableCount).Error; err != nil {
+		t.Fatalf("failed to verify proxy_hosts table: %v", err)
+	}
+	if proxyHostsTableCount != 1 {
+		t.Fatalf("expected proxy_hosts table to exist before service initialization")
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+
+	svc := services.NewCertificateService("/tmp", db)
+	h := NewCertificateHandler(svc, nil, nil)
+	r.GET("/api/certificates", h.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/certificates", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
 }

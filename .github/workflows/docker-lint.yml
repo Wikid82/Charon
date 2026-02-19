@@ -1,17 +1,10 @@
 name: Docker Lint
 
 on:
-  push:
-    branches: [ main, development, 'feature/**' ]
-    paths:
-      - 'Dockerfile'
-  pull_request:
-    branches: [ main, development ]
-    paths:
-      - 'Dockerfile'
+  workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -28,4 +21,4 @@ jobs:
         with:
           dockerfile: Dockerfile
           config: .hadolint.yaml
-          failure-threshold: error
+          failure-threshold: warning

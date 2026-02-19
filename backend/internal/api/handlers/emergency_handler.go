@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -89,7 +90,7 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	if exists && bypassActive.(bool) {
 		// Request already validated by middleware - proceed directly to reset
 		log.WithFields(log.Fields{
-			"ip":     clientIP,
+			"ip":     util.SanitizeForLog(clientIP),
 			"action": "emergency_reset_via_middleware",
 		}).Debug("Emergency reset validated by middleware")
 
@@ -101,7 +102,7 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	// Fallback: Legacy direct token validation (deprecated - use middleware)
 	// This path is kept for backward compatibility but will be removed in future versions
 	log.WithFields(log.Fields{
-		"ip":     clientIP,
+		"ip":     util.SanitizeForLog(clientIP),
 		"action": "emergency_reset_legacy_path",
 	}).Debug("Emergency reset using legacy direct validation")
 
@@ -110,7 +111,7 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	if configuredToken == "" {
 		h.logEnhancedAudit(clientIP, "emergency_reset_not_configured", "Emergency token not configured", false, time.Since(startTime))
 		log.WithFields(log.Fields{
-			"ip":     clientIP,
+			"ip":     util.SanitizeForLog(clientIP),
 			"action": "emergency_reset_not_configured",
 		}).Warn("Emergency reset attempted but token not configured")
 
@@ -125,7 +126,7 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	if len(configuredToken) < MinTokenLength {
 		h.logEnhancedAudit(clientIP, "emergency_reset_invalid_config", "Configured token too short", false, time.Since(startTime))
 		log.WithFields(log.Fields{
-			"ip":     clientIP,
+			"ip":     util.SanitizeForLog(clientIP),
 			"action": "emergency_reset_invalid_config",
 		}).Error("Emergency token configured but too short")
 
@@ -141,7 +142,7 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	if providedToken == "" {
 		h.logEnhancedAudit(clientIP, "emergency_reset_missing_token", "No token provided in header", false, time.Since(startTime))
 		log.WithFields(log.Fields{
-			"ip":     clientIP,
+			"ip":     util.SanitizeForLog(clientIP),
 			"action": "emergency_reset_missing_token",
 		}).Warn("Emergency reset attempted without token")
 
@@ -157,9 +158,9 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	if err != nil {
 		h.logEnhancedAudit(clientIP, "emergency_reset_invalid_token", fmt.Sprintf("Token validation failed: %v", err), false, time.Since(startTime))
 		log.WithFields(log.Fields{
-			"ip":     clientIP,
+			"ip":     util.SanitizeForLog(clientIP),
 			"action": "emergency_reset_invalid_token",
-			"error":  err.Error(),
+			"error":  util.SanitizeForLog(err.Error()),
 		}).Warn("Emergency reset attempted with invalid token")
 
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -179,9 +180,9 @@ func (h *EmergencyHandler) performSecurityReset(c *gin.Context, clientIP string,
 	if err != nil {
 		h.logEnhancedAudit(clientIP, "emergency_reset_failed", fmt.Sprintf("Failed to disable modules: %v", err), false, time.Since(startTime))
 		log.WithFields(log.Fields{
-			"ip":     clientIP,
+			"ip":     util.SanitizeForLog(clientIP),
 			"action": "emergency_reset_failed",
-			"error":  err.Error(),
+			"error":  util.SanitizeForLog(err.Error()),
 		}).Error("Emergency reset failed to disable security modules")
 
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -196,7 +197,7 @@ func (h *EmergencyHandler) performSecurityReset(c *gin.Context, clientIP string,
 	// Log successful reset
 	h.logEnhancedAudit(clientIP, "emergency_reset_success", fmt.Sprintf("Disabled modules: %v", disabledModules), true, time.Since(startTime))
 	log.WithFields(log.Fields{
-		"ip":               clientIP,
+		"ip":               util.SanitizeForLog(clientIP),
 		"action":           "emergency_reset_success",
 		"disabled_modules": disabledModules,
 		"duration_ms":      time.Since(startTime).Milliseconds(),
@@ -239,16 +240,28 @@ func (h *EmergencyHandler) disableAllSecurityModules() ([]string, error) {
 			Type:     "bool",
 		}
 
-		if err := h.db.Where(models.Setting{Key: key}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
+		if err := h.upsertSettingWithRetry(&setting); err != nil {
 			return disabledModules, fmt.Errorf("failed to disable %s: %w", key, err)
 		}
 		disabledModules = append(disabledModules, key)
+	}
+
+	// Clear admin whitelist to prevent bypass persistence after reset
+	adminWhitelistSetting := models.Setting{
+		Key:      "security.admin_whitelist",
+		Value:    "",
+		Category: "security",
+		Type:     "string",
+	}
+	if err := h.upsertSettingWithRetry(&adminWhitelistSetting); err != nil {
+		return disabledModules, fmt.Errorf("failed to clear admin whitelist: %w", err)
 	}
 
 	// Also update the SecurityConfig record if it exists
 	var securityConfig models.SecurityConfig
 	if err := h.db.Where("name = ?", "default").First(&securityConfig).Error; err == nil {
 		securityConfig.Enabled = false
+		securityConfig.AdminWhitelist = ""
 		securityConfig.WAFMode = "disabled"
 		securityConfig.RateLimitMode = "disabled"
 		securityConfig.RateLimitEnable = false
@@ -259,7 +272,51 @@ func (h *EmergencyHandler) disableAllSecurityModules() ([]string, error) {
 		}
 	}
 
+	if err := h.db.Where("action = ?", "block").Delete(&models.SecurityDecision{}).Error; err != nil {
+		log.WithError(err).Warn("Failed to clear block security decisions during emergency reset")
+	}
+
 	return disabledModules, nil
+}
+
+func (h *EmergencyHandler) upsertSettingWithRetry(setting *models.Setting) error {
+	const maxAttempts = 20
+
+	_ = h.db.Exec("PRAGMA busy_timeout = 5000").Error
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err := h.db.Where(models.Setting{Key: setting.Key}).Assign(*setting).FirstOrCreate(setting).Error
+		if err == nil {
+			return nil
+		}
+
+		isTransientLock := isTransientSQLiteError(err)
+		if isTransientLock && attempt < maxAttempts {
+			wait := time.Duration(attempt) * 50 * time.Millisecond
+			if wait > time.Second {
+				wait = time.Second
+			}
+			time.Sleep(wait)
+			continue
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+func isTransientSQLiteError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "database is locked") ||
+		strings.Contains(errMsg, "database table is locked") ||
+		strings.Contains(errMsg, "database is busy") ||
+		strings.Contains(errMsg, "busy") ||
+		strings.Contains(errMsg, "locked")
 }
 
 // logAudit logs an emergency action to the security audit trail

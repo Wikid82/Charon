@@ -10,7 +10,7 @@
 .gitignore
 .github/
 .pre-commit-config.yaml
-.codecov.yml
+codecov.yml
 .goreleaser.yaml
 .sourcery.yml
 
@@ -80,7 +80,6 @@ backend/node_modules/
 backend/internal/api/tests/data/
 backend/lint*.txt
 backend/fix_*.sh
-backend/codeql-db-*/
 
 # Backend data (created at runtime)
 backend/data/
@@ -185,8 +184,6 @@ codeql-db/
 codeql-db-*/
 codeql-agent-results/
 codeql-custom-queries-*/
-codeql-*.sarif
-codeql-results*.sarif
 .codeql/
 
 # -----------------------------------------------------------------------------
@@ -208,7 +205,6 @@ playwright.config.js
 # -----------------------------------------------------------------------------
 # Root-level artifacts
 # -----------------------------------------------------------------------------
-coverage/
 coverage.txt
 provenance*.json
 trivy-*.txt

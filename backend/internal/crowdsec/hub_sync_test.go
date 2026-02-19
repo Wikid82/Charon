@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"embed"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -70,10 +72,12 @@ func makeTarGz(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
+//go:embed testdata/hub_index_fixture.json testdata/hub_index_html.html
+var hubTestFixtures embed.FS
+
 func readFixture(t *testing.T, name string) string {
 	t.Helper()
-	// #nosec G304 -- Test reads from testdata directory with known fixture names
-	data, err := os.ReadFile(filepath.Join("testdata", name))
+	data, err := hubTestFixtures.ReadFile(filepath.Join("testdata", name))
 	require.NoError(t, err)
 	return string(data)
 }
@@ -95,20 +99,22 @@ func TestFetchIndexFallbackHTTP(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping network I/O test in short mode")
 	}
-	t.Parallel()
 	exec := &recordingExec{errors: map[string]error{"cscli hub list -o json": fmt.Errorf("boom")}}
 	cacheDir := t.TempDir()
 	svc := NewHubService(exec, nil, cacheDir)
-	svc.HubBaseURL = "http://example.com"
-	indexBody := readFixture(t, "hub_index.json")
-	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		if req.URL.String() == "http://example.com"+defaultHubIndexPath {
-			resp := newResponse(http.StatusOK, indexBody)
-			resp.Header.Set("Content-Type", "application/json")
-			return resp, nil
+	indexBody := readFixture(t, "hub_index_fixture.json")
+	hubServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != defaultHubIndexPath {
+			http.NotFound(w, r)
+			return
 		}
-		return newResponse(http.StatusNotFound, ""), nil
-	})}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(indexBody))
+	}))
+	defer hubServer.Close()
+
+	svc.HubBaseURL = hubServer.URL
+	svc.HTTPClient = hubServer.Client()
 
 	idx, err := svc.FetchIndex(context.Background())
 	require.NoError(t, err)
@@ -817,9 +823,37 @@ func TestApplyWithCopyBasedBackup(t *testing.T) {
 	// Verify backup was created with copy-based approach
 	require.FileExists(t, filepath.Join(res.BackupPath, "existing.txt"))
 	require.FileExists(t, filepath.Join(res.BackupPath, "subdir", "nested.txt"))
-
 	// Verify new config was applied
 	require.FileExists(t, filepath.Join(dataDir, "new", "config.yaml"))
+}
+
+func TestIndexURLCandidates_GitHubMirror(t *testing.T) {
+	t.Parallel()
+
+	candidates := indexURLCandidates("https://raw.githubusercontent.com/crowdsecurity/hub/master")
+	require.Len(t, candidates, 2)
+	require.Contains(t, candidates, "https://raw.githubusercontent.com/crowdsecurity/hub/master/.index.json")
+	require.Contains(t, candidates, "https://raw.githubusercontent.com/crowdsecurity/hub/master/api/index.json")
+}
+
+func TestBuildResourceURLs_DeduplicatesExplicitAndBases(t *testing.T) {
+	t.Parallel()
+
+	urls := buildResourceURLs("https://hub.example/preset.tgz", "crowdsecurity/demo", "/%s.tgz", []string{"https://hub.example", "https://hub.example"})
+	require.NotEmpty(t, urls)
+	require.Equal(t, "https://hub.example/preset.tgz", urls[0])
+	require.Len(t, urls, 2)
+}
+
+func TestHubHTTPErrorMethods(t *testing.T) {
+	t.Parallel()
+
+	inner := errors.New("inner")
+	err := hubHTTPError{url: "https://hub.example", statusCode: 404, inner: inner, fallback: true}
+
+	require.Contains(t, err.Error(), "https://hub.example")
+	require.ErrorIs(t, err, inner)
+	require.True(t, err.CanFallback())
 }
 
 func TestBackupExistingHandlesDeviceBusy(t *testing.T) {
@@ -1677,6 +1711,41 @@ func TestHubHTTPErrorCanFallback(t *testing.T) {
 
 		require.False(t, err.CanFallback())
 	})
+}
+
+func TestHubServiceFetchWithFallbackStopsOnNonFallbackError(t *testing.T) {
+	t.Parallel()
+
+	svc := NewHubService(nil, nil, t.TempDir())
+	attempts := 0
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		return newResponse(http.StatusBadRequest, "bad request"), nil
+	})}
+
+	_, _, err := svc.fetchWithFallback(context.Background(), []string{"https://hub.crowdsec.net/a", "https://raw.githubusercontent.com/crowdsecurity/hub/master/b"})
+	require.Error(t, err)
+	require.Equal(t, 1, attempts)
+}
+
+func TestHubServiceFetchWithFallbackRetriesWhenErrorCanFallback(t *testing.T) {
+	t.Parallel()
+
+	svc := NewHubService(nil, nil, t.TempDir())
+	attempts := 0
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		if attempts == 1 {
+			return newResponse(http.StatusServiceUnavailable, "unavailable"), nil
+		}
+		return newResponse(http.StatusOK, "ok"), nil
+	})}
+
+	data, used, err := svc.fetchWithFallback(context.Background(), []string{"https://hub.crowdsec.net/a", "https://raw.githubusercontent.com/crowdsecurity/hub/master/b"})
+	require.NoError(t, err)
+	require.Equal(t, "ok", string(data))
+	require.Equal(t, "https://raw.githubusercontent.com/crowdsecurity/hub/master/b", used)
+	require.Equal(t, 2, attempts)
 }
 
 // TestValidateHubURL_EdgeCases tests additional edge cases for SSRF protection

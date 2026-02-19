@@ -59,6 +59,10 @@ vi.mock('../../api/settings', () => ({
   getSettings: vi.fn(),
 }));
 
+vi.mock('../../hooks/useSecurityHeaders', () => ({
+  useSecurityHeaderProfiles: vi.fn(() => ({ data: [], isLoading: false, error: null })),
+}));
+
 const mockProxyHosts = [
   createMockProxyHost({ uuid: 'host-1', name: 'Test Host 1', domain_names: 'test1.example.com', forward_host: '192.168.1.10' }),
   createMockProxyHost({ uuid: 'host-2', name: 'Test Host 2', domain_names: 'test2.example.com', forward_host: '192.168.1.20' }),

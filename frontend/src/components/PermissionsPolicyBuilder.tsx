@@ -178,6 +178,7 @@ export function PermissionsPolicyBuilder({ value, onChange }: PermissionsPolicyB
             value={newFeature}
             onChange={(e) => setNewFeature(e.target.value)}
             className="w-48"
+            aria-label="Select Feature"
           >
             {FEATURES.map((feature) => (
               <option key={feature} value={feature}>
@@ -190,6 +191,7 @@ export function PermissionsPolicyBuilder({ value, onChange }: PermissionsPolicyB
             value={newAllowlist}
             onChange={(e) => setNewAllowlist(e.target.value)}
             className="w-40"
+            aria-label="Select Allowlist Origin"
           >
             {ALLOWLIST_PRESETS.map((preset) => (
               <option key={preset.value} value={preset.value}>
@@ -208,7 +210,7 @@ export function PermissionsPolicyBuilder({ value, onChange }: PermissionsPolicyB
             />
           )}
 
-          <Button onClick={handleAddFeature}>
+          <Button onClick={handleAddFeature} aria-label="Add Feature">
             <Plus className="w-4 h-4" />
           </Button>
         </div>
@@ -247,6 +249,7 @@ export function PermissionsPolicyBuilder({ value, onChange }: PermissionsPolicyB
                 variant="ghost"
                 size="sm"
                 onClick={() => handleRemoveFeature(policy.feature)}
+                aria-label={`Remove ${policy.feature}`}
               >
                 <X className="w-4 h-4" />
               </Button>

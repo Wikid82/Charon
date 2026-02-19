@@ -15,6 +15,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 // EmergencyServer provides a minimal HTTP server for emergency operations.
@@ -110,11 +111,11 @@ func (s *EmergencyServer) Start() error {
 
 		logger.Log().WithFields(map[string]interface{}{
 			"server":  "emergency",
-			"method":  method,
-			"path":    path,
+			"method":  util.SanitizeForLog(method),
+			"path":    util.SanitizeForLog(path),
 			"status":  status,
 			"latency": fmt.Sprintf("%dms", latency),
-			"ip":      c.ClientIP(),
+			"ip":      util.SanitizeForLog(c.ClientIP()),
 		}).Info("Emergency server request")
 	})
 
@@ -137,7 +138,7 @@ func (s *EmergencyServer) Start() error {
 			s.cfg.BasicAuthUsername: s.cfg.BasicAuthPassword,
 		}
 		router.Use(gin.BasicAuth(accounts))
-		logger.Log().WithField("username", s.cfg.BasicAuthUsername).Info("Emergency server Basic Auth enabled")
+		logger.Log().WithField("username", util.SanitizeForLog(s.cfg.BasicAuthUsername)).Info("Emergency server Basic Auth enabled")
 	}
 
 	// POST /emergency/security-reset - Disable all security modules

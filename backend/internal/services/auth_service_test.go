@@ -7,6 +7,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -223,4 +224,110 @@ func TestAuthService_ValidateToken_EdgeCases(t *testing.T) {
 		_ = err // Ignore result, just covering the code path
 		_ = user
 	})
+}
+
+func TestAuthService_AuthenticateToken(t *testing.T) {
+	db := setupAuthTestDB(t)
+	cfg := config.Config{JWTSecret: "test-secret"}
+	service := NewAuthService(db, cfg)
+
+	user, err := service.Register("auth@example.com", "password123", "Auth User")
+	require.NoError(t, err)
+
+	token, err := service.Login("auth@example.com", "password123")
+	require.NoError(t, err)
+
+	t.Run("success", func(t *testing.T) {
+		authUser, claims, authErr := service.AuthenticateToken(token)
+		require.NoError(t, authErr)
+		require.NotNil(t, authUser)
+		require.NotNil(t, claims)
+		assert.Equal(t, user.ID, authUser.ID)
+		assert.Equal(t, user.ID, claims.UserID)
+	})
+
+	t.Run("invalidated_session_version", func(t *testing.T) {
+		require.NoError(t, service.InvalidateSessions(user.ID))
+		_, _, authErr := service.AuthenticateToken(token)
+		require.Error(t, authErr)
+		assert.Equal(t, "invalid token", authErr.Error())
+	})
+
+	t.Run("disabled_user", func(t *testing.T) {
+		user2, regErr := service.Register("disabled@example.com", "password123", "Disabled User")
+		require.NoError(t, regErr)
+
+		token2, loginErr := service.Login("disabled@example.com", "password123")
+		require.NoError(t, loginErr)
+
+		require.NoError(t, db.Model(&models.User{}).Where("id = ?", user2.ID).Update("enabled", false).Error)
+
+		_, _, authErr := service.AuthenticateToken(token2)
+		require.Error(t, authErr)
+		assert.Equal(t, "invalid token", authErr.Error())
+	})
+}
+
+func TestAuthService_InvalidateSessions(t *testing.T) {
+	db := setupAuthTestDB(t)
+	cfg := config.Config{JWTSecret: "test-secret"}
+	service := NewAuthService(db, cfg)
+
+	user, err := service.Register("invalidate@example.com", "password123", "Invalidate User")
+	require.NoError(t, err)
+
+	var before models.User
+	require.NoError(t, db.Where("id = ?", user.ID).First(&before).Error)
+
+	require.NoError(t, service.InvalidateSessions(user.ID))
+
+	var after models.User
+	require.NoError(t, db.Where("id = ?", user.ID).First(&after).Error)
+	assert.Equal(t, before.SessionVersion+1, after.SessionVersion)
+
+	err = service.InvalidateSessions(999999)
+	require.Error(t, err)
+	assert.Equal(t, "user not found", err.Error())
+}
+
+func TestAuthService_AuthenticateToken_InvalidUserIDInClaims(t *testing.T) {
+	db := setupAuthTestDB(t)
+	cfg := config.Config{JWTSecret: "test-secret"}
+	service := NewAuthService(db, cfg)
+
+	user, err := service.Register("claims@example.com", "password123", "Claims User")
+	require.NoError(t, err)
+
+	claims := Claims{
+		UserID:         user.ID + 9999,
+		Role:           "user",
+		SessionVersion: user.SessionVersion,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString([]byte(cfg.JWTSecret))
+	require.NoError(t, err)
+
+	_, _, err = service.AuthenticateToken(tokenString)
+	require.Error(t, err)
+	assert.Equal(t, "invalid token", err.Error())
+}
+
+func TestAuthService_InvalidateSessions_DBError(t *testing.T) {
+	db := setupAuthTestDB(t)
+	cfg := config.Config{JWTSecret: "test-secret"}
+	service := NewAuthService(db, cfg)
+
+	user, err := service.Register("dberror@example.com", "password123", "DB Error User")
+	require.NoError(t, err)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	err = service.InvalidateSessions(user.ID)
+	require.Error(t, err)
 }

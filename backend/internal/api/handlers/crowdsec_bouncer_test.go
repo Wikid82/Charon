@@ -7,6 +7,14 @@ import (
 )
 
 func TestGetBouncerAPIKeyFromEnv(t *testing.T) {
+	envKeys := []string{
+		"CROWDSEC_API_KEY",
+		"CROWDSEC_BOUNCER_API_KEY",
+		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
+		"CHARON_SECURITY_CROWDSEC_API_KEY",
+		"CPM_SECURITY_CROWDSEC_API_KEY",
+	}
+
 	tests := []struct {
 		name        string
 		envVars     map[string]string
@@ -43,23 +51,18 @@ func TestGetBouncerAPIKeyFromEnv(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Clear env vars
-			_ = os.Unsetenv("CROWDSEC_BOUNCER_API_KEY")
-			_ = os.Unsetenv("CROWDSEC_API_KEY")
+			for _, key := range envKeys {
+				t.Setenv(key, "")
+			}
 
-			// Set test env vars
 			for k, v := range tt.envVars {
-				_ = os.Setenv(k, v)
+				t.Setenv(k, v)
 			}
 
 			key := getBouncerAPIKeyFromEnv()
 			if key != tt.expectedKey {
 				t.Errorf("getBouncerAPIKeyFromEnv() key = %q, want %q", key, tt.expectedKey)
 			}
-
-			// Cleanup
-			_ = os.Unsetenv("CROWDSEC_BOUNCER_API_KEY")
-			_ = os.Unsetenv("CROWDSEC_API_KEY")
 		})
 	}
 }
@@ -76,8 +79,8 @@ func TestSaveAndReadKeyFromFile(t *testing.T) {
 	testKey := "test-api-key-789"
 
 	// Test saveKeyToFile creates directories and saves key
-	if err := saveKeyToFile(keyFile, testKey); err != nil {
-		t.Fatalf("saveKeyToFile() error = %v", err)
+	if saveErr := saveKeyToFile(keyFile, testKey); saveErr != nil {
+		t.Fatalf("saveKeyToFile() error = %v", saveErr)
 	}
 
 	// Verify file was created

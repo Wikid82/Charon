@@ -14,6 +14,19 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
         args: ['--maxkb=2500']
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        name: shellcheck
+        exclude: '^(frontend/(coverage|dist|node_modules|\.vite)/|test-results|codeql-agent-results)/'
+        args: ['--severity=error']
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.10
+    hooks:
+      - id: actionlint
+        name: actionlint (GitHub Actions)
+        files: '^\.github/workflows/.*\.ya?ml$'
   - repo: local
     hooks:
       - id: dockerfile-check
@@ -155,6 +168,14 @@ repos:
         verbose: true
         stages: [manual]  # Only runs after CodeQL scans
 
+      - id: codeql-parity-check
+        name: CodeQL Suite/Trigger Parity Guard (Manual)
+        entry: scripts/ci/check-codeql-parity.sh
+        language: script
+        pass_filenames: false
+        verbose: true
+        stages: [manual]
+
       - id: gorm-security-scan
         name: GORM Security Scanner (Manual)
         entry: scripts/pre-commit-hooks/gorm-security-check.sh
@@ -164,6 +185,22 @@ repos:
         stages: [manual]  # Manual stage initially (soft launch)
         verbose: true
         description: "Detects GORM ID leaks and common GORM security mistakes"
+
+      - id: semgrep-scan
+        name: Semgrep Security Scan (Manual)
+        entry: scripts/pre-commit-hooks/semgrep-scan.sh
+        language: script
+        pass_filenames: false
+        verbose: true
+        stages: [manual]  # Manual stage initially (reversible rollout)
+
+      - id: gitleaks-tuned-scan
+        name: Gitleaks Security Scan (Tuned, Manual)
+        entry: scripts/pre-commit-hooks/gitleaks-tuned-scan.sh
+        language: script
+        pass_filenames: false
+        verbose: true
+        stages: [manual]  # Manual stage initially (reversible rollout)
 
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.47.0

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -21,6 +22,48 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
+func TestIsTransientSQLiteError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "locked", err: errors.New("database is locked"), want: true},
+		{name: "busy", err: errors.New("database is busy"), want: true},
+		{name: "table locked", err: errors.New("database table is locked"), want: true},
+		{name: "mixed case", err: errors.New("DataBase Is Locked"), want: true},
+		{name: "non transient", err: errors.New("constraint failed"), want: false},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			require.Equal(t, testCase.want, isTransientSQLiteError(testCase.err))
+		})
+	}
+}
+
+func TestUpsertSettingWithRetry_ReturnsErrorForClosedDB(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	handler := NewEmergencyHandler(db)
+
+	stdDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, stdDB.Close())
+
+	setting := &models.Setting{
+		Key:      "security.test.closed_db",
+		Value:    "false",
+		Category: "security",
+		Type:     "bool",
+	}
+
+	err = handler.upsertSettingWithRetry(setting)
+	require.Error(t, err)
+}
+
 func jsonReader(data interface{}) io.Reader {
 	b, _ := json.Marshal(data)
 	return bytes.NewReader(b)
@@ -35,6 +78,7 @@ func setupEmergencyTestDB(t *testing.T) *gorm.DB {
 		&models.Setting{},
 		&models.SecurityConfig{},
 		&models.SecurityAudit{},
+		&models.SecurityDecision{},
 		&models.EmergencyToken{},
 	)
 	require.NoError(t, err)
@@ -125,12 +169,19 @@ func TestEmergencySecurityReset_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "disabled", crowdsecMode.Value)
 
+	// Verify admin whitelist is cleared
+	var adminWhitelist models.Setting
+	err = db.Where("key = ?", "security.admin_whitelist").First(&adminWhitelist).Error
+	require.NoError(t, err)
+	assert.Equal(t, "", adminWhitelist.Value)
+
 	// Verify SecurityConfig was updated
 	var updatedConfig models.SecurityConfig
 	err = db.Where("name = ?", "default").First(&updatedConfig).Error
 	require.NoError(t, err)
 	assert.False(t, updatedConfig.Enabled)
 	assert.Equal(t, "disabled", updatedConfig.WAFMode)
+	assert.Equal(t, "", updatedConfig.AdminWhitelist)
 
 	// Note: Audit logging is async via SecurityService channel, tested separately
 }
@@ -303,6 +354,71 @@ func TestEmergencySecurityReset_TriggersReloadAndCacheInvalidate(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, 1, mockCaddy.calls)
 	assert.Equal(t, 1, mockCache.calls)
+}
+
+func TestEmergencySecurityReset_ClearsBlockDecisions(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	handler := NewEmergencyHandler(db)
+	router := setupEmergencyRouter(handler)
+
+	validToken := "this-is-a-valid-emergency-token-with-32-chars-minimum"
+	require.NoError(t, os.Setenv(EmergencyTokenEnvVar, validToken))
+	defer func() { require.NoError(t, os.Unsetenv(EmergencyTokenEnvVar)) }()
+
+	require.NoError(t, db.Create(&models.SecurityDecision{UUID: "dec-1", Source: "manual", Action: "block", IP: "127.0.0.1", CreatedAt: time.Now()}).Error)
+	require.NoError(t, db.Create(&models.SecurityDecision{UUID: "dec-2", Source: "manual", Action: "allow", IP: "127.0.0.2", CreatedAt: time.Now()}).Error)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req.Header.Set(EmergencyTokenHeader, validToken)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var remaining []models.SecurityDecision
+	require.NoError(t, db.Find(&remaining).Error)
+	require.Len(t, remaining, 1)
+	assert.Equal(t, "allow", remaining[0].Action)
+}
+
+func TestEmergencySecurityReset_MiddlewarePrevalidatedBypass(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	handler := NewEmergencyHandler(db)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/v1/emergency/security-reset", func(c *gin.Context) {
+		c.Set("emergency_bypass", true)
+		handler.SecurityReset(c)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestEmergencySecurityReset_MiddlewareBypass_ResetFailure(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	handler := NewEmergencyHandler(db)
+
+	stdDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, stdDB.Close())
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/v1/emergency/security-reset", func(c *gin.Context) {
+		c.Set("emergency_bypass", true)
+		handler.SecurityReset(c)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestLogEnhancedAudit(t *testing.T) {

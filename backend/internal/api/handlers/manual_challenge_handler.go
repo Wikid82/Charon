@@ -538,10 +538,10 @@ func (h *ManualChallengeHandler) CreateChallenge(c *gin.Context) {
 	}
 
 	var req CreateChallengeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
 		c.JSON(http.StatusBadRequest, newErrorResponse(
 			"INVALID_REQUEST",
-			err.Error(),
+			bindErr.Error(),
 			nil,
 		))
 		return

@@ -531,3 +531,34 @@ func TestRotationServiceZeroDowntime(t *testing.T) {
 		assert.Equal(t, "secret", credentials["api_key"])
 	})
 }
+
+func TestRotateProviderCredentials_InvalidJSONAfterDecrypt(t *testing.T) {
+	db := setupTestDB(t)
+	currentKey, nextKey, _ := setupTestKeys(t)
+
+	currentService, err := NewEncryptionService(currentKey)
+	require.NoError(t, err)
+
+	invalidJSONPlaintext := []byte("not-json")
+	encrypted, err := currentService.Encrypt(invalidJSONPlaintext)
+	require.NoError(t, err)
+
+	provider := models.DNSProvider{
+		UUID:                 "test-invalid-json",
+		Name:                 "Invalid JSON Provider",
+		ProviderType:         "cloudflare",
+		CredentialsEncrypted: encrypted,
+		KeyVersion:           1,
+	}
+	require.NoError(t, db.Create(&provider).Error)
+
+	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey))
+	defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT") }()
+
+	rs, err := NewRotationService(db)
+	require.NoError(t, err)
+
+	err = rs.rotateProviderCredentials(context.Background(), &provider)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid credential format after decryption")
+}

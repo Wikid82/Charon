@@ -8,13 +8,13 @@
  * - Header score display
  * - Individual header configuration
  *
- * @see /projects/Charon/docs/plans/current_spec.md - Phase 3
+ * @see /projects/Charon/docs/plans/current_spec.md
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForToast } from '../utils/wait-helpers';
 
-test.describe('Security Headers Configuration', () => {
+test.describe('Security Headers Configuration @security', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page);

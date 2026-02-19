@@ -519,7 +519,6 @@ func TestVerifyResult_Fields(t *testing.T) {
 		DNSFound:      true,
 		Message:       "DNS TXT record verified successfully",
 		Status:        "verified",
-		TimeRemaining: 0,
 	}
 
 	assert.True(t, result.Success)

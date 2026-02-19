@@ -8,13 +8,13 @@
  * - Pagination
  * - Log details view
  *
- * @see /projects/Charon/docs/plans/current_spec.md - Phase 3
+ * @see /projects/Charon/docs/plans/current_spec.md
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForToast } from '../utils/wait-helpers';
 
-test.describe('Audit Logs', () => {
+test.describe('Audit Logs @security', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page);

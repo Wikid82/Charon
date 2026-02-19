@@ -167,8 +167,9 @@ codeql-db/
 codeql-db-*/
 codeql-agent-results/
 codeql-custom-queries-*/
-codeql-results*.sarif
-codeql-*.sarif
+codeql-results-go.sarif
+codeql-results-js.sarif
+codeql-results-javascript.sarif
 *.sarif
 .codeql/
 .codeql/**
@@ -274,14 +275,10 @@ grype-results*.sarif
 
 # Personal test compose file (contains local paths - user-specific)
 docker-compose.test.yml
-.docker/compose/docker-compose.test.yml
 
 # Note: docker-compose.playwright.yml is NOT ignored - it must be committed
 # for CI/CD E2E testing workflows
 .github/agents/prompt_template/
-my-codeql-db/**
-codeql-linux64.zip
-backend/main
 **.out
 docs/plans/supply_chain_security_implementation.md.backup
 
@@ -297,3 +294,16 @@ test-data/**
 docs/reports/gorm-scan-*.txt
 frontend/trivy-results.json
 docs/plans/current_spec_notes.md
+tests/etc/passwd
+trivy-image-report.json
+trivy-fs-report.json
+backend/# Tools Configuration.md
+docs/plans/requirements.md
+docs/plans/design.md
+docs/plans/tasks.md
+frontend/coverage_output.txt
+frontend/temp**
+playwright-output/**
+validation-evidence/**
+.github/agents/# Tools Configuration.md
+docs/plans/codecove_patch_report.md

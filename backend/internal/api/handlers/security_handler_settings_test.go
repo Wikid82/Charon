@@ -227,6 +227,37 @@ func TestSecurityHandler_GetStatus_RateLimitModeFromSettings(t *testing.T) {
 
 	rateLimit := response["rate_limit"].(map[string]any)
 	assert.True(t, rateLimit["enabled"].(bool))
+
+	configApply := response["config_apply"].(map[string]any)
+	assert.Equal(t, false, configApply["available"])
+	assert.Equal(t, "unknown", configApply["status"])
+}
+
+func TestSecurityHandler_GetStatus_IncludesLatestConfigApplyState(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.CaddyConfig{}))
+
+	require.NoError(t, db.Create(&models.CaddyConfig{Success: true, ErrorMsg: ""}).Error)
+
+	handler := NewSecurityHandler(config.SecurityConfig{CerberusEnabled: true}, db, nil)
+	router := gin.New()
+	router.GET("/security/status", handler.GetStatus)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/security/status", http.NoBody)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]any
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	configApply := response["config_apply"].(map[string]any)
+	assert.Equal(t, true, configApply["available"])
+	assert.Equal(t, "applied", configApply["status"])
+	assert.Equal(t, true, configApply["success"])
 }
 
 func TestSecurityHandler_PatchACL_RequiresAdminWhitelist(t *testing.T) {

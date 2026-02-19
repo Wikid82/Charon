@@ -70,18 +70,14 @@ describe('SecurityNotificationSettingsModal', () => {
     renderModal();
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Enable Notifications')).toBeTruthy();
+      const enableSwitch = screen.getByLabelText('Enable Notifications') as HTMLInputElement;
+      const levelSelect = screen.getByLabelText(/minimum log level/i) as HTMLSelectElement;
+      const webhookInput = screen.getByPlaceholderText(/your-webhook-endpoint/i) as HTMLInputElement;
+
+      expect(enableSwitch.checked).toBe(true);
+      expect(levelSelect.value).toBe('warn');
+      expect(webhookInput.value).toBe('https://example.com/webhook');
     });
-
-    // Check that settings are loaded
-    const enableSwitch = screen.getByLabelText('Enable Notifications') as HTMLInputElement;
-    expect(enableSwitch.checked).toBe(true);
-
-    const levelSelect = screen.getByLabelText(/minimum log level/i) as HTMLSelectElement;
-    expect(levelSelect.value).toBe('warn');
-
-    const webhookInput = screen.getByPlaceholderText(/your-webhook-endpoint/i) as HTMLInputElement;
-    expect(webhookInput.value).toBe('https://example.com/webhook');
   });
 
   it('closes modal when close button is clicked', async () => {
@@ -158,11 +154,10 @@ describe('SecurityNotificationSettingsModal', () => {
     renderModal();
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Enable Notifications')).toBeTruthy();
+      expect(screen.getByLabelText('Enable Notifications')).toBeChecked();
     });
 
     const enableSwitch = screen.getByLabelText('Enable Notifications') as HTMLInputElement;
-    expect(enableSwitch.checked).toBe(true);
 
     // Disable notifications
     await user.click(enableSwitch);

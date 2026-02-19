@@ -41,6 +41,14 @@ func setupImportTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+func addAdminMiddleware(router *gin.Engine) {
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
+}
+
 func TestImportHandler_GetStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
@@ -48,6 +56,8 @@ func TestImportHandler_GetStatus(t *testing.T) {
 	// Case 1: No active session, no mount
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
+	addAdminMiddleware(router)
+	addAdminMiddleware(router)
 	router.DELETE("/import/cancel", handler.Cancel)
 
 	session := models.ImportSession{
@@ -72,6 +82,8 @@ func TestImportHandler_Commit(t *testing.T) {
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
+	addAdminMiddleware(router)
+	addAdminMiddleware(router)
 	router.POST("/import/commit", handler.Commit)
 
 	session := models.ImportSession{
@@ -119,6 +131,8 @@ func TestImportHandler_Upload(t *testing.T) {
 	tmpDir := t.TempDir()
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
 	router := gin.New()
+	addAdminMiddleware(router)
+	addAdminMiddleware(router)
 	router.POST("/import/upload", handler.Upload)
 
 	payload := map[string]string{
@@ -142,6 +156,8 @@ func TestImportHandler_GetPreview_WithContent(t *testing.T) {
 	tmpDir := t.TempDir()
 	handler := handlers.NewImportHandler(db, "echo", tmpDir, "")
 	router := gin.New()
+	addAdminMiddleware(router)
+	addAdminMiddleware(router)
 	router.GET("/import/preview", handler.GetPreview)
 
 	// Case: Active session with source file
@@ -176,6 +192,8 @@ func TestImportHandler_Commit_Errors(t *testing.T) {
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
+	addAdminMiddleware(router)
+	addAdminMiddleware(router)
 	router.POST("/import/commit", handler.Commit)
 
 	// Case 1: Invalid JSON
@@ -219,6 +237,7 @@ func TestImportHandler_Cancel_Errors(t *testing.T) {
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.DELETE("/import/cancel", handler.Cancel)
 
 	// Case 1: Session not found
@@ -270,6 +289,7 @@ func TestImportHandler_Upload_Failure(t *testing.T) {
 	tmpDir := t.TempDir()
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/upload", handler.Upload)
 
 	payload := map[string]string{
@@ -307,6 +327,7 @@ func TestImportHandler_Upload_Conflict(t *testing.T) {
 	tmpDir := t.TempDir()
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/upload", handler.Upload)
 
 	payload := map[string]string{
@@ -343,6 +364,7 @@ func TestImportHandler_GetPreview_BackupContent(t *testing.T) {
 	tmpDir := t.TempDir()
 	handler := handlers.NewImportHandler(db, "echo", tmpDir, "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.GET("/import/preview", handler.GetPreview)
 
 	// Create backup file
@@ -376,6 +398,7 @@ func TestImportHandler_RegisterRoutes(t *testing.T) {
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
 
@@ -404,6 +427,7 @@ func TestImportHandler_GetPreview_TransientMount(t *testing.T) {
 
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, mountPath)
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.GET("/import/preview", handler.GetPreview)
 
 	w := httptest.NewRecorder()
@@ -442,6 +466,7 @@ func TestImportHandler_Commit_TransientUpload(t *testing.T) {
 
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/upload", handler.Upload)
 	router.POST("/import/commit", handler.Commit)
 
@@ -506,6 +531,7 @@ func TestImportHandler_Commit_TransientMount(t *testing.T) {
 
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, mountPath)
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/commit", handler.Commit)
 
 	// Commit the mount with a random session ID (transient)
@@ -547,6 +573,7 @@ func TestImportHandler_Cancel_TransientUpload(t *testing.T) {
 
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/commit", handler.Commit)
 	router.DELETE("/import/cancel", handler.Cancel)
 
@@ -574,6 +601,7 @@ func TestImportHandler_DetectImports(t *testing.T) {
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/detect-imports", handler.DetectImports)
 
 	tests := []struct {
@@ -636,6 +664,7 @@ func TestImportHandler_DetectImports_InvalidJSON(t *testing.T) {
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/detect-imports", handler.DetectImports)
 
 	// Invalid JSON
@@ -658,6 +687,7 @@ func TestImportHandler_UploadMulti(t *testing.T) {
 
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/upload-multi", handler.UploadMulti)
 
 	t.Run("single Caddyfile", func(t *testing.T) {
@@ -765,6 +795,7 @@ func TestImportHandler_Cancel_MissingSessionUUID(t *testing.T) {
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.DELETE("/import/cancel", handler.Cancel)
 
 	// Missing session_uuid parameter
@@ -783,6 +814,7 @@ func TestImportHandler_Cancel_InvalidSessionUUID(t *testing.T) {
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.DELETE("/import/cancel", handler.Cancel)
 
 	// Test "." which becomes empty after filepath.Base processing
@@ -801,6 +833,7 @@ func TestImportHandler_Commit_InvalidSessionUUID(t *testing.T) {
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/commit", handler.Commit)
 
 	// Test "." which becomes empty after filepath.Base processing
@@ -888,8 +921,10 @@ func TestImportHandler_Commit_UpdateFailure(t *testing.T) {
 		},
 	}
 
-	handler := handlers.NewImportHandlerWithService(db, mockSvc, "echo", "/tmp", "")
+	handler := handlers.NewImportHandlerWithService(db, mockSvc, "echo", "/tmp", "", nil)
 	router := gin.New()
+	addAdminMiddleware(router)
+	addAdminMiddleware(router)
 	router.POST("/import/commit", handler.Commit)
 
 	// Request to overwrite existing.com
@@ -953,6 +988,7 @@ func TestImportHandler_Commit_CreateFailure(t *testing.T) {
 
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/commit", handler.Commit)
 
 	// Don't provide resolution, so it defaults to create (not overwrite)
@@ -994,6 +1030,7 @@ func TestUpload_NormalizationSuccess(t *testing.T) {
 	tmpDir := t.TempDir()
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/upload", handler.Upload)
 
 	// Use single-line Caddyfile format (triggers normalization)
@@ -1039,6 +1076,7 @@ func TestUpload_NormalizationFallback(t *testing.T) {
 	tmpDir := t.TempDir()
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/upload", handler.Upload)
 
 	// Valid Caddyfile that would parse successfully (even if normalization fails)
@@ -1107,6 +1145,7 @@ func TestCommit_OverwriteAction(t *testing.T) {
 
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/commit", handler.Commit)
 
 	payload := map[string]any{
@@ -1176,6 +1215,7 @@ func TestCommit_RenameAction(t *testing.T) {
 
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/commit", handler.Commit)
 
 	payload := map[string]any{
@@ -1241,6 +1281,7 @@ func TestGetPreview_WithConflictDetails(t *testing.T) {
 
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, mountPath)
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.GET("/import/preview", handler.GetPreview)
 
 	w := httptest.NewRecorder()
@@ -1274,6 +1315,7 @@ func TestSafeJoin_PathTraversalCases(t *testing.T) {
 	tmpDir := t.TempDir()
 	handler := handlers.NewImportHandler(db, "echo", tmpDir, "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/upload-multi", handler.UploadMulti)
 
 	tests := []struct {
@@ -1360,6 +1402,7 @@ func TestCommit_SkipAction(t *testing.T) {
 
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/commit", handler.Commit)
 
 	payload := map[string]any{
@@ -1411,6 +1454,7 @@ func TestCommit_CustomNames(t *testing.T) {
 
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.POST("/import/commit", handler.Commit)
 
 	payload := map[string]any{
@@ -1460,6 +1504,7 @@ func TestGetStatus_AlreadyCommittedMount(t *testing.T) {
 
 	handler := handlers.NewImportHandler(db, "echo", tmpDir, mountPath)
 	router := gin.New()
+	addAdminMiddleware(router)
 	router.GET("/import/status", handler.GetStatus)
 
 	w := httptest.NewRecorder()
@@ -1493,8 +1538,10 @@ func TestImportHandler_Commit_SessionSaveWarning(t *testing.T) {
 		createFunc: func(h *models.ProxyHost) error { h.ID = 1; return nil },
 	}
 
-	h := handlers.NewImportHandlerWithService(db, mockSvc, "echo", "/tmp", "")
+	h := handlers.NewImportHandlerWithService(db, mockSvc, "echo", "/tmp", "", nil)
 	router := gin.New()
+	addAdminMiddleware(router)
+	addAdminMiddleware(router)
 	router.POST("/import/commit", h.Commit)
 
 	// Inject a GORM callback to force an error when updating ImportSession (simulates non-fatal save warning)
@@ -1555,6 +1602,8 @@ func TestGetStatus_DatabaseError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set("role", "admin")
+	c.Set("userID", uint(1))
 	c.Request = httptest.NewRequest("GET", "/api/v1/import/status", nil)
 
 	handler.GetStatus(c)
@@ -1587,6 +1636,8 @@ func TestGetPreview_MountAlreadyCommitted(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set("role", "admin")
+	c.Set("userID", uint(1))
 	c.Request = httptest.NewRequest("GET", "/api/v1/import/preview", nil)
 
 	handler.GetPreview(c)
@@ -1611,6 +1662,8 @@ func TestUpload_MkdirAllFailure(t *testing.T) {
 	reqBody := `{"content": "test.local { reverse_proxy localhost:8080 }", "filename": "test.caddy"}`
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set("role", "admin")
+	c.Set("userID", uint(1))
 	c.Request = httptest.NewRequest("POST", "/api/v1/import/upload", strings.NewReader(reqBody))
 	c.Request.Header.Set("Content-Type", "application/json")
 

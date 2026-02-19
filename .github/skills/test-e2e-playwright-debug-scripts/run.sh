@@ -25,7 +25,7 @@ FILE=""
 GREP=""
 SLOWMO=500
 INSPECTOR=false
-PROJECT="chromium"
+PROJECT="firefox"
 
 # Parse command-line arguments
 parse_arguments() {
@@ -91,7 +91,7 @@ Options:
     --grep=PATTERN      Filter tests by title pattern (regex)
     --slowmo=MS         Delay between actions in milliseconds (default: 500)
     --inspector         Open Playwright Inspector for step-by-step debugging
-    --project=PROJECT   Browser to use: chromium, firefox, webkit (default: chromium)
+    --project=PROJECT   Browser to use: chromium, firefox, webkit (default: firefox)
     -h, --help          Show this help message
 
 Environment Variables:
@@ -100,7 +100,7 @@ Environment Variables:
     DEBUG                   Verbose logging (e.g., 'pw:api')
 
 Examples:
-    run.sh                                  # Debug all tests in Chromium
+    run.sh                                  # Debug all tests in Firefox
     run.sh --file=login.spec.ts            # Debug specific file
     run.sh --grep="login"                  # Debug tests matching pattern
     run.sh --inspector                     # Open Playwright Inspector
@@ -194,7 +194,10 @@ main() {
 
     # Set environment variables
     export PLAYWRIGHT_HTML_OPEN="${PLAYWRIGHT_HTML_OPEN:-never}"
-    set_default_env "PLAYWRIGHT_BASE_URL" "http://localhost:8080"
+    export PLAYWRIGHT_SKIP_SECURITY_DEPS="${PLAYWRIGHT_SKIP_SECURITY_DEPS:-1}"
+    # Debug runs should not start the Vite dev server by default
+    export PLAYWRIGHT_COVERAGE="${PLAYWRIGHT_COVERAGE:-0}"
+    set_default_env "PLAYWRIGHT_BASE_URL" "http://127.0.0.1:8080"
 
     # Enable Inspector if requested
     if [[ "${INSPECTOR}" == "true" ]]; then

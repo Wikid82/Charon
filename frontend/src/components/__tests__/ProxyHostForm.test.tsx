@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { act } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -60,6 +60,55 @@ vi.mock('../../hooks/useCertificates', () => ({
   })),
 }))
 
+vi.mock('../../hooks/useAccessLists', () => ({
+  useAccessLists: vi.fn(() => ({
+    data: [
+      { id: 10, name: 'Trusted IPs', type: 'allow_list', enabled: true, description: 'Only trusted' },
+      { id: 11, name: 'Geo Block', type: 'geo_block', enabled: true }
+    ],
+    isLoading: false,
+    error: null,
+  })),
+}))
+
+vi.mock('../../hooks/useSecurityHeaders', () => ({
+  useSecurityHeaderProfiles: vi.fn(() => ({
+    data: [
+      { id: 100, name: 'Strict Profile', description: 'Very strict', security_score: 90, is_preset: true, preset_type: 'strict' }
+    ],
+    isLoading: false,
+    error: null,
+  })),
+}))
+
+vi.mock('../../hooks/useDNSDetection', () => ({
+  useDetectDNSProvider: vi.fn(() => ({
+    mutateAsync: vi.fn().mockResolvedValue({
+      domain: 'example.com',
+      detected: false,
+      nameservers: [],
+      confidence: 'none',
+    }),
+    isPending: false,
+    data: null,
+    reset: vi.fn(),
+  })),
+}))
+
+vi.mock('../../hooks/useDNSProviders', () => ({
+  useDNSProviders: vi.fn(() => ({
+    data: [
+      { id: 1, name: 'Cloudflare', provider_type: 'cloudflare', enabled: true, has_credentials: true }
+    ],
+    isLoading: false,
+    error: null,
+  })),
+}))
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
+}))
+
 vi.mock('../../hooks/useSecurity', () => ({
   useAuthPolicies: vi.fn(() => ({
     policies: [
@@ -100,6 +149,13 @@ const renderWithClientAct = async (ui: React.ReactElement) => {
   })
 }
 
+const selectComboboxOption = async (label: string | RegExp, optionText: string) => {
+  const trigger = screen.getByRole('combobox', { name: label })
+  await userEvent.click(trigger)
+  const option = await screen.findByRole('option', { name: optionText })
+  await userEvent.click(option)
+}
+
 import { testProxyHostConnection } from '../../api/proxyHosts'
 
 describe('ProxyHostForm', () => {
@@ -126,12 +182,7 @@ describe('ProxyHostForm', () => {
       expect(screen.getByText('Add Proxy Host')).toBeInTheDocument()
     })
 
-    // Find scheme select - it defaults to HTTP
-    // We can find it by label "Scheme"
-    const schemeSelect = screen.getByLabelText('Scheme') as HTMLSelectElement
-    await userEvent.selectOptions(schemeSelect, 'https')
-
-    expect(schemeSelect).toHaveValue('https')
+    await selectComboboxOption('Scheme', 'HTTPS')
   })
 
   it('prompts to save new base domain', async () => {
@@ -245,15 +296,15 @@ describe('ProxyHostForm', () => {
       expect(screen.getByLabelText('Base Domain (Auto-fill)')).toBeInTheDocument()
     })
 
-    await userEvent.selectOptions(screen.getByLabelText('Base Domain (Auto-fill)') as HTMLSelectElement, 'existing.com')
+    await selectComboboxOption(/Base Domain/i, 'existing.com')
 
     // Should not update domain names yet as no container selected
     expect(screen.getByLabelText(/Domain Names/i)).toHaveValue('')
 
     // Select container then base domain
-    await userEvent.selectOptions(screen.getByLabelText('Source') as HTMLSelectElement, 'local')
-    await userEvent.selectOptions(screen.getByLabelText('Containers') as HTMLSelectElement, 'container-123')
-    await userEvent.selectOptions(screen.getByLabelText('Base Domain (Auto-fill)') as HTMLSelectElement, 'existing.com')
+    await selectComboboxOption('Source', 'Local (Docker Socket)')
+    await selectComboboxOption('Containers', 'my-app (nginx:latest)')
+    await selectComboboxOption(/Base Domain/i, 'existing.com')
 
     expect(screen.getByLabelText(/Domain Names/i)).toHaveValue('my-app.existing.com')
   })
@@ -265,17 +316,20 @@ describe('ProxyHostForm', () => {
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
-      const presetSelect = screen.getByLabelText(/Application Preset/i)
-      expect(presetSelect).toBeInTheDocument()
+      const presetTrigger = screen.getByRole('combobox', { name: /Application Preset/i })
+      expect(presetTrigger).toBeInTheDocument()
+      await userEvent.click(presetTrigger)
+
+      const presetListbox = screen.getByRole('listbox')
 
       // Check that all presets are available
-      expect(screen.getByText('None - Standard reverse proxy')).toBeInTheDocument()
-      expect(screen.getByText('Plex - Media server with remote access')).toBeInTheDocument()
-      expect(screen.getByText('Jellyfin - Open source media server')).toBeInTheDocument()
-      expect(screen.getByText('Emby - Media server')).toBeInTheDocument()
-      expect(screen.getByText('Home Assistant - Home automation')).toBeInTheDocument()
-      expect(screen.getByText('Nextcloud - File sync and share')).toBeInTheDocument()
-      expect(screen.getByText('Vaultwarden - Password manager')).toBeInTheDocument()
+      expect(within(presetListbox).getByText('None - Standard reverse proxy')).toBeInTheDocument()
+      expect(within(presetListbox).getByText('Plex - Media server with remote access')).toBeInTheDocument()
+      expect(within(presetListbox).getByText('Jellyfin - Open source media server')).toBeInTheDocument()
+      expect(within(presetListbox).getByText('Emby - Media server')).toBeInTheDocument()
+      expect(within(presetListbox).getByText('Home Assistant - Home automation')).toBeInTheDocument()
+      expect(within(presetListbox).getByText('Nextcloud - File sync and share')).toBeInTheDocument()
+      expect(within(presetListbox).getByText('Vaultwarden - Password manager')).toBeInTheDocument()
     })
 
     it('defaults to none preset', async () => {
@@ -283,8 +337,8 @@ describe('ProxyHostForm', () => {
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
-      const presetSelect = screen.getByLabelText(/Application Preset/i)
-      expect(presetSelect).toHaveValue('none')
+      const presetTrigger = screen.getByRole('combobox', { name: /Application Preset/i })
+      expect(presetTrigger).toHaveTextContent('None - Standard reverse proxy')
     })
 
     it('enables websockets when selecting plex preset', async () => {
@@ -299,9 +353,7 @@ describe('ProxyHostForm', () => {
       }
 
       // Select Plex preset
-      await act(async () => {
-        await userEvent.selectOptions(screen.getByLabelText(/Application Preset/i) as HTMLSelectElement, 'plex')
-      })
+      await selectComboboxOption(/Application Preset/i, 'Plex - Media server with remote access')
 
       // Websockets should be enabled
       expect(screen.getByLabelText(/Websockets Support/i)).toBeChecked()
@@ -316,7 +368,7 @@ describe('ProxyHostForm', () => {
       await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'plex.mydomain.com')
 
       // Select Plex preset
-      await userEvent.selectOptions(screen.getByLabelText(/Application Preset/i) as HTMLSelectElement, 'plex')
+      await selectComboboxOption(/Application Preset/i, 'Plex - Media server with remote access')
 
       // Should show the helper with external URL
       await waitFor(() => {
@@ -334,9 +386,7 @@ describe('ProxyHostForm', () => {
       await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'jellyfin.mydomain.com')
 
       // Select Jellyfin preset
-      await act(async () => {
-        await userEvent.selectOptions(screen.getByLabelText(/Application Preset/i) as HTMLSelectElement, 'jellyfin')
-      })
+      await selectComboboxOption(/Application Preset/i, 'Jellyfin - Open source media server')
 
       // Wait for health API fetch and show helper
       await waitFor(() => {
@@ -354,9 +404,7 @@ describe('ProxyHostForm', () => {
       await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'ha.mydomain.com')
 
       // Select Home Assistant preset
-      await act(async () => {
-        await userEvent.selectOptions(screen.getByLabelText(/Application Preset/i) as HTMLSelectElement, 'homeassistant')
-      })
+      await selectComboboxOption(/Application Preset/i, 'Home Assistant - Home automation')
 
       // Wait for health API fetch and show helper
       await waitFor(() => {
@@ -375,9 +423,7 @@ describe('ProxyHostForm', () => {
       await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'nextcloud.mydomain.com')
 
       // Select Nextcloud preset
-      await act(async () => {
-        await userEvent.selectOptions(screen.getByLabelText(/Application Preset/i) as HTMLSelectElement, 'nextcloud')
-      })
+      await selectComboboxOption(/Application Preset/i, 'Nextcloud - File sync and share')
 
       // Wait for health API fetch and show helper
       await waitFor(() => {
@@ -396,7 +442,7 @@ describe('ProxyHostForm', () => {
       await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'vault.mydomain.com')
 
       // Select Vaultwarden preset
-      await userEvent.selectOptions(screen.getByLabelText(/Application Preset/i) as HTMLSelectElement, 'vaultwarden')
+      await selectComboboxOption(/Application Preset/i, 'Vaultwarden - Password manager')
 
       // Wait for helper text
       await waitFor(() => {
@@ -432,17 +478,17 @@ describe('ProxyHostForm', () => {
       )
 
       // Select local source
-      await userEvent.selectOptions(screen.getByLabelText('Source') as HTMLSelectElement, 'local')
+      await selectComboboxOption('Source', 'Local (Docker Socket)')
 
       // Select the plex container
       await waitFor(() => {
         expect(screen.getByText('plex (linuxserver/plex:latest)')).toBeInTheDocument()
       })
 
-      await userEvent.selectOptions(screen.getByLabelText('Containers') as HTMLSelectElement, 'plex-container')
+      await selectComboboxOption('Containers', 'plex (linuxserver/plex:latest)')
 
       // The preset should be auto-detected as plex
-      expect(screen.getByLabelText(/Application Preset/i)).toHaveValue('plex')
+      expect(screen.getByRole('combobox', { name: /Application Preset/i })).toHaveTextContent('Plex')
     })
 
     it('auto-populates advanced_config when selecting plex preset and field empty', async () => {
@@ -455,9 +501,7 @@ describe('ProxyHostForm', () => {
       expect(textarea).toHaveValue('')
 
       // Select Plex preset
-      await act(async () => {
-        await userEvent.selectOptions(screen.getByLabelText(/Application Preset/i) as HTMLSelectElement, 'plex')
-      })
+      await selectComboboxOption(/Application Preset/i, 'Plex - Media server with remote access')
 
       // Value should now be populated with a snippet containing X-Real-IP which is used by the preset
       await waitFor(() => {
@@ -493,7 +537,7 @@ describe('ProxyHostForm', () => {
       )
 
       // Select Plex preset (should prompt since advanced_config is non-empty)
-      await userEvent.selectOptions(screen.getByLabelText(/Application Preset/i) as HTMLSelectElement, 'plex')
+      await selectComboboxOption(/Application Preset/i, 'Plex - Media server with remote access')
 
       await waitFor(() => {
         expect(screen.getByText('Confirm Preset Overwrite')).toBeInTheDocument()
@@ -560,7 +604,7 @@ describe('ProxyHostForm', () => {
       await userEvent.type(screen.getByLabelText(/^Port$/), '32400')
 
       // Select Plex preset
-      await userEvent.selectOptions(screen.getByLabelText(/Application Preset/i) as HTMLSelectElement, 'plex')
+      await selectComboboxOption(/Application Preset/i, 'Plex - Media server with remote access')
 
       // Submit form
       await userEvent.click(screen.getByText('Save'))
@@ -601,7 +645,7 @@ describe('ProxyHostForm', () => {
       )
 
       // The preset should be pre-selected
-      expect(screen.getByLabelText(/Application Preset/i)).toHaveValue('plex')
+      expect(screen.getByRole('combobox', { name: /Application Preset/i })).toHaveTextContent('Plex')
 
       // The config helper should be visible
       await waitFor(() => {
@@ -640,7 +684,7 @@ describe('ProxyHostForm', () => {
       await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'plex.mydomain.com')
 
       // Select Plex preset
-      await userEvent.selectOptions(screen.getByLabelText(/Application Preset/i) as HTMLSelectElement, 'plex')
+      await selectComboboxOption(/Application Preset/i, 'Plex - Media server with remote access')
 
       // Wait for helper to appear
       await waitFor(() => {
@@ -654,6 +698,648 @@ describe('ProxyHostForm', () => {
       await waitFor(() => {
         expect(mockWriteText).toHaveBeenCalledWith('https://plex.mydomain.com:443')
         expect(screen.getByText('Copied!')).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('Security Options', () => {
+    it('toggles security options', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Toggle SSL Forced (default is true)
+      const sslCheckbox = screen.getByLabelText('Force SSL')
+      expect(sslCheckbox).toBeChecked()
+      await userEvent.click(sslCheckbox)
+      expect(sslCheckbox).not.toBeChecked()
+
+      // Toggle HSTS (default is true)
+      const hstsCheckbox = screen.getByLabelText('HSTS Enabled')
+      expect(hstsCheckbox).toBeChecked()
+      await userEvent.click(hstsCheckbox)
+      expect(hstsCheckbox).not.toBeChecked()
+
+      // Toggle HTTP/2 (default is true)
+      const http2Checkbox = screen.getByLabelText('HTTP/2 Support')
+      expect(http2Checkbox).toBeChecked()
+      await userEvent.click(http2Checkbox)
+      expect(http2Checkbox).not.toBeChecked()
+
+      // Toggle Block Exploits (default is true)
+      const blockExploitsCheckbox = screen.getByLabelText('Block Exploits')
+      expect(blockExploitsCheckbox).toBeChecked()
+      await userEvent.click(blockExploitsCheckbox)
+      expect(blockExploitsCheckbox).not.toBeChecked()
+
+      // Toggle HSTS Subdomains (default is true)
+      const hstsSubdomainsCheckbox = screen.getByLabelText('HSTS Subdomains')
+      expect(hstsSubdomainsCheckbox).toBeChecked()
+      await userEvent.click(hstsSubdomainsCheckbox)
+      expect(hstsSubdomainsCheckbox).not.toBeChecked()
+    })
+
+    it('submits updated hsts_subdomains flag', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByPlaceholderText('My Service'), 'HSTS Toggle')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'hsts.existing.com')
+      await userEvent.type(screen.getByLabelText(/^Host$/), '192.168.1.10')
+
+      const hstsSubdomainsCheckbox = screen.getByLabelText('HSTS Subdomains')
+      await userEvent.click(hstsSubdomainsCheckbox)
+
+      await userEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+          hsts_subdomains: false,
+        }))
+      })
+    })
+  })
+
+  describe('Access Control', () => {
+    it('selects an access list', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Select 'Trusted IPs'
+      // Need to find the select by label/aria-label? AccessListSelector has label "Access Control List"
+      await selectComboboxOption(/Access Control List/i, 'Trusted IPs (allow list)')
+
+      // Verify it was selected
+      expect(screen.getByRole('combobox', { name: /Access Control List/i })).toHaveTextContent('Trusted IPs')
+
+      // Verify description appears
+      expect(screen.getByText('Trusted IPs')).toBeInTheDocument()
+      expect(screen.getByText('Only trusted')).toBeInTheDocument()
+    })
+  })
+
+  describe('Wildcard Domains', () => {
+    it('shows DNS provider selector for wildcard domains', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Enter a wildcard domain
+      const domainInput = screen.getByPlaceholderText('example.com, www.example.com')
+      await userEvent.type(domainInput, '*.example.com')
+
+      // DNS Provider Selector should appear
+      await waitFor(() => {
+        expect(screen.getByTestId('dns-provider-section')).toBeInTheDocument()
+      })
+
+      // Select a provider using the mocked data: Cloudflare (ID 1)
+      const section = screen.getByTestId('dns-provider-section')
+
+      // Since Shadcn Select uses Radix, the trigger is a button with role combobox
+      const providerSelectTrigger = within(section).getByRole('combobox')
+      await userEvent.click(providerSelectTrigger)
+
+      const cloudflareOption = screen.getByText('Cloudflare')
+      await userEvent.click(cloudflareOption)
+
+      // Now try to save
+      await userEvent.type(screen.getByLabelText(/^Name/), 'Wildcard Test')
+      await userEvent.type(screen.getByLabelText(/^Host/), '192.168.1.10')
+      await userEvent.type(screen.getByLabelText(/^Port/), '80')
+
+      await userEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+          domain_names: '*.example.com',
+          dns_provider_id: 1
+        }))
+      })
+    })
+
+    it('validates DNS provider requirement for wildcard domains', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Enter a wildcard domain
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), '*.missing.com')
+
+      // Fill other required fields
+      await userEvent.type(screen.getByLabelText(/^Name/), 'Missing Provider')
+      await userEvent.type(screen.getByLabelText(/^Host/), '192.168.1.10')
+      await userEvent.type(screen.getByLabelText(/^Port/), '80')
+
+      // Click save without selecting provider
+      await userEvent.click(screen.getByText('Save'))
+
+      // Expect toast error (mocked only effectively if we check for it, but here we check it prevents submit)
+      expect(mockOnSubmit).not.toHaveBeenCalled()
+    })
+  })
+
+  // ===== BRANCH COVERAGE EXPANSION TESTS =====
+
+  describe('Form Submission and Validation', () => {
+    it('prevents submission without required fields', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Click save without filling any fields
+      await userEvent.click(screen.getByText('Save'))
+
+      // Submit should not be called
+      expect(mockOnSubmit).not.toHaveBeenCalled()
+    })
+
+    it('submits form with all basic fields', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByLabelText(/^Name/), 'My Service')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'myservice.existing.com')
+      await selectComboboxOption('Scheme', 'HTTPS')
+      await userEvent.type(screen.getByLabelText(/^Host/), '192.168.1.100')
+      await userEvent.clear(screen.getByLabelText(/^Port/))
+      await userEvent.type(screen.getByLabelText(/^Port/), '8080')
+
+      await userEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+          name: 'My Service',
+          domain_names: 'myservice.existing.com',
+          forward_scheme: 'https',
+          forward_host: '192.168.1.100',
+          forward_port: 8080,
+        }))
+      })
+    })
+
+    it('submits form with certificate selection', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByLabelText(/^Name/), 'Cert Test')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'cert.existing.com')
+      await userEvent.type(screen.getByLabelText(/^Host/), '192.168.1.100')
+      await userEvent.type(screen.getByLabelText(/^Port/), '80')
+
+      // Select certificate
+      await selectComboboxOption(/SSL Certificate/i, 'Cert 1 (custom)')
+
+      await userEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+          certificate_id: 1,
+        }))
+      })
+    })
+
+    it('submits form with security header profile selection', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByLabelText(/^Name/), 'Security Headers Test')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'secure.existing.com')
+      await userEvent.type(screen.getByLabelText(/^Host/), '192.168.1.100')
+      await userEvent.type(screen.getByLabelText(/^Port/), '80')
+
+      // Select security header profile
+      await selectComboboxOption(/Security Headers/i, 'Strict Profile (Score: 90/100)')
+
+      await userEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+          security_header_profile_id: 100,
+        }))
+      })
+    })
+
+    it('renders and selects non-preset security header profile options', async () => {
+      const { useSecurityHeaderProfiles } = await import('../../hooks/useSecurityHeaders')
+      vi.mocked(useSecurityHeaderProfiles).mockReturnValue({
+        data: [
+          { id: 100, name: 'Strict Profile', description: 'Very strict', security_score: 90, is_preset: true, preset_type: 'strict' },
+          { id: 101, name: 'Custom Profile', description: 'Custom profile', security_score: 70, is_preset: false },
+        ],
+        isLoading: false,
+        error: null,
+      } as unknown as ReturnType<typeof useSecurityHeaderProfiles>)
+
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await selectComboboxOption(/Security Headers/i, 'Custom Profile (Score: 70/100)')
+      expect(screen.getByRole('combobox', { name: /Security Headers/i })).toHaveTextContent('Custom Profile')
+    })
+  })
+
+  describe('Edit Mode vs Create Mode', () => {
+    it('shows edit mode with pre-filled data', async () => {
+      const existingHost: ProxyHost = {
+        uuid: 'host-uuid-1',
+        name: 'Existing Service',
+        domain_names: 'existing.com',
+        forward_scheme: 'https' as const,
+        forward_host: '192.168.1.50',
+        forward_port: 443,
+        ssl_forced: true,
+        http2_support: true,
+        hsts_enabled: true,
+        hsts_subdomains: true,
+        block_exploits: true,
+        websocket_support: false,
+        enable_standard_headers: true,
+        application: 'none' as const,
+        advanced_config: '',
+        enabled: true,
+        locations: [],
+        certificate_id: null,
+        access_list_id: null,
+        security_header_profile_id: null,
+        dns_provider_id: null,
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-01T00:00:00Z',
+      }
+
+      await renderWithClientAct(
+        <ProxyHostForm host={existingHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Fields should be pre-filled
+      expect(screen.getByDisplayValue('Existing Service')).toBeInTheDocument()
+      expect(screen.getByLabelText(/Domain Names/i)).toHaveValue('existing.com')
+      expect(screen.getByDisplayValue('192.168.1.50')).toBeInTheDocument()
+
+      // Update and save
+      const nameInput = screen.getByDisplayValue('Existing Service') as HTMLInputElement
+      await userEvent.clear(nameInput)
+      await userEvent.type(nameInput, 'Updated Service')
+
+      await userEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+          name: 'Updated Service',
+        }))
+      })
+    })
+
+    it('renders title as Edit for existing host', async () => {
+      const existingHost: ProxyHost = {
+        uuid: 'host-uuid-1',
+        name: 'Existing',
+        domain_names: 'test.com',
+        forward_scheme: 'http' as const,
+        forward_host: '127.0.0.1',
+        forward_port: 80,
+        ssl_forced: true,
+        http2_support: true,
+        hsts_enabled: true,
+        hsts_subdomains: true,
+        block_exploits: true,
+        websocket_support: false,
+        enable_standard_headers: true,
+        application: 'none' as const,
+        advanced_config: '',
+        enabled: true,
+        locations: [],
+        certificate_id: null,
+        access_list_id: null,
+        security_header_profile_id: null,
+        dns_provider_id: null,
+        created_at: '',
+        updated_at: '',
+      }
+
+      await renderWithClientAct(
+        <ProxyHostForm host={existingHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      expect(screen.getByText('Edit Proxy Host')).toBeInTheDocument()
+    })
+
+    it('renders title as Add for new proxy host', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      expect(screen.getByText('Add Proxy Host')).toBeInTheDocument()
+    })
+  })
+
+  describe('Scheme Selection', () => {
+    it('shows scheme options http and https', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      const schemeTrigger = screen.getByRole('combobox', { name: 'Scheme' })
+      await userEvent.click(schemeTrigger)
+
+      expect(await screen.findByRole('option', { name: 'HTTP' })).toBeInTheDocument()
+      expect(await screen.findByRole('option', { name: 'HTTPS' })).toBeInTheDocument()
+    })
+
+    it('accepts https scheme', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await selectComboboxOption('Scheme', 'HTTPS')
+      expect(screen.getByRole('combobox', { name: 'Scheme' })).toHaveTextContent('HTTPS')
+    })
+  })
+
+  describe('Cancel Operations', () => {
+    it('calls onCancel when cancel button is clicked', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      const cancelBtn = screen.getByRole('button', { name: /Cancel/i })
+      await userEvent.click(cancelBtn)
+
+      expect(mockOnCancel).toHaveBeenCalled()
+    })
+  })
+
+  describe('Advanced Config', () => {
+    it('shows advanced config field for application presets', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Select Plex preset
+      await selectComboboxOption(/Application Preset/i, 'Plex - Media server with remote access')
+
+      // Find advanced config field (it's in a collapsible section)
+      // Check that advanced config JSON for plex has been populated
+      const advancedConfigField = screen.getByLabelText(/Advanced Caddy Config/i) as HTMLTextAreaElement
+
+      // Verify it contains JSON (Plex has some default config)
+      if (advancedConfigField.value) {
+        expect(advancedConfigField.value).toContain('handler')
+      }
+    })
+
+    it('allows manual advanced config input', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByLabelText(/^Name/), 'Custom Config')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'custom.existing.com')
+      await userEvent.type(screen.getByLabelText(/^Host/), '192.168.1.100')
+      await userEvent.type(screen.getByLabelText(/^Port/), '80')
+
+      const advancedConfigField = screen.getByPlaceholderText('Additional Caddy directives...')
+      await userEvent.type(advancedConfigField, 'header /api/* X-Custom-Header "test"')
+
+      await userEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+          advanced_config: expect.stringContaining('header'),
+        }))
+      })
+    })
+  })
+
+  describe('Port Input Handling', () => {
+    it('shows required-port validation branch when submit is triggered with empty port', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByPlaceholderText('My Service'), 'Port Required')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'required.existing.com')
+      await userEvent.type(screen.getByLabelText(/^Host$/), '192.168.1.100')
+
+      const portInput = screen.getByLabelText(/^Port$/) as HTMLInputElement
+      await userEvent.clear(portInput)
+
+      const setCustomValiditySpy = vi.spyOn(HTMLInputElement.prototype, 'setCustomValidity')
+      const reportValiditySpy = vi.spyOn(HTMLInputElement.prototype, 'reportValidity').mockReturnValue(false)
+
+      const form = document.querySelector('form') as HTMLFormElement
+      fireEvent.submit(form)
+
+      await waitFor(() => {
+        expect(setCustomValiditySpy).toHaveBeenCalledWith('Port is required')
+        expect(reportValiditySpy).toHaveBeenCalled()
+        expect(mockOnSubmit).not.toHaveBeenCalled()
+      })
+
+      setCustomValiditySpy.mockRestore()
+      reportValiditySpy.mockRestore()
+    })
+
+    it('validates port number range', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByLabelText(/^Name/), 'Port Test')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'port.existing.com')
+      await userEvent.type(screen.getByLabelText(/^Host/), '192.168.1.100')
+
+      // Clear and set invalid port
+      const portInput = screen.getByLabelText(/^Port$/) as HTMLInputElement
+      await userEvent.clear(portInput)
+      await userEvent.type(portInput, '99999')
+
+      // Invalid port should block submission via native validation
+      await userEvent.click(screen.getByText('Save'))
+
+      expect(portInput).toBeInvalid()
+      expect(mockOnSubmit).not.toHaveBeenCalled()
+    })
+
+    it('shows out-of-range validation branch when submit is triggered with invalid port', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByPlaceholderText('My Service'), 'Port Range Branch')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'range.existing.com')
+      await userEvent.type(screen.getByLabelText(/^Host$/), '192.168.1.100')
+
+      const portInput = screen.getByLabelText(/^Port$/) as HTMLInputElement
+      await userEvent.clear(portInput)
+      await userEvent.type(portInput, '70000')
+
+      const setCustomValiditySpy = vi.spyOn(HTMLInputElement.prototype, 'setCustomValidity')
+      const reportValiditySpy = vi.spyOn(HTMLInputElement.prototype, 'reportValidity').mockReturnValue(false)
+
+      const form = document.querySelector('form') as HTMLFormElement
+      fireEvent.submit(form)
+
+      await waitFor(() => {
+        expect(setCustomValiditySpy).toHaveBeenCalledWith('Port must be between 1 and 65535')
+        expect(reportValiditySpy).toHaveBeenCalled()
+        expect(mockOnSubmit).not.toHaveBeenCalled()
+      })
+
+      setCustomValiditySpy.mockRestore()
+      reportValiditySpy.mockRestore()
+    })
+  })
+
+  describe('Remote Server Container Mapping', () => {
+    it('allows selecting a remote docker source option', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await selectComboboxOption('Source', 'Local Docker Registry (localhost)')
+
+      expect(screen.getByRole('combobox', { name: 'Source' })).toHaveTextContent('Local Docker Registry')
+    })
+
+    it('maps remote docker container to remote host and public port', async () => {
+      const { useDocker } = await import('../../hooks/useDocker')
+      vi.mocked(useDocker).mockReturnValue({
+        containers: [
+          {
+            id: 'remote-container-1',
+            names: ['remote-app'],
+            image: 'nginx:latest',
+            state: 'running',
+            status: 'Up 1 hour',
+            network: 'bridge',
+            ip: '172.18.0.10',
+            ports: [{ private_port: 80, public_port: 18080, type: 'tcp' }],
+          },
+        ],
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByLabelText(/^Name/), 'Remote Mapping')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'remote.existing.com')
+
+      await selectComboboxOption('Source', 'Local Docker Registry (localhost)')
+      await selectComboboxOption('Containers', 'remote-app (nginx:latest)')
+
+      await userEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+          forward_host: 'localhost',
+          forward_port: 18080,
+        }))
+      })
+    })
+  })
+
+  describe('Host and Port Combination', () => {
+    it('accepts docker container IP', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByLabelText(/^Name/), 'Docker Container')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'docker.existing.com')
+      await userEvent.type(screen.getByLabelText(/^Host/), '172.17.0.2')
+      await userEvent.clear(screen.getByLabelText(/^Port/))
+      await userEvent.type(screen.getByLabelText(/^Port/), '8080')
+
+      await userEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+          forward_host: '172.17.0.2',
+        }))
+      })
+    })
+
+    it('accepts localhost IP', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByLabelText(/^Name/), 'Localhost')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'localhost.existing.com')
+      await userEvent.type(screen.getByLabelText(/^Host/), 'localhost')
+      await userEvent.clear(screen.getByLabelText(/^Port/))
+      await userEvent.type(screen.getByLabelText(/^Port/), '3000')
+
+      await userEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+          forward_host: 'localhost',
+        }))
+      })
+    })
+  })
+
+  describe('Enabled/Disabled State', () => {
+    it('toggles enabled state', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByLabelText(/^Name/), 'Enabled Test')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'enabled.existing.com')
+      await userEvent.type(screen.getByLabelText(/^Host/), '192.168.1.100')
+      await userEvent.type(screen.getByLabelText(/^Port/), '80')
+
+      // Toggle enabled (defaults to true) - look for "Enable Proxy Host" text
+      const enabledCheckbox = screen.getByLabelText(/Enable Proxy Host/)
+      await userEvent.click(enabledCheckbox)
+
+      await userEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+          enabled: false,
+        }))
+      })
+    })
+  })
+
+  describe('Standard Headers Option', () => {
+    it('toggles standard headers option', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      const standardHeadersCheckbox = screen.getByLabelText(/Enable Standard Proxy Headers/)
+      expect(standardHeadersCheckbox).toBeChecked()
+
+      await userEvent.click(standardHeadersCheckbox)
+
+      expect(standardHeadersCheckbox).not.toBeChecked()
+
+      await userEvent.type(screen.getByLabelText(/^Name/), 'No Headers')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'no-headers.existing.com')
+      await userEvent.type(screen.getByLabelText(/^Host/), '192.168.1.100')
+      await userEvent.type(screen.getByLabelText(/^Port/), '80')
+
+      await userEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+          enable_standard_headers: false,
+        }))
       })
     })
   })

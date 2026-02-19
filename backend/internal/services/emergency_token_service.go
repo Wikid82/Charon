@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -126,7 +127,7 @@ func (s *EmergencyTokenService) Generate(req GenerateRequest) (*GenerateResponse
 	}
 
 	logger.Log().WithFields(map[string]interface{}{
-		"policy":     policy,
+		"policy":     util.SanitizeForLog(policy),
 		"expires_at": expiresAt,
 		"user_id":    req.UserID,
 	}).Info("Emergency token generated")
@@ -147,34 +148,42 @@ func (s *EmergencyTokenService) Validate(token string) (*models.EmergencyToken, 
 		return nil, fmt.Errorf("token is empty")
 	}
 
+	envToken := os.Getenv(EmergencyTokenEnvVar)
+	hasValidEnvToken := envToken != "" && len(strings.TrimSpace(envToken)) >= MinTokenLength
+
 	// Try database token first (highest priority)
 	var tokenRecord models.EmergencyToken
 	err := s.db.First(&tokenRecord).Error
 	if err == nil {
 		// Found database token - validate hash
 		tokenHash := sha256.Sum256([]byte(token))
-		if bcrypt.CompareHashAndPassword([]byte(tokenRecord.TokenHash), tokenHash[:]) != nil {
-			return nil, fmt.Errorf("invalid token")
+		if bcrypt.CompareHashAndPassword([]byte(tokenRecord.TokenHash), tokenHash[:]) == nil {
+			// Check expiration
+			if tokenRecord.IsExpired() {
+				return nil, fmt.Errorf("token expired")
+			}
+
+			// Update last used timestamp and use count
+			now := time.Now()
+			tokenRecord.LastUsedAt = &now
+			tokenRecord.UseCount++
+			if err := s.db.Save(&tokenRecord).Error; err != nil {
+				logger.Log().WithError(err).Warn("Failed to update token usage statistics")
+			}
+
+			return &tokenRecord, nil
 		}
 
-		// Check expiration
-		if tokenRecord.IsExpired() {
-			return nil, fmt.Errorf("token expired")
+		// If DB token doesn't match, allow explicit environment token as break-glass fallback.
+		if hasValidEnvToken && envToken == token {
+			logger.Log().Debug("Emergency token validated from environment variable while database token exists")
+			return nil, nil
 		}
 
-		// Update last used timestamp and use count
-		now := time.Now()
-		tokenRecord.LastUsedAt = &now
-		tokenRecord.UseCount++
-		if err := s.db.Save(&tokenRecord).Error; err != nil {
-			logger.Log().WithError(err).Warn("Failed to update token usage statistics")
-		}
-
-		return &tokenRecord, nil
+		return nil, fmt.Errorf("invalid token")
 	}
 
 	// Fallback to environment variable for backward compatibility
-	envToken := os.Getenv(EmergencyTokenEnvVar)
 	if envToken == "" || len(strings.TrimSpace(envToken)) == 0 {
 		return nil, fmt.Errorf("no token configured")
 	}
@@ -293,7 +302,7 @@ func (s *EmergencyTokenService) UpdateExpiration(expirationDays int) (*time.Time
 	}
 
 	logger.Log().WithFields(map[string]interface{}{
-		"policy":     policy,
+		"policy":     util.SanitizeForLog(policy),
 		"expires_at": expiresAt,
 	}).Info("Emergency token expiration updated")
 

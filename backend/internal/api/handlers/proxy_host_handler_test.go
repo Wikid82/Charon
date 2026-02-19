@@ -2026,13 +2026,13 @@ func TestProxyHostUpdate_NegativeIntCertificateID(t *testing.T) {
 	}
 	require.NoError(t, db.Create(host).Error)
 
-	// certificate_id with negative value - will be silently ignored by switch default
+	// certificate_id with negative value should be rejected
 	updateBody := `{"certificate_id": -1}`
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, strings.NewReader(updateBody))
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
-	require.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
 
 	// Certificate should remain nil
 	var dbHost models.ProxyHost

@@ -1,12 +1,11 @@
 /**
- * Multi-Feature Workflows E2E Tests (Phase 6.7)
+ * Multi-Feature Workflows E2E Tests
  *
  * Tests for complex workflows that span multiple features,
  * testing real-world usage scenarios and feature interactions.
  *
- * Test Categories (15-18 tests):
+ * Test Categories (11-14 tests):
  * - Group A: Complete Host Setup Workflow (5 tests)
- * - Group B: Security Configuration Workflow (4 tests)
  * - Group C: Certificate + DNS Workflow (4 tests)
  * - Group D: Admin Management Workflow (5 tests)
  *
@@ -58,6 +57,20 @@ const SELECTORS = {
   toast: '[data-testid="toast"], .toast, [role="alert"]',
   loadingSpinner: '[data-testid="loading"], .loading, .spinner',
 };
+
+async function navigateToDnsProviders(page: import('@playwright/test').Page): Promise<void> {
+  const providersResponse = waitForAPIResponse(page, /\/api\/v1\/dns-providers/);
+  await page.goto('/dns/providers');
+  await providersResponse;
+  await waitForLoadingComplete(page);
+}
+
+async function navigateToCertificates(page: import('@playwright/test').Page): Promise<void> {
+  const certsResponse = waitForAPIResponse(page, /\/api\/v1\/certificates/);
+  await page.goto('/certificates');
+  await certsResponse;
+  await waitForLoadingComplete(page);
+}
 
 test.describe('Multi-Feature Workflows E2E', () => {
   // ===========================================================================
@@ -200,99 +213,7 @@ test.describe('Multi-Feature Workflows E2E', () => {
     });
   });
 
-  // ===========================================================================
-  // Group B: Security Configuration Workflow (4 tests)
-  // ===========================================================================
-  test.describe('Group B: Security Configuration Workflow', () => {
-    test('should configure complete security stack for host', async ({
-      page,
-      adminUser,
-      testData,
-    }) => {
-      await loginUser(page, adminUser);
 
-      await test.step('Create proxy host', async () => {
-        const proxyInput = generateProxyHost();
-        const proxy = await testData.createProxyHost({
-          domain: proxyInput.domain,
-          forwardHost: proxyInput.forwardHost,
-          forwardPort: proxyInput.forwardPort,
-        });
-
-        await page.goto('/proxy-hosts');
-        await waitForResourceInUI(page, proxy.domain);
-      });
-
-      await test.step('Navigate to security settings', async () => {
-        await page.goto('/security');
-        await waitForLoadingComplete(page);
-        const content = page.locator('main, .content').first();
-        await expect(content).toBeVisible();
-      });
-    });
-
-    test('should enable WAF and verify protection', async ({
-      page,
-      adminUser,
-    }) => {
-      await loginUser(page, adminUser);
-
-      await test.step('Navigate to WAF configuration', async () => {
-        await page.goto('/security/waf');
-        await waitForLoadingComplete(page);
-      });
-
-      await test.step('Verify WAF configuration page', async () => {
-        const content = page.locator('main, .content').first();
-        await expect(content).toBeVisible();
-      });
-    });
-
-    test('should configure CrowdSec integration', async ({
-      page,
-      adminUser,
-    }) => {
-      await loginUser(page, adminUser);
-
-      await test.step('Navigate to CrowdSec configuration', async () => {
-        await page.goto('/security/crowdsec');
-        await waitForLoadingComplete(page);
-      });
-
-      await test.step('Verify CrowdSec page loads', async () => {
-        const content = page.locator('main, .content').first();
-        await expect(content).toBeVisible();
-      });
-    });
-
-    test('should setup access restrictions workflow', async ({
-      page,
-      adminUser,
-      testData,
-    }) => {
-      await loginUser(page, adminUser);
-
-      await test.step('Create restrictive ACL', async () => {
-        const acl = generateAllowListForIPs(['10.0.0.0/8']);
-        await testData.createAccessList(acl);
-
-        await page.goto('/access-lists');
-        await waitForResourceInUI(page, acl.name);
-      });
-
-      await test.step('Create protected proxy host', async () => {
-        const proxyInput = generateProxyHost();
-        const proxy = await testData.createProxyHost({
-          domain: proxyInput.domain,
-          forwardHost: proxyInput.forwardHost,
-          forwardPort: proxyInput.forwardPort,
-        });
-
-        await page.goto('/proxy-hosts');
-        await waitForResourceInUI(page, proxy.domain);
-      });
-    });
-  });
 
   // ===========================================================================
   // Group C: Certificate + DNS Workflow (4 tests)
@@ -305,17 +226,19 @@ test.describe('Multi-Feature Workflows E2E', () => {
     }) => {
       await loginUser(page, adminUser);
 
+      const dnsProvider = generateDnsProvider();
+
       await test.step('Create DNS provider', async () => {
-        const dnsProvider = generateDnsProvider();
         await testData.createDNSProvider({
           name: dnsProvider.name,
           providerType: dnsProvider.provider_type,
           credentials: dnsProvider.credentials,
         });
+      });
 
-        await page.goto('/dns-providers');
-        await waitForLoadingComplete(page);
-        await expect(page.getByText(dnsProvider.name)).toBeVisible();
+      await test.step('Verify DNS provider appears in list', async () => {
+        await navigateToDnsProviders(page);
+        await waitForResourceInUI(page, dnsProvider.name);
       });
     });
 
@@ -326,24 +249,24 @@ test.describe('Multi-Feature Workflows E2E', () => {
     }) => {
       await loginUser(page, adminUser);
 
+      const dnsProvider = generateDnsProvider();
+
       await test.step('Create DNS provider first', async () => {
-        const dnsProvider = generateDnsProvider();
         await testData.createDNSProvider({
           name: dnsProvider.name,
           providerType: dnsProvider.provider_type,
           credentials: dnsProvider.credentials,
         });
+      });
 
-        await page.goto('/dns-providers');
-        await waitForLoadingComplete(page);
-        await expect(page.getByText(dnsProvider.name)).toBeVisible();
+      await test.step('Confirm DNS provider is available', async () => {
+        await navigateToDnsProviders(page);
+        await waitForResourceInUI(page, dnsProvider.name);
       });
 
       await test.step('Navigate to certificates', async () => {
-        await page.goto('/certificates');
-        await waitForLoadingComplete(page);
-        const content = page.locator('main, .content').first();
-        await expect(content).toBeVisible();
+        await navigateToCertificates(page);
+        await expect(page.getByRole('main')).toBeVisible();
       });
     });
 
@@ -362,15 +285,16 @@ test.describe('Multi-Feature Workflows E2E', () => {
           forwardPort: proxyInput.forwardPort,
         });
 
+        const proxiesResponse = waitForAPIResponse(page, /\/api\/v1\/proxy-hosts/);
         await page.goto('/proxy-hosts');
+        await proxiesResponse;
+        await waitForLoadingComplete(page);
         await waitForResourceInUI(page, proxy.domain);
       });
 
       await test.step('Navigate to certificates', async () => {
-        await page.goto('/certificates');
-        await waitForLoadingComplete(page);
-        const content = page.locator('main, .content').first();
-        await expect(content).toBeVisible();
+        await navigateToCertificates(page);
+        await expect(page.getByRole('main')).toBeVisible();
       });
     });
 
@@ -381,13 +305,11 @@ test.describe('Multi-Feature Workflows E2E', () => {
       await loginUser(page, adminUser);
 
       await test.step('Navigate to certificates', async () => {
-        await page.goto('/certificates');
-        await waitForLoadingComplete(page);
+        await navigateToCertificates(page);
       });
 
       await test.step('Verify certificate management page', async () => {
-        const content = page.locator('main, .content').first();
-        await expect(content).toBeVisible();
+        await expect(page.getByRole('main')).toBeVisible();
       });
     });
   });

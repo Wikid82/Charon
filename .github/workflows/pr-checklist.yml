@@ -1,11 +1,15 @@
 name: PR Checklist Validation (History Rewrite)
 
 on:
-  pull_request:
-    types: [opened, edited, synchronize]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to validate'
+        required: true
+        type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ inputs.pr_number || github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -18,11 +22,17 @@ jobs:
 
       - name: Validate PR checklist (only for history-rewrite changes)
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
         with:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const prNumber = context.issue.number;
+            const prNumber = Number(process.env.PR_NUMBER || context.issue.number);
+            if (!prNumber) {
+              core.setFailed('Missing PR number input for workflow_dispatch.');
+              return;
+            }
             const pr = await github.rest.pulls.get({owner, repo, pull_number: prNumber});
             const body = (pr.data && pr.data.body) || '';
 

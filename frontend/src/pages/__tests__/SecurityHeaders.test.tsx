@@ -4,7 +4,11 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import SecurityHeaders from '../../pages/SecurityHeaders';
-import { securityHeadersApi, SecurityHeaderProfile } from '../../api/securityHeaders';
+import {
+  securityHeadersApi,
+  SecurityHeaderProfile,
+  type ScoreBreakdown,
+} from '../../api/securityHeaders';
 import { createBackup } from '../../api/backups';
 
 vi.mock('../../api/securityHeaders');
@@ -25,6 +29,48 @@ const createWrapper = () => {
     </QueryClientProvider>
   );
 };
+
+const createProfile = (
+  overrides: Partial<SecurityHeaderProfile> = {}
+): SecurityHeaderProfile => ({
+  id: 1,
+  uuid: 'profile-uuid-1',
+  name: 'Profile',
+  hsts_enabled: false,
+  hsts_max_age: 0,
+  hsts_include_subdomains: false,
+  hsts_preload: false,
+  csp_enabled: false,
+  csp_directives: '',
+  csp_report_only: false,
+  csp_report_uri: '',
+  x_frame_options: '',
+  x_content_type_options: false,
+  referrer_policy: '',
+  permissions_policy: '',
+  cross_origin_opener_policy: '',
+  cross_origin_resource_policy: '',
+  cross_origin_embedder_policy: '',
+  xss_protection: false,
+  cache_control_no_store: false,
+  security_score: 0,
+  is_preset: false,
+  preset_type: '',
+  description: '',
+  created_at: '2025-12-18T00:00:00Z',
+  updated_at: '2025-12-18T00:00:00Z',
+  ...overrides,
+});
+
+const createScoreBreakdown = (
+  overrides: Partial<ScoreBreakdown> = {}
+): ScoreBreakdown => ({
+  score: 50,
+  max_score: 100,
+  breakdown: {},
+  suggestions: [],
+  ...overrides,
+});
 
 describe('SecurityHeaders', () => {
   beforeEach(() => {
@@ -673,5 +719,216 @@ describe('SecurityHeaders', () => {
 
     const createButtons = screen.getAllByRole('button', { name: /Create Profile/i });
     expect(createButtons.length).toBeGreaterThan(0);
+  });
+
+  it('should close create dialog on success', async () => {
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue([]);
+    vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
+    vi.mocked(securityHeadersApi.createProfile).mockResolvedValue(
+      createProfile({
+        id: 1,
+        name: 'New Profile',
+        security_score: 50,
+        created_at: '',
+        updated_at: '',
+      })
+    );
+
+    render(<SecurityHeaders />, { wrapper: createWrapper() });
+
+    const openBtn = screen.getAllByRole('button', { name: /Create Profile/i })[0];
+    fireEvent.click(openBtn);
+
+    await waitFor(() => screen.getByText(/Create Security Header Profile/i));
+
+    // Fill required fields to enable submit
+    const nameInput = screen.getByPlaceholderText(/e.g., Production Security Headers/i);
+    fireEvent.change(nameInput, { target: { value: 'New Profile' } });
+
+    // Find submit button in dialog (it might have 'Create Profile' text or just 'Create')
+    // Looking at SecurityHeaderProfileForm, it likely has a submit button.
+    // We can assume it's the one with type="submit" or appropriate text.
+    // Let's search for "Create Profile" button inside the dialog or just "Create".
+    const submitBtn = screen.getByRole('button', { name: /Save Profile/i });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+  });
+
+  it('should close edit dialog on success', async () => {
+    const mockProfiles = [
+      createProfile({
+        id: 1,
+        name: 'Edit Me',
+        is_preset: false,
+        security_score: 50,
+        updated_at: '2023-01-01',
+      }),
+    ];
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles);
+    vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
+    vi.mocked(securityHeadersApi.calculateScore).mockResolvedValue(createScoreBreakdown());
+    vi.mocked(securityHeadersApi.updateProfile).mockResolvedValue(mockProfiles[0]);
+
+    render(<SecurityHeaders />, { wrapper: createWrapper() });
+
+    await waitFor(() => screen.getByText('Edit Me'));
+    fireEvent.click(screen.getByRole('button', { name: /Edit/i }));
+
+    await waitFor(() => screen.getByText(/Edit Security Header Profile/i));
+
+    const submitButton = screen.getByRole('button', { name: /Save Profile/i });
+    fireEvent.click(submitButton);
+
+    await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+  });
+
+  it('should handle delete failure', async () => {
+    const mockProfiles = [
+      createProfile({
+        id: 1,
+        name: 'Delete Me',
+        is_preset: false,
+        security_score: 50,
+        updated_at: '2023-01-01',
+      }),
+    ];
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles);
+    vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
+    vi.mocked(createBackup).mockResolvedValue({ filename: 'test-backup.tar.gz' });
+    vi.mocked(securityHeadersApi.deleteProfile).mockRejectedValue(new Error('Delete failed'));
+
+    render(<SecurityHeaders />, { wrapper: createWrapper() });
+
+    await waitFor(() => screen.getByText('Delete Me'));
+
+    const buttons = screen.getAllByRole('button');
+    const deleteButton = buttons.find(btn => btn.querySelector('.lucide-trash-2, .lucide-trash'));
+    fireEvent.click(deleteButton!);
+
+    await waitFor(() => screen.getByText(/Confirm Deletion/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+        expect(createBackup).toHaveBeenCalled();
+        expect(securityHeadersApi.deleteProfile).toHaveBeenCalled();
+    });
+  });
+
+  it('should handle backup failure during delete', async () => {
+    const mockProfiles = [
+      createProfile({
+        id: 1,
+        name: 'Delete Me',
+        is_preset: false,
+        security_score: 50,
+        updated_at: '2023-01-01',
+      }),
+    ];
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles);
+    vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
+    vi.mocked(createBackup).mockRejectedValue(new Error('Backup failed'));
+
+    render(<SecurityHeaders />, { wrapper: createWrapper() });
+
+    await waitFor(() => screen.getByText('Delete Me'));
+
+    const buttons = screen.getAllByRole('button');
+    const deleteButton = buttons.find(btn => btn.querySelector('.lucide-trash-2, .lucide-trash'));
+    fireEvent.click(deleteButton!);
+
+    await waitFor(() => screen.getByText(/Confirm Deletion/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+        expect(createBackup).toHaveBeenCalled();
+        expect(securityHeadersApi.deleteProfile).not.toHaveBeenCalled();
+    });
+  });
+
+  it('should handle unknown preset types', async () => {
+    const mockProfiles = [
+      createProfile({
+        id: 1,
+        name: 'Weird Preset',
+        is_preset: true,
+        preset_type: 'unknown_type',
+        security_score: 50,
+        updated_at: '2023-01-01',
+      }),
+    ];
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles);
+    vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
+
+    render(<SecurityHeaders />, { wrapper: createWrapper() });
+
+    await waitFor(() => screen.getByText('Weird Preset'));
+    // Just ensuring render doesn't crash
+  });
+
+  it('should handle cancel in edit dialog', async () => {
+    const mockProfiles = [
+      createProfile({
+        id: 1,
+        name: 'Edit Me',
+        is_preset: false,
+        security_score: 50,
+        updated_at: '2023-01-01',
+      }),
+    ];
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles);
+    vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
+    vi.mocked(securityHeadersApi.calculateScore).mockResolvedValue(
+      createScoreBreakdown({ score: 50, max_score: 50 })
+    );
+
+    render(<SecurityHeaders />, { wrapper: createWrapper() });
+
+    await waitFor(() => screen.getByText('Edit Me'));
+    fireEvent.click(screen.getByRole('button', { name: /Edit/i }));
+
+    await waitFor(() => screen.getByText(/Edit Security Header Profile/i));
+
+    const cancelButton = screen.getByRole('button', { name: /Cancel/i });
+    fireEvent.click(cancelButton);
+
+    await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+  });
+
+  it('should handle delete from edit dialog', async () => {
+    const mockProfiles = [
+      createProfile({
+        id: 1,
+        name: 'Delete Me from Edit',
+        is_preset: false,
+        security_score: 50,
+        updated_at: '2023-01-01',
+      }),
+    ];
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles);
+    vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
+    vi.mocked(securityHeadersApi.calculateScore).mockResolvedValue(
+      createScoreBreakdown({ score: 50, max_score: 50 })
+    );
+
+    render(<SecurityHeaders />, { wrapper: createWrapper() });
+
+    await waitFor(() => screen.getByText('Delete Me from Edit'));
+    fireEvent.click(screen.getByRole('button', { name: /Edit/i }));
+
+    await waitFor(() => screen.getByText(/Edit Security Header Profile/i));
+
+    const deleteButton = screen.getByRole('button', { name: /Delete Profile/i });
+    expect(deleteButton).toBeInTheDocument();
+
+    fireEvent.click(deleteButton);
+
+    await waitFor(() => screen.getByText(/Confirm Deletion/i));
   });
 });

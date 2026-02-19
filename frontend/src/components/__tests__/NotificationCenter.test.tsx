@@ -87,11 +87,12 @@ describe('NotificationCenter', () => {
   })
 
   it('opens notification panel on click', async () => {
+    const user = userEvent.setup()
     vi.mocked(api.getNotifications).mockResolvedValue(mockNotifications)
     render(<NotificationCenter />, { wrapper: createWrapper() })
 
     const bellButton = screen.getByRole('button', { name: /notifications/i })
-    await userEvent.click(bellButton)
+    await user.click(bellButton)
 
     await waitFor(() => {
       expect(screen.getByText('Notifications')).toBeInTheDocument()
@@ -103,11 +104,12 @@ describe('NotificationCenter', () => {
   })
 
   it('displays empty state when no notifications', async () => {
+    const user = userEvent.setup()
     vi.mocked(api.getNotifications).mockResolvedValue([])
     render(<NotificationCenter />, { wrapper: createWrapper() })
 
     const bellButton = screen.getByRole('button', { name: /notifications/i })
-    await userEvent.click(bellButton)
+    await user.click(bellButton)
 
     await waitFor(() => {
       expect(screen.getByText('No new notifications')).toBeInTheDocument()
@@ -115,19 +117,20 @@ describe('NotificationCenter', () => {
   })
 
   it('marks single notification as read', async () => {
+    const user = userEvent.setup()
     vi.mocked(api.getNotifications).mockResolvedValue(mockNotifications)
     vi.mocked(api.markNotificationRead).mockResolvedValue()
 
     render(<NotificationCenter />, { wrapper: createWrapper() })
 
-    await userEvent.click(screen.getByRole('button', { name: /notifications/i }))
+    await user.click(screen.getByRole('button', { name: /notifications/i }))
 
     await waitFor(() => {
       expect(screen.getByText('Info Notification')).toBeInTheDocument()
     })
 
     const closeButtons = screen.getAllByRole('button', { name: /close/i })
-    await userEvent.click(closeButtons[0])
+    await user.click(closeButtons[0])
 
     await waitFor(() => {
       expect(api.markNotificationRead).toHaveBeenCalledWith('1', expect.anything())
@@ -135,18 +138,19 @@ describe('NotificationCenter', () => {
   })
 
   it('marks all notifications as read', async () => {
+    const user = userEvent.setup()
     vi.mocked(api.getNotifications).mockResolvedValue(mockNotifications)
     vi.mocked(api.markAllNotificationsRead).mockResolvedValue()
 
     render(<NotificationCenter />, { wrapper: createWrapper() })
 
-    await userEvent.click(screen.getByRole('button', { name: /notifications/i }))
+    await user.click(screen.getByRole('button', { name: /notifications/i }))
 
     await waitFor(() => {
       expect(screen.getByText('Mark all read')).toBeInTheDocument()
     })
 
-    await userEvent.click(screen.getByText('Mark all read'))
+    await user.click(screen.getByText('Mark all read'))
 
     await waitFor(() => {
       expect(api.markAllNotificationsRead).toHaveBeenCalled()
@@ -154,16 +158,17 @@ describe('NotificationCenter', () => {
   })
 
   it('closes panel when clicking outside', async () => {
+    const user = userEvent.setup()
     vi.mocked(api.getNotifications).mockResolvedValue(mockNotifications)
     render(<NotificationCenter />, { wrapper: createWrapper() })
 
-    await userEvent.click(screen.getByRole('button', { name: /notifications/i }))
+    await user.click(screen.getByRole('button', { name: /notifications/i }))
 
     await waitFor(() => {
       expect(screen.getByText('Notifications')).toBeInTheDocument()
     })
 
-    await userEvent.click(screen.getByTestId('notification-backdrop'))
+    await user.click(screen.getByTestId('notification-backdrop'))
 
     await waitFor(() => {
       expect(screen.queryByText('Notifications')).not.toBeInTheDocument()

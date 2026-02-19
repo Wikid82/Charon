@@ -491,8 +491,8 @@ func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) 
 			dialer := net.Dialer{Timeout: s.config.TCPTimeout}
 			conn, err := dialer.DialContext(ctx, "tcp", addr)
 			if err == nil {
-				if err := conn.Close(); err != nil {
-					logger.Log().WithError(err).Warn("failed to close tcp connection")
+				if closeErr := conn.Close(); closeErr != nil {
+					logger.Log().WithError(closeErr).Warn("failed to close tcp connection")
 				}
 				success = true
 				msg = fmt.Sprintf("TCP connection to %s successful (retry %d)", addr, retry)
@@ -723,8 +723,8 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 		resp, err := client.Do(req)
 		if err == nil {
 			defer func() {
-				if err := resp.Body.Close(); err != nil {
-					logger.Log().WithError(err).Warn("failed to close uptime service response body")
+				if closeErr := resp.Body.Close(); closeErr != nil {
+					logger.Log().WithError(closeErr).Warn("failed to close uptime service response body")
 				}
 			}()
 			// Accept 2xx, 3xx, and 401/403 (Unauthorized/Forbidden often means the service is up but protected)
@@ -740,8 +740,8 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 	case "tcp":
 		conn, err := net.DialTimeout("tcp", monitor.URL, 10*time.Second)
 		if err == nil {
-			if err := conn.Close(); err != nil {
-				logger.Log().WithError(err).Warn("failed to close tcp connection")
+			if closeErr := conn.Close(); closeErr != nil {
+				logger.Log().WithError(closeErr).Warn("failed to close tcp connection")
 			}
 			success = true
 			msg = "Connection successful"
@@ -1089,8 +1089,8 @@ func (s *UptimeService) CreateMonitor(name, urlStr, monitorType string, interval
 
 	logger.Log().WithFields(map[string]any{
 		"monitor_id":   monitor.ID,
-		"monitor_name": monitor.Name,
-		"monitor_type": monitor.Type,
+		"monitor_name": util.SanitizeForLog(monitor.Name),
+		"monitor_type": util.SanitizeForLog(monitor.Type),
 	}).Info("Created new uptime monitor")
 
 	return monitor, nil

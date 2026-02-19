@@ -137,11 +137,11 @@ func (i *Importer) NormalizeCaddyfile(content string) (string, error) {
 	// Note: These OS-level temp file error paths (WriteString/Close failures)
 	// require disk fault injection to test and are impractical to cover in unit tests.
 	// They are defensive error handling for rare I/O failures.
-	if _, err := tmpFile.WriteString(content); err != nil {
-		return "", fmt.Errorf("failed to write temp file: %w", err)
+	if _, writeErr := tmpFile.WriteString(content); writeErr != nil {
+		return "", fmt.Errorf("failed to write temp file: %w", writeErr)
 	}
-	if err := tmpFile.Close(); err != nil {
-		return "", fmt.Errorf("failed to close temp file: %w", err)
+	if closeErr := tmpFile.Close(); closeErr != nil {
+		return "", fmt.Errorf("failed to close temp file: %w", closeErr)
 	}
 
 	// Run: caddy fmt --overwrite <tempfile>

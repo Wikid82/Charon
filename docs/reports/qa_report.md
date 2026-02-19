@@ -1,303 +1,170 @@
-# QA Report: E2E Workflow Sharding Changes
+# QA/Security Validation Report - Flaky Certificate Test Fix
 
-**Date**: 2026-02-04
-**Version**: v0.3.0 (beta)
-**Changes Under Review**: GitHub Actions workflow configuration (`.github/workflows/e2e-tests-split.yml`)
-- Reduced from 4 shards to 1 shard per browser (12 jobs → 3 jobs)
-- Sequential test execution within each browser to fix race conditions
-- Updated documentation and comments throughout
+**Date:** 2026-02-19
+**Scope:** Validation/audit gates for flaky-test fix in certificate handler/service paths.
 
----
+## Gate Summary
 
-## Executive Summary
+| Gate | Status | Evidence |
+|---|---|---|
+| 1) Playwright E2E certificates gate | **PASS** | Task: `Test: E2E Playwright (FireFox) - Core: Certificates`; status file: `test-results/.last-run.json` (`passed`) |
+| 1b) Durable flaky artifacts in `test-results/flaky/` | **PASS** | `cert-list-stability.jsonl`, `cert-list-race.jsonl`, `cert-db-setup-ordering.jsonl`, `cert-handler-regression.jsonl` |
+| 2) Local patch preflight artifacts present | **PASS (warn-mode)** | `test-results/local-patch-report.md`, `test-results/local-patch-report.json` |
+| 3) Backend coverage gate >=85% | **PASS** | `test-backend-coverage` rerun with valid `CHARON_ENCRYPTION_KEY`; line coverage `87.3%`, statements `87.0%` |
+| 4) Pre-commit all files | **PASS** | Task: `Lint: Pre-commit (All Files)` -> all hooks passed |
+| 5a) Trivy filesystem scan | **PASS** | Task: `Security: Trivy Scan` -> 0 vulnerabilities, 0 secrets |
+| 5b) Docker image scan | **FAIL** | Task: `Security: Scan Docker Image (Local)` -> 1 High, 9 Medium, 1 Low |
+| 5c) CodeQL Go CI-aligned | **PASS** | Task: `Security: CodeQL Go Scan (CI-Aligned) [~60s]` completed |
+| 5d) CodeQL JS CI-aligned | **PASS** | Task: `Security: CodeQL JS Scan (CI-Aligned) [~90s]` completed |
+| 5e) CodeQL high/critical findings gate | **PASS** | `pre-commit run --hook-stage manual codeql-check-findings --all-files` |
+| 6) Lint/type checks relevant to scope | **PASS** | `Lint: Staticcheck (Fast)` passed; `Lint: TypeScript Check` passed |
+| 7) Flaky loop thresholds from plan | **PASS** | stability=100, race=30, dbordering=50, raceWarnings=0, noSuchTable=0 |
 
-| Category | Status | Details |
-|----------|--------|---------|
-| YAML Syntax | ✅ PASS | Valid YAML structure |
-| Pre-commit Hooks | ✅ PASS | All relevant hooks passed |
-| Workflow Logic | ✅ PASS | Matrix syntax correct, dependencies intact |
-| File Changes | ✅ PASS | Single file modified as expected |
-| Artifact Naming | ✅ PASS | No conflicts, unique per browser |
-| Documentation | ✅ PASS | Comments updated consistently |
+## Detailed Evidence
 
-**Overall Status**: ✅ **APPROVED** - Ready for commit and CI validation
+### 1) Playwright Certificates Gate
 
----
+- Executed task: `Test: E2E Playwright (FireFox) - Core: Certificates`
+- Base URL: `http://127.0.0.1:8080`
+- Result marker: `test-results/.last-run.json`:
 
-## 1. YAML Syntax Validation
-
-### Results
-- **Status**: ✅ PASS
-- **Validator**: Pre-commit `check-yaml` hook
-- **Issues Found**: 0
-
-### Details
-The workflow file passed YAML syntax validation through the pre-commit hook system:
-```
-check yaml...............................................................Passed
+```json
+{
+  "status": "passed",
+  "failedTests": []
+}
 ```
 
-### Analysis
-- Valid YAML structure throughout the file
-- Proper indentation maintained
-- All keys and values properly formatted
-- No syntax errors detected
+### 2) Local Patch Preflight
 
----
+- Executed task: `Test: Local Patch Report`
+- Artifacts exist:
+  - `test-results/local-patch-report.md`
+  - `test-results/local-patch-report.json`
+- Current mode: `warn`
+- Warning recorded: missing frontend coverage input (`frontend/coverage/lcov.info`)
 
-## 2. Pre-commit Hook Validation
+### 3) Backend Coverage
 
-### Results
-- **Status**: ✅ PASS
-- **Hooks Executed**: 12
-- **Hooks Passed**: 12
-- **Hooks Skipped**: 5 (not applicable to YAML files)
+- Task invocation failed initially due missing `CHARON_ENCRYPTION_KEY`.
+- Rerun with valid env key:
+  - `CHARON_ENCRYPTION_KEY="$(openssl rand -base64 32)" .github/skills/scripts/skill-runner.sh test-backend-coverage`
+- Final result:
+  - `Coverage gate: PASS`
+  - `Line coverage: 87.3%`
+  - `Statement coverage: 87.0%`
 
-| Hook | Status |
-|------|--------|
-| fix end of files | ✅ Pass |
-| trim trailing whitespace | ✅ Pass |
-| check yaml | ✅ Pass |
-| check for added large files | ✅ Pass |
-| dockerfile validation | ⏭️ Skipped (not applicable) |
-| Go Vet | ⏭️ Skipped (not applicable) |
-| golangci-lint (Fast) | ⏭️ Skipped (not applicable) |
-| Check .version matches tag | ⏭️ Skipped (not applicable) |
-| LFS large files check | ✅ Pass |
-| Prevent CodeQL DB commits | ✅ Pass |
-| Prevent data/backups commits | ✅ Pass |
-| Frontend TypeScript Check | ⏭️ Skipped (not applicable) |
-| Frontend Lint (Fix) | ⏭️ Skipped (not applicable) |
+### 4) Pre-commit
 
-### Analysis
-All applicable hooks passed successfully. Skipped hooks are Go/TypeScript-specific and do not apply to YAML workflow files.
+- Executed task: `Lint: Pre-commit (All Files)`
+- Result: all configured hooks passed, including:
+  - yaml checks
+  - shellcheck
+  - actionlint
+  - go vet
+  - golangci-lint fast
+  - frontend type check and lint fix hooks
 
----
+### 5) Security Scans
 
-## 3. Workflow Logic Review
+#### Trivy Filesystem
 
-### Matrix Configuration
-**Status**: ✅ PASS
+- Executed task: `Security: Trivy Scan`
+- Summary:
+  - `backend/go.mod`: 0 vulnerabilities
+  - `frontend/package-lock.json`: 0 vulnerabilities
+  - `package-lock.json`: 0 vulnerabilities
+  - secrets: 0
 
-**Changes Made**:
-```yaml
-# Before (4 shards per browser = 12 total jobs)
-matrix:
-  shard: [1, 2, 3, 4]
-  total-shards: [4]
+#### Docker Image Scan (Grype via skill)
 
-# After (1 shard per browser = 3 total jobs)
-matrix:
-  shard: [1]  # Single shard: all tests run sequentially to avoid race conditions
-  total-shards: [1]
-```
+- Executed task: `Security: Scan Docker Image (Local)`
+- Artifacts generated:
+  - `sbom.cyclonedx.json`
+  - `grype-results.json`
+  - `grype-results.sarif`
+- Summary from `grype-results.json`:
+  - High: 1
+  - Medium: 9
+  - Low: 1
+  - Critical: 0
 
-**Validation**:
-- ✅ Matrix syntax is correct
-- ✅ Arrays contain valid values
-- ✅ Comments properly explain the change
-- ✅ Consistent across all 3 browser jobs (chromium, firefox, webkit)
+#### CodeQL
 
-### Job Dependencies
-**Status**: ✅ PASS
+- Go CI-aligned task completed and generated `codeql-results-go.sarif`.
+- JS CI-aligned task completed and generated `codeql-results-js.sarif`.
+- Manual findings gate:
+  - `pre-commit run --hook-stage manual codeql-check-findings --all-files`
+  - result: no HIGH/CRITICAL findings in Go or JS.
 
-**Verified**:
-- ✅ `e2e-chromium`, `e2e-firefox`, `e2e-webkit` all depend on `build` job
-- ✅ `test-summary` depends on all 3 browser jobs
-- ✅ `upload-coverage` depends on all 3 browser jobs
-- ✅ `comment-results` depends on browser jobs + test-summary
-- ✅ `e2e-results` depends on all 3 browser jobs
+### 6) Linting/Type Checks
 
-**Dependency Graph**:
-```
-build
-├── e2e-chromium ─┐
-├── e2e-firefox ──┼─→ test-summary ─┐
-└── e2e-webkit ───┘                  ├─→ comment-results
-                                     │
-                 upload-coverage ────┘
-                 e2e-results (final status check)
-```
+- `Lint: Staticcheck (Fast)` -> `0 issues`
+- `Lint: TypeScript Check` -> `tsc --noEmit` passed
 
-### Artifact Naming
-**Status**: ✅ PASS
+### 7) Flaky-Specific Loop Artifacts and Thresholds
 
-**Verified**:
-Each browser produces uniquely named artifacts:
-- `playwright-report-chromium-shard-1`
-- `playwright-report-firefox-shard-1`
-- `playwright-report-webkit-shard-1`
-- `e2e-coverage-chromium-shard-1`
-- `e2e-coverage-firefox-shard-1`
-- `e2e-coverage-webkit-shard-1`
-- `traces-chromium-shard-1` (on failure)
-- `traces-firefox-shard-1` (on failure)
-- `traces-webkit-shard-1` (on failure)
-- `docker-logs-chromium-shard-1` (on failure)
-- `docker-logs-firefox-shard-1` (on failure)
-- `docker-logs-webkit-shard-1` (on failure)
+- Artifacts in `test-results/flaky/`:
+  - `cert-list-stability.jsonl`
+  - `cert-list-race.jsonl`
+  - `cert-db-setup-ordering.jsonl`
+  - `cert-handler-regression.jsonl`
 
-**Conflict Risk**: ✅ None - all artifact names include browser-specific identifiers
+- Measured thresholds:
+  - `stability=100` (expected 100)
+  - `race=30` (expected 30)
+  - `dbordering=50` (expected 50)
+  - `raceWarnings=0`
+  - `noSuchTable=0`
 
----
+## Filesystem vs Image Findings Comparison
 
-## 4. Git Status Verification
+- Filesystem scan (Trivy): **0 vulnerabilities**.
+- Image scan (Grype): **11 vulnerabilities**.
+- **Additional image-only vulnerabilities:** 11
 
-### Results
-- **Status**: ✅ PASS
-- **Files Modified**: 1
-- **Files Added**: 1 (documentation)
+Image-only findings:
 
-### Details
-```
-M  .github/workflows/e2e-tests-split.yml  (modified)
-?? docs/plans/e2e_ci_failure_diagnosis.md  (new, untracked)
-```
+| Severity | ID | Package | Version | Fix |
+|---|---|---|---|---|
+| High | GHSA-69x3-g4r3-p962 | github.com/slackhq/nebula | v1.9.7 | 1.10.3 |
+| Medium | CVE-2025-60876 | busybox | 1.37.0-r30 | N/A |
+| Medium | CVE-2025-60876 | busybox-binsh | 1.37.0-r30 | N/A |
+| Medium | CVE-2025-60876 | busybox-extras | 1.37.0-r30 | N/A |
+| Medium | CVE-2025-60876 | ssl_client | 1.37.0-r30 | N/A |
+| Medium | CVE-2025-14819 | curl | 8.17.0-r1 | N/A |
+| Medium | CVE-2025-13034 | curl | 8.17.0-r1 | N/A |
+| Medium | CVE-2025-14524 | curl | 8.17.0-r1 | N/A |
+| Medium | CVE-2025-15079 | curl | 8.17.0-r1 | N/A |
+| Medium | CVE-2025-14017 | curl | 8.17.0-r1 | N/A |
+| Low | CVE-2025-15224 | curl | 8.17.0-r1 | N/A |
 
-### Analysis
-- ✅ Only the expected workflow file was modified
-- ✅ No unintended changes to other files
-- ℹ️ New documentation file `e2e_ci_failure_diagnosis.md` is present but untracked (expected)
-- ✅ File is currently unstaged (working directory only)
+## Failed Gates and Remediation
 
----
+### Failed Gate: Security Docker Image Scan
 
-## 5. Documentation Updates
+- Failing evidence: image scan task ended with non-zero exit due vulnerability policy (`1 High`).
+- Primary blocker: `GHSA-69x3-g4r3-p962` in `github.com/slackhq/nebula@v1.9.7` (fix `1.10.3`).
 
-### Header Comments
-**Status**: ✅ PASS
+Recommended remediation:
 
-**Changes**:
-- ✅ Updated from "Phase 1 Hotfix - Split Browser Jobs" to "Sequential Execution - Fixes Race Conditions"
-- ✅ Added root cause explanation
-- ✅ Updated reference link from `browser_alignment_triage.md` to `e2e_ci_failure_diagnosis.md`
-- ✅ Clarified performance tradeoff (90% local → 100% CI pass rate)
+1. Update dependency chain to a version resolving `nebula >= 1.10.3` (or update parent component that pins it).
+2. Rebuild image and rerun:
+   - `Security: Scan Docker Image (Local)`
+   - `Security: Trivy Scan`
+3. If immediate upgrade is not feasible, document/renew security exception with review date and compensating controls.
 
-### Job Summary Updates
-**Status**: ✅ PASS
+### Warning (Non-blocking for requested artifact-presence check): Local Patch Preflight
 
-**Changes**:
-- ✅ Updated shard counts from 4 to 1 in summary tables
-- ✅ Changed "Independent execution" to "Sequential execution"
-- ✅ Updated Phase 1 benefits messaging to reflect sequential within browsers, parallel across browsers
+- Current warning: missing frontend coverage input `frontend/coverage/lcov.info`.
+- Artifacts are present and valid for preflight evidence.
 
-### PR Comment Templates
-**Status**: ✅ PASS
+Recommended remediation:
 
-**Changes**:
-- ✅ Updated browser results table to show 1 shard per browser
-- ✅ Changed execution type from "Independent" to "Sequential"
-- ✅ Updated footer message referencing the correct documentation file
+1. Generate frontend coverage (`test-frontend-coverage`) to populate `frontend/coverage/lcov.info`.
+2. Re-run `Test: Local Patch Report` to remove warn-mode status.
 
----
+## Final Verdict
 
-## 6. Change Analysis
-
-### What Changed
-1. **Matrix Sharding**: 4 shards → 1 shard per browser
-2. **Total Jobs**: 12 concurrent jobs → 3 concurrent jobs (browsers)
-3. **Execution Model**: Parallel sharding within browsers → Sequential tests within browsers, parallel browsers
-4. **Documentation**: Updated comments, summaries, and references throughout
-
-### What Did NOT Change
-- Build job (unchanged)
-- Browser installation (unchanged)
-- Health checks (unchanged)
-- Coverage upload mechanism (unchanged)
-- Artifact retention policies (unchanged)
-- Failure handling (unchanged)
-- Job timeouts (unchanged)
-- Environment variables (unchanged)
-- Secrets usage (unchanged)
-
-### Risk Assessment
-**Risk Level**: 🟢 LOW
-
-**Reasoning**:
-- Only configuration change, no code logic modified
-- Reduces parallelism (safer than increasing)
-- Syntax validated and correct
-- Job dependencies intact
-- No breaking changes to GitHub Actions syntax
-
-### Performance Impact
-**Expected CI Duration**:
-- **Before**: ~4-6 minutes (4 shards × 3 browsers in parallel)
-- **After**: ~5-8 minutes (all tests sequential per browser, 3 browsers in parallel)
-- **Tradeoff**: +1-2 minutes for 10% reliability improvement (90% → 100% pass rate)
-
----
-
-## 7. Commit Readiness Checklist
-
-- ✅ YAML syntax valid
-- ✅ Pre-commit hooks passed
-- ✅ Matrix configuration correct
-- ✅ Job dependencies intact
-- ✅ Artifact naming conflict-free
-- ✅ Documentation updated consistently
-- ✅ Only intended files modified
-- ✅ No breaking changes
-- ✅ Risk level acceptable
-- ✅ Performance tradeoff documented
-
----
-
-## 8. Recommendations
-
-### Immediate Actions
-1. ✅ **Stage and commit** the workflow file change
-2. ✅ **Add documentation** file `docs/plans/e2e_ci_failure_diagnosis.md` to commit (if not already tracked)
-3. ✅ **Push to feature branch** for CI validation
-4. ✅ **Monitor first CI run** to confirm 3 jobs execute correctly
-
-### Post-Commit Validation
-After merging:
-1. Monitor first CI run for:
-   - All 3 browser jobs starting correctly
-   - Sequential test execution (shard 1/1)
-   - No artifact name conflicts
-   - Proper job dependency resolution
-2. Verify job summary displays correct shard counts (1 instead of 4)
-3. Check PR comment formatting with new template
-
-### Future Optimizations
-**After this change is stable:**
-- Consider browser-specific test selection (if some tests are browser-agnostic)
-- Evaluate if further parallelism is safe for non-security tests
-- Monitor for any new race conditions or test interdependencies
-
----
-
-## 9. Final Approval
-
-### ✅ APPROVED FOR COMMIT
-
-**Justification**:
-- All validation checks passed
-- Clean YAML syntax
-- Correct workflow logic
-- Risk level acceptable
-- Documentation complete and consistent
-- Ready for CI validation
-
-**Next Steps**:
-1. Stage the workflow file: `git add .github/workflows/e2e-tests-split.yml`
-2. Commit with appropriate message (following conventional commits):
-   ```bash
-   git commit -m "ci: reduce E2E test sharding to fix race conditions
-
-   - Change from 4 shards to 1 shard per browser (12 jobs → 3 jobs)
-   - Sequential test execution within each browser to prevent race conditions
-   - Browsers still run in parallel for efficiency
-   - Performance tradeoff: +1-2min for 10% reliability improvement (90% → 100%)
-
-   Refs: docs/plans/e2e_ci_failure_diagnosis.md"
-   ```
-3. Push and monitor CI run
-
----
-
-*QA Report generated: 2026-02-04*
-*Agent: QA Security Engineer*
-*Validation Type: Workflow Configuration Review*
+- **Overall QA/Security Result: FAIL** (blocked by Docker image security gate).
+- All non-image gates requested for flaky-fix validation passed or produced required artifacts.

@@ -137,6 +137,7 @@ func TestSecurityNotificationHandler_UpdateSettings_InvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("PUT", "/settings", bytes.NewBuffer(malformedJSON))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -182,6 +183,7 @@ func TestSecurityNotificationHandler_UpdateSettings_InvalidMinLogLevel(t *testin
 			gin.SetMode(gin.TestMode)
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
+			setAdminContext(c)
 			c.Request = httptest.NewRequest("PUT", "/settings", bytes.NewBuffer(body))
 			c.Request.Header.Set("Content-Type", "application/json")
 
@@ -233,6 +235,7 @@ func TestSecurityNotificationHandler_UpdateSettings_InvalidWebhookURL_SSRF(t *te
 			gin.SetMode(gin.TestMode)
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
+			setAdminContext(c)
 			c.Request = httptest.NewRequest("PUT", "/settings", bytes.NewBuffer(body))
 			c.Request.Header.Set("Content-Type", "application/json")
 
@@ -284,6 +287,7 @@ func TestSecurityNotificationHandler_UpdateSettings_PrivateIPWebhook(t *testing.
 			gin.SetMode(gin.TestMode)
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
+			setAdminContext(c)
 			c.Request = httptest.NewRequest("PUT", "/settings", bytes.NewBuffer(body))
 			c.Request.Header.Set("Content-Type", "application/json")
 
@@ -320,6 +324,7 @@ func TestSecurityNotificationHandler_UpdateSettings_ServiceError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("PUT", "/settings", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -363,6 +368,7 @@ func TestSecurityNotificationHandler_UpdateSettings_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("PUT", "/settings", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -411,6 +417,7 @@ func TestSecurityNotificationHandler_UpdateSettings_EmptyWebhookURL(t *testing.T
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("PUT", "/settings", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -423,4 +430,147 @@ func TestSecurityNotificationHandler_UpdateSettings_EmptyWebhookURL(t *testing.T
 	require.NoError(t, err)
 
 	assert.Equal(t, "Settings updated successfully", response["message"])
+}
+
+func TestSecurityNotificationHandler_RouteAliasGet(t *testing.T) {
+	t.Parallel()
+
+	expectedConfig := &models.NotificationConfig{
+		ID:              "alias-test-id",
+		Enabled:         true,
+		MinLogLevel:     "info",
+		WebhookURL:      "https://example.com/webhook",
+		NotifyWAFBlocks: true,
+		NotifyACLDenies: true,
+	}
+
+	mockService := &mockSecurityNotificationService{
+		getSettingsFunc: func() (*models.NotificationConfig, error) {
+			return expectedConfig, nil
+		},
+	}
+
+	handler := NewSecurityNotificationHandler(mockService)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/v1/security/notifications/settings", handler.GetSettings)
+	router.GET("/api/v1/notifications/settings/security", handler.GetSettings)
+
+	originalWriter := httptest.NewRecorder()
+	originalRequest := httptest.NewRequest(http.MethodGet, "/api/v1/security/notifications/settings", http.NoBody)
+	router.ServeHTTP(originalWriter, originalRequest)
+
+	aliasWriter := httptest.NewRecorder()
+	aliasRequest := httptest.NewRequest(http.MethodGet, "/api/v1/notifications/settings/security", http.NoBody)
+	router.ServeHTTP(aliasWriter, aliasRequest)
+
+	assert.Equal(t, http.StatusOK, originalWriter.Code)
+	assert.Equal(t, originalWriter.Code, aliasWriter.Code)
+	assert.Equal(t, originalWriter.Body.String(), aliasWriter.Body.String())
+}
+
+func TestSecurityNotificationHandler_RouteAliasUpdate(t *testing.T) {
+	t.Parallel()
+
+	mockService := &mockSecurityNotificationService{
+		updateSettingsFunc: func(c *models.NotificationConfig) error {
+			return nil
+		},
+	}
+
+	handler := NewSecurityNotificationHandler(mockService)
+
+	config := models.NotificationConfig{
+		Enabled:         true,
+		MinLogLevel:     "warn",
+		WebhookURL:      "http://localhost:8080/security",
+		NotifyWAFBlocks: true,
+		NotifyACLDenies: false,
+	}
+
+	body, err := json.Marshal(config)
+	require.NoError(t, err)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		setAdminContext(c)
+		c.Next()
+	})
+	router.PUT("/api/v1/security/notifications/settings", handler.UpdateSettings)
+	router.PUT("/api/v1/notifications/settings/security", handler.UpdateSettings)
+
+	originalWriter := httptest.NewRecorder()
+	originalRequest := httptest.NewRequest(http.MethodPut, "/api/v1/security/notifications/settings", bytes.NewBuffer(body))
+	originalRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(originalWriter, originalRequest)
+
+	aliasWriter := httptest.NewRecorder()
+	aliasRequest := httptest.NewRequest(http.MethodPut, "/api/v1/notifications/settings/security", bytes.NewBuffer(body))
+	aliasRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(aliasWriter, aliasRequest)
+
+	assert.Equal(t, http.StatusOK, originalWriter.Code)
+	assert.Equal(t, originalWriter.Code, aliasWriter.Code)
+	assert.Equal(t, originalWriter.Body.String(), aliasWriter.Body.String())
+}
+
+func TestNormalizeEmailRecipients(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr string
+	}{
+		{
+			name:  "empty input",
+			input: "   ",
+			want:  "",
+		},
+		{
+			name:  "single valid",
+			input: "admin@example.com",
+			want:  "admin@example.com",
+		},
+		{
+			name:  "multiple valid with spaces and blanks",
+			input: " admin@example.com, , ops@example.com ,security@example.com ",
+			want:  "admin@example.com, ops@example.com, security@example.com",
+		},
+		{
+			name:  "duplicates and mixed case preserved",
+			input: "Admin@Example.com, admin@example.com, Admin@Example.com",
+			want:  "Admin@Example.com, admin@example.com, Admin@Example.com",
+		},
+		{
+			name:    "invalid only",
+			input:   "not-an-email",
+			wantErr: "invalid email recipients: not-an-email",
+		},
+		{
+			name:    "mixed invalid and valid",
+			input:   "admin@example.com, bad-address,ops@example.com",
+			wantErr: "invalid email recipients: bad-address",
+		},
+		{
+			name:    "multiple invalids",
+			input:   "bad-address,also-bad",
+			wantErr: "invalid email recipients: bad-address, also-bad",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := normalizeEmailRecipients(tt.input)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Equal(t, tt.wantErr, err.Error())
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
