@@ -110,15 +110,6 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		}
 	}
 
-	router.GET("/api/v1/health", handlers.HealthHandler)
-
-	// Metrics endpoint (Prometheus)
-	reg := prometheus.NewRegistry()
-	metrics.Register(reg)
-	router.GET("/metrics", func(c *gin.Context) {
-		promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP(c.Writer, c.Request)
-	})
-
 	if caddyManager == nil {
 		caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
 		caddyManager = caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
@@ -127,9 +118,19 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		cerb = cerberus.New(cfg.Security, db)
 	}
 
+	router.GET("/api/v1/health", cerb.RateLimitMiddleware(), handlers.HealthHandler)
+
+	// Metrics endpoint (Prometheus)
+	reg := prometheus.NewRegistry()
+	metrics.Register(reg)
+	router.GET("/metrics", func(c *gin.Context) {
+		promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP(c.Writer, c.Request)
+	})
+
 	// Emergency endpoint
 	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(db, caddyManager, cerb)
 	emergency := router.Group("/api/v1/emergency")
+	// Emergency endpoints must stay responsive and should not be rate limited.
 	emergency.POST("/security-reset", emergencyHandler.SecurityReset)
 
 	// Emergency token management (admin-only, protected by EmergencyBypass middleware)
@@ -147,12 +148,18 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 
 	api := router.Group("/api/v1")
 	api.Use(middleware.OptionalAuth(authService))
+	// Rate Limiting (Emergency/Go-layer) runs after optional auth so authenticated
+	// admin control-plane requests can be exempted safely.
+	api.Use(cerb.RateLimitMiddleware())
+	// Cerberus middleware (ACL, WAF Stats, CrowdSec Tracking) runs after Auth
+	// because ACLs need to know if user is authenticated admin to apply whitelist bypass
 	api.Use(cerb.Middleware())
 
 	// Backup routes
 	backupService := services.NewBackupService(&cfg)
 	backupService.Start() // Start cron scheduler for scheduled backups
-	backupHandler := handlers.NewBackupHandler(backupService)
+	securityService := services.NewSecurityService(db)
+	backupHandler := handlers.NewBackupHandlerWithDeps(backupService, securityService, db)
 
 	// DB Health endpoint (uses backup service for last backup time)
 	dbHealthHandler := handlers.NewDBHealthHandler(db, backupService)
@@ -193,6 +200,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 	protected.Use(authMiddleware)
 	{
 		protected.POST("/auth/logout", authHandler.Logout)
+		protected.POST("/auth/refresh", authHandler.Refresh)
 		protected.GET("/auth/me", authHandler.Me)
 		protected.POST("/auth/change-password", authHandler.ChangePassword)
 
@@ -204,32 +212,39 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		protected.POST("/backups/:filename/restore", backupHandler.Restore)
 
 		// Logs
-		protected.GET("/logs", logsHandler.List)
-		protected.GET("/logs/:filename", logsHandler.Read)
-		protected.GET("/logs/:filename/download", logsHandler.Download)
-
 		// WebSocket endpoints
 		logsWSHandler := handlers.NewLogsWSHandler(wsTracker)
 		protected.GET("/logs/live", logsWSHandler.HandleWebSocket)
+		protected.GET("/logs", logsHandler.List)
+		protected.GET("/logs/:filename", logsHandler.Read)
+		protected.GET("/logs/:filename/download", logsHandler.Download)
 
 		// WebSocket status monitoring
 		protected.GET("/websocket/connections", wsStatusHandler.GetConnections)
 		protected.GET("/websocket/stats", wsStatusHandler.GetStats)
 
+		dataRoot := filepath.Dir(cfg.DatabasePath)
+
 		// Security Notification Settings
 		securityNotificationService := services.NewSecurityNotificationService(db)
-		securityNotificationHandler := handlers.NewSecurityNotificationHandler(securityNotificationService)
+		securityNotificationHandler := handlers.NewSecurityNotificationHandlerWithDeps(securityNotificationService, securityService, dataRoot)
 		protected.GET("/security/notifications/settings", securityNotificationHandler.GetSettings)
 		protected.PUT("/security/notifications/settings", securityNotificationHandler.UpdateSettings)
+		protected.GET("/notifications/settings/security", securityNotificationHandler.GetSettings)
+		protected.PUT("/notifications/settings/security", securityNotificationHandler.UpdateSettings)
+
+		// System permissions diagnostics and repair
+		systemPermissionsHandler := handlers.NewSystemPermissionsHandler(cfg, securityService, nil)
+		protected.GET("/system/permissions", systemPermissionsHandler.GetPermissions)
+		protected.POST("/system/permissions/repair", systemPermissionsHandler.RepairPermissions)
 
 		// Audit Logs
-		securityService := services.NewSecurityService(db)
 		auditLogHandler := handlers.NewAuditLogHandler(securityService)
 		protected.GET("/audit-logs", auditLogHandler.List)
 		protected.GET("/audit-logs/:uuid", auditLogHandler.Get)
 
 		// Settings - with CaddyManager and Cerberus for security settings reload
-		settingsHandler := handlers.NewSettingsHandlerWithDeps(db, caddyManager, cerb)
+		settingsHandler := handlers.NewSettingsHandlerWithDeps(db, caddyManager, cerb, securityService, dataRoot)
 
 		protected.GET("/settings", settingsHandler.GetSettings)
 		protected.POST("/settings", settingsHandler.UpdateSetting)
@@ -371,8 +386,8 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		dockerHandler.RegisterRoutes(protected)
 
 		// Uptime Service
-		uptimeService := services.NewUptimeService(db, notificationService)
-		uptimeHandler := handlers.NewUptimeHandler(uptimeService)
+		uptimeSvc := services.NewUptimeService(db, notificationService)
+		uptimeHandler := handlers.NewUptimeHandler(uptimeSvc)
 		protected.GET("/uptime/monitors", uptimeHandler.List)
 		protected.POST("/uptime/monitors", uptimeHandler.Create)
 		protected.GET("/uptime/monitors/:id/history", uptimeHandler.GetHistory)
@@ -382,7 +397,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		protected.POST("/uptime/sync", uptimeHandler.Sync)
 
 		// Notification Providers
-		notificationProviderHandler := handlers.NewNotificationProviderHandler(notificationService)
+		notificationProviderHandler := handlers.NewNotificationProviderHandlerWithDeps(notificationService, securityService, dataRoot)
 		protected.GET("/notifications/providers", notificationProviderHandler.List)
 		protected.POST("/notifications/providers", notificationProviderHandler.Create)
 		protected.PUT("/notifications/providers/:id", notificationProviderHandler.Update)
@@ -392,7 +407,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		protected.GET("/notifications/templates", notificationProviderHandler.Templates)
 
 		// External notification templates (saved templates for providers)
-		notificationTemplateHandler := handlers.NewNotificationTemplateHandler(notificationService)
+		notificationTemplateHandler := handlers.NewNotificationTemplateHandlerWithDeps(notificationService, securityService, dataRoot)
 		protected.GET("/notifications/external-templates", notificationTemplateHandler.List)
 		protected.POST("/notifications/external-templates", notificationTemplateHandler.Create)
 		protected.PUT("/notifications/external-templates/:id", notificationTemplateHandler.Update)
@@ -546,8 +561,8 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		if _, err := os.Stat(accessLogPath); os.IsNotExist(err) {
 			// #nosec G304 -- Creating access log file, path is application-controlled
 			if f, err := os.Create(accessLogPath); err == nil {
-				if err := f.Close(); err != nil {
-					logger.Log().WithError(err).Warn("Failed to close log file")
+				if closeErr := f.Close(); closeErr != nil {
+					logger.Log().WithError(closeErr).Warn("Failed to close log file")
 				}
 				logger.Log().WithError(err).WithField("path", accessLogPath).Warn("Failed to create log file for LogWatcher")
 			}
@@ -635,7 +650,8 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 
 // RegisterImportHandler wires up import routes with config dependencies.
 func RegisterImportHandler(router *gin.Engine, db *gorm.DB, caddyBinary, importDir, mountPath string) {
-	importHandler := handlers.NewImportHandler(db, caddyBinary, importDir, mountPath)
+	securityService := services.NewSecurityService(db)
+	importHandler := handlers.NewImportHandlerWithDeps(db, caddyBinary, importDir, mountPath, securityService)
 	api := router.Group("/api/v1")
 	importHandler.RegisterRoutes(api)
 

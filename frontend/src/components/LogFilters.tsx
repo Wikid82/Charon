@@ -45,6 +45,7 @@ export const LogFilters: React.FC<LogFiltersProps> = ({
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
           className="block w-full pl-10 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+          data-testid="search-input"
         />
       </div>
 
@@ -55,6 +56,7 @@ export const LogFilters: React.FC<LogFiltersProps> = ({
           value={host}
           onChange={(e) => onHostChange(e.target.value)}
           className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+          data-testid="host-input"
         />
       </div>
 
@@ -63,6 +65,7 @@ export const LogFilters: React.FC<LogFiltersProps> = ({
           value={level}
           onChange={(e) => onLevelChange(e.target.value)}
           className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+          data-testid="level-select"
         >
           <option value="">All Levels</option>
           <option value="DEBUG">Debug</option>
@@ -77,6 +80,7 @@ export const LogFilters: React.FC<LogFiltersProps> = ({
           value={status}
           onChange={(e) => onStatusChange(e.target.value)}
           className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+          data-testid="status-select"
         >
           <option value="">All Status</option>
           <option value="2xx">2xx Success</option>
@@ -91,6 +95,7 @@ export const LogFilters: React.FC<LogFiltersProps> = ({
           value={sort}
           onChange={(e) => onSortChange(e.target.value as 'asc' | 'desc')}
           className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+          data-testid="sort-select"
         >
           <option value="desc">Newest First</option>
           <option value="asc">Oldest First</option>
@@ -98,11 +103,11 @@ export const LogFilters: React.FC<LogFiltersProps> = ({
       </div>
 
       <div className="flex gap-2">
-        <Button onClick={onRefresh} variant="secondary" size="sm" isLoading={isLoading}>
+        <Button onClick={onRefresh} variant="secondary" size="sm" isLoading={isLoading} data-testid="refresh-button">
           <RefreshCw className="w-4 h-4 mr-2" />
           Refresh
         </Button>
-        <Button onClick={onDownload} variant="secondary" size="sm">
+        <Button onClick={onDownload} variant="secondary" size="sm" data-testid="download-button">
           <Download className="w-4 h-4 mr-2" />
           Download
         </Button>

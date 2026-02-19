@@ -151,7 +151,7 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		// Check for emergency bypass flag (set by EmergencyBypass middleware)
 		if bypass, exists := ctx.Get("emergency_bypass"); exists && bypass.(bool) {
-			logger.Log().WithField("path", ctx.Request.URL.Path).Debug("Cerberus: Skipping security checks (emergency bypass)")
+			logger.Log().WithField("path", util.SanitizeForLog(ctx.Request.URL.Path)).Debug("Cerberus: Skipping security checks (emergency bypass)")
 			ctx.Next()
 			return
 		}
@@ -241,7 +241,7 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 			// Track that this request passed through CrowdSec evaluation
 			// Note: Blocking decisions are made by Caddy bouncer, not here
 			metrics.IncCrowdSecRequest()
-			logger.Log().WithField("client_ip", ctx.ClientIP()).WithField("path", ctx.Request.URL.Path).Debug("Request evaluated by CrowdSec bouncer at Caddy layer")
+			logger.Log().WithField("client_ip", util.SanitizeForLog(ctx.ClientIP())).WithField("path", util.SanitizeForLog(ctx.Request.URL.Path)).Debug("Request evaluated by CrowdSec bouncer at Caddy layer")
 		}
 
 		ctx.Next()

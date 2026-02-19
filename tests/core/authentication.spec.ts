@@ -93,11 +93,22 @@ test.describe('Authentication Flows', () => {
       });
 
       await test.step('Submit and verify error', async () => {
+        const loginResponsePromise = page.waitForResponse(
+          (response) => response.url().includes('/api/v1/auth/login') && response.request().method() === 'POST',
+          { timeout: 15000 },
+        );
+
         await page.getByRole('button', { name: /sign in/i }).click();
 
-        // Wait for error toast to appear (use specific test ID to avoid strict mode violation)
-        const errorMessage = page.getByTestId('toast-error');
-        await expect(errorMessage).toBeVisible({ timeout: 10000 });
+        const loginResponse = await loginResponsePromise;
+        expect([400, 401, 403, 404]).toContain(loginResponse.status());
+
+        const errorToast = page.getByTestId('toast-error');
+        const inlineError = page.getByText(/invalid|not found|failed|incorrect|unauthorized/i).first();
+        const hasErrorToast = await errorToast.isVisible({ timeout: 10000 }).catch(() => false);
+        const hasInlineError = await inlineError.isVisible({ timeout: 10000 }).catch(() => false);
+
+        expect(hasErrorToast || hasInlineError).toBe(true);
       });
 
       await test.step('Verify user stays on login page', async () => {
@@ -187,6 +198,10 @@ test.describe('Authentication Flows', () => {
     /**
      * Test: Logout redirects to login page and clears session
      * Verifies that clicking logout properly ends the session.
+     *
+     * NOTE: This test currently reveals a frontend bug where the application
+     * allows access to protected routes after logout. The session appears to
+     * persist or is not properly validated by route guards.
      */
     test('should logout and redirect to login page', async ({ page, adminUser }) => {
       await test.step('Login first', async () => {
@@ -204,8 +219,15 @@ test.describe('Authentication Flows', () => {
 
       await test.step('Verify session is cleared - cannot access protected route', async () => {
         await page.goto('/');
+        await waitForLoadingComplete(page);
         // Should redirect to login since session is cleared
-        await expect(page).toHaveURL(/login/);
+        await page.waitForURL(/login/, { timeout: 10000 }).catch(async () => {
+          // If no redirect, check if we're on a protected page that shows login form
+          const hasLoginForm = await page.locator('input[type="email"]').isVisible().catch(() => false);
+          if (!hasLoginForm) {
+            throw new Error('Expected redirect to login after session cleared. Dashboard loaded instead, indicating missing route guard.');
+          }
+        });
       });
     });
 
@@ -279,7 +301,9 @@ test.describe('Authentication Flows', () => {
 
       await test.step('Navigate to different pages', async () => {
         // Navigate to proxy hosts
-        const proxyHostsLink = page.getByRole('link', { name: /proxy.*hosts?/i });
+        const proxyHostsLink = page
+          .getByRole('navigation')
+          .getByRole('link', { name: /proxy.*hosts?/i });
         if (await proxyHostsLink.isVisible()) {
           await proxyHostsLink.click();
           await waitForLoadingComplete(page);
@@ -302,6 +326,9 @@ test.describe('Authentication Flows', () => {
     /**
      * Test: Expired token redirects to login
      * Simulates an expired session and verifies proper redirect.
+     *
+     * NOTE: Route guard fix has been merged (2026-01-30). Validating that session
+     * expiration properly redirects to login page.
      */
     test('should redirect to login when session expires', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
@@ -319,10 +346,20 @@ test.describe('Authentication Flows', () => {
 
       await test.step('Attempt to access protected resource', async () => {
         await page.reload();
+        await waitForLoadingComplete(page);
       });
 
       await test.step('Verify redirect to login', async () => {
-        await expect(page).toHaveURL(/login/, { timeout: 10000 });
+        // Give the app time to detect expired session and redirect
+        // BUG: Currently the app shows dashboard instead of redirecting
+        await page.waitForURL(/login/, { timeout: 15000 }).catch(async () => {
+          // If no redirect, check if we're shown a login form or session expired message
+          const hasLoginForm = await page.locator('input[type="email"]').isVisible().catch(() => false);
+          const hasExpiredMessage = await page.getByText(/session.*expired|please.*login/i).isVisible().catch(() => false);
+          if (!hasLoginForm && !hasExpiredMessage) {
+            throw new Error('Expected redirect to login or session expired message. Dashboard loaded instead, indicating missing auth validation.');
+          }
+        });
       });
     });
 

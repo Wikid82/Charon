@@ -467,6 +467,7 @@
     "providerName": "Nom",
     "urlWebhook": "URL / Webhook",
     "urlRequired": "L'URL est requise",
+    "invalidUrl": "Veuillez entrer une URL valide commençant par http:// ou https://",
     "genericWebhook": "Webhook Générique (Shoutrrr)",
     "customWebhook": "Webhook Personnalisé (JSON)",
     "shoutrrrHelp": "Pour le format Shoutrrr, voir",

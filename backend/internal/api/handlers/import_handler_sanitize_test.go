@@ -28,6 +28,10 @@ func TestImportUploadSanitizesFilename(t *testing.T) {
 
 	router := gin.New()
 	router.Use(middleware.RequestID())
+	router.Use(func(c *gin.Context) {
+		setAdminContext(c)
+		c.Next()
+	})
 	router.POST("/import/upload", svc.Upload)
 
 	buf := &bytes.Buffer{}

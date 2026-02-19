@@ -1,13 +1,9 @@
 name: Deploy Documentation to GitHub Pages
 
 on:
-  push:
-    branches:
-      - main           # Deploy docs when pushing to main
-    paths:
-      - 'docs/**'      # Only run if docs folder changes
-      - 'README.md'    # Or if README changes
-      - '.github/workflows/docs.yml'  # Or if this workflow changes
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types: [completed]
   workflow_dispatch:   # Allow manual trigger
 
 # Sets permissions to allow deployment to GitHub Pages
@@ -18,7 +14,7 @@ permissions:
 
 # Allow only one concurrent deployment
 concurrency:
-  group: "pages"
+  group: "pages-${{ github.event_name }}-${{ github.event.workflow_run.head_branch || github.ref }}"
   cancel-in-progress: false
 
 env:
@@ -29,11 +25,16 @@ jobs:
     name: Build Documentation
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    env:
+      REPO_NAME: ${{ github.event.repository.name }}
 
     steps:
       # Step 1: Get the code
       - name: 📥 Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       # Step 2: Set up Node.js (for building any JS-based doc tools)
       - name: 🔧 Set up Node.js
@@ -318,6 +319,35 @@ jobs:
             fi
           done
 
+          # --- 🚀 ROBUST DYNAMIC PATH FIX ---
+          echo "🔧 Calculating paths..."
+
+          # 1. Determine BASE_PATH
+          if [[ "${REPO_NAME}" == *".github.io" ]]; then
+            echo "  - Mode: Root domain (e.g. user.github.io)"
+            BASE_PATH="/"
+          else
+            echo "  - Mode: Sub-path (e.g. user.github.io/repo)"
+            BASE_PATH="/${REPO_NAME}/"
+          fi
+
+          # 2. Define standard repo variables
+          FULL_REPO="${{ github.repository }}"
+          REPO_URL="https://github.com/${FULL_REPO}"
+
+          echo "  - Repo: ${FULL_REPO}"
+          echo "  - URL:  ${REPO_URL}"
+          echo "  - Base: ${BASE_PATH}"
+
+          # 3. Fix paths in all HTML files
+          find _site -name "*.html" -exec sed -i \
+            -e "s|/charon/|${BASE_PATH}|g" \
+            -e "s|https://github.com/Wikid82/charon|${REPO_URL}|g" \
+            -e "s|Wikid82/charon|${FULL_REPO}|g" \
+            {} +
+
+          echo "✅ Paths fixed successfully!"
+
           echo "✅ Documentation site built successfully!"
 
       # Step 4: Upload the built site
@@ -328,6 +358,9 @@ jobs:
 
   deploy:
     name: Deploy to GitHub Pages
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main') ||
+      (github.event_name != 'workflow_run' && github.ref == 'refs/heads/main')
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -344,15 +377,17 @@ jobs:
       # Create a summary
       - name: 📋 Create deployment summary
         run: |
-          echo "## 🎉 Documentation Deployed!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Your documentation is now live at:" >> $GITHUB_STEP_SUMMARY
-          echo "🔗 ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📚 What's Included" >> $GITHUB_STEP_SUMMARY
-          echo "- Getting Started Guide" >> $GITHUB_STEP_SUMMARY
-          echo "- Complete README" >> $GITHUB_STEP_SUMMARY
-          echo "- API Documentation" >> $GITHUB_STEP_SUMMARY
-          echo "- Database Schema" >> $GITHUB_STEP_SUMMARY
-          echo "- Import Guide" >> $GITHUB_STEP_SUMMARY
-          echo "- Contributing Guidelines" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 🎉 Documentation Deployed!"
+            echo ""
+            echo "Your documentation is now live at:"
+            echo "🔗 ${{ steps.deployment.outputs.page_url }}"
+            echo ""
+            echo "### 📚 What's Included"
+            echo "- Getting Started Guide"
+            echo "- Complete README"
+            echo "- API Documentation"
+            echo "- Database Schema"
+            echo "- Import Guide"
+            echo "- Contributing Guidelines"
+          } >> "$GITHUB_STEP_SUMMARY"

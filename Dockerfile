@@ -17,13 +17,12 @@ ARG BUILD_DEBUG=0
 ## If the requested tag isn't available, fall back to a known-good v2.11.0-beta.2 build.
 ARG CADDY_VERSION=2.11.0-beta.2
 ## When an official caddy image tag isn't available on the host, use a
-## plain Debian slim base image and overwrite its caddy binary with our
+## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
 ## upstream caddy image tags while still shipping a pinned caddy binary.
-## Using trixie (Debian 13 testing) for faster security updates - bookworm
-## packages marked "wont-fix" are actively maintained in trixie.
-# renovate: datasource=docker depName=debian versioning=docker
-ARG CADDY_IMAGE=debian:trixie-slim@sha256:f6e2cfac5cf956ea044b4bd75e6397b4372ad88fe00908045e9a0d21712ae3ba
+## Alpine 3.23 base to reduce glibc CVE exposure and image size.
+# renovate: datasource=docker depName=alpine versioning=docker
+ARG CADDY_IMAGE=alpine:3.23.3
 
 # ---- Cross-Compilation Helpers ----
 # renovate: datasource=docker depName=tonistiigi/xx
@@ -35,7 +34,7 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f9
 # CVEs fixed: CVE-2023-24531, CVE-2023-24540, CVE-2023-29402, CVE-2023-29404,
 #             CVE-2023-29405, CVE-2024-24790, CVE-2025-22871, and 15 more
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:0032c99f1682c40dca54932e2fe0156dc575ed12c6a4fdec94df9db7a0c17ab0 AS gosu-builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS gosu-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/gosu
@@ -46,11 +45,12 @@ ARG TARGETARCH
 # renovate: datasource=github-releases depName=tianon/gosu
 ARG GOSU_VERSION=1.17
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git clang lld \
-    && rm -rf /var/lib/apt/lists/*
+# hadolint ignore=DL3018
+RUN apk add --no-cache git clang lld
 # hadolint ignore=DL3059
-RUN xx-apt install -y gcc libc6-dev
+# hadolint ignore=DL3018
+# Install both musl-dev (headers) and musl (runtime library) for cross-compilation linker
+RUN xx-apk add --no-cache gcc musl-dev musl
 
 # Clone and build gosu from source with modern Go
 RUN git clone --depth 1 --branch "${GOSU_VERSION}" https://github.com/tianon/gosu.git .
@@ -65,7 +65,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.13.0-slim@sha256:4660b1ca8b28d6d1906fd644abe34b2ed81d15434d26d845ef0aced307cf4b6f AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.13.1-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -89,21 +89,43 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
 
 # ---- Backend Builder ----
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:0032c99f1682c40dca54932e2fe0156dc575ed12c6a4fdec94df9db7a0c17ab0 AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
 WORKDIR /app/backend
 
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
+
 # Install build dependencies
-# xx-apt installs packages for the TARGET architecture
+# xx-apk installs packages for the TARGET architecture
 ARG TARGETPLATFORM
 ARG TARGETARCH
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    clang lld \
-    && rm -rf /var/lib/apt/lists/*
+# hadolint ignore=DL3018
+RUN apk add --no-cache clang lld
 # hadolint ignore=DL3059
-RUN xx-apt install -y gcc libc6-dev libsqlite3-dev
+# hadolint ignore=DL3018
+# Install musl (headers + runtime) and gcc for cross-compilation linker
+# The musl runtime library and gcc crt/libgcc are required by the linker
+RUN xx-apk add --no-cache gcc musl-dev musl sqlite-dev
+
+# Ensure the ARM64 musl loader exists for qemu-aarch64 cross-linking
+# Without this, the linker fails with: qemu-aarch64: Could not open '/lib/ld-musl-aarch64.so.1'
+RUN set -eux; \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        LOADER="/lib/ld-musl-aarch64.so.1"; \
+        LOADER_PATH="$LOADER"; \
+        if [ ! -e "$LOADER" ]; then \
+            FOUND="$(find / -path '*/ld-musl-aarch64.so.1' -type f 2>/dev/null | head -n 1)"; \
+            if [ -n "$FOUND" ]; then \
+                mkdir -p /lib; \
+                ln -sf "$FOUND" "$LOADER"; \
+                LOADER_PATH="$FOUND"; \
+            fi; \
+        fi; \
+        echo "Using musl loader at: $LOADER_PATH"; \
+        test -e "$LOADER"; \
+    fi
 
 # Install Delve (cross-compile for target)
 # Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
@@ -133,25 +155,33 @@ ARG BUILD_DEBUG=0
 
 # Build the Go binary with version information injected via ldflags
 # xx-go handles CGO and cross-compilation flags automatically
-# Note: Go 1.25 defaults to gold linker for ARM64, but clang doesn't support -fuse-ld=gold
-# We override with -extldflags=-fuse-ld=bfd to use the BFD linker for cross-compilation
+# Note: Go 1.26 defaults to gold linker for ARM64, but clang doesn't support -fuse-ld=gold
+# Use lld for ARM64 cross-linking; keep bfd for amd64 to preserve prior behavior
+# PIE is required for arm64 cross-linking with lld to avoid relocation conflicts under
+# QEMU emulation and improves security posture.
 # When BUILD_DEBUG=1, we preserve debug symbols (no -s -w) and disable optimizations
 # for Delve debugging. Otherwise, strip symbols for smaller production binaries.
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
+    EXT_LD_FLAGS="-fuse-ld=bfd"; \
+    BUILD_MODE=""; \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        EXT_LD_FLAGS="-fuse-ld=lld"; \
+        BUILD_MODE="-buildmode=pie"; \
+    fi; \
     if [ "$BUILD_DEBUG" = "1" ]; then \
         echo "Building with debug symbols for Delve..."; \
-        CGO_ENABLED=1 xx-go build \
+        CGO_ENABLED=1 CC=xx-clang CXX=xx-clang++ xx-go build ${BUILD_MODE} \
             -gcflags="all=-N -l" \
-            -ldflags "-extldflags=-fuse-ld=bfd \
+            -ldflags "-extldflags=${EXT_LD_FLAGS} \
                       -X github.com/Wikid82/charon/backend/internal/version.Version=${VERSION} \
                       -X github.com/Wikid82/charon/backend/internal/version.GitCommit=${VCS_REF} \
                       -X github.com/Wikid82/charon/backend/internal/version.BuildTime=${BUILD_DATE}" \
             -o charon ./cmd/api; \
     else \
         echo "Building optimized production binary..."; \
-        CGO_ENABLED=1 xx-go build \
-            -ldflags "-s -w -extldflags=-fuse-ld=bfd \
+        CGO_ENABLED=1 CC=xx-clang CXX=xx-clang++ xx-go build ${BUILD_MODE} \
+            -ldflags "-s -w -extldflags=${EXT_LD_FLAGS} \
                       -X github.com/Wikid82/charon/backend/internal/version.Version=${VERSION} \
                       -X github.com/Wikid82/charon/backend/internal/version.GitCommit=${VCS_REF} \
                       -X github.com/Wikid82/charon/backend/internal/version.BuildTime=${BUILD_DATE}" \
@@ -162,15 +192,15 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Build Caddy from source to ensure we use the latest Go version and dependencies
 # This fixes vulnerabilities found in the pre-built Caddy images (e.g. CVE-2025-59530, stdlib issues)
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.25-trixie@sha256:0032c99f1682c40dca54932e2fe0156dc575ed12c6a4fdec94df9db7a0c17ab0 AS caddy-builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS caddy-builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
 # renovate: datasource=go depName=github.com/caddyserver/xcaddy
 ARG XCADDY_VERSION=0.4.5
 
-RUN apt-get update && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/*
+# hadolint ignore=DL3018
+RUN apk add --no-cache git
 # hadolint ignore=DL3062
 RUN --mount=type=cache,target=/go/pkg/mod \
     go install github.com/caddyserver/xcaddy/cmd/xcaddy@v${XCADDY_VERSION}
@@ -178,6 +208,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Build Caddy for the target architecture with security plugins.
 # Two-stage approach: xcaddy generates go.mod, we patch it, then build from scratch.
 # This ensures the final binary is compiled with fully patched dependencies.
+# NOTE: Keep patching deterministic and explicit. Avoid silent fallbacks.
 # hadolint ignore=SC2016
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
@@ -188,10 +219,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_VERSION} \
             --with github.com/greenpau/caddy-security \
             --with github.com/corazawaf/coraza-caddy/v2 \
-            --with github.com/hslatman/caddy-crowdsec-bouncer \
+            --with github.com/hslatman/caddy-crowdsec-bouncer@v0.10.0 \
             --with github.com/zhangjiayin/caddy-geoip2 \
             --with github.com/mholt/caddy-ratelimit \
-            --output /tmp/caddy-initial || true; \
+            --output /tmp/caddy-initial; \
         # Find the build directory created by xcaddy
         BUILDDIR=$(ls -td /tmp/buildenv_* 2>/dev/null | head -1); \
         if [ ! -d "$BUILDDIR" ] || [ ! -f "$BUILDDIR/go.mod" ]; then \
@@ -206,6 +237,14 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Renovate tracks these via regex manager in renovate.json
         # renovate: datasource=go depName=github.com/expr-lang/expr
         go get github.com/expr-lang/expr@v1.17.7; \
+        # renovate: datasource=go depName=github.com/hslatman/ipstore
+        go get github.com/hslatman/ipstore@v0.4.0; \
+        # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
+        # uses legacy nebula APIs removed in nebula v1.10+, which causes compile
+        # failures in authority/provisioner. Keep this pinned to a known-compatible
+        # v1.9.x release until upstream stack supports nebula v1.10+.
+        # renovate: datasource=go depName=github.com/slackhq/nebula
+        go get github.com/slackhq/nebula@v1.9.7; \
         # Clean up go.mod and ensure all dependencies are resolved
         go mod tidy; \
         echo "Dependencies patched successfully"; \
@@ -224,10 +263,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         rm -rf /tmp/buildenv_* /tmp/caddy-initial'
 
 # ---- CrowdSec Builder ----
-# Build CrowdSec from source to ensure we use Go 1.25.5+ and avoid stdlib vulnerabilities
+# Build CrowdSec from source to ensure we use Go 1.26.0+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
 # renovate: datasource=docker depName=golang versioning=docker
-FROM --platform=$BUILDPLATFORM golang:1.25.6-trixie@sha256:0032c99f1682c40dca54932e2fe0156dc575ed12c6a4fdec94df9db7a0c17ab0 AS crowdsec-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.0-alpine AS crowdsec-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
@@ -241,11 +280,12 @@ ARG CROWDSEC_VERSION=1.7.6
 # CrowdSec fallback tarball checksum (v${CROWDSEC_VERSION})
 ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git clang lld \
-    && rm -rf /var/lib/apt/lists/*
+# hadolint ignore=DL3018
+RUN apk add --no-cache git clang lld
 # hadolint ignore=DL3059
-RUN xx-apt install -y gcc libc6-dev
+# hadolint ignore=DL3018
+# Install both musl-dev (headers) and musl (runtime library) for cross-compilation linker
+RUN xx-apk add --no-cache gcc musl-dev musl
 
 # Clone CrowdSec source
 RUN git clone --depth 1 --branch "v${CROWDSEC_VERSION}" https://github.com/crowdsecurity/crowdsec.git .
@@ -285,8 +325,10 @@ RUN mkdir -p /crowdsec-out/config && \
     cp -r config/* /crowdsec-out/config/ || true
 
 # ---- CrowdSec Fallback (for architectures where build fails) ----
-# renovate: datasource=docker depName=debian
-FROM debian:trixie-slim@sha256:f6e2cfac5cf956ea044b4bd75e6397b4372ad88fe00908045e9a0d21712ae3ba AS crowdsec-fallback
+# renovate: datasource=docker depName=alpine versioning=docker
+FROM alpine:3.23.3 AS crowdsec-fallback
+
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 
 WORKDIR /tmp/crowdsec
 
@@ -296,10 +338,8 @@ ARG TARGETARCH
 ARG CROWDSEC_VERSION=1.7.6
 ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
 
-# Note: Debian slim does NOT include tar by default - must be explicitly installed
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates tar \
-    && rm -rf /var/lib/apt/lists/*
+# hadolint ignore=DL3018
+RUN apk add --no-cache curl ca-certificates
 
 # Download static binaries as fallback (only available for amd64)
 # For other architectures, create empty placeholder files so COPY doesn't fail
@@ -332,19 +372,21 @@ WORKDIR /app
 # Note: gosu is now built from source (see gosu-builder stage) to avoid CVEs from Debian's pre-compiled version
 # Explicitly upgrade packages to fix security vulnerabilities
 # binutils provides objdump for debug symbol detection in docker-entrypoint.sh
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash ca-certificates libsqlite3-0 sqlite3 tzdata curl gettext-base libcap2-bin libc-ares2 binutils \
-    && apt-get upgrade -y \
-    && rm -rf /var/lib/apt/lists/*
+# hadolint ignore=DL3018
+RUN apk add --no-cache \
+    bash ca-certificates sqlite-libs sqlite tzdata curl gettext libcap libcap-utils \
+    c-ares binutils libc-utils busybox-extras
 
-# Copy gosu binary from gosu-builder (built with Go 1.25+ to avoid stdlib CVEs)
+# Copy gosu binary from gosu-builder (built with Go 1.26+ to avoid stdlib CVEs)
 COPY --from=gosu-builder /gosu-out/gosu /usr/sbin/gosu
 RUN chmod +x /usr/sbin/gosu
 
 # Security: Create non-root user and group for running the application
 # This follows the principle of least privilege (CIS Docker Benchmark 4.1)
-RUN groupadd -g 1000 charon && \
-    useradd -u 1000 -g charon -d /app -s /usr/sbin/nologin -M charon
+RUN addgroup -g 1000 -S charon && \
+    adduser -u 1000 -S -G charon -h /app -s /sbin/nologin charon
+
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 
 # Download MaxMind GeoLite2 Country database
 # Note: In production, users should provide their own MaxMind license key
@@ -352,20 +394,30 @@ RUN groupadd -g 1000 charon && \
 # In CI, timeout quickly rather than retrying to save build time
 ARG GEOLITE2_COUNTRY_SHA256=1cf82f09ce08a6e160d7426fc59fd6c12d56650e7408c832172b2eb9b62cf28d
 RUN mkdir -p /app/data/geoip && \
-    if [ -n "$CI" ]; then \
-      echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
-      curl -fSL -m 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-        -o /app/data/geoip/GeoLite2-Country.mmdb 2>/dev/null && \
-        echo "✅ GeoIP downloaded" || \
-        (echo "⚠️  GeoIP skipped" && touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder); \
-    else \
-      echo "Local - full download (30s timeout, 3 retries)"; \
-      curl -fSL -m 30 --retry 3 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-        -o /app/data/geoip/GeoLite2-Country.mmdb && \
-      (echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c - || \
-       (echo "⚠️  Checksum failed" && touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder)) || \
-      (echo "⚠️  Download failed" && touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder); \
-    fi
+        if [ -n "$CI" ]; then \
+            echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
+            if curl -fSL -m 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
+                -o /app/data/geoip/GeoLite2-Country.mmdb 2>/dev/null; then \
+                echo "✅ GeoIP downloaded"; \
+            else \
+                echo "⚠️  GeoIP skipped"; \
+                touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder; \
+            fi; \
+        else \
+            echo "Local - full download (30s timeout, 3 retries)"; \
+            if curl -fSL -m 30 --retry 3 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
+                -o /app/data/geoip/GeoLite2-Country.mmdb; then \
+                if echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c -; then \
+                    echo "✅ GeoIP checksum verified"; \
+                else \
+                    echo "⚠️  Checksum failed"; \
+                    touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder; \
+                fi; \
+            else \
+                echo "⚠️  Download failed"; \
+                touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder; \
+            fi; \
+        fi
 
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
@@ -373,17 +425,29 @@ COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 # Allow non-root to bind privileged ports (80/443) securely
 RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
 
-# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.25.5+)
+# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.0+)
 # This ensures we don't have stdlib vulnerabilities from older Go versions
 COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec
 COPY --from=crowdsec-builder /crowdsec-out/cscli /usr/local/bin/cscli
+# Copy CrowdSec configuration files to .dist directory (will be used at runtime)
 COPY --from=crowdsec-builder /crowdsec-out/config /etc/crowdsec.dist
+# Verify config files were copied successfully
+RUN if [ ! -f /etc/crowdsec.dist/config.yaml ]; then \
+        echo "WARNING: config.yaml not found in /etc/crowdsec.dist"; \
+        echo "Available files in /etc/crowdsec.dist:"; \
+        ls -la /etc/crowdsec.dist/ 2>/dev/null || echo "Directory empty or missing"; \
+    else \
+        echo "✓ config.yaml found in /etc/crowdsec.dist"; \
+    fi
 
-# Verify CrowdSec binaries
+# Verify CrowdSec binaries and configuration
 RUN chmod +x /usr/local/bin/crowdsec /usr/local/bin/cscli 2>/dev/null || true; \
     if [ -x /usr/local/bin/cscli ]; then \
-        echo "CrowdSec installed (built from source with Go 1.25):"; \
+        echo "CrowdSec installed (built from source with Go 1.26):"; \
         cscli version || echo "CrowdSec version check failed"; \
+        echo ""; \
+        echo "Configuration source: /etc/crowdsec.dist"; \
+        ls -la /etc/crowdsec.dist/ | head -10 || echo "ERROR: /etc/crowdsec.dist directory not found"; \
     else \
         echo "CrowdSec not available for this architecture"; \
     fi
@@ -395,11 +459,14 @@ RUN mkdir -p /var/lib/crowdsec/data /var/log/crowdsec /var/log/caddy \
     chown -R charon:charon /var/lib/crowdsec /var/log/crowdsec \
                            /app/data/crowdsec
 
-# Generate CrowdSec default configs to .dist directory
-RUN if command -v cscli >/dev/null; then \
-        mkdir -p /etc/crowdsec.dist && \
-        cscli config restore /etc/crowdsec.dist/ || \
-        cp -r /etc/crowdsec/* /etc/crowdsec.dist/ 2>/dev/null || true; \
+# Ensure config.yaml exists in .dist (required for runtime)
+# Skip cscli config restore at build time (no valid /etc/crowdsec at this stage)
+# The runtime entrypoint will handle config initialization from .dist
+RUN if [ ! -f /etc/crowdsec.dist/config.yaml ]; then \
+        echo "⚠️  WARNING: config.yaml not in /etc/crowdsec.dist after builder COPY"; \
+        echo "   This file is critical for CrowdSec initialization at runtime"; \
+    else \
+        echo "✓ /etc/crowdsec.dist/config.yaml verified"; \
     fi
 
 # Copy CrowdSec configuration templates from source

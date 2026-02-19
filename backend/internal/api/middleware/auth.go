@@ -19,20 +19,25 @@ func AuthMiddleware(authService *services.AuthService) gin.HandlerFunc {
 			}
 		}
 
+		if authService == nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
+			return
+		}
+
 		tokenString, ok := extractAuthToken(c)
 		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
 			return
 		}
 
-		claims, err := authService.ValidateToken(tokenString)
+		user, _, err := authService.AuthenticateToken(tokenString)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 			return
 		}
 
-		c.Set("userID", claims.UserID)
-		c.Set("role", claims.Role)
+		c.Set("userID", user.ID)
+		c.Set("role", user.Role)
 		c.Next()
 	}
 }
@@ -40,10 +45,10 @@ func AuthMiddleware(authService *services.AuthService) gin.HandlerFunc {
 func extractAuthToken(c *gin.Context) (string, bool) {
 	authHeader := c.GetHeader("Authorization")
 
+	// Fall back to cookie for browser flows (including WebSocket upgrades)
 	if authHeader == "" {
-		// Try cookie first for browser flows (including WebSocket upgrades)
-		if cookie, err := c.Cookie("auth_token"); err == nil && cookie != "" {
-			authHeader = "Bearer " + cookie
+		if cookieToken := extractAuthCookieToken(c); cookieToken != "" {
+			authHeader = "Bearer " + cookieToken
 		}
 	}
 
@@ -67,6 +72,27 @@ func extractAuthToken(c *gin.Context) (string, bool) {
 	}
 
 	return tokenString, true
+}
+
+func extractAuthCookieToken(c *gin.Context) string {
+	if c.Request == nil {
+		return ""
+	}
+
+	token := ""
+	for _, cookie := range c.Request.Cookies() {
+		if cookie.Name != "auth_token" {
+			continue
+		}
+
+		if cookie.Value == "" {
+			continue
+		}
+
+		token = cookie.Value
+	}
+
+	return token
 }
 
 func RequireRole(role string) gin.HandlerFunc {

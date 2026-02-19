@@ -108,8 +108,18 @@ func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
 func TestSecurityHandler_UpsertDeleteTriggersApplyConfig(t *testing.T) {
 	t.Helper()
 	// Setup DB
-	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
+	dsn := filepath.Join(t.TempDir(), "security_rules_decisions_test.db") + "?_busy_timeout=5000&_journal_mode=WAL"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+	t.Cleanup(func() {
+		if sqlDB != nil {
+			_ = sqlDB.Close()
+		}
+	})
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityDecision{}, &models.SecurityAudit{}, &models.SecurityRuleSet{}))
 
 	// Ensure DB has expected tables (migrations executed above)

@@ -10,6 +10,7 @@
 
 import { request, APIRequestContext } from '@playwright/test';
 import { existsSync } from 'fs';
+import { dirname } from 'path';
 import { TestDataManager } from './utils/TestDataManager';
 import { STORAGE_STATE } from './constants';
 
@@ -104,7 +105,7 @@ function getBaseURL(): string {
  * Check if Caddy admin API is enabled and healthy (port 2019 - read-only config inspection)
  */
 async function checkCaddyAdminHealth(): Promise<boolean> {
-  const caddyAdminHost = process.env.CADDY_ADMIN_HOST || 'http://127.0.0.1:2019';
+  const caddyAdminHost = process.env.CADDY_ADMIN_HOST || 'http://localhost:2019';
   const startTime = Date.now();
   console.log(`🔍 Checking Caddy admin API health at ${caddyAdminHost}...`);
 
@@ -134,7 +135,7 @@ async function checkCaddyAdminHealth(): Promise<boolean> {
  * This prevents 401 errors when global-setup runs before containers finish starting.
  */
 async function waitForContainer(maxRetries = 15, delayMs = 2000): Promise<void> {
-  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+  const baseURL = getBaseURL();
   console.log(`⏳ Waiting for container to be ready at ${baseURL}...`);
 
   for (let i = 0; i < maxRetries; i++) {
@@ -161,7 +162,7 @@ async function waitForContainer(maxRetries = 15, delayMs = 2000): Promise<void> 
  * Check if emergency tier-2 server is enabled and healthy (port 2020 - break-glass with auth)
  */
 async function checkEmergencyServerHealth(): Promise<boolean> {
-  const emergencyHost = process.env.EMERGENCY_SERVER_HOST || 'http://127.0.0.1:2020';
+  const emergencyHost = process.env.EMERGENCY_SERVER_HOST || 'http://localhost:2020';
   const startTime = Date.now();
   console.log(`🔍 Checking emergency tier-2 server health at ${emergencyHost}...`);
 
@@ -322,7 +323,9 @@ async function globalSetup(): Promise<void> {
     }
     await authenticatedContext.dispose();
   } else {
-    console.log('⏭️  Skipping authenticated security reset (no auth state file)');
+    const authDir = dirname(STORAGE_STATE);
+    console.log(`⏭️  Skipping authenticated security reset (no auth state file at ${STORAGE_STATE})`);
+    console.log(`   └─ Auth dir exists: ${existsSync(authDir) ? 'Yes' : 'No'} (${authDir})`);
   }
 }
 
@@ -388,7 +391,7 @@ async function emergencySecurityReset(requestContext: APIRequestContext): Promis
   console.log('🔓 Performing emergency security reset...');
 
   const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
-  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+  const baseURL = getBaseURL();
 
   if (!emergencyToken) {
     console.warn('  ⚠️  CHARON_EMERGENCY_TOKEN not set, skipping emergency reset');

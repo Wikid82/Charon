@@ -1,19 +1,19 @@
 name: CodeQL - Analyze
 
 on:
-  push:
-    branches: [ main, development, 'feature/**' ]
   pull_request:
-    branches: [ main, development ]
+    branches: [main, nightly, development]
+  push:
+    branches: [main, nightly, development, 'feature/**', 'fix/**']
+  workflow_dispatch:
   schedule:
-    - cron: '0 3 * * 1'
+    - cron: '0 3 * * 1' # Mondays 03:00 UTC
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.25.6'
   GOTOOLCHAIN: auto
 
 permissions:
@@ -26,8 +26,6 @@ jobs:
   analyze:
     name: CodeQL analysis (${{ matrix.language }})
     runs-on: ubuntu-latest
-    # Skip forked PRs where CHARON_TOKEN lacks security-events permissions
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
     permissions:
       contents: read
       security-events: write
@@ -40,11 +38,18 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify CodeQL parity guard
+        if: matrix.language == 'go'
+        run: bash scripts/ci/check-codeql-parity.sh
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@6bc82e05fd0ea64601dd4b465378bbcf57de0314 # v4
+        uses: github/codeql-action/init@9e907b5e64f6b83e7804b09294d44122997950d6 # v4
         with:
           languages: ${{ matrix.language }}
+          queries: security-and-quality
           # Use CodeQL config to exclude documented false positives
           # Go: Excludes go/request-forgery for url_testing.go (has 4-layer SSRF defense)
           # See: .github/codeql/codeql-config.yml for full justification
@@ -54,69 +59,119 @@ jobs:
         if: matrix.language == 'go'
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version: 1.26.0
           cache-dependency-path: backend/go.sum
 
+      - name: Verify Go toolchain and build
+        if: matrix.language == 'go'
+        run: |
+          set -euo pipefail
+          cd backend
+          go version
+          MOD_GO_VERSION="$(awk '/^go / {print $2; exit}' go.mod)"
+          ACTIVE_GO_VERSION="$(go env GOVERSION | sed 's/^go//')"
+
+          case "$ACTIVE_GO_VERSION" in
+            "$MOD_GO_VERSION"|"$MOD_GO_VERSION".*)
+              ;;
+            *)
+              echo "::error::Go toolchain mismatch: go.mod requires ${MOD_GO_VERSION}, active is ${ACTIVE_GO_VERSION}"
+              exit 1
+              ;;
+          esac
+
+          go build ./...
+
+      - name: Prepare SARIF output directory
+        run: mkdir -p sarif-results
+
       - name: Autobuild
-        uses: github/codeql-action/autobuild@6bc82e05fd0ea64601dd4b465378bbcf57de0314 # v4
+        uses: github/codeql-action/autobuild@9e907b5e64f6b83e7804b09294d44122997950d6 # v4
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@6bc82e05fd0ea64601dd4b465378bbcf57de0314 # v4
+        uses: github/codeql-action/analyze@9e907b5e64f6b83e7804b09294d44122997950d6 # v4
         with:
           category: "/language:${{ matrix.language }}"
+          output: sarif-results/${{ matrix.language }}
 
       - name: Check CodeQL Results
         if: always()
         run: |
-          echo "## 🔒 CodeQL Security Analysis Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Language:** ${{ matrix.language }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Query Suite:** security-and-quality" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          set -euo pipefail
+          SARIF_DIR="sarif-results/${{ matrix.language }}"
 
-          # Find SARIF file (CodeQL action creates it in various locations)
-          SARIF_FILE=$(find ${{ runner.temp }} -name "*${{ matrix.language }}*.sarif" -type f 2>/dev/null | head -1)
-
-          if [ -f "$SARIF_FILE" ]; then
-            echo "Found SARIF file: $SARIF_FILE"
-            RESULT_COUNT=$(jq '.runs[].results | length' "$SARIF_FILE" 2>/dev/null || echo 0)
-            ERROR_COUNT=$(jq '[.runs[].results[] | select(.level == "error")] | length' "$SARIF_FILE" 2>/dev/null || echo 0)
-            WARNING_COUNT=$(jq '[.runs[].results[] | select(.level == "warning")] | length' "$SARIF_FILE" 2>/dev/null || echo 0)
-            NOTE_COUNT=$(jq '[.runs[].results[] | select(.level == "note")] | length' "$SARIF_FILE" 2>/dev/null || echo 0)
-
-            echo "**Findings:**" >> $GITHUB_STEP_SUMMARY
-            echo "- 🔴 Errors: $ERROR_COUNT" >> $GITHUB_STEP_SUMMARY
-            echo "- 🟡 Warnings: $WARNING_COUNT" >> $GITHUB_STEP_SUMMARY
-            echo "- 🔵 Notes: $NOTE_COUNT" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-
-            if [ "$ERROR_COUNT" -gt 0 ]; then
-              echo "❌ **CRITICAL:** High-severity security issues found!" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "### Top Issues:" >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-              jq -r '.runs[].results[] | select(.level == "error") | "\(.ruleId): \(.message.text)"' "$SARIF_FILE" 2>/dev/null | head -5 >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-            else
-              echo "✅ No high-severity issues found" >> $GITHUB_STEP_SUMMARY
-            fi
-          else
-            echo "⚠️ SARIF file not found - check analysis logs" >> $GITHUB_STEP_SUMMARY
+          if [ ! -d "$SARIF_DIR" ]; then
+            echo "::error::Expected SARIF output directory is missing: $SARIF_DIR"
+            echo "❌ **ERROR:** SARIF output directory is missing: $SARIF_DIR" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "View full results in the [Security tab](https://github.com/${{ github.repository }}/security/code-scanning)" >> $GITHUB_STEP_SUMMARY
+          SARIF_FILE="$(find "$SARIF_DIR" -maxdepth 1 -type f -name '*.sarif' | head -n 1 || true)"
+
+          {
+            echo "## 🔒 CodeQL Security Analysis Results"
+            echo ""
+            echo "**Language:** ${{ matrix.language }}"
+            echo "**Query Suite:** security-and-quality"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "$SARIF_FILE" ] || [ ! -r "$SARIF_FILE" ]; then
+            echo "::error::Expected SARIF file is missing or unreadable: $SARIF_FILE"
+            echo "❌ **ERROR:** SARIF file is missing or unreadable: $SARIF_FILE" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          echo "Found SARIF file: $SARIF_FILE"
+          ERROR_COUNT=$(jq '[.runs[].results[] | select(.level == "error")] | length' "$SARIF_FILE")
+          WARNING_COUNT=$(jq '[.runs[].results[] | select(.level == "warning")] | length' "$SARIF_FILE")
+          NOTE_COUNT=$(jq '[.runs[].results[] | select(.level == "note")] | length' "$SARIF_FILE")
+
+          {
+            echo "**Findings:**"
+            echo "- 🔴 Errors: $ERROR_COUNT"
+            echo "- 🟡 Warnings: $WARNING_COUNT"
+            echo "- 🔵 Notes: $NOTE_COUNT"
+            echo ""
+
+            if [ "$ERROR_COUNT" -gt 0 ]; then
+              echo "❌ **CRITICAL:** High-severity security issues found!"
+              echo ""
+              echo "### Top Issues:"
+              echo '```'
+              jq -r '.runs[].results[] | select(.level == "error") | "\(.ruleId): \(.message.text)"' "$SARIF_FILE" | head -5
+              echo '```'
+            else
+              echo "✅ No high-severity issues found"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          {
+            echo ""
+            echo "View full results in the [Security tab](https://github.com/${{ github.repository }}/security/code-scanning)"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fail on High-Severity Findings
         if: always()
         run: |
-          SARIF_FILE=$(find ${{ runner.temp }} -name "*${{ matrix.language }}*.sarif" -type f 2>/dev/null | head -1)
+          set -euo pipefail
+          SARIF_DIR="sarif-results/${{ matrix.language }}"
 
-          if [ -f "$SARIF_FILE" ]; then
-            ERROR_COUNT=$(jq '[.runs[].results[] | select(.level == "error")] | length' "$SARIF_FILE" 2>/dev/null || echo 0)
+          if [ ! -d "$SARIF_DIR" ]; then
+            echo "::error::Expected SARIF output directory is missing: $SARIF_DIR"
+            exit 1
+          fi
 
-            if [ "$ERROR_COUNT" -gt 0 ]; then
-              echo "::error::CodeQL found $ERROR_COUNT high-severity security issues. Fix before merging."
-              exit 1
-            fi
+          SARIF_FILE="$(find "$SARIF_DIR" -maxdepth 1 -type f -name '*.sarif' | head -n 1 || true)"
+
+          if [ -z "$SARIF_FILE" ] || [ ! -r "$SARIF_FILE" ]; then
+            echo "::error::Expected SARIF file is missing or unreadable: $SARIF_FILE"
+            exit 1
+          fi
+
+          ERROR_COUNT=$(jq '[.runs[].results[] | select(.level == "error")] | length' "$SARIF_FILE")
+
+          if [ "$ERROR_COUNT" -gt 0 ]; then
+            echo "::error::CodeQL found $ERROR_COUNT high-severity security issues. Fix before merging."
+            exit 1
           fi

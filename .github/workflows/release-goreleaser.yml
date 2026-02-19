@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  GO_VERSION: '1.25.6'
+  GO_VERSION: '1.26.0'
   NODE_VERSION: '24.12.0'
   GOTOOLCHAIN: auto
 
@@ -47,7 +47,7 @@ jobs:
         run: |
           # Inject version into frontend build from tag (if present)
           VERSION=${GITHUB_REF#refs/tags/}
-          echo "VITE_APP_VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "VITE_APP_VERSION=${VERSION}" >> "$GITHUB_ENV"
           npm ci
           npm run build
 

@@ -28,6 +28,12 @@ LOG_PREFIX="[prune]"
 now_ts=$(date +%s)
 cutoff_ts=$(date -d "$KEEP_DAYS days ago" +%s 2>/dev/null || date -d "-$KEEP_DAYS days" +%s)
 
+# Totals
+TOTAL_CANDIDATES=0
+TOTAL_CANDIDATES_BYTES=0
+TOTAL_DELETED=0
+TOTAL_DELETED_BYTES=0
+
 echo "$LOG_PREFIX starting with REGISTRIES=$REGISTRIES KEEP_DAYS=$KEEP_DAYS DRY_RUN=$DRY_RUN"
 
 action_delete_ghcr() {
@@ -92,12 +98,32 @@ action_delete_ghcr() {
 
       echo "$LOG_PREFIX candidate: id=$id tags=$tags created=$created"
 
+      # Try to estimate size for GHCR by fetching manifest (best-effort)
+      candidate_bytes=0
+      for tag in $(echo "$tags" | sed 's/,/ /g'); do
+        if [[ -n "$tag" && "$tag" != "null" ]]; then
+          manifest_url="https://ghcr.io/v2/${OWNER}/${IMAGE_NAME}/manifests/${tag}"
+          manifest=$(curl -sS -H "Accept: application/vnd.docker.distribution.manifest.v2+json" -H "Authorization: Bearer $GITHUB_TOKEN" "$manifest_url" || true)
+          if [[ -n "$manifest" ]]; then
+            bytes=$(echo "$manifest" | jq -r '.layers // [] | map(.size) | add // 0')
+            if [[ "$bytes" != "null" ]] && (( bytes > 0 )) 2>/dev/null; then
+              candidate_bytes=$((candidate_bytes + bytes))
+            fi
+          fi
+        fi
+      done
+
+      TOTAL_CANDIDATES=$((TOTAL_CANDIDATES+1))
+      TOTAL_CANDIDATES_BYTES=$((TOTAL_CANDIDATES_BYTES + candidate_bytes))
+
       if [[ "$DRY_RUN" == "true" ]]; then
-        echo "$LOG_PREFIX DRY RUN: would delete GHCR version id=$id"
+        echo "$LOG_PREFIX DRY RUN: would delete GHCR version id=$id (approx ${candidate_bytes} bytes)"
       else
-        echo "$LOG_PREFIX deleting GHCR version id=$id"
+        echo "$LOG_PREFIX deleting GHCR version id=$id (approx ${candidate_bytes} bytes)"
         curl -sS -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN" \
           "https://api.github.com/${namespace_type}/${OWNER}/packages/container/${IMAGE_NAME}/versions/$id"
+        TOTAL_DELETED=$((TOTAL_DELETED+1))
+        TOTAL_DELETED_BYTES=$((TOTAL_DELETED_BYTES + candidate_bytes))
       fi
 
     done
@@ -160,12 +186,25 @@ action_delete_dockerhub() {
 
       echo "$LOG_PREFIX candidate: tag=$tag_name last_updated=$last_updated"
 
+      # Estimate size from Docker Hub tag JSON (images[].size or full_size)
+      bytes=0
+      bytes=$(echo "$tag" | jq -r '.images | map(.size) | add // empty') || true
+      if [[ -z "$bytes" || "$bytes" == "null" ]]; then
+        bytes=$(echo "$tag" | jq -r '.full_size // empty' 2>/dev/null || true)
+      fi
+      bytes=${bytes:-0}
+
+      TOTAL_CANDIDATES=$((TOTAL_CANDIDATES+1))
+      TOTAL_CANDIDATES_BYTES=$((TOTAL_CANDIDATES_BYTES + bytes))
+
       if [[ "$DRY_RUN" == "true" ]]; then
-        echo "$LOG_PREFIX DRY RUN: would delete Docker Hub tag=$tag_name"
+        echo "$LOG_PREFIX DRY RUN: would delete Docker Hub tag=$tag_name (approx ${bytes} bytes)"
       else
-        echo "$LOG_PREFIX deleting Docker Hub tag=$tag_name"
+        echo "$LOG_PREFIX deleting Docker Hub tag=$tag_name (approx ${bytes} bytes)"
         curl -sS -X DELETE -H "Authorization: JWT $hub_token" \
           "https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/${IMAGE_NAME}/tags/${tag_name}/"
+        TOTAL_DELETED=$((TOTAL_DELETED+1))
+        TOTAL_DELETED_BYTES=$((TOTAL_DELETED_BYTES + bytes))
       fi
 
     done
@@ -189,5 +228,31 @@ for r in "${regs[@]}"; do
       ;;
   esac
 done
+
+# Summary
+human_readable() {
+  local bytes=$1
+  if (( bytes == 0 )); then
+    echo "0 B"
+    return
+  fi
+  local unit=(B KiB MiB GiB TiB)
+  local i=0
+  local value=$bytes
+  while (( value > 1024 )) && (( i < 4 )); do
+    value=$((value / 1024))
+    i=$((i + 1))
+  done
+  printf "%s %s" "${value}" "${unit[$i]}"
+}
+
+echo "$LOG_PREFIX SUMMARY: total_candidates=${TOTAL_CANDIDATES} total_candidates_bytes=${TOTAL_CANDIDATES_BYTES} total_deleted=${TOTAL_DELETED} total_deleted_bytes=${TOTAL_DELETED_BYTES}"
+echo "$LOG_PREFIX SUMMARY_HUMAN: candidates=${TOTAL_CANDIDATES} candidates_size=$(human_readable ${TOTAL_CANDIDATES_BYTES}) deleted=${TOTAL_DELETED} deleted_size=$(human_readable ${TOTAL_DELETED_BYTES})"
+
+# Export summary for workflow parsing
+echo "TOTAL_CANDIDATES=${TOTAL_CANDIDATES}" >> prune-summary.env
+echo "TOTAL_CANDIDATES_BYTES=${TOTAL_CANDIDATES_BYTES}" >> prune-summary.env
+echo "TOTAL_DELETED=${TOTAL_DELETED}" >> prune-summary.env
+echo "TOTAL_DELETED_BYTES=${TOTAL_DELETED_BYTES}" >> prune-summary.env
 
 echo "$LOG_PREFIX done"

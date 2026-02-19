@@ -378,10 +378,11 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
 
         <div className="flex items-center justify-between">
           <div>
-            <label className="block text-sm font-medium text-gray-300">Enabled</label>
+            <label id="access-list-enabled-label" className="block text-sm font-medium text-gray-300">Enabled</label>
             <p className="text-xs text-gray-500">Apply this access list to hosts</p>
           </div>
           <Switch
+            aria-labelledby="access-list-enabled-label"
             checked={formData.enabled}
             onCheckedChange={(checked) => setFormData({ ...formData, enabled: checked })}
           />
@@ -393,12 +394,13 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
         <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <label className="block text-sm font-medium text-gray-300">Local Network Only (RFC1918)</label>
+              <label id="access-list-local-network-label" className="block text-sm font-medium text-gray-300">Local Network Only (RFC1918)</label>
               <p className="text-xs text-gray-500">
                 Allow only private network IPs (10.x.x.x, 192.168.x.x, 172.16-31.x.x)
               </p>
             </div>
             <Switch
+              aria-labelledby="access-list-local-network-label"
               checked={formData.local_network_only}
               onCheckedChange={(checked) =>
                 setFormData({ ...formData, local_network_only: checked })
@@ -485,8 +487,9 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
       {isGeoType && (
         <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Select Countries</label>
+            <label htmlFor="country-select" className="block text-sm font-medium text-gray-300 mb-2">Select Countries</label>
             <select
+              id="country-select"
               onChange={(e) => {
                 if (e.target.value) {
                   handleAddCountry(e.target.value);

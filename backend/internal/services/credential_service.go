@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -230,8 +231,8 @@ func (s *credentialService) Update(ctx context.Context, providerID, credentialID
 
 	// Fetch provider for validation and audit logging
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
-		return nil, err
+	if findErr := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; findErr != nil {
+		return nil, findErr
 	}
 
 	// Track changed fields for audit log
@@ -351,11 +352,24 @@ func (s *credentialService) Delete(ctx context.Context, providerID, credentialID
 		return err
 	}
 
-	result := s.db.WithContext(ctx).Delete(&models.DNSProviderCredential{}, credentialID)
-	if result.Error != nil {
-		return result.Error
+	const maxDeleteAttempts = 5
+	var result *gorm.DB
+	for attempt := 1; attempt <= maxDeleteAttempts; attempt++ {
+		result = s.db.WithContext(ctx).Delete(&models.DNSProviderCredential{}, credentialID)
+		if result.Error == nil {
+			break
+		}
+
+		errMsg := strings.ToLower(result.Error.Error())
+		isTransientLock := strings.Contains(errMsg, "database is locked") || strings.Contains(errMsg, "database table is locked") || strings.Contains(errMsg, "busy")
+		if !isTransientLock || attempt == maxDeleteAttempts {
+			return result.Error
+		}
+
+		time.Sleep(time.Duration(attempt) * 10 * time.Millisecond)
 	}
-	if result.RowsAffected == 0 {
+
+	if result == nil || result.RowsAffected == 0 {
 		return ErrCredentialNotFound
 	}
 
@@ -389,8 +403,8 @@ func (s *credentialService) Test(ctx context.Context, providerID, credentialID u
 	}
 
 	var provider models.DNSProvider
-	if err := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; err != nil {
-		return nil, err
+	if findErr := s.db.WithContext(ctx).Where("id = ?", providerID).First(&provider).Error; findErr != nil {
+		return nil, findErr
 	}
 
 	// Decrypt credentials

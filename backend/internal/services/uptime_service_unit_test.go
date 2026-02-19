@@ -190,6 +190,27 @@ func TestCheckMonitor_TCPFailure(t *testing.T) {
 	require.NotEmpty(t, hb.Message)
 }
 
+func TestCreateMonitor_AppliesDefaultIntervalAndRetries(t *testing.T) {
+	db := setupUnitTestDB(t)
+	svc := NewUptimeService(db, nil)
+
+	monitor, err := svc.CreateMonitor("defaults", "http://example.com", "http", 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, 60, monitor.Interval)
+	require.Equal(t, 3, monitor.MaxRetries)
+	require.Equal(t, "pending", monitor.Status)
+	require.True(t, monitor.Enabled)
+}
+
+func TestCreateMonitor_TCPRequiresHostPort(t *testing.T) {
+	db := setupUnitTestDB(t)
+	svc := NewUptimeService(db, nil)
+
+	_, err := svc.CreateMonitor("bad-tcp", "example.com", "tcp", 60, 2)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "TCP URL must be in host:port format")
+}
+
 // TestCheckMonitor_UnknownType tests unknown monitor type
 func TestCheckMonitor_UnknownType(t *testing.T) {
 	db := setupUnitTestDB(t)

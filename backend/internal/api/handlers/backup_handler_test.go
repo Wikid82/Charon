@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,7 +15,33 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/services"
+	_ "github.com/mattn/go-sqlite3"
 )
+
+func TestIsSQLiteTransientRehydrateError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil error", err: nil, want: false},
+		{name: "database is locked", err: errors.New("database is locked"), want: true},
+		{name: "database is busy", err: errors.New("database is busy"), want: true},
+		{name: "database table is locked", err: errors.New("database table is locked"), want: true},
+		{name: "table is locked", err: errors.New("table is locked"), want: true},
+		{name: "resource busy", err: errors.New("resource busy"), want: true},
+		{name: "mixed-case transient message", err: errors.New("Database Is Locked"), want: true},
+		{name: "non-transient error", err: errors.New("constraint failed"), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, isSQLiteTransientRehydrateError(tt.err))
+		})
+	}
+}
 
 func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string) {
 	t.Helper()
@@ -35,8 +63,14 @@ func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string
 	require.NoError(t, err)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
-	// Create a dummy DB file to back up
-	err = os.WriteFile(dbPath, []byte("dummy db content"), 0o600)
+	db, err := sql.Open("sqlite3", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS healthcheck (id INTEGER PRIMARY KEY, value TEXT)")
+	require.NoError(t, err)
+	_, err = db.Exec("INSERT INTO healthcheck (value) VALUES (?)", "ok")
 	require.NoError(t, err)
 
 	cfg := &config.Config{
@@ -47,6 +81,11 @@ func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string
 	h := NewBackupHandler(svc)
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
 	api := r.Group("/api/v1")
 	// Manually register routes since we don't have a RegisterRoutes method on the handler yet?
 	// Wait, I didn't check if I added RegisterRoutes to BackupHandler.
@@ -103,6 +142,11 @@ func TestBackupLifecycle(t *testing.T) {
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
+	var restoreResult map[string]any
+	err = json.Unmarshal(resp.Body.Bytes(), &restoreResult)
+	require.NoError(t, err)
+	require.Contains(t, restoreResult, "restart_required")
+	require.Contains(t, restoreResult, "live_rehydrate_applied")
 
 	// 5. Download backup
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/backups/"+filename+"/download", http.NoBody)

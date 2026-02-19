@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,15 +14,20 @@ import (
 )
 
 func setupSecurityTestDB(t *testing.T) *gorm.DB {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	dsn := filepath.Join(t.TempDir(), "security_service_test.db") + "?_busy_timeout=5000&_journal_mode=WAL"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	assert.NoError(t, err)
+
+	sqlDB, err := db.DB()
+	assert.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 
 	err = db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityDecision{}, &models.SecurityAudit{}, &models.SecurityRuleSet{})
 	assert.NoError(t, err)
 
 	// Close database connection when test completes
 	t.Cleanup(func() {
-		sqlDB, _ := db.DB()
 		if sqlDB != nil {
 			_ = sqlDB.Close()
 		}
@@ -742,6 +748,36 @@ func TestSecurityService_AsyncAuditLogging(t *testing.T) {
 	err = db.Where("uuid = ?", audit.UUID).First(&stored).Error
 	assert.NoError(t, err)
 	assert.Equal(t, "test_action", stored.Action)
+}
+
+func TestSecurityService_LogAudit_ChannelFullFallsBackToSyncWrite(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := newTestSecurityService(t, db)
+
+	for i := 0; i < cap(svc.auditChan); i++ {
+		svc.auditChan <- &models.SecurityAudit{
+			UUID:   fmt.Sprintf("prefill-%d", i),
+			Actor:  "prefill",
+			Action: "prefill_action",
+		}
+	}
+
+	audit := &models.SecurityAudit{
+		Actor:  "sync-fallback",
+		Action: "user_create",
+	}
+
+	err := svc.LogAudit(audit)
+	assert.NoError(t, err)
+
+	assert.Eventually(t, func() bool {
+		var stored models.SecurityAudit
+		queryErr := db.Where("uuid = ?", audit.UUID).First(&stored).Error
+		if queryErr != nil {
+			return false
+		}
+		return stored.Actor == "sync-fallback"
+	}, time.Second, 20*time.Millisecond)
 }
 
 // TestSecurityService_ListAuditLogs_EdgeCases tests edge cases for audit log listing.

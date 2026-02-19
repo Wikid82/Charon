@@ -8,20 +8,20 @@
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [System Architecture](#system-architecture)
-- [Technology Stack](#technology-stack)
-- [Directory Structure](#directory-structure)
-- [Core Components](#core-components)
-- [Security Architecture](#security-architecture)
-- [Data Flow](#data-flow)
-- [Deployment Architecture](#deployment-architecture)
-- [Development Workflow](#development-workflow)
-- [Testing Strategy](#testing-strategy)
-- [Build & Release Process](#build--release-process)
-- [Extensibility](#extensibility)
-- [Known Limitations](#known-limitations)
-- [Maintenance & Updates](#maintenance--updates)
+- Overview
+- System Architecture
+- Technology Stack
+- Directory Structure
+- Core Components
+- Security Architecture
+- Data Flow
+- Deployment Architecture
+- Development Workflow
+- Testing Strategy
+- Build & Release Process
+- Extensibility
+- Known Limitations
+- Maintenance & Updates
 
 ---
 
@@ -122,7 +122,7 @@ graph TB
 
 | Component | Technology | Version | Purpose |
 |-----------|-----------|---------|---------|
-| **Language** | Go | 1.25.6 | Primary backend language |
+| **Language** | Go | 1.26.0 | Primary backend language |
 | **HTTP Framework** | Gin | Latest | Routing, middleware, HTTP handling |
 | **Database** | SQLite | 3.x | Embedded database |
 | **ORM** | GORM | Latest | Database abstraction layer |
@@ -751,7 +751,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Build backend
-FROM golang:1.25-bookworm AS backend-builder
+FROM golang:1.26-bookworm AS backend-builder
 WORKDIR /app/backend
 COPY backend/go.* ./
 RUN go mod download
@@ -858,7 +858,7 @@ services:
 
 1. **Prerequisites:**
    ```bash
-   - Go 1.25+ (backend development)
+   - Go 1.26+ (backend development)
    - Node.js 23+ and npm (frontend development)
    - Docker 24+ (E2E testing)
    - SQLite 3.x (database)
@@ -970,7 +970,7 @@ Closes #123
 **Execution:**
 ```bash
 # Run against Docker container
-npx playwright test --project=chromium
+cd /projects/Charon npx playwright test --project=firefox
 
 # Run with coverage (Vite dev server)
 .github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
@@ -1480,14 +1480,14 @@ graph TB
 
 ## Additional Resources
 
-- **[README.md](README.md)** - Project overview and quick start
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines
-- **[docs/features.md](docs/features.md)** - Detailed feature documentation
-- **[docs/api.md](docs/api.md)** - REST API reference
-- **[docs/database-schema.md](docs/database-schema.md)** - Database structure
-- **[docs/cerberus.md](docs/cerberus.md)** - Security suite documentation
-- **[docs/getting-started.md](docs/getting-started.md)** - User guide
-- **[SECURITY.md](SECURITY.md)** - Security policy and vulnerability reporting
+- README.md - Project overview and quick start
+- CONTRIBUTING.md - Contribution guidelines
+- docs/features.md - Detailed feature documentation
+- docs/api.md - REST API reference
+- docs/database-schema.md - Database structure
+- docs/cerberus.md - Security suite documentation
+- docs/getting-started.md - User guide
+- SECURITY.md - Security policy and vulnerability reporting
 
 ---
 

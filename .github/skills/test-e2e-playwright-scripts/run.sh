@@ -22,7 +22,7 @@ source "${SKILLS_SCRIPTS_DIR}/_environment_helpers.sh"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 # Default parameter values
-PROJECT="chromium"
+PROJECT="firefox"
 HEADED=false
 GREP=""
 
@@ -35,7 +35,7 @@ parse_arguments() {
                 shift
                 ;;
             --project)
-                PROJECT="${2:-chromium}"
+                PROJECT="${2:-firefox}"
                 shift 2
                 ;;
             --headed)
@@ -71,7 +71,7 @@ Run Playwright E2E tests against the Charon application.
 
 Options:
     --project=PROJECT   Browser project to run (chromium, firefox, webkit, all)
-                        Default: chromium
+                        Default: firefox
     --headed            Run tests in headed mode (visible browser)
     --grep=PATTERN      Filter tests by title pattern (regex)
     -h, --help          Show this help message
@@ -82,8 +82,8 @@ Environment Variables:
     CI                      Set to 'true' for CI environment
 
 Examples:
-    run.sh                              # Run all tests in Chromium (headless)
-    run.sh --project=firefox            # Run in Firefox
+    run.sh                              # Run all tests in Firefox (headless)
+    run.sh --project=chromium           # Run in Chromium
     run.sh --headed                     # Run with visible browser
     run.sh --grep="login"               # Run only login tests
     run.sh --project=all --grep="smoke" # All browsers, smoke tests only
@@ -147,7 +147,10 @@ main() {
 
     # Set environment variables for non-interactive execution
     export PLAYWRIGHT_HTML_OPEN="${PLAYWRIGHT_HTML_OPEN:-never}"
-    set_default_env "PLAYWRIGHT_BASE_URL" "http://localhost:8080"
+    export PLAYWRIGHT_SKIP_SECURITY_DEPS="${PLAYWRIGHT_SKIP_SECURITY_DEPS:-1}"
+    # Ensure non-coverage runs do NOT start the Vite dev server (use Docker in CI/local non-coverage)
+    export PLAYWRIGHT_COVERAGE="${PLAYWRIGHT_COVERAGE:-0}"
+    set_default_env "PLAYWRIGHT_BASE_URL" "http://127.0.0.1:8080"
 
     # Log configuration
     log_step "CONFIG" "Test configuration"

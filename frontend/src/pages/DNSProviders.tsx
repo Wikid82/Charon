@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Cloud } from 'lucide-react'
 import { Button, Alert, EmptyState, Skeleton } from '../components/ui'
 import DNSProviderCard from '../components/DNSProviderCard'
 import DNSProviderForm from '../components/DNSProviderForm'
+import { ManualDNSChallenge } from '../components/dns-providers'
 import { useDNSProviders, useDNSProviderMutations, type DNSProvider } from '../hooks/useDNSProviders'
+import { getChallenge, type ManualChallenge } from '../api/manualChallenge'
 import { toast } from '../utils/toast'
 
 export default function DNSProviders() {
@@ -15,6 +17,45 @@ export default function DNSProviders() {
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingProvider, setEditingProvider] = useState<DNSProvider | null>(null)
   const [testingProviderId, setTestingProviderId] = useState<number | null>(null)
+  const [manualChallenge, setManualChallenge] = useState<ManualChallenge | null>(null)
+  const [activeManualProviderId, setActiveManualProviderId] = useState<number | null>(null)
+  const [isManualChallengeOpen, setIsManualChallengeOpen] = useState(false)
+
+  const manualProviderId = providers.find((provider) => provider.provider_type === 'manual')?.id ?? null
+
+  const loadManualChallenge = useCallback(async (providerId: number): Promise<boolean> => {
+    try {
+      const challenge = await getChallenge(providerId, 'active')
+      setManualChallenge(challenge)
+      setActiveManualProviderId(providerId)
+      return true
+    } catch {
+      setManualChallenge(null)
+      setActiveManualProviderId(providerId)
+      return false
+    }
+  }, [])
+
+  const manualChallengeProviderId = activeManualProviderId ?? manualProviderId
+  const showManualChallenge =
+    isManualChallengeOpen && Boolean(manualChallenge) && manualChallengeProviderId !== null
+
+  const handleManualChallengeClick = async () => {
+    if (manualProviderId === null) {
+      toast.error(t('dnsProviders.noProviders'))
+      return
+    }
+
+    const hasChallenge = await loadManualChallenge(manualProviderId)
+
+    if (!hasChallenge) {
+      toast.error(t('dnsProvider.manual.challengeNotFound'))
+      setIsManualChallengeOpen(false)
+      return
+    }
+
+    setIsManualChallengeOpen(true)
+  }
 
   const handleAddProvider = () => {
     setEditingProvider(null)
@@ -88,6 +129,34 @@ export default function DNSProviders() {
         <strong>{t('dnsProviders.note')}:</strong> {t('dnsProviders.noteText')}
       </Alert>
 
+      <div className="flex justify-end">
+        <Button variant="secondary" onClick={() => void handleManualChallengeClick()}>
+          {t('dnsProvider.manual.title')}
+        </Button>
+      </div>
+
+      {showManualChallenge && manualChallenge && manualChallengeProviderId !== null && (
+        <ManualDNSChallenge
+          providerId={manualChallengeProviderId}
+          challenge={manualChallenge}
+          onComplete={() => {
+            const providerId = activeManualProviderId ?? manualProviderId
+            if (providerId === null) {
+              setIsManualChallengeOpen(false)
+              return
+            }
+
+            void loadManualChallenge(providerId).then((hasChallenge) => {
+              setIsManualChallengeOpen(hasChallenge)
+            })
+          }}
+          onCancel={() => {
+            setManualChallenge(null)
+            setIsManualChallengeOpen(false)
+          }}
+        />
+      )}
+
       {/* Loading State */}
       {isLoading && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -98,7 +167,7 @@ export default function DNSProviders() {
       )}
 
       {/* Empty State */}
-      {!isLoading && providers.length === 0 && (
+      {!isLoading && !showManualChallenge && providers.length === 0 && (
         <EmptyState
           icon={<Cloud className="w-10 h-10" />}
           title={t('dnsProviders.noProviders')}
@@ -111,7 +180,7 @@ export default function DNSProviders() {
       )}
 
       {/* Provider Cards Grid */}
-      {!isLoading && providers.length > 0 && (
+      {!isLoading && !showManualChallenge && providers.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {providers.map((provider) => (
             <DNSProviderCard

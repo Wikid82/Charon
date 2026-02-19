@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -16,12 +17,10 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
-func setupNotificationTestDB() *gorm.DB {
-	// Use openTestDB helper via temporary t trick
-	// Since this function lacks t param, keep calling openTestDB with a dummy testing.T
-	// But to avoid changing many callers, we'll reuse openTestDB by creating a short-lived testing.T wrapper isn't possible.
-	// Instead, set WAL and busy timeout using a simple gorm.Open with shared memory but minimal changes.
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_journal_mode=WAL&_busy_timeout=5000"), &gorm.Config{})
+func setupNotificationTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	dsn := filepath.Join(t.TempDir(), "notification_handler_test.db") + "?_journal_mode=WAL&_busy_timeout=5000"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		panic("failed to connect to test database")
 	}
@@ -31,7 +30,7 @@ func setupNotificationTestDB() *gorm.DB {
 
 func TestNotificationHandler_List(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupNotificationTestDB()
+	db := setupNotificationTestDB(t)
 
 	// Seed data
 	db.Create(&models.Notification{Title: "Test 1", Message: "Msg 1", Read: false})
@@ -67,7 +66,7 @@ func TestNotificationHandler_List(t *testing.T) {
 
 func TestNotificationHandler_MarkAsRead(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupNotificationTestDB()
+	db := setupNotificationTestDB(t)
 
 	// Seed data
 	notif := &models.Notification{Title: "Test 1", Message: "Msg 1", Read: false}
@@ -91,7 +90,7 @@ func TestNotificationHandler_MarkAsRead(t *testing.T) {
 
 func TestNotificationHandler_MarkAllAsRead(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupNotificationTestDB()
+	db := setupNotificationTestDB(t)
 
 	// Seed data
 	db.Create(&models.Notification{Title: "Test 1", Message: "Msg 1", Read: false})
@@ -115,7 +114,7 @@ func TestNotificationHandler_MarkAllAsRead(t *testing.T) {
 
 func TestNotificationHandler_MarkAllAsRead_Error(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupNotificationTestDB()
+	db := setupNotificationTestDB(t)
 	service := services.NewNotificationService(db)
 	handler := handlers.NewNotificationHandler(service)
 
@@ -134,7 +133,7 @@ func TestNotificationHandler_MarkAllAsRead_Error(t *testing.T) {
 
 func TestNotificationHandler_DBError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupNotificationTestDB()
+	db := setupNotificationTestDB(t)
 	service := services.NewNotificationService(db)
 	handler := handlers.NewNotificationHandler(service)
 

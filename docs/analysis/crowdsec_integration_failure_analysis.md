@@ -24,7 +24,7 @@ The CrowdSec integration tests are failing after migrating the Dockerfile from A
 
 **Current Dockerfile (lines 218-270):**
 ```dockerfile
-FROM --platform=$BUILDPLATFORM golang:1.25.6-trixie AS crowdsec-builder
+FROM --platform=$BUILDPLATFORM golang:1.25.7-trixie AS crowdsec-builder
 ```
 
 **Dependencies Installed:**

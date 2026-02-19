@@ -10,9 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/testutil"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -106,6 +108,87 @@ func setupTestHandler(t *testing.T, db *gorm.DB) (*ImportHandler, *mockProxyHost
 	return handler, mockSvc, mockImport
 }
 
+func addAdminMiddleware(router *gin.Engine) {
+	router.Use(func(c *gin.Context) {
+		setAdminContext(c)
+		c.Next()
+	})
+}
+
+func TestImportHandler_GetStatus_MountCommittedUnchanged(t *testing.T) {
+	t.Parallel()
+
+	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+		mountDir := t.TempDir()
+		mountPath := filepath.Join(mountDir, "mounted.caddyfile")
+		require.NoError(t, os.WriteFile(mountPath, []byte("example.com { respond \"ok\" }"), 0o600))
+
+		committedAt := time.Now()
+		require.NoError(t, tx.Create(&models.ImportSession{
+			UUID:        "committed-1",
+			SourceFile:  mountPath,
+			Status:      "committed",
+			CommittedAt: &committedAt,
+		}).Error)
+
+		require.NoError(t, os.Chtimes(mountPath, committedAt.Add(-1*time.Minute), committedAt.Add(-1*time.Minute)))
+
+		handler, _, _ := setupTestHandler(t, tx)
+		handler.mountPath = mountPath
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/import/status", http.NoBody)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var body map[string]any
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		assert.Equal(t, false, body["has_pending"])
+	})
+}
+
+func TestImportHandler_GetStatus_MountModifiedAfterCommit(t *testing.T) {
+	t.Parallel()
+
+	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+		mountDir := t.TempDir()
+		mountPath := filepath.Join(mountDir, "mounted.caddyfile")
+		require.NoError(t, os.WriteFile(mountPath, []byte("example.com { respond \"ok\" }"), 0o600))
+
+		committedAt := time.Now().Add(-10 * time.Minute)
+		require.NoError(t, tx.Create(&models.ImportSession{
+			UUID:        "committed-2",
+			SourceFile:  mountPath,
+			Status:      "committed",
+			CommittedAt: &committedAt,
+		}).Error)
+
+		require.NoError(t, os.Chtimes(mountPath, time.Now(), time.Now()))
+
+		handler, _, _ := setupTestHandler(t, tx)
+		handler.mountPath = mountPath
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/import/status", http.NoBody)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var body map[string]any
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		assert.Equal(t, true, body["has_pending"])
+	})
+}
+
 // TestUpload_NormalizationSuccess verifies single-line Caddyfile formatting
 func TestUpload_NormalizationSuccess(t *testing.T) {
 	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
@@ -142,6 +225,7 @@ func TestUpload_NormalizationSuccess(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -190,6 +274,7 @@ func TestUpload_NormalizationFailure(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -230,6 +315,7 @@ func TestUpload_PathTraversalBlocked(t *testing.T) {
 
 				gin.SetMode(gin.TestMode)
 				router := gin.New()
+				addAdminMiddleware(router)
 				handler.RegisterRoutes(router.Group("/api/v1"))
 				router.ServeHTTP(w, req)
 
@@ -270,6 +356,7 @@ func TestUploadMulti_ArchiveExtraction(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -315,6 +402,7 @@ func TestUploadMulti_ConflictDetection(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -353,6 +441,7 @@ func TestCommit_TransientToImport(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -397,6 +486,7 @@ func TestCommit_RollbackOnError(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -429,6 +519,7 @@ func TestDetectImports_EmptyCaddyfile(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -573,6 +664,7 @@ func TestImportHandler_Upload_NullByteInjection(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -599,6 +691,7 @@ func TestImportHandler_DetectImports_MalformedFile(t *testing.T) {
 
 		gin.SetMode(gin.TestMode)
 		router := gin.New()
+		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
 		router.ServeHTTP(w, req)
 
@@ -744,6 +837,7 @@ func TestImportHandler_Upload_InvalidSessionPaths(t *testing.T) {
 
 				gin.SetMode(gin.TestMode)
 				router := gin.New()
+				addAdminMiddleware(router)
 				handler.RegisterRoutes(router.Group("/api/v1"))
 				router.ServeHTTP(w, req)
 
@@ -751,4 +845,195 @@ func TestImportHandler_Upload_InvalidSessionPaths(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestImportHandler_Commit_InvalidSessionUUID_BranchCoverage(t *testing.T) {
+	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+		handler, _, _ := setupTestHandler(t, tx)
+
+		reqBody := map[string]any{
+			"session_uuid": ".",
+		}
+		body, _ := json.Marshal(reqBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/commit", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "invalid session_uuid")
+	})
+}
+
+func TestImportHandler_Upload_NoImportableHosts_WithImportsDetected(t *testing.T) {
+	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+		handler, _, mockImport := setupTestHandler(t, tx)
+
+		mockImport.importResult = &caddy.ImportResult{
+			Hosts: []caddy.ParsedHost{{
+				DomainNames: "file.example.com",
+				Warnings:    []string{"file_server detected"},
+			}},
+		}
+		handler.importerservice = &mockImporterAdapter{mockImport}
+
+		reqBody := map[string]string{
+			"content":  "import sites/*.caddyfile",
+			"filename": "Caddyfile",
+		}
+		body, _ := json.Marshal(reqBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/upload", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "imports detected")
+	})
+}
+
+func TestImportHandler_Upload_NoImportableHosts_NoImportsNoFileServer(t *testing.T) {
+	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+		handler, _, mockImport := setupTestHandler(t, tx)
+
+		mockImport.importResult = &caddy.ImportResult{
+			Hosts: []caddy.ParsedHost{{
+				DomainNames: "noop.example.com",
+			}},
+		}
+		handler.importerservice = &mockImporterAdapter{mockImport}
+
+		reqBody := map[string]string{
+			"content":  "noop.example.com { respond \"ok\" }",
+			"filename": "Caddyfile",
+		}
+		body, _ := json.Marshal(reqBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/upload", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "no sites found in uploaded Caddyfile")
+	})
+}
+
+func TestImportHandler_Commit_OverwriteAndRenameFlows(t *testing.T) {
+	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+		handler, _, mockImport := setupTestHandler(t, tx)
+		handler.proxyHostSvc = services.NewProxyHostService(tx)
+
+		mockImport.importResult = &caddy.ImportResult{
+			Hosts: []caddy.ParsedHost{
+				{DomainNames: "rename.example.com", ForwardScheme: "http", ForwardHost: "rename-host", ForwardPort: 9000},
+			},
+		}
+		handler.importerservice = &mockImporterAdapter{mockImport}
+
+		uploadPath := filepath.Join(handler.importDir, "uploads", "overwrite-rename.caddyfile")
+		require.NoError(t, os.MkdirAll(filepath.Dir(uploadPath), 0o700))
+		require.NoError(t, os.WriteFile(uploadPath, []byte("placeholder"), 0o600))
+
+		commitBody := map[string]any{
+			"session_uuid": "overwrite-rename",
+			"resolutions": map[string]string{
+				"rename.example.com": "rename",
+			},
+			"names": map[string]string{
+				"rename.example.com": "Renamed Host",
+			},
+		}
+		body, _ := json.Marshal(commitBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/commit", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "\"created\":1")
+
+		var renamed models.ProxyHost
+		require.NoError(t, tx.Where("domain_names = ?", "rename.example.com-imported").First(&renamed).Error)
+		assert.Equal(t, "Renamed Host", renamed.Name)
+	})
+}
+
+func TestImportHandler_Cancel_ValidationAndNotFound_BranchCoverage(t *testing.T) {
+	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+		handler, _, _ := setupTestHandler(t, tx)
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/import/cancel", http.NoBody)
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "session_uuid required")
+
+		w = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodDelete, "/api/v1/import/cancel?session_uuid=.", http.NoBody)
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "invalid session_uuid")
+
+		w = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodDelete, "/api/v1/import/cancel?session_uuid=missing-session", http.NoBody)
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code)
+		assert.Contains(t, w.Body.String(), "session not found")
+	})
+}
+
+func TestImportHandler_Cancel_TransientUploadCancelled_BranchCoverage(t *testing.T) {
+	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+		handler, _, _ := setupTestHandler(t, tx)
+
+		sessionID := "transient-123"
+		uploadDir := filepath.Join(handler.importDir, "uploads")
+		require.NoError(t, os.MkdirAll(uploadDir, 0o700))
+		uploadPath := filepath.Join(uploadDir, sessionID+".caddyfile")
+		require.NoError(t, os.WriteFile(uploadPath, []byte("example.com { respond \"ok\" }"), 0o600))
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/import/cancel?session_uuid="+sessionID, http.NoBody)
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "transient upload cancelled")
+		_, err := os.Stat(uploadPath)
+		require.Error(t, err)
+		assert.True(t, os.IsNotExist(err))
+	})
 }

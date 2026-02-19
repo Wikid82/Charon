@@ -91,15 +91,26 @@ const SECURITY_SETTINGS_KEYS: Record<keyof SecurityModuleOptions, string> = {
 export async function getSecurityStatus(
   request: APIRequestContext
 ): Promise<SecurityStatus> {
-  const response = await request.get('/api/v1/security/status');
+  const maxRetries = 5;
+  const retryDelayMs = 1000;
 
-  if (!response.ok()) {
-    throw new Error(
-      `Failed to get security status: ${response.status()} ${await response.text()}`
-    );
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    const response = await request.get('/api/v1/security/status');
+
+    if (response.ok()) {
+      return response.json();
+    }
+
+    if (response.status() !== 429 || attempt === maxRetries) {
+      throw new Error(
+        `Failed to get security status: ${response.status()} ${await response.text()}`
+      );
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
   }
 
-  return response.json();
+  throw new Error('Failed to get security status after retries');
 }
 
 /**
@@ -116,14 +127,25 @@ export async function setSecurityModuleEnabled(
   const key = SECURITY_SETTINGS_KEYS[module];
   const value = enabled ? 'true' : 'false';
 
-  const response = await request.post('/api/v1/settings', {
-    data: { key, value },
-  });
+  const maxRetries = 5;
+  const retryDelayMs = 1000;
 
-  if (!response.ok()) {
-    throw new Error(
-      `Failed to set ${module} to ${enabled}: ${response.status()} ${await response.text()}`
-    );
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    const response = await request.post('/api/v1/settings', {
+      data: { key, value },
+    });
+
+    if (response.ok()) {
+      break;
+    }
+
+    if (response.status() !== 429 || attempt === maxRetries) {
+      throw new Error(
+        `Failed to set ${module} to ${enabled}: ${response.status()} ${await response.text()}`
+      );
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
   }
 
   // Wait a brief moment for Caddy config reload

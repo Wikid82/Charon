@@ -3,6 +3,8 @@ package routes
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -1163,4 +1165,21 @@ func TestEmergencyBypass_UnauthorizedIP(t *testing.T) {
 
 	// Should not activate bypass (unauthorized IP)
 	assert.NotEqual(t, http.StatusNotFound, w.Code)
+}
+
+func TestRegister_CreatesAccessLogFileForLogWatcher(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_access_log_create"), &gorm.Config{})
+	require.NoError(t, err)
+
+	logFilePath := filepath.Join(t.TempDir(), "logs", "access.log")
+	t.Setenv("CHARON_CADDY_ACCESS_LOG", logFilePath)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	_, statErr := os.Stat(logFilePath)
+	assert.NoError(t, statErr)
 }

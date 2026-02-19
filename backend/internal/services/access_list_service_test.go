@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
@@ -197,6 +198,30 @@ func TestAccessListService_GetByUUID(t *testing.T) {
 	})
 }
 
+func TestAccessListService_GetByID_DBError(t *testing.T) {
+	db := setupTestDB(t)
+	service := NewAccessListService(db)
+
+	sqlDB, err := db.DB()
+	assert.NoError(t, err)
+	assert.NoError(t, sqlDB.Close())
+
+	_, err = service.GetByID(1)
+	assert.Error(t, err)
+}
+
+func TestAccessListService_GetByUUID_DBError(t *testing.T) {
+	db := setupTestDB(t)
+	service := NewAccessListService(db)
+
+	sqlDB, err := db.DB()
+	assert.NoError(t, err)
+	assert.NoError(t, sqlDB.Close())
+
+	_, err = service.GetByUUID("any")
+	assert.Error(t, err)
+}
+
 func TestAccessListService_List(t *testing.T) {
 	db := setupTestDB(t)
 	service := NewAccessListService(db)
@@ -214,6 +239,17 @@ func TestAccessListService_List(t *testing.T) {
 		acls, err := service.List()
 		assert.NoError(t, err)
 		assert.Len(t, acls, 2)
+	})
+
+	t.Run("list uses deterministic id desc tie-breaker", func(t *testing.T) {
+		fixed := time.Date(2026, time.February, 13, 10, 0, 0, 0, time.UTC)
+		assert.NoError(t, db.Model(&models.AccessList{}).Where("id IN ?", []uint{acl1.ID, acl2.ID}).Update("updated_at", fixed).Error)
+
+		acls, err := service.List()
+		assert.NoError(t, err)
+		assert.Len(t, acls, 2)
+		assert.Equal(t, acl2.ID, acls[0].ID)
+		assert.Equal(t, acl1.ID, acls[1].ID)
 	})
 }
 

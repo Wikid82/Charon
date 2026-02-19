@@ -5,6 +5,7 @@
  * - TestDataManager with automatic cleanup
  * - Per-test user creation (admin, regular, guest roles)
  * - Isolated authentication state per test
+ * - Automatic JWT token refresh for long-running sessions (60+ minutes)
  *
  * @example
  * ```typescript
@@ -22,7 +23,7 @@
  * ```
  */
 
-import { test as base, expect } from '@bgotink/playwright-coverage';
+import { test as base, expect } from './test';
 import { request as playwrightRequest } from '@playwright/test';
 import { existsSync, readFileSync } from 'fs';
 import { TestDataManager } from '../utils/TestDataManager';
@@ -40,6 +41,14 @@ export interface TestUser {
   token: string;
   /** User's role */
   role: 'admin' | 'user' | 'guest';
+}
+
+/**
+ * Token cache with TTL tracking for long-running test sessions
+ */
+interface TokenCache {
+  token: string;
+  expiresAt: number; // Unix timestamp (ms)
 }
 
 /**
@@ -63,6 +72,159 @@ interface AuthFixtures {
  * Strong password that meets typical validation requirements
  */
 const TEST_PASSWORD = 'TestPass123!';
+
+/**
+ * Token cache configuration
+ */
+let tokenCache: TokenCache | null = null;
+let tokenCacheQueue: Promise<void> = Promise.resolve();
+const TOKEN_REFRESH_THRESHOLD = 5 * 60 * 1000; // Refresh 5 min before expiry
+
+/**
+ * Test-only helper to reset token refresh state between tests
+ */
+export function resetTokenRefreshStateForTests(): void {
+  tokenCache = null;
+  tokenCacheQueue = Promise.resolve();
+}
+
+/**
+ * Execute token cache operations sequentially to avoid refresh storms
+ */
+async function withTokenCacheLock<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = tokenCacheQueue;
+  let releaseLock!: () => void;
+  tokenCacheQueue = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    releaseLock();
+  }
+}
+
+/**
+ * Read token from in-memory cache
+ */
+async function readTokenCache(): Promise<TokenCache | null> {
+  return tokenCache;
+}
+
+/**
+ * Write token to in-memory cache
+ */
+async function saveTokenCache(token: string, expirySeconds: number): Promise<void> {
+  tokenCache = {
+    token,
+    expiresAt: Date.now() + expirySeconds * 1000,
+  };
+}
+
+/**
+ * Extract expiry seconds from JWT token
+ * JWT format: header.payload.signature (payload is base64-encoded JSON)
+ */
+function extractJWTExpiry(token: string): number {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      console.warn('Invalid JWT format: expected 3 parts, got', parts.length);
+      return 3600; // Default to 1 hour
+    }
+
+    // Add padding if needed
+    let payload = parts[1];
+    const padding = 4 - (payload.length % 4);
+    if (padding < 4) {
+      payload += '='.repeat(padding);
+    }
+
+    const decoded = JSON.parse(Buffer.from(payload, 'base64').toString());
+    if (decoded.exp) {
+      // exp is in seconds, convert to seconds remaining
+      const now = Math.floor(Date.now() / 1000);
+      const remaining = Math.max(0, decoded.exp - now);
+      return remaining;
+    }
+  } catch (e) {
+    console.warn('Failed to extract JWT expiry:', e);
+  }
+  return 3600; // Default to 1 hour
+}
+
+/**
+ * Check if cached token is expired (considering refresh threshold)
+ */
+async function isTokenExpired(): Promise<boolean> {
+  const cache = await readTokenCache();
+  if (!cache) return true;
+
+  // Refresh if within threshold (5 min before actual expiry)
+  return Date.now() >= cache.expiresAt - TOKEN_REFRESH_THRESHOLD;
+}
+
+/**
+ * Refresh token if expired (for long-running test sessions)
+ * Supports the /api/v1/auth/refresh endpoint
+ */
+export async function refreshTokenIfNeeded(
+  baseURL: string | undefined,
+  currentToken: string
+): Promise<string> {
+  if (!baseURL) {
+    console.warn('baseURL not provided, skipping token refresh');
+    return currentToken;
+  }
+
+  return withTokenCacheLock(async () => {
+    // Check if cached token is still valid
+    if (!(await isTokenExpired())) {
+      const cache = await readTokenCache();
+      if (cache) {
+        return cache.token;
+      }
+    }
+
+    // Token expired or missing - refresh it
+    try {
+      const response = await fetch(`${baseURL}/api/v1/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${currentToken}`,
+        },
+        body: JSON.stringify({}),
+      });
+
+      if (!response.ok) {
+        console.warn(
+          `Token refresh failed: ${response.status} ${response.statusText}`
+        );
+        return currentToken; // Fall back to current token
+      }
+
+      const data = (await response.json()) as { token?: string };
+      const newToken = data.token;
+
+      if (!newToken) {
+        console.warn('Token refresh response missing token field');
+        return currentToken;
+      }
+
+      // Extract expiry from JWT and cache new token
+      const expirySeconds = extractJWTExpiry(newToken);
+      await saveTokenCache(newToken, expirySeconds);
+
+      return newToken;
+    } catch (error) {
+      console.warn('Token refresh error:', error);
+      return currentToken; // Fall back to current token
+    }
+  });
+}
 
 /**
  * Extended Playwright test with authentication fixtures
@@ -103,7 +265,7 @@ export const test = base.extend<AuthFixtures>({
             `   Cookie domain: "${authCookie.domain}"\n` +
             `   Base URL host: "${expectedHost}"\n` +
             `   API calls will likely fail with 401/403.\n` +
-            `   Fix: Set PLAYWRIGHT_BASE_URL=http://localhost:8080 in your environment.`
+            `   Fix: Set PLAYWRIGHT_BASE_URL to the same host used by Playwright baseURL.`
           );
         }
       }
@@ -212,11 +374,47 @@ export async function loginUser(
   page: import('@playwright/test').Page,
   user: TestUser
 ): Promise<void> {
+  const loginPayload = { email: user.email, password: TEST_PASSWORD };
+  try {
+    const response = await page.request.post('/api/v1/auth/login', { data: loginPayload });
+    if (response.ok()) {
+      const body = await response.json().catch(() => ({})) as { token?: string };
+      if (body.token) {
+        await page.addInitScript((token: string) => {
+          localStorage.setItem('charon_auth_token', token);
+        }, body.token);
+      }
+
+      const storageState = await page.request.storageState();
+      if (storageState.cookies?.length) {
+        await page.context().addCookies(storageState.cookies);
+      }
+    }
+  } catch {
+  }
+
+  await page.goto('/');
+  if (!page.url().includes('/login')) {
+    await page.waitForLoadState('networkidle').catch(() => {});
+    return;
+  }
+
   await page.goto('/login');
   await page.locator('input[type="email"]').fill(user.email);
   await page.locator('input[type="password"]').fill(TEST_PASSWORD);
+
+  const loginResponsePromise = page.waitForResponse((response) =>
+    response.url().includes('/api/v1/auth/login')
+  );
   await page.getByRole('button', { name: /sign in/i }).click();
-  await page.waitForURL('/');
+
+  const loginResponse = await loginResponsePromise;
+  if (!loginResponse.ok()) {
+    const body = await loginResponse.text();
+    throw new Error(`Login failed: ${loginResponse.status()} - ${body}`);
+  }
+
+  await page.waitForURL(/\/(?:$|dashboard)/, { timeout: 15000 });
 }
 
 /**
@@ -239,7 +437,7 @@ export async function logoutUser(page: import('@playwright/test').Page): Promise
 /**
  * Re-export expect from @playwright/test for convenience
  */
-export { expect } from '@bgotink/playwright-coverage';
+export { expect } from './test';
 
 /**
  * Re-export the default test password for use in tests

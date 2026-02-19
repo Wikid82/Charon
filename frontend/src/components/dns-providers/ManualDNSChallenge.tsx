@@ -11,7 +11,7 @@ import {
   Loader2,
   Info,
 } from 'lucide-react'
-import { Button, Card, CardHeader, CardTitle, CardContent, Progress, Alert } from '../ui'
+import { Button, Card, CardHeader, CardContent, Progress, Alert } from '../ui'
 import { useChallengePoll, useManualChallengeMutations } from '../../hooks/useManualChallenge'
 import type { ManualChallenge, ChallengeStatus } from '../../api/manualChallenge'
 import { toast } from '../../utils/toast'
@@ -258,10 +258,10 @@ export default function ManualDNSChallenge({
       />
 
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <h2 className="text-lg font-semibold leading-tight text-content-primary flex items-center gap-2">
           <span aria-hidden="true">🔐</span>
           {t('dnsProvider.manual.title')}
-        </CardTitle>
+        </h2>
       </CardHeader>
 
       <CardContent className="space-y-6">

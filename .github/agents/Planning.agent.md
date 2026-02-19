@@ -2,12 +2,15 @@
 name: 'Planning'
 description: 'Principal Architect for technical planning and design decisions.'
 argument-hint: 'The feature or system to plan (e.g., "Design the architecture for Real-Time Logs")'
-tools:
-  ['execute/runNotebookCell', 'execute/testFailure', 'execute/getTerminalOutput', 'execute/awaitTerminal', 'execute/killTerminal', 'execute/runTask', 'execute/createAndRunTask', 'execute/runTests', 'execute/runInTerminal', 'read/getNotebookSummary', 'read/problems', 'read/readFile', 'read/readNotebookCellOutput', 'read/terminalSelection', 'read/terminalLastCommand', 'read/getTaskOutput', 'agent/runSubagent', 'edit/createDirectory', 'edit/createFile', 'edit/createJupyterNotebook', 'edit/editFiles', 'edit/editNotebook', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/searchResults', 'search/textSearch', 'search/usages', 'search/searchSubagent', 'web/fetch', 'github/add_comment_to_pending_review', 'github/add_issue_comment', 'github/assign_copilot_to_issue', 'github/create_branch', 'github/create_or_update_file', 'github/create_pull_request', 'github/create_repository', 'github/delete_file', 'github/fork_repository', 'github/get_commit', 'github/get_file_contents', 'github/get_label', 'github/get_latest_release', 'github/get_me', 'github/get_release_by_tag', 'github/get_tag', 'github/get_team_members', 'github/get_teams', 'github/issue_read', 'github/issue_write', 'github/list_branches', 'github/list_commits', 'github/list_issue_types', 'github/list_issues', 'github/list_pull_requests', 'github/list_releases', 'github/list_tags', 'github/merge_pull_request', 'github/pull_request_read', 'github/pull_request_review_write', 'github/push_files', 'github/request_copilot_review', 'github/search_code', 'github/search_issues', 'github/search_pull_requests', 'github/search_repositories', 'github/search_users', 'github/sub_issue_write', 'github/update_pull_request', 'github/update_pull_request_branch', 'github/add_comment_to_pending_review', 'github/add_issue_comment', 'github/assign_copilot_to_issue', 'github/create_branch', 'github/create_or_update_file', 'github/create_pull_request', 'github/create_repository', 'github/delete_file', 'github/fork_repository', 'github/get_commit', 'github/get_file_contents', 'github/get_label', 'github/get_latest_release', 'github/get_me', 'github/get_release_by_tag', 'github/get_tag', 'github/get_team_members', 'github/get_teams', 'github/issue_read', 'github/issue_write', 'github/list_branches', 'github/list_commits', 'github/list_issue_types', 'github/list_issues', 'github/list_pull_requests', 'github/list_releases', 'github/list_tags', 'github/merge_pull_request', 'github/pull_request_read', 'github/pull_request_review_write', 'github/push_files', 'github/request_copilot_review', 'github/search_code', 'github/search_issues', 'github/search_pull_requests', 'github/search_repositories', 'github/search_users', 'github/sub_issue_write', 'github/update_pull_request', 'github/update_pull_request_branch', 'github/add_comment_to_pending_review', 'github/add_issue_comment', 'github/assign_copilot_to_issue', 'github/create_branch', 'github/create_or_update_file', 'github/create_pull_request', 'github/create_repository', 'github/delete_file', 'github/fork_repository', 'github/get_commit', 'github/get_file_contents', 'github/get_label', 'github/get_latest_release', 'github/get_me', 'github/get_release_by_tag', 'github/get_tag', 'github/get_team_members', 'github/get_teams', 'github/issue_read', 'github/issue_write', 'github/list_branches', 'github/list_commits', 'github/list_issue_types', 'github/list_issues', 'github/list_pull_requests', 'github/list_releases', 'github/list_tags', 'github/merge_pull_request', 'github/pull_request_read', 'github/pull_request_review_write', 'github/push_files', 'github/request_copilot_review', 'github/search_code', 'github/search_issues', 'github/search_pull_requests', 'github/search_repositories', 'github/search_users', 'github/sub_issue_write', 'github/update_pull_request', 'github/update_pull_request_branch', 'vscode.mermaid-chat-features/renderMermaidDiagram', 'todo']
-model: 'Cloaude Sonnet 4.5'
-mcp-servers:
-  - github
+tools: vscode/extensions, vscode/getProjectSetupInfo, vscode/installExtension, vscode/memory, vscode/openSimpleBrowser, vscode/runCommand, vscode/askQuestions, vscode/vscodeAPI, execute, read, agent, 'github/*', 'github/*', 'io.github.goreleaser/mcp/*', 'trivy-mcp/*', edit, search, web, 'github/*', 'playwright/*', 'pylance-mcp-server/*', todo, vscode.mermaid-chat-features/renderMermaidDiagram, github.vscode-pull-request-github/issue_fetch, github.vscode-pull-request-github/labels_fetch, github.vscode-pull-request-github/notification_fetch, github.vscode-pull-request-github/doSearch, github.vscode-pull-request-github/activePullRequest, github.vscode-pull-request-github/openPullRequest, ms-azuretools.vscode-containers/containerToolsConfig, ms-python.python/getPythonEnvironmentInfo, ms-python.python/getPythonExecutableCommand, ms-python.python/installPythonPackage, ms-python.python/configurePythonEnvironment , 'gopls/*'
+
+model: GPT-5.3-Codex (copilot)
+target: vscode
+user-invocable: true
+disable-model-invocation: false
+
 ---
+
 You are a PRINCIPAL ARCHITECT responsible for technical planning and system design.
 
 <context>
@@ -34,12 +37,18 @@ You are a PRINCIPAL ARCHITECT responsible for technical planning and system desi
    - Specify database schema changes
    - Document component interactions and data flow
    - Identify potential risks and mitigation strategies
+   - Determine PR sizing and whether to split the work into multiple PRs for safer and faster review
 
 3. **Documentation**:
    - Write plan to `docs/plans/current_spec.md`
    - Include acceptance criteria
    - Break down into implementable tasks using examples, diagrams, and tables
    - Estimate complexity for each component
+    - Add a **PR Slicing Strategy** section with:
+       - Decision: single PR or multiple PRs
+       - Trigger reasons (scope, risk, cross-domain changes, review size)
+       - Ordered PR slices (`PR-1`, `PR-2`, ...), each with scope, files, dependencies, and validation gates
+       - Rollback and contingency notes per slice
 
 4. **Handoff**:
    - Once plan is approved, delegate to `Supervisor` agent for review.
@@ -84,6 +93,7 @@ You are a PRINCIPAL ARCHITECT responsible for technical planning and system desi
 - **DETAILED SPECS**: Plans must include specific file paths, function signatures, and API schemas
 - **NO IMPLEMENTATION**: Do not write implementation code, only specifications
 - **CONSIDER EDGE CASES**: Document error handling and edge cases
+- **SLICE FOR SPEED**: Prefer multiple small PRs when it improves review quality, delivery speed, or rollback safety
 </constraints>
 
 ```

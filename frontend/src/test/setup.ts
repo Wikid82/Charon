@@ -59,6 +59,9 @@ vi.mock('react-i18next', async () => {
 
 // Cleanup after each test
 afterEach(() => {
+  vi.clearAllTimers()
+  vi.useRealTimers()
+  vi.clearAllMocks()
   cleanup()
 })
 
@@ -96,6 +99,27 @@ if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = function() {}
 }
 
+// Prevent jsdom navigation errors for anchor clicks during tests
+const anchorPrototype = HTMLAnchorElement.prototype as unknown as {
+  __testNoNavClick?: boolean
+  __originalClick?: typeof HTMLAnchorElement.prototype.click
+}
+
+if (!anchorPrototype.__testNoNavClick) {
+  const originalClick = HTMLAnchorElement.prototype.click
+  Object.defineProperty(HTMLAnchorElement.prototype, '__testNoNavClick', {
+    value: true,
+    configurable: false,
+    writable: false,
+  })
+  HTMLAnchorElement.prototype.click = function() {
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true })
+    this.dispatchEvent(event)
+    return undefined
+  }
+  anchorPrototype.__originalClick = originalClick
+}
+
 // Filter noisy React act environment warnings that can appear in some environments
 const _origConsoleError = console.error
 console.error = (...args: unknown[]) => {
@@ -104,6 +128,7 @@ console.error = (...args: unknown[]) => {
     if (typeof msg === 'string') {
       if (
         msg.includes("The current testing environment is not configured to support act(") ||
+        msg.includes('not wrapped in act(') ||
         msg.includes('Test connection failed') ||
         msg.includes('Connection failed')
       ) {

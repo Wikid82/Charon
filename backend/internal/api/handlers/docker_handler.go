@@ -56,7 +56,7 @@ func (h *DockerHandler) ListContainers(c *gin.Context) {
 	if serverID != "" {
 		server, err := h.remoteServerService.GetByUUID(serverID)
 		if err != nil {
-			log.WithFields(map[string]any{"server_id": serverID}).Warn("remote server not found")
+			log.WithFields(map[string]any{"server_id": util.SanitizeForLog(serverID)}).Warn("remote server not found")
 			c.JSON(http.StatusNotFound, gin.H{"error": "Remote server not found"})
 			return
 		}
@@ -71,7 +71,7 @@ func (h *DockerHandler) ListContainers(c *gin.Context) {
 	if err != nil {
 		var unavailableErr *services.DockerUnavailableError
 		if errors.As(err, &unavailableErr) {
-			log.WithFields(map[string]any{"server_id": serverID, "host": host}).WithError(err).Warn("docker unavailable")
+			log.WithFields(map[string]any{"server_id": util.SanitizeForLog(serverID), "host": util.SanitizeForLog(host), "error": util.SanitizeForLog(err.Error())}).Warn("docker unavailable")
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"error":   "Docker daemon unavailable",
 				"details": "Cannot connect to Docker. Please ensure Docker is running and the socket is accessible (e.g., /var/run/docker.sock is mounted).",
@@ -79,7 +79,7 @@ func (h *DockerHandler) ListContainers(c *gin.Context) {
 			return
 		}
 
-		log.WithFields(map[string]any{"server_id": serverID, "host": host}).WithError(err).Error("failed to list containers")
+		log.WithFields(map[string]any{"server_id": util.SanitizeForLog(serverID), "host": util.SanitizeForLog(host), "error": util.SanitizeForLog(err.Error())}).Error("failed to list containers")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list containers"})
 		return
 	}

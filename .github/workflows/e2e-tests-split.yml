@@ -1,31 +1,50 @@
-# E2E Tests Workflow (Sequential Execution - Fixes Race Conditions)
+# E2E Tests Workflow (Reorganized: Security Isolation + Parallel Sharding)
 #
-# Root Cause: Tests that disable security features (via emergency endpoint) were
-# running in parallel shards, causing some shards to fail before security was disabled.
+# Architecture: 15 Total Jobs
+#   - 3 Security Enforcement Jobs (1 shard per browser, serial execution, 30min timeout)
+#   - 12 Non-Security Jobs (4 shards per browser, parallel execution, 20min timeout)
 #
-# Changes from original:
-#   - Reduced from 4 shards to 1 shard per browser (12 jobs → 3 jobs)
-#   - Each browser runs ALL tests sequentially (no sharding within browser)
-#   - Browsers still run in parallel (complete job isolation)
-#   - Acceptable performance tradeoff for CI stability (90% local → 100% CI pass rate)
+# Problem Solved: Cross-shard contamination from security middleware state changes
+# Solution: Isolate security enforcement tests in dedicated jobs with Cerberus enabled,
+#           run all other tests with Cerberus OFF to prevent ACL/rate limit interference
 #
-# See docs/plans/e2e_ci_failure_diagnosis.md for details
+# See docs/implementation/E2E_TEST_REORGANIZATION_IMPLEMENTATION.md for full details
 
-name: E2E Tests
+name: 'E2E Tests'
 
 on:
-  pull_request:
-    branches:
-      - main
-      - development
-      - 'feature/**'
-    paths:
-      - 'frontend/**'
-      - 'backend/**'
-      - 'tests/**'
-      - 'playwright.config.js'
-      - '.github/workflows/e2e-tests-split.yml'
-
+  workflow_call:
+    inputs:
+      browser:
+        description: 'Browser to test'
+        required: false
+        default: 'all'
+        type: string
+      test_category:
+        description: 'Test category'
+        required: false
+        default: 'all'
+        type: string
+      image_ref:
+        description: 'Image reference (digest) to test, e.g. docker.io/wikid82/charon@sha256:...'
+        required: false
+        type: string
+      image_tag:
+        description: 'Local image tag for compose usage (default: charon:e2e-test)'
+        required: false
+        type: string
+      playwright_coverage:
+        description: 'Enable Playwright coverage (V8)'
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      CHARON_EMERGENCY_TOKEN:
+        required: false
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
   workflow_dispatch:
     inputs:
       browser:
@@ -38,34 +57,92 @@ on:
           - firefox
           - webkit
           - all
+      test_category:
+        description: 'Test category'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - security
+          - non-security
+      image_ref:
+        description: 'Image reference (digest) to test, e.g. docker.io/wikid82/charon@sha256:...'
+        required: false
+        type: string
+      image_tag:
+        description: 'Local image tag for compose usage (default: charon:e2e-test)'
+        required: false
+        type: string
+      playwright_coverage:
+        description: 'Enable Playwright coverage (V8)'
+        required: false
+        default: false
+        type: boolean
+  pull_request:
+  push:
 
 env:
   NODE_VERSION: '20'
-  GO_VERSION: '1.25.6'
+  GO_VERSION: '1.26.0'
   GOTOOLCHAIN: auto
-  REGISTRY: ghcr.io
+  DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: ${{ github.repository_owner }}/charon
-  PLAYWRIGHT_COVERAGE: ${{ vars.PLAYWRIGHT_COVERAGE || '0' }}
+  E2E_BROWSER: ${{ inputs.browser || 'all' }}
+  E2E_TEST_CATEGORY: ${{ inputs.test_category || 'all' }}
+  PLAYWRIGHT_COVERAGE: ${{ (inputs.playwright_coverage && '1') || (vars.PLAYWRIGHT_COVERAGE || '0') }}
   DEBUG: 'charon:*,charon-test:*'
   PLAYWRIGHT_DEBUG: '1'
   CI_LOG_LEVEL: 'verbose'
 
 concurrency:
-  group: e2e-split-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: e2e-split-${{ github.workflow }}-${{ github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
-  # Build application once, share across all browser jobs
+  # Prepare application image once, share across all browser jobs
   build:
-    name: Build Application
+    name: Prepare Application Image
     runs-on: ubuntu-latest
     outputs:
-      image_digest: ${{ steps.build-image.outputs.digest }}
+      image_source: ${{ steps.resolve-image.outputs.image_source }}
+      image_ref: ${{ steps.resolve-image.outputs.image_ref }}
+      image_tag: ${{ steps.resolve-image.outputs.image_tag }}
+      image_digest: ${{ steps.resolve-image.outputs.image_digest != '' && steps.resolve-image.outputs.image_digest || steps.build-image.outputs.digest }}
     steps:
+      - name: Resolve image inputs
+        id: resolve-image
+        run: |
+          IMAGE_REF="${{ inputs.image_ref }}"
+          IMAGE_TAG="${{ inputs.image_tag || 'charon:e2e-test' }}"
+          if [ -n "$IMAGE_REF" ]; then
+            {
+              echo "image_source=registry"
+              echo "image_ref=$IMAGE_REF"
+              echo "image_tag=$IMAGE_TAG"
+              if [[ "$IMAGE_REF" == *@* ]]; then
+                echo "image_digest=${IMAGE_REF#*@}"
+              else
+                echo "image_digest="
+              fi
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "image_source=build"
+            echo "image_ref="
+            echo "image_tag=$IMAGE_TAG"
+            echo "image_digest="
+          } >> "$GITHUB_OUTPUT"
+
       - name: Checkout repository
+        if: steps.resolve-image.outputs.image_source == 'build'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.sha }}
 
       - name: Set up Go
+        if: steps.resolve-image.outputs.image_source == 'build'
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -73,12 +150,14 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - name: Set up Node.js
+        if: steps.resolve-image.outputs.image_source == 'build'
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
       - name: Cache npm dependencies
+        if: steps.resolve-image.outputs.image_source == 'build'
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         with:
           path: ~/.npm
@@ -86,56 +165,64 @@ jobs:
           restore-keys: npm-
 
       - name: Install dependencies
+        if: steps.resolve-image.outputs.image_source == 'build'
         run: npm ci
 
       - name: Set up Docker Buildx
+        if: steps.resolve-image.outputs.image_source == 'build'
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build Docker image
         id: build-image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
+        if: steps.resolve-image.outputs.image_source == 'build'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: ./Dockerfile
           push: false
           load: true
-          tags: charon:e2e-test
+          tags: ${{ steps.resolve-image.outputs.image_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Save Docker image
-        run: docker save charon:e2e-test -o charon-e2e-image.tar
+        if: steps.resolve-image.outputs.image_source == 'build'
+        run: docker save ${{ steps.resolve-image.outputs.image_tag }} -o charon-e2e-image.tar
 
       - name: Upload Docker image artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: steps.resolve-image.outputs.image_source == 'build'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: docker-image
           path: charon-e2e-image.tar
           retention-days: 1
 
-  # Chromium browser tests (independent)
-  e2e-chromium:
-    name: E2E Chromium (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
+  # ==================================================================================
+  # SECURITY ENFORCEMENT TESTS (3 jobs: 1 per browser, serial execution)
+  # ==================================================================================
+  # These tests enable Cerberus middleware and verify security enforcement
+  # Run serially to avoid cross-test contamination from global state changes
+  # ==================================================================================
+
+  e2e-chromium-security:
+    name: E2E Chromium (Security Enforcement)
     runs-on: ubuntu-latest
     needs: build
     if: |
-      (github.event_name != 'workflow_dispatch') ||
-      (github.event.inputs.browser == 'chromium' || github.event.inputs.browser == 'all')
-    timeout-minutes: 45
+      ((inputs.browser || 'all') == 'chromium' || (inputs.browser || 'all') == 'all') &&
+      ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
+    timeout-minutes: 60
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
-      CHARON_SECURITY_TESTS_ENABLED: "true"
-      CHARON_E2E_IMAGE_TAG: charon:e2e-test
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1]  # Single shard: all tests run sequentially to avoid race conditions
-        total-shards: [1]
+      CHARON_SECURITY_TESTS_ENABLED: "true"  # Cerberus ON for enforcement tests
+      CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -143,7 +230,23 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Download Docker image
+      - name: Log in to Docker Hub
+        if: needs.build.outputs.image_source == 'registry'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull shared Docker image
+        if: needs.build.outputs.image_source == 'registry'
+        run: |
+          docker pull "${{ needs.build.outputs.image_ref }}"
+          docker tag "${{ needs.build.outputs.image_ref }}" "${{ needs.build.outputs.image_tag }}"
+          docker images | grep charon
+
+      - name: Download Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: docker-image
@@ -156,7 +259,7 @@ jobs:
             exit 1
           fi
           TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
-          if [ $TOKEN_LENGTH -lt 64 ]; then
+          if [ "$TOKEN_LENGTH" -lt 64 ]; then
             echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
             exit 1
           fi
@@ -165,18 +268,19 @@ jobs:
         env:
           CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
 
-      - name: Load Docker image
+      - name: Load Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         run: |
           docker load -i charon-e2e-image.tar
           docker images | grep charon
 
       - name: Generate ephemeral encryption key
-        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> $GITHUB_ENV
+        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
 
-      - name: Start test environment
+      - name: Start test environment (Security Tests Profile)
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
-          echo "✅ Container started for Chromium tests"
+          echo "✅ Container started for Chromium security enforcement tests"
 
       - name: Wait for service health
         run: |
@@ -206,32 +310,657 @@ jobs:
           npx playwright install --with-deps chromium
           EXIT_CODE=$?
           echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          echo "📁 Checking browser cache..."
-          ls -lR ~/.cache/ms-playwright/ 2>/dev/null || echo "Cache directory not found"
-          echo "🔍 Searching for chromium executable..."
-          find ~/.cache/ms-playwright -name "*chromium*" -o -name "*chrome*" 2>/dev/null | head -10 || echo "No chromium files found"
-          exit $EXIT_CODE
+          exit "$EXIT_CODE"
 
-      - name: Run Chromium tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
+      - name: Run Chromium Security Enforcement Tests
         run: |
+          set -euo pipefail
+          STATUS=0
           echo "════════════════════════════════════════════"
-          echo "Chromium E2E Tests - Shard ${{ matrix.shard }}/${{ matrix.total-shards }}"
+          echo "Chromium Security Enforcement Tests"
+          echo "Cerberus: ENABLED"
+          echo "Execution: SERIAL (no sharding)"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "════════════════════════════════════════════"
 
           SHARD_START=$(date +%s)
-          echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
+          echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
 
           npx playwright test \
             --project=chromium \
-            --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
+            --output=playwright-output/security-chromium \
+            tests/security-enforcement/ \
+            tests/security/ \
+            tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
 
           SHARD_END=$(date +%s)
-          echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
+          echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
+          SHARD_DURATION=$((SHARD_END - SHARD_START))
+          echo "════════════════════════════════════════════"
+          echo "Chromium Security Complete | Duration: ${SHARD_DURATION}s"
+          echo "════════════════════════════════════════════"
+          echo "PLAYWRIGHT_STATUS=$STATUS" >> "$GITHUB_ENV"
+          exit "$STATUS"
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
+          CI: true
+
+      - name: Upload HTML report (Chromium Security)
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: playwright-report-chromium-security
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload Chromium Security coverage (if enabled)
+        if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: e2e-coverage-chromium-security
+          path: coverage/e2e/
+          retention-days: 7
+
+      - name: Upload test traces on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: traces-chromium-security
+          path: test-results/**/*.zip
+          retention-days: 7
+
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          mkdir -p diagnostics
+          uptime > diagnostics/uptime.txt
+          free -m > diagnostics/free-m.txt
+          df -h > diagnostics/df-h.txt
+          ps aux > diagnostics/ps-aux.txt
+          docker ps -a > diagnostics/docker-ps.txt || true
+          docker logs --tail 500 charon-e2e > diagnostics/docker-charon-e2e.log 2>&1 || true
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: e2e-diagnostics-chromium-security
+          path: diagnostics/
+          retention-days: 7
+
+      - name: Collect Docker logs on failure
+        if: failure()
+        run: |
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-chromium-security.txt 2>&1
+
+      - name: Upload Docker logs on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: docker-logs-chromium-security
+          path: docker-logs-chromium-security.txt
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
+
+  e2e-firefox-security:
+    name: E2E Firefox (Security Enforcement)
+    runs-on: ubuntu-latest
+    needs: build
+    if: |
+      ((inputs.browser || 'all') == 'firefox' || (inputs.browser || 'all') == 'all') &&
+      ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
+    timeout-minutes: 60
+    env:
+      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+      CHARON_EMERGENCY_SERVER_ENABLED: "true"
+      CHARON_SECURITY_TESTS_ENABLED: "true"  # Cerberus ON for enforcement tests
+      CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Log in to Docker Hub
+        if: needs.build.outputs.image_source == 'registry'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull shared Docker image
+        if: needs.build.outputs.image_source == 'registry'
+        run: |
+          docker pull "${{ needs.build.outputs.image_ref }}"
+          docker tag "${{ needs.build.outputs.image_ref }}" "${{ needs.build.outputs.image_tag }}"
+          docker images | grep charon
+
+      - name: Download Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: docker-image
+
+      - name: Validate Emergency Token Configuration
+        run: |
+          echo "🔐 Validating emergency token configuration..."
+          if [ -z "$CHARON_EMERGENCY_TOKEN" ]; then
+            echo "::error title=Missing Secret::CHARON_EMERGENCY_TOKEN secret not configured"
+            exit 1
+          fi
+          TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
+          if [ "$TOKEN_LENGTH" -lt 64 ]; then
+            echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
+            exit 1
+          fi
+          MASKED_TOKEN="${CHARON_EMERGENCY_TOKEN:0:8}...${CHARON_EMERGENCY_TOKEN: -4}"
+          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH, preview: $MASKED_TOKEN)"
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+
+      - name: Load Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
+        run: |
+          docker load -i charon-e2e-image.tar
+          docker images | grep charon
+
+      - name: Generate ephemeral encryption key
+        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
+      - name: Start test environment (Security Tests Profile)
+        run: |
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
+          echo "✅ Container started for Firefox security enforcement tests"
+
+      - name: Wait for service health
+        run: |
+          echo "⏳ Waiting for Charon to be healthy..."
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+          while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Attempt ${ATTEMPT}/${MAX_ATTEMPTS}..."
+            if curl -sf http://127.0.0.1:8080/api/v1/health > /dev/null 2>&1; then
+              echo "✅ Charon is healthy!"
+              curl -s http://127.0.0.1:8080/api/v1/health | jq .
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "❌ Health check failed"
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs
+          exit 1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium (required by security-tests dependency)
+        run: |
+          echo "📦 Installing Chromium (required by security-tests dependency)..."
+          npx playwright install --with-deps chromium
+          EXIT_CODE=$?
+          echo "✅ Install command completed (exit code: $EXIT_CODE)"
+          exit "$EXIT_CODE"
+
+      - name: Install Playwright Firefox
+        run: |
+          echo "📦 Installing Firefox..."
+          npx playwright install --with-deps firefox
+          EXIT_CODE=$?
+          echo "✅ Install command completed (exit code: $EXIT_CODE)"
+          exit "$EXIT_CODE"
+
+      - name: Run Firefox Security Enforcement Tests
+        run: |
+          set -euo pipefail
+          STATUS=0
+          echo "════════════════════════════════════════════"
+          echo "Firefox Security Enforcement Tests"
+          echo "Cerberus: ENABLED"
+          echo "Execution: SERIAL (no sharding)"
+          echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "════════════════════════════════════════════"
+
+          SHARD_START=$(date +%s)
+          echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
+
+          npx playwright test \
+            --project=firefox \
+            --output=playwright-output/security-firefox \
+            tests/security-enforcement/ \
+            tests/security/ \
+            tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+
+          SHARD_END=$(date +%s)
+          echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
+          SHARD_DURATION=$((SHARD_END - SHARD_START))
+          echo "════════════════════════════════════════════"
+          echo "Firefox Security Complete | Duration: ${SHARD_DURATION}s"
+          echo "════════════════════════════════════════════"
+          echo "PLAYWRIGHT_STATUS=$STATUS" >> "$GITHUB_ENV"
+          exit "$STATUS"
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
+          CI: true
+
+      - name: Upload HTML report (Firefox Security)
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: playwright-report-firefox-security
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload Firefox Security coverage (if enabled)
+        if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: e2e-coverage-firefox-security
+          path: coverage/e2e/
+          retention-days: 7
+
+      - name: Upload test traces on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: traces-firefox-security
+          path: test-results/**/*.zip
+          retention-days: 7
+
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          mkdir -p diagnostics
+          uptime > diagnostics/uptime.txt
+          free -m > diagnostics/free-m.txt
+          df -h > diagnostics/df-h.txt
+          ps aux > diagnostics/ps-aux.txt
+          docker ps -a > diagnostics/docker-ps.txt || true
+          docker logs --tail 500 charon-e2e > diagnostics/docker-charon-e2e.log 2>&1 || true
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: e2e-diagnostics-firefox-security
+          path: diagnostics/
+          retention-days: 7
+
+      - name: Collect Docker logs on failure
+        if: failure()
+        run: |
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-firefox-security.txt 2>&1
+
+      - name: Upload Docker logs on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: docker-logs-firefox-security
+          path: docker-logs-firefox-security.txt
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
+
+  e2e-webkit-security:
+    name: E2E WebKit (Security Enforcement)
+    runs-on: ubuntu-latest
+    needs: build
+    if: |
+      ((inputs.browser || 'all') == 'webkit' || (inputs.browser || 'all') == 'all') &&
+      ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
+    timeout-minutes: 60
+    env:
+      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+      CHARON_EMERGENCY_SERVER_ENABLED: "true"
+      CHARON_SECURITY_TESTS_ENABLED: "true"  # Cerberus ON for enforcement tests
+      CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Log in to Docker Hub
+        if: needs.build.outputs.image_source == 'registry'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull shared Docker image
+        if: needs.build.outputs.image_source == 'registry'
+        run: |
+          docker pull "${{ needs.build.outputs.image_ref }}"
+          docker tag "${{ needs.build.outputs.image_ref }}" "${{ needs.build.outputs.image_tag }}"
+          docker images | grep charon
+
+      - name: Download Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: docker-image
+
+      - name: Validate Emergency Token Configuration
+        run: |
+          echo "🔐 Validating emergency token configuration..."
+          if [ -z "$CHARON_EMERGENCY_TOKEN" ]; then
+            echo "::error title=Missing Secret::CHARON_EMERGENCY_TOKEN secret not configured"
+            exit 1
+          fi
+          TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
+          if [ "$TOKEN_LENGTH" -lt 64 ]; then
+            echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
+            exit 1
+          fi
+          MASKED_TOKEN="${CHARON_EMERGENCY_TOKEN:0:8}...${CHARON_EMERGENCY_TOKEN: -4}"
+          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH, preview: $MASKED_TOKEN)"
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+
+      - name: Load Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
+        run: |
+          docker load -i charon-e2e-image.tar
+          docker images | grep charon
+
+      - name: Generate ephemeral encryption key
+        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
+      - name: Start test environment (Security Tests Profile)
+        run: |
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
+          echo "✅ Container started for WebKit security enforcement tests"
+
+      - name: Wait for service health
+        run: |
+          echo "⏳ Waiting for Charon to be healthy..."
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+          while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Attempt ${ATTEMPT}/${MAX_ATTEMPTS}..."
+            if curl -sf http://127.0.0.1:8080/api/v1/health > /dev/null 2>&1; then
+              echo "✅ Charon is healthy!"
+              curl -s http://127.0.0.1:8080/api/v1/health | jq .
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "❌ Health check failed"
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs
+          exit 1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium (required by security-tests dependency)
+        run: |
+          echo "📦 Installing Chromium (required by security-tests dependency)..."
+          npx playwright install --with-deps chromium
+          EXIT_CODE=$?
+          echo "✅ Install command completed (exit code: $EXIT_CODE)"
+          exit "$EXIT_CODE"
+
+      - name: Install Playwright WebKit
+        run: |
+          echo "📦 Installing WebKit..."
+          npx playwright install --with-deps webkit
+          EXIT_CODE=$?
+          echo "✅ Install command completed (exit code: $EXIT_CODE)"
+          exit "$EXIT_CODE"
+
+      - name: Run WebKit Security Enforcement Tests
+        run: |
+          set -euo pipefail
+          STATUS=0
+          echo "════════════════════════════════════════════"
+          echo "WebKit Security Enforcement Tests"
+          echo "Cerberus: ENABLED"
+          echo "Execution: SERIAL (no sharding)"
+          echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "════════════════════════════════════════════"
+
+          SHARD_START=$(date +%s)
+          echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
+
+          npx playwright test \
+            --project=webkit \
+            --output=playwright-output/security-webkit \
+            tests/security-enforcement/ \
+            tests/security/ \
+            tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+
+          SHARD_END=$(date +%s)
+          echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
+          SHARD_DURATION=$((SHARD_END - SHARD_START))
+          echo "════════════════════════════════════════════"
+          echo "WebKit Security Complete | Duration: ${SHARD_DURATION}s"
+          echo "════════════════════════════════════════════"
+          echo "PLAYWRIGHT_STATUS=$STATUS" >> "$GITHUB_ENV"
+          exit "$STATUS"
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
+          CI: true
+
+      - name: Upload HTML report (WebKit Security)
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: playwright-report-webkit-security
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload WebKit Security coverage (if enabled)
+        if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: e2e-coverage-webkit-security
+          path: coverage/e2e/
+          retention-days: 7
+
+      - name: Upload test traces on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: traces-webkit-security
+          path: test-results/**/*.zip
+          retention-days: 7
+
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          mkdir -p diagnostics
+          uptime > diagnostics/uptime.txt
+          free -m > diagnostics/free-m.txt
+          df -h > diagnostics/df-h.txt
+          ps aux > diagnostics/ps-aux.txt
+          docker ps -a > diagnostics/docker-ps.txt || true
+          docker logs --tail 500 charon-e2e > diagnostics/docker-charon-e2e.log 2>&1 || true
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: e2e-diagnostics-webkit-security
+          path: diagnostics/
+          retention-days: 7
+
+      - name: Collect Docker logs on failure
+        if: failure()
+        run: |
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-webkit-security.txt 2>&1
+
+      - name: Upload Docker logs on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: docker-logs-webkit-security
+          path: docker-logs-webkit-security.txt
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
+
+  # ==================================================================================
+  # NON-SECURITY TESTS (12 jobs: 4 shards × 3 browsers, parallel execution)
+  # ====================================================================================================
+  # These tests run with Cerberus DISABLED to prevent ACL/rate limit interference
+  # Sharded for performance: 4 shards per browser for faster execution
+  # ==================================================================================
+
+  e2e-chromium:
+    name: E2E Chromium (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
+    runs-on: ubuntu-latest
+    needs: build
+    if: |
+      ((inputs.browser || 'all') == 'chromium' || (inputs.browser || 'all') == 'all') &&
+      ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
+    timeout-minutes: 60
+    env:
+      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+      CHARON_EMERGENCY_SERVER_ENABLED: "true"
+      CHARON_SECURITY_TESTS_ENABLED: "false"  # Cerberus OFF for non-security tests
+      CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+        total-shards: [4]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Log in to Docker Hub
+        if: needs.build.outputs.image_source == 'registry'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull shared Docker image
+        if: needs.build.outputs.image_source == 'registry'
+        run: |
+          docker pull "${{ needs.build.outputs.image_ref }}"
+          docker tag "${{ needs.build.outputs.image_ref }}" "${{ needs.build.outputs.image_tag }}"
+          docker images | grep charon
+
+      - name: Download Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: docker-image
+
+      - name: Load Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
+        run: |
+          docker load -i charon-e2e-image.tar
+          docker images | grep charon
+
+      - name: Generate ephemeral encryption key
+        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
+      - name: Start test environment (Non-Security Profile)
+        run: |
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml up -d
+          echo "✅ Container started for Chromium non-security tests (Cerberus OFF)"
+
+      - name: Wait for service health
+        run: |
+          echo "⏳ Waiting for Charon to be healthy..."
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+          while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Attempt ${ATTEMPT}/${MAX_ATTEMPTS}..."
+            if curl -sf http://127.0.0.1:8080/api/v1/health > /dev/null 2>&1; then
+              echo "✅ Charon is healthy!"
+              curl -s http://127.0.0.1:8080/api/v1/health | jq .
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "❌ Health check failed"
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs
+          exit 1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: |
+          echo "📦 Installing Chromium..."
+          npx playwright install --with-deps chromium
+          EXIT_CODE=$?
+          echo "✅ Install command completed (exit code: $EXIT_CODE)"
+          exit "$EXIT_CODE"
+
+      - name: Run Chromium Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
+        run: |
+          set -euo pipefail
+          STATUS=0
+          echo "════════════════════════════════════════════"
+          echo "Chromium Non-Security Tests - Shard ${{ matrix.shard }}/${{ matrix.total-shards }}"
+          echo "Cerberus: DISABLED"
+          echo "Execution: PARALLEL (sharded)"
+          echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "════════════════════════════════════════════"
+
+          SHARD_START=$(date +%s)
+          echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
+
+          npx playwright test \
+            --project=chromium \
+            --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
+            --output=playwright-output/chromium-shard-${{ matrix.shard }} \
+            tests/core \
+            tests/dns-provider-crud.spec.ts \
+            tests/dns-provider-types.spec.ts \
+            tests/integration \
+            tests/manual-dns-provider.spec.ts \
+            tests/monitoring \
+            tests/settings \
+            tests/tasks || STATUS=$?
+
+          SHARD_END=$(date +%s)
+          echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
           SHARD_DURATION=$((SHARD_END - SHARD_START))
           echo "════════════════════════════════════════════"
           echo "Chromium Shard ${{ matrix.shard }} Complete | Duration: ${SHARD_DURATION}s"
           echo "════════════════════════════════════════════"
+          echo "PLAYWRIGHT_STATUS=$STATUS" >> "$GITHUB_ENV"
+          exit "$STATUS"
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           CI: true
@@ -239,15 +968,23 @@ jobs:
 
       - name: Upload HTML report (Chromium shard ${{ matrix.shard }})
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: playwright-report-chromium-shard-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 14
 
+      - name: Upload Playwright output (Chromium shard ${{ matrix.shard }})
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: playwright-output-chromium-shard-${{ matrix.shard }}
+          path: playwright-output/chromium-shard-${{ matrix.shard }}/
+          retention-days: 7
+
       - name: Upload Chromium coverage (if enabled)
-        if: always() && env.PLAYWRIGHT_COVERAGE == '1'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: e2e-coverage-chromium-shard-${{ matrix.shard }}
           path: coverage/e2e/
@@ -255,10 +992,29 @@ jobs:
 
       - name: Upload test traces on failure
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: traces-chromium-shard-${{ matrix.shard }}
           path: test-results/**/*.zip
+          retention-days: 7
+
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          mkdir -p diagnostics
+          uptime > diagnostics/uptime.txt
+          free -m > diagnostics/free-m.txt
+          df -h > diagnostics/df-h.txt
+          ps aux > diagnostics/ps-aux.txt
+          docker ps -a > diagnostics/docker-ps.txt || true
+          docker logs --tail 500 charon-e2e > diagnostics/docker-charon-e2e.log 2>&1 || true
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: e2e-diagnostics-chromium-shard-${{ matrix.shard }}
+          path: diagnostics/
           retention-days: 7
 
       - name: Collect Docker logs on failure
@@ -268,7 +1024,7 @@ jobs:
 
       - name: Upload Docker logs on failure
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: docker-logs-chromium-shard-${{ matrix.shard }}
           path: docker-logs-chromium-shard-${{ matrix.shard }}.txt
@@ -278,29 +1034,30 @@ jobs:
         if: always()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
-  # Firefox browser tests (independent)
   e2e-firefox:
     name: E2E Firefox (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
     runs-on: ubuntu-latest
     needs: build
     if: |
-      (github.event_name != 'workflow_dispatch') ||
-      (github.event.inputs.browser == 'firefox' || github.event.inputs.browser == 'all')
-    timeout-minutes: 45
+      ((inputs.browser || 'all') == 'firefox' || (inputs.browser || 'all') == 'all') &&
+      ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
+    timeout-minutes: 60
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
-      CHARON_SECURITY_TESTS_ENABLED: "true"
-      CHARON_E2E_IMAGE_TAG: charon:e2e-test
+      CHARON_SECURITY_TESTS_ENABLED: "false"  # Cerberus OFF for non-security tests
+      CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
     strategy:
       fail-fast: false
       matrix:
-        shard: [1]  # Single shard: all tests run sequentially to avoid race conditions
-        total-shards: [1]
+        shard: [1, 2, 3, 4]
+        total-shards: [4]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -308,40 +1065,40 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Download Docker image
+      - name: Log in to Docker Hub
+        if: needs.build.outputs.image_source == 'registry'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull shared Docker image
+        if: needs.build.outputs.image_source == 'registry'
+        run: |
+          docker pull "${{ needs.build.outputs.image_ref }}"
+          docker tag "${{ needs.build.outputs.image_ref }}" "${{ needs.build.outputs.image_tag }}"
+          docker images | grep charon
+
+      - name: Download Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: docker-image
 
-      - name: Validate Emergency Token Configuration
-        run: |
-          echo "🔐 Validating emergency token configuration..."
-          if [ -z "$CHARON_EMERGENCY_TOKEN" ]; then
-            echo "::error title=Missing Secret::CHARON_EMERGENCY_TOKEN secret not configured"
-            exit 1
-          fi
-          TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
-          if [ $TOKEN_LENGTH -lt 64 ]; then
-            echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
-            exit 1
-          fi
-          MASKED_TOKEN="${CHARON_EMERGENCY_TOKEN:0:8}...${CHARON_EMERGENCY_TOKEN: -4}"
-          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH, preview: $MASKED_TOKEN)"
-        env:
-          CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
-
-      - name: Load Docker image
+      - name: Load Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         run: |
           docker load -i charon-e2e-image.tar
           docker images | grep charon
 
       - name: Generate ephemeral encryption key
-        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> $GITHUB_ENV
+        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
 
-      - name: Start test environment
+      - name: Start test environment (Non-Security Profile)
         run: |
-          docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
-          echo "✅ Container started for Firefox tests"
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml up -d
+          echo "✅ Container started for Firefox non-security tests (Cerberus OFF)"
 
       - name: Wait for service health
         run: |
@@ -365,13 +1122,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright Chromium
+      - name: Install Playwright Chromium (required by security-tests dependency)
         run: |
           echo "📦 Installing Chromium (required by security-tests dependency)..."
           npx playwright install --with-deps chromium
           EXIT_CODE=$?
           echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit $EXIT_CODE
+          exit "$EXIT_CODE"
 
       - name: Install Playwright Firefox
         run: |
@@ -379,32 +1136,43 @@ jobs:
           npx playwright install --with-deps firefox
           EXIT_CODE=$?
           echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          echo "📁 Checking browser cache..."
-          ls -lR ~/.cache/ms-playwright/ 2>/dev/null || echo "Cache directory not found"
-          echo "🔍 Searching for firefox executable..."
-          find ~/.cache/ms-playwright -name "*firefox*" 2>/dev/null | head -10 || echo "No firefox files found"
-          exit $EXIT_CODE
+          exit "$EXIT_CODE"
 
-      - name: Run Firefox tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
+      - name: Run Firefox Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
+          set -euo pipefail
+          STATUS=0
           echo "════════════════════════════════════════════"
-          echo "Firefox E2E Tests - Shard ${{ matrix.shard }}/${{ matrix.total-shards }}"
+          echo "Firefox Non-Security Tests - Shard ${{ matrix.shard }}/${{ matrix.total-shards }}"
+          echo "Cerberus: DISABLED"
+          echo "Execution: PARALLEL (sharded)"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "════════════════════════════════════════════"
 
           SHARD_START=$(date +%s)
-          echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
+          echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
 
           npx playwright test \
             --project=firefox \
-            --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
+            --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
+            --output=playwright-output/firefox-shard-${{ matrix.shard }} \
+            tests/core \
+            tests/dns-provider-crud.spec.ts \
+            tests/dns-provider-types.spec.ts \
+            tests/integration \
+            tests/manual-dns-provider.spec.ts \
+            tests/monitoring \
+            tests/settings \
+            tests/tasks || STATUS=$?
 
           SHARD_END=$(date +%s)
-          echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
+          echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
           SHARD_DURATION=$((SHARD_END - SHARD_START))
           echo "════════════════════════════════════════════"
           echo "Firefox Shard ${{ matrix.shard }} Complete | Duration: ${SHARD_DURATION}s"
           echo "════════════════════════════════════════════"
+          echo "PLAYWRIGHT_STATUS=$STATUS" >> "$GITHUB_ENV"
+          exit "$STATUS"
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           CI: true
@@ -412,15 +1180,23 @@ jobs:
 
       - name: Upload HTML report (Firefox shard ${{ matrix.shard }})
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: playwright-report-firefox-shard-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 14
 
+      - name: Upload Playwright output (Firefox shard ${{ matrix.shard }})
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: playwright-output-firefox-shard-${{ matrix.shard }}
+          path: playwright-output/firefox-shard-${{ matrix.shard }}/
+          retention-days: 7
+
       - name: Upload Firefox coverage (if enabled)
-        if: always() && env.PLAYWRIGHT_COVERAGE == '1'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: e2e-coverage-firefox-shard-${{ matrix.shard }}
           path: coverage/e2e/
@@ -428,10 +1204,29 @@ jobs:
 
       - name: Upload test traces on failure
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: traces-firefox-shard-${{ matrix.shard }}
           path: test-results/**/*.zip
+          retention-days: 7
+
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          mkdir -p diagnostics
+          uptime > diagnostics/uptime.txt
+          free -m > diagnostics/free-m.txt
+          df -h > diagnostics/df-h.txt
+          ps aux > diagnostics/ps-aux.txt
+          docker ps -a > diagnostics/docker-ps.txt || true
+          docker logs --tail 500 charon-e2e > diagnostics/docker-charon-e2e.log 2>&1 || true
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: e2e-diagnostics-firefox-shard-${{ matrix.shard }}
+          path: diagnostics/
           retention-days: 7
 
       - name: Collect Docker logs on failure
@@ -441,7 +1236,7 @@ jobs:
 
       - name: Upload Docker logs on failure
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: docker-logs-firefox-shard-${{ matrix.shard }}
           path: docker-logs-firefox-shard-${{ matrix.shard }}.txt
@@ -451,29 +1246,30 @@ jobs:
         if: always()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
-  # WebKit browser tests (independent)
   e2e-webkit:
     name: E2E WebKit (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
     runs-on: ubuntu-latest
     needs: build
     if: |
-      (github.event_name != 'workflow_dispatch') ||
-      (github.event.inputs.browser == 'webkit' || github.event.inputs.browser == 'all')
-    timeout-minutes: 45
+      ((inputs.browser || 'all') == 'webkit' || (inputs.browser || 'all') == 'all') &&
+      ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
+    timeout-minutes: 60
     env:
       CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
-      CHARON_SECURITY_TESTS_ENABLED: "true"
-      CHARON_E2E_IMAGE_TAG: charon:e2e-test
+      CHARON_SECURITY_TESTS_ENABLED: "false"  # Cerberus OFF for non-security tests
+      CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
     strategy:
       fail-fast: false
       matrix:
-        shard: [1]  # Single shard: all tests run sequentially to avoid race conditions
-        total-shards: [1]
+        shard: [1, 2, 3, 4]
+        total-shards: [4]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
@@ -481,40 +1277,40 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Download Docker image
+      - name: Log in to Docker Hub
+        if: needs.build.outputs.image_source == 'registry'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.DOCKERHUB_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull shared Docker image
+        if: needs.build.outputs.image_source == 'registry'
+        run: |
+          docker pull "${{ needs.build.outputs.image_ref }}"
+          docker tag "${{ needs.build.outputs.image_ref }}" "${{ needs.build.outputs.image_tag }}"
+          docker images | grep charon
+
+      - name: Download Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: docker-image
 
-      - name: Validate Emergency Token Configuration
-        run: |
-          echo "🔐 Validating emergency token configuration..."
-          if [ -z "$CHARON_EMERGENCY_TOKEN" ]; then
-            echo "::error title=Missing Secret::CHARON_EMERGENCY_TOKEN secret not configured"
-            exit 1
-          fi
-          TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
-          if [ $TOKEN_LENGTH -lt 64 ]; then
-            echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
-            exit 1
-          fi
-          MASKED_TOKEN="${CHARON_EMERGENCY_TOKEN:0:8}...${CHARON_EMERGENCY_TOKEN: -4}"
-          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH, preview: $MASKED_TOKEN)"
-        env:
-          CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
-
-      - name: Load Docker image
+      - name: Load Docker image artifact
+        if: needs.build.outputs.image_source == 'build'
         run: |
           docker load -i charon-e2e-image.tar
           docker images | grep charon
 
       - name: Generate ephemeral encryption key
-        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> $GITHUB_ENV
+        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
 
-      - name: Start test environment
+      - name: Start test environment (Non-Security Profile)
         run: |
-          docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
-          echo "✅ Container started for WebKit tests"
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml up -d
+          echo "✅ Container started for WebKit non-security tests (Cerberus OFF)"
 
       - name: Wait for service health
         run: |
@@ -538,13 +1334,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright Chromium
+      - name: Install Playwright Chromium (required by security-tests dependency)
         run: |
           echo "📦 Installing Chromium (required by security-tests dependency)..."
           npx playwright install --with-deps chromium
           EXIT_CODE=$?
           echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit $EXIT_CODE
+          exit "$EXIT_CODE"
 
       - name: Install Playwright WebKit
         run: |
@@ -552,32 +1348,43 @@ jobs:
           npx playwright install --with-deps webkit
           EXIT_CODE=$?
           echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          echo "📁 Checking browser cache..."
-          ls -lR ~/.cache/ms-playwright/ 2>/dev/null || echo "Cache directory not found"
-          echo "🔍 Searching for webkit executable..."
-          find ~/.cache/ms-playwright -name "*webkit*" -o -name "*MiniBrowser*" 2>/dev/null | head -10 || echo "No webkit files found"
-          exit $EXIT_CODE
+          exit "$EXIT_CODE"
 
-      - name: Run WebKit tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
+      - name: Run WebKit Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
+          set -euo pipefail
+          STATUS=0
           echo "════════════════════════════════════════════"
-          echo "WebKit E2E Tests - Shard ${{ matrix.shard }}/${{ matrix.total-shards }}"
+          echo "WebKit Non-Security Tests - Shard ${{ matrix.shard }}/${{ matrix.total-shards }}"
+          echo "Cerberus: DISABLED"
+          echo "Execution: PARALLEL (sharded)"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "════════════════════════════════════════════"
 
           SHARD_START=$(date +%s)
-          echo "SHARD_START=$SHARD_START" >> $GITHUB_ENV
+          echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
 
           npx playwright test \
             --project=webkit \
-            --shard=${{ matrix.shard }}/${{ matrix.total-shards }}
+            --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
+            --output=playwright-output/webkit-shard-${{ matrix.shard }} \
+            tests/core \
+            tests/dns-provider-crud.spec.ts \
+            tests/dns-provider-types.spec.ts \
+            tests/integration \
+            tests/manual-dns-provider.spec.ts \
+            tests/monitoring \
+            tests/settings \
+            tests/tasks || STATUS=$?
 
           SHARD_END=$(date +%s)
-          echo "SHARD_END=$SHARD_END" >> $GITHUB_ENV
+          echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
           SHARD_DURATION=$((SHARD_END - SHARD_START))
           echo "════════════════════════════════════════════"
           echo "WebKit Shard ${{ matrix.shard }} Complete | Duration: ${SHARD_DURATION}s"
           echo "════════════════════════════════════════════"
+          echo "PLAYWRIGHT_STATUS=$STATUS" >> "$GITHUB_ENV"
+          exit "$STATUS"
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           CI: true
@@ -591,8 +1398,16 @@ jobs:
           path: playwright-report/
           retention-days: 14
 
+      - name: Upload Playwright output (WebKit shard ${{ matrix.shard }})
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: playwright-output-webkit-shard-${{ matrix.shard }}
+          path: playwright-output/webkit-shard-${{ matrix.shard }}/
+          retention-days: 7
+
       - name: Upload WebKit coverage (if enabled)
-        if: always() && env.PLAYWRIGHT_COVERAGE == '1'
+        if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: e2e-coverage-webkit-shard-${{ matrix.shard }}
@@ -605,6 +1420,25 @@ jobs:
         with:
           name: traces-webkit-shard-${{ matrix.shard }}
           path: test-results/**/*.zip
+          retention-days: 7
+
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          mkdir -p diagnostics
+          uptime > diagnostics/uptime.txt
+          free -m > diagnostics/free-m.txt
+          df -h > diagnostics/df-h.txt
+          ps aux > diagnostics/ps-aux.txt
+          docker ps -a > diagnostics/docker-ps.txt || true
+          docker logs --tail 500 charon-e2e > diagnostics/docker-charon-e2e.log 2>&1 || true
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: e2e-diagnostics-webkit-shard-${{ matrix.shard }}
+          path: diagnostics/
           retention-days: 7
 
       - name: Collect Docker logs on failure
@@ -628,230 +1462,113 @@ jobs:
   test-summary:
     name: E2E Test Summary
     runs-on: ubuntu-latest
-    needs: [e2e-chromium, e2e-firefox, e2e-webkit]
+    needs: [e2e-chromium-security, e2e-firefox-security, e2e-webkit-security, e2e-chromium, e2e-firefox, e2e-webkit]
     if: always()
 
     steps:
       - name: Generate job summary
         run: |
-          echo "## 📊 E2E Test Results (Split Browser Jobs)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Browser Job Status" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Browser | Status | Shards | Notes |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|--------|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Chromium | ${{ needs.e2e-chromium.result }} | 1 | Sequential execution |" >> $GITHUB_STEP_SUMMARY
-          echo "| Firefox | ${{ needs.e2e-firefox.result }} | 1 | Sequential execution |" >> $GITHUB_STEP_SUMMARY
-          echo "| WebKit | ${{ needs.e2e-webkit.result }} | 1 | Sequential execution |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Phase 1 Hotfix Benefits" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Browser Parallelism:** All 3 browsers run simultaneously (job-level)" >> $GITHUB_STEP_SUMMARY
-          echo "- ℹ️  **Sequential Tests:** Each browser runs all tests sequentially (no sharding)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Per-Shard HTML Reports" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Download artifacts to view detailed test results for each browser and shard." >> $GITHUB_STEP_SUMMARY
-
-  # Upload merged coverage to Codecov with browser-specific flags
-  upload-coverage:
-    name: Upload E2E Coverage
-    runs-on: ubuntu-latest
-    needs: [e2e-chromium, e2e-firefox, e2e-webkit]
-    if: vars.PLAYWRIGHT_COVERAGE == '1' && always()
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Download all coverage artifacts
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          pattern: e2e-coverage-*
-          path: all-coverage
-          merge-multiple: false
-
-      - name: Merge browser coverage files
-        run: |
-          sudo apt-get update && sudo apt-get install -y lcov
-          mkdir -p coverage/e2e-merged/{chromium,firefox,webkit}
-
-          # Merge Chromium shards
-          CHROMIUM_FILES=$(find all-coverage -path "*chromium*" -name "lcov.info" -type f)
-          if [[ -n "$CHROMIUM_FILES" ]]; then
-            MERGE_ARGS=""
-            for file in $CHROMIUM_FILES; do MERGE_ARGS="$MERGE_ARGS -a $file"; done
-            lcov $MERGE_ARGS -o coverage/e2e-merged/chromium/lcov.info
-            echo "✅ Merged $(echo "$CHROMIUM_FILES" | wc -w) Chromium coverage files"
-          fi
-
-          # Merge Firefox shards
-          FIREFOX_FILES=$(find all-coverage -path "*firefox*" -name "lcov.info" -type f)
-          if [[ -n "$FIREFOX_FILES" ]]; then
-            MERGE_ARGS=""
-            for file in $FIREFOX_FILES; do MERGE_ARGS="$MERGE_ARGS -a $file"; done
-            lcov $MERGE_ARGS -o coverage/e2e-merged/firefox/lcov.info
-            echo "✅ Merged $(echo "$FIREFOX_FILES" | wc -w) Firefox coverage files"
-          fi
-
-          # Merge WebKit shards
-          WEBKIT_FILES=$(find all-coverage -path "*webkit*" -name "lcov.info" -type f)
-          if [[ -n "$WEBKIT_FILES" ]]; then
-            MERGE_ARGS=""
-            for file in $WEBKIT_FILES; do MERGE_ARGS="$MERGE_ARGS -a $file"; done
-            lcov $MERGE_ARGS -o coverage/e2e-merged/webkit/lcov.info
-            echo "✅ Merged $(echo "$WEBKIT_FILES" | wc -w) WebKit coverage files"
-          fi
-
-      - name: Upload Chromium coverage to Codecov
-        if: hashFiles('coverage/e2e-merged/chromium/lcov.info') != ''
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/e2e-merged/chromium/lcov.info
-          flags: e2e-chromium
-          name: e2e-coverage-chromium
-          fail_ci_if_error: false
-
-      - name: Upload Firefox coverage to Codecov
-        if: hashFiles('coverage/e2e-merged/firefox/lcov.info') != ''
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/e2e-merged/firefox/lcov.info
-          flags: e2e-firefox
-          name: e2e-coverage-firefox
-          fail_ci_if_error: false
-
-      - name: Upload WebKit coverage to Codecov
-        if: hashFiles('coverage/e2e-merged/webkit/lcov.info') != ''
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/e2e-merged/webkit/lcov.info
-          flags: e2e-webkit
-          name: e2e-coverage-webkit
-          fail_ci_if_error: false
-
-      - name: Upload merged coverage artifacts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: e2e-coverage-merged
-          path: coverage/e2e-merged/
-          retention-days: 30
-
-  # Comment on PR with results
-  comment-results:
-    name: Comment Test Results
-    runs-on: ubuntu-latest
-    needs: [e2e-chromium, e2e-firefox, e2e-webkit, test-summary]
-    if: github.event_name == 'pull_request' && always()
-    permissions:
-      pull-requests: write
-
-    steps:
-      - name: Determine overall status
-        id: status
-        run: |
-          CHROMIUM="${{ needs.e2e-chromium.result }}"
-          FIREFOX="${{ needs.e2e-firefox.result }}"
-          WEBKIT="${{ needs.e2e-webkit.result }}"
-
-          if [[ "$CHROMIUM" == "success" && "$FIREFOX" == "success" && "$WEBKIT" == "success" ]]; then
-            echo "emoji=✅" >> $GITHUB_OUTPUT
-            echo "status=PASSED" >> $GITHUB_OUTPUT
-            echo "message=All browser tests passed!" >> $GITHUB_OUTPUT
-          else
-            echo "emoji=❌" >> $GITHUB_OUTPUT
-            echo "status=FAILED" >> $GITHUB_OUTPUT
-            echo "message=Some browser tests failed. Each browser runs independently." >> $GITHUB_OUTPUT
-          fi
-
-      - name: Comment on PR
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-        with:
-          script: |
-            const emoji = '${{ steps.status.outputs.emoji }}';
-            const status = '${{ steps.status.outputs.status }}';
-            const message = '${{ steps.status.outputs.message }}';
-            const chromium = '${{ needs.e2e-chromium.result }}';
-            const firefox = '${{ needs.e2e-firefox.result }}';
-            const webkit = '${{ needs.e2e-webkit.result }}';
-            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-
-            const body = `## ${emoji} E2E Test Results: ${status} (Split Browser Jobs)
-
-            ${message}
-
-            ### Browser Results (Sequential Execution)
-            | Browser | Status | Shards | Execution |
-            |---------|--------|--------|-----------|
-            | Chromium | ${chromium === 'success' ? '✅ Passed' : chromium === 'failure' ? '❌ Failed' : '⚠️ ' + chromium} | 1 | Sequential |
-            | Firefox | ${firefox === 'success' ? '✅ Passed' : firefox === 'failure' ? '❌ Failed' : '⚠️ ' + firefox} | 1 | Sequential |
-            | WebKit | ${webkit === 'success' ? '✅ Passed' : webkit === 'failure' ? '❌ Failed' : '⚠️ ' + webkit} | 1 | Sequential |
-
-            **Phase 1 Hotfix Active:** Each browser runs in a separate job. One browser failure does not block others.
-
-            [📊 View workflow run & download reports](${runUrl})
-
-            ---
-            <sub>🤖 Phase 1 Emergency Hotfix - See docs/plans/browser_alignment_triage.md</sub>`;
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-
-            const botComment = comments.find(comment =>
-              comment.user.type === 'Bot' &&
-              comment.body.includes('E2E Test Results')
-            );
-
-            if (botComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: body
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: body
-              });
-            }
+          {
+            echo "## 📊 E2E Test Results (Split: Security + Sharded)"
+            echo ""
+            echo "### Architecture: 15 Total Jobs"
+            echo ""
+            echo "#### Security Enforcement (3 jobs)"
+            echo "| Browser | Status | Shards | Timeout | Cerberus |"
+            echo "|---------|--------|--------|---------|----------|"
+            echo "| Chromium | ${{ needs.e2e-chromium-security.result }} | 1 | 30min | ON |"
+            echo "| Firefox | ${{ needs.e2e-firefox-security.result }} | 1 | 30min | ON |"
+            echo "| WebKit | ${{ needs.e2e-webkit-security.result }} | 1 | 30min | ON |"
+            echo ""
+            echo "#### Non-Security Tests (12 jobs)"
+            echo "| Browser | Status | Shards | Timeout | Cerberus |"
+            echo "|---------|--------|--------|---------|----------|"
+            echo "| Chromium | ${{ needs.e2e-chromium.result }} | 4 | 20min | OFF |"
+            echo "| Firefox | ${{ needs.e2e-firefox.result }} | 4 | 20min | OFF |"
+            echo "| WebKit | ${{ needs.e2e-webkit.result }} | 4 | 20min | OFF |"
+            echo ""
+            echo "### Benefits"
+            echo ""
+            echo "- ✅ **Isolation:** Security tests run independently without ACL/rate limit interference"
+            echo "- ✅ **Performance:** Non-security tests sharded 4-way for faster execution"
+            echo "- ✅ **Reliability:** Cerberus OFF by default prevents cross-shard contamination"
+            echo "- ✅ **Clarity:** Separate artifacts for security vs non-security test results"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # Final status check
   e2e-results:
     name: E2E Test Results (Final)
     runs-on: ubuntu-latest
-    needs: [e2e-chromium, e2e-firefox, e2e-webkit]
+    needs: [e2e-chromium-security, e2e-firefox-security, e2e-webkit-security, e2e-chromium, e2e-firefox, e2e-webkit]
     if: always()
 
     steps:
       - name: Check test results
-        run: |
-          CHROMIUM="${{ needs.e2e-chromium.result }}"
-          FIREFOX="${{ needs.e2e-firefox.result }}"
-          WEBKIT="${{ needs.e2e-webkit.result }}"
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          EFFECTIVE_BROWSER: ${{ inputs.browser || 'all' }}
+          EFFECTIVE_CATEGORY: ${{ inputs.test_category || 'all' }}
+          NEEDS_JSON: ${{ toJson(needs) }}
+        with:
+          script: |
+            const needs = JSON.parse(process.env.NEEDS_JSON || '{}');
+            const effectiveBrowser = process.env.EFFECTIVE_BROWSER || 'all';
+            const effectiveCategory = process.env.EFFECTIVE_CATEGORY || 'all';
 
-          echo "Browser Results:"
-          echo "  Chromium: $CHROMIUM"
-          echo "  Firefox: $FIREFOX"
-          echo "  WebKit: $WEBKIT"
+            const shouldRunSecurity = effectiveCategory === 'security' || effectiveCategory === 'all';
+            const shouldRunNonSecurity = effectiveCategory === 'non-security' || effectiveCategory === 'all';
 
-          # Allow skipped browsers (workflow_dispatch with specific browser)
-          if [[ "$CHROMIUM" == "skipped" ]]; then CHROMIUM="success"; fi
-          if [[ "$FIREFOX" == "skipped" ]]; then FIREFOX="success"; fi
-          if [[ "$WEBKIT" == "skipped" ]]; then WEBKIT="success"; fi
+            const shouldRun = {
+              chromiumSecurity: (effectiveBrowser === 'chromium' || effectiveBrowser === 'all') && shouldRunSecurity,
+              firefoxSecurity: (effectiveBrowser === 'firefox' || effectiveBrowser === 'all') && shouldRunSecurity,
+              webkitSecurity: (effectiveBrowser === 'webkit' || effectiveBrowser === 'all') && shouldRunSecurity,
+              chromium: (effectiveBrowser === 'chromium' || effectiveBrowser === 'all') && shouldRunNonSecurity,
+              firefox: (effectiveBrowser === 'firefox' || effectiveBrowser === 'all') && shouldRunNonSecurity,
+              webkit: (effectiveBrowser === 'webkit' || effectiveBrowser === 'all') && shouldRunNonSecurity,
+            };
 
-          if [[ "$CHROMIUM" == "success" && "$FIREFOX" == "success" && "$WEBKIT" == "success" ]]; then
-            echo "✅ All browser tests passed or were skipped"
-            exit 0
-          else
-            echo "❌ One or more browser tests failed"
-            exit 1
-          fi
+            const results = {
+              chromiumSecurity: needs['e2e-chromium-security']?.result || 'skipped',
+              firefoxSecurity: needs['e2e-firefox-security']?.result || 'skipped',
+              webkitSecurity: needs['e2e-webkit-security']?.result || 'skipped',
+              chromium: needs['e2e-chromium']?.result || 'skipped',
+              firefox: needs['e2e-firefox']?.result || 'skipped',
+              webkit: needs['e2e-webkit']?.result || 'skipped',
+            };
+
+            core.info('Security Enforcement Results:');
+            core.info(`  Chromium Security: ${results.chromiumSecurity}`);
+            core.info(`  Firefox Security: ${results.firefoxSecurity}`);
+            core.info(`  WebKit Security: ${results.webkitSecurity}`);
+            core.info('');
+            core.info('Non-Security Results:');
+            core.info(`  Chromium: ${results.chromium}`);
+            core.info(`  Firefox: ${results.firefox}`);
+            core.info(`  WebKit: ${results.webkit}`);
+
+            const failures = [];
+            const invalidResults = new Set(['skipped', 'failure', 'cancelled']);
+
+            const labels = {
+              chromiumSecurity: 'Chromium Security',
+              firefoxSecurity: 'Firefox Security',
+              webkitSecurity: 'WebKit Security',
+              chromium: 'Chromium',
+              firefox: 'Firefox',
+              webkit: 'WebKit',
+            };
+
+            for (const [key, shouldRunJob] of Object.entries(shouldRun)) {
+              const result = results[key];
+              if (shouldRunJob && invalidResults.has(result)) {
+                failures.push(`${labels[key]} expected to run but result was ${result}`);
+              }
+            }
+
+            if (failures.length > 0) {
+              core.error('One or more expected browser jobs did not succeed:');
+              failures.forEach((failure) => core.error(`- ${failure}`));
+              core.setFailed('Expected E2E jobs did not complete successfully.');
+            } else {
+              core.info('All expected browser tests succeeded');
+            }

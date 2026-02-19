@@ -88,8 +88,8 @@ func (h *LogsHandler) Download(c *gin.Context) {
 		return
 	}
 	defer func() {
-		if err := os.Remove(tmpFile.Name()); err != nil {
-			logger.Log().WithError(err).Warn("failed to remove temp file")
+		if removeErr := os.Remove(tmpFile.Name()); removeErr != nil {
+			logger.Log().WithError(removeErr).Warn("failed to remove temp file")
 		}
 	}()
 

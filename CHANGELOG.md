@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### CI/CD
+- **Supply Chain**: Optimized verification workflow to prevent redundant builds
+  - Change: Removed direct Push/PR triggers; now waits for 'Docker Build' via `workflow_run`
+
+### Security
+- **Supply Chain**: Enhanced PR verification workflow stability and accuracy
+  - **Vulnerability Reporting**: Eliminated false negatives ("0 vulnerabilities") by enforcing strict failure conditions
+  - **Tooling**: Switched to manual Grype installation ensuring usage of latest stable binary
+  - **Observability**: Improved debugging visibility for vulnerability scans and SARIF generation
+
 ### Performance
 - **E2E Tests**: Reduced feature flag API calls by 90% through conditional polling optimization (Phase 2)
   - Conditional skip: Exits immediately if flags already in expected state (~50% of cases)
@@ -19,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents timeout errors in Firefox/WebKit caused by strict label matching
 
 ### Fixed
+- Fixed: Added robust validation and debug logging for Docker image tags to prevent invalid reference errors.
+- Fixed: Removed log masking for image references and added manifest validation to debug CI failures.
+- **CI**: Fixed Docker image reference output so integration jobs never pull an empty image ref
 - **E2E Test Reliability**: Resolved test timeout issues affecting CI/CD pipeline stability
   - Fixed config reload overlay blocking test interactions
   - Improved feature flag propagation with extended timeouts
@@ -28,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Testing Infrastructure**: Enhanced E2E test helpers with better synchronization and error handling
+- **CI**: Optimized E2E workflow shards [Reduced from 4 to 3]
 
 ### Fixed
 
@@ -76,6 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enables reliable selector for testing feature toggle overlay visibility
 - **E2E Tests**: Skipped WAF enforcement test (middleware behavior tested in integration)
   - `waf-enforcement.spec.ts` now skipped with reason referencing `backend/integration/coraza_integration_test.go`
+- **CI**: Added missing Chromium dependency for Security jobs
+- **E2E Tests**: Stabilized Proxy Host and Certificate tests (wait helpers, locators)
 
 ### Changed
 

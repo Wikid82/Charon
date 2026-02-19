@@ -306,7 +306,7 @@ WAF_CONFIG=$(cat <<'EOF'
     "enabled": true,
     "waf_mode": "block",
     "waf_rules_source": "test-xss",
-    "admin_whitelist": "0.0.0.0/0"
+    "admin_whitelist": "127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 }
 EOF
 )
@@ -373,7 +373,7 @@ MONITOR_CONFIG=$(cat <<'EOF'
     "enabled": true,
     "waf_mode": "monitor",
     "waf_rules_source": "test-xss",
-    "admin_whitelist": "0.0.0.0/0"
+    "admin_whitelist": "127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 }
 EOF
 )
@@ -430,7 +430,7 @@ SQLI_CONFIG=$(cat <<'EOF'
     "enabled": true,
     "waf_mode": "block",
     "waf_rules_source": "test-sqli",
-    "admin_whitelist": "0.0.0.0/0"
+    "admin_whitelist": "127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 }
 EOF
 )
@@ -488,7 +488,7 @@ COMBINED_CONFIG=$(cat <<'EOF'
     "enabled": true,
     "waf_mode": "block",
     "waf_rules_source": "combined-protection",
-    "admin_whitelist": "0.0.0.0/0"
+    "admin_whitelist": "127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 }
 EOF
 )

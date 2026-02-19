@@ -8,6 +8,10 @@
 			],
 			"gallery": "https://api.mcp.github.com",
 			"version": "0.0.1-seed"
+		},
+		"gopls": {
+			"url": "http://localhost:8092",
+			"type": "sse"
 		}
 	},
 	"inputs": []

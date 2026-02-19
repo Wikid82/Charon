@@ -398,6 +398,9 @@ func TestGetAcquisitionConfig(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
+	acquisPath := filepath.Join(tmpDir, "acquis.yaml")
+	require.NoError(t, os.WriteFile(acquisPath, []byte("source: file\n"), 0o600))
+	t.Setenv("CHARON_CROWDSEC_ACQUIS_PATH", acquisPath)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
@@ -409,8 +412,7 @@ func TestGetAcquisitionConfig(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/acquisition", http.NoBody)
 	r.ServeHTTP(w, req)
 
-	// Endpoint should exist
-	assert.NotEqual(t, http.StatusNotFound, w.Code, "Endpoint should be registered")
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 // TestUpdateAcquisitionConfig tests the UpdateAcquisitionConfig handler
@@ -418,6 +420,9 @@ func TestUpdateAcquisitionConfig(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
+	acquisPath := filepath.Join(tmpDir, "acquis.yaml")
+	require.NoError(t, os.WriteFile(acquisPath, []byte("source: file\n"), 0o600))
+	t.Setenv("CHARON_CROWDSEC_ACQUIS_PATH", acquisPath)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 
@@ -426,7 +431,7 @@ func TestUpdateAcquisitionConfig(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	newConfig := "# New acquisition config\nsource: file\nfilename: /var/log/new.log\n"
-	payload := map[string]string{"config": newConfig}
+	payload := map[string]string{"content": newConfig}
 	payloadBytes, _ := json.Marshal(payload)
 
 	w := httptest.NewRecorder()
@@ -434,17 +439,27 @@ func TestUpdateAcquisitionConfig(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 
-	// Endpoint should exist
-	assert.NotEqual(t, http.StatusNotFound, w.Code, "Endpoint should be registered")
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 // TestGetLAPIKey tests the getLAPIKey helper
 func TestGetLAPIKey(t *testing.T) {
-	// getLAPIKey is a package-level function that reads from environment/global state
-	// For now, just exercise the function
-	key := getLAPIKey()
-	// Key will be empty in test environment, but function is exercised
-	_ = key
+	t.Setenv("CROWDSEC_API_KEY", "")
+	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "")
+	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "")
+	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "")
+	t.Setenv("CPM_SECURITY_CROWDSEC_API_KEY", "")
+
+	assert.Equal(t, "", getLAPIKey())
+
+	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "fallback-key")
+	assert.Equal(t, "fallback-key", getLAPIKey())
+
+	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "priority-key")
+	assert.Equal(t, "priority-key", getLAPIKey())
+
+	t.Setenv("CROWDSEC_API_KEY", "top-priority-key")
+	assert.Equal(t, "top-priority-key", getLAPIKey())
 }
 
 // NOTE: Removed duplicate TestIsCerberusEnabled - covered by existing test files

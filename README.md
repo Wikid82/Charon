@@ -9,6 +9,7 @@
 <p align="center">
   <a href="https://www.repostatus.org/#active"><img src="https://www.repostatus.org/badges/latest/active.svg" alt="Project Status: Active – The project is being actively developed." /></a>
  <a href="https://hub.docker.com/r/wikid82/charon"><img src="https://img.shields.io/docker/pulls/wikid82/charon.svg" alt="Docker Pulls"></a>
+  <a href="https://github.com/users/Wikid82/packages/container/package/charon"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Wikid82/Charon/main/.github/badges/ghcr-downloads.json" alt="GHCR Pulls"></a>
   <a href="https://github.com/Wikid82/charon/releases"><img src="https://img.shields.io/github/v/release/Wikid82/charon?include_prereleases" alt="Release"></a>
   <br>
   <a href="https://codecov.io/gh/Wikid82/Charon" ><img src="https://codecov.io/gh/Wikid82/Charon/branch/main/graph/badge.svg?token=RXSINLQTGE" alt="Code Coverage"/></a>
@@ -282,7 +283,7 @@ docker run -d \
 
 **Requirements:**
 
-- **Go 1.25.6+** — Download from [go.dev/dl](https://go.dev/dl/)
+- **go 1.26.0+** — Download from [go.dev/dl](https://go.dev/dl/)
 - **Node.js 20+** and npm
 - Docker 20.10+
 
@@ -302,7 +303,20 @@ See [GORM Security Scanner Documentation](docs/implementation/gorm_security_scan
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for complete development environment setup.
 
-**Note:** GitHub Actions CI uses `GOTOOLCHAIN: auto` to automatically download and use Go 1.25.6, even if your system has an older version installed. For local development, ensure you have Go 1.25.6+ installed.
+**Note:** GitHub Actions CI uses `GOTOOLCHAIN: auto` to automatically download and use go 1.26.0, even if your system has an older version installed. For local development, ensure you have go 1.26.0+ installed.
+
+#### Keeping Go Tools Up-to-Date
+
+After pulling a Go version update:
+
+```bash
+# Rebuild all Go development tools
+./scripts/rebuild-go-tools.sh
+```
+
+**Why?** Tools like golangci-lint are compiled programs. When Go upgrades, they need to be recompiled to work with the new version. This one command rebuilds all your tools automatically.
+
+See [Go Version Upgrades Guide](docs/development/go_version_upgrades.md) for details.
 
 ### Environment Configuration
 

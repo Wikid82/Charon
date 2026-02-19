@@ -1,5 +1,7 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi } from 'vitest'
+import { createRef } from 'react'
 import { Search, Mail, Lock } from 'lucide-react'
 import { Input } from '../Input'
 
@@ -100,14 +102,14 @@ describe('Input', () => {
   })
 
   it('forwards ref correctly', () => {
-    const ref = vi.fn()
+    const ref = createRef<HTMLInputElement>()
     render(<Input ref={ref} />)
 
-    expect(ref).toHaveBeenCalled()
-    expect(ref.mock.calls[0][0]).toBeInstanceOf(HTMLInputElement)
+    expect(ref.current).toBeInstanceOf(HTMLInputElement)
   })
 
-  it('handles password type with toggle visibility', () => {
+  it('handles password type with toggle visibility', async () => {
+    const user = userEvent.setup()
     render(<Input type="password" placeholder="Enter password" />)
 
     const input = screen.getByPlaceholderText('Enter password')
@@ -118,12 +120,12 @@ describe('Input', () => {
     expect(toggleButton).toBeInTheDocument()
 
     // Click to show password
-    fireEvent.click(toggleButton)
+    await user.click(toggleButton)
     expect(input).toHaveAttribute('type', 'text')
     expect(screen.getByRole('button', { name: /hide password/i })).toBeInTheDocument()
 
     // Click again to hide
-    fireEvent.click(screen.getByRole('button', { name: /hide password/i }))
+    await user.click(screen.getByRole('button', { name: /hide password/i }))
     expect(input).toHaveAttribute('type', 'password')
   })
 
@@ -133,12 +135,13 @@ describe('Input', () => {
     expect(screen.queryByRole('button', { name: /password/i })).not.toBeInTheDocument()
   })
 
-  it('handles value changes', () => {
+  it('handles value changes', async () => {
+    const user = userEvent.setup()
     const handleChange = vi.fn()
     render(<Input onChange={handleChange} placeholder="Input" />)
 
     const input = screen.getByPlaceholderText('Input')
-    fireEvent.change(input, { target: { value: 'test value' } })
+    await user.type(input, 'test value')
 
     expect(handleChange).toHaveBeenCalled()
     expect(input).toHaveValue('test value')

@@ -18,7 +18,9 @@ export function useDocker(host?: string | null, serverId?: string | null) {
         if (error.response?.status === 503) {
           const details = error.response?.data?.details
           const message = details || 'Docker service unavailable. Check that Docker is running.'
-          throw new Error(message)
+          throw new Error(message, {
+            cause: err,
+          })
         }
         throw err
       }

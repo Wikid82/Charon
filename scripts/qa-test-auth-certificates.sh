@@ -19,8 +19,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 TEST_RESULTS="$REPO_ROOT/test-results/qa-auth-test-results.log"
 
 # Clear previous results
-> "$TEST_RESULTS"
-> "$COOKIE_FILE"
+: > "$TEST_RESULTS"
+: > "$COOKIE_FILE"
 
 echo -e "${BLUE}=== QA Test: Certificate Page Authentication ===${NC}"
 echo "Testing authentication fixes for certificate endpoints"

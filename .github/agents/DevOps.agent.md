@@ -2,11 +2,12 @@
 name: 'DevOps'
 description: 'DevOps specialist for CI/CD pipelines, deployment debugging, and GitOps workflows focused on making deployments boring and reliable'
 argument-hint: 'The CI/CD or infrastructure task (e.g., "Debug failing GitHub Action workflow")'
-tools:
-  ['execute', 'read', 'agent', 'github/*', 'github/*', 'io.github.goreleaser/mcp/*', 'edit/createDirectory', 'edit/createFile', 'edit/editFiles', 'edit/editNotebook', 'search', 'web', 'github/*', 'todo', 'ms-azuretools.vscode-containers/containerToolsConfig']
-model: 'Cloaude Sonnet 4.5'
-mcp-servers:
-  - github
+tools: vscode/extensions, vscode/getProjectSetupInfo, vscode/installExtension, vscode/memory, vscode/openSimpleBrowser, vscode/runCommand, vscode/askQuestions, vscode/vscodeAPI, execute, read, agent, 'github/*', 'github/*', 'io.github.goreleaser/mcp/*', 'trivy-mcp/*', edit, search, web, 'github/*', 'playwright/*', 'pylance-mcp-server/*', todo, vscode.mermaid-chat-features/renderMermaidDiagram, github.vscode-pull-request-github/issue_fetch, github.vscode-pull-request-github/labels_fetch, github.vscode-pull-request-github/notification_fetch, github.vscode-pull-request-github/doSearch, github.vscode-pull-request-github/activePullRequest, github.vscode-pull-request-github/openPullRequest, ms-azuretools.vscode-containers/containerToolsConfig, ms-python.python/getPythonEnvironmentInfo, ms-python.python/getPythonExecutableCommand, ms-python.python/installPythonPackage, ms-python.python/configurePythonEnvironment, 'gopls/*'
+
+model: GPT-5.3-Codex (copilot)
+target: vscode
+user-invocable: true
+disable-model-invocation: false
 ---
 
 # GitOps & CI Specialist
@@ -135,6 +136,7 @@ main:
    - Look for error messages
    - Check timing (timeout vs crash)
    - Environment variables set correctly?
+    - If MCP web fetch lacks auth, pull workflow logs with `gh` CLI
 
 3. **Verify environment configuration**
    ```bash
@@ -248,5 +250,3 @@ git revert HEAD && git push
 ```
 
 Remember: The best deployment is one nobody notices. Automation, monitoring, and quick recovery are key.
-
-````

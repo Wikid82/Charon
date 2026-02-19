@@ -220,7 +220,7 @@ EOF
 curl -s -X POST -H "Content-Type: application/json" -d "${RULESET}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/security/rulesets
 
 echo "Enable WAF globally and set ruleset source to integration-xss..."
-SEC_CFG_PAYLOAD='{"name":"default","enabled":true,"waf_mode":"block","waf_rules_source":"integration-xss","admin_whitelist":"0.0.0.0/0"}'
+SEC_CFG_PAYLOAD='{"name":"default","enabled":true,"waf_mode":"block","waf_rules_source":"integration-xss","admin_whitelist":"127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"}'
 curl -s -X POST -H "Content-Type: application/json" -d "${SEC_CFG_PAYLOAD}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/security/config
 
 echo "Waiting for Caddy to apply WAF configuration..."
@@ -265,7 +265,7 @@ done
 echo ""
 echo "=== Testing MONITOR mode (DetectionOnly) ==="
 echo "Switching WAF to monitor mode..."
-SEC_CFG_MONITOR='{"name":"default","enabled":true,"waf_mode":"monitor","waf_rules_source":"integration-xss","admin_whitelist":"0.0.0.0/0"}'
+SEC_CFG_MONITOR='{"name":"default","enabled":true,"waf_mode":"monitor","waf_rules_source":"integration-xss","admin_whitelist":"127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"}'
 curl -s -X POST -H "Content-Type: application/json" -d "${SEC_CFG_MONITOR}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/security/config
 
 echo "Wait for Caddy to apply monitor mode config..."
