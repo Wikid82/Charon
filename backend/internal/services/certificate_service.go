@@ -52,12 +52,6 @@ func NewCertificateService(dataDir string, db *gorm.DB) *CertificateService {
 		db:      db,
 		scanTTL: 5 * time.Minute, // Only rescan disk every 5 minutes
 	}
-	// Perform initial scan in background
-	go func() {
-		if err := svc.SyncFromDisk(); err != nil {
-			logger.Log().WithError(err).Error("CertificateService: initial sync failed")
-		}
-	}()
 	return svc
 }
 
