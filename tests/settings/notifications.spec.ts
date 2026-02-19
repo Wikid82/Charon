@@ -557,22 +557,18 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Click edit to access enabled toggle', async () => {
-        const editButton = page.getByRole('button').filter({ has: page.locator('svg') }).nth(1);
+        const providerCard = page.getByTestId('provider-row-toggle-me');
+        const editButton = providerCard.getByRole('button').nth(1); // 0=Send, 1=Edit, 2=Delete
+        await expect(editButton).toBeVisible({ timeout: 5000 });
         await editButton.click();
       });
 
       await test.step('Toggle enabled state', async () => {
-        const enabledCheckbox = page.locator('input[type="checkbox"]').filter({ has: page.locator('~ label:has-text("Enabled")') })
-          .or(page.getByRole('checkbox').first());
-
-        if (await enabledCheckbox.isVisible()) {
-          // Get current state and toggle
-          const isChecked = await enabledCheckbox.isChecked();
-          await enabledCheckbox.setChecked(!isChecked);
-
-          // Verify state changed
-          expect(await enabledCheckbox.isChecked()).toBe(!isChecked);
-        }
+        const enabledCheckbox = page.getByTestId('provider-enabled');
+        await expect(enabledCheckbox).toBeVisible({ timeout: 5000 });
+        const isChecked = await enabledCheckbox.isChecked();
+        await enabledCheckbox.setChecked(!isChecked);
+        expect(await enabledCheckbox.isChecked()).toBe(!isChecked);
       });
     });
 
@@ -1664,7 +1660,8 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Verify error message displayed', async () => {
-        const errorMessage = page.getByText(/error|failed|invalid/i);
+        // Anchor to the unique "Preview Error:" i18n prefix rendered by the previewError state
+        const errorMessage = page.getByText(/Preview Error:/i);
         await expect(errorMessage.first()).toBeVisible({ timeout: 5000 });
       });
     });

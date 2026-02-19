@@ -45,6 +45,12 @@ func (h *SecurityNotificationHandler) GetSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, settings)
 }
 
+func (h *SecurityNotificationHandler) DeprecatedGetSettings(c *gin.Context) {
+	c.Header("X-Charon-Deprecated", "true")
+	c.Header("X-Charon-Canonical-Endpoint", "/api/v1/notifications/settings/security")
+	h.GetSettings(c)
+}
+
 // UpdateSettings updates the notification settings.
 func (h *SecurityNotificationHandler) UpdateSettings(c *gin.Context) {
 	if !requireAdmin(c) {
@@ -95,6 +101,19 @@ func (h *SecurityNotificationHandler) UpdateSettings(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Settings updated successfully"})
+}
+
+func (h *SecurityNotificationHandler) DeprecatedUpdateSettings(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
+	c.Header("X-Charon-Deprecated", "true")
+	c.Header("X-Charon-Canonical-Endpoint", "/api/v1/notifications/settings/security")
+	c.JSON(http.StatusGone, gin.H{
+		"error":              "This endpoint is deprecated and no longer accepts updates",
+		"canonical_endpoint": "/api/v1/notifications/settings/security",
+	})
 }
 
 func normalizeEmailRecipients(input string) (string, error) {

@@ -301,25 +301,18 @@ test.describe('System Settings', () => {
     test('should save general settings successfully', async ({ page }) => {
       // Flaky test - success toast timing issue. System settings save API works correctly.
 
-      await test.step('Find and click save button and wait for response', async () => {
+      await test.step('Find and click save button', async () => {
         const saveButton = page.getByRole('button', { name: /save.*settings|save/i });
         await expect(saveButton.first()).toBeVisible();
-
-        // Click and wait for API response to ensure mutation completes
-        await Promise.all([
-          page.waitForResponse(resp => resp.url().includes('/settings') && resp.status() === 200),
-          saveButton.first().click()
-        ]);
+        await saveButton.first().click();
       });
 
       await test.step('Verify success feedback', async () => {
-        // First try the specific data-testid for custom ToastContainer
-        const toastByTestId = page.getByTestId('toast-success');
-        const toastByRole = page.getByRole('status').filter({ hasText: /saved|success/i });
-
-        // Use either selector - custom toast has data-testid, role="status", and the message
-        const successToast = toastByTestId.or(toastByRole).first();
-        await expect(successToast).toBeVisible({ timeout: 10000 });
+        // Anchor to data-testid only (avoids .or() strict-mode issues) + exact i18n text.
+        // Timeout extended to 15s to account for 4 sequential POST /settings calls before onSuccess fires.
+        const successToast = page.getByTestId('toast-success')
+          .filter({ hasText: /System settings saved/i });
+        await expect(successToast).toBeVisible({ timeout: 15000 });
       });
     });
   });

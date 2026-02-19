@@ -9,13 +9,19 @@ import (
 )
 
 type NotificationProvider struct {
-	ID       string `gorm:"primaryKey" json:"id"`
-	Name     string `json:"name" gorm:"index"`
-	Type     string `json:"type" gorm:"index"`               // discord, slack, gotify, telegram, generic, webhook
-	URL      string `json:"url"`                             // The shoutrrr URL or webhook URL
-	Config   string `json:"config"`                          // JSON payload template for custom webhooks
-	Template string `json:"template" gorm:"default:minimal"` // minimal|detailed|custom
-	Enabled  bool   `json:"enabled" gorm:"index"`
+	ID             string     `gorm:"primaryKey" json:"id"`
+	Name           string     `json:"name" gorm:"index"`
+	Type           string     `json:"type" gorm:"index"`                         // discord, slack, gotify, telegram, generic, webhook
+	URL            string     `json:"url"`                                       // The shoutrrr URL or webhook URL
+	Engine         string     `json:"engine,omitempty" gorm:"index"`             // legacy_shoutrrr | notify_v1
+	Config         string     `json:"config"`                                    // JSON payload template for custom webhooks
+	ServiceConfig  string     `json:"service_config,omitempty" gorm:"type:text"` // JSON blob for typed service config
+	LegacyURL      string     `json:"legacy_url,omitempty"`                      // Preserved original URL during migration
+	Template       string     `json:"template" gorm:"default:minimal"`           // minimal|detailed|custom
+	MigrationState string     `json:"migration_state,omitempty" gorm:"index"`    // pending | migrated | failed
+	MigrationError string     `json:"migration_error,omitempty" gorm:"type:text"`
+	LastMigratedAt *time.Time `json:"last_migrated_at,omitempty"`
+	Enabled        bool       `json:"enabled" gorm:"index"`
 
 	// Notification Preferences
 	NotifyProxyHosts    bool `json:"notify_proxy_hosts" gorm:"default:true"`

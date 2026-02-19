@@ -100,6 +100,147 @@ func TestFeatureFlags_EnvFallback(t *testing.T) {
 	}
 }
 
+func TestFeatureFlags_RetiredFallback_DenyByDefault(t *testing.T) {
+	db := setupFlagsDB(t)
+	h := NewFeatureFlagsHandler(db)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/api/v1/feature-flags", h.GetFlags)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 got %d body=%s", w.Code, w.Body.String())
+	}
+
+	var flags map[string]bool
+	if err := json.Unmarshal(w.Body.Bytes(), &flags); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+
+	if flags["feature.notifications.legacy_shoutrrr.fallback_enabled"] {
+		t.Fatalf("expected retired fallback flag to be false by default")
+	}
+}
+
+func TestFeatureFlags_RetiredFallback_PersistedAndEnvStillResolveFalse(t *testing.T) {
+	db := setupFlagsDB(t)
+
+	if err := db.Create(&models.Setting{
+		Key:      "feature.notifications.legacy_shoutrrr.fallback_enabled",
+		Value:    "true",
+		Type:     "bool",
+		Category: "feature",
+	}).Error; err != nil {
+		t.Fatalf("failed to seed setting: %v", err)
+	}
+
+	t.Setenv("FEATURE_NOTIFICATIONS_LEGACY_SHOUTRRR_FALLBACK_ENABLED", "true")
+
+	h := NewFeatureFlagsHandler(db)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/api/v1/feature-flags", h.GetFlags)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 got %d body=%s", w.Code, w.Body.String())
+	}
+
+	var flags map[string]bool
+	if err := json.Unmarshal(w.Body.Bytes(), &flags); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+
+	if flags["feature.notifications.legacy_shoutrrr.fallback_enabled"] {
+		t.Fatalf("expected retired fallback flag to remain false even when persisted/env are true")
+	}
+}
+
+func TestFeatureFlags_RetiredFallback_EnvAliasResolvesFalse(t *testing.T) {
+	db := setupFlagsDB(t)
+	t.Setenv("NOTIFICATIONS_LEGACY_SHOUTRRR_FALLBACK_ENABLED", "true")
+
+	h := NewFeatureFlagsHandler(db)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/api/v1/feature-flags", h.GetFlags)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 got %d body=%s", w.Code, w.Body.String())
+	}
+
+	var flags map[string]bool
+	if err := json.Unmarshal(w.Body.Bytes(), &flags); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+
+	if flags["feature.notifications.legacy_shoutrrr.fallback_enabled"] {
+		t.Fatalf("expected retired fallback flag to remain false for env alias")
+	}
+}
+
+func TestFeatureFlags_UpdateRejectsLegacyFallbackTrue(t *testing.T) {
+	db := setupFlagsDB(t)
+	h := NewFeatureFlagsHandler(db)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.PUT("/api/v1/feature-flags", h.UpdateFlags)
+
+	payload := map[string]bool{
+		"feature.notifications.legacy_shoutrrr.fallback_enabled": true,
+	}
+	b, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/feature-flags", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestFeatureFlags_UpdatePersistsLegacyFallbackFalse(t *testing.T) {
+	db := setupFlagsDB(t)
+	h := NewFeatureFlagsHandler(db)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.PUT("/api/v1/feature-flags", h.UpdateFlags)
+
+	payload := map[string]bool{
+		"feature.notifications.legacy_shoutrrr.fallback_enabled": false,
+	}
+	b, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/feature-flags", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 got %d body=%s", w.Code, w.Body.String())
+	}
+
+	var s models.Setting
+	if err := db.Where("key = ?", "feature.notifications.legacy_shoutrrr.fallback_enabled").First(&s).Error; err != nil {
+		t.Fatalf("expected setting persisted: %v", err)
+	}
+	if s.Value != "false" {
+		t.Fatalf("expected persisted fallback value false, got %s", s.Value)
+	}
+}
+
 // setupBenchmarkFlagsDB creates an in-memory SQLite database for feature flags benchmarks
 func setupBenchmarkFlagsDB(b *testing.B) *gorm.DB {
 	b.Helper()
