@@ -18,6 +18,36 @@ type NotificationProviderHandler struct {
 	dataRoot        string
 }
 
+type notificationProviderUpsertRequest struct {
+	Name                string `json:"name"`
+	Type                string `json:"type"`
+	URL                 string `json:"url"`
+	Config              string `json:"config"`
+	Template            string `json:"template"`
+	Enabled             bool   `json:"enabled"`
+	NotifyProxyHosts    bool   `json:"notify_proxy_hosts"`
+	NotifyRemoteServers bool   `json:"notify_remote_servers"`
+	NotifyDomains       bool   `json:"notify_domains"`
+	NotifyCerts         bool   `json:"notify_certs"`
+	NotifyUptime        bool   `json:"notify_uptime"`
+}
+
+func (r notificationProviderUpsertRequest) toModel() models.NotificationProvider {
+	return models.NotificationProvider{
+		Name:                r.Name,
+		Type:                r.Type,
+		URL:                 r.URL,
+		Config:              r.Config,
+		Template:            r.Template,
+		Enabled:             r.Enabled,
+		NotifyProxyHosts:    r.NotifyProxyHosts,
+		NotifyRemoteServers: r.NotifyRemoteServers,
+		NotifyDomains:       r.NotifyDomains,
+		NotifyCerts:         r.NotifyCerts,
+		NotifyUptime:        r.NotifyUptime,
+	}
+}
+
 func NewNotificationProviderHandler(service *services.NotificationService) *NotificationProviderHandler {
 	return NewNotificationProviderHandlerWithDeps(service, nil, "")
 }
@@ -40,11 +70,20 @@ func (h *NotificationProviderHandler) Create(c *gin.Context) {
 		return
 	}
 
-	var provider models.NotificationProvider
-	if err := c.ShouldBindJSON(&provider); err != nil {
+	var req notificationProviderUpsertRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	provider := req.toModel()
+	// Server-managed migration fields are set by the migration reconciliation logic
+	// and must not be set from user input
+	provider.Engine = ""
+	provider.MigrationState = ""
+	provider.MigrationError = ""
+	provider.LastMigratedAt = nil
+	provider.LegacyURL = ""
 
 	if err := h.service.CreateProvider(&provider); err != nil {
 		// If it's a validation error from template parsing, return 400
@@ -67,12 +106,19 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 	}
 
 	id := c.Param("id")
-	var provider models.NotificationProvider
-	if err := c.ShouldBindJSON(&provider); err != nil {
+	var req notificationProviderUpsertRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	provider := req.toModel()
 	provider.ID = id
+	// Server-managed migration fields must not be modified via user input
+	provider.Engine = ""
+	provider.MigrationState = ""
+	provider.MigrationError = ""
+	provider.LastMigratedAt = nil
+	provider.LegacyURL = ""
 
 	if err := h.service.UpdateProvider(&provider); err != nil {
 		if isProviderValidationError(err) {

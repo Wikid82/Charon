@@ -5,7 +5,7 @@ import Notifications from '../Notifications'
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
 import * as notificationsApi from '../../api/notifications'
 import { toast } from '../../utils/toast'
-import type { NotificationProvider } from '../../api/notifications'
+import type { NotificationProvider, SecurityNotificationSettings } from '../../api/notifications'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -26,6 +26,8 @@ vi.mock('../../api/notifications', () => ({
   createExternalTemplate: vi.fn(),
   updateExternalTemplate: vi.fn(),
   deleteExternalTemplate: vi.fn(),
+  getSecurityNotificationSettings: vi.fn(),
+  updateSecurityNotificationSettings: vi.fn(),
 }))
 
 vi.mock('../../utils/toast', () => ({
@@ -51,12 +53,24 @@ const baseProvider: NotificationProvider = {
   created_at: '2024-01-01T00:00:00Z',
 }
 
+const mockSecuritySettings: SecurityNotificationSettings = {
+  enabled: false,
+  min_log_level: 'warn',
+  notify_waf_blocks: true,
+  notify_acl_denials: true,
+  notify_rate_limit_hits: true,
+  webhook_url: '',
+  email_recipients: '',
+}
+
 const setupMocks = (providers: NotificationProvider[] = []) => {
   vi.mocked(notificationsApi.getProviders).mockResolvedValue(providers)
   vi.mocked(notificationsApi.getTemplates).mockResolvedValue([])
   vi.mocked(notificationsApi.getExternalTemplates).mockResolvedValue([])
   vi.mocked(notificationsApi.createProvider).mockResolvedValue(baseProvider)
   vi.mocked(notificationsApi.updateProvider).mockResolvedValue(baseProvider)
+  vi.mocked(notificationsApi.getSecurityNotificationSettings).mockResolvedValue(mockSecuritySettings)
+  vi.mocked(notificationsApi.updateSecurityNotificationSettings).mockResolvedValue(mockSecuritySettings)
 }
 
 describe('Notifications', () => {
@@ -258,6 +272,18 @@ describe('Notifications', () => {
     })
 
     confirmSpy.mockRestore()
+  })
+
+  it('renders the security notifications section', async () => {
+    renderWithQueryClient(<Notifications />)
+    expect(await screen.findByTestId('security-notifications-section')).toBeInTheDocument()
+  })
+
+  it('does not show Shoutrrr help link anywhere on the page', async () => {
+    renderWithQueryClient(<Notifications />)
+    await screen.findByTestId('security-notifications-section')
+    expect(screen.queryByText(/shoutrrr/i)).toBeNull()
+    expect(document.querySelector('a[href*="containrrr.dev"]')).toBeNull()
   })
 
   it('renders external template action buttons and skips delete when confirm is cancelled', async () => {

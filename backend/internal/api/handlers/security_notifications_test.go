@@ -473,8 +473,13 @@ func TestSecurityNotificationHandler_RouteAliasGet(t *testing.T) {
 func TestSecurityNotificationHandler_RouteAliasUpdate(t *testing.T) {
 	t.Parallel()
 
+	legacyUpdates := 0
+	canonicalUpdates := 0
 	mockService := &mockSecurityNotificationService{
 		updateSettingsFunc: func(c *models.NotificationConfig) error {
+			if c.WebhookURL == "http://localhost:8080/security" {
+				canonicalUpdates++
+			}
 			return nil
 		},
 	}
@@ -498,7 +503,7 @@ func TestSecurityNotificationHandler_RouteAliasUpdate(t *testing.T) {
 		setAdminContext(c)
 		c.Next()
 	})
-	router.PUT("/api/v1/security/notifications/settings", handler.UpdateSettings)
+	router.PUT("/api/v1/security/notifications/settings", handler.DeprecatedUpdateSettings)
 	router.PUT("/api/v1/notifications/settings/security", handler.UpdateSettings)
 
 	originalWriter := httptest.NewRecorder()
@@ -511,9 +516,76 @@ func TestSecurityNotificationHandler_RouteAliasUpdate(t *testing.T) {
 	aliasRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(aliasWriter, aliasRequest)
 
-	assert.Equal(t, http.StatusOK, originalWriter.Code)
-	assert.Equal(t, originalWriter.Code, aliasWriter.Code)
-	assert.Equal(t, originalWriter.Body.String(), aliasWriter.Body.String())
+	assert.Equal(t, http.StatusGone, originalWriter.Code)
+	assert.Equal(t, "true", originalWriter.Header().Get("X-Charon-Deprecated"))
+	assert.Equal(t, "/api/v1/notifications/settings/security", originalWriter.Header().Get("X-Charon-Canonical-Endpoint"))
+
+	assert.Equal(t, http.StatusOK, aliasWriter.Code)
+	assert.Equal(t, 0, legacyUpdates)
+	assert.Equal(t, 1, canonicalUpdates)
+}
+
+func TestSecurityNotificationHandler_DeprecatedRouteHeaders(t *testing.T) {
+	t.Parallel()
+
+	mockService := &mockSecurityNotificationService{
+		getSettingsFunc: func() (*models.NotificationConfig, error) {
+			return &models.NotificationConfig{Enabled: true, MinLogLevel: "warn"}, nil
+		},
+		updateSettingsFunc: func(c *models.NotificationConfig) error {
+			return nil
+		},
+	}
+
+	handler := NewSecurityNotificationHandler(mockService)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		setAdminContext(c)
+		c.Next()
+	})
+	router.GET("/api/v1/security/notifications/settings", handler.DeprecatedGetSettings)
+	router.PUT("/api/v1/security/notifications/settings", handler.DeprecatedUpdateSettings)
+	router.GET("/api/v1/notifications/settings/security", handler.GetSettings)
+	router.PUT("/api/v1/notifications/settings/security", handler.UpdateSettings)
+
+	legacyGet := httptest.NewRecorder()
+	legacyGetReq := httptest.NewRequest(http.MethodGet, "/api/v1/security/notifications/settings", http.NoBody)
+	router.ServeHTTP(legacyGet, legacyGetReq)
+	require.Equal(t, http.StatusOK, legacyGet.Code)
+	assert.Equal(t, "true", legacyGet.Header().Get("X-Charon-Deprecated"))
+	assert.Equal(t, "/api/v1/notifications/settings/security", legacyGet.Header().Get("X-Charon-Canonical-Endpoint"))
+
+	canonicalGet := httptest.NewRecorder()
+	canonicalGetReq := httptest.NewRequest(http.MethodGet, "/api/v1/notifications/settings/security", http.NoBody)
+	router.ServeHTTP(canonicalGet, canonicalGetReq)
+	require.Equal(t, http.StatusOK, canonicalGet.Code)
+	assert.Empty(t, canonicalGet.Header().Get("X-Charon-Deprecated"))
+
+	body, err := json.Marshal(models.NotificationConfig{Enabled: true, MinLogLevel: "warn"})
+	require.NoError(t, err)
+
+	legacyPut := httptest.NewRecorder()
+	legacyPutReq := httptest.NewRequest(http.MethodPut, "/api/v1/security/notifications/settings", bytes.NewBuffer(body))
+	legacyPutReq.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(legacyPut, legacyPutReq)
+	require.Equal(t, http.StatusGone, legacyPut.Code)
+	assert.Equal(t, "true", legacyPut.Header().Get("X-Charon-Deprecated"))
+	assert.Equal(t, "/api/v1/notifications/settings/security", legacyPut.Header().Get("X-Charon-Canonical-Endpoint"))
+
+	var legacyBody map[string]string
+	err = json.Unmarshal(legacyPut.Body.Bytes(), &legacyBody)
+	require.NoError(t, err)
+	assert.Len(t, legacyBody, 2)
+	assert.Equal(t, "This endpoint is deprecated and no longer accepts updates", legacyBody["error"])
+	assert.Equal(t, "/api/v1/notifications/settings/security", legacyBody["canonical_endpoint"])
+
+	canonicalPut := httptest.NewRecorder()
+	canonicalPutReq := httptest.NewRequest(http.MethodPut, "/api/v1/notifications/settings/security", bytes.NewBuffer(body))
+	canonicalPutReq.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(canonicalPut, canonicalPutReq)
+	require.Equal(t, http.StatusOK, canonicalPut.Code)
 }
 
 func TestNormalizeEmailRecipients(t *testing.T) {

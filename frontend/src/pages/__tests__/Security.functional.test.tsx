@@ -425,13 +425,13 @@ describe('Security Page - Functional Tests', () => {
       })
     })
 
-    it('should disable Notifications button when Cerberus is disabled', async () => {
+    it('should keep Notifications button enabled when Cerberus is disabled (navigation-only)', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusCerberusDisabled)
 
       await renderSecurityPage()
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Notifications/i })).toBeDisabled()
+        expect(screen.getByRole('button', { name: /Notifications/i })).not.toBeDisabled()
       })
     })
   })

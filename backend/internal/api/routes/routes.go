@@ -176,6 +176,11 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 	// Notification Service (needed for multiple handlers)
 	notificationService := services.NewNotificationService(db)
 
+	// Ensure notify-only provider migration reconciliation at boot
+	if err := notificationService.EnsureNotifyOnlyProviderMigration(context.Background()); err != nil {
+		return fmt.Errorf("notify-only provider migration: %w", err)
+	}
+
 	// Remote Server Service (needed for Docker handler)
 	remoteServerService := services.NewRemoteServerService(db)
 
@@ -228,8 +233,8 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		// Security Notification Settings
 		securityNotificationService := services.NewSecurityNotificationService(db)
 		securityNotificationHandler := handlers.NewSecurityNotificationHandlerWithDeps(securityNotificationService, securityService, dataRoot)
-		protected.GET("/security/notifications/settings", securityNotificationHandler.GetSettings)
-		protected.PUT("/security/notifications/settings", securityNotificationHandler.UpdateSettings)
+		protected.GET("/security/notifications/settings", securityNotificationHandler.DeprecatedGetSettings)
+		protected.PUT("/security/notifications/settings", securityNotificationHandler.DeprecatedUpdateSettings)
 		protected.GET("/notifications/settings/security", securityNotificationHandler.GetSettings)
 		protected.PUT("/notifications/settings/security", securityNotificationHandler.UpdateSettings)
 

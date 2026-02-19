@@ -28,12 +28,25 @@ var defaultFlags = []string{
 	"feature.cerberus.enabled",
 	"feature.uptime.enabled",
 	"feature.crowdsec.console_enrollment",
+	"feature.notifications.engine.notify_v1.enabled",
+	"feature.notifications.service.discord.enabled",
+	"feature.notifications.service.gotify.enabled",
+	"feature.notifications.legacy_shoutrrr.fallback_enabled",
 }
 
 var defaultFlagValues = map[string]bool{
-	"feature.cerberus.enabled":            false, // Cerberus OFF by default (per diagnostic fix)
-	"feature.uptime.enabled":              true,  // Uptime enabled by default
-	"feature.crowdsec.console_enrollment": false,
+	"feature.cerberus.enabled":                               false, // Cerberus OFF by default (per diagnostic fix)
+	"feature.uptime.enabled":                                 true,  // Uptime enabled by default
+	"feature.crowdsec.console_enrollment":                    false,
+	"feature.notifications.engine.notify_v1.enabled":         false,
+	"feature.notifications.service.discord.enabled":          false,
+	"feature.notifications.service.gotify.enabled":           false,
+	"feature.notifications.legacy_shoutrrr.fallback_enabled": false,
+}
+
+var retiredLegacyFallbackEnvAliases = []string{
+	"FEATURE_NOTIFICATIONS_LEGACY_SHOUTRRR_FALLBACK_ENABLED",
+	"NOTIFICATIONS_LEGACY_SHOUTRRR_FALLBACK_ENABLED",
 }
 
 // GetFlags returns a map of feature flag -> bool. DB setting takes precedence
@@ -67,6 +80,11 @@ func (h *FeatureFlagsHandler) GetFlags(c *gin.Context) {
 		defaultVal := true
 		if v, ok := defaultFlagValues[key]; ok {
 			defaultVal = v
+		}
+
+		if key == "feature.notifications.legacy_shoutrrr.fallback_enabled" {
+			result[key] = h.resolveRetiredLegacyFallback(settingsMap)
+			continue
 		}
 
 		// Check if flag exists in DB
@@ -109,6 +127,40 @@ func (h *FeatureFlagsHandler) GetFlags(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+func parseFlagBool(raw string) (bool, bool) {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	switch v {
+	case "1", "true", "yes":
+		return true, true
+	case "0", "false", "no":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func (h *FeatureFlagsHandler) resolveRetiredLegacyFallback(settingsMap map[string]models.Setting) bool {
+	const retiredKey = "feature.notifications.legacy_shoutrrr.fallback_enabled"
+
+	if s, exists := settingsMap[retiredKey]; exists {
+		if _, ok := parseFlagBool(s.Value); !ok {
+			log.Printf("[WARN] Invalid persisted retired fallback flag value, forcing disabled: key=%s value=%q", retiredKey, s.Value)
+		}
+		return false
+	}
+
+	for _, alias := range retiredLegacyFallbackEnvAliases {
+		if ev, ok := os.LookupEnv(alias); ok {
+			if _, parsed := parseFlagBool(ev); !parsed {
+				log.Printf("[WARN] Invalid environment retired fallback flag value, forcing disabled: key=%s value=%q", alias, ev)
+			}
+			return false
+		}
+	}
+
+	return false
+}
+
 // UpdateFlags accepts a JSON object map[string]bool and upserts settings.
 func (h *FeatureFlagsHandler) UpdateFlags(c *gin.Context) {
 	// Phase 0: Performance instrumentation
@@ -121,6 +173,11 @@ func (h *FeatureFlagsHandler) UpdateFlags(c *gin.Context) {
 	var payload map[string]bool
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if v, exists := payload["feature.notifications.legacy_shoutrrr.fallback_enabled"]; exists && v {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "feature.notifications.legacy_shoutrrr.fallback_enabled is retired and can only be false"})
 		return
 	}
 
@@ -137,6 +194,10 @@ func (h *FeatureFlagsHandler) UpdateFlags(c *gin.Context) {
 			}
 			if !allowed {
 				continue
+			}
+
+			if k == "feature.notifications.legacy_shoutrrr.fallback_enabled" {
+				v = false
 			}
 
 			s := models.Setting{Key: k, Value: strconv.FormatBool(v), Type: "bool", Category: "feature"}
