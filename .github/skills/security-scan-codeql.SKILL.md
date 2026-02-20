@@ -136,8 +136,8 @@ This skill uses the **security-and-quality** suite to match CI:
 
 | Language | Suite | Queries | Coverage |
 |----------|-------|---------|----------|
-| Go | go-security-and-quality.qls | 61 | Security + quality issues |
-| JavaScript | javascript-security-and-quality.qls | 204 | Security + quality issues |
+| Go | go-security-and-quality.qls | version-dependent | Security + quality issues |
+| JavaScript | javascript-security-and-quality.qls | version-dependent | Security + quality issues |
 
 **Note:** This matches GitHub Actions CodeQL default configuration exactly.
 
@@ -260,8 +260,7 @@ This skill is specifically designed to match GitHub Actions CodeQL workflow:
 | Parameter | Local | CI | Aligned |
 |-----------|-------|-----|---------|
 | Query Suite | security-and-quality | security-and-quality | ✅ |
-| Go Queries | 61 | 61 | ✅ |
-| JS Queries | 204 | 204 | ✅ |
+| Query Expansion | version-dependent | version-dependent | ✅ (when versions match) |
 | Threading | auto | auto | ✅ |
 | Baseline Info | enabled | enabled | ✅ |
 
