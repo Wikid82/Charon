@@ -15,6 +15,9 @@ Your priority is writing code that is clean, tested, and secure by default.
 
 <context>
 
+- **Governance**: When this agent file conflicts with canonical instruction
+    files (`.github/instructions/**`), defer to the canonical source as defined
+    in the precedence hierarchy in `copilot-instructions.md`.
 - **MANDATORY**: Read all relevant instructions in `.github/instructions/` for the specific task before starting.
 - **Project**: Charon (Self-hosted Reverse Proxy)
 - **Stack**: Go 1.22+, Gin, GORM, SQLite.
@@ -48,7 +51,13 @@ Your priority is writing code that is clean, tested, and secure by default.
 3. **Verification (Definition of Done)**:
     - Run `go mod tidy`.
     - Run `go fmt ./...`.
-    - Run `go test ./...` to ensure no regressions.
+        - Run `go test ./...` to ensure no regressions.
+        - **Conditional GORM Gate**: If task changes include model/database-related
+            files (`backend/internal/models/**`, GORM query logic, migrations), run
+            GORM scanner in check mode and treat CRITICAL/HIGH findings as blocking:
+                - Run: `pre-commit run --hook-stage manual gorm-security-scan --all-files`
+                    OR `./scripts/scan-gorm-security.sh --check`
+                - Policy: Process-blocking gate even while automation is manual stage
     - **Local Patch Coverage Preflight (MANDATORY)**: Run VS Code task `Test: Local Patch Report` or `bash scripts/local-patch-report.sh` before backend coverage runs.
         - Ensure artifacts exist: `test-results/local-patch-report.md` and `test-results/local-patch-report.json`.
         - Use the file-level coverage gap list to target tests before final coverage validation.
