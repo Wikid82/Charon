@@ -649,33 +649,33 @@ func TestNormalizeEmailRecipients(t *testing.T) {
 
 // TestSecurityNotificationHandler_DeprecatedUpdateSettings_AllFields tests that all JSON fields are returned
 func TestSecurityNotificationHandler_DeprecatedUpdateSettings_AllFields(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-mockService := &mockSecurityNotificationService{}
-handler := NewSecurityNotificationHandler(mockService)
+	mockService := &mockSecurityNotificationService{}
+	handler := NewSecurityNotificationHandler(mockService)
 
-body, err := json.Marshal(models.NotificationConfig{Enabled: true, MinLogLevel: "warn"})
-require.NoError(t, err)
+	body, err := json.Marshal(models.NotificationConfig{Enabled: true, MinLogLevel: "warn"})
+	require.NoError(t, err)
 
-gin.SetMode(gin.TestMode)
-w := httptest.NewRecorder()
-c, _ := gin.CreateTestContext(w)
-setAdminContext(c)
-c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/security/notifications/settings", bytes.NewBuffer(body))
-c.Request.Header.Set("Content-Type", "application/json")
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/security/notifications/settings", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
 
-handler.DeprecatedUpdateSettings(c)
+	handler.DeprecatedUpdateSettings(c)
 
-assert.Equal(t, http.StatusGone, w.Code)
-assert.Equal(t, "true", w.Header().Get("X-Charon-Deprecated"))
-assert.Equal(t, "/api/v1/notifications/settings/security", w.Header().Get("X-Charon-Canonical-Endpoint"))
+	assert.Equal(t, http.StatusGone, w.Code)
+	assert.Equal(t, "true", w.Header().Get("X-Charon-Deprecated"))
+	assert.Equal(t, "/api/v1/notifications/settings/security", w.Header().Get("X-Charon-Canonical-Endpoint"))
 
-var response map[string]string
-err = json.Unmarshal(w.Body.Bytes(), &response)
-require.NoError(t, err)
+	var response map[string]string
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
 
-// Verify both JSON fields are present with exact values
-assert.Equal(t, "This endpoint is deprecated and no longer accepts updates", response["error"])
-assert.Equal(t, "/api/v1/notifications/settings/security", response["canonical_endpoint"])
-assert.Len(t, response, 2, "Should have exactly 2 fields in JSON response")
+	// Verify both JSON fields are present with exact values
+	assert.Equal(t, "This endpoint is deprecated and no longer accepts updates", response["error"])
+	assert.Equal(t, "/api/v1/notifications/settings/security", response["canonical_endpoint"])
+	assert.Len(t, response, 2, "Should have exactly 2 fields in JSON response")
 }

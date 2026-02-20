@@ -93,6 +93,18 @@ func (h *SecurityNotificationHandler) UpdateSettings(c *gin.Context) {
 	}
 
 	if err := h.service.UpdateSettings(&config); err != nil {
+		// Blocker 1: Enforce strict destination validation rules (422 no mutation)
+		if strings.Contains(err.Error(), "ambiguous destination") || strings.Contains(err.Error(), "incomplete gotify configuration") {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Deterministic 409 for non-resolvable managed target set
+		if strings.Contains(err.Error(), "conflict") {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+
 		if respondPermissionError(c, h.securityService, "security_notifications_save_failed", err, h.dataRoot) {
 			return
 		}

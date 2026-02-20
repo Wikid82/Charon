@@ -13,6 +13,7 @@ type NotificationProvider struct {
 	Name           string     `json:"name" gorm:"index"`
 	Type           string     `json:"type" gorm:"index"`                         // discord, slack, gotify, telegram, generic, webhook
 	URL            string     `json:"url"`                                       // The shoutrrr URL or webhook URL
+	Token          string     `json:"-"`                                         // Auth token for providers (e.g., Gotify) - never exposed in API
 	Engine         string     `json:"engine,omitempty" gorm:"index"`             // legacy_shoutrrr | notify_v1
 	Config         string     `json:"config"`                                    // JSON payload template for custom webhooks
 	ServiceConfig  string     `json:"service_config,omitempty" gorm:"type:text"` // JSON blob for typed service config
@@ -29,6 +30,14 @@ type NotificationProvider struct {
 	NotifyDomains       bool `json:"notify_domains" gorm:"default:true"`
 	NotifyCerts         bool `json:"notify_certs" gorm:"default:true"`
 	NotifyUptime        bool `json:"notify_uptime" gorm:"default:true"`
+
+	// Security Event Notifications (Provider-based)
+	NotifySecurityWAFBlocks     bool `json:"notify_security_waf_blocks" gorm:"default:false"`
+	NotifySecurityACLDenies     bool `json:"notify_security_acl_denies" gorm:"default:false"`
+	NotifySecurityRateLimitHits bool `json:"notify_security_rate_limit_hits" gorm:"default:false"`
+
+	// Managed Legacy Provider Marker
+	ManagedLegacySecurity bool `json:"managed_legacy_security" gorm:"index;default:false"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
