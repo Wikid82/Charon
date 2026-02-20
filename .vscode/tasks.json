@@ -454,7 +454,7 @@
         {
             "label": "Security: Trivy Scan",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh security-scan-trivy",
+            "command": "TRIVY_DOCKER_RM=false .github/skills/scripts/skill-runner.sh security-scan-trivy",
             "group": "test",
             "problemMatcher": []
         },
