@@ -14,6 +14,10 @@ export interface NotificationProvider {
   notify_domains: boolean;
   notify_certs: boolean;
   notify_uptime: boolean;
+  notify_security_waf_blocks: boolean;
+  notify_security_acl_denies: boolean;
+  notify_security_rate_limit_hits: boolean;
+  managed_legacy_security?: boolean;
   created_at: string;
 }
 
@@ -173,10 +177,15 @@ export const previewExternalTemplate = async (templateId?: string, template?: st
 export interface SecurityNotificationSettings {
   enabled: boolean;
   min_log_level: string;
-  notify_waf_blocks: boolean;
-  notify_acl_denials: boolean;
-  notify_rate_limit_hits: boolean;
+  security_waf_enabled: boolean;
+  security_acl_enabled: boolean;
+  security_rate_limit_enabled: boolean;
+  destination_ambiguous?: boolean;
   webhook_url?: string;
+  discord_webhook_url?: string;
+  slack_webhook_url?: string;
+  gotify_url?: string;
+  gotify_token?: string;
   email_recipients?: string;
 }
 

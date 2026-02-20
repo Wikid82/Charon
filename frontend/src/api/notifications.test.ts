@@ -135,8 +135,8 @@ describe('notifications api', () => {
   })
 
   it('reads and updates security notification settings', async () => {
-    mockedClient.get.mockResolvedValueOnce({ data: { enabled: true, min_log_level: 'info', notify_waf_blocks: true, notify_acl_denials: false, notify_rate_limit_hits: true } })
-    mockedClient.put.mockResolvedValueOnce({ data: { enabled: false, min_log_level: 'error', notify_waf_blocks: false, notify_acl_denials: true, notify_rate_limit_hits: false } })
+    mockedClient.get.mockResolvedValueOnce({ data: { enabled: true, min_log_level: 'info', security_waf_enabled: true, security_acl_enabled: false, security_rate_limit_enabled: true } })
+    mockedClient.put.mockResolvedValueOnce({ data: { enabled: false, min_log_level: 'error', security_waf_enabled: false, security_acl_enabled: true, security_rate_limit_enabled: false } })
 
     const settings = await getSecurityNotificationSettings()
     expect(settings.enabled).toBe(true)
