@@ -32,6 +32,7 @@ var defaultFlags = []string{
 	"feature.notifications.service.discord.enabled",
 	"feature.notifications.service.gotify.enabled",
 	"feature.notifications.legacy_shoutrrr.fallback_enabled",
+	"feature.notifications.security_provider_events.enabled", // Blocker 3: Add security_provider_events gate
 }
 
 var defaultFlagValues = map[string]bool{
@@ -42,6 +43,7 @@ var defaultFlagValues = map[string]bool{
 	"feature.notifications.service.discord.enabled":          false,
 	"feature.notifications.service.gotify.enabled":           false,
 	"feature.notifications.legacy_shoutrrr.fallback_enabled": false,
+	"feature.notifications.security_provider_events.enabled": false, // Blocker 3: Default disabled for this stage
 }
 
 var retiredLegacyFallbackEnvAliases = []string{

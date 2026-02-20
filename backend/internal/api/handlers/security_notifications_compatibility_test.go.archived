@@ -17,8 +17,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// SetupCompatibilityTestDB creates an in-memory database for testing (exported for use by other test files).
-func SetupCompatibilityTestDB(t *testing.T) *gorm.DB {
+// setupCompatibilityTestDB creates an in-memory database for testing.
+func setupCompatibilityTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
@@ -41,7 +41,7 @@ func SetupCompatibilityTestDB(t *testing.T) *gorm.DB {
 
 // TestCompatibilityGET_ORAggregation tests that GET uses OR semantics for aggregation.
 func TestCompatibilityGET_ORAggregation(t *testing.T) {
-	db := SetupCompatibilityTestDB(t)
+	db := setupCompatibilityTestDB(t)
 
 	// Create two providers with different security event settings
 	provider1 := &models.NotificationProvider{
@@ -88,7 +88,7 @@ func TestCompatibilityGET_ORAggregation(t *testing.T) {
 
 // TestCompatibilityGET_AllFalse tests that GET returns false when all providers are false.
 func TestCompatibilityGET_AllFalse(t *testing.T) {
-	db := SetupCompatibilityTestDB(t)
+	db := setupCompatibilityTestDB(t)
 
 	// Create provider with all false
 	provider := &models.NotificationProvider{
@@ -124,7 +124,7 @@ func TestCompatibilityGET_AllFalse(t *testing.T) {
 
 // TestCompatibilityGET_DisabledProvidersIgnored tests that disabled providers are not included in aggregation.
 func TestCompatibilityGET_DisabledProvidersIgnored(t *testing.T) {
-	db := SetupCompatibilityTestDB(t)
+	db := setupCompatibilityTestDB(t)
 
 	// Create enabled and disabled providers
 	enabled := &models.NotificationProvider{
@@ -160,9 +160,9 @@ func TestCompatibilityGET_DisabledProvidersIgnored(t *testing.T) {
 	assert.False(t, response.NotifyWAFBlocks, "Disabled provider should not contribute to OR")
 }
 
-// TestCompatibilityPUT_DeterministicTargetSet tests that PUT returns 410 Gone per R6 contract.
+// TestCompatibilityPUT_DeterministicTargetSet tests that PUT identifies the correct managed set.
 func TestCompatibilityPUT_DeterministicTargetSet(t *testing.T) {
-	db := SetupCompatibilityTestDB(t)
+	db := setupCompatibilityTestDB(t)
 
 	// Create one managed provider
 	managed := &models.NotificationProvider{
@@ -191,20 +191,19 @@ func TestCompatibilityPUT_DeterministicTargetSet(t *testing.T) {
 
 	handler.UpdateSettings(c)
 
-	// R6 contract: PUT returns 410 Gone
-	assert.Equal(t, http.StatusGone, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
 
-	// Verify no mutations occurred (provider unchanged)
+	// Verify provider was updated
 	var updated models.NotificationProvider
 	require.NoError(t, db.First(&updated, "id = ?", managed.ID).Error)
-	assert.False(t, updated.NotifySecurityWAFBlocks, "Provider should not be mutated by deprecated endpoint")
+	assert.True(t, updated.NotifySecurityWAFBlocks)
 	assert.False(t, updated.NotifySecurityACLDenies)
-	assert.False(t, updated.NotifySecurityRateLimitHits)
+	assert.True(t, updated.NotifySecurityRateLimitHits)
 }
 
-// TestCompatibilityPUT_CreatesManagedProviderIfNone tests that PUT returns 410 Gone per R6 contract.
+// TestCompatibilityPUT_CreatesManagedProviderIfNone tests that PUT creates a managed provider if none exist.
 func TestCompatibilityPUT_CreatesManagedProviderIfNone(t *testing.T) {
-	db := SetupCompatibilityTestDB(t)
+	db := setupCompatibilityTestDB(t)
 
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
@@ -225,18 +224,22 @@ func TestCompatibilityPUT_CreatesManagedProviderIfNone(t *testing.T) {
 
 	handler.UpdateSettings(c)
 
-	// R6 contract: PUT returns 410 Gone
-	assert.Equal(t, http.StatusGone, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
 
-	// Verify no provider was created
-	var count int64
-	db.Model(&models.NotificationProvider{}).Where("managed_legacy_security = ?", true).Count(&count)
-	assert.Equal(t, int64(0), count, "No provider should be created by deprecated endpoint")
+	// Verify managed provider was created
+	var provider models.NotificationProvider
+	err := db.Where("managed_legacy_security = ?", true).First(&provider).Error
+	require.NoError(t, err)
+	assert.Equal(t, "Migrated Security Notifications (Legacy)", provider.Name)
+	assert.True(t, provider.NotifySecurityWAFBlocks)
+	assert.True(t, provider.NotifySecurityACLDenies)
+	assert.False(t, provider.NotifySecurityRateLimitHits)
+	assert.Equal(t, "https://example.com/webhook", provider.URL)
 }
 
-// TestCompatibilityPUT_Idempotency tests that PUT returns 410 Gone per R6 contract.
+// TestCompatibilityPUT_Idempotency tests that repeating the same PUT produces no state drift.
 func TestCompatibilityPUT_Idempotency(t *testing.T) {
-	db := SetupCompatibilityTestDB(t)
+	db := setupCompatibilityTestDB(t)
 
 	managed := &models.NotificationProvider{
 		Name:                        "Migrated Security Notifications (Legacy)",
@@ -266,7 +269,7 @@ func TestCompatibilityPUT_Idempotency(t *testing.T) {
 	c1.Request = httptest.NewRequest("PUT", "/api/v1/notifications/settings/security", bytes.NewBuffer(body))
 	c1.Request.Header.Set("Content-Type", "application/json")
 	handler.UpdateSettings(c1)
-	assert.Equal(t, http.StatusGone, w1.Code, "R6 contract: PUT returns 410 Gone")
+	assert.Equal(t, http.StatusOK, w1.Code)
 
 	var afterFirst models.NotificationProvider
 	require.NoError(t, db.First(&afterFirst, "id = ?", managed.ID).Error)
@@ -278,24 +281,20 @@ func TestCompatibilityPUT_Idempotency(t *testing.T) {
 	c2.Request = httptest.NewRequest("PUT", "/api/v1/notifications/settings/security", bytes.NewBuffer(body))
 	c2.Request.Header.Set("Content-Type", "application/json")
 	handler.UpdateSettings(c2)
-	assert.Equal(t, http.StatusGone, w2.Code, "R6 contract: PUT returns 410 Gone")
+	assert.Equal(t, http.StatusOK, w2.Code)
 
 	var afterSecond models.NotificationProvider
 	require.NoError(t, db.First(&afterSecond, "id = ?", managed.ID).Error)
 
-	// Values should remain identical (no mutations)
+	// Values should remain identical
 	assert.Equal(t, afterFirst.NotifySecurityWAFBlocks, afterSecond.NotifySecurityWAFBlocks)
 	assert.Equal(t, afterFirst.NotifySecurityACLDenies, afterSecond.NotifySecurityACLDenies)
 	assert.Equal(t, afterFirst.NotifySecurityRateLimitHits, afterSecond.NotifySecurityRateLimitHits)
-	// Original values should be preserved
-	assert.True(t, afterSecond.NotifySecurityWAFBlocks, "Original values preserved")
-	assert.False(t, afterSecond.NotifySecurityACLDenies)
-	assert.True(t, afterSecond.NotifySecurityRateLimitHits)
 }
 
-// TestCompatibilityPUT_WebhookMapping tests that PUT returns 410 Gone per R6 contract.
+// TestCompatibilityPUT_WebhookMapping tests legacy webhook_url mapping.
 func TestCompatibilityPUT_WebhookMapping(t *testing.T) {
-	db := SetupCompatibilityTestDB(t)
+	db := setupCompatibilityTestDB(t)
 
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
@@ -314,18 +313,18 @@ func TestCompatibilityPUT_WebhookMapping(t *testing.T) {
 
 	handler.UpdateSettings(c)
 
-	// R6 contract: PUT returns 410 Gone
-	assert.Equal(t, http.StatusGone, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
 
-	// Verify no provider was created
-	var count int64
-	db.Model(&models.NotificationProvider{}).Where("managed_legacy_security = ?", true).Count(&count)
-	assert.Equal(t, int64(0), count, "No provider should be created by deprecated endpoint")
+	var provider models.NotificationProvider
+	err := db.Where("managed_legacy_security = ?", true).First(&provider).Error
+	require.NoError(t, err)
+	assert.Equal(t, "webhook", provider.Type)
+	assert.Equal(t, "https://example.com/webhook", provider.URL)
 }
 
-// TestCompatibilityPUT_MultipleDestinations422 tests that PUT returns 410 Gone per R6 contract.
+// TestCompatibilityPUT_MultipleDestinations422 tests that multiple destination types return 422.
 func TestCompatibilityPUT_MultipleDestinations422(t *testing.T) {
-	db := SetupCompatibilityTestDB(t)
+	db := setupCompatibilityTestDB(t)
 
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
@@ -345,18 +344,17 @@ func TestCompatibilityPUT_MultipleDestinations422(t *testing.T) {
 
 	handler.UpdateSettings(c)
 
-	// R6 contract: PUT returns 410 Gone regardless of payload
-	assert.Equal(t, http.StatusGone, w.Code)
+	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 
 	var response map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
-	assert.Contains(t, response["error"], "deprecated")
+	assert.Contains(t, response["error"], "ambiguous")
 }
 
 // TestMigrationMarker_Deterministic tests migration marker checksum and rerun logic.
 func TestMigrationMarker_Deterministic(t *testing.T) {
-	db := SetupCompatibilityTestDB(t)
+	db := setupCompatibilityTestDB(t)
 
 	// Create legacy config
 	legacyConfig := &models.NotificationConfig{
@@ -403,9 +401,10 @@ func TestMigrationMarker_Deterministic(t *testing.T) {
 	assert.Equal(t, int64(1), count)
 }
 
-// TestCompatibilityPUT_MultipleManagedProviders_UpdatesAll tests that PUT returns 410 Gone per R6 contract.
+// TestCompatibilityPUT_MultipleManagedProviders_UpdatesAll tests that multiple managed providers are all updated.
+// Blocker 4: Allows one-or-more managed providers; only 409 on true corruption (not handled here).
 func TestCompatibilityPUT_MultipleManagedProviders_UpdatesAll(t *testing.T) {
-	db := SetupCompatibilityTestDB(t)
+	db := setupCompatibilityTestDB(t)
 
 	// Create two managed providers (valid scenario after migration)
 	managed1 := &models.NotificationProvider{
@@ -441,21 +440,21 @@ func TestCompatibilityPUT_MultipleManagedProviders_UpdatesAll(t *testing.T) {
 
 	handler.UpdateSettings(c)
 
-	// R6 contract: PUT returns 410 Gone
-	assert.Equal(t, http.StatusGone, w.Code, "PUT must return 410 Gone per R6 deprecation contract")
+	// Blocker 4: Multiple managed providers should be updated (not 409)
+	assert.Equal(t, http.StatusOK, w.Code, "Multiple managed providers should be allowed and updated")
 
-	// Verify no providers were mutated
+	// Verify both providers were updated
 	var updated1, updated2 models.NotificationProvider
 	require.NoError(t, db.First(&updated1, "id = ?", managed1.ID).Error)
 	require.NoError(t, db.First(&updated2, "id = ?", managed2.ID).Error)
 
-	assert.False(t, updated1.NotifySecurityWAFBlocks, "Provider should not be mutated by deprecated endpoint")
+	assert.True(t, updated1.NotifySecurityWAFBlocks)
 	assert.False(t, updated1.NotifySecurityACLDenies)
-	assert.False(t, updated1.NotifySecurityRateLimitHits)
+	assert.True(t, updated1.NotifySecurityRateLimitHits)
 
-	assert.False(t, updated2.NotifySecurityWAFBlocks, "Provider should not be mutated by deprecated endpoint")
+	assert.True(t, updated2.NotifySecurityWAFBlocks)
 	assert.False(t, updated2.NotifySecurityACLDenies)
-	assert.False(t, updated2.NotifySecurityRateLimitHits)
+	assert.True(t, updated2.NotifySecurityRateLimitHits)
 }
 
 // TestFeatureFlagDefaultInitialization tests feature flag auto-initialization with correct defaults.
@@ -491,7 +490,7 @@ func TestFeatureFlagDefaultInitialization(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			db := SetupCompatibilityTestDB(t)
+			db := setupCompatibilityTestDB(t)
 
 			// Clear the auto-created feature flag
 			db.Where("key = ?", "feature.notifications.security_provider_events.enabled").Delete(&models.Setting{})
@@ -534,9 +533,9 @@ func TestFeatureFlagDefaultInitialization(t *testing.T) {
 
 // TestFeatureFlag_Disabled tests behavior when feature flag is disabled.
 func TestFeatureFlag_Disabled(t *testing.T) {
-	db := SetupCompatibilityTestDB(t)
+	db := setupCompatibilityTestDB(t)
 
-	// Update feature flag to false (SetupCompatibilityTestDB already created it as true)
+	// Update feature flag to false (setupCompatibilityTestDB already created it as true)
 	result := db.Model(&models.Setting{}).
 		Where("key = ?", "feature.notifications.security_provider_events.enabled").
 		Update("value", "false")

@@ -19,32 +19,40 @@ type NotificationProviderHandler struct {
 }
 
 type notificationProviderUpsertRequest struct {
-	Name                string `json:"name"`
-	Type                string `json:"type"`
-	URL                 string `json:"url"`
-	Config              string `json:"config"`
-	Template            string `json:"template"`
-	Enabled             bool   `json:"enabled"`
-	NotifyProxyHosts    bool   `json:"notify_proxy_hosts"`
-	NotifyRemoteServers bool   `json:"notify_remote_servers"`
-	NotifyDomains       bool   `json:"notify_domains"`
-	NotifyCerts         bool   `json:"notify_certs"`
-	NotifyUptime        bool   `json:"notify_uptime"`
+	Name                            string `json:"name"`
+	Type                            string `json:"type"`
+	URL                             string `json:"url"`
+	Config                          string `json:"config"`
+	Template                        string `json:"template"`
+	Enabled                         bool   `json:"enabled"`
+	NotifyProxyHosts                bool   `json:"notify_proxy_hosts"`
+	NotifyRemoteServers             bool   `json:"notify_remote_servers"`
+	NotifyDomains                   bool   `json:"notify_domains"`
+	NotifyCerts                     bool   `json:"notify_certs"`
+	NotifyUptime                    bool   `json:"notify_uptime"`
+	NotifySecurityWAFBlocks         bool   `json:"notify_security_waf_blocks"`
+	NotifySecurityACLDenies         bool   `json:"notify_security_acl_denies"`
+	NotifySecurityRateLimitHits     bool   `json:"notify_security_rate_limit_hits"`
+	NotifySecurityCrowdSecDecisions bool   `json:"notify_security_crowdsec_decisions"`
 }
 
 func (r notificationProviderUpsertRequest) toModel() models.NotificationProvider {
 	return models.NotificationProvider{
-		Name:                r.Name,
-		Type:                r.Type,
-		URL:                 r.URL,
-		Config:              r.Config,
-		Template:            r.Template,
-		Enabled:             r.Enabled,
-		NotifyProxyHosts:    r.NotifyProxyHosts,
-		NotifyRemoteServers: r.NotifyRemoteServers,
-		NotifyDomains:       r.NotifyDomains,
-		NotifyCerts:         r.NotifyCerts,
-		NotifyUptime:        r.NotifyUptime,
+		Name:                            r.Name,
+		Type:                            r.Type,
+		URL:                             r.URL,
+		Config:                          r.Config,
+		Template:                        r.Template,
+		Enabled:                         r.Enabled,
+		NotifyProxyHosts:                r.NotifyProxyHosts,
+		NotifyRemoteServers:             r.NotifyRemoteServers,
+		NotifyDomains:                   r.NotifyDomains,
+		NotifyCerts:                     r.NotifyCerts,
+		NotifyUptime:                    r.NotifyUptime,
+		NotifySecurityWAFBlocks:         r.NotifySecurityWAFBlocks,
+		NotifySecurityACLDenies:         r.NotifySecurityACLDenies,
+		NotifySecurityRateLimitHits:     r.NotifySecurityRateLimitHits,
+		NotifySecurityCrowdSecDecisions: r.NotifySecurityCrowdSecDecisions,
 	}
 }
 
@@ -73,6 +81,21 @@ func (h *NotificationProviderHandler) Create(c *gin.Context) {
 	var req notificationProviderUpsertRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Blocker 3: Enforce Discord-only provider type for this stage
+	// Check if provider has any security event notifications enabled
+	hasSecurityEvents := req.NotifySecurityWAFBlocks ||
+		req.NotifySecurityACLDenies ||
+		req.NotifySecurityRateLimitHits ||
+		req.NotifySecurityCrowdSecDecisions
+
+	if hasSecurityEvents && req.Type != "discord" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "security notifications only support discord provider type in this stage",
+			"code":  "SECURITY_NOTIFICATIONS_DISCORD_ONLY",
+		})
 		return
 	}
 
@@ -111,6 +134,22 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Blocker 3: Enforce Discord-only provider type for this stage
+	// Check if provider has any security event notifications enabled
+	hasSecurityEvents := req.NotifySecurityWAFBlocks ||
+		req.NotifySecurityACLDenies ||
+		req.NotifySecurityRateLimitHits ||
+		req.NotifySecurityCrowdSecDecisions
+
+	if hasSecurityEvents && req.Type != "discord" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "security notifications only support discord provider type in this stage",
+			"code":  "SECURITY_NOTIFICATIONS_DISCORD_ONLY",
+		})
+		return
+	}
+
 	provider := req.toModel()
 	provider.ID = id
 	// Server-managed migration fields must not be modified via user input

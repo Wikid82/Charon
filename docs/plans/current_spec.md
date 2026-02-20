@@ -1,170 +1,384 @@
-## Active Plan: PR-0 Spec Correction Pass (Security Notifications Provider Events)
+---
+post_title: "Current Spec: Governance Update — DoD GORM Scan + Gotify Token Hygiene"
+categories:
+  - security
+  - governance
+tags:
+  - dod
+  - gorm
+  - gotify
+  - documentation
+  - planning
+summary: "Governance-only plan to explicitly enforce conditional GORM scanner execution in DoD and add policy/operational controls that prevent Gotify token exposure while preserving token validation workflows."
+post_date: 2026-02-20
+---
+
+## Active Plan: Governance Update — DoD GORM Scan + Gotify Token Hygiene
 
 Date: 2026-02-20
-Status: Active and authoritative (supersedes all prior appended sections in this file)
+Status: Active and authoritative
+Scope Type: Documentation/Governance only (no product feature refactor)
 
-### 1) Scope and Intent
+### 1) Introduction
 
-- This is a spec-only correction pass for compatibility, migration determinism, and rollout safety.
-- Security notifications are provider-event subscriptions, not a single global destination.
-- Notify-only runtime remains fail-closed; legacy fallback dispatch remains blocked.
+This plan defines a documentation-only governance update for Charon. It focuses on two outcomes:
 
-### 2) Compatibility GET Aggregation Rules (Exact)
+1. Confirm and enforce that local Definition of Done (DoD) explicitly requires GORM security scan execution when backend model/database-related changes occur.
+2. Establish explicit policy and operational guidance to prevent Gotify token exposure while preserving secure token validation.
 
-Compatibility endpoint in scope:
+This plan intentionally excludes application feature refactors, endpoint behavior changes, and data model changes.
 
-- `GET /api/v1/notifications/settings/security`
+### 2) Scope and Assumptions
 
-Aggregation source of truth:
+#### In Scope
 
-- Active provider rows in `notification_providers` after filtering `enabled=true` and supported notify-only types.
+- Update governance markdown under `.github/instructions/**`.
+- Update operating-agent markdown under `.github/agents/**` where DoD/security verification behavior is defined.
+- Update security governance docs outside `.github` only where required to keep policy alignment and operator guidance clear.
+- Provide explicit wording for:
+  - Conditional GORM scan gate in DoD.
+  - Gotify token secrecy controls (no echo, no logs, no API response exposure).
+  - Practical hardening recommendations.
 
-Derived booleans (OR semantics):
+#### Out of Scope
 
-- `security_waf_enabled = OR(provider.notify_security_waf_blocks)`
-- `security_acl_enabled = OR(provider.notify_security_acl_denies)`
-- `security_rate_limit_enabled = OR(provider.notify_security_rate_limit_hits)`
+- Backend/frontend feature implementation.
+- API contract/code changes.
+- DB schema/migration changes.
+- Test-suite refactors beyond documentation references.
 
-Deterministic conflict behavior when providers disagree:
+#### Assumptions
 
-- If any active provider has `true` for a category, compatibility GET returns `true` for that category.
-- Returns `false` only when all active providers are `false` (or no active providers exist).
-- Provider order never affects result.
+- Existing GORM scanner exists and is runnable (`Lint: GORM Security Scan`, `pre-commit ... gorm-security-scan`, `scripts/scan-gorm-security.sh`).
+- DoD governance is currently distributed across instruction and agent files and must remain consistent.
+- Gotify continues to be supported in notification docs and needs explicit secret-handling rules documented.
 
-Legacy destination reporting:
+### 3) Research Findings
 
-- If compatibility payload still includes `destination`, it is read-only compatibility metadata.
-- `destination` is emitted only when exactly one active managed-legacy provider is in scope.
-- If zero or more than one candidate exists, `destination` is returned as empty string and `destination_ambiguous=true` is set in compatibility metadata.
+#### Current DoD/GORM Position
 
-### 3) Compatibility PUT Translation Semantics (Exact)
+- `testing.instructions.md` already includes a GORM Security Validation section and states scanner pass as DoD requirement.
+- `copilot-instructions.md` DoD section is comprehensive but does not currently elevate the GORM scan as an explicit conditional DoD step tied to backend model/database touchpoints.
+- Agent-level DoD ownership exists in `Management.agent.md`; however, explicit conditional GORM gate language is incomplete and should be made unambiguous.
 
-Compatibility endpoint in scope:
+#### Current Gotify/Token Guidance Position
 
-- `PUT /api/v1/notifications/settings/security`
+- Notification/security documentation includes Gotify payload examples but does not centrally enforce a strict token non-exposure policy with explicit “never echo/log/return” phrasing.
+- Security instruction files contain generic secret guidance but lack Gotify-specific operational controls and validation-safe masking patterns.
 
-Deterministic target set:
+#### Governance Surfaces Identified for Update
 
-- If one or more managed-legacy providers exist, target set is exactly that managed set.
-- If none exist and request is valid, create one managed-legacy provider and use it as the target set.
-- Non-managed providers are never mutated by compatibility PUT.
+##### Primary (`.github/instructions/**`)
 
-Translation mode: **replace on managed set** (not global merge)
+1. `.github/instructions/copilot-instructions.md`
+2. `.github/instructions/testing.instructions.md`
+3. `.github/instructions/security-and-owasp.instructions.md`
 
-- For each target provider, set security event booleans exactly to request values:
-  - `notify_security_waf_blocks = request.security_waf_enabled`
-  - `notify_security_acl_denies = request.security_acl_enabled`
-  - `notify_security_rate_limit_hits = request.security_rate_limit_enabled`
-- Existing non-security provider event booleans remain unchanged.
-- Existing provider transport fields remain unchanged unless destination mapping applies (Section 5).
+##### Primary (`.github/agents/**`)
 
-Idempotency:
+4. `.github/agents/Management.agent.md`
+5. `.github/agents/Backend_Dev.agent.md`
+6. `.github/agents/QA_Security.agent.md`
 
-- Repeating identical PUT payload produces no state drift and same compatibility GET output.
-- Write timestamps may change only when effective values change.
+##### Additional governance docs required for policy coherence
 
-Conflict handling:
+7. `SECURITY.md`
+8. `docs/security.md`
+9. `docs/features/notifications.md`
 
-- If target set cannot be resolved deterministically (for example data corruption with duplicate managed identity keys), return `409 Conflict` and do not partially write.
-- If request includes unsupported destination mapping shape, return `422 Unprocessable Entity` and do not mutate providers.
-- All compatibility PUT writes are transactional: all target providers updated or none.
+### 4) Requirements (EARS)
 
-### 4) Migration Marker Storage and Deterministic Re-Run
+- R1: WHEN a change touches `backend/internal/models/**` or backend database interaction paths, THE SYSTEM SHALL require execution of the GORM security scanner as a local DoD gate before task completion.
+- R2: IF the GORM scanner reports CRITICAL or HIGH findings, THEN THE SYSTEM SHALL require remediation before DoD can be considered complete.
+- R3: WHEN documenting or operating Gotify provider configuration, THE SYSTEM SHALL prohibit token echoing, token logging, and token inclusion in API responses.
+- R4: IF token validation is needed for connectivity or health checks, THEN THE SYSTEM SHALL validate tokens without revealing raw token values and SHALL use masking/redaction in all human-visible outputs.
+- R5: WHILE governance documentation is updated, THE SYSTEM SHALL keep language consistent across instruction files, agent files, and operator-facing security docs.
 
-Marker storage:
+### 5) Technical Specification (Documentation Contract)
 
-- Table: `settings`
-- Key: `notifications.security_provider_events.migration.v1`
-- Value JSON schema:
-  - `version` (string, fixed `v1`)
-  - `checksum` (string, deterministic hash of legacy source fields used for migration)
-  - `last_completed_at` (RFC3339 timestamp)
-  - `result` (`completed` | `completed_with_warnings`)
+This is a policy contract update, not an API/DB contract change.
 
-Deterministic boot-time re-run behavior:
+#### 5.1 Policy Contract: Conditional GORM Scan Gate
 
-1. Read legacy source (`notification_configs`) and compute checksum.
-2. Read migration marker.
-3. If marker missing: run migration and write marker.
-4. If marker exists with same checksum: skip mutation (no-op).
-5. If marker exists but checksum differs: re-run migration in upsert mode, then replace marker.
+Define a single, repeated clause across governance docs:
 
-Determinism constraints:
+- Trigger: backend model/database-related changes.
+- Required actions:
+  - Run scanner via one approved command path.
+  - Treat scanner as DoD process-blocking gate even when automation stage is manual (soft launch).
+  - Use `--check` mode for gate decisions and pass/fail outcomes.
+  - Block completion on unresolved CRITICAL/HIGH findings.
 
-- Migration is pure over legacy source + managed provider key.
-- Upsert key for managed provider is fixed identity `managed_legacy_security=true` plus name `Migrated Security Notifications (Legacy)`.
-- Re-run does not create duplicate managed providers.
+Approved command references remain:
 
-### 5) Legacy Destination-to-Provider Mapping Rules
+- `Lint: GORM Security Scan` (must execute scanner in check/gating mode)
+- `pre-commit run --hook-stage manual gorm-security-scan --all-files` (gating decision maps to check semantics)
+- `./scripts/scan-gorm-security.sh --check` (canonical gate command)
 
-Supported destination mappings for compatibility PUT:
+#### 5.1.1 Conditional Trigger Matrix (Include/Exclude)
 
-- `webhook_url` present:
-  - map to provider type `webhook`, set endpoint URL from `webhook_url`.
-- `discord_webhook_url` present:
-  - map to provider type `discord`, set endpoint URL from `discord_webhook_url`.
-- `slack_webhook_url` present:
-  - map to provider type `slack`, set endpoint URL from `slack_webhook_url`.
-- `gotify_url` + `gotify_token` present:
-  - map to provider type `gotify`, set URL/token fields.
+| Change Type | Trigger GORM Gate? | Rule |
+| --- | --- | --- |
+| `backend/internal/models/**` | Yes | Include |
+| Backend services/repositories with GORM query logic | Yes | Include |
+| DB migrations/seeding that change persistence behavior | Yes | Include |
+| Docs-only changes (`**/*.md`, governance docs) | No | Exclude |
+| Frontend-only changes (`frontend/**`) | No | Exclude |
 
-Unsupported/ambiguous destination handling (fail-safe):
+Gate decision rule:
 
-- If multiple destination types are simultaneously present in one request, return `422`.
-- If destination type is unknown or incomplete for required fields, return `422`.
-- On `422`, no provider rows are created/updated and compatibility state remains unchanged.
+- IF any Include row matches, THEN scanner execution in check mode is mandatory DoD gate.
+- IF only Exclude rows match, THEN GORM gate is not required for that change set.
 
-### 6) Feature Flag as Explicit Rollout Gate
+#### 5.2 Policy Contract: Gotify Token Non-Exposure
 
-Primary gate:
+Define explicit non-negotiables:
 
-- `feature.notifications.security_provider_events.enabled`
+- Never print token to terminal output.
+- Never write token to application logs, debug logs, test output, screenshots, or reports.
+- Never include token in API response bodies, errors, or serialized DTOs.
+- Never expose tokenized endpoint query strings (for example `...?token=...`) in docs, diagnostics, examples, or logs.
+- Always redact URL query parameters in diagnostics/examples/log output before display or storage.
+- Validation operations must be non-revealing:
+  - Use token length/prefix-independent masking in UX and diagnostics.
+  - Store and process token as secret only.
+  - Return generic validation outcomes (`valid`/`invalid` + reason category without token value).
 
-Required defaults:
+#### 5.3 Cross-Document Precedence and Canonical Language
 
-- Default in production: `false`
-- Default in development/test: `true`
+To prevent policy drift, define precedence and reconciliation behavior:
 
-Behavior when flag is `false`:
+1. Canonical governance source: `.github/instructions/testing.instructions.md` and `.github/instructions/security-and-owasp.instructions.md`
+2. Agent execution source: `.github/agents/**`
+3. Operator-facing/security guidance: `SECURITY.md`, `docs/security.md`, `docs/features/notifications.md`
 
-- Provider-based security dispatch path is disabled.
-- Compatibility GET/PUT remain available.
-- Runtime dispatch uses compatibility translation path only.
-- Managed migration may run in read-only dry-evaluate mode, but must not mutate providers.
+Reconciliation behavior:
 
-Behavior when flag is `true`:
+- IF lower-precedence text conflicts with higher-precedence canonical language, THEN lower-precedence text must be updated to match canonical wording in the same PR.
+- Canonical terms must be reused verbatim for gate semantics:
+  - “DoD process-blocking even in manual soft launch”
+  - “check mode (`--check`) decides pass/fail gate”
+  - “no tokenized URL/query exposure; redact query parameters in all diagnostics/examples/logs”
 
-- Provider-based security dispatch is authoritative.
-- Compatibility GET is derived projection from providers.
-- Compatibility PUT writes managed set via translation semantics defined above.
+#### 5.4 Operational Hardening Recommendations
 
-Operational rule:
+Document practical recommendations:
 
-- This flag is mandatory for rollout and rollback; it is not optional/recommended.
+- Use secret storage source (env var or secret manager), not plaintext docs/snippets.
+- Apply structured log redaction for keys containing `token`, `apikey`, `authorization`.
+- Use one-way visibility in UI forms (write-only fields, masked placeholders).
+- Rotate Gotify tokens on suspected exposure.
+- Validate over HTTPS only and avoid proxy/debug middleware that logs headers/bodies with secrets.
 
-### 7) Authoritative Plan Boundary and Cleanup
+### 6) Exact Files and Sections to Change + Precise Wording Recommendations
 
-- This document is now the single authoritative plan for this scope.
-- All previously appended certificate flaky-test and QA remediation sections are removed from active plan scope.
-- Any future unrelated plan content must go to a separate plan file under `docs/plans/`.
+#### 6.1 `.github/instructions/copilot-instructions.md`
 
-### 8) PR Slicing Strategy
+Section: `## ✅ Task Completion Protocol (Definition of Done)`
 
-Decision: two PR slices.
+Recommended insertion (new dedicated step after security scans or adjacent to testing gates):
 
-- **PR-0 (this pass):** spec correction only in `docs/plans/current_spec.md`.
-- **PR-1:** backend compatibility, migration marker, and feature-flag gate implementation.
-- **PR-2:** frontend alignment and compatibility deprecation messaging.
+- **GORM Security Scan (Conditional, BLOCKING)**:
+  - Trigger this step when changes include backend models or database interaction logic (for example: `backend/internal/models/**`, GORM query/service layers, migrations).
+  - Run one of:
+    - `Lint: GORM Security Scan`
+    - `pre-commit run --hook-stage manual gorm-security-scan --all-files`
+    - `./scripts/scan-gorm-security.sh --check`
+  - DoD is blocked until scanner reports zero CRITICAL/HIGH findings.
 
-### 9) Acceptance Criteria (Spec Pass)
+#### 6.2 `.github/instructions/testing.instructions.md`
 
-1. Compatibility GET rules define exact OR aggregation and disagreement behavior.
-2. Compatibility PUT defines deterministic target set, replace semantics, idempotency, and transaction/conflict behavior.
-3. Migration marker key/storage and deterministic re-run logic are explicit.
-4. Destination mapping rules cover supported non-webhook legacy forms and fail-safe unsupported behavior.
-5. File contains one authoritative plan with stale duplicate trailing sections removed.
-6. Feature flag is defined as explicit mandatory rollout gate with defaults and disable behavior.
+Section: `## 4. GORM Security Validation (Manual Stage)`
 
-### 10) Handoff
+Recommended wording tighten (replace opening requirement sentence):
 
-- Delegate PR-1 implementation to `Supervisor` using this plan as the sole baseline.
+- **Requirement:** For any change that touches backend models or database-related logic, the GORM Security Scanner is a mandatory local DoD gate and must pass with zero CRITICAL/HIGH findings.
+
+Policy-vs-automation reconciliation clause (explicitly add under manual stage text):
+
+- “Manual stage” describes execution mechanism only; policy enforcement remains process-blocking for DoD. Gate decisions must use check semantics (`./scripts/scan-gorm-security.sh --check` or equivalent task wiring).
+
+Recommended addition under “When to Run”:
+
+- **Mandatory Trigger Paths:**
+  - `backend/internal/models/**`
+  - Database interaction/services using GORM queries
+  - Migration/seeding logic affecting model persistence behavior
+- **Explicit Exclusions:**
+  - Docs-only changes
+  - Frontend-only changes
+
+#### 6.3 `.github/instructions/security-and-owasp.instructions.md`
+
+Section: add new subsection under “General Guidelines”:
+
+- **Gotify Token Protection (Explicit):**
+  - Treat Gotify application tokens as secrets.
+  - Do not echo tokens in CLI output.
+  - Do not log tokens (application logs, debug logs, test logs).
+  - Do not return tokens in API responses or error payloads.
+  - For token validation, return only non-sensitive status and redact/mask any token-derived diagnostics.
+
+#### 6.4 `.github/agents/Management.agent.md`
+
+Section: `## DEFINITION OF DONE ##`
+
+Recommended insertion as explicit checklist item:
+
+- **GORM Security Scan (Conditional Gate):**
+  - If implementation touched backend models or database-interaction paths, confirm `QA_Security` (or responsible subagent) ran the GORM scanner and resolved all CRITICAL/HIGH findings before accepting completion.
+
+#### 6.5 `.github/agents/Backend_Dev.agent.md`
+
+Section: `3. **Verification (Definition of Done)**`
+
+Recommended insertion:
+
+- **Conditional GORM Gate:** If task changes include model/database-related files or GORM query logic, run `pre-commit run --hook-stage manual gorm-security-scan --all-files` (or `./scripts/scan-gorm-security.sh --check`) and treat CRITICAL/HIGH findings as blocking.
+
+#### 6.6 `.github/agents/QA_Security.agent.md`
+
+Sections: `<workflow>` Step 4 (Security Scanning) and reporting expectations
+
+Recommended insertion:
+
+- Add explicit conditional check:
+  - When backend model/database-related changes are in scope, run GORM scanner and report pass/fail as DoD gate.
+- Add Gotify token review check:
+  - Verify no token appears in logs, test artifacts, screenshots, API examples, report output, or tokenized URL query strings.
+  - Verify URL query parameters are redacted in diagnostics/examples/log artifacts.
+
+#### 6.7 `SECURITY.md`
+
+Section candidate: under “Security Best Practices” or “Notification/Webhook Security” area
+
+Recommended addition:
+
+- **Gotify Token Hygiene:**
+  - Gotify tokens are secrets and must never be echoed, logged, or returned by API responses.
+  - Validation endpoints and troubleshooting guidance must use masked outputs only.
+  - Rotate token immediately if exposure is suspected.
+
+#### 6.8 `docs/security.md`
+
+Section candidate: existing “Security Notifications” / “Gotify JSON Payload Example” area
+
+Recommended addition:
+
+- Add operational note block:
+  - “Use write-only token input. Do not paste raw tokens into logs, screenshots, tickets, or chat.”
+  - “Validation should confirm connectivity without exposing token value.”
+
+#### 6.9 `docs/features/notifications.md`
+
+Section candidate: “Gotify Webhooks” / setup + troubleshooting sections
+
+Recommended addition:
+
+- Add concise “Token Safety” subsection:
+  - Never expose token in templates, payload examples, or troubleshooting snippets.
+  - Use masked token representation in examples (e.g., `gtf_********`).
+  - Prefer token rotation and re-test when compromise is suspected.
+
+### 7) Implementation Plan (Phased)
+
+#### Phase 1: Governance Baseline Diff (Documentation Research Validation)
+
+- Validate each target file and section exists.
+- Map exact insertion points.
+- Confirm no overlap with archived docs to avoid scope creep.
+
+Complexity: Low
+
+#### Phase 2: DoD Enforcement Text Updates
+
+- Apply conditional GORM scan language to instruction + agent DoD surfaces.
+- Ensure wording consistency between `.github/instructions/**` and `.github/agents/**`.
+
+Complexity: Medium
+
+#### Phase 3: Gotify Token Exposure Policy Updates
+
+- Add explicit no echo/no log/no API exposure policy text.
+- Add practical validation-safe and hardening guidance.
+
+Complexity: Medium
+
+#### Phase 4: Governance Consistency Pass
+
+- Verify terminology consistency:
+  - “conditional gate”, “CRITICAL/HIGH blocking”, “masked/redacted output”.
+- Check that all cross-doc references remain valid.
+
+Complexity: Low
+
+#### Phase 5: Validation and Handoff
+
+- Perform markdown lint/readability pass.
+- Confirm plan scope is governance-only (no implementation drift).
+- Prepare for Supervisor review.
+
+Complexity: Low
+
+### 8) Acceptance Criteria
+
+1. `docs/plans/current_spec.md` is fully replaced with this governance-only plan.
+2. Plan lists exact target files under `.github/instructions/**` and `.github/agents/**` plus required additional governance docs.
+3. Plan includes explicit, precise wording recommendations per file/section.
+4. Plan defines conditional DoD enforcement for GORM scan tied to backend model/database-related changes.
+5. Plan defines explicit Gotify token non-exposure rules (no echo, no logging, no API response exposure) and validation-safe behavior.
+6. Plan includes practical hardening recommendations.
+7. Plan includes PR slicing strategy with explicit single-PR decision rationale.
+8. Plan excludes code-feature refactors and remains tightly scoped to governance/documentation updates.
+9. Plan explicitly defines policy-vs-automation behavior: manual scanner stage does not weaken DoD gate enforcement; check mode semantics are mandatory for gate decisions.
+10. Plan includes include/exclude matrix for conditional GORM scanner triggering.
+11. Plan includes explicit reconciliation edits for `testing.instructions` manual-soft-launch wording and `QA_Security.agent.md` Gotify token artifact checks.
+
+### 9) PR Slicing Strategy
+
+Decision: **Single PR**
+
+#### Rationale
+
+- Scope is text-only governance alignment across related markdown files.
+- Changes are logically cohesive (DoD gate clarity + token secrecy policy).
+- Splitting would increase review overhead and risk inconsistent policy wording.
+
+#### Single-PR Scope
+
+- All files in Section 6.
+- No code changes.
+- One validation pass for consistency.
+
+#### Validation Gates (within the PR)
+
+- Markdown renders cleanly.
+- Wording consistency across instruction/agent/operator docs.
+- No contradiction between DoD policies.
+
+#### Rollback/Contingency
+
+- If wording introduces confusion, rollback via single revert commit of doc-only changes.
+- If partial disagreement occurs, retain DoD gate updates and isolate Gotify wording revisions in follow-up doc PR.
+
+### 10) Risks and Mitigations
+
+- **Risk 1: Policy drift between instruction and agent docs**
+  Mitigation: Use shared wording patterns and perform explicit consistency pass in Phase 4.
+
+- **Risk 2: Overly broad wording accidentally implies code changes**
+  Mitigation: Keep language explicitly “documentation governance only” and avoid implementation directives beyond policy.
+
+- **Risk 3: Sensitive token examples accidentally remain in docs**
+  Mitigation: Add explicit masked-example rule and require post-edit grep check for token-like literals.
+
+- **Risk 4: Reviewer ambiguity on conditional trigger**
+  Mitigation: Define concrete trigger paths (`backend/internal/models/**`, GORM DB logic, migrations).
+
+### 11) Supervisor Handoff Notes
+
+This plan is ready for Supervisor review as a governance-only documentation update. Review focus should verify:
+
+- Clarity of conditional DoD gate for GORM scanner.
+- Sufficiency and practicality of Gotify token non-exposure policy, including token-in-URL query redaction requirements.
+- Cross-file wording consistency and absence of scope creep.

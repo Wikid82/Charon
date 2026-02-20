@@ -177,6 +177,20 @@ services:
       - /tmp:noexec,nosuid,nodev
 ```
 
+### Gotify Token Hygiene
+
+Gotify application tokens are secrets and must be handled with strict confidentiality.
+
+- Never echo, print, log, or return token values in API responses or errors.
+- Never expose tokenized endpoint query strings (for example,
+  `...?token=...`) in logs, diagnostics, examples, screenshots,
+  tickets, or reports.
+- Always redact query parameters in diagnostics and examples before display or storage.
+- Use write-only token inputs in operator workflows and UI forms.
+- Store tokens only in environment variables or a dedicated secret manager.
+- Validate Gotify endpoints over HTTPS only.
+- Rotate tokens immediately on suspected exposure.
+
 ### Network Security
 
 - **Firewall Rules**: Only expose necessary ports (80, 443, 8080)
@@ -306,11 +320,15 @@ Charon uses digest pinning to reduce supply chain risk and ensure CI runs agains
 **Documented Exceptions & Compensating Controls:**
 
 1. **Go toolchain shim** (`golang.org/dl/goX.Y.Z@latest`)
-  - **Exception:** Uses `@latest` to install the shim.
-  - **Compensating controls:** The target toolchain version is pinned in `go.work`, and Renovate tracks the required version for updates.
+   - **Exception:** Uses `@latest` to install the shim.
+   - **Compensating controls:** The target toolchain version is pinned in
+     `go.work`, and Renovate tracks the required version for updates.
+
 2. **Unpinnable dependencies** (no stable digest or checksum source)
-  - **Exception:** Dependency cannot be pinned by digest.
-  - **Compensating controls:** Require documented justification, prefer vendor-provided checksums or signed releases when available, and keep SBOM/vulnerability scans in CI.
+   - **Exception:** Dependency cannot be pinned by digest.
+   - **Compensating controls:** Require documented justification, prefer
+     vendor-provided checksums or signed releases when available, and keep
+     SBOM/vulnerability scans in CI.
 
 ### Learn More
 

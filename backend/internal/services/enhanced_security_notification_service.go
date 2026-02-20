@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -70,6 +71,8 @@ func (s *EnhancedSecurityNotificationService) GetSettings() (*models.Notificatio
 // getProviderAggregatedConfig aggregates settings from active providers using OR semantics.
 // Blocker 2: Returns proper compatibility contract with security_* fields.
 // Blocker 3: Filters enabled=true AND supported notify-only provider types.
+// Note: This is the GET aggregation path, not the dispatch path. All provider types are included
+// for configuration visibility. Discord-only enforcement applies to SendViaProviders (dispatch path).
 func (s *EnhancedSecurityNotificationService) getProviderAggregatedConfig() (*models.NotificationConfig, error) {
 	var providers []models.NotificationProvider
 	err := s.db.Where("enabled = ?", true).Find(&providers).Error
@@ -78,6 +81,7 @@ func (s *EnhancedSecurityNotificationService) getProviderAggregatedConfig() (*mo
 	}
 
 	// Blocker 3: Filter for supported notify-only provider types (PR-1 scope)
+	// All supported types are included in GET aggregation for configuration visibility
 	supportedTypes := map[string]bool{
 		"webhook": true,
 		"discord": true,
@@ -93,9 +97,10 @@ func (s *EnhancedSecurityNotificationService) getProviderAggregatedConfig() (*mo
 
 	// OR aggregation: if ANY provider has true, result is true
 	config := &models.NotificationConfig{
-		NotifyWAFBlocks:     false,
-		NotifyACLDenies:     false,
-		NotifyRateLimitHits: false,
+		NotifyWAFBlocks:         false,
+		NotifyACLDenies:         false,
+		NotifyRateLimitHits:     false,
+		NotifyCrowdSecDecisions: false,
 	}
 
 	for _, p := range filteredProviders {
@@ -107,6 +112,9 @@ func (s *EnhancedSecurityNotificationService) getProviderAggregatedConfig() (*mo
 		}
 		if p.NotifySecurityRateLimitHits {
 			config.NotifyRateLimitHits = true
+		}
+		if p.NotifySecurityCrowdSecDecisions {
+			config.NotifyCrowdSecDecisions = true
 		}
 	}
 
@@ -487,7 +495,8 @@ func (s *EnhancedSecurityNotificationService) isFeatureEnabled() (bool, error) {
 
 // SendViaProviders dispatches security events to active providers.
 // When feature flag is enabled, this is the authoritative dispatch path.
-// Blocker 3: Filters enabled=true AND supported notify-only provider types.
+// Blocker 3: Discord-only enforcement for rollout - only Discord providers receive security events.
+// Server-side guarantee holds for existing rows and all dispatch paths.
 func (s *EnhancedSecurityNotificationService) SendViaProviders(ctx context.Context, event models.SecurityEvent) error {
 	// Query active providers that have the relevant event type enabled
 	var providers []models.NotificationProvider
@@ -496,12 +505,13 @@ func (s *EnhancedSecurityNotificationService) SendViaProviders(ctx context.Conte
 		return fmt.Errorf("query providers: %w", err)
 	}
 
-	// Blocker 3: Filter for supported notify-only provider types (PR-1 scope)
+	// Blocker 3: Discord-only enforcement for rollout stage
+	// ONLY Discord providers are allowed to receive security events
+	// This is a server-side guarantee that prevents any non-Discord provider
+	// from receiving security notifications, even if flags are enabled in DB
 	supportedTypes := map[string]bool{
-		"webhook": true,
 		"discord": true,
-		"slack":   true,
-		"gotify":  true,
+		// webhook, slack, gotify explicitly excluded for rollout
 	}
 
 	// Filter providers based on event type AND supported type
@@ -511,13 +521,17 @@ func (s *EnhancedSecurityNotificationService) SendViaProviders(ctx context.Conte
 			continue
 		}
 		shouldNotify := false
-		switch event.EventType {
+		// Normalize event type to handle variations
+		normalizedEventType := normalizeSecurityEventType(event.EventType)
+		switch normalizedEventType {
 		case "waf_block":
 			shouldNotify = p.NotifySecurityWAFBlocks
 		case "acl_deny":
 			shouldNotify = p.NotifySecurityACLDenies
 		case "rate_limit":
 			shouldNotify = p.NotifySecurityRateLimitHits
+		case "crowdsec_decision":
+			shouldNotify = p.NotifySecurityCrowdSecDecisions
 		}
 		if shouldNotify {
 			targetProviders = append(targetProviders, p)
@@ -665,6 +679,25 @@ func (s *EnhancedSecurityNotificationService) sendGotify(ctx context.Context, go
 	}
 
 	return nil
+}
+
+// normalizeSecurityEventType normalizes event type variations to canonical forms.
+func normalizeSecurityEventType(eventType string) string {
+	normalized := strings.ToLower(strings.TrimSpace(eventType))
+
+	// Map variations to canonical forms
+	switch {
+	case strings.Contains(normalized, "waf"):
+		return "waf_block"
+	case strings.Contains(normalized, "acl"):
+		return "acl_deny"
+	case strings.Contains(normalized, "rate") && strings.Contains(normalized, "limit"):
+		return "rate_limit"
+	case strings.Contains(normalized, "crowdsec"):
+		return "crowdsec_decision"
+	default:
+		return normalized
+	}
 }
 
 // getDefaultFeatureFlagValue returns default based on environment (Spec Section 6).

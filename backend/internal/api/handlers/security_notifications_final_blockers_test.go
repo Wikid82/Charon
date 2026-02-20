@@ -16,7 +16,7 @@ import (
 
 // TestFinalBlocker1_DestinationAmbiguous_ZeroManagedProviders tests that destination_ambiguous=true when no managed providers exist.
 func TestFinalBlocker1_DestinationAmbiguous_ZeroManagedProviders(t *testing.T) {
-	db := setupCompatibilityTestDB(t)
+	db := SetupCompatibilityTestDB(t)
 
 	// Create a non-managed provider
 	provider := &models.NotificationProvider{
@@ -51,7 +51,7 @@ func TestFinalBlocker1_DestinationAmbiguous_ZeroManagedProviders(t *testing.T) {
 
 // TestFinalBlocker1_DestinationAmbiguous_OneManagedProvider tests that destination_ambiguous=false when exactly one managed provider exists.
 func TestFinalBlocker1_DestinationAmbiguous_OneManagedProvider(t *testing.T) {
-	db := setupCompatibilityTestDB(t)
+	db := SetupCompatibilityTestDB(t)
 
 	// Create one managed provider
 	provider := &models.NotificationProvider{
@@ -87,7 +87,7 @@ func TestFinalBlocker1_DestinationAmbiguous_OneManagedProvider(t *testing.T) {
 
 // TestFinalBlocker1_DestinationAmbiguous_MultipleManagedProviders tests that destination_ambiguous=true when multiple managed providers exist.
 func TestFinalBlocker1_DestinationAmbiguous_MultipleManagedProviders(t *testing.T) {
-	db := setupCompatibilityTestDB(t)
+	db := SetupCompatibilityTestDB(t)
 
 	// Create two managed providers
 	provider1 := &models.NotificationProvider{
@@ -133,7 +133,7 @@ func TestFinalBlocker1_DestinationAmbiguous_MultipleManagedProviders(t *testing.
 
 // TestFinalBlocker2_TokenNotExposed tests that provider tokens are not exposed in API responses.
 func TestFinalBlocker2_TokenNotExposed(t *testing.T) {
-	db := setupCompatibilityTestDB(t)
+	db := SetupCompatibilityTestDB(t)
 
 	// Create a gotify provider with token
 	provider := &models.NotificationProvider{
@@ -170,7 +170,7 @@ func TestFinalBlocker2_TokenNotExposed(t *testing.T) {
 
 // TestFinalBlocker3_SupportedProviderTypes_WebhookDiscordSlackGotifyOnly tests that only supported types are processed.
 func TestFinalBlocker3_SupportedProviderTypes_WebhookDiscordSlackGotifyOnly(t *testing.T) {
-	db := setupCompatibilityTestDB(t)
+	db := SetupCompatibilityTestDB(t)
 
 	// Create providers of various types
 	supportedTypes := []string{"webhook", "discord", "slack", "gotify"}
@@ -221,7 +221,7 @@ func TestFinalBlocker3_SupportedProviderTypes_WebhookDiscordSlackGotifyOnly(t *t
 
 // TestFinalBlocker3_SupportedProviderTypes_UnsupportedTypesIgnored tests that unsupported types are completely filtered out.
 func TestFinalBlocker3_SupportedProviderTypes_UnsupportedTypesIgnored(t *testing.T) {
-	db := setupCompatibilityTestDB(t)
+	db := SetupCompatibilityTestDB(t)
 
 	// Create ONLY unsupported providers
 	unsupportedTypes := []string{"telegram", "generic"}
@@ -262,7 +262,7 @@ func TestFinalBlocker3_SupportedProviderTypes_UnsupportedTypesIgnored(t *testing
 // TestBlocker2_GETReturnsSecurityFields tests GET returns security_* fields per spec.
 // Blocker 2: Compatibility endpoint contract must use explicit security_* payload fields per spec.
 func TestBlocker2_GETReturnsSecurityFields(t *testing.T) {
-	db := setupCompatibilityTestDB(t)
+	db := SetupCompatibilityTestDB(t)
 
 	provider := &models.NotificationProvider{
 		Name:                        "Test Provider",
@@ -303,7 +303,7 @@ func TestBlocker2_GETReturnsSecurityFields(t *testing.T) {
 
 // TestBlocker2_GotifyTokenNeverExposed_Legacy tests that gotify token is never exposed in GET responses.
 func TestBlocker2_GotifyTokenNeverExposed_Legacy(t *testing.T) {
-	db := setupCompatibilityTestDB(t)
+	db := SetupCompatibilityTestDB(t)
 
 	// Create gotify provider with token
 	provider := &models.NotificationProvider{
@@ -340,7 +340,7 @@ func TestBlocker2_GotifyTokenNeverExposed_Legacy(t *testing.T) {
 
 // TestBlocker3_PUTIdempotency tests that identical PUT requests do not mutate timestamps.
 func TestBlocker3_PUTIdempotency(t *testing.T) {
-	db := setupCompatibilityTestDB(t)
+	db := SetupCompatibilityTestDB(t)
 
 	// Create managed provider
 	managed := &models.NotificationProvider{
@@ -380,7 +380,7 @@ func TestBlocker3_PUTIdempotency(t *testing.T) {
 
 // TestBlocker4_MultipleManagedProvidersAllowed tests that multiple managed providers are updated (not 409).
 func TestBlocker4_MultipleManagedProvidersAllowed(t *testing.T) {
-	db := setupCompatibilityTestDB(t)
+	db := SetupCompatibilityTestDB(t)
 
 	// Create two managed providers (simulating migration state)
 	managed1 := &models.NotificationProvider{
@@ -431,7 +431,7 @@ func TestBlocker4_MultipleManagedProvidersAllowed(t *testing.T) {
 
 // TestBlocker1_FeatureFlagDefaultProduction tests that prod environment defaults to false.
 func TestBlocker1_FeatureFlagDefaultProduction(t *testing.T) {
-	db := setupCompatibilityTestDB(t)
+	db := SetupCompatibilityTestDB(t)
 
 	// Clear the auto-created feature flag
 	db.Where("key = ?", "feature.notifications.security_provider_events.enabled").Delete(&models.Setting{})
@@ -456,7 +456,7 @@ func TestBlocker1_FeatureFlagDefaultProduction(t *testing.T) {
 
 // TestBlocker1_FeatureFlagDefaultProductionUnsetEnv tests prod default when no env vars set.
 func TestBlocker1_FeatureFlagDefaultProductionUnsetEnv(t *testing.T) {
-	db := setupCompatibilityTestDB(t)
+	db := SetupCompatibilityTestDB(t)
 
 	// Clear the auto-created feature flag
 	db.Where("key = ?", "feature.notifications.security_provider_events.enabled").Delete(&models.Setting{})
@@ -481,7 +481,7 @@ func TestBlocker1_FeatureFlagDefaultProductionUnsetEnv(t *testing.T) {
 
 // TestBlocker1_FeatureFlagDefaultDev tests that dev/test environment defaults to true.
 func TestBlocker1_FeatureFlagDefaultDev(t *testing.T) {
-	db := setupCompatibilityTestDB(t)
+	db := SetupCompatibilityTestDB(t)
 
 	// Clear the auto-created feature flag
 	db.Where("key = ?", "feature.notifications.security_provider_events.enabled").Delete(&models.Setting{})
