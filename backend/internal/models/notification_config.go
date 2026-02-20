@@ -24,7 +24,7 @@ type NotificationConfig struct {
 	DiscordWebhookURL    string `gorm:"-" json:"discord_webhook_url,omitempty"`
 	SlackWebhookURL      string `gorm:"-" json:"slack_webhook_url,omitempty"`
 	GotifyURL            string `gorm:"-" json:"gotify_url,omitempty"`
-	GotifyToken          string `gorm:"-" json:"gotify_token,omitempty"`
+	GotifyToken          string `gorm:"-" json:"-"` // Security: Never expose token in JSON (OWASP A02)
 	DestinationAmbiguous bool   `gorm:"-" json:"destination_ambiguous,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
