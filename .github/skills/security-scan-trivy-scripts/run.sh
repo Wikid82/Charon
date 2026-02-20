@@ -26,6 +26,7 @@ validate_docker_environment || error_exit "Docker is required but not available"
 # Set defaults
 set_default_env "TRIVY_SEVERITY" "CRITICAL,HIGH,MEDIUM"
 set_default_env "TRIVY_TIMEOUT" "10m"
+set_default_env "TRIVY_DOCKER_RM" "true"
 
 # Parse arguments
 # Default scanners exclude misconfig to avoid non-actionable policy bundle issues
@@ -88,8 +89,19 @@ for d in "${SKIP_DIRS[@]}"; do
     SKIP_DIR_FLAGS+=("--skip-dirs" "/app/${d}")
 done
 
+log_step "PREPARE" "Pulling latest Trivy Docker image"
+if ! docker pull aquasec/trivy:latest >/dev/null; then
+    log_error "Failed to pull Docker image aquasec/trivy:latest"
+    exit 1
+fi
+
 # Run Trivy via Docker
-if docker run --rm \
+DOCKER_RUN_ARGS=(run)
+if [[ "${TRIVY_DOCKER_RM}" == "true" ]]; then
+    DOCKER_RUN_ARGS+=(--rm)
+fi
+
+if docker "${DOCKER_RUN_ARGS[@]}" \
     -v "$(pwd):/app:ro" \
     -e "TRIVY_SEVERITY=${TRIVY_SEVERITY}" \
     -e "TRIVY_TIMEOUT=${TRIVY_TIMEOUT}" \
