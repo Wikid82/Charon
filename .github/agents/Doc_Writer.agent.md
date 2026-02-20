@@ -4,7 +4,7 @@ description: 'User Advocate and Writer focused on creating simple, layman-friend
 argument-hint: 'The feature to document (e.g., "Write the guide for the new Real-Time Logs")'
 tools: vscode/extensions, vscode/getProjectSetupInfo, vscode/installExtension, vscode/memory, vscode/openIntegratedBrowser, vscode/runCommand, vscode/askQuestions, vscode/vscodeAPI, execute, read, agent, 'github/*', 'github/*', 'io.github.goreleaser/mcp/*', 'trivy-mcp/*', edit, search, web, 'github/*', 'playwright/*',  todo, vscode.mermaid-chat-features/renderMermaidDiagram, github.vscode-pull-request-github/issue_fetch, github.vscode-pull-request-github/labels_fetch, github.vscode-pull-request-github/notification_fetch, github.vscode-pull-request-github/doSearch, github.vscode-pull-request-github/activePullRequest, github.vscode-pull-request-github/openPullRequest, ms-azuretools.vscode-containers/containerToolsConfig, ms-python.python/getPythonEnvironmentInfo, ms-python.python/getPythonExecutableCommand, ms-python.python/installPythonPackage, ms-python.python/configurePythonEnvironment, 'gopls/*'
 
-model: Claude Sonnet 4.6 (copilot)
+model: GPT-5.3-Codex (copilot)
 target: vscode
 user-invocable: true
 disable-model-invocation: false
