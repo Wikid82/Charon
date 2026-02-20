@@ -2,11 +2,9 @@ import { useEffect, useState, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, NotificationProvider, getExternalTemplates, previewExternalTemplate, ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate, NotificationTemplate } from '../api/notifications';
-import { useSecurityNotificationSettings } from '../hooks/useNotifications';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Switch } from '../components/ui/Switch';
-import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2, Shield, AlertTriangle } from 'lucide-react';
+import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { toast } from '../utils/toast';
 
@@ -373,160 +371,6 @@ const TemplateForm: FC<{
   );
 };
 
-const SecurityNotificationsSection: FC = () => {
-  const { t } = useTranslation();
-  const { data: settings, isLoading } = useSecurityNotificationSettings();
-
-  const compatibilityDestination =
-    settings?.webhook_url ||
-    settings?.discord_webhook_url ||
-    settings?.slack_webhook_url ||
-    settings?.gotify_url ||
-    '';
-
-  return (
-    <Card data-testid="security-notifications-section">
-      <div className="p-6">
-        <div className="flex items-center gap-2 mb-1">
-          <Shield className="w-5 h-5 text-content-secondary" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            {t('notificationProviders.securityNotifications')}
-          </h2>
-        </div>
-        <p className="text-sm text-gray-500 mb-6">
-          {t('notificationProviders.securityNotificationsDescription')}
-        </p>
-
-        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200" data-testid="security-compatibility-banner">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="mt-0.5 h-4 w-4" aria-hidden="true" />
-            <p className="text-sm">
-              {t('notificationProviders.securityCompatibilityDeprecated')}
-            </p>
-          </div>
-          <p className="mt-2 text-xs">
-            {t('notificationProviders.securityCompatibilityNotifyOnly')}
-          </p>
-        </div>
-
-        {isLoading ? (
-          <div className="text-sm text-gray-400">{t('common.loading')}</div>
-        ) : (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <label htmlFor="security-notifications-enabled" className="text-sm font-medium text-gray-900 dark:text-white">
-                  {t('notificationProviders.enableAlerts')}
-                </label>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {t('notificationProviders.alertsDescription')}
-                </p>
-              </div>
-              <Switch
-                id="security-notifications-enabled"
-                data-testid="security-notifications-enabled"
-                checked={Boolean(settings?.enabled)}
-                disabled
-              />
-            </div>
-
-            <div>
-              <label htmlFor="security-min-log-level" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                {t('notificationProviders.minLogLevel')}
-              </label>
-              <select
-                id="security-min-log-level"
-                data-testid="security-min-log-level"
-                value={settings?.min_log_level || 'warn'}
-                disabled
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm disabled:opacity-50"
-              >
-                <option value="debug">Debug</option>
-                <option value="info">Info</option>
-                <option value="warn">Warning</option>
-                <option value="error">Error</option>
-                <option value="fatal">Fatal</option>
-              </select>
-              <p className="text-xs text-gray-500 mt-1">{t('notificationProviders.minLogLevelHelp')}</p>
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{t('notificationProviders.notifyOn')}</h3>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <label htmlFor="security-notify-waf" className="text-sm text-gray-900 dark:text-white">
-                    {t('notificationProviders.wafBlocks')}
-                  </label>
-                  <p className="text-xs text-gray-500">{t('notificationProviders.compatibilityAggregateHelp')}</p>
-                </div>
-                <Switch
-                  id="security-notify-waf"
-                  data-testid="security-notify-waf"
-                  checked={Boolean(settings?.security_waf_enabled)}
-                  disabled
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <label htmlFor="security-notify-acl" className="text-sm text-gray-900 dark:text-white">
-                    {t('notificationProviders.aclDenials')}
-                  </label>
-                  <p className="text-xs text-gray-500">{t('notificationProviders.compatibilityAggregateHelp')}</p>
-                </div>
-                <Switch
-                  id="security-notify-acl"
-                  data-testid="security-notify-acl"
-                  checked={Boolean(settings?.security_acl_enabled)}
-                  disabled
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <label htmlFor="security-notify-rate-limit" className="text-sm text-gray-900 dark:text-white">
-                    {t('notificationProviders.rateLimitHits')}
-                  </label>
-                  <p className="text-xs text-gray-500">{t('notificationProviders.compatibilityAggregateHelp')}</p>
-                </div>
-                <Switch
-                  id="security-notify-rate-limit"
-                  data-testid="security-notify-rate-limit"
-                  checked={Boolean(settings?.security_rate_limit_enabled)}
-                  disabled
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="security-webhook-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                {t('notificationProviders.compatibilityDestination')}
-              </label>
-              <input
-                id="security-webhook-url"
-                data-testid="security-webhook-url"
-                type="text"
-                value={compatibilityDestination}
-                readOnly
-                disabled
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm disabled:opacity-50"
-              />
-              <p className="text-xs text-gray-500 mt-1">{t('notificationProviders.compatibilityDestinationHelp')}</p>
-            </div>
-
-            {settings?.destination_ambiguous ? (
-              <p className="text-xs text-amber-700 dark:text-amber-300" data-testid="security-destination-ambiguous">
-                {t('notificationProviders.destinationAmbiguous')}
-              </p>
-            ) : null}
-          </div>
-        )}
-      </div>
-    </Card>
-  );
-};
-
 const Notifications: FC = () => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -610,9 +454,6 @@ const Notifications: FC = () => {
           {t('notificationProviders.addProvider')}
         </Button>
       </div>
-
-      {/* Security Event Notifications */}
-      <SecurityNotificationsSection />
 
       {/* External Templates Management */}
       <div className="flex justify-between items-center">

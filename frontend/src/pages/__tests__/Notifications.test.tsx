@@ -5,7 +5,7 @@ import Notifications from '../Notifications'
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
 import * as notificationsApi from '../../api/notifications'
 import { toast } from '../../utils/toast'
-import type { NotificationProvider, SecurityNotificationSettings } from '../../api/notifications'
+import type { NotificationProvider } from '../../api/notifications'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -26,8 +26,6 @@ vi.mock('../../api/notifications', () => ({
   createExternalTemplate: vi.fn(),
   updateExternalTemplate: vi.fn(),
   deleteExternalTemplate: vi.fn(),
-  getSecurityNotificationSettings: vi.fn(),
-  updateSecurityNotificationSettings: vi.fn(),
 }))
 
 vi.mock('../../utils/toast', () => ({
@@ -56,24 +54,12 @@ const baseProvider: NotificationProvider = {
   created_at: '2024-01-01T00:00:00Z',
 }
 
-const mockSecuritySettings: SecurityNotificationSettings = {
-  enabled: false,
-  min_log_level: 'warn',
-  security_waf_enabled: true,
-  security_acl_enabled: true,
-  security_rate_limit_enabled: true,
-  destination_ambiguous: false,
-  webhook_url: '',
-}
-
 const setupMocks = (providers: NotificationProvider[] = []) => {
   vi.mocked(notificationsApi.getProviders).mockResolvedValue(providers)
   vi.mocked(notificationsApi.getTemplates).mockResolvedValue([])
   vi.mocked(notificationsApi.getExternalTemplates).mockResolvedValue([])
   vi.mocked(notificationsApi.createProvider).mockResolvedValue(baseProvider)
   vi.mocked(notificationsApi.updateProvider).mockResolvedValue(baseProvider)
-  vi.mocked(notificationsApi.getSecurityNotificationSettings).mockResolvedValue(mockSecuritySettings)
-  vi.mocked(notificationsApi.updateSecurityNotificationSettings).mockResolvedValue(mockSecuritySettings)
 }
 
 describe('Notifications', () => {
@@ -277,10 +263,11 @@ describe('Notifications', () => {
     confirmSpy.mockRestore()
   })
 
-  it('renders the security notifications section', async () => {
+  it('does not render a standalone security notifications section', async () => {
     renderWithQueryClient(<Notifications />)
-    expect(await screen.findByTestId('security-notifications-section')).toBeInTheDocument()
-    expect(screen.getByTestId('security-compatibility-banner')).toBeInTheDocument()
+    await screen.findByTestId('add-provider-btn')
+    expect(screen.queryByTestId('security-notifications-section')).toBeNull()
+    expect(screen.queryByTestId('security-compatibility-banner')).toBeNull()
   })
 
   it('shows security event subscription controls in provider form', async () => {
@@ -294,23 +281,11 @@ describe('Notifications', () => {
     expect(screen.getByTestId('notify-security-rate-limit-hits')).toBeInTheDocument()
   })
 
-  it('renders compatibility security settings as read-only', async () => {
+  it('does not show compatibility section hints anywhere on the page', async () => {
     renderWithQueryClient(<Notifications />)
-
-    const enableToggle = await screen.findByTestId('security-notifications-enabled')
-    const minLogLevel = screen.getByTestId('security-min-log-level') as HTMLSelectElement
-    const destination = screen.getByTestId('security-webhook-url') as HTMLInputElement
-
-    expect(enableToggle).toBeDisabled()
-    expect(minLogLevel.disabled).toBe(true)
-    expect(destination.disabled).toBe(true)
-    expect(screen.queryByTestId('security-notifications-save-btn')).toBeNull()
-  })
-
-  it('does not show Shoutrrr help link anywhere on the page', async () => {
-    renderWithQueryClient(<Notifications />)
-    await screen.findByTestId('security-notifications-section')
+    await screen.findByTestId('add-provider-btn')
     expect(screen.queryByText(/shoutrrr/i)).toBeNull()
+    expect(screen.queryByText(/compatibility endpoint/i)).toBeNull()
     expect(document.querySelector('a[href*="containrrr.dev"]')).toBeNull()
   })
 
