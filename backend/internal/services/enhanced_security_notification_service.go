@@ -16,6 +16,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/security"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"gorm.io/gorm"
 )
 
@@ -540,7 +541,7 @@ func (s *EnhancedSecurityNotificationService) SendViaProviders(ctx context.Conte
 
 	if len(targetProviders) == 0 {
 		// No providers configured for this event type - fail closed (no notification)
-		logger.Log().WithField("event_type", event.EventType).Debug("No providers configured for security event")
+		logger.Log().WithField("event_type", util.SanitizeForLog(event.EventType)).Debug("No providers configured for security event")
 		return nil
 	}
 
