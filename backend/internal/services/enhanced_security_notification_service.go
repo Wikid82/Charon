@@ -41,7 +41,7 @@ type CompatibilitySettings struct {
 	DiscordWebhookURL        string `json:"discord_webhook_url,omitempty"`
 	SlackWebhookURL          string `json:"slack_webhook_url,omitempty"`
 	GotifyURL                string `json:"gotify_url,omitempty"`
-	GotifyToken              string `json:"gotify_token,omitempty"`
+	GotifyToken              string `json:"-"` // Security: Never expose token in JSON (OWASP A02)
 }
 
 // MigrationMarker represents the migration state stored in settings table.
