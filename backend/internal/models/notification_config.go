@@ -9,15 +9,16 @@ import (
 
 // NotificationConfig stores configuration for security notifications.
 type NotificationConfig struct {
-	ID                  string `gorm:"primaryKey" json:"id"`
-	Enabled             bool   `json:"enabled"`
-	MinLogLevel         string `json:"min_log_level"` // error, warn, info, debug
-	WebhookURL          string `json:"webhook_url"`
+	ID          string `gorm:"primaryKey" json:"id"`
+	Enabled     bool   `json:"enabled"`
+	MinLogLevel string `json:"min_log_level"` // error, warn, info, debug
+	WebhookURL  string `json:"webhook_url"`
 	// Blocker 2 Fix: API surface uses security_* field names per spec (internal fields remain notify_*)
-	NotifyWAFBlocks     bool   `json:"security_waf_enabled"`
-	NotifyACLDenies     bool   `json:"security_acl_enabled"`
-	NotifyRateLimitHits bool   `json:"security_rate_limit_enabled"`
-	EmailRecipients     string `json:"email_recipients"`
+	NotifyWAFBlocks         bool   `json:"security_waf_enabled"`
+	NotifyACLDenies         bool   `json:"security_acl_enabled"`
+	NotifyRateLimitHits     bool   `json:"security_rate_limit_enabled"`
+	NotifyCrowdSecDecisions bool   `json:"security_crowdsec_enabled"`
+	EmailRecipients         string `json:"email_recipients"`
 
 	// Legacy destination fields (compatibility, not stored in DB)
 	DiscordWebhookURL    string `gorm:"-" json:"discord_webhook_url,omitempty"`

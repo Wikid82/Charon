@@ -32,9 +32,10 @@ type NotificationProvider struct {
 	NotifyUptime        bool `json:"notify_uptime" gorm:"default:true"`
 
 	// Security Event Notifications (Provider-based)
-	NotifySecurityWAFBlocks     bool `json:"notify_security_waf_blocks" gorm:"default:false"`
-	NotifySecurityACLDenies     bool `json:"notify_security_acl_denies" gorm:"default:false"`
-	NotifySecurityRateLimitHits bool `json:"notify_security_rate_limit_hits" gorm:"default:false"`
+	NotifySecurityWAFBlocks         bool `json:"notify_security_waf_blocks" gorm:"default:false"`
+	NotifySecurityACLDenies         bool `json:"notify_security_acl_denies" gorm:"default:false"`
+	NotifySecurityRateLimitHits     bool `json:"notify_security_rate_limit_hits" gorm:"default:false"`
+	NotifySecurityCrowdSecDecisions bool `json:"notify_security_crowdsec_decisions" gorm:"column:notify_security_crowdsec_decisions;default:false"`
 
 	// Managed Legacy Provider Marker
 	ManagedLegacySecurity bool `json:"managed_legacy_security" gorm:"index;default:false"`

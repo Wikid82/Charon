@@ -184,12 +184,36 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 	// Remote Server Service (needed for Docker handler)
 	remoteServerService := services.NewRemoteServerService(db)
 
+	// Security Notification Handler - created early for runtime security event intake
+	dataRoot := filepath.Dir(cfg.DatabasePath)
+	enhancedSecurityNotificationService := services.NewEnhancedSecurityNotificationService(db)
+
+	// Blocker 3: Invoke migration marker flow at boot with checksum rerun/no-op logic
+	if err := enhancedSecurityNotificationService.MigrateFromLegacyConfig(); err != nil {
+		logger.Log().WithError(err).Warn("Security notification migration: non-fatal error during boot-time reconciliation")
+		// Non-blocking: migration failures are logged but don't prevent startup
+	}
+
+	securityNotificationHandler := handlers.NewSecurityNotificationHandlerWithDeps(
+		enhancedSecurityNotificationService,
+		securityService,
+		dataRoot,
+		notificationService,
+		cfg.Security.ManagementCIDRs,
+	)
+
 	api.POST("/auth/login", authHandler.Login)
 	api.POST("/auth/register", authHandler.Register)
 
 	// Forward auth endpoint for Caddy (public, validates session internally)
 	api.GET("/auth/verify", authHandler.Verify)
 	api.GET("/auth/status", authHandler.VerifyStatus)
+
+	// Runtime security event intake endpoint for Cerberus/Caddy bouncer
+	// This endpoint receives security events (WAF blocks, CrowdSec decisions, etc.) from Caddy middleware
+	// Accessible without user session auth (uses IP whitelist for Caddy/internal traffic)
+	// Auth mechanism: Handler validates request originates from localhost or management CIDRs
+	api.POST("/security/events", securityNotificationHandler.HandleSecurityEvent)
 
 	// User handler (public endpoints)
 	userHandler := handlers.NewUserHandler(db)
@@ -228,18 +252,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		protected.GET("/websocket/connections", wsStatusHandler.GetConnections)
 		protected.GET("/websocket/stats", wsStatusHandler.GetStats)
 
-		dataRoot := filepath.Dir(cfg.DatabasePath)
-
-		// Security Notification Settings - Enhanced service with compatibility layer
-		enhancedSecurityNotificationService := services.NewEnhancedSecurityNotificationService(db)
-
-		// Blocker 3: Invoke migration marker flow at boot with checksum rerun/no-op logic
-		if err := enhancedSecurityNotificationService.MigrateFromLegacyConfig(); err != nil {
-			logger.Log().WithError(err).Warn("Security notification migration: non-fatal error during boot-time reconciliation")
-			// Non-blocking: migration failures are logged but don't prevent startup
-		}
-
-		securityNotificationHandler := handlers.NewSecurityNotificationHandlerWithDeps(enhancedSecurityNotificationService, securityService, dataRoot)
+		// Security Notification Settings - Use handler created earlier for event intake
 		protected.GET("/security/notifications/settings", securityNotificationHandler.DeprecatedGetSettings)
 		protected.PUT("/security/notifications/settings", securityNotificationHandler.DeprecatedUpdateSettings)
 		protected.GET("/notifications/settings/security", securityNotificationHandler.GetSettings)

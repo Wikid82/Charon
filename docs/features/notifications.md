@@ -287,6 +287,18 @@ Gotify supports JSON payloads with priority levels and extras.
 - `8` - High
 - `10` - Very high (emergency)
 
+#### Gotify Token Hygiene (Required)
+
+- Never echo, log, or return Gotify token values.
+- Never expose tokenized endpoint query strings (for example,
+  `...?token=...`) in logs, diagnostics, examples, screenshots,
+  tickets, or reports.
+- Redact or mask query parameters in diagnostics and examples before sharing.
+- Use write-only token inputs in operator workflows.
+- Store tokens in environment variables or a secret manager, not plaintext notes.
+- Validate endpoint connectivity over HTTPS only.
+- Rotate tokens immediately on suspected exposure.
+
 ### Generic Webhooks
 
 For custom integrations, use any JSON structure:

@@ -170,13 +170,19 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 			shouldSend = provider.NotifyCerts
 		case "uptime":
 			shouldSend = provider.NotifyUptime
+		case "security_waf":
+			shouldSend = provider.NotifySecurityWAFBlocks
+		case "security_acl":
+			shouldSend = provider.NotifySecurityACLDenies
+		case "security_rate_limit":
+			shouldSend = provider.NotifySecurityRateLimitHits
+		case "security_crowdsec":
+			shouldSend = provider.NotifySecurityCrowdSecDecisions
 		case "test":
 			shouldSend = true
 		default:
-			// Default to true for unknown types or generic messages?
-			// Or false to be safe? Let's say true for now to avoid missing things,
-			// or maybe we should enforce types.
-			shouldSend = true
+			// Unknown event types default to false for security
+			shouldSend = false
 		}
 
 		if !shouldSend {
@@ -531,17 +537,21 @@ func (s *NotificationService) UpdateProvider(provider *models.NotificationProvid
 	}
 
 	updates := map[string]any{
-		"name":                  provider.Name,
-		"type":                  provider.Type,
-		"url":                   provider.URL,
-		"config":                provider.Config,
-		"template":              provider.Template,
-		"enabled":               provider.Enabled,
-		"notify_proxy_hosts":    provider.NotifyProxyHosts,
-		"notify_remote_servers": provider.NotifyRemoteServers,
-		"notify_domains":        provider.NotifyDomains,
-		"notify_certs":          provider.NotifyCerts,
-		"notify_uptime":         provider.NotifyUptime,
+		"name":                               provider.Name,
+		"type":                               provider.Type,
+		"url":                                provider.URL,
+		"config":                             provider.Config,
+		"template":                           provider.Template,
+		"enabled":                            provider.Enabled,
+		"notify_proxy_hosts":                 provider.NotifyProxyHosts,
+		"notify_remote_servers":              provider.NotifyRemoteServers,
+		"notify_domains":                     provider.NotifyDomains,
+		"notify_certs":                       provider.NotifyCerts,
+		"notify_uptime":                      provider.NotifyUptime,
+		"notify_security_waf_blocks":         provider.NotifySecurityWAFBlocks,
+		"notify_security_acl_denies":         provider.NotifySecurityACLDenies,
+		"notify_security_rate_limit_hits":    provider.NotifySecurityRateLimitHits,
+		"notify_security_crowdsec_decisions": provider.NotifySecurityCrowdSecDecisions,
 	}
 
 	return s.DB.Model(&models.NotificationProvider{}).

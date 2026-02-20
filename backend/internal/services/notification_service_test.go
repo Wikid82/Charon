@@ -1240,12 +1240,12 @@ func TestSendExternal_UnknownEventTypeSendsToAll(t *testing.T) {
 		"notify_uptime":         false,
 	}).Error)
 
-	// Send with unknown event type - should send (default behavior)
+	// Send with unknown event type - should NOT send (security-first: default false)
 	ctx := context.Background()
 	svc.SendExternal(ctx, "unknown_event_type", "Test", "Message", nil)
 
 	time.Sleep(100 * time.Millisecond)
-	assert.Greater(t, callCount.Load(), int32(0), "Unknown event type should trigger notification")
+	assert.Equal(t, int32(0), callCount.Load(), "Unknown event type should not trigger notification (security-first)")
 }
 
 func TestCreateProvider_ValidCustomTemplate(t *testing.T) {
@@ -1553,7 +1553,7 @@ func TestSendExternal_AllEventTypes(t *testing.T) {
 		{"cert", "NotifyCerts"},
 		{"uptime", "NotifyUptime"},
 		{"test", ""},    // test always sends
-		{"unknown", ""}, // unknown defaults to true
+		{"unknown", ""}, // unknown defaults to false (security-first)
 	}
 
 	for _, et := range eventTypes {
@@ -1594,10 +1594,13 @@ func TestSendExternal_AllEventTypes(t *testing.T) {
 			svc.SendExternal(context.Background(), et.eventType, "Title", "Message", nil)
 			time.Sleep(100 * time.Millisecond)
 
-			// test and unknown should always send; others only when their flag is true
-			if et.eventType == "test" || et.eventType == "unknown" {
+			// test always sends; unknown defaults to false (security-first); others only when their flag is true
+			switch et.eventType {
+			case "test":
 				assert.Greater(t, callCount.Load(), int32(0), "Event type %s should trigger notification", et.eventType)
-			} else {
+			case "unknown":
+				assert.Equal(t, int32(0), callCount.Load(), "Unknown event type should not trigger notification (security-first)")
+			default:
 				assert.Greater(t, callCount.Load(), int32(0), "Event type %s should trigger notification when flag is set", et.eventType)
 			}
 		})

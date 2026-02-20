@@ -1,3 +1,63 @@
+## QA/Security Validation Report - Governance Documentation Slice
+
+Date: 2026-02-20
+Repository: /projects/Charon
+Scope files:
+- `.github/instructions/copilot-instructions.md`
+- `.github/instructions/testing.instructions.md`
+- `.github/instructions/security-and-owasp.instructions.md`
+- `.github/agents/Management.agent.md`
+- `.github/agents/Backend_Dev.agent.md`
+- `.github/agents/QA_Security.agent.md`
+- `SECURITY.md`
+- `docs/security.md`
+- `docs/features/notifications.md`
+
+### Result Summary
+
+| Check | Status | Notes |
+|---|---|---|
+| 1) No secrets/tokens introduced in changed docs | PASS | No raw token values, API keys, or private credential material detected in scoped diffs; only policy/example strings were found. |
+| 2) Policy consistency verification | PASS | GORM conditional DoD gate, check-mode semantics, include/exclude trigger matrix, Gotify no-exposure + URL redaction, and precedence hierarchy are consistently present across canonical instructions and aligned agent/operator docs. |
+| 3) Markdown lint on scoped files | PASS | `markdownlint-cli2` reports baseline debt (`319` total), but intersection of lint hits with added hunk ranges for this governance slice returned no new lint hits in added sections. |
+| 4) Confirm governance-only scope for this slice | PASS | Scoped diff over the 9 target files confirms this implementation slice touches only those 9 governance files for evaluation. Unrelated branch changes were explicitly excluded by scope criteria. |
+| 5) QA report update for governance slice | PASS | This section added as the governance-slice QA record. |
+
+### Commands Executed
+
+```bash
+git diff --name-only -- .github/instructions/copilot-instructions.md .github/instructions/testing.instructions.md .github/instructions/security-and-owasp.instructions.md .github/agents/Management.agent.md .github/agents/Backend_Dev.agent.md .github/agents/QA_Security.agent.md SECURITY.md docs/security.md docs/features/notifications.md
+
+git diff -U0 -- <same 9 files> | grep '^+[^+]' | grep -Ei '(token|secret|api[_-]?key|password|ghp_|sk_|AKIA|xox|BEGIN)'
+
+npx --yes markdownlint-cli2 \
+	.github/instructions/copilot-instructions.md \
+	.github/instructions/testing.instructions.md \
+	.github/instructions/security-and-owasp.instructions.md \
+	.github/agents/Management.agent.md \
+	.github/agents/Backend_Dev.agent.md \
+	.github/agents/QA_Security.agent.md \
+	SECURITY.md docs/security.md docs/features/notifications.md
+
+# Added-line lint intersection:
+# 1) build added hunk ranges from `git diff -U0 -- <scoped files>`
+# 2) run markdownlint output capture
+# 3) intersect (file,line) lint hits with added ranges
+# Result: no lint hits on added governance lines
+```
+
+### Blockers
+
+- None specific to this governance slice.
+
+### Baseline Notes (Non-Blocking for This Slice)
+
+- Markdownlint baseline debt remains in the 9 scoped files and broader repository, but no new critical regression was introduced in governance-added sections for this slice.
+
+### Final Governance Slice Verdict
+
+**PASS** — All slice-scoped criteria passed under change-scope evaluation.
+
 ## QA/Security Validation Report - PR-2 Frontend Slice
 
 Date: 2026-02-20
