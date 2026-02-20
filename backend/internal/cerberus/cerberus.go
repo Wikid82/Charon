@@ -26,6 +26,7 @@ type Cerberus struct {
 	db                *gorm.DB
 	accessSvc         *services.AccessListService
 	securityNotifySvc *services.SecurityNotificationService
+	enhancedNotifySvc *services.EnhancedSecurityNotificationService
 
 	// Settings cache for performance - avoids DB queries on every request
 	settingsCache     map[string]string
@@ -41,6 +42,7 @@ func New(cfg config.SecurityConfig, db *gorm.DB) *Cerberus {
 		db:                db,
 		accessSvc:         services.NewAccessListService(db),
 		securityNotifySvc: services.NewSecurityNotificationService(db),
+		enhancedNotifySvc: services.NewEnhancedSecurityNotificationService(db),
 		settingsCache:     make(map[string]string),
 		settingsCacheTTL:  60 * time.Second,
 	}
@@ -204,8 +206,8 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 					activeCount++
 					allowed, _, err := c.accessSvc.TestIP(acl.ID, clientIP)
 					if err == nil && !allowed {
-						// Send security notification
-						_ = c.securityNotifySvc.Send(context.Background(), models.SecurityEvent{
+						// Send security notification via appropriate dispatch path
+						_ = c.sendSecurityNotification(context.Background(), models.SecurityEvent{
 							EventType: "acl_deny",
 							Severity:  "warn",
 							Message:   "Access control list blocked request",
@@ -287,4 +289,24 @@ func (c *Cerberus) adminWhitelistStatus(clientIP string) (bool, bool) {
 	}
 
 	return securitypkg.IsIPInCIDRList(clientIP, sc.AdminWhitelist), true
+}
+
+// sendSecurityNotification dispatches a security event notification.
+// Blocker 1: Wires runtime dispatch to provider-event authority under feature flag semantics.
+func (c *Cerberus) sendSecurityNotification(ctx context.Context, event models.SecurityEvent) error {
+	if c.db == nil {
+		return nil
+	}
+
+	// Check feature flag
+	var setting models.Setting
+	err := c.db.Where("key = ?", "feature.notifications.security_provider_events.enabled").First(&setting).Error
+
+	// If feature flag is enabled, use provider-based dispatch
+	if err == nil && strings.EqualFold(setting.Value, "true") {
+		return c.enhancedNotifySvc.SendViaProviders(ctx, event)
+	}
+
+	// Feature flag disabled or not found: use legacy dispatch (fail-closed)
+	return c.securityNotifySvc.Send(ctx, event)
 }

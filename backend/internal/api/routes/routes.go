@@ -230,9 +230,16 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 
 		dataRoot := filepath.Dir(cfg.DatabasePath)
 
-		// Security Notification Settings
-		securityNotificationService := services.NewSecurityNotificationService(db)
-		securityNotificationHandler := handlers.NewSecurityNotificationHandlerWithDeps(securityNotificationService, securityService, dataRoot)
+		// Security Notification Settings - Enhanced service with compatibility layer
+		enhancedSecurityNotificationService := services.NewEnhancedSecurityNotificationService(db)
+
+		// Blocker 3: Invoke migration marker flow at boot with checksum rerun/no-op logic
+		if err := enhancedSecurityNotificationService.MigrateFromLegacyConfig(); err != nil {
+			logger.Log().WithError(err).Warn("Security notification migration: non-fatal error during boot-time reconciliation")
+			// Non-blocking: migration failures are logged but don't prevent startup
+		}
+
+		securityNotificationHandler := handlers.NewSecurityNotificationHandlerWithDeps(enhancedSecurityNotificationService, securityService, dataRoot)
 		protected.GET("/security/notifications/settings", securityNotificationHandler.DeprecatedGetSettings)
 		protected.PUT("/security/notifications/settings", securityNotificationHandler.DeprecatedUpdateSettings)
 		protected.GET("/notifications/settings/security", securityNotificationHandler.GetSettings)
