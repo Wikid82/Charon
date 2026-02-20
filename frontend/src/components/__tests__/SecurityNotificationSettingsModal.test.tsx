@@ -22,24 +22,12 @@ vi.mock('../../api/notifications', async () => {
     getProviders: vi.fn(),
     getTemplates: vi.fn(),
     getExternalTemplates: vi.fn(),
-    getSecurityNotificationSettings: vi.fn(),
-    updateSecurityNotificationSettings: vi.fn(),
   };
 });
 
 vi.mock('../../utils/toast', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
-
-const mockSettings: notificationsApi.SecurityNotificationSettings = {
-  enabled: true,
-  min_log_level: 'warn',
-  security_waf_enabled: true,
-  security_acl_enabled: true,
-  security_rate_limit_enabled: false,
-  destination_ambiguous: false,
-  webhook_url: 'https://example.com/webhook',
-};
 
 describe('Security Notification Settings on Notifications page', () => {
   let queryClient: ReturnType<typeof createTestQueryClient>;
@@ -50,8 +38,6 @@ describe('Security Notification Settings on Notifications page', () => {
     vi.mocked(notificationsApi.getProviders).mockResolvedValue([]);
     vi.mocked(notificationsApi.getTemplates).mockResolvedValue([]);
     vi.mocked(notificationsApi.getExternalTemplates).mockResolvedValue([]);
-    vi.mocked(notificationsApi.getSecurityNotificationSettings).mockResolvedValue(mockSettings);
-    vi.mocked(notificationsApi.updateSecurityNotificationSettings).mockResolvedValue(mockSettings);
   });
 
   const renderPage = () =>
@@ -63,40 +49,10 @@ describe('Security Notification Settings on Notifications page', () => {
       </QueryClientProvider>
     );
 
-  it('renders the security notifications section', async () => {
+  it('does not render a standalone security notifications section', async () => {
     renderPage();
-    expect(await screen.findByTestId('security-notifications-section')).toBeInTheDocument();
-  });
-
-  it('loads and displays existing compatibility security settings', async () => {
-    renderPage();
-
-    await waitFor(() => {
-      const enableSwitch = screen.getByTestId('security-notifications-enabled') as HTMLInputElement;
-      expect(enableSwitch.checked).toBe(true);
-    });
-
-    const webhookInput = screen.getByTestId('security-webhook-url') as HTMLInputElement;
-    expect(webhookInput.value).toBe('https://example.com/webhook');
-    expect(screen.getByTestId('security-compatibility-banner')).toBeInTheDocument();
-  });
-
-  it('shows compatibility controls as read-only', async () => {
-    vi.mocked(notificationsApi.getSecurityNotificationSettings).mockResolvedValue({
-      ...mockSettings,
-      enabled: false,
-    });
-
-    renderPage();
-
-    await waitFor(() => {
-      const enableSwitch = screen.getByTestId('security-notifications-enabled') as HTMLInputElement;
-      expect(enableSwitch.checked).toBe(false);
-    });
-
-    expect((screen.getByTestId('security-min-log-level') as HTMLSelectElement).disabled).toBe(true);
-    expect((screen.getByTestId('security-webhook-url') as HTMLInputElement).disabled).toBe(true);
-    expect(screen.queryByTestId('security-notifications-save-btn')).toBeNull();
+    await screen.findByTestId('add-provider-btn');
+    expect(screen.queryByTestId('security-notifications-section')).toBeNull();
   });
 
   it('shows provider security event checkboxes in add-provider flow', async () => {
@@ -116,9 +72,7 @@ describe('Security Notification Settings on Notifications page', () => {
   it('does not render a modal overlay for security settings', async () => {
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByTestId('security-notifications-section')).toBeInTheDocument();
-    });
+    await screen.findByTestId('add-provider-btn');
 
     // Security settings are inline on the page, not inside a modal overlay
     expect(document.querySelector('.fixed.inset-0')).toBeNull();

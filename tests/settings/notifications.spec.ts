@@ -92,6 +92,10 @@ test.describe('Notification Providers', () => {
         const errorAlert = page.getByRole('alert').filter({ hasText: /error|failed/i });
         await expect(errorAlert).toHaveCount(0);
       });
+
+      await test.step('Verify standalone security compatibility section is not rendered', async () => {
+        await expect(page.getByTestId('security-notifications-section')).toHaveCount(0);
+      });
     });
 
     /**
@@ -1281,6 +1285,13 @@ test.describe('Notification Providers', () => {
         await expect(page.getByTestId('notify-domains')).toBeVisible();
         await expect(page.getByTestId('notify-certs')).toBeVisible();
         await expect(page.getByTestId('notify-uptime')).toBeVisible();
+        await expect(page.getByTestId('notify-security-waf-blocks')).toBeVisible();
+        await expect(page.getByTestId('notify-security-acl-denies')).toBeVisible();
+        await expect(page.getByTestId('notify-security-rate-limit-hits')).toBeVisible();
+      });
+
+      await test.step('Verify no standalone compatibility section exists', async () => {
+        await expect(page.getByTestId('security-notifications-section')).toHaveCount(0);
       });
 
       await test.step('Toggle each event type', async () => {

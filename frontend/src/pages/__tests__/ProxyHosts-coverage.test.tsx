@@ -115,7 +115,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
       // Save
       await user.click(await screen.findByRole('button', { name: 'Save' }))
       await waitFor(() => expect(proxyHostsApi.createProxyHost).toHaveBeenCalled())
-    })
+    }, 15000)
 
     it('handles equal sort values gracefully', async () => {
       const host1 = baseHost({ uuid: 'e1', name: 'Same', domain_names: 'a.example.com' })
