@@ -50,17 +50,20 @@ const baseProvider: NotificationProvider = {
   notify_domains: true,
   notify_certs: true,
   notify_uptime: true,
+  notify_security_waf_blocks: false,
+  notify_security_acl_denies: false,
+  notify_security_rate_limit_hits: false,
   created_at: '2024-01-01T00:00:00Z',
 }
 
 const mockSecuritySettings: SecurityNotificationSettings = {
   enabled: false,
   min_log_level: 'warn',
-  notify_waf_blocks: true,
-  notify_acl_denials: true,
-  notify_rate_limit_hits: true,
+  security_waf_enabled: true,
+  security_acl_enabled: true,
+  security_rate_limit_enabled: true,
+  destination_ambiguous: false,
   webhook_url: '',
-  email_recipients: '',
 }
 
 const setupMocks = (providers: NotificationProvider[] = []) => {
@@ -277,6 +280,31 @@ describe('Notifications', () => {
   it('renders the security notifications section', async () => {
     renderWithQueryClient(<Notifications />)
     expect(await screen.findByTestId('security-notifications-section')).toBeInTheDocument()
+    expect(screen.getByTestId('security-compatibility-banner')).toBeInTheDocument()
+  })
+
+  it('shows security event subscription controls in provider form', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+
+    expect(screen.getByTestId('notify-security-waf-blocks')).toBeInTheDocument()
+    expect(screen.getByTestId('notify-security-acl-denies')).toBeInTheDocument()
+    expect(screen.getByTestId('notify-security-rate-limit-hits')).toBeInTheDocument()
+  })
+
+  it('renders compatibility security settings as read-only', async () => {
+    renderWithQueryClient(<Notifications />)
+
+    const enableToggle = await screen.findByTestId('security-notifications-enabled')
+    const minLogLevel = screen.getByTestId('security-min-log-level') as HTMLSelectElement
+    const destination = screen.getByTestId('security-webhook-url') as HTMLInputElement
+
+    expect(enableToggle).toBeDisabled()
+    expect(minLogLevel.disabled).toBe(true)
+    expect(destination.disabled).toBe(true)
+    expect(screen.queryByTestId('security-notifications-save-btn')).toBeNull()
   })
 
   it('does not show Shoutrrr help link anywhere on the page', async () => {

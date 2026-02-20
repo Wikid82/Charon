@@ -34,11 +34,11 @@ vi.mock('../../utils/toast', () => ({
 const mockSettings: notificationsApi.SecurityNotificationSettings = {
   enabled: true,
   min_log_level: 'warn',
-  notify_waf_blocks: true,
-  notify_acl_denials: true,
-  notify_rate_limit_hits: false,
+  security_waf_enabled: true,
+  security_acl_enabled: true,
+  security_rate_limit_enabled: false,
+  destination_ambiguous: false,
   webhook_url: 'https://example.com/webhook',
-  email_recipients: 'admin@example.com',
 };
 
 describe('Security Notification Settings on Notifications page', () => {
@@ -68,7 +68,7 @@ describe('Security Notification Settings on Notifications page', () => {
     expect(await screen.findByTestId('security-notifications-section')).toBeInTheDocument();
   });
 
-  it('loads and displays existing security settings', async () => {
+  it('loads and displays existing compatibility security settings', async () => {
     renderPage();
 
     await waitFor(() => {
@@ -78,30 +78,10 @@ describe('Security Notification Settings on Notifications page', () => {
 
     const webhookInput = screen.getByTestId('security-webhook-url') as HTMLInputElement;
     expect(webhookInput.value).toBe('https://example.com/webhook');
+    expect(screen.getByTestId('security-compatibility-banner')).toBeInTheDocument();
   });
 
-  it('saves updated security settings on submit', async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByTestId('security-notifications-enabled')).toBeInTheDocument();
-    });
-
-    const webhookInput = screen.getByTestId('security-webhook-url');
-    await user.clear(webhookInput);
-    await user.type(webhookInput, 'https://new-endpoint.com/alert');
-
-    await user.click(screen.getByTestId('security-notifications-save-btn'));
-
-    await waitFor(() => {
-      expect(notificationsApi.updateSecurityNotificationSettings).toHaveBeenCalledWith(
-        expect.objectContaining({ webhook_url: 'https://new-endpoint.com/alert' })
-      );
-    });
-  });
-
-  it('disables controls when security alerts are disabled', async () => {
+  it('shows compatibility controls as read-only', async () => {
     vi.mocked(notificationsApi.getSecurityNotificationSettings).mockResolvedValue({
       ...mockSettings,
       enabled: false,
@@ -116,22 +96,21 @@ describe('Security Notification Settings on Notifications page', () => {
 
     expect((screen.getByTestId('security-min-log-level') as HTMLSelectElement).disabled).toBe(true);
     expect((screen.getByTestId('security-webhook-url') as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByTestId('security-email-recipients') as HTMLInputElement).disabled).toBe(true);
+    expect(screen.queryByTestId('security-notifications-save-btn')).toBeNull();
   });
 
-  it('calls updateSecurityNotificationSettings via Notifications page (not Security page modal)', async () => {
+  it('shows provider security event checkboxes in add-provider flow', async () => {
     const user = userEvent.setup();
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByTestId('security-notifications-save-btn')).toBeInTheDocument();
+      expect(screen.getByTestId('add-provider-btn')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByTestId('security-notifications-save-btn'));
-
-    await waitFor(() => {
-      expect(notificationsApi.updateSecurityNotificationSettings).toHaveBeenCalled();
-    });
+    await user.click(screen.getByTestId('add-provider-btn'));
+    expect(screen.getByTestId('notify-security-waf-blocks')).toBeInTheDocument();
+    expect(screen.getByTestId('notify-security-acl-denies')).toBeInTheDocument();
+    expect(screen.getByTestId('notify-security-rate-limit-hits')).toBeInTheDocument();
   });
 
   it('does not render a modal overlay for security settings', async () => {

@@ -2,11 +2,11 @@ import { useEffect, useState, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, NotificationProvider, getExternalTemplates, previewExternalTemplate, ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate, NotificationTemplate } from '../api/notifications';
-import { useSecurityNotificationSettings, useUpdateSecurityNotificationSettings } from '../hooks/useNotifications';
+import { useSecurityNotificationSettings } from '../hooks/useNotifications';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Switch } from '../components/ui/Switch';
-import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2, Shield } from 'lucide-react';
+import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2, Shield, AlertTriangle } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { toast } from '../utils/toast';
 
@@ -37,6 +37,9 @@ const defaultProviderValues: Partial<NotificationProvider> = {
   notify_domains: true,
   notify_certs: true,
   notify_uptime: true,
+  notify_security_waf_blocks: false,
+  notify_security_acl_denies: false,
+  notify_security_rate_limit_hits: false,
 };
 
 const ProviderForm: FC<{
@@ -237,6 +240,25 @@ const ProviderForm: FC<{
             <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.uptime')}</label>
           </div>
         </div>
+
+        <div className="pt-2">
+          <h5 className="text-sm font-medium text-gray-900 dark:text-white">{t('notificationProviders.securityEventSubscriptions')}</h5>
+          <p className="text-xs text-gray-500 mt-0.5">{t('notificationProviders.securityEventSubscriptionsHelp')}</p>
+        </div>
+        <div className="grid grid-cols-1 gap-2">
+          <div className="flex items-center">
+            <input type="checkbox" {...register('notify_security_waf_blocks')} data-testid="notify-security-waf-blocks" className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+            <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.wafBlocks')}</label>
+          </div>
+          <div className="flex items-center">
+            <input type="checkbox" {...register('notify_security_acl_denies')} data-testid="notify-security-acl-denies" className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+            <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.aclDenials')}</label>
+          </div>
+          <div className="flex items-center">
+            <input type="checkbox" {...register('notify_security_rate_limit_hits')} data-testid="notify-security-rate-limit-hits" className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+            <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.rateLimitHits')}</label>
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center">
@@ -354,36 +376,13 @@ const TemplateForm: FC<{
 const SecurityNotificationsSection: FC = () => {
   const { t } = useTranslation();
   const { data: settings, isLoading } = useSecurityNotificationSettings();
-  const updateMutation = useUpdateSecurityNotificationSettings();
 
-  const [formData, setFormData] = useState({
-    enabled: false,
-    min_log_level: 'warn',
-    notify_waf_blocks: true,
-    notify_acl_denials: true,
-    notify_rate_limit_hits: true,
-    webhook_url: '',
-    email_recipients: '',
-  });
-
-  useEffect(() => {
-    if (settings) {
-      setFormData({
-        enabled: settings.enabled,
-        min_log_level: settings.min_log_level,
-        notify_waf_blocks: settings.notify_waf_blocks,
-        notify_acl_denials: settings.notify_acl_denials,
-        notify_rate_limit_hits: settings.notify_rate_limit_hits,
-        webhook_url: settings.webhook_url || '',
-        email_recipients: settings.email_recipients || '',
-      });
-    }
-  }, [settings]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    updateMutation.mutate(formData);
-  };
+  const compatibilityDestination =
+    settings?.webhook_url ||
+    settings?.discord_webhook_url ||
+    settings?.slack_webhook_url ||
+    settings?.gotify_url ||
+    '';
 
   return (
     <Card data-testid="security-notifications-section">
@@ -398,10 +397,22 @@ const SecurityNotificationsSection: FC = () => {
           {t('notificationProviders.securityNotificationsDescription')}
         </p>
 
+        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200" data-testid="security-compatibility-banner">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4" aria-hidden="true" />
+            <p className="text-sm">
+              {t('notificationProviders.securityCompatibilityDeprecated')}
+            </p>
+          </div>
+          <p className="mt-2 text-xs">
+            {t('notificationProviders.securityCompatibilityNotifyOnly')}
+          </p>
+        </div>
+
         {isLoading ? (
           <div className="text-sm text-gray-400">{t('common.loading')}</div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <label htmlFor="security-notifications-enabled" className="text-sm font-medium text-gray-900 dark:text-white">
@@ -414,8 +425,8 @@ const SecurityNotificationsSection: FC = () => {
               <Switch
                 id="security-notifications-enabled"
                 data-testid="security-notifications-enabled"
-                checked={formData.enabled}
-                onCheckedChange={(checked) => setFormData({ ...formData, enabled: checked })}
+                checked={Boolean(settings?.enabled)}
+                disabled
               />
             </div>
 
@@ -426,9 +437,8 @@ const SecurityNotificationsSection: FC = () => {
               <select
                 id="security-min-log-level"
                 data-testid="security-min-log-level"
-                value={formData.min_log_level}
-                onChange={(e) => setFormData({ ...formData, min_log_level: e.target.value })}
-                disabled={!formData.enabled}
+                value={settings?.min_log_level || 'warn'}
+                disabled
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm disabled:opacity-50"
               >
                 <option value="debug">Debug</option>
@@ -448,14 +458,13 @@ const SecurityNotificationsSection: FC = () => {
                   <label htmlFor="security-notify-waf" className="text-sm text-gray-900 dark:text-white">
                     {t('notificationProviders.wafBlocks')}
                   </label>
-                  <p className="text-xs text-gray-500">{t('notificationProviders.wafBlocksHelp')}</p>
+                  <p className="text-xs text-gray-500">{t('notificationProviders.compatibilityAggregateHelp')}</p>
                 </div>
                 <Switch
                   id="security-notify-waf"
                   data-testid="security-notify-waf"
-                  checked={formData.notify_waf_blocks}
-                  onCheckedChange={(checked) => setFormData({ ...formData, notify_waf_blocks: checked })}
-                  disabled={!formData.enabled}
+                  checked={Boolean(settings?.security_waf_enabled)}
+                  disabled
                 />
               </div>
 
@@ -464,14 +473,13 @@ const SecurityNotificationsSection: FC = () => {
                   <label htmlFor="security-notify-acl" className="text-sm text-gray-900 dark:text-white">
                     {t('notificationProviders.aclDenials')}
                   </label>
-                  <p className="text-xs text-gray-500">{t('notificationProviders.aclDenialsHelp')}</p>
+                  <p className="text-xs text-gray-500">{t('notificationProviders.compatibilityAggregateHelp')}</p>
                 </div>
                 <Switch
                   id="security-notify-acl"
                   data-testid="security-notify-acl"
-                  checked={formData.notify_acl_denials}
-                  onCheckedChange={(checked) => setFormData({ ...formData, notify_acl_denials: checked })}
-                  disabled={!formData.enabled}
+                  checked={Boolean(settings?.security_acl_enabled)}
+                  disabled
                 />
               </div>
 
@@ -480,62 +488,39 @@ const SecurityNotificationsSection: FC = () => {
                   <label htmlFor="security-notify-rate-limit" className="text-sm text-gray-900 dark:text-white">
                     {t('notificationProviders.rateLimitHits')}
                   </label>
-                  <p className="text-xs text-gray-500">{t('notificationProviders.rateLimitHitsHelp')}</p>
+                  <p className="text-xs text-gray-500">{t('notificationProviders.compatibilityAggregateHelp')}</p>
                 </div>
                 <Switch
                   id="security-notify-rate-limit"
                   data-testid="security-notify-rate-limit"
-                  checked={formData.notify_rate_limit_hits}
-                  onCheckedChange={(checked) => setFormData({ ...formData, notify_rate_limit_hits: checked })}
-                  disabled={!formData.enabled}
+                  checked={Boolean(settings?.security_rate_limit_enabled)}
+                  disabled
                 />
               </div>
             </div>
 
             <div>
               <label htmlFor="security-webhook-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                {t('notificationProviders.webhookUrl')}
+                {t('notificationProviders.compatibilityDestination')}
               </label>
               <input
                 id="security-webhook-url"
                 data-testid="security-webhook-url"
-                type="url"
-                value={formData.webhook_url}
-                onChange={(e) => setFormData({ ...formData, webhook_url: e.target.value })}
-                placeholder="https://your-webhook-endpoint.com/alert"
-                disabled={!formData.enabled}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm disabled:opacity-50"
-              />
-              <p className="text-xs text-gray-500 mt-1">{t('notificationProviders.webhookUrlHelp')}</p>
-            </div>
-
-            <div>
-              <label htmlFor="security-email-recipients" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                {t('notificationProviders.emailRecipients')}
-              </label>
-              <input
-                id="security-email-recipients"
-                data-testid="security-email-recipients"
                 type="text"
-                value={formData.email_recipients}
-                onChange={(e) => setFormData({ ...formData, email_recipients: e.target.value })}
-                placeholder="admin@example.com, security@example.com"
-                disabled={!formData.enabled}
+                value={compatibilityDestination}
+                readOnly
+                disabled
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm disabled:opacity-50"
               />
-              <p className="text-xs text-gray-500 mt-1">{t('notificationProviders.emailRecipientsHelp')}</p>
+              <p className="text-xs text-gray-500 mt-1">{t('notificationProviders.compatibilityDestinationHelp')}</p>
             </div>
 
-            <div className="flex justify-end pt-2">
-              <Button
-                type="submit"
-                data-testid="security-notifications-save-btn"
-                isLoading={updateMutation.isPending}
-              >
-                {t('common.save')}
-              </Button>
-            </div>
-          </form>
+            {settings?.destination_ambiguous ? (
+              <p className="text-xs text-amber-700 dark:text-amber-300" data-testid="security-destination-ambiguous">
+                {t('notificationProviders.destinationAmbiguous')}
+              </p>
+            ) : null}
+          </div>
         )}
       </div>
     </Card>

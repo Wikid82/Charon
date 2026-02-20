@@ -89,7 +89,7 @@ describe('notifications api', () => {
   })
 
   it('reads and updates security notification settings', async () => {
-    vi.mocked(client.get).mockResolvedValueOnce({ data: { enabled: true, min_log_level: 'info', notify_waf_blocks: true } })
+    vi.mocked(client.get).mockResolvedValueOnce({ data: { enabled: true, min_log_level: 'info', security_waf_enabled: true, security_acl_enabled: false, security_rate_limit_enabled: true } })
     const settings = await getSecurityNotificationSettings()
     expect(settings.enabled).toBe(true)
     expect(client.get).toHaveBeenCalledWith('/notifications/settings/security')

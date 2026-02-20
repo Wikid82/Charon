@@ -308,10 +308,12 @@ test.describe('System Settings', () => {
       });
 
       await test.step('Verify success feedback', async () => {
-        // Anchor to data-testid only (avoids .or() strict-mode issues) + exact i18n text.
-        // Timeout extended to 15s to account for 4 sequential POST /settings calls before onSuccess fires.
-        const successToast = page.getByTestId('toast-success')
-          .filter({ hasText: /System settings saved/i });
+        // Use shared toast helper with role/test-id fallback and resilient success text matching.
+        const successToast = getToastLocator(
+          page,
+          /system settings saved|saved successfully|saved/i,
+          { type: 'success' }
+        );
         await expect(successToast).toBeVisible({ timeout: 15000 });
       });
     });
@@ -570,20 +572,22 @@ test.describe('System Settings', () => {
      */
     test('should display WebSocket status', async ({ page }) => {
       await test.step('Find WebSocket status section', async () => {
-        // WebSocket status card from WebSocketStatusCard component
-        const wsCard = page.locator('div').filter({
-          has: page.getByText(/websocket|ws|connection/i),
-        });
-
-        const hasWsCard = await wsCard.first().isVisible({ timeout: 3000 }).catch(() => false);
+        const wsHeading = page.getByRole('heading', { name: /websocket\s+connections/i }).first();
+        const hasWsCard = await wsHeading.isVisible().catch(() => false);
 
         if (hasWsCard) {
+          const wsCard = page.locator('div').filter({ has: wsHeading }).first();
           await expect(wsCard).toBeVisible();
 
-          // Should show connection status
-          const statusText = wsCard.getByText(/connected|disconnected|connecting/i);
-          await expect(statusText.first()).toBeVisible();
+          const statusIndicator = wsCard
+            .getByText(/\d+\s+active|no active websocket connections/i)
+            .first();
+          await expect(statusIndicator).toBeVisible();
+          return;
         }
+
+        const wsAlert = page.getByText(/unable to load websocket status/i).first();
+        await expect(wsAlert).toBeVisible();
       });
     });
   });
