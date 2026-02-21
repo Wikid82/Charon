@@ -28,6 +28,8 @@ func (r *Router) ShouldUseNotify(providerType, providerEngine string, flags map[
 }
 
 func (r *Router) ShouldUseLegacyFallback(flags map[string]bool) bool {
-	_ = flags[FlagLegacyFallbackEnabled]
+	// Hard-disabled: Legacy fallback has been permanently removed.
+	// This function exists only for interface compatibility and always returns false.
+	_ = flags // Explicitly ignore flags to prevent accidental re-introduction
 	return false
 }

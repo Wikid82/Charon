@@ -16,7 +16,7 @@ const supportsJSONTemplates = (providerType: string | undefined): boolean => {
   return providerType.toLowerCase() === DISCORD_PROVIDER_TYPE;
 };
 
-const isDeprecatedProvider = (providerType: string | undefined): boolean => {
+const isNonDiscordProvider = (providerType: string | undefined): boolean => {
   if (!providerType) {
     return false;
   }
@@ -110,6 +110,12 @@ const ProviderForm: FC<{
   };
 
   const type = watch('type');
+  useEffect(() => {
+    if (type !== DISCORD_PROVIDER_TYPE) {
+      setValue('type', DISCORD_PROVIDER_TYPE, { shouldDirty: false, shouldTouch: false });
+    }
+  }, [type, setValue]);
+
   const { data: builtins } = useQuery({ queryKey: ['notificationTemplates'], queryFn: getTemplates });
   const { data: externalTemplates } = useQuery({ queryKey: ['externalTemplates'], queryFn: getExternalTemplates });
   const template = watch('template');
@@ -153,6 +159,8 @@ const ProviderForm: FC<{
         <select
           {...register('type')}
           data-testid="provider-type"
+          disabled
+          aria-readonly="true"
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
         >
           <option value="discord">Discord</option>
@@ -555,7 +563,7 @@ const Notifications: FC = () => {
       <div className="grid gap-4">
         {providers?.map((provider) => (
           <Card key={provider.id} className="p-4" data-testid={`provider-row-${provider.id}`}>
-            {editingId === provider.id && !isDeprecatedProvider(provider.type) ? (
+            {editingId === provider.id && !isNonDiscordProvider(provider.type) ? (
               <ProviderForm
                 initialData={provider}
                 onClose={() => setEditingId(null)}
@@ -569,26 +577,34 @@ const Notifications: FC = () => {
                   </div>
                   <div>
                     <h3 className="font-medium text-gray-900 dark:text-white">{provider.name}</h3>
-                    {isDeprecatedProvider(provider.type) && (
-                      <div className="flex items-center gap-2 mt-1" data-testid={`provider-deprecated-status-${provider.id}`}>
-                        <span
-                          data-testid={`provider-deprecated-badge-${provider.id}`}
-                          className="uppercase text-xs font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5 rounded"
-                        >
-                          {t('notificationProviders.deprecatedReadOnly')}
-                        </span>
-                        <span
-                          data-testid={`provider-nondispatch-badge-${provider.id}`}
-                          className="uppercase text-xs font-bold bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 px-2 py-0.5 rounded"
-                        >
-                          {t('notificationProviders.nonDispatch')}
-                        </span>
-                      </div>
-                    )}
                     {updateIndicatorId === provider.id && (
                       <span className="text-xs text-green-600" data-testid={`provider-update-indicator-${provider.id}`}>
                         {t('common.saved')}
                       </span>
+                    )}
+                    {isNonDiscordProvider(provider.type) && (
+                      <div className="mt-2 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className="text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 px-2 py-0.5 rounded"
+                            data-testid={`provider-deprecated-status-${provider.id}`}
+                          >
+                            {t('notificationProviders.deprecatedReadOnly')}
+                          </span>
+                          <span
+                            className="text-xs font-semibold bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200 px-2 py-0.5 rounded"
+                            data-testid={`provider-nondispatch-status-${provider.id}`}
+                          >
+                            {t('notificationProviders.nonDispatch')}
+                          </span>
+                        </div>
+                        <p
+                          className="text-xs text-gray-600 dark:text-gray-300"
+                          data-testid={`provider-deprecated-message-${provider.id}`}
+                        >
+                          {t('notificationProviders.deprecatedProviderMessage')}
+                        </p>
+                      </div>
                     )}
                     <div className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
                       <span className="uppercase text-xs font-bold bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded">
@@ -596,16 +612,11 @@ const Notifications: FC = () => {
                       </span>
                       <span className="truncate max-w-xs opacity-50">{provider.url}</span>
                     </div>
-                    {isDeprecatedProvider(provider.type) && (
-                      <p className="text-xs text-amber-700 dark:text-amber-300 mt-1" data-testid={`provider-deprecated-message-${provider.id}`}>
-                        {t('notificationProviders.deprecatedProviderMessage')}
-                      </p>
-                    )}
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {!isDeprecatedProvider(provider.type) && (
+                  {!isNonDiscordProvider(provider.type) && (
                     <Button
                       variant="secondary"
                       size="sm"
@@ -616,7 +627,7 @@ const Notifications: FC = () => {
                       <Send className="w-4 h-4" />
                     </Button>
                   )}
-                  {!isDeprecatedProvider(provider.type) && (
+                  {!isNonDiscordProvider(provider.type) && (
                     <Button variant="secondary" size="sm" onClick={() => setEditingId(provider.id)}>
                       <Edit2 className="w-4 h-4" />
                     </Button>
