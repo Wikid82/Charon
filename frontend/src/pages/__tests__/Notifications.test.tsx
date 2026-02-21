@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import Notifications from '../Notifications'
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
@@ -384,5 +384,92 @@ describe('Notifications', () => {
     expect(screen.getByTestId('provider-deprecated-status-legacy-provider')).toHaveTextContent('notificationProviders.deprecatedReadOnly')
     expect(screen.getByTestId('provider-nondispatch-status-legacy-provider')).toHaveTextContent('notificationProviders.nonDispatch')
     expect(screen.getByTestId('provider-deprecated-message-legacy-provider')).toHaveTextContent('notificationProviders.deprecatedProviderMessage')
+  })
+
+  it('submits provider test action from form using normalized discord type', async () => {
+    vi.mocked(notificationsApi.testProvider).mockResolvedValue(undefined)
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+    await user.type(screen.getByTestId('provider-name'), 'Preview/Test Provider')
+    await user.type(screen.getByTestId('provider-url'), 'https://example.com/webhook')
+
+    await user.click(screen.getByTestId('provider-test-btn'))
+
+    await waitFor(() => {
+      expect(notificationsApi.testProvider).toHaveBeenCalled()
+    })
+
+    const payload = vi.mocked(notificationsApi.testProvider).mock.calls[0][0]
+    expect(payload.type).toBe('discord')
+  })
+
+  it('uses previewProvider for non-uuid template selections', async () => {
+    vi.mocked(notificationsApi.previewProvider).mockResolvedValue({
+      rendered: '{"message":"preview"}',
+      parsed: undefined,
+    })
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+    await user.type(screen.getByTestId('provider-name'), 'Preview Provider')
+    await user.type(screen.getByTestId('provider-url'), 'https://example.com/webhook')
+    await user.click(screen.getByTestId('provider-preview-btn'))
+
+    await waitFor(() => {
+      expect(notificationsApi.previewProvider).toHaveBeenCalled()
+    })
+  })
+
+  it('treats empty legacy type as editable and enforces discord type in form', async () => {
+    const emptyTypeProvider: NotificationProvider = {
+      ...baseProvider,
+      id: 'provider-empty-type',
+      type: '',
+    }
+
+    setupMocks([emptyTypeProvider])
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    const row = await screen.findByTestId('provider-row-provider-empty-type')
+    const buttons = within(row).getAllByRole('button')
+    expect(buttons).toHaveLength(3)
+
+    await user.click(buttons[1])
+
+    const typeSelect = screen.getByTestId('provider-type') as HTMLSelectElement
+    expect(typeSelect.value).toBe('discord')
+
+    fireEvent.change(typeSelect, { target: { value: 'slack' } })
+
+    await waitFor(() => {
+      expect(typeSelect.value).toBe('discord')
+    })
+  })
+
+  it('triggers row-level send test action with discord payload', async () => {
+    setupMocks([baseProvider])
+    vi.mocked(notificationsApi.testProvider).mockResolvedValue(undefined)
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
+    const buttons = within(row).getAllByRole('button')
+
+    await user.click(buttons[0])
+
+    await waitFor(() => {
+      expect(notificationsApi.testProvider).toHaveBeenCalled()
+    })
+
+    const payload = vi.mocked(notificationsApi.testProvider).mock.calls[0][0]
+    expect(payload.type).toBe('discord')
   })
 })

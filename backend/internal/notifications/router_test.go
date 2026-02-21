@@ -40,3 +40,31 @@ func TestRouter_ShouldUseLegacyFallback(t *testing.T) {
 		t.Fatalf("expected fallback disabled even when flag is true (hard-disabled)")
 	}
 }
+
+// TestRouter_ShouldUseNotify_EngineDisabled covers lines 13-14
+func TestRouter_ShouldUseNotify_EngineDisabled(t *testing.T) {
+	router := NewRouter()
+
+	flags := map[string]bool{
+		FlagNotifyEngineEnabled:   false,
+		FlagDiscordServiceEnabled: true,
+	}
+
+	if router.ShouldUseNotify("discord", EngineNotifyV1, flags) {
+		t.Fatalf("expected notify routing disabled when FlagNotifyEngineEnabled is false")
+	}
+}
+
+// TestRouter_ShouldUseNotify_DiscordServiceFlag covers lines 23-24
+func TestRouter_ShouldUseNotify_DiscordServiceFlag(t *testing.T) {
+	router := NewRouter()
+
+	flags := map[string]bool{
+		FlagNotifyEngineEnabled:   true,
+		FlagDiscordServiceEnabled: false,
+	}
+
+	if router.ShouldUseNotify("discord", EngineNotifyV1, flags) {
+		t.Fatalf("expected notify routing disabled for discord when FlagDiscordServiceEnabled is false")
+	}
+}
