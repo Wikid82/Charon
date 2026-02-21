@@ -8,25 +8,32 @@ import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react
 import { useForm } from 'react-hook-form';
 import { toast } from '../utils/toast';
 
+const DISCORD_PROVIDER_TYPE = 'discord' as const;
+
 // supportsJSONTemplates returns true if the provider type can use JSON templates
 const supportsJSONTemplates = (providerType: string | undefined): boolean => {
   if (!providerType) return false;
-  switch (providerType.toLowerCase()) {
-    case 'webhook':
-    case 'discord':
-    case 'slack':
-    case 'gotify':
-    case 'generic':
-      return true;
-    case 'telegram':
-      return false; // Telegram uses URL parameters
-    default:
-      return false;
+  return providerType.toLowerCase() === DISCORD_PROVIDER_TYPE;
+};
+
+const isDeprecatedProvider = (providerType: string | undefined): boolean => {
+  if (!providerType) {
+    return false;
   }
+
+  return providerType.toLowerCase() !== DISCORD_PROVIDER_TYPE;
+};
+
+const normalizeProviderType = (providerType: string | undefined): typeof DISCORD_PROVIDER_TYPE => {
+  if (!providerType || providerType.toLowerCase() !== DISCORD_PROVIDER_TYPE) {
+    return DISCORD_PROVIDER_TYPE;
+  }
+
+  return DISCORD_PROVIDER_TYPE;
 };
 
 const defaultProviderValues: Partial<NotificationProvider> = {
-  type: 'discord',
+  type: DISCORD_PROVIDER_TYPE,
   enabled: true,
   config: '',
   template: 'minimal',
@@ -56,7 +63,11 @@ const ProviderForm: FC<{
 
   useEffect(() => {
     // Reset form state per open/edit to avoid event checkbox leakage between runs.
-    reset(initialData ? { ...defaultProviderValues, ...initialData } : defaultProviderValues);
+    const normalizedInitialData = initialData
+      ? { ...defaultProviderValues, ...initialData, type: normalizeProviderType(initialData.type) }
+      : defaultProviderValues;
+
+    reset(normalizedInitialData);
     setTestStatus('idle');
     setPreviewContent(null);
     setPreviewError(null);
@@ -76,7 +87,7 @@ const ProviderForm: FC<{
 
   const handleTest = () => {
     const formData = watch();
-    testMutation.mutate(formData as Partial<NotificationProvider>);
+    testMutation.mutate({ ...formData, type: DISCORD_PROVIDER_TYPE } as Partial<NotificationProvider>);
   };
 
   const handlePreview = async () => {
@@ -89,7 +100,7 @@ const ProviderForm: FC<{
         const res = await previewExternalTemplate(formData.template, undefined, undefined);
         if (res.parsed) setPreviewContent(JSON.stringify(res.parsed, null, 2)); else setPreviewContent(res.rendered);
       } else {
-        const res = await previewProvider(formData as Partial<NotificationProvider>);
+        const res = await previewProvider({ ...formData, type: DISCORD_PROVIDER_TYPE } as Partial<NotificationProvider>);
         if (res.parsed) setPreviewContent(JSON.stringify(res.parsed, null, 2)); else setPreviewContent(res.rendered);
       }
     } catch (err: unknown) {
@@ -124,7 +135,7 @@ const ProviderForm: FC<{
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form onSubmit={handleSubmit((data) => onSubmit({ ...data, type: DISCORD_PROVIDER_TYPE }))} className="space-y-4">
       <div>
         <label htmlFor="provider-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.providerName')}</label>
         <input
@@ -145,11 +156,6 @@ const ProviderForm: FC<{
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
         >
           <option value="discord">Discord</option>
-          <option value="slack">Slack</option>
-          <option value="gotify">Gotify</option>
-          <option value="telegram">Telegram</option>
-          <option value="generic">{t('notificationProviders.genericWebhook')}</option>
-          <option value="webhook">{t('notificationProviders.customWebhook')}</option>
         </select>
       </div>
 
@@ -549,7 +555,7 @@ const Notifications: FC = () => {
       <div className="grid gap-4">
         {providers?.map((provider) => (
           <Card key={provider.id} className="p-4" data-testid={`provider-row-${provider.id}`}>
-            {editingId === provider.id ? (
+            {editingId === provider.id && !isDeprecatedProvider(provider.type) ? (
               <ProviderForm
                 initialData={provider}
                 onClose={() => setEditingId(null)}
@@ -563,6 +569,22 @@ const Notifications: FC = () => {
                   </div>
                   <div>
                     <h3 className="font-medium text-gray-900 dark:text-white">{provider.name}</h3>
+                    {isDeprecatedProvider(provider.type) && (
+                      <div className="flex items-center gap-2 mt-1" data-testid={`provider-deprecated-status-${provider.id}`}>
+                        <span
+                          data-testid={`provider-deprecated-badge-${provider.id}`}
+                          className="uppercase text-xs font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5 rounded"
+                        >
+                          {t('notificationProviders.deprecatedReadOnly')}
+                        </span>
+                        <span
+                          data-testid={`provider-nondispatch-badge-${provider.id}`}
+                          className="uppercase text-xs font-bold bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 px-2 py-0.5 rounded"
+                        >
+                          {t('notificationProviders.nonDispatch')}
+                        </span>
+                      </div>
+                    )}
                     {updateIndicatorId === provider.id && (
                       <span className="text-xs text-green-600" data-testid={`provider-update-indicator-${provider.id}`}>
                         {t('common.saved')}
@@ -574,22 +596,31 @@ const Notifications: FC = () => {
                       </span>
                       <span className="truncate max-w-xs opacity-50">{provider.url}</span>
                     </div>
+                    {isDeprecatedProvider(provider.type) && (
+                      <p className="text-xs text-amber-700 dark:text-amber-300 mt-1" data-testid={`provider-deprecated-message-${provider.id}`}>
+                        {t('notificationProviders.deprecatedProviderMessage')}
+                      </p>
+                    )}
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => testMutation.mutate(provider)}
-                    isLoading={testMutation.isPending}
-                    title={t('notificationProviders.sendTest')}
-                  >
-                    <Send className="w-4 h-4" />
-                  </Button>
-                  <Button variant="secondary" size="sm" onClick={() => setEditingId(provider.id)}>
-                    <Edit2 className="w-4 h-4" />
-                  </Button>
+                  {!isDeprecatedProvider(provider.type) && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => testMutation.mutate({ ...provider, type: DISCORD_PROVIDER_TYPE })}
+                      isLoading={testMutation.isPending}
+                      title={t('notificationProviders.sendTest')}
+                    >
+                      <Send className="w-4 h-4" />
+                    </Button>
+                  )}
+                  {!isDeprecatedProvider(provider.type) && (
+                    <Button variant="secondary" size="sm" onClick={() => setEditingId(provider.id)}>
+                      <Edit2 className="w-4 h-4" />
+                    </Button>
+                  )}
                   <Button
                     variant="danger"
                     size="sm"

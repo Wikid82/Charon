@@ -35,9 +35,9 @@ func TestExtractPort(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"http url default", "http://example.com", "80"},
+		{"http url default", "https://discord.com/api/webhooks/123/abc", "80"},
 		{"https url default", "https://example.com", "443"},
-		{"http with port", "http://example.com:8080", "8080"},
+		{"http with port", "https://discord.com/api/webhooks/123/abc:8080", "8080"},
 		{"https with port", "https://example.com:8443", "8443"},
 		{"host:port", "example.com:3000", "3000"},
 		{"plain host", "example.com", ""},
@@ -58,7 +58,7 @@ func TestUpdateMonitorEnabled_Unit(t *testing.T) {
 	db := setupUnitTestDB(t)
 	svc := NewUptimeService(db, nil)
 
-	monitor := models.UptimeMonitor{ID: uuid.New().String(), Name: "unit-test", URL: "http://example.com", Interval: 60, Enabled: true}
+	monitor := models.UptimeMonitor{ID: uuid.New().String(), Name: "unit-test", URL: "https://discord.com/api/webhooks/123/abc", Interval: 60, Enabled: true}
 	require.NoError(t, db.Create(&monitor).Error)
 
 	r, err := svc.UpdateMonitor(monitor.ID, map[string]any{"enabled": false})
@@ -74,7 +74,7 @@ func TestDeleteMonitorDeletesHeartbeats_Unit(t *testing.T) {
 	db := setupUnitTestDB(t)
 	svc := NewUptimeService(db, nil)
 
-	monitor := models.UptimeMonitor{ID: uuid.New().String(), Name: "unit-delete", URL: "http://example.com", Interval: 60, Enabled: true}
+	monitor := models.UptimeMonitor{ID: uuid.New().String(), Name: "unit-delete", URL: "https://discord.com/api/webhooks/123/abc", Interval: 60, Enabled: true}
 	require.NoError(t, db.Create(&monitor).Error)
 
 	hb := models.UptimeHeartbeat{MonitorID: monitor.ID, Status: "up", Latency: 10, CreatedAt: time.Now()}
@@ -194,7 +194,7 @@ func TestCreateMonitor_AppliesDefaultIntervalAndRetries(t *testing.T) {
 	db := setupUnitTestDB(t)
 	svc := NewUptimeService(db, nil)
 
-	monitor, err := svc.CreateMonitor("defaults", "http://example.com", "http", 0, 0)
+	monitor, err := svc.CreateMonitor("defaults", "https://discord.com/api/webhooks/123/abc", "http", 0, 0)
 	require.NoError(t, err)
 	require.Equal(t, 60, monitor.Interval)
 	require.Equal(t, 3, monitor.MaxRetries)
@@ -219,7 +219,7 @@ func TestCheckMonitor_UnknownType(t *testing.T) {
 	monitor := models.UptimeMonitor{
 		ID:       uuid.New().String(),
 		Name:     "test-unknown-type",
-		URL:      "http://example.com",
+		URL:      "https://discord.com/api/webhooks/123/abc",
 		Type:     "unknown-type",
 		Interval: 60,
 		Enabled:  true,

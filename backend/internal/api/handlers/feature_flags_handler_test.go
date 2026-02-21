@@ -120,7 +120,7 @@ func TestFeatureFlags_RetiredFallback_DenyByDefault(t *testing.T) {
 		t.Fatalf("invalid json: %v", err)
 	}
 
-	if flags["feature.notifications.legacy_shoutrrr.fallback_enabled"] {
+	if flags["feature.notifications.legacy.fallback_enabled"] {
 		t.Fatalf("expected retired fallback flag to be false by default")
 	}
 }
@@ -129,7 +129,7 @@ func TestFeatureFlags_RetiredFallback_PersistedAndEnvStillResolveFalse(t *testin
 	db := setupFlagsDB(t)
 
 	if err := db.Create(&models.Setting{
-		Key:      "feature.notifications.legacy_shoutrrr.fallback_enabled",
+		Key:      "feature.notifications.legacy.fallback_enabled",
 		Value:    "true",
 		Type:     "bool",
 		Category: "feature",
@@ -137,7 +137,7 @@ func TestFeatureFlags_RetiredFallback_PersistedAndEnvStillResolveFalse(t *testin
 		t.Fatalf("failed to seed setting: %v", err)
 	}
 
-	t.Setenv("FEATURE_NOTIFICATIONS_LEGACY_SHOUTRRR_FALLBACK_ENABLED", "true")
+	t.Setenv("FEATURE_NOTIFICATIONS_LEGACY_FALLBACK_ENABLED", "true")
 
 	h := NewFeatureFlagsHandler(db)
 	gin.SetMode(gin.TestMode)
@@ -156,14 +156,14 @@ func TestFeatureFlags_RetiredFallback_PersistedAndEnvStillResolveFalse(t *testin
 		t.Fatalf("invalid json: %v", err)
 	}
 
-	if flags["feature.notifications.legacy_shoutrrr.fallback_enabled"] {
+	if flags["feature.notifications.legacy.fallback_enabled"] {
 		t.Fatalf("expected retired fallback flag to remain false even when persisted/env are true")
 	}
 }
 
 func TestFeatureFlags_RetiredFallback_EnvAliasResolvesFalse(t *testing.T) {
 	db := setupFlagsDB(t)
-	t.Setenv("NOTIFICATIONS_LEGACY_SHOUTRRR_FALLBACK_ENABLED", "true")
+	t.Setenv("NOTIFICATIONS_LEGACY_FALLBACK_ENABLED", "true")
 
 	h := NewFeatureFlagsHandler(db)
 	gin.SetMode(gin.TestMode)
@@ -182,7 +182,7 @@ func TestFeatureFlags_RetiredFallback_EnvAliasResolvesFalse(t *testing.T) {
 		t.Fatalf("invalid json: %v", err)
 	}
 
-	if flags["feature.notifications.legacy_shoutrrr.fallback_enabled"] {
+	if flags["feature.notifications.legacy.fallback_enabled"] {
 		t.Fatalf("expected retired fallback flag to remain false for env alias")
 	}
 }
@@ -196,7 +196,7 @@ func TestFeatureFlags_UpdateRejectsLegacyFallbackTrue(t *testing.T) {
 	r.PUT("/api/v1/feature-flags", h.UpdateFlags)
 
 	payload := map[string]bool{
-		"feature.notifications.legacy_shoutrrr.fallback_enabled": true,
+		"feature.notifications.legacy.fallback_enabled": true,
 	}
 	b, _ := json.Marshal(payload)
 
@@ -219,7 +219,7 @@ func TestFeatureFlags_UpdatePersistsLegacyFallbackFalse(t *testing.T) {
 	r.PUT("/api/v1/feature-flags", h.UpdateFlags)
 
 	payload := map[string]bool{
-		"feature.notifications.legacy_shoutrrr.fallback_enabled": false,
+		"feature.notifications.legacy.fallback_enabled": false,
 	}
 	b, _ := json.Marshal(payload)
 
@@ -233,7 +233,7 @@ func TestFeatureFlags_UpdatePersistsLegacyFallbackFalse(t *testing.T) {
 	}
 
 	var s models.Setting
-	if err := db.Where("key = ?", "feature.notifications.legacy_shoutrrr.fallback_enabled").First(&s).Error; err != nil {
+	if err := db.Where("key = ?", "feature.notifications.legacy.fallback_enabled").First(&s).Error; err != nil {
 		t.Fatalf("expected setting persisted: %v", err)
 	}
 	if s.Value != "false" {

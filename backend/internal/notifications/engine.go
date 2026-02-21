@@ -3,8 +3,8 @@ package notifications
 import "context"
 
 const (
-	EngineLegacyShoutrrr = "legacy_shoutrrr"
-	EngineNotifyV1       = "notify_v1"
+	EngineLegacy   = "legacy"
+	EngineNotifyV1 = "notify_v1"
 )
 
 type DispatchRequest struct {

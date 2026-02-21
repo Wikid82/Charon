@@ -31,24 +31,24 @@ var defaultFlags = []string{
 	"feature.notifications.engine.notify_v1.enabled",
 	"feature.notifications.service.discord.enabled",
 	"feature.notifications.service.gotify.enabled",
-	"feature.notifications.legacy_shoutrrr.fallback_enabled",
+	"feature.notifications.legacy.fallback_enabled",
 	"feature.notifications.security_provider_events.enabled", // Blocker 3: Add security_provider_events gate
 }
 
 var defaultFlagValues = map[string]bool{
-	"feature.cerberus.enabled":                               false, // Cerberus OFF by default (per diagnostic fix)
-	"feature.uptime.enabled":                                 true,  // Uptime enabled by default
-	"feature.crowdsec.console_enrollment":                    false,
-	"feature.notifications.engine.notify_v1.enabled":         false,
-	"feature.notifications.service.discord.enabled":          false,
-	"feature.notifications.service.gotify.enabled":           false,
-	"feature.notifications.legacy_shoutrrr.fallback_enabled": false,
+	"feature.cerberus.enabled":                          false, // Cerberus OFF by default (per diagnostic fix)
+	"feature.uptime.enabled":                            true,  // Uptime enabled by default
+	"feature.crowdsec.console_enrollment":               false,
+	"feature.notifications.engine.notify_v1.enabled":    false,
+	"feature.notifications.service.discord.enabled":     false,
+	"feature.notifications.service.gotify.enabled":      false,
+	"feature.notifications.legacy.fallback_enabled":     false,
 	"feature.notifications.security_provider_events.enabled": false, // Blocker 3: Default disabled for this stage
 }
 
 var retiredLegacyFallbackEnvAliases = []string{
-	"FEATURE_NOTIFICATIONS_LEGACY_SHOUTRRR_FALLBACK_ENABLED",
-	"NOTIFICATIONS_LEGACY_SHOUTRRR_FALLBACK_ENABLED",
+	"FEATURE_NOTIFICATIONS_LEGACY_FALLBACK_ENABLED",
+	"NOTIFICATIONS_LEGACY_FALLBACK_ENABLED",
 }
 
 // GetFlags returns a map of feature flag -> bool. DB setting takes precedence
@@ -84,7 +84,7 @@ func (h *FeatureFlagsHandler) GetFlags(c *gin.Context) {
 			defaultVal = v
 		}
 
-		if key == "feature.notifications.legacy_shoutrrr.fallback_enabled" {
+		if key == "feature.notifications.legacy.fallback_enabled" {
 			result[key] = h.resolveRetiredLegacyFallback(settingsMap)
 			continue
 		}
@@ -142,7 +142,7 @@ func parseFlagBool(raw string) (bool, bool) {
 }
 
 func (h *FeatureFlagsHandler) resolveRetiredLegacyFallback(settingsMap map[string]models.Setting) bool {
-	const retiredKey = "feature.notifications.legacy_shoutrrr.fallback_enabled"
+	const retiredKey = "feature.notifications.legacy.fallback_enabled"
 
 	if s, exists := settingsMap[retiredKey]; exists {
 		if _, ok := parseFlagBool(s.Value); !ok {
@@ -178,8 +178,8 @@ func (h *FeatureFlagsHandler) UpdateFlags(c *gin.Context) {
 		return
 	}
 
-	if v, exists := payload["feature.notifications.legacy_shoutrrr.fallback_enabled"]; exists && v {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "feature.notifications.legacy_shoutrrr.fallback_enabled is retired and can only be false"})
+	if v, exists := payload["feature.notifications.legacy.fallback_enabled"]; exists && v {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "feature.notifications.legacy.fallback_enabled is retired and can only be false"})
 		return
 	}
 
@@ -198,7 +198,7 @@ func (h *FeatureFlagsHandler) UpdateFlags(c *gin.Context) {
 				continue
 			}
 
-			if k == "feature.notifications.legacy_shoutrrr.fallback_enabled" {
+			if k == "feature.notifications.legacy.fallback_enabled" {
 				v = false
 			}
 

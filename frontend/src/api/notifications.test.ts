@@ -68,11 +68,11 @@ describe('notifications api', () => {
     mockedClient.put.mockResolvedValue({ data: { id: 'new', name: 'Slack v2' } })
 
     const created = await createProvider({ name: 'Slack' })
-    expect(mockedClient.post).toHaveBeenCalledWith('/notifications/providers', { name: 'Slack' })
+    expect(mockedClient.post).toHaveBeenCalledWith('/notifications/providers', { name: 'Slack', type: 'discord' })
     expect(created.id).toBe('new')
 
     const updated = await updateProvider('new', { enabled: false })
-    expect(mockedClient.put).toHaveBeenCalledWith('/notifications/providers/new', { enabled: false })
+    expect(mockedClient.put).toHaveBeenCalledWith('/notifications/providers/new', { enabled: false, type: 'discord' })
     expect(updated.name).toBe('Slack v2')
 
     await testProvider({ id: 'new', name: 'Slack', enabled: true })
@@ -80,6 +80,7 @@ describe('notifications api', () => {
       id: 'new',
       name: 'Slack',
       enabled: true,
+      type: 'discord',
     })
 
     mockedClient.delete.mockResolvedValue({})
@@ -99,6 +100,7 @@ describe('notifications api', () => {
     expect(mockedClient.post).toHaveBeenCalledWith('/notifications/providers/preview', {
       id: 'p1',
       name: 'Provider',
+      type: 'discord',
       data: { foo: 'bar' },
     })
     expect(preview).toEqual({ preview: 'ok' })

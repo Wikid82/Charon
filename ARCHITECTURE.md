@@ -130,7 +130,7 @@ graph TB
 | **WebSocket** | gorilla/websocket | Latest | Real-time log streaming |
 | **Crypto** | golang.org/x/crypto | Latest | Password hashing, encryption |
 | **Metrics** | Prometheus Client | Latest | Application metrics |
-| **Notifications** | Shoutrrr | Latest | Multi-platform alerts |
+| **Notifications** | Notify (Discord-first) | Current | Discord notifications now; additional services in phased rollout |
 | **Docker Client** | Docker SDK | Latest | Container discovery |
 | **Logging** | Logrus + Lumberjack | Latest | Structured logging with rotation |
 
@@ -1333,8 +1333,8 @@ docker exec charon /app/scripts/restore-backup.sh \
    - Future: Dynamic plugin loading for custom providers
 
 2. **Notification Channels:**
-   - Shoutrrr provides 40+ channels (Discord, Slack, Email, etc.)
-   - Custom channels via Shoutrrr service URLs
+    - Current rollout is Discord-only for notifications
+    - Additional services are enabled later in validated phases
 
 3. **Authentication Providers:**
    - Current: Local database authentication

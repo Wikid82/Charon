@@ -123,9 +123,9 @@ func TestNotificationProviderHandler_Test(t *testing.T) {
 	r, _ := setupNotificationProviderTest(t)
 
 	// Test with invalid provider (should fail validation or service check)
-	// Since we don't have a real shoutrrr backend mocked easily here without more work,
+	// Since we don't have notification dispatch mocked easily here,
 	// we expect it might fail or pass depending on service implementation.
-	// Looking at service code (not shown but assumed), TestProvider likely calls shoutrrr.Send.
+	// Looking at service code, TestProvider should validate and dispatch.
 	// If URL is invalid, it should error.
 
 	provider := models.NotificationProvider{
@@ -169,8 +169,8 @@ func TestNotificationProviderHandler_InvalidCustomTemplate_Rejects(t *testing.T)
 	// Create with invalid custom template should return 400
 	provider := models.NotificationProvider{
 		Name:     "Bad",
-		Type:     "webhook",
-		URL:      "http://example.com",
+		Type:     "discord",
+		URL:      "https://discord.com/api/webhooks/123/abc",
 		Template: "custom",
 		Config:   `{"broken": "{{.Title"}`,
 	}
@@ -183,8 +183,8 @@ func TestNotificationProviderHandler_InvalidCustomTemplate_Rejects(t *testing.T)
 	// Create valid and then attempt update to invalid custom template
 	provider = models.NotificationProvider{
 		Name:     "Good",
-		Type:     "webhook",
-		URL:      "http://example.com",
+		Type:     "discord",
+		URL:      "https://discord.com/api/webhooks/456/def",
 		Template: "minimal",
 	}
 	body, _ = json.Marshal(provider)
@@ -209,8 +209,8 @@ func TestNotificationProviderHandler_Preview(t *testing.T) {
 
 	// Minimal template preview
 	provider := models.NotificationProvider{
-		Type:     "webhook",
-		URL:      "http://example.com",
+		Type:     "discord",
+		URL:      "https://discord.com/api/webhooks/123/abc",
 		Template: "minimal",
 	}
 	body, _ := json.Marshal(provider)
@@ -273,8 +273,8 @@ func TestNotificationProviderHandler_CreateIgnoresServerManagedMigrationFields(t
 
 	payload := map[string]any{
 		"name":                  "Create Ignore Migration",
-		"type":                  "webhook",
-		"url":                   "http://example.com/hook",
+		"type":                  "discord",
+		"url":                   "https://discord.com/api/webhooks/123/abc",
 		"template":              "minimal",
 		"enabled":               true,
 		"notify_proxy_hosts":    true,
@@ -322,8 +322,8 @@ func TestNotificationProviderHandler_UpdatePreservesServerManagedMigrationFields
 	now := time.Now().UTC().Round(time.Second)
 	original := models.NotificationProvider{
 		Name:                "Original",
-		Type:                "webhook",
-		URL:                 "http://example.com/original",
+		Type:                "discord",
+		URL:                 "https://discord.com/api/webhooks/123/abc",
 		Template:            "minimal",
 		Enabled:             true,
 		NotifyProxyHosts:    true,
@@ -342,8 +342,8 @@ func TestNotificationProviderHandler_UpdatePreservesServerManagedMigrationFields
 
 	payload := map[string]any{
 		"name":                  "Updated Name",
-		"type":                  "webhook",
-		"url":                   "http://example.com/updated",
+		"type":                  "discord",
+		"url":                   "https://discord.com/api/webhooks/456/def",
 		"template":              "minimal",
 		"enabled":               false,
 		"notify_proxy_hosts":    false,
@@ -351,7 +351,7 @@ func TestNotificationProviderHandler_UpdatePreservesServerManagedMigrationFields
 		"notify_domains":        false,
 		"notify_certs":          false,
 		"notify_uptime":         false,
-		"engine":                "legacy_shoutrrr",
+		"engine":                "legacy",
 		"service_config":        `{"token":"client-overwrite"}`,
 		"migration_state":       "failed",
 		"migration_error":       "client-error",

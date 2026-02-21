@@ -110,7 +110,7 @@ func TestSendJSONPayload_UsesStoredHostnameURLWithoutHostMutation(t *testing.T) 
 	parsedServerURL.Host = "localhost:" + parsedServerURL.Port()
 
 	provider := models.NotificationProvider{
-		Type:     "webhook",
+		Type:     "discord",
 		URL:      parsedServerURL.String(),
 		Template: "minimal",
 	}
@@ -144,6 +144,11 @@ func TestSendJSONPayload_Discord(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// Mock Discord validation to allow test server URL
+	origValidateDiscordFunc := validateDiscordProviderURLFunc
+	defer func() { validateDiscordProviderURLFunc = origValidateDiscordFunc }()
+	validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
+
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
@@ -151,7 +156,7 @@ func TestSendJSONPayload_Discord(t *testing.T) {
 	svc := NewNotificationService(db)
 
 	provider := models.NotificationProvider{
-		Type:     "webhook",
+		Type:     "discord",
 		URL:      server.URL,
 		Template: "custom",
 		Config:   `{"content": {{toJSON .Message}}, "username": "Charon"}`,
@@ -244,7 +249,7 @@ func TestSendJSONPayload_TemplateTimeout(t *testing.T) {
 	// This is simulated by having a large number of iterations
 	// Use a private IP (10.x) which is blocked by SSRF protection to trigger an error
 	provider := models.NotificationProvider{
-		Type:     "webhook",
+		Type:     "discord",
 		URL:      "http://10.0.0.1:9999",
 		Template: "custom",
 		Config:   `{"data": {{toJSON .}}}`,
@@ -276,7 +281,7 @@ func TestSendJSONPayload_TemplateSizeLimit(t *testing.T) {
 	largeTemplate := strings.Repeat("x", 11*1024)
 
 	provider := models.NotificationProvider{
-		Type:     "webhook",
+		Type:     "discord",
 		URL:      "http://localhost:9999",
 		Template: "custom",
 		Config:   largeTemplate,
@@ -387,7 +392,7 @@ func TestSendJSONPayload_InvalidJSON(t *testing.T) {
 	svc := NewNotificationService(db)
 
 	provider := models.NotificationProvider{
-		Type:     "webhook",
+		Type:     "discord",
 		URL:      "http://localhost:9999",
 		Template: "custom",
 		Config:   `{invalid json}`,
@@ -417,15 +422,15 @@ func TestSendExternal_SkipsInvalidHTTPDestination(t *testing.T) {
 	// Provider with invalid HTTP destination should be skipped before send.
 	require.NoError(t, db.Create(&models.NotificationProvider{
 		Name:    "bad",
-		Type:    "telegram", // forces shoutrrr path
+		Type:    "telegram", // unsupported by notify-only runtime
 		URL:     "http://example..com/webhook",
 		Enabled: true,
 	}).Error)
 
 	var called atomic.Bool
-	orig := shoutrrrSendFunc
-	defer func() { shoutrrrSendFunc = orig }()
-	shoutrrrSendFunc = func(_ string, _ string) error {
+	orig := legacySendFunc
+	defer func() { legacySendFunc = orig }()
+	legacySendFunc = func(_ string, _ string) error {
 		called.Store(true)
 		return nil
 	}
@@ -453,8 +458,13 @@ func TestSendExternal_UsesJSONForSupportedServices(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// Mock Discord validation to allow test server URL
+	origValidateDiscordFunc := validateDiscordProviderURLFunc
+	defer func() { validateDiscordProviderURLFunc = origValidateDiscordFunc }()
+	validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
+
 	provider := models.NotificationProvider{
-		Type:             "webhook",
+		Type:             "discord",
 		URL:              server.URL,
 		Template:         "custom",
 		Config:           `{"content": {{toJSON .Message}}}`,
@@ -481,13 +491,25 @@ func TestTestProvider_UsesJSONForSupportedServices(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// Mock Discord validation to allow test server URL
+	origValidateDiscordFunc := validateDiscordProviderURLFunc
+	origWebhookDoReq := webhookDoRequestFunc
+	defer func() {
+		validateDiscordProviderURLFunc = origValidateDiscordFunc
+		webhookDoRequestFunc = origWebhookDoReq
+	}()
+	validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
+	webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
+		return client.Do(req)
+	}
+
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
 	svc := NewNotificationService(db)
 
 	provider := models.NotificationProvider{
-		Type:     "webhook",
+		Type:     "discord",
 		URL:      server.URL,
 		Template: "custom",
 		Config:   `{"content": {{toJSON .Message}}}`,

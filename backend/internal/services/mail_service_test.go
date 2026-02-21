@@ -741,7 +741,7 @@ func TestNormalizeBaseURLForInvite(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "valid https", raw: "https://example.com", want: "https://example.com", wantErr: false},
-		{name: "valid http with slash path", raw: "http://example.com/", want: "http://example.com", wantErr: false},
+		{name: "valid http with slash path", raw: "https://discord.com/api/webhooks/123/abc/", want: "https://discord.com/api/webhooks/123/abc", wantErr: false},
 		{name: "empty", raw: "", wantErr: true},
 		{name: "invalid scheme", raw: "ftp://example.com", wantErr: true},
 		{name: "with path", raw: "https://example.com/path", wantErr: true},

@@ -11,15 +11,15 @@ import (
 type NotificationProvider struct {
 	ID             string     `gorm:"primaryKey" json:"id"`
 	Name           string     `json:"name" gorm:"index"`
-	Type           string     `json:"type" gorm:"index"`                         // discord, slack, gotify, telegram, generic, webhook
-	URL            string     `json:"url"`                                       // The shoutrrr URL or webhook URL
+	Type           string     `json:"type" gorm:"index"`                         // discord (only supported type in current rollout)
+	URL            string     `json:"url"`                                       // Discord webhook URL (HTTPS format required)
 	Token          string     `json:"-"`                                         // Auth token for providers (e.g., Gotify) - never exposed in API
-	Engine         string     `json:"engine,omitempty" gorm:"index"`             // legacy_shoutrrr | notify_v1
+	Engine         string     `json:"engine,omitempty" gorm:"index"`             // notify_v1 (notify-only runtime)
 	Config         string     `json:"config"`                                    // JSON payload template for custom webhooks
 	ServiceConfig  string     `json:"service_config,omitempty" gorm:"type:text"` // JSON blob for typed service config
-	LegacyURL      string     `json:"legacy_url,omitempty"`                      // Preserved original URL during migration
+	LegacyURL      string     `json:"legacy_url,omitempty"`                      // Audit field: preserved original URL during migration
 	Template       string     `json:"template" gorm:"default:minimal"`           // minimal|detailed|custom
-	MigrationState string     `json:"migration_state,omitempty" gorm:"index"`    // pending | migrated | failed
+	MigrationState string     `json:"migration_state,omitempty" gorm:"index"`    // pending | migrated | deprecated
 	MigrationError string     `json:"migration_error,omitempty" gorm:"type:text"`
 	LastMigratedAt *time.Time `json:"last_migrated_at,omitempty"`
 	Enabled        bool       `json:"enabled" gorm:"index"`

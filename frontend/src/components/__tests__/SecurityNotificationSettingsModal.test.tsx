@@ -78,17 +78,17 @@ describe('Security Notification Settings on Notifications page', () => {
     expect(document.querySelector('.fixed.inset-0')).toBeNull();
   });
 
-  it('does not show Shoutrrr help text for telegram provider type', async () => {
+  it('keeps provider setup focused on the Discord webhook flow', async () => {
     const user = userEvent.setup();
     renderPage();
 
     await user.click(await screen.findByTestId('add-provider-btn'));
 
     const typeSelect = screen.getByTestId('provider-type') as HTMLSelectElement;
-    await user.selectOptions(typeSelect, 'telegram');
+    expect(Array.from(typeSelect.options).map((option) => option.value)).toEqual(['discord']);
 
-    // Shoutrrr help text and link must not appear
-    expect(screen.queryByText(/shoutrrr/i)).toBeNull();
-    expect(document.querySelector('a[href*="containrrr.dev"]')).toBeNull();
+    const webhookInput = screen.getByTestId('provider-url') as HTMLInputElement;
+    expect(webhookInput.placeholder).toContain('discord.com/api/webhooks');
+    expect(screen.queryByRole('link')).toBeNull();
   });
 });
