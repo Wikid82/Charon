@@ -13,7 +13,7 @@ func (r *Router) ShouldUseNotify(providerType, providerEngine string, flags map[
 		return false
 	}
 
-	if strings.EqualFold(providerEngine, EngineLegacyShoutrrr) {
+	if strings.EqualFold(providerEngine, EngineLegacy) {
 		return false
 	}
 

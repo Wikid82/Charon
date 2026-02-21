@@ -266,7 +266,7 @@ func TestCoverageBoost_AccessListService_Paths(t *testing.T) {
 // TestCoverageBoost_HelperFunctions tests utility helper functions
 func TestCoverageBoost_HelperFunctions(t *testing.T) {
 	t.Run("extractPort_HTTP", func(t *testing.T) {
-		port := extractPort("http://example.com:8080/path")
+		port := extractPort("https://discord.com/api/webhooks/123/abc:8080/path")
 		assert.Equal(t, "8080", port)
 	})
 
@@ -535,9 +535,10 @@ func TestCoverageBoost_NotificationService_Providers(t *testing.T) {
 	t.Run("CreateProvider", func(t *testing.T) {
 		provider := &models.NotificationProvider{
 			Name:    "test-provider",
-			Type:    "webhook",
+			Type:    "discord",
+			URL:     "https://discord.com/api/webhooks/123/abc",
 			Enabled: true,
-			Config:  `{"url": "https://example.com/hook"}`,
+			Config:  `{"url": "https://discord.com/api/webhooks/123/abc"}`,
 		}
 		err := svc.CreateProvider(provider)
 		assert.NoError(t, err)
@@ -548,9 +549,10 @@ func TestCoverageBoost_NotificationService_Providers(t *testing.T) {
 		// Create a provider first
 		provider := &models.NotificationProvider{
 			Name:    "update-test",
-			Type:    "webhook",
+			Type:    "discord",
+			URL:     "https://discord.com/api/webhooks/123/abc",
 			Enabled: true,
-			Config:  `{"url": "https://example.com/hook"}`,
+			Config:  `{"url": "https://discord.com/api/webhooks/123/abc"}`,
 		}
 		err := svc.CreateProvider(provider)
 		require.NoError(t, err)
@@ -565,9 +567,10 @@ func TestCoverageBoost_NotificationService_Providers(t *testing.T) {
 		// Create a provider first
 		provider := &models.NotificationProvider{
 			Name:    "delete-test",
-			Type:    "webhook",
+			Type:    "discord",
+			URL:     "https://discord.com/api/webhooks/123/abc",
 			Enabled: true,
-			Config:  `{"url": "https://example.com/hook"}`,
+			Config:  `{"url": "https://discord.com/api/webhooks/123/abc"}`,
 		}
 		err := svc.CreateProvider(provider)
 		require.NoError(t, err)

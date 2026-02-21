@@ -14,8 +14,8 @@ func TestRouter_ShouldUseNotify(t *testing.T) {
 		t.Fatalf("expected notify routing for discord when enabled")
 	}
 
-	if router.ShouldUseNotify("discord", EngineLegacyShoutrrr, flags) {
-		t.Fatalf("expected legacy engine to stay on shoutrrr")
+	if router.ShouldUseNotify("discord", EngineLegacy, flags) {
+		t.Fatalf("expected legacy engine to stay on legacy path")
 	}
 
 	if router.ShouldUseNotify("telegram", EngineNotifyV1, flags) {

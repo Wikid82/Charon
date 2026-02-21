@@ -113,6 +113,7 @@ describe('Notifications', () => {
 
     const payload = vi.mocked(notificationsApi.createProvider).mock.calls[0][0]
     expect(payload.url).toBe('https://example.com/webhook')
+    expect(payload.type).toBe('discord')
   })
 
   it('accepts a valid http URL', async () => {
@@ -130,6 +131,20 @@ describe('Notifications', () => {
 
     const payload = vi.mocked(notificationsApi.createProvider).mock.calls[0][0]
     expect(payload.url).toBe('http://example.com/webhook')
+    expect(payload.type).toBe('discord')
+  })
+
+  it('shows Discord as the only provider type option', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+
+    const typeSelect = screen.getByTestId('provider-type') as HTMLSelectElement
+    const options = Array.from(typeSelect.options)
+
+    expect(options).toHaveLength(1)
+    expect(options[0].value).toBe('discord')
   })
 
   it('shows and hides the update indicator after save', async () => {
@@ -281,12 +296,15 @@ describe('Notifications', () => {
     expect(screen.getByTestId('notify-security-rate-limit-hits')).toBeInTheDocument()
   })
 
-  it('does not show compatibility section hints anywhere on the page', async () => {
+  it('keeps add-provider guidance aligned with Discord webhook UX', async () => {
+    const user = userEvent.setup()
     renderWithQueryClient(<Notifications />)
-    await screen.findByTestId('add-provider-btn')
-    expect(screen.queryByText(/shoutrrr/i)).toBeNull()
-    expect(screen.queryByText(/compatibility endpoint/i)).toBeNull()
-    expect(document.querySelector('a[href*="containrrr.dev"]')).toBeNull()
+    await user.click(await screen.findByTestId('add-provider-btn'))
+
+    const typeSelect = screen.getByTestId('provider-type') as HTMLSelectElement
+    expect(Array.from(typeSelect.options).map((option) => option.value)).toEqual(['discord'])
+    expect(screen.getByTestId('provider-url')).toHaveAttribute('placeholder', 'https://discord.com/api/webhooks/...')
+    expect(screen.queryByRole('link')).toBeNull()
   })
 
   it('renders external template action buttons and skips delete when confirm is cancelled', async () => {
@@ -324,5 +342,25 @@ describe('Notifications', () => {
     expect(notificationsApi.deleteExternalTemplate).not.toHaveBeenCalled()
 
     confirmSpy.mockRestore()
+  })
+
+  it('renders non-discord providers as deprecated read-only rows', async () => {
+    const legacyProvider: NotificationProvider = {
+      ...baseProvider,
+      id: 'legacy-provider',
+      name: 'Legacy Slack',
+      type: 'slack',
+      enabled: false,
+    }
+
+    setupMocks([legacyProvider])
+
+    renderWithQueryClient(<Notifications />)
+
+    const legacyRow = await screen.findByTestId('provider-row-legacy-provider')
+    expect(await screen.findByTestId('provider-deprecated-badge-legacy-provider')).toBeInTheDocument()
+    expect(screen.getByTestId('provider-nondispatch-badge-legacy-provider')).toBeInTheDocument()
+    expect(screen.getByTestId('provider-deprecated-message-legacy-provider')).toBeInTheDocument()
+    expect(within(legacyRow).getAllByRole('button')).toHaveLength(1)
   })
 })

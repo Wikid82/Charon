@@ -32,7 +32,7 @@ describe('notifications api', () => {
   })
 
   it('crud for providers uses correct endpoints', async () => {
-    vi.mocked(client.get).mockResolvedValue({ data: [{ id: '1', name: 'webhook', type: 'webhook', url: 'http://', enabled: true } as never] })
+    vi.mocked(client.get).mockResolvedValue({ data: [{ id: '1', name: 'discord', type: 'discord', url: 'http://', enabled: true } as never] })
     vi.mocked(client.post).mockResolvedValue({ data: { id: '2' } })
     vi.mocked(client.put).mockResolvedValue({ data: { id: '2', name: 'updated' } })
 
@@ -40,17 +40,17 @@ describe('notifications api', () => {
     expect(providers[0].id).toBe('1')
     expect(client.get).toHaveBeenCalledWith('/notifications/providers')
 
-    await createProvider({ name: 'x' })
-    expect(client.post).toHaveBeenCalledWith('/notifications/providers', { name: 'x' })
+    await createProvider({ name: 'x', type: 'slack' })
+    expect(client.post).toHaveBeenCalledWith('/notifications/providers', { name: 'x', type: 'discord' })
 
-    await updateProvider('2', { name: 'updated' })
-    expect(client.put).toHaveBeenCalledWith('/notifications/providers/2', { name: 'updated' })
+    await updateProvider('2', { name: 'updated', type: 'generic' })
+    expect(client.put).toHaveBeenCalledWith('/notifications/providers/2', { name: 'updated', type: 'discord' })
 
     await deleteProvider('2')
     expect(client.delete).toHaveBeenCalledWith('/notifications/providers/2')
 
-    await testProvider({ id: '2', name: 'test' })
-    expect(client.post).toHaveBeenCalledWith('/notifications/providers/test', { id: '2', name: 'test' })
+    await testProvider({ id: '2', name: 'test', type: 'telegram' })
+    expect(client.post).toHaveBeenCalledWith('/notifications/providers/test', { id: '2', name: 'test', type: 'discord' })
   })
 
   it('templates and previews use merged payloads', async () => {
@@ -60,9 +60,9 @@ describe('notifications api', () => {
     expect(client.get).toHaveBeenCalledWith('/notifications/templates')
 
     vi.mocked(client.post).mockResolvedValueOnce({ data: { preview: 'ok' } })
-    const preview = await previewProvider({ name: 'provider' }, { user: 'alice' })
+    const preview = await previewProvider({ name: 'provider', type: 'webhook' }, { user: 'alice' })
     expect(preview).toEqual({ preview: 'ok' })
-    expect(client.post).toHaveBeenCalledWith('/notifications/providers/preview', { name: 'provider', data: { user: 'alice' } })
+    expect(client.post).toHaveBeenCalledWith('/notifications/providers/preview', { name: 'provider', type: 'discord', data: { user: 'alice' } })
   })
 
   it('external template endpoints shape payloads', async () => {

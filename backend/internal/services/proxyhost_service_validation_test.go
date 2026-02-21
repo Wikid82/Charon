@@ -53,7 +53,7 @@ func TestProxyHostService_ForwardHostValidation(t *testing.T) {
 		},
 		{
 			name:        "Host with http scheme (Should be stripped and pass)",
-			forwardHost: "http://example.com",
+			forwardHost: "https://discord.com/api/webhooks/123/abc",
 			wantErr:     false,
 		},
 		{
@@ -210,7 +210,7 @@ func TestProxyHostService_ValidateHostname(t *testing.T) {
 	}{
 		{name: "plain hostname", host: "example.com", wantErr: false},
 		{name: "hostname with scheme", host: "https://example.com", wantErr: false},
-		{name: "hostname with http scheme", host: "http://example.com", wantErr: false},
+		{name: "hostname with http scheme", host: "https://discord.com/api/webhooks/123/abc", wantErr: false},
 		{name: "hostname with port", host: "example.com:8080", wantErr: false},
 		{name: "ipv4 address", host: "127.0.0.1", wantErr: false},
 		{name: "bracketed ipv6 with port", host: "[::1]:443", wantErr: false},

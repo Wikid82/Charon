@@ -10,6 +10,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type NotificationProviderHandler struct {
@@ -84,17 +85,11 @@ func (h *NotificationProviderHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Blocker 3: Enforce Discord-only provider type for this stage
-	// Check if provider has any security event notifications enabled
-	hasSecurityEvents := req.NotifySecurityWAFBlocks ||
-		req.NotifySecurityACLDenies ||
-		req.NotifySecurityRateLimitHits ||
-		req.NotifySecurityCrowdSecDecisions
-
-	if hasSecurityEvents && req.Type != "discord" {
+	// Discord-only enforcement for this rollout
+	if req.Type != "discord" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "security notifications only support discord provider type in this stage",
-			"code":  "SECURITY_NOTIFICATIONS_DISCORD_ONLY",
+			"error": "only discord provider type is supported in this release; additional providers will be enabled in future releases after validation",
+			"code":  "PROVIDER_TYPE_DISCORD_ONLY",
 		})
 		return
 	}
@@ -135,17 +130,40 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Blocker 3: Enforce Discord-only provider type for this stage
-	// Check if provider has any security event notifications enabled
-	hasSecurityEvents := req.NotifySecurityWAFBlocks ||
-		req.NotifySecurityACLDenies ||
-		req.NotifySecurityRateLimitHits ||
-		req.NotifySecurityCrowdSecDecisions
+	// Check if existing provider is non-Discord (deprecated)
+	var existing models.NotificationProvider
+	if err := h.service.DB.Where("id = ?", id).First(&existing).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch provider"})
+		return
+	}
 
-	if hasSecurityEvents && req.Type != "discord" {
+	// Block type mutation for existing non-Discord providers
+	if existing.Type != "discord" && req.Type != existing.Type {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "security notifications only support discord provider type in this stage",
-			"code":  "SECURITY_NOTIFICATIONS_DISCORD_ONLY",
+			"error": "cannot change provider type for deprecated non-discord providers; delete and recreate as discord provider instead",
+			"code":  "DEPRECATED_PROVIDER_TYPE_IMMUTABLE",
+		})
+		return
+	}
+
+	// Block enable mutation for existing non-Discord providers
+	if existing.Type != "discord" && req.Enabled && !existing.Enabled {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "cannot enable deprecated non-discord providers; only discord providers can be enabled",
+			"code":  "DEPRECATED_PROVIDER_CANNOT_ENABLE",
+		})
+		return
+	}
+
+	// Discord-only enforcement for this rollout (new providers or type changes)
+	if req.Type != "discord" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "only discord provider type is supported in this release; additional providers will be enabled in future releases after validation",
+			"code":  "PROVIDER_TYPE_DISCORD_ONLY",
 		})
 		return
 	}

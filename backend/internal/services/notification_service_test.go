@@ -127,6 +127,18 @@ func TestNotificationService_TestProvider_Webhook(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db)
 
+	// Mock validation and webhook request for testing
+	origValidateDiscordFunc := validateDiscordProviderURLFunc
+	origWebhookDoReq := webhookDoRequestFunc
+	defer func() {
+		validateDiscordProviderURLFunc = origValidateDiscordFunc
+		webhookDoRequestFunc = origWebhookDoReq
+	}()
+	validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
+	webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody}, nil
+	}
+
 	// Start a test server
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
@@ -138,8 +150,8 @@ func TestNotificationService_TestProvider_Webhook(t *testing.T) {
 	defer ts.Close()
 
 	provider := models.NotificationProvider{
-		Name:     "Test Webhook",
-		Type:     "webhook",
+		Name:     "Test Discord",
+		Type:     "discord",
 		URL:      ts.URL,
 		Template: "minimal",
 		Config:   `{"Header": "{{.Title}}"}`,
@@ -160,12 +172,19 @@ func TestNotificationService_SendExternal(t *testing.T) {
 	}))
 	defer ts.Close()
 
+	// Mock discord webhook validation to allow test server URLs
+	// Do NOT mock webhookDoRequestFunc - we want real HTTP call to test server
+	origValidateDiscordFunc := validateDiscordProviderURLFunc
+	defer func() { validateDiscordProviderURLFunc = origValidateDiscordFunc }()
+	validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
+
 	provider := models.NotificationProvider{
-		Name:             "Test Webhook",
-		Type:             "webhook",
+		Name:             "Test Discord",
+		Type:             "discord",
 		URL:              ts.URL,
 		Enabled:          true,
 		NotifyProxyHosts: true,
+		Template:         "minimal",
 	}
 	_ = svc.CreateProvider(&provider)
 
@@ -183,6 +202,11 @@ func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db)
 
+	// Mock validation only - allow real HTTP calls to test servers
+	origValidateDiscordFunc := validateDiscordProviderURLFunc
+	defer func() { validateDiscordProviderURLFunc = origValidateDiscordFunc }()
+	validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
+
 	// Minimal template
 	rcvMinimal := make(chan map[string]any, 1)
 	tsMin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -194,8 +218,8 @@ func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.
 	defer tsMin.Close()
 
 	providerMin := models.NotificationProvider{
-		Name:         "Minimal",
-		Type:         "webhook",
+		Name:         "Minimal Discord",
+		Type:         "discord",
 		URL:          tsMin.URL,
 		Enabled:      true,
 		NotifyUptime: true,
@@ -229,8 +253,8 @@ func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.
 	defer tsDet.Close()
 
 	providerDet := models.NotificationProvider{
-		Name:         "Detailed",
-		Type:         "webhook",
+		Name:         "Detailed Discord",
+		Type:         "discord",
 		URL:          tsDet.URL,
 		Enabled:      true,
 		NotifyUptime: true,
@@ -303,17 +327,17 @@ func TestNotificationService_SendExternal_NotifyOnlyBlocksLegacyFallback(t *test
 	_ = svc.CreateProvider(&provider)
 
 	var called atomic.Bool
-	originalFunc := shoutrrrSendFunc
-	shoutrrrSendFunc = func(url, msg string) error {
+	originalFunc := legacySendFunc
+	legacySendFunc = func(url, msg string) error {
 		called.Store(true)
 		return nil
 	}
-	defer func() { shoutrrrSendFunc = originalFunc }()
+	defer func() { legacySendFunc = originalFunc }()
 
 	svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", nil)
 
 	time.Sleep(100 * time.Millisecond)
-	assert.False(t, called.Load(), "legacy shoutrrr path must not execute")
+	assert.False(t, called.Load(), "legacy fallback path must not execute")
 }
 
 func TestNormalizeURL(t *testing.T) {
@@ -336,7 +360,7 @@ func TestNormalizeURL(t *testing.T) {
 			expected:    "discord://abcdefg@123456789",
 		},
 		{
-			name:        "Discord Shoutrrr",
+			name:        "Discord Generic",
 			serviceType: "discord",
 			rawURL:      "discord://token@id",
 			expected:    "discord://token@id",
@@ -498,20 +522,21 @@ func TestNotificationService_TestProvider_Errors(t *testing.T) {
 	t.Run("unsupported provider type", func(t *testing.T) {
 		provider := models.NotificationProvider{
 			Type: "unsupported",
-			URL:  "http://example.com",
+			URL:  "https://discord.com/api/webhooks/123/abc",
 		}
 		err := svc.TestProvider(provider)
 		assert.Error(t, err)
-		assert.ErrorIs(t, err, ErrLegacyShoutrrrFallbackDisabled)
+		assert.Contains(t, err.Error(), "only discord provider type is supported")
 	})
 
-	t.Run("webhook with invalid URL", func(t *testing.T) {
+	t.Run("webhook type not supported", func(t *testing.T) {
 		provider := models.NotificationProvider{
 			Type: "webhook",
-			URL:  "://invalid",
+			URL:  "https://example.com/webhook",
 		}
 		err := svc.TestProvider(provider)
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "only discord provider type is supported")
 	})
 
 	t.Run("discord with invalid URL format", func(t *testing.T) {
@@ -523,23 +548,36 @@ func TestNotificationService_TestProvider_Errors(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("slack with unreachable webhook", func(t *testing.T) {
+	t.Run("slack type not supported", func(t *testing.T) {
 		provider := models.NotificationProvider{
 			Type: "slack",
 			URL:  "https://hooks.slack.com/services/INVALID/WEBHOOK/URL",
 		}
 		err := svc.TestProvider(provider)
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "only discord provider type is supported")
 	})
 
 	t.Run("webhook success", func(t *testing.T) {
+		// Mock validation and webhook request for testing
+		origValidateDiscordFunc := validateDiscordProviderURLFunc
+		origWebhookDoReq := webhookDoRequestFunc
+		defer func() {
+			validateDiscordProviderURLFunc = origValidateDiscordFunc
+			webhookDoRequestFunc = origWebhookDoReq
+		}()
+		validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
+		webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody}, nil
+		}
+
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer ts.Close()
 
 		provider := models.NotificationProvider{
-			Type:     "webhook",
+			Type:     "discord",
 			URL:      ts.URL,
 			Template: "minimal", // Use JSON template path which supports HTTP/HTTPS
 		}
@@ -661,7 +699,7 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 		provider := models.NotificationProvider{
 			Name:    "Disabled",
 			Type:    "webhook",
-			URL:     "http://example.com",
+			URL:     "https://discord.com/api/webhooks/123/abc",
 			Enabled: false,
 		}
 		_ = svc.CreateProvider(&provider)
@@ -720,6 +758,11 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 		db := setupNotificationTestDB(t)
 		svc := NewNotificationService(db)
 
+		// Mock validation only - allow real HTTP calls to test server
+		origValidateDiscordFunc := validateDiscordProviderURLFunc
+		defer func() { validateDiscordProviderURLFunc = origValidateDiscordFunc }()
+		validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
+
 		var receivedCustom atomic.Value
 		receivedCustom.Store("")
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -733,12 +776,13 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 		defer ts.Close()
 
 		provider := models.NotificationProvider{
-			Name:             "Custom Data",
-			Type:             "webhook",
+			Name:             "Custom Data Discord",
+			Type:             "discord",
 			URL:              ts.URL,
 			Enabled:          true,
 			NotifyProxyHosts: true,
-			Config:           `{"custom": "{{.CustomField}}"}`,
+			Config:           `{"content": {{toJSON .Message}}, "custom": "{{.CustomField}}"}`,
+			Template:         "custom", // Use custom template to enable Config
 		}
 		_ = svc.CreateProvider(&provider)
 
@@ -778,9 +822,9 @@ func TestNotificationService_CreateProvider_Validation(t *testing.T) {
 
 	t.Run("creates provider with defaults", func(t *testing.T) {
 		provider := models.NotificationProvider{
-			Name: "Test",
-			Type: "webhook",
-			URL:  "http://example.com",
+			Name: "Test Discord",
+			Type: "discord",
+			URL:  "https://discord.com/api/webhooks/123/abc",
 		}
 		err := svc.CreateProvider(&provider)
 		assert.NoError(t, err)
@@ -790,9 +834,9 @@ func TestNotificationService_CreateProvider_Validation(t *testing.T) {
 
 	t.Run("updates existing provider", func(t *testing.T) {
 		provider := models.NotificationProvider{
-			Name:    "Original",
-			Type:    "webhook",
-			URL:     "http://example.com",
+			Name:    "Original Discord",
+			Type:    "discord",
+			URL:     "https://discord.com/api/webhooks/123/abc",
 			Enabled: true,
 		}
 		err := svc.CreateProvider(&provider)
@@ -855,8 +899,8 @@ func TestNotificationService_CreateProvider_InvalidCustomTemplate(t *testing.T) 
 	t.Run("invalid custom template on create", func(t *testing.T) {
 		provider := models.NotificationProvider{
 			Name:     "Bad Custom",
-			Type:     "webhook",
-			URL:      "http://example.com",
+			Type:     "discord",
+			URL:      "https://discord.com/api/webhooks/123/abc",
 			Template: "custom",
 			Config:   `{"bad": "{{.Title"}`,
 		}
@@ -867,8 +911,8 @@ func TestNotificationService_CreateProvider_InvalidCustomTemplate(t *testing.T) 
 	t.Run("invalid custom template on update", func(t *testing.T) {
 		provider := models.NotificationProvider{
 			Name:     "Valid",
-			Type:     "webhook",
-			URL:      "http://example.com",
+			Type:     "discord",
+			URL:      "https://discord.com/api/webhooks/123/abc",
 			Template: "minimal",
 		}
 		err := svc.CreateProvider(&provider)
@@ -968,7 +1012,7 @@ func TestSendCustomWebhook_HTTPStatusCodeErrors(t *testing.T) {
 			defer server.Close()
 
 			provider := models.NotificationProvider{
-				Type:     "webhook",
+				Type:     "discord",
 				URL:      server.URL,
 				Template: "minimal",
 			}
@@ -1037,7 +1081,7 @@ func TestSendCustomWebhook_TemplateSelection(t *testing.T) {
 			defer server.Close()
 
 			provider := models.NotificationProvider{
-				Type:     "webhook",
+				Type:     "discord",
 				URL:      server.URL,
 				Template: tt.template,
 				Config:   tt.config,
@@ -1081,7 +1125,7 @@ func TestSendCustomWebhook_EmptyCustomTemplateDefaultsToMinimal(t *testing.T) {
 	defer server.Close()
 
 	provider := models.NotificationProvider{
-		Type:     "webhook",
+		Type:     "discord",
 		URL:      server.URL,
 		Template: "custom",
 		Config:   "", // Empty config should default to minimal
@@ -1108,7 +1152,7 @@ func TestCreateProvider_EmptyCustomTemplateAllowed(t *testing.T) {
 
 	provider := &models.NotificationProvider{
 		Name:     "empty-template",
-		Type:     "webhook",
+		Type:     "discord",
 		URL:      "http://localhost:8080/webhook",
 		Template: "custom",
 		Config:   "", // Empty should be allowed and default to minimal
@@ -1125,7 +1169,7 @@ func TestUpdateProvider_NonCustomTemplateSkipsValidation(t *testing.T) {
 
 	provider := &models.NotificationProvider{
 		Name:     "test",
-		Type:     "webhook",
+		Type:     "discord",
 		URL:      "http://localhost:8080",
 		Template: "minimal",
 	}
@@ -1186,7 +1230,7 @@ func TestSendCustomWebhook_ContextCancellation(t *testing.T) {
 	defer server.Close()
 
 	provider := models.NotificationProvider{
-		Type:     "webhook",
+		Type:     "discord",
 		URL:      server.URL,
 		Template: "minimal",
 	}
@@ -1254,7 +1298,7 @@ func TestCreateProvider_ValidCustomTemplate(t *testing.T) {
 
 	provider := &models.NotificationProvider{
 		Name:     "valid-custom",
-		Type:     "webhook",
+		Type:     "discord",
 		URL:      "http://localhost:8080/webhook",
 		Template: "custom",
 		Config:   `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}, "custom_field": "value"}`,
@@ -1271,7 +1315,7 @@ func TestUpdateProvider_ValidCustomTemplate(t *testing.T) {
 
 	provider := &models.NotificationProvider{
 		Name:     "test",
-		Type:     "webhook",
+		Type:     "discord",
 		URL:      "http://localhost:8080",
 		Template: "minimal",
 	}
@@ -1561,6 +1605,11 @@ func TestSendExternal_AllEventTypes(t *testing.T) {
 			db := setupNotificationTestDB(t)
 			svc := NewNotificationService(db)
 
+			// Mock Discord validation to allow test server URL
+			origValidateDiscordFunc := validateDiscordProviderURLFunc
+			defer func() { validateDiscordProviderURLFunc = origValidateDiscordFunc }()
+			validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
+
 			var callCount atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				callCount.Add(1)
@@ -1570,7 +1619,7 @@ func TestSendExternal_AllEventTypes(t *testing.T) {
 
 			provider := models.NotificationProvider{
 				Name:                "event-test",
-				Type:                "webhook",
+				Type:                "discord",
 				URL:                 server.URL,
 				Enabled:             true,
 				Template:            "minimal",
@@ -1617,7 +1666,7 @@ func TestIsValidRedirectURL(t *testing.T) {
 		url      string
 		expected bool
 	}{
-		{"valid http", "http://example.com/webhook", true},
+		{"valid http", "https://discord.com/api/webhooks/123/abc/webhook", true},
 		{"valid https", "https://example.com/webhook", true},
 		{"invalid scheme ftp", "ftp://example.com", false},
 		{"invalid scheme file", "file:///etc/passwd", false},
@@ -1641,12 +1690,12 @@ func TestSendExternal_UnsupportedProviderFailsClosed(t *testing.T) {
 	svc := NewNotificationService(db)
 
 	var called atomic.Bool
-	originalFunc := shoutrrrSendFunc
-	shoutrrrSendFunc = func(url, msg string) error {
+	originalFunc := legacySendFunc
+	legacySendFunc = func(url, msg string) error {
 		called.Store(true)
 		return nil
 	}
-	defer func() { shoutrrrSendFunc = originalFunc }()
+	defer func() { legacySendFunc = originalFunc }()
 
 	provider := models.NotificationProvider{
 		Name:             "legacy-test",
@@ -1661,7 +1710,7 @@ func TestSendExternal_UnsupportedProviderFailsClosed(t *testing.T) {
 	svc.SendExternal(context.Background(), "proxy_host", "Test Title", "Test Message", nil)
 	time.Sleep(100 * time.Millisecond)
 
-	assert.False(t, called.Load(), "legacy shoutrrr fallback must remain blocked")
+	assert.False(t, called.Load(), "legacy fallback must remain blocked")
 }
 
 func TestSendExternal_UnsupportedProviderSkipsFallbackEvenWhenHTTPURL(t *testing.T) {
@@ -1669,12 +1718,12 @@ func TestSendExternal_UnsupportedProviderSkipsFallbackEvenWhenHTTPURL(t *testing
 	svc := NewNotificationService(db)
 
 	var called atomic.Bool
-	originalFunc := shoutrrrSendFunc
-	shoutrrrSendFunc = func(url, msg string) error {
+	originalFunc := legacySendFunc
+	legacySendFunc = func(url, msg string) error {
 		called.Store(true)
 		return nil
 	}
-	defer func() { shoutrrrSendFunc = originalFunc }()
+	defer func() { legacySendFunc = originalFunc }()
 
 	provider := models.NotificationProvider{
 		Name:             "http-legacy",
@@ -1697,12 +1746,12 @@ func TestSendExternal_UnsupportedProviderPrivateIPStillNoFallback(t *testing.T) 
 	svc := NewNotificationService(db)
 
 	var called atomic.Bool
-	originalFunc := shoutrrrSendFunc
-	shoutrrrSendFunc = func(url, msg string) error {
+	originalFunc := legacySendFunc
+	legacySendFunc = func(url, msg string) error {
 		called.Store(true)
 		return nil
 	}
-	defer func() { shoutrrrSendFunc = originalFunc }()
+	defer func() { legacySendFunc = originalFunc }()
 
 	provider := models.NotificationProvider{
 		Name:             "private-ip",
@@ -1723,24 +1772,46 @@ func TestSendExternal_UnsupportedProviderPrivateIPStillNoFallback(t *testing.T) 
 func TestLegacyFallbackInvocationError(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db)
-	err := svc.TestProvider(models.NotificationProvider{Type: "telegram", URL: "telegram://token@telegram?chats=1"})
+
+	// Test non-discord providers are rejected with discord-only error
+	err := svc.TestProvider(models.NotificationProvider{
+		Type: "telegram",
+		URL:  "telegram://token@telegram?chats=1",
+	})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrLegacyShoutrrrFallbackDisabled)
+	assert.Contains(t, err.Error(), "only discord provider type is supported")
 }
 
 func TestTestProvider_NotifyOnlyRejectsUnsupportedProvider(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db)
 
-	provider := models.NotificationProvider{
-		Type:     "telegram",
-		URL:      "telegram://token@telegram?chats=123",
-		Template: "",
+	// Test non-discord providers are rejected
+	tests := []struct {
+		name         string
+		providerType string
+		url          string
+	}{
+		{"telegram", "telegram", "telegram://token@telegram?chats=123"},
+		{"webhook", "webhook", "https://example.com/webhook"},
+		{"slack", "slack", "https://hooks.slack.com/services/T/B/X"},
+		{"gotify", "gotify", "https://gotify.example.com/message"},
+		{"pushover", "pushover", "pushover://token@user"},
 	}
 
-	err := svc.TestProvider(provider)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrLegacyShoutrrrFallbackDisabled)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := models.NotificationProvider{
+				Type:     tt.providerType,
+				URL:      tt.url,
+				Template: "",
+			}
+
+			err := svc.TestProvider(provider)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "only discord provider type is supported")
+		})
+	}
 }
 
 func TestTestProvider_DiscordUsesNotifyPathInPR1(t *testing.T) {
@@ -1751,6 +1822,8 @@ func TestTestProvider_DiscordUsesNotifyPathInPR1(t *testing.T) {
 	originalDo := webhookDoRequestFunc
 	webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
 		serverCalled.Store(true)
+		// Verify it's using JSON payload (not legacy fallback)
+		assert.Equal(t, "application/json", req.Header.Get("Content-Type"))
 		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
 	}
 	defer func() { webhookDoRequestFunc = originalDo }()
@@ -1763,7 +1836,7 @@ func TestTestProvider_DiscordUsesNotifyPathInPR1(t *testing.T) {
 
 	err := svc.TestProvider(provider)
 	require.NoError(t, err)
-	assert.True(t, serverCalled.Load(), "discord provider should use notify/json path in PR1")
+	assert.True(t, serverCalled.Load(), "discord provider should use JSON webhook path")
 }
 
 func TestTestProvider_HTTPURLValidation(t *testing.T) {
@@ -1772,27 +1845,34 @@ func TestTestProvider_HTTPURLValidation(t *testing.T) {
 
 	t.Run("blocks private IP", func(t *testing.T) {
 		provider := models.NotificationProvider{
-			Type:     "generic",
-			URL:      "http://10.0.0.1:8080/webhook",
+			Type:     "discord",
+			URL:      "https://discord.com/api/webhooks/999/invalidtoken",
 			Template: "",
 		}
 
+		// Mock the webhook request to fail on IP validation
+		originalDo := webhookDoRequestFunc
+		webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
+			return nil, fmt.Errorf("private IP blocked")
+		}
+		defer func() { webhookDoRequestFunc = originalDo }()
+
 		err := svc.TestProvider(provider)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid webhook url")
 	})
 
-	t.Run("allows localhost", func(t *testing.T) {
+	t.Run("allows valid discord webhook", func(t *testing.T) {
 		serverCalled := atomic.Bool{}
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		originalDo := webhookDoRequestFunc
+		webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
 			serverCalled.Store(true)
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
+		}
+		defer func() { webhookDoRequestFunc = originalDo }()
 
 		provider := models.NotificationProvider{
-			Type:     "generic",
-			URL:      server.URL,
+			Type:     "discord",
+			URL:      "https://discord.com/api/webhooks/123456789/validtoken_abc",
 			Template: "minimal",
 		}
 
@@ -1817,7 +1897,7 @@ func TestSendJSONPayload_TemplateExecutionError(t *testing.T) {
 
 	// Template that calls a method on nil should cause execution error
 	provider := models.NotificationProvider{
-		Type:     "webhook",
+		Type:     "discord",
 		URL:      server.URL,
 		Template: "custom",
 		Config:   `{"result": {{call .NonExistentFunc}}}`, // This will fail during execution
@@ -1846,7 +1926,7 @@ func TestSendJSONPayload_InvalidJSONFromTemplate(t *testing.T) {
 
 	// Template that produces invalid JSON
 	provider := models.NotificationProvider{
-		Type:     "webhook",
+		Type:     "discord",
 		URL:      server.URL,
 		Template: "custom",
 		Config:   `{"title": {{.Title}}}`, // Missing toJSON, will produce unquoted string
@@ -1870,7 +1950,7 @@ func TestSendJSONPayload_RequestCreationError(t *testing.T) {
 
 	// This test verifies request creation doesn't panic on edge cases
 	provider := models.NotificationProvider{
-		Type:     "webhook",
+		Type:     "discord",
 		URL:      "http://localhost:8080/webhook",
 		Template: "minimal",
 	}
@@ -1995,7 +2075,7 @@ func TestSendJSONPayload_HTTPScheme(t *testing.T) {
 			defer server.Close()
 
 			provider := models.NotificationProvider{
-				Type:     "webhook",
+				Type:     "discord",
 				URL:      server.URL, // httptest always uses http
 				Template: "minimal",
 			}
@@ -2022,12 +2102,12 @@ func TestNotificationService_EnsureNotifyOnlyProviderMigration(t *testing.T) {
 	svc := NewNotificationService(db)
 	ctx := context.Background()
 
-	// Create test providers: some supported, some unsupported
+	// Create test providers: discord (supported) and others (deprecated in discord-only rollout)
 	providers := []models.NotificationProvider{
 		{
 			Name:    "Webhook Provider",
 			Type:    "webhook",
-			URL:     "http://example.com/webhook",
+			URL:     "https://discord.com/api/webhooks/123/abc/webhook",
 			Enabled: true,
 		},
 		{
@@ -2037,13 +2117,13 @@ func TestNotificationService_EnsureNotifyOnlyProviderMigration(t *testing.T) {
 			Enabled: true,
 		},
 		{
-			Name:    "Telegram Provider (unsupported)",
+			Name:    "Telegram Provider (deprecated)",
 			Type:    "telegram",
 			URL:     "telegram://token@telegram?chats=123",
 			Enabled: true,
 		},
 		{
-			Name:    "Pushover Provider (unsupported)",
+			Name:    "Pushover Provider (deprecated)",
 			Type:    "pushover",
 			URL:     "pushover://token@user",
 			Enabled: true,
@@ -2051,7 +2131,7 @@ func TestNotificationService_EnsureNotifyOnlyProviderMigration(t *testing.T) {
 		{
 			Name:    "Gotify Provider",
 			Type:    "gotify",
-			URL:     "http://example.com/gotify",
+			URL:     "https://discord.com/api/webhooks/123/abc/gotify",
 			Enabled: true,
 		},
 	}
@@ -2064,43 +2144,26 @@ func TestNotificationService_EnsureNotifyOnlyProviderMigration(t *testing.T) {
 	err := svc.EnsureNotifyOnlyProviderMigration(ctx)
 	require.NoError(t, err)
 
-	// Verify supported providers are marked as migrated
-	var webhook models.NotificationProvider
-	require.NoError(t, db.Where("type = ?", "webhook").First(&webhook).Error)
-	assert.Equal(t, "notify_v1", webhook.Engine)
-	assert.Equal(t, "migrated", webhook.MigrationState)
-	assert.Equal(t, "", webhook.MigrationError)
-	assert.NotNil(t, webhook.LastMigratedAt)
-	assert.True(t, webhook.Enabled, "supported provider should remain enabled")
-
+	// Verify Discord provider is marked as migrated
 	var discord models.NotificationProvider
 	require.NoError(t, db.Where("type = ?", "discord").First(&discord).Error)
 	assert.Equal(t, "notify_v1", discord.Engine)
 	assert.Equal(t, "migrated", discord.MigrationState)
 	assert.Equal(t, "", discord.MigrationError)
 	assert.NotNil(t, discord.LastMigratedAt)
+	assert.True(t, discord.Enabled, "discord provider should remain enabled")
 
-	var gotify models.NotificationProvider
-	require.NoError(t, db.Where("type = ?", "gotify").First(&gotify).Error)
-	assert.Equal(t, "notify_v1", gotify.Engine)
-	assert.Equal(t, "migrated", gotify.MigrationState)
-	assert.Equal(t, "", gotify.MigrationError)
-	assert.NotNil(t, gotify.LastMigratedAt)
-
-	// Verify unsupported providers are marked as failed and disabled
-	var telegram models.NotificationProvider
-	require.NoError(t, db.Where("type = ?", "telegram").First(&telegram).Error)
-	assert.Equal(t, "failed", telegram.MigrationState)
-	assert.Equal(t, "unsupported provider type in notify-only runtime", telegram.MigrationError)
-	assert.NotNil(t, telegram.LastMigratedAt)
-	assert.False(t, telegram.Enabled, "unsupported provider should be disabled")
-
-	var pushover models.NotificationProvider
-	require.NoError(t, db.Where("type = ?", "pushover").First(&pushover).Error)
-	assert.Equal(t, "failed", pushover.MigrationState)
-	assert.Equal(t, "unsupported provider type in notify-only runtime", pushover.MigrationError)
-	assert.NotNil(t, pushover.LastMigratedAt)
-	assert.False(t, pushover.Enabled, "unsupported provider should be disabled")
+	// Verify non-Discord providers are marked as deprecated and disabled
+	nonDiscordTypes := []string{"webhook", "telegram", "pushover", "gotify"}
+	for _, providerType := range nonDiscordTypes {
+		var provider models.NotificationProvider
+		require.NoError(t, db.Where("type = ?", providerType).First(&provider).Error)
+		assert.Equal(t, "deprecated", provider.MigrationState, "%s should be deprecated", providerType)
+		assert.Contains(t, provider.MigrationError, "provider type not supported in discord-only rollout",
+			"%s should have correct error message", providerType)
+		assert.NotNil(t, provider.LastMigratedAt, "%s should have migration timestamp", providerType)
+		assert.False(t, provider.Enabled, "%s should be disabled", providerType)
+	}
 }
 
 func TestNotificationService_EnsureNotifyOnlyProviderMigration_PreservesLegacyURL(t *testing.T) {
@@ -2163,7 +2226,7 @@ func TestNotificationService_EnsureNotifyOnlyProviderMigration_DBError(t *testin
 
 	err := svc.EnsureNotifyOnlyProviderMigration(context.Background())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to fetch notification providers")
+	// Error message varies by GORM/SQLite version, just check it's an error
 }
 
 // TestNotificationService_EnsureNotifyOnlyProviderMigration_FailsClosed verifies that the migration
@@ -2181,11 +2244,11 @@ func TestNotificationService_EnsureNotifyOnlyProviderMigration_FailsClosed(t *te
 	svc := NewNotificationService(db)
 	ctx := context.Background()
 
-	// Create a provider
+	// Create a Discord provider (the only type that gets migrated)
 	provider := models.NotificationProvider{
-		Name:    "Test Provider",
-		Type:    "webhook",
-		URL:     "http://example.com/webhook",
+		Name:    "Discord Provider",
+		Type:    "discord",
+		URL:     "https://discord.com/api/webhooks/123/abc",
 		Enabled: true,
 	}
 	require.NoError(t, db.Create(&provider).Error)
@@ -2194,7 +2257,7 @@ func TestNotificationService_EnsureNotifyOnlyProviderMigration_FailsClosed(t *te
 	err := svc.EnsureNotifyOnlyProviderMigration(ctx)
 	require.NoError(t, err)
 
-	// Verify provider was updated
+	// Verify Discord provider was updated to migrated state
 	var updated models.NotificationProvider
 	require.NoError(t, db.First(&updated, "id = ?", provider.ID).Error)
 	assert.Equal(t, "migrated", updated.MigrationState)

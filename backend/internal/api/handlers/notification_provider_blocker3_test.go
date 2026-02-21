@@ -129,7 +129,8 @@ func TestBlocker3_CreateProviderAcceptsDiscordWithSecurityEvents(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, w.Code, "Should accept Discord provider with security events")
 }
 
-// TestBlocker3_CreateProviderAcceptsNonDiscordWithoutSecurityEvents tests that create accepts non-Discord providers without security events.
+// TestBlocker3_CreateProviderAcceptsNonDiscordWithoutSecurityEvents tests that create NOW REJECTS non-Discord providers even without security events.
+// NOTE: This test was updated for Discord-only rollout (current_spec.md) - now globally rejects all non-Discord.
 func TestBlocker3_CreateProviderAcceptsNonDiscordWithoutSecurityEvents(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -171,8 +172,14 @@ func TestBlocker3_CreateProviderAcceptsNonDiscordWithoutSecurityEvents(t *testin
 	// Call Create
 	handler.Create(c)
 
-	// Should accept with 201
-	assert.Equal(t, http.StatusCreated, w.Code, "Should accept non-Discord provider without security events")
+	// Discord-only rollout: Now REJECTS with 400
+	assert.Equal(t, http.StatusBadRequest, w.Code, "Should reject non-Discord provider (Discord-only rollout)")
+
+	// Verify error message
+	var response map[string]interface{}
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Contains(t, response["error"], "discord", "Error should mention Discord")
 }
 
 // TestBlocker3_UpdateProviderRejectsNonDiscordWithSecurityEvents tests that update rejects non-Discord providers with security events.

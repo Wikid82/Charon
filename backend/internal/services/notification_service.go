@@ -51,10 +51,10 @@ func normalizeURL(serviceType, rawURL string) string {
 	return rawURL
 }
 
-var ErrLegacyShoutrrrFallbackDisabled = errors.New("legacy shoutrrr fallback is retired and disabled")
+var ErrLegacyFallbackDisabled = errors.New("legacy fallback is retired and disabled")
 
 func legacyFallbackInvocationError(providerType string) error {
-	return fmt.Errorf("%w: provider type %q is not supported by notify-only runtime", ErrLegacyShoutrrrFallbackDisabled, providerType)
+	return fmt.Errorf("%w: provider type %q is not supported by notify-only runtime", ErrLegacyFallbackDisabled, providerType)
 }
 
 func validateDiscordWebhookURL(rawURL string) error {
@@ -138,7 +138,7 @@ func (s *NotificationService) MarkAllAsRead() error {
 	return s.DB.Model(&models.Notification{}).Where("read = ?", false).Update("read", true).Error
 }
 
-// External Notifications (Shoutrrr & Custom Webhooks)
+// External Notifications (Custom Webhooks)
 
 func (s *NotificationService) SendExternal(ctx context.Context, eventType, title, message string, data map[string]any) {
 	var providers []models.NotificationProvider
@@ -188,7 +188,13 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 		if !shouldSend {
 			continue
 		}
-
+		// Non-dispatch policy for deprecated providers
+		if provider.Type != "discord" {
+			logger.Log().WithField("provider", util.SanitizeForLog(provider.Name)).
+				WithField("type", provider.Type).
+				Warn("Skipping dispatch to deprecated non-discord provider")
+			continue
+		}
 		go func(p models.NotificationProvider) {
 			if !supportsJSONTemplates(p.Type) {
 				err := legacyFallbackInvocationError(p.Type)
@@ -203,10 +209,10 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 	}
 }
 
-// shoutrrrSendFunc is a test hook for outbound sends.
+// legacySendFunc is a test hook for outbound sends.
 // In notify-only mode this path is retired and always fails closed.
-var shoutrrrSendFunc = func(_ string, _ string) error {
-	return ErrLegacyShoutrrrFallbackDisabled
+var legacySendFunc = func(_ string, _ string) error {
+	return ErrLegacyFallbackDisabled
 }
 
 // webhookDoRequestFunc is a test hook for outbound JSON webhook requests.
@@ -214,6 +220,10 @@ var shoutrrrSendFunc = func(_ string, _ string) error {
 var webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
 	return client.Do(req)
 }
+
+// validateDiscordProviderURLFunc is a test hook for Discord webhook URL validation.
+// In tests, you can override this to bypass strict hostname checks for localhost testing.
+var validateDiscordProviderURLFunc = validateDiscordProviderURL
 
 func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.NotificationProvider, data map[string]any) error {
 	// Built-in templates
@@ -253,7 +263,7 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 	// Additionally, we apply `isValidRedirectURL` as a barrier-guard style predicate.
 	// CodeQL recognizes this pattern as a sanitizer for untrusted URL values, while
 	// the real SSRF protection remains `security.ValidateExternalURL`.
-	if err := validateDiscordProviderURL(p.Type, p.URL); err != nil {
+	if err := validateDiscordProviderURLFunc(p.Type, p.URL); err != nil {
 		return err
 	}
 
@@ -401,7 +411,12 @@ func isValidRedirectURL(rawURL string) bool {
 }
 
 func (s *NotificationService) TestProvider(provider models.NotificationProvider) error {
-	if err := validateDiscordProviderURL(provider.Type, provider.URL); err != nil {
+	// Discord-only enforcement for this rollout
+	if provider.Type != "discord" {
+		return fmt.Errorf("only discord provider type is supported in this release")
+	}
+
+	if err := validateDiscordProviderURLFunc(provider.Type, provider.URL); err != nil {
 		return err
 	}
 
@@ -508,7 +523,12 @@ func (s *NotificationService) ListProviders() ([]models.NotificationProvider, er
 }
 
 func (s *NotificationService) CreateProvider(provider *models.NotificationProvider) error {
-	if err := validateDiscordProviderURL(provider.Type, provider.URL); err != nil {
+	// Discord-only enforcement for this rollout
+	if provider.Type != "discord" {
+		return fmt.Errorf("only discord provider type is supported in this release")
+	}
+
+	if err := validateDiscordProviderURLFunc(provider.Type, provider.URL); err != nil {
 		return err
 	}
 
@@ -524,7 +544,28 @@ func (s *NotificationService) CreateProvider(provider *models.NotificationProvid
 }
 
 func (s *NotificationService) UpdateProvider(provider *models.NotificationProvider) error {
-	if err := validateDiscordProviderURL(provider.Type, provider.URL); err != nil {
+	// Fetch existing provider to check type
+	var existing models.NotificationProvider
+	if err := s.DB.Where("id = ?", provider.ID).First(&existing).Error; err != nil {
+		return err
+	}
+
+	// Block type mutation for non-Discord providers
+	if existing.Type != "discord" && provider.Type != existing.Type {
+		return fmt.Errorf("cannot change provider type for deprecated non-discord providers")
+	}
+
+	// Block enable mutation for non-Discord providers
+	if existing.Type != "discord" && provider.Enabled && !existing.Enabled {
+		return fmt.Errorf("cannot enable deprecated non-discord providers")
+	}
+
+	// Discord-only enforcement for type changes
+	if provider.Type != "discord" {
+		return fmt.Errorf("only discord provider type is supported in this release")
+	}
+
+	if err := validateDiscordProviderURLFunc(provider.Type, provider.URL); err != nil {
 		return err
 	}
 
@@ -564,52 +605,84 @@ func (s *NotificationService) DeleteProvider(id string) error {
 }
 
 // EnsureNotifyOnlyProviderMigration reconciles notification_providers rows to terminal state
-// for notify-only runtime. This is invoked once at server boot.
+// for Discord-only rollout. This migration is:
+// - Idempotent: safe to run multiple times
+// - Transactional: all updates succeed or all fail
+// - Audited: logs all mutations with provider details
+//
+// Migration Policy:
+// - Discord providers: marked as "migrated" with engine "notify_v1"
+// - Non-Discord providers: marked as "deprecated" and disabled (non-dispatch, non-enable)
+//
+// Rollback Procedure:
+// To rollback this migration:
+// 1. Restore database from pre-migration backup (see data/backups/)
+// 2. OR manually update providers: UPDATE notification_providers SET migration_state='pending', enabled=true WHERE type != 'discord'
+// 3. Restart application with previous version
+//
+// This is invoked once at server boot.
 func (s *NotificationService) EnsureNotifyOnlyProviderMigration(ctx context.Context) error {
-	var providers []models.NotificationProvider
-	if err := s.DB.WithContext(ctx).Find(&providers).Error; err != nil {
-		return fmt.Errorf("failed to fetch notification providers for migration: %w", err)
-	}
+	// Begin transaction for atomicity
+	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var providers []models.NotificationProvider
+		if err := tx.Find(&providers).Error; err != nil {
+			return fmt.Errorf("failed to fetch notification providers for migration: %w", err)
+		}
 
-	now := time.Now()
-	for _, provider := range providers {
-		var updates map[string]any
+		// Pre-migration audit log
+		logger.Log().WithField("provider_count", len(providers)).
+			Info("Starting Discord-only provider migration")
 
-		if supportsJSONTemplates(provider.Type) {
-			// Supported provider: mark as migrated
-			updates = map[string]any{
-				"engine":           "notify_v1",
-				"migration_state":  "migrated",
-				"migration_error":  "",
-				"last_migrated_at": now,
+		now := time.Now()
+		for _, provider := range providers {
+			// Skip if already in terminal state (idempotency)
+			if provider.MigrationState == "migrated" || provider.MigrationState == "deprecated" {
+				continue
 			}
-		} else {
-			// Unsupported provider: mark as failed and disable
-			updates = map[string]any{
-				"migration_state":  "failed",
-				"migration_error":  "unsupported provider type in notify-only runtime",
-				"enabled":          false,
-				"last_migrated_at": now,
+
+			var updates map[string]any
+
+			if provider.Type == "discord" {
+				// Discord provider: mark as migrated
+				updates = map[string]any{
+					"engine":           "notify_v1",
+					"migration_state":  "migrated",
+					"migration_error":  "",
+					"last_migrated_at": now,
+				}
+			} else {
+				// Non-Discord provider: mark as deprecated and disable
+				updates = map[string]any{
+					"migration_state":  "deprecated",
+					"migration_error":  "provider type not supported in discord-only rollout; delete and recreate as discord provider",
+					"enabled":          false,
+					"last_migrated_at": now,
+				}
 			}
+
+			// Preserve legacy_url if URL is being set but legacy_url is empty (audit field)
+			if provider.LegacyURL == "" && provider.URL != "" {
+				updates["legacy_url"] = provider.URL
+			}
+
+			if err := tx.Model(&models.NotificationProvider{}).
+				Where("id = ?", provider.ID).
+				Updates(updates).Error; err != nil {
+				return fmt.Errorf("failed to migrate notification provider (id=%s, name=%q, type=%q): %w",
+					provider.ID, util.SanitizeForLog(provider.Name), provider.Type, err)
+			}
+
+			// Audit log for each mutated row
+			logger.Log().WithField("provider_id", provider.ID).
+				WithField("provider_name", util.SanitizeForLog(provider.Name)).
+				WithField("provider_type", provider.Type).
+				WithField("migration_state", updates["migration_state"]).
+				WithField("enabled", updates["enabled"]).
+				WithField("migration_timestamp", now.Format(time.RFC3339)).
+				Info("Migrated notification provider")
 		}
 
-		// Preserve legacy_url if URL is being set but legacy_url is empty
-		if provider.LegacyURL == "" && provider.URL != "" {
-			updates["legacy_url"] = provider.URL
-		}
-
-		if err := s.DB.WithContext(ctx).Model(&models.NotificationProvider{}).
-			Where("id = ?", provider.ID).
-			Updates(updates).Error; err != nil {
-			return fmt.Errorf("failed to migrate notification provider (id=%s, name=%q, type=%q): %w",
-				provider.ID, util.SanitizeForLog(provider.Name), provider.Type, err)
-		}
-
-		logger.Log().WithField("provider_id", provider.ID).
-			WithField("provider_type", provider.Type).
-			WithField("migration_state", updates["migration_state"]).
-			Info("Migrated notification provider")
-	}
-
-	return nil
+		logger.Log().Info("Discord-only provider migration completed successfully")
+		return nil
+	})
 }
