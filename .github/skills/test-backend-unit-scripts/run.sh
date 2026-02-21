@@ -24,6 +24,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 # Validate environment
 log_step "ENVIRONMENT" "Validating prerequisites"
 validate_go_environment "1.23" || error_exit "Go 1.23+ is required"
+ensure_charon_encryption_key || error_exit "Failed to provision CHARON_ENCRYPTION_KEY for backend tests"
 
 # Validate project structure
 log_step "VALIDATION" "Checking project structure"
