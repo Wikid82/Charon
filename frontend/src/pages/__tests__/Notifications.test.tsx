@@ -145,6 +145,28 @@ describe('Notifications', () => {
 
     expect(options).toHaveLength(1)
     expect(options[0].value).toBe('discord')
+    expect(typeSelect.disabled).toBe(true)
+  })
+
+  it('normalizes stale non-discord type to discord on submit', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+    await user.type(screen.getByTestId('provider-name'), 'Normalized Provider')
+    await user.type(screen.getByTestId('provider-url'), 'https://example.com/webhook')
+
+    const typeSelect = screen.getByTestId('provider-type') as HTMLSelectElement
+    expect(typeSelect.value).toBe('discord')
+
+    await user.click(screen.getByTestId('provider-save-btn'))
+
+    await waitFor(() => {
+      expect(notificationsApi.createProvider).toHaveBeenCalled()
+    })
+
+    const payload = vi.mocked(notificationsApi.createProvider).mock.calls[0][0]
+    expect(payload.type).toBe('discord')
   })
 
   it('shows and hides the update indicator after save', async () => {
@@ -344,7 +366,7 @@ describe('Notifications', () => {
     confirmSpy.mockRestore()
   })
 
-  it('renders non-discord providers as deprecated read-only rows', async () => {
+  it('renders non-discord providers with explicit deprecated and non-dispatch messaging', async () => {
     const legacyProvider: NotificationProvider = {
       ...baseProvider,
       id: 'legacy-provider',
@@ -358,9 +380,9 @@ describe('Notifications', () => {
     renderWithQueryClient(<Notifications />)
 
     const legacyRow = await screen.findByTestId('provider-row-legacy-provider')
-    expect(await screen.findByTestId('provider-deprecated-badge-legacy-provider')).toBeInTheDocument()
-    expect(screen.getByTestId('provider-nondispatch-badge-legacy-provider')).toBeInTheDocument()
-    expect(screen.getByTestId('provider-deprecated-message-legacy-provider')).toBeInTheDocument()
     expect(within(legacyRow).getAllByRole('button')).toHaveLength(1)
+    expect(screen.getByTestId('provider-deprecated-status-legacy-provider')).toHaveTextContent('notificationProviders.deprecatedReadOnly')
+    expect(screen.getByTestId('provider-nondispatch-status-legacy-provider')).toHaveTextContent('notificationProviders.nonDispatch')
+    expect(screen.getByTestId('provider-deprecated-message-legacy-provider')).toHaveTextContent('notificationProviders.deprecatedProviderMessage')
   })
 })

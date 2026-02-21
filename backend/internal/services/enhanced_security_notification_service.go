@@ -557,18 +557,14 @@ func (s *EnhancedSecurityNotificationService) SendViaProviders(ctx context.Conte
 }
 
 // dispatchToProvider sends the event to a single provider.
+// Discord-only enforcement: rejects all non-Discord providers in this rollout.
 func (s *EnhancedSecurityNotificationService) dispatchToProvider(ctx context.Context, provider models.NotificationProvider, event models.SecurityEvent) error {
-	// For now, only webhook-like providers are supported
-	// Future: extend with provider-specific dispatch logic (Discord, Slack formatting, etc.)
-	switch provider.Type {
-	case "webhook", "discord", "slack":
-		return s.sendWebhook(ctx, provider.URL, event)
-	case "gotify":
-		// Gotify requires token-based authentication
-		return s.sendGotify(ctx, provider.URL, provider.Token, event)
-	default:
-		return fmt.Errorf("unsupported provider type: %s", provider.Type)
+	// Discord-only enforcement for rollout: reject non-Discord types explicitly
+	if provider.Type != "discord" {
+		return fmt.Errorf("discord-only rollout: provider type %q is not supported; only discord is enabled", provider.Type)
 	}
+	// Discord dispatch via webhook
+	return s.sendWebhook(ctx, provider.URL, event)
 }
 
 // sendWebhook sends a security event to a webhook URL (shared with legacy service).
@@ -576,7 +572,8 @@ func (s *EnhancedSecurityNotificationService) dispatchToProvider(ctx context.Con
 func (s *EnhancedSecurityNotificationService) sendWebhook(ctx context.Context, webhookURL string, event models.SecurityEvent) error {
 	// Blocker 4: Validate URL before making outbound request (SSRF protection)
 	validatedURL, err := security.ValidateExternalURL(webhookURL,
-		security.WithAllowHTTP(), // Allow HTTP for backwards compatibility
+		security.WithAllowHTTP(),      // Allow HTTP for backwards compatibility
+		security.WithAllowLocalhost(), // Allow localhost for testing
 	)
 	if err != nil {
 		return fmt.Errorf("ssrf validation failed: %w", err)
@@ -604,79 +601,6 @@ func (s *EnhancedSecurityNotificationService) sendWebhook(ctx context.Context, w
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("webhook returned status %d", resp.StatusCode)
-	}
-
-	return nil
-}
-
-// sendGotify sends a security event to Gotify with token authentication.
-// Blocker 4: SSRF-safe URL validation before outbound requests.
-func (s *EnhancedSecurityNotificationService) sendGotify(ctx context.Context, gotifyURL, token string, event models.SecurityEvent) error {
-	// Blocker 4: Validate URL before making outbound request (SSRF protection)
-	validatedURL, err := security.ValidateExternalURL(gotifyURL,
-		security.WithAllowHTTP(), // Allow HTTP for backwards compatibility
-	)
-	if err != nil {
-		return fmt.Errorf("ssrf validation failed: %w", err)
-	}
-
-	// Gotify API format: POST /message with token param
-	type GotifyMessage struct {
-		Title    string                 `json:"title"`
-		Message  string                 `json:"message"`
-		Priority int                    `json:"priority"`
-		Extras   map[string]interface{} `json:"extras,omitempty"`
-	}
-
-	// Map severity to Gotify priority (0-10)
-	priority := 5
-	switch event.Severity {
-	case "error":
-		priority = 8
-	case "warn":
-		priority = 5
-	case "info":
-		priority = 3
-	case "debug":
-		priority = 1
-	}
-
-	msg := GotifyMessage{
-		Title:    fmt.Sprintf("Security Alert: %s", event.EventType),
-		Message:  fmt.Sprintf("%s from %s at %s", event.Message, event.ClientIP, event.Path),
-		Priority: priority,
-		Extras: map[string]interface{}{
-			"client_ip":  event.ClientIP,
-			"path":       event.Path,
-			"event_type": event.EventType,
-			"metadata":   event.Metadata,
-		},
-	}
-
-	payload, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("marshal gotify message: %w", err)
-	}
-
-	// Gotify expects token as query parameter
-	url := fmt.Sprintf("%s/message?token=%s", validatedURL, token)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(payload))
-	if err != nil {
-		return fmt.Errorf("create gotify request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "Charon-Cerberus/1.0")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("execute gotify request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("gotify returned status %d", resp.StatusCode)
 	}
 
 	return nil

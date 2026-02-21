@@ -36,13 +36,13 @@ var defaultFlags = []string{
 }
 
 var defaultFlagValues = map[string]bool{
-	"feature.cerberus.enabled":                          false, // Cerberus OFF by default (per diagnostic fix)
-	"feature.uptime.enabled":                            true,  // Uptime enabled by default
-	"feature.crowdsec.console_enrollment":               false,
-	"feature.notifications.engine.notify_v1.enabled":    false,
-	"feature.notifications.service.discord.enabled":     false,
-	"feature.notifications.service.gotify.enabled":      false,
-	"feature.notifications.legacy.fallback_enabled":     false,
+	"feature.cerberus.enabled":                               false, // Cerberus OFF by default (per diagnostic fix)
+	"feature.uptime.enabled":                                 true,  // Uptime enabled by default
+	"feature.crowdsec.console_enrollment":                    false,
+	"feature.notifications.engine.notify_v1.enabled":         false,
+	"feature.notifications.service.discord.enabled":          false,
+	"feature.notifications.service.gotify.enabled":           false,
+	"feature.notifications.legacy.fallback_enabled":          false,
 	"feature.notifications.security_provider_events.enabled": false, // Blocker 3: Default disabled for this stage
 }
 
@@ -179,7 +179,10 @@ func (h *FeatureFlagsHandler) UpdateFlags(c *gin.Context) {
 	}
 
 	if v, exists := payload["feature.notifications.legacy.fallback_enabled"]; exists && v {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "feature.notifications.legacy.fallback_enabled is retired and can only be false"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "feature.notifications.legacy.fallback_enabled is retired and can only be false",
+			"code":  "LEGACY_FALLBACK_REMOVED",
+		})
 		return
 	}
 

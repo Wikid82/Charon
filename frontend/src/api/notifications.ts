@@ -32,6 +32,12 @@ const withDiscordType = (data: Partial<NotificationProvider>): Partial<Notificat
   return { ...data, type: DISCORD_PROVIDER_TYPE };
 };
 
+const assertDiscordOnlyInput = (data: Partial<NotificationProvider>): void => {
+  if (typeof data.type === 'string' && data.type.toLowerCase() !== DISCORD_PROVIDER_TYPE) {
+    throw new Error('Only discord notification providers are supported');
+  }
+};
+
 /**
  * Fetches all notification providers.
  * @returns Promise resolving to array of NotificationProvider objects
@@ -49,6 +55,7 @@ export const getProviders = async () => {
  * @throws {AxiosError} If creation fails
  */
 export const createProvider = async (data: Partial<NotificationProvider>) => {
+  assertDiscordOnlyInput(data);
   const response = await client.post<NotificationProvider>('/notifications/providers', withDiscordType(data));
   return response.data;
 };
@@ -61,6 +68,7 @@ export const createProvider = async (data: Partial<NotificationProvider>) => {
  * @throws {AxiosError} If update fails or provider not found
  */
 export const updateProvider = async (id: string, data: Partial<NotificationProvider>) => {
+  assertDiscordOnlyInput(data);
   const response = await client.put<NotificationProvider>(`/notifications/providers/${id}`, withDiscordType(data));
   return response.data;
 };
@@ -80,6 +88,7 @@ export const deleteProvider = async (id: string) => {
  * @throws {AxiosError} If test fails
  */
 export const testProvider = async (provider: Partial<NotificationProvider>) => {
+  assertDiscordOnlyInput(provider);
   await client.post('/notifications/providers/test', withDiscordType(provider));
 };
 
@@ -107,6 +116,7 @@ export interface NotificationTemplate {
  * @throws {AxiosError} If preview fails
  */
 export const previewProvider = async (provider: Partial<NotificationProvider>, data?: Record<string, unknown>) => {
+  assertDiscordOnlyInput(provider);
   const payload: Record<string, unknown> = withDiscordType(provider) as Record<string, unknown>;
   if (data) payload.data = data;
   const response = await client.post('/notifications/providers/preview', payload);

@@ -30,11 +30,13 @@ func TestRouter_ShouldUseLegacyFallback(t *testing.T) {
 		t.Fatalf("expected fallback disabled by default")
 	}
 
-	if router.ShouldUseLegacyFallback(map[string]bool{FlagLegacyFallbackEnabled: false}) {
+	// Note: FlagLegacyFallbackEnabled constant has been removed as part of hard-disable
+	// Using string literal for test completeness
+	if router.ShouldUseLegacyFallback(map[string]bool{"feature.notifications.legacy.fallback_enabled": false}) {
 		t.Fatalf("expected fallback disabled when flag is false")
 	}
 
-	if router.ShouldUseLegacyFallback(map[string]bool{FlagLegacyFallbackEnabled: true}) {
-		t.Fatalf("expected fallback disabled even when flag is true")
+	if router.ShouldUseLegacyFallback(map[string]bool{"feature.notifications.legacy.fallback_enabled": true}) {
+		t.Fatalf("expected fallback disabled even when flag is true (hard-disabled)")
 	}
 }
