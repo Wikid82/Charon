@@ -90,6 +90,11 @@ func TestSendJSONPayload_UsesStoredHostnameURLWithoutHostMutation(t *testing.T) 
 
 	svc := NewNotificationService(db)
 
+	// Mock Discord validation to allow test server URLs
+	origValidateDiscordFunc := validateDiscordProviderURLFunc
+	defer func() { validateDiscordProviderURLFunc = origValidateDiscordFunc }()
+	validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
+
 	var observedURLHost string
 	var observedRequestHost string
 	originalDo := webhookDoRequestFunc
@@ -244,6 +249,11 @@ func TestSendJSONPayload_TemplateTimeout(t *testing.T) {
 	require.NoError(t, err)
 
 	svc := NewNotificationService(db)
+
+	// Mock Discord validation to allow private IP check to run
+	origValidateDiscordFunc := validateDiscordProviderURLFunc
+	defer func() { validateDiscordProviderURLFunc = origValidateDiscordFunc }()
+	validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
 
 	// Create a template that would take too long to execute
 	// This is simulated by having a large number of iterations

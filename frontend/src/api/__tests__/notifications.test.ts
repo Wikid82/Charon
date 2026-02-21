@@ -28,7 +28,7 @@ vi.mock('../client', () => ({
 
 describe('notifications api', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
   it('crud for providers uses correct endpoints', async () => {
@@ -40,17 +40,21 @@ describe('notifications api', () => {
     expect(providers[0].id).toBe('1')
     expect(client.get).toHaveBeenCalledWith('/notifications/providers')
 
-    await createProvider({ name: 'x', type: 'slack' })
+    await createProvider({ name: 'x', type: 'discord' })
     expect(client.post).toHaveBeenCalledWith('/notifications/providers', { name: 'x', type: 'discord' })
 
-    await updateProvider('2', { name: 'updated', type: 'generic' })
+    await updateProvider('2', { name: 'updated', type: 'discord' })
     expect(client.put).toHaveBeenCalledWith('/notifications/providers/2', { name: 'updated', type: 'discord' })
 
     await deleteProvider('2')
     expect(client.delete).toHaveBeenCalledWith('/notifications/providers/2')
 
-    await testProvider({ id: '2', name: 'test', type: 'telegram' })
+    await testProvider({ id: '2', name: 'test', type: 'discord' })
     expect(client.post).toHaveBeenCalledWith('/notifications/providers/test', { id: '2', name: 'test', type: 'discord' })
+
+    await expect(createProvider({ name: 'x', type: 'slack' })).rejects.toThrow('Only discord notification providers are supported')
+    await expect(updateProvider('2', { name: 'updated', type: 'generic' })).rejects.toThrow('Only discord notification providers are supported')
+    await expect(testProvider({ id: '2', name: 'test', type: 'telegram' })).rejects.toThrow('Only discord notification providers are supported')
   })
 
   it('templates and previews use merged payloads', async () => {
@@ -60,9 +64,11 @@ describe('notifications api', () => {
     expect(client.get).toHaveBeenCalledWith('/notifications/templates')
 
     vi.mocked(client.post).mockResolvedValueOnce({ data: { preview: 'ok' } })
-    const preview = await previewProvider({ name: 'provider', type: 'webhook' }, { user: 'alice' })
+    const preview = await previewProvider({ name: 'provider', type: 'discord' }, { user: 'alice' })
     expect(preview).toEqual({ preview: 'ok' })
     expect(client.post).toHaveBeenCalledWith('/notifications/providers/preview', { name: 'provider', type: 'discord', data: { user: 'alice' } })
+
+    await expect(previewProvider({ name: 'provider', type: 'webhook' }, { user: 'alice' })).rejects.toThrow('Only discord notification providers are supported')
   })
 
   it('external template endpoints shape payloads', async () => {
@@ -82,9 +88,9 @@ describe('notifications api', () => {
     await deleteExternalTemplate('ext')
     expect(client.delete).toHaveBeenCalledWith('/notifications/external-templates/ext')
 
-    vi.mocked(client.post).mockResolvedValueOnce({ data: { rendered: true } })
+    vi.mocked(client.post).mockResolvedValueOnce({ data: { id: 'ext2' } })
     const result = await previewExternalTemplate('ext', 'tpl', { id: 1 })
-    expect(result).toEqual({ rendered: true })
+    expect(result).toEqual({ id: 'ext2' })
     expect(client.post).toHaveBeenCalledWith('/notifications/external-templates/preview', { template_id: 'ext', template: 'tpl', data: { id: 1 } })
   })
 

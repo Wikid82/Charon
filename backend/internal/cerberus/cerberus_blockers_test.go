@@ -266,6 +266,64 @@ func TestBlocker2_DispatchWhenFlagTrue(t *testing.T) {
 	_ = err // Ignore network errors for this test
 }
 
+// TestNotifySecurityEvent_Disabled covers lines 264-265
+func TestNotifySecurityEvent_Disabled(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	assert.NoError(t, err)
+
+	err = db.AutoMigrate(&models.Setting{}, &models.NotificationProvider{})
+	assert.NoError(t, err)
+
+	// Create Cerberus instance with disabled security
+	cfg := config.SecurityConfig{
+		CerberusEnabled: false,
+	}
+	cerberus := New(cfg, db)
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request, _ = http.NewRequest("POST", "/test", nil)
+
+	event := models.SecurityEvent{
+		EventType: "waf_block",
+		Severity:  "warn",
+		Message:   "Test",
+		ClientIP:  "192.168.1.1",
+		Path:      "/test",
+		Timestamp: time.Now(),
+	}
+
+	// Should return nil when disabled (lines 264-265)
+	err = cerberus.NotifySecurityEvent(ctx, event)
+	assert.NoError(t, err)
+}
+
+// TestSendSecurityNotification_FlagCheckError covers lines 315-316
+func TestSendSecurityNotification_FlagCheckError(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	assert.NoError(t, err)
+
+	// Don't run migrations - will cause DB error when checking flag
+	cfg := config.SecurityConfig{
+		CerberusEnabled: true,
+	}
+	cerberus := New(cfg, db)
+
+	event := models.SecurityEvent{
+		EventType: "acl_deny",
+		Severity:  "warn",
+		Message:   "Test",
+		ClientIP:  "192.168.1.1",
+		Path:      "/test",
+		Timestamp: time.Now(),
+	}
+
+	// Should handle DB error gracefully (lines 315-316)
+	err = cerberus.sendSecurityNotification(context.Background(), event)
+	assert.NoError(t, err) // Should not error, just skip notification
+}
+
 // TestBlocker2_ACLDenyNotificationInMiddleware tests ACL deny notification in actual middleware flow.
 func TestBlocker2_ACLDenyNotificationInMiddleware(t *testing.T) {
 	// Setup test database

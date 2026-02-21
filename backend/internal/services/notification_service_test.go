@@ -1006,14 +1006,20 @@ func TestSendCustomWebhook_HTTPStatusCodeErrors(t *testing.T) {
 
 	for _, statusCode := range errorCodes {
 		t.Run(fmt.Sprintf("status_%d", statusCode), func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(statusCode)
-			}))
-			defer server.Close()
+			// Mock webhook HTTP client to return error status
+			originalDo := webhookDoRequestFunc
+			defer func() { webhookDoRequestFunc = originalDo }()
+			webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: statusCode,
+					Body:       http.NoBody,
+					Header:     make(http.Header),
+				}, nil
+			}
 
 			provider := models.NotificationProvider{
 				Type:     "discord",
-				URL:      server.URL,
+				URL:      "https://discord.com/api/webhooks/123456/test_token",
 				Template: "minimal",
 			}
 
@@ -1055,8 +1061,8 @@ func TestSendCustomWebhook_TemplateSelection(t *testing.T) {
 		{
 			name:         "custom template",
 			template:     "custom",
-			config:       `{"custom_key": "custom_value", "title": {{toJSON .Title}}}`,
-			expectedKeys: []string{"custom_key", "title"},
+			config:       `{"custom_key": "custom_value", "content": {{toJSON .Title}}}`,
+			expectedKeys: []string{"custom_key", "content"},
 		},
 		{
 			name:         "empty template defaults to minimal",
@@ -1073,16 +1079,23 @@ func TestSendCustomWebhook_TemplateSelection(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var receivedBody map[string]any
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				body, _ := io.ReadAll(r.Body)
+
+			// Mock webhook HTTP client to capture request
+			originalDo := webhookDoRequestFunc
+			defer func() { webhookDoRequestFunc = originalDo }()
+			webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
+				body, _ := io.ReadAll(req.Body)
 				_ = json.Unmarshal(body, &receivedBody)
-				w.WriteHeader(http.StatusOK)
-			}))
-			defer server.Close()
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       http.NoBody,
+					Header:     make(http.Header),
+				}, nil
+			}
 
 			provider := models.NotificationProvider{
 				Type:     "discord",
-				URL:      server.URL,
+				URL:      "https://discord.com/api/webhooks/123456/test_token",
 				Template: tt.template,
 				Config:   tt.config,
 			}
@@ -1117,16 +1130,23 @@ func TestSendCustomWebhook_EmptyCustomTemplateDefaultsToMinimal(t *testing.T) {
 	svc := NewNotificationService(db)
 
 	var receivedBody map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
+
+	// Mock webhook HTTP client
+	originalDo := webhookDoRequestFunc
+	defer func() { webhookDoRequestFunc = originalDo }()
+	webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(req.Body)
 		_ = json.Unmarshal(body, &receivedBody)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       http.NoBody,
+			Header:     make(http.Header),
+		}, nil
+	}
 
 	provider := models.NotificationProvider{
 		Type:     "discord",
-		URL:      server.URL,
+		URL:      "https://discord.com/api/webhooks/123456/test_token",
 		Template: "custom",
 		Config:   "", // Empty config should default to minimal
 	}
@@ -1153,7 +1173,7 @@ func TestCreateProvider_EmptyCustomTemplateAllowed(t *testing.T) {
 	provider := &models.NotificationProvider{
 		Name:     "empty-template",
 		Type:     "discord",
-		URL:      "http://localhost:8080/webhook",
+		URL:      "https://discord.com/api/webhooks/123456/test_token",
 		Template: "custom",
 		Config:   "", // Empty should be allowed and default to minimal
 	}
@@ -1170,7 +1190,7 @@ func TestUpdateProvider_NonCustomTemplateSkipsValidation(t *testing.T) {
 	provider := &models.NotificationProvider{
 		Name:     "test",
 		Type:     "discord",
-		URL:      "http://localhost:8080",
+		URL:      "https://discord.com/api/webhooks/123456/test_token",
 		Template: "minimal",
 	}
 	require.NoError(t, db.Create(provider).Error)
@@ -1299,7 +1319,7 @@ func TestCreateProvider_ValidCustomTemplate(t *testing.T) {
 	provider := &models.NotificationProvider{
 		Name:     "valid-custom",
 		Type:     "discord",
-		URL:      "http://localhost:8080/webhook",
+		URL:      "https://discord.com/api/webhooks/123456/test_token",
 		Template: "custom",
 		Config:   `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}, "custom_field": "value"}`,
 	}
@@ -1316,7 +1336,7 @@ func TestUpdateProvider_ValidCustomTemplate(t *testing.T) {
 	provider := &models.NotificationProvider{
 		Name:     "test",
 		Type:     "discord",
-		URL:      "http://localhost:8080",
+		URL:      "https://discord.com/api/webhooks/123456/test_token",
 		Template: "minimal",
 	}
 	require.NoError(t, db.Create(provider).Error)
@@ -1926,7 +1946,7 @@ func TestSendJSONPayload_InvalidJSONFromTemplate(t *testing.T) {
 
 	// Template that produces invalid JSON
 	provider := models.NotificationProvider{
-		Type:     "discord",
+		Type:     "webhook",
 		URL:      server.URL,
 		Template: "custom",
 		Config:   `{"title": {{.Title}}}`, // Missing toJSON, will produce unquoted string
@@ -2075,7 +2095,7 @@ func TestSendJSONPayload_HTTPScheme(t *testing.T) {
 			defer server.Close()
 
 			provider := models.NotificationProvider{
-				Type:     "discord",
+				Type:     "webhook",
 				URL:      server.URL, // httptest always uses http
 				Template: "minimal",
 			}

@@ -35,9 +35,9 @@ func TestExtractPort(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"http url default", "https://discord.com/api/webhooks/123/abc", "80"},
+		{"http url default", "http://discord.com/api/webhooks/123/abc", "80"},
 		{"https url default", "https://example.com", "443"},
-		{"http with port", "https://discord.com/api/webhooks/123/abc:8080", "8080"},
+		{"http with port", "http://discord.com/api/webhooks/123/abc:8080", "8080"},
 		{"https with port", "https://example.com:8443", "8443"},
 		{"host:port", "example.com:3000", "3000"},
 		{"plain host", "example.com", ""},
