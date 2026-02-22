@@ -342,3 +342,27 @@ func TestProxyHostService_ValidateProxyHost_DNSChallenge(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "dns provider is required")
 }
+
+func TestProxyHostService_ValidateHostname_StripsPath(t *testing.T) {
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+
+	err := service.ValidateHostname("backend.internal/api/v1")
+	assert.NoError(t, err)
+}
+
+func TestProxyHostService_ValidateProxyHost_ParseFallbackAndPathTrim(t *testing.T) {
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+
+	host := &models.ProxyHost{
+		UUID:        uuid.New().String(),
+		DomainNames: "fallback-path.example.com",
+		ForwardHost: "https://bad host/path",
+		ForwardPort: 8080,
+	}
+
+	err := service.Create(host)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "forward host must be a valid IP address or hostname")
+}
