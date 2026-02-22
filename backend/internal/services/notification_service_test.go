@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1800,6 +1802,160 @@ func TestLegacyFallbackInvocationError(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only discord provider type is supported")
+}
+
+func TestLegacyFallbackInvocationError_DirectHelperAndHook(t *testing.T) {
+	err := legacyFallbackInvocationError("telegram")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "legacy fallback is retired and disabled")
+	assert.Contains(t, err.Error(), "provider type \"telegram\"")
+
+	hookErr := legacySendFunc("ignored", "ignored")
+	require.Error(t, hookErr)
+	assert.ErrorIs(t, hookErr, ErrLegacyFallbackDisabled)
+}
+
+func TestNotificationService_SendExternal_SecurityEventRouting(t *testing.T) {
+	eventCases := []struct {
+		name      string
+		eventType string
+		apply     func(p *models.NotificationProvider)
+	}{
+		{
+			name:      "security_waf",
+			eventType: "security_waf",
+			apply: func(p *models.NotificationProvider) {
+				p.NotifySecurityWAFBlocks = true
+			},
+		},
+		{
+			name:      "security_acl",
+			eventType: "security_acl",
+			apply: func(p *models.NotificationProvider) {
+				p.NotifySecurityACLDenies = true
+			},
+		},
+		{
+			name:      "security_rate_limit",
+			eventType: "security_rate_limit",
+			apply: func(p *models.NotificationProvider) {
+				p.NotifySecurityRateLimitHits = true
+			},
+		},
+		{
+			name:      "security_crowdsec",
+			eventType: "security_crowdsec",
+			apply: func(p *models.NotificationProvider) {
+				p.NotifySecurityCrowdSecDecisions = true
+			},
+		},
+	}
+
+	for _, tc := range eventCases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupNotificationTestDB(t)
+			svc := NewNotificationService(db)
+
+			origValidate := validateDiscordProviderURLFunc
+			defer func() { validateDiscordProviderURLFunc = origValidate }()
+			validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
+
+			received := make(chan struct{}, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				received <- struct{}{}
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer server.Close()
+
+			provider := models.NotificationProvider{
+				Name:     "discord-security",
+				Type:     "discord",
+				URL:      server.URL,
+				Enabled:  true,
+				Template: "minimal",
+			}
+			tc.apply(&provider)
+			require.NoError(t, db.Create(&provider).Error)
+
+			svc.SendExternal(context.Background(), tc.eventType, "Security Title", "Security Message", nil)
+
+			select {
+			case <-received:
+			case <-time.After(1 * time.Second):
+				t.Fatalf("expected dispatch for event type %s", tc.eventType)
+			}
+		})
+	}
+}
+
+func TestNotificationService_UpdateProvider_ReturnsErrorWhenProviderMissing(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	err := svc.UpdateProvider(&models.NotificationProvider{
+		ID:   "missing-id",
+		Type: "discord",
+		URL:  "https://discord.com/api/webhooks/123/token",
+	})
+	require.Error(t, err)
+}
+
+func TestNotificationService_EnsureNotifyOnlyProviderMigration_QueryProvidersError(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	err = svc.EnsureNotifyOnlyProviderMigration(context.Background())
+	require.Error(t, err)
+}
+
+func TestNotificationService_EnsureNotifyOnlyProviderMigration_UpdateError(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "migration_update_error.db")
+
+	rwDB, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, rwDB.AutoMigrate(&models.NotificationProvider{}))
+	require.NoError(t, rwDB.Create(&models.NotificationProvider{
+		ID:             "provider-to-update",
+		Name:           "Legacy Webhook",
+		Type:           "webhook",
+		URL:            "https://example.com/webhook",
+		Enabled:        true,
+		MigrationState: "pending",
+	}).Error)
+
+	rwSQLDB, err := rwDB.DB()
+	require.NoError(t, err)
+	require.NoError(t, rwSQLDB.Close())
+
+	roDSN := fmt.Sprintf("file:%s?mode=ro", dbPath)
+	roDB, err := gorm.Open(sqlite.Open(roDSN), &gorm.Config{})
+	require.NoError(t, err)
+
+	svc := NewNotificationService(roDB)
+	err = svc.EnsureNotifyOnlyProviderMigration(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to migrate notification provider")
+
+	roSQLDB, sqlErr := roDB.DB()
+	if sqlErr == nil {
+		_ = roSQLDB.Close()
+	}
+	_ = os.Remove(dbPath)
+}
+
+func TestNotificationService_EnsureNotifyOnlyProviderMigration_WrapsFindError(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	// Intentionally do not migrate notification_providers table.
+
+	svc := NewNotificationService(db)
+	err = svc.EnsureNotifyOnlyProviderMigration(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to fetch notification providers for migration")
 }
 
 func TestTestProvider_NotifyOnlyRejectsUnsupportedProvider(t *testing.T) {

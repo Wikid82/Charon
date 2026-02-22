@@ -11,10 +11,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Helper scripts are in .github/skills/scripts/
 SKILLS_SCRIPTS_DIR="$(cd "${SCRIPT_DIR}/../scripts" && pwd)"
 
+# shellcheck disable=SC1091
 # shellcheck source=../scripts/_logging_helpers.sh
 source "${SKILLS_SCRIPTS_DIR}/_logging_helpers.sh"
+# shellcheck disable=SC1091
 # shellcheck source=../scripts/_error_handling_helpers.sh
 source "${SKILLS_SCRIPTS_DIR}/_error_handling_helpers.sh"
+# shellcheck disable=SC1091
 # shellcheck source=../scripts/_environment_helpers.sh
 source "${SKILLS_SCRIPTS_DIR}/_environment_helpers.sh"
 
