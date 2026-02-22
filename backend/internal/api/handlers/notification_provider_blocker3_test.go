@@ -359,3 +359,53 @@ func TestBlocker3_MultipleSecurityEventsEnforcesDiscordOnly(t *testing.T) {
 		})
 	}
 }
+
+// TestBlocker3_UpdateProvider_DatabaseError tests database error handling when fetching existing provider (lines 137-139).
+func TestBlocker3_UpdateProvider_DatabaseError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Setup test database
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	assert.NoError(t, err)
+
+	// Run migrations
+	err = db.AutoMigrate(&models.NotificationProvider{}, &models.Notification{})
+	assert.NoError(t, err)
+
+	// Create handler
+	service := services.NewNotificationService(db)
+	handler := NewNotificationProviderHandler(service)
+
+	// Update payload
+	payload := map[string]interface{}{
+		"name":    "Test Provider",
+		"type":    "discord",
+		"url":     "https://discord.com/api/webhooks/123/abc",
+		"enabled": true,
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	assert.NoError(t, err)
+
+	// Create test context with non-existent provider ID
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("PUT", "/api/v1/notifications/providers/nonexistent", bytes.NewBuffer(jsonPayload))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = []gin.Param{{Key: "id", Value: "nonexistent"}}
+
+	// Set admin role
+	c.Set("role", "admin")
+	c.Set("userID", uint(1))
+
+	// Call Update
+	handler.Update(c)
+
+	// Lines 137-139: Should return 404 for not found
+	assert.Equal(t, http.StatusNotFound, w.Code, "Should return 404 for nonexistent provider")
+
+	var response map[string]interface{}
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, "provider not found", response["error"])
+}

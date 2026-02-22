@@ -428,3 +428,32 @@ func TestUpdateFlags_TransactionAtomic(t *testing.T) {
 		t.Errorf("expected crowdsec.console_enrollment to be true, got %s", s3.Value)
 	}
 }
+
+// TestFeatureFlags_InvalidRetiredEnvAlias covers lines 157-158 (invalid env var warning)
+func TestFeatureFlags_InvalidRetiredEnvAlias(t *testing.T) {
+	db := setupFlagsDB(t)
+	t.Setenv("NOTIFICATIONS_LEGACY_FALLBACK_ENABLED", "invalid-value")
+
+	h := NewFeatureFlagsHandler(db)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/api/v1/feature-flags", h.GetFlags)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 got %d body=%s", w.Code, w.Body.String())
+	}
+
+	var flags map[string]bool
+	if err := json.Unmarshal(w.Body.Bytes(), &flags); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+
+	// Should force disabled due to invalid value (lines 157-158)
+	if flags["feature.notifications.legacy.fallback_enabled"] {
+		t.Fatalf("expected retired fallback flag to be false for invalid env value")
+	}
+}

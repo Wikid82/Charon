@@ -68,3 +68,25 @@ func TestRouter_ShouldUseNotify_DiscordServiceFlag(t *testing.T) {
 		t.Fatalf("expected notify routing disabled for discord when FlagDiscordServiceEnabled is false")
 	}
 }
+
+// TestRouter_ShouldUseNotify_GotifyServiceFlag covers lines 23-24 (gotify case)
+func TestRouter_ShouldUseNotify_GotifyServiceFlag(t *testing.T) {
+	router := NewRouter()
+
+	// Test with gotify enabled
+	flags := map[string]bool{
+		FlagNotifyEngineEnabled:  true,
+		FlagGotifyServiceEnabled: true,
+	}
+
+	if !router.ShouldUseNotify("gotify", EngineNotifyV1, flags) {
+		t.Fatalf("expected notify routing enabled for gotify when FlagGotifyServiceEnabled is true")
+	}
+
+	// Test with gotify disabled
+	flags[FlagGotifyServiceEnabled] = false
+
+	if router.ShouldUseNotify("gotify", EngineNotifyV1, flags) {
+		t.Fatalf("expected notify routing disabled for gotify when FlagGotifyServiceEnabled is false")
+	}
+}
