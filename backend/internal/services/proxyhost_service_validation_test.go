@@ -217,9 +217,9 @@ func TestProxyHostService_ValidateHostname(t *testing.T) {
 		{name: "bracketed ipv6 with port", host: "[::1]:443", wantErr: false},
 		{name: "docker style underscore", host: "my_service", wantErr: false},
 		{name: "invalid character", host: "invalid$host", wantErr: true},
-		// Lines 58-63: Malformed URLs that fail URL.Parse but still need handling
-		{name: "malformed https URL", host: "https://::invalid::", wantErr: false}, // Falls back to prefix stripping
-		{name: "malformed http URL", host: "http://::malformed::", wantErr: false}, // Falls back to prefix stripping
+		// Malformed URLs should fail strict hostname validation
+		{name: "malformed https URL", host: "https://::invalid::", wantErr: true},
+		{name: "malformed http URL", host: "http://::malformed::", wantErr: true},
 	}
 
 	for _, tt := range tests {
