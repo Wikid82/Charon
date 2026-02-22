@@ -48,8 +48,7 @@ You are a SENIOR REACT/TYPESCRIPT ENGINEER with deep expertise in:
    - Run tests with `npm test` in `frontend/` directory
 
 4. **Quality Checks**:
-   - Run `npm run lint` to check for linting issues
-   - Run `npm run typecheck` for TypeScript errors
+   - Run `pre-commit run --all-files` to ensure linting and formatting
    - Ensure accessibility with proper ARIA attributes
 </workflow>
 

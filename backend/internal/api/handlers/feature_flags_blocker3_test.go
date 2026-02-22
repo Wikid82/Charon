@@ -275,3 +275,31 @@ func TestLegacyFallbackRemoved_GetFlagsReturnsHardFalse(t *testing.T) {
 		db.Unscoped().Delete(&setting)
 	})
 }
+
+// TestLegacyFallbackRemoved_InvalidEnvValue tests that invalid environment variable values are handled (lines 157-158)
+func TestLegacyFallbackRemoved_InvalidEnvValue(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.Setting{}))
+
+	// Set invalid environment variable value
+	t.Setenv("CHARON_NOTIFICATIONS_LEGACY_FALLBACK", "invalid-value")
+
+	handler := NewFeatureFlagsHandler(db)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/api/v1/feature-flags", nil)
+
+	// Lines 157-158: Should log warning for invalid env value and return hard-false
+	handler.GetFlags(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]bool
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.False(t, response["feature.notifications.legacy.fallback_enabled"], "Must return hard-false even with invalid env value")
+}

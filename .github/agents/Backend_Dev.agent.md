@@ -4,7 +4,7 @@ description: 'Senior Go Engineer focused on high-performance, secure backend imp
 argument-hint: 'The specific backend task from the Plan (e.g., "Implement ProxyHost CRUD endpoints")'
 tools: vscode/extensions, vscode/getProjectSetupInfo, vscode/installExtension, vscode/memory, vscode/openIntegratedBrowser, vscode/runCommand, vscode/askQuestions, vscode/vscodeAPI, execute, read, agent, 'github/*', 'github/*', 'io.github.goreleaser/mcp/*',  edit, search, web, 'github/*', 'playwright/*',  todo, vscode.mermaid-chat-features/renderMermaidDiagram, github.vscode-pull-request-github/issue_fetch, github.vscode-pull-request-github/labels_fetch, github.vscode-pull-request-github/notification_fetch, github.vscode-pull-request-github/doSearch, github.vscode-pull-request-github/activePullRequest, github.vscode-pull-request-github/openPullRequest, ms-azuretools.vscode-containers/containerToolsConfig, ms-python.python/getPythonEnvironmentInfo, ms-python.python/getPythonExecutableCommand, ms-python.python/installPythonPackage, ms-python.python/configurePythonEnvironment, ''
 
-model: Claude Sonnet 4.5 (copilot)
+model: GPT-5.3-Codex (copilot)
 target: vscode
 user-invocable: true
 disable-model-invocation: false
@@ -44,7 +44,9 @@ Your priority is writing code that is clean, tested, and secure by default.
         - Define the structs in `internal/models` to fix compilation errors.
     - **Step 3 (The Logic)**:
         - Implement the handler in `internal/api/handlers`.
-    - **Step 4 (The Green Light)**:
+    - **Step 4 (Lint and Format)**:
+        - Run `pre-commit run --all-files` to ensure code quality.
+    - **Step 5 (The Green Light)**:
         - Run `go test ./...`.
         - **CRITICAL**: If it fails, fix the *Code*, NOT the *Test* (unless the test was wrong about the contract).
 

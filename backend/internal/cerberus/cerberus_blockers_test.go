@@ -271,8 +271,15 @@ func TestNotifySecurityEvent_Disabled(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	assert.NoError(t, err)
 
-	err = db.AutoMigrate(&models.Setting{}, &models.NotificationProvider{})
+	err = db.AutoMigrate(&models.Setting{}, &models.NotificationProvider{}, &models.SecurityConfig{})
 	assert.NoError(t, err)
+
+	assert.NoError(t, db.Create(&models.Setting{
+		Key:      "feature.cerberus.enabled",
+		Value:    "false",
+		Type:     "bool",
+		Category: "feature",
+	}).Error)
 
 	// Create Cerberus instance with disabled security
 	cfg := config.SecurityConfig{
@@ -299,16 +306,12 @@ func TestNotifySecurityEvent_Disabled(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// TestSendSecurityNotification_FlagCheckError covers lines 315-316
-func TestSendSecurityNotification_FlagCheckError(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	assert.NoError(t, err)
-
-	// Don't run migrations - will cause DB error when checking flag
+// TestSendSecurityNotification_NilDB covers lines 315-316
+func TestSendSecurityNotification_NilDB(t *testing.T) {
 	cfg := config.SecurityConfig{
 		CerberusEnabled: true,
 	}
-	cerberus := New(cfg, db)
+	cerberus := New(cfg, nil)
 
 	event := models.SecurityEvent{
 		EventType: "acl_deny",
@@ -319,9 +322,9 @@ func TestSendSecurityNotification_FlagCheckError(t *testing.T) {
 		Timestamp: time.Now(),
 	}
 
-	// Should handle DB error gracefully (lines 315-316)
-	err = cerberus.sendSecurityNotification(context.Background(), event)
-	assert.NoError(t, err) // Should not error, just skip notification
+	// Should return nil when db is nil (lines 315-316)
+	err := cerberus.sendSecurityNotification(context.Background(), event)
+	assert.NoError(t, err)
 }
 
 // TestBlocker2_ACLDenyNotificationInMiddleware tests ACL deny notification in actual middleware flow.
