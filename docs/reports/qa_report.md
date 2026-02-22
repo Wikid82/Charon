@@ -97,3 +97,47 @@ Scope: Final focused QA/security gate for notifications/security-event UX change
 
 - Manual test plan (PR-1 + PR-2): `docs/issues/manual_test_provider_security_notifications_pr1_pr2.md`
 - Existing focused QA evidence in this report remains the baseline for automated validation.
+
+## QA/Security Validation Report - SMTP Flaky Test Fix (Test-Only Backend Change)
+
+Date: 2026-02-22
+Repository: /projects/Charon
+Scope: Validate SMTP STARTTLS test-stability fix without production behavior change.
+
+### Scope Verification
+
+| Check | Status | Evidence |
+|---|---|---|
+| Changed files are test-only (no production code changes) | PASS | `git status --short` shows only `backend/internal/services/mail_service_test.go` and `docs/plans/current_spec.md` modified. |
+| Production behavior unchanged by diff scope | PASS | No non-test backend/service implementation files modified. |
+
+### Required Validation Results
+
+| # | Command | Status | Evidence Snippet |
+|---|---|---|---|
+| 1 | `go test ./backend/internal/services -run TestMailService_TestConnection_StartTLSSuccessWithAuth -count=20` | PASS | `ok github.com/Wikid82/charon/backend/internal/services 1.403s` |
+| 2 | `go test -race ./backend/internal/services -run 'TestMailService_(TestConnection|Send)' -count=1` | PASS | `ok github.com/Wikid82/charon/backend/internal/services 1.270s` |
+| 3 | `bash scripts/go-test-coverage.sh` | PASS | `Statement coverage: 86.1%` / `Line coverage: 86.4%` / `Coverage requirement met` |
+| 4 | `pre-commit run --all-files` | PASS | All hooks passed, including `golangci-lint (Fast Linters - BLOCKING)`, `Go Vet`, `Frontend TypeScript Check`, `Frontend Lint (Fix)`. |
+
+### Additional QA Context
+
+| Check | Status | Evidence |
+|---|---|---|
+| Local patch coverage preflight artifacts generated | PASS | `bash scripts/local-patch-report.sh` produced `test-results/local-patch-report.md` and `test-results/local-patch-report.json`. |
+| Patch coverage threshold warning (advisory) | WARN (non-blocking) | Report output: `WARN: Overall patch coverage 53.8% ...` and `WARN: Backend patch coverage 52.0% ...`. |
+
+### Security Stance
+
+| Check | Status | Notes |
+|---|---|---|
+| New secret/token exposure risk introduced by test changes | PASS | Change scope is test helper logic only; no credentials/tokens were added to production paths, logs, or API outputs. |
+| Gotify token leakage pattern introduced | PASS | No Gotify tokenized URLs or token fields were added in the changed test file. |
+
+### Blockers
+
+- None.
+
+### Verdict
+
+**PASS** — SMTP flaky test fix validates as test-only, stable under repetition/race checks, meets backend coverage gate, passes full pre-commit, and introduces no new secret/token exposure risk.
