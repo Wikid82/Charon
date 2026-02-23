@@ -1,5 +1,7 @@
 import client from './client';
 
+const DISCORD_PROVIDER_TYPE = 'discord' as const;
+
 /** Notification provider configuration. */
 export interface NotificationProvider {
   id: string;
@@ -14,8 +16,27 @@ export interface NotificationProvider {
   notify_domains: boolean;
   notify_certs: boolean;
   notify_uptime: boolean;
+  notify_security_waf_blocks: boolean;
+  notify_security_acl_denies: boolean;
+  notify_security_rate_limit_hits: boolean;
+  managed_legacy_security?: boolean;
   created_at: string;
 }
+
+const withDiscordType = (data: Partial<NotificationProvider>): Partial<NotificationProvider> => {
+  const normalizedType = typeof data.type === 'string' ? data.type.toLowerCase() : undefined;
+  if (normalizedType !== DISCORD_PROVIDER_TYPE) {
+    return { ...data, type: DISCORD_PROVIDER_TYPE };
+  }
+
+  return { ...data, type: DISCORD_PROVIDER_TYPE };
+};
+
+const assertDiscordOnlyInput = (data: Partial<NotificationProvider>): void => {
+  if (typeof data.type === 'string' && data.type.toLowerCase() !== DISCORD_PROVIDER_TYPE) {
+    throw new Error('Only discord notification providers are supported');
+  }
+};
 
 /**
  * Fetches all notification providers.
@@ -34,7 +55,8 @@ export const getProviders = async () => {
  * @throws {AxiosError} If creation fails
  */
 export const createProvider = async (data: Partial<NotificationProvider>) => {
-  const response = await client.post<NotificationProvider>('/notifications/providers', data);
+  assertDiscordOnlyInput(data);
+  const response = await client.post<NotificationProvider>('/notifications/providers', withDiscordType(data));
   return response.data;
 };
 
@@ -46,7 +68,8 @@ export const createProvider = async (data: Partial<NotificationProvider>) => {
  * @throws {AxiosError} If update fails or provider not found
  */
 export const updateProvider = async (id: string, data: Partial<NotificationProvider>) => {
-  const response = await client.put<NotificationProvider>(`/notifications/providers/${id}`, data);
+  assertDiscordOnlyInput(data);
+  const response = await client.put<NotificationProvider>(`/notifications/providers/${id}`, withDiscordType(data));
   return response.data;
 };
 
@@ -65,7 +88,8 @@ export const deleteProvider = async (id: string) => {
  * @throws {AxiosError} If test fails
  */
 export const testProvider = async (provider: Partial<NotificationProvider>) => {
-  await client.post('/notifications/providers/test', provider);
+  assertDiscordOnlyInput(provider);
+  await client.post('/notifications/providers/test', withDiscordType(provider));
 };
 
 /**
@@ -92,7 +116,8 @@ export interface NotificationTemplate {
  * @throws {AxiosError} If preview fails
  */
 export const previewProvider = async (provider: Partial<NotificationProvider>, data?: Record<string, unknown>) => {
-  const payload: Record<string, unknown> = { ...provider } as Record<string, unknown>;
+  assertDiscordOnlyInput(provider);
+  const payload: Record<string, unknown> = withDiscordType(provider) as Record<string, unknown>;
   if (data) payload.data = data;
   const response = await client.post('/notifications/providers/preview', payload);
   return response.data;
@@ -173,10 +198,15 @@ export const previewExternalTemplate = async (templateId?: string, template?: st
 export interface SecurityNotificationSettings {
   enabled: boolean;
   min_log_level: string;
-  notify_waf_blocks: boolean;
-  notify_acl_denials: boolean;
-  notify_rate_limit_hits: boolean;
+  security_waf_enabled: boolean;
+  security_acl_enabled: boolean;
+  security_rate_limit_enabled: boolean;
+  destination_ambiguous?: boolean;
   webhook_url?: string;
+  discord_webhook_url?: string;
+  slack_webhook_url?: string;
+  gotify_url?: string;
+  gotify_token?: string;
   email_recipients?: string;
 }
 

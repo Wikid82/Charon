@@ -268,7 +268,7 @@ jobs:
       - name: Run Trivy filesystem scan (SARIF output)
         if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
         # aquasecurity/trivy-action v0.33.1
-        uses: aquasecurity/trivy-action@c1824fd6edce30d7ab345a9989de00bbd46ef284
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518
         with:
           scan-type: 'fs'
           scan-ref: ${{ steps.extract.outputs.binary_path }}
@@ -280,7 +280,7 @@ jobs:
       - name: Upload Trivy SARIF to GitHub Security
         if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
         # github/codeql-action v4
-        uses: github/codeql-action/upload-sarif@5e7a52feb2a3dfb87f88be2af33b9e2275f48de6
+        uses: github/codeql-action/upload-sarif@710e2945787622b429f8982cacb154faa182de18
         with:
           sarif_file: 'trivy-binary-results.sarif'
           category: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event.workflow_run.head_branch) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
@@ -289,7 +289,7 @@ jobs:
       - name: Run Trivy filesystem scan (fail on CRITICAL/HIGH)
         if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
         # aquasecurity/trivy-action v0.33.1
-        uses: aquasecurity/trivy-action@c1824fd6edce30d7ab345a9989de00bbd46ef284
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518
         with:
           scan-type: 'fs'
           scan-ref: ${{ steps.extract.outputs.binary_path }}

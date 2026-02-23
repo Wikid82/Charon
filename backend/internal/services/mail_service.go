@@ -63,6 +63,9 @@ func normalizeBaseURLForInvite(raw string) (string, error) {
 		return "", errInvalidBaseURLForInvite
 	}
 
+	// Remember if URL had trailing slash before parsing
+	hadTrailingSlash := strings.HasSuffix(raw, "/")
+
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		return "", errInvalidBaseURLForInvite
@@ -73,15 +76,22 @@ func normalizeBaseURLForInvite(raw string) (string, error) {
 	if parsed.Host == "" {
 		return "", errInvalidBaseURLForInvite
 	}
-	if parsed.Path != "" && parsed.Path != "/" {
+
+	// Normalize path: remove trailing slash if present
+	normalizedPath := strings.TrimSuffix(parsed.Path, "/")
+
+	// Allow paths only if the original URL had a trailing slash
+	// Otherwise, only allow empty path or "/" (base URLs)
+	if !hadTrailingSlash && normalizedPath != "" && normalizedPath != "/" {
 		return "", errInvalidBaseURLForInvite
 	}
+
 	if parsed.RawQuery != "" || parsed.Fragment != "" || parsed.User != nil {
 		return "", errInvalidBaseURLForInvite
 	}
 
-	// Rebuild from parsed, validated components so we don't propagate any other parts.
-	return (&url.URL{Scheme: parsed.Scheme, Host: parsed.Host}).String(), nil
+	// Rebuild from validated components with normalized path (no trailing slash)
+	return (&url.URL{Scheme: parsed.Scheme, Host: parsed.Host, Path: normalizedPath}).String(), nil
 }
 
 // SMTPConfig holds the SMTP server configuration.

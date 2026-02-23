@@ -9,16 +9,26 @@ import (
 
 // NotificationConfig stores configuration for security notifications.
 type NotificationConfig struct {
-	ID                  string    `gorm:"primaryKey" json:"id"`
-	Enabled             bool      `json:"enabled"`
-	MinLogLevel         string    `json:"min_log_level"` // error, warn, info, debug
-	WebhookURL          string    `json:"webhook_url"`
-	NotifyWAFBlocks     bool      `json:"notify_waf_blocks"`
-	NotifyACLDenies     bool      `json:"notify_acl_denies"`
-	NotifyRateLimitHits bool      `json:"notify_rate_limit_hits"`
-	EmailRecipients     string    `json:"email_recipients"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
+	ID          string `gorm:"primaryKey" json:"id"`
+	Enabled     bool   `json:"enabled"`
+	MinLogLevel string `json:"min_log_level"` // error, warn, info, debug
+	WebhookURL  string `json:"webhook_url"`
+	// Blocker 2 Fix: API surface uses security_* field names per spec (internal fields remain notify_*)
+	NotifyWAFBlocks         bool   `json:"security_waf_enabled"`
+	NotifyACLDenies         bool   `json:"security_acl_enabled"`
+	NotifyRateLimitHits     bool   `json:"security_rate_limit_enabled"`
+	NotifyCrowdSecDecisions bool   `json:"security_crowdsec_enabled"`
+	EmailRecipients         string `json:"email_recipients"`
+
+	// Legacy destination fields (compatibility, not stored in DB)
+	DiscordWebhookURL    string `gorm:"-" json:"discord_webhook_url,omitempty"`
+	SlackWebhookURL      string `gorm:"-" json:"slack_webhook_url,omitempty"`
+	GotifyURL            string `gorm:"-" json:"gotify_url,omitempty"`
+	GotifyToken          string `gorm:"-" json:"-"` // Security: Never expose token in JSON (OWASP A02)
+	DestinationAmbiguous bool   `gorm:"-" json:"destination_ambiguous,omitempty"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // BeforeCreate sets the ID if not already set.

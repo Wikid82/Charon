@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -122,9 +123,9 @@ func TestNotificationProviderHandler_Test(t *testing.T) {
 	r, _ := setupNotificationProviderTest(t)
 
 	// Test with invalid provider (should fail validation or service check)
-	// Since we don't have a real shoutrrr backend mocked easily here without more work,
+	// Since we don't have notification dispatch mocked easily here,
 	// we expect it might fail or pass depending on service implementation.
-	// Looking at service code (not shown but assumed), TestProvider likely calls shoutrrr.Send.
+	// Looking at service code, TestProvider should validate and dispatch.
 	// If URL is invalid, it should error.
 
 	provider := models.NotificationProvider{
@@ -168,8 +169,8 @@ func TestNotificationProviderHandler_InvalidCustomTemplate_Rejects(t *testing.T)
 	// Create with invalid custom template should return 400
 	provider := models.NotificationProvider{
 		Name:     "Bad",
-		Type:     "webhook",
-		URL:      "http://example.com",
+		Type:     "discord",
+		URL:      "https://discord.com/api/webhooks/123/abc",
 		Template: "custom",
 		Config:   `{"broken": "{{.Title"}`,
 	}
@@ -182,8 +183,8 @@ func TestNotificationProviderHandler_InvalidCustomTemplate_Rejects(t *testing.T)
 	// Create valid and then attempt update to invalid custom template
 	provider = models.NotificationProvider{
 		Name:     "Good",
-		Type:     "webhook",
-		URL:      "http://example.com",
+		Type:     "discord",
+		URL:      "https://discord.com/api/webhooks/456/def",
 		Template: "minimal",
 	}
 	body, _ = json.Marshal(provider)
@@ -208,8 +209,8 @@ func TestNotificationProviderHandler_Preview(t *testing.T) {
 
 	// Minimal template preview
 	provider := models.NotificationProvider{
-		Type:     "webhook",
-		URL:      "http://example.com",
+		Type:     "discord",
+		URL:      "https://discord.com/api/webhooks/123/abc",
 		Template: "minimal",
 	}
 	body, _ := json.Marshal(provider)
@@ -265,4 +266,115 @@ func TestNotificationProviderHandler_CreateAcceptsDiscordHostname(t *testing.T) 
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+func TestNotificationProviderHandler_CreateIgnoresServerManagedMigrationFields(t *testing.T) {
+	r, db := setupNotificationProviderTest(t)
+
+	payload := map[string]any{
+		"name":                  "Create Ignore Migration",
+		"type":                  "discord",
+		"url":                   "https://discord.com/api/webhooks/123/abc",
+		"template":              "minimal",
+		"enabled":               true,
+		"notify_proxy_hosts":    true,
+		"notify_remote_servers": true,
+		"notify_domains":        true,
+		"notify_certs":          true,
+		"notify_uptime":         true,
+		"engine":                "notify_v1",
+		"service_config":        `{"token":"attacker"}`,
+		"migration_state":       "migrated",
+		"migration_error":       "client-value",
+		"legacy_url":            "https://malicious.example",
+		"last_migrated_at":      "2020-01-01T00:00:00Z",
+		"id":                    "client-controlled-id",
+	}
+
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	var created models.NotificationProvider
+	err := json.Unmarshal(w.Body.Bytes(), &created)
+	require.NoError(t, err)
+	require.NotEmpty(t, created.ID)
+	assert.NotEqual(t, "client-controlled-id", created.ID)
+
+	var dbProvider models.NotificationProvider
+	err = db.First(&dbProvider, "id = ?", created.ID).Error
+	require.NoError(t, err)
+	assert.Empty(t, dbProvider.Engine)
+	assert.Empty(t, dbProvider.ServiceConfig)
+	assert.Empty(t, dbProvider.MigrationState)
+	assert.Empty(t, dbProvider.MigrationError)
+	assert.Empty(t, dbProvider.LegacyURL)
+	assert.Nil(t, dbProvider.LastMigratedAt)
+}
+
+func TestNotificationProviderHandler_UpdatePreservesServerManagedMigrationFields(t *testing.T) {
+	r, db := setupNotificationProviderTest(t)
+
+	now := time.Now().UTC().Round(time.Second)
+	original := models.NotificationProvider{
+		Name:                "Original",
+		Type:                "discord",
+		URL:                 "https://discord.com/api/webhooks/123/abc",
+		Template:            "minimal",
+		Enabled:             true,
+		NotifyProxyHosts:    true,
+		NotifyRemoteServers: true,
+		NotifyDomains:       true,
+		NotifyCerts:         true,
+		NotifyUptime:        true,
+		Engine:              "notify_v1",
+		ServiceConfig:       `{"token":"server"}`,
+		MigrationState:      "migrated",
+		MigrationError:      "",
+		LegacyURL:           "discord://legacy",
+		LastMigratedAt:      &now,
+	}
+	require.NoError(t, db.Create(&original).Error)
+
+	payload := map[string]any{
+		"name":                  "Updated Name",
+		"type":                  "discord",
+		"url":                   "https://discord.com/api/webhooks/456/def",
+		"template":              "minimal",
+		"enabled":               false,
+		"notify_proxy_hosts":    false,
+		"notify_remote_servers": false,
+		"notify_domains":        false,
+		"notify_certs":          false,
+		"notify_uptime":         false,
+		"engine":                "legacy",
+		"service_config":        `{"token":"client-overwrite"}`,
+		"migration_state":       "failed",
+		"migration_error":       "client-error",
+		"legacy_url":            "https://attacker.example",
+		"last_migrated_at":      "1999-01-01T00:00:00Z",
+	}
+
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("PUT", "/api/v1/notifications/providers/"+original.ID, bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var dbProvider models.NotificationProvider
+	require.NoError(t, db.First(&dbProvider, "id = ?", original.ID).Error)
+	assert.Equal(t, "Updated Name", dbProvider.Name)
+	assert.Equal(t, "notify_v1", dbProvider.Engine)
+	assert.Equal(t, `{"token":"server"}`, dbProvider.ServiceConfig)
+	assert.Equal(t, "migrated", dbProvider.MigrationState)
+	assert.Equal(t, "", dbProvider.MigrationError)
+	assert.Equal(t, "discord://legacy", dbProvider.LegacyURL)
+	require.NotNil(t, dbProvider.LastMigratedAt)
+	assert.Equal(t, now, dbProvider.LastMigratedAt.UTC().Round(time.Second))
 }

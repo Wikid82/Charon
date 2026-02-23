@@ -104,7 +104,7 @@ func TestIsDockerConnectivityError_URLError(t *testing.T) {
 	innerErr := errors.New("connection refused")
 	urlErr := &url.Error{
 		Op:  "Get",
-		URL: "http://example.com",
+		URL: "https://discord.com/api/webhooks/123/abc",
 		Err: innerErr,
 	}
 

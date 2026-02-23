@@ -50,11 +50,9 @@ describe('useNotifications hooks', () => {
       const mockSettings: notificationsApi.SecurityNotificationSettings = {
         enabled: true,
         min_log_level: 'warn',
-        notify_waf_blocks: true,
-        notify_acl_denials: true,
-        notify_rate_limit_hits: false,
-        webhook_url: 'https://example.com/webhook',
-        email_recipients: 'admin@example.com',
+        security_waf_enabled: true,
+        security_acl_enabled: true,
+        security_rate_limit_enabled: false,
       };
 
       vi.mocked(notificationsApi.getSecurityNotificationSettings).mockResolvedValue(mockSettings);
@@ -88,9 +86,9 @@ describe('useNotifications hooks', () => {
     const mockSettings: notificationsApi.SecurityNotificationSettings = {
       enabled: true,
       min_log_level: 'warn',
-      notify_waf_blocks: true,
-      notify_acl_denials: true,
-      notify_rate_limit_hits: false,
+      security_waf_enabled: true,
+      security_acl_enabled: true,
+      security_rate_limit_enabled: false,
     };
 
     beforeEach(() => {
@@ -222,7 +220,7 @@ describe('useNotifications hooks', () => {
         ...mockSettings,
         enabled: false,
         min_log_level: 'error',
-        webhook_url: 'https://new-webhook.com',
+        security_waf_enabled: false,
       };
 
       vi.mocked(notificationsApi.updateSecurityNotificationSettings).mockResolvedValue(
@@ -236,7 +234,7 @@ describe('useNotifications hooks', () => {
       result.current.mutate({
         enabled: false,
         min_log_level: 'error',
-        webhook_url: 'https://new-webhook.com',
+        security_waf_enabled: false,
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -244,7 +242,7 @@ describe('useNotifications hooks', () => {
       expect(notificationsApi.updateSecurityNotificationSettings).toHaveBeenCalledWith({
         enabled: false,
         min_log_level: 'error',
-        webhook_url: 'https://new-webhook.com',
+        security_waf_enabled: false,
       });
     });
   });

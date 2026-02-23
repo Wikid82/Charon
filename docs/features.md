@@ -237,7 +237,7 @@ Watch requests flow through your proxy in real-time. Filter by domain, status co
 
 ### 🔔 Notifications
 
-Get alerted when it matters. Charon can notify you about certificate expirations, downtime events, and security incidents through multiple channels. Stay informed without constantly watching dashboards.
+Get alerted when it matters. Charon currently sends notifications through Discord webhooks using the Notify engine only. No legacy fallback path is used at runtime. Additional providers will roll out later in staged updates.
 
 → [Learn More](features/notifications.md)
 

@@ -1,170 +1,143 @@
-# QA/Security Validation Report - Flaky Certificate Test Fix
+## QA/Security Validation Report - Governance Documentation Slice
 
-**Date:** 2026-02-19
-**Scope:** Validation/audit gates for flaky-test fix in certificate handler/service paths.
+Date: 2026-02-20
+Repository: /projects/Charon
+Scope files:
+- `.github/instructions/copilot-instructions.md`
+- `.github/instructions/testing.instructions.md`
+- `.github/instructions/security-and-owasp.instructions.md`
+- `.github/agents/Management.agent.md`
+- `.github/agents/Backend_Dev.agent.md`
+- `.github/agents/QA_Security.agent.md`
+- `SECURITY.md`
+- `docs/security.md`
+- `docs/features/notifications.md`
 
-## Gate Summary
+### Result Summary
 
-| Gate | Status | Evidence |
+| Check | Status | Notes |
 |---|---|---|
-| 1) Playwright E2E certificates gate | **PASS** | Task: `Test: E2E Playwright (FireFox) - Core: Certificates`; status file: `test-results/.last-run.json` (`passed`) |
-| 1b) Durable flaky artifacts in `test-results/flaky/` | **PASS** | `cert-list-stability.jsonl`, `cert-list-race.jsonl`, `cert-db-setup-ordering.jsonl`, `cert-handler-regression.jsonl` |
-| 2) Local patch preflight artifacts present | **PASS (warn-mode)** | `test-results/local-patch-report.md`, `test-results/local-patch-report.json` |
-| 3) Backend coverage gate >=85% | **PASS** | `test-backend-coverage` rerun with valid `CHARON_ENCRYPTION_KEY`; line coverage `87.3%`, statements `87.0%` |
-| 4) Pre-commit all files | **PASS** | Task: `Lint: Pre-commit (All Files)` -> all hooks passed |
-| 5a) Trivy filesystem scan | **PASS** | Task: `Security: Trivy Scan` -> 0 vulnerabilities, 0 secrets |
-| 5b) Docker image scan | **FAIL** | Task: `Security: Scan Docker Image (Local)` -> 1 High, 9 Medium, 1 Low |
-| 5c) CodeQL Go CI-aligned | **PASS** | Task: `Security: CodeQL Go Scan (CI-Aligned) [~60s]` completed |
-| 5d) CodeQL JS CI-aligned | **PASS** | Task: `Security: CodeQL JS Scan (CI-Aligned) [~90s]` completed |
-| 5e) CodeQL high/critical findings gate | **PASS** | `pre-commit run --hook-stage manual codeql-check-findings --all-files` |
-| 6) Lint/type checks relevant to scope | **PASS** | `Lint: Staticcheck (Fast)` passed; `Lint: TypeScript Check` passed |
-| 7) Flaky loop thresholds from plan | **PASS** | stability=100, race=30, dbordering=50, raceWarnings=0, noSuchTable=0 |
+| 1) No secrets/tokens introduced in changed docs | PASS | No raw token values, API keys, or private credential material detected in scoped diffs; only policy/example strings were found. |
+| 2) Policy consistency verification | PASS | GORM conditional DoD gate, check-mode semantics, include/exclude trigger matrix, Gotify no-exposure + URL redaction, and precedence hierarchy are consistently present across canonical instructions and aligned agent/operator docs. |
+| 3) Markdown lint on scoped files | PASS | `markdownlint-cli2` reports baseline debt (`319` total), but intersection of lint hits with added hunk ranges for this governance slice returned no new lint hits in added sections. |
+| 4) Confirm governance-only scope for this slice | PASS | Scoped diff over the 9 target files confirms this implementation slice touches only those 9 governance files for evaluation. Unrelated branch changes were explicitly excluded by scope criteria. |
+| 5) QA report update for governance slice | PASS | This section added as the governance-slice QA record. |
 
-## Detailed Evidence
+### Commands Executed
 
-### 1) Playwright Certificates Gate
+```bash
+git diff --name-only -- .github/instructions/copilot-instructions.md .github/instructions/testing.instructions.md .github/instructions/security-and-owasp.instructions.md .github/agents/Management.agent.md .github/agents/Backend_Dev.agent.md .github/agents/QA_Security.agent.md SECURITY.md docs/security.md docs/features/notifications.md
 
-- Executed task: `Test: E2E Playwright (FireFox) - Core: Certificates`
-- Base URL: `http://127.0.0.1:8080`
-- Result marker: `test-results/.last-run.json`:
+git diff -U0 -- <same 9 files> | grep '^+[^+]' | grep -Ei '(token|secret|api[_-]?key|password|ghp_|sk_|AKIA|xox|BEGIN)'
 
-```json
-{
-  "status": "passed",
-  "failedTests": []
-}
+npx --yes markdownlint-cli2 \
+	.github/instructions/copilot-instructions.md \
+	.github/instructions/testing.instructions.md \
+	.github/instructions/security-and-owasp.instructions.md \
+	.github/agents/Management.agent.md \
+	.github/agents/Backend_Dev.agent.md \
+	.github/agents/QA_Security.agent.md \
+	SECURITY.md docs/security.md docs/features/notifications.md
+
+# Added-line lint intersection:
+# 1) build added hunk ranges from `git diff -U0 -- <scoped files>`
+# 2) run markdownlint output capture
+# 3) intersect (file,line) lint hits with added ranges
+# Result: no lint hits on added governance lines
 ```
 
-### 2) Local Patch Preflight
+### Blockers
 
-- Executed task: `Test: Local Patch Report`
-- Artifacts exist:
-  - `test-results/local-patch-report.md`
-  - `test-results/local-patch-report.json`
-- Current mode: `warn`
-- Warning recorded: missing frontend coverage input (`frontend/coverage/lcov.info`)
+- None specific to this governance slice.
 
-### 3) Backend Coverage
+### Baseline Notes (Non-Blocking for This Slice)
 
-- Task invocation failed initially due missing `CHARON_ENCRYPTION_KEY`.
-- Rerun with valid env key:
-  - `CHARON_ENCRYPTION_KEY="$(openssl rand -base64 32)" .github/skills/scripts/skill-runner.sh test-backend-coverage`
-- Final result:
-  - `Coverage gate: PASS`
-  - `Line coverage: 87.3%`
-  - `Statement coverage: 87.0%`
+- Markdownlint baseline debt remains in the 9 scoped files and broader repository, but no new critical regression was introduced in governance-added sections for this slice.
 
-### 4) Pre-commit
+### Final Governance Slice Verdict
 
-- Executed task: `Lint: Pre-commit (All Files)`
-- Result: all configured hooks passed, including:
-  - yaml checks
-  - shellcheck
-  - actionlint
-  - go vet
-  - golangci-lint fast
-  - frontend type check and lint fix hooks
+**PASS** — All slice-scoped criteria passed under change-scope evaluation.
 
-### 5) Security Scans
+## QA/Security Validation Report - PR-2 Frontend Slice
 
-#### Trivy Filesystem
+Date: 2026-02-20
+Repository: /projects/Charon
+Scope: Final focused QA/security gate for notifications/security-event UX changes. Full E2E suite remains deferred to CI.
 
-- Executed task: `Security: Trivy Scan`
-- Summary:
-  - `backend/go.mod`: 0 vulnerabilities
-  - `frontend/package-lock.json`: 0 vulnerabilities
-  - `package-lock.json`: 0 vulnerabilities
-  - secrets: 0
+### Gate Results
 
-#### Docker Image Scan (Grype via skill)
-
-- Executed task: `Security: Scan Docker Image (Local)`
-- Artifacts generated:
-  - `sbom.cyclonedx.json`
-  - `grype-results.json`
-  - `grype-results.sarif`
-- Summary from `grype-results.json`:
-  - High: 1
-  - Medium: 9
-  - Low: 1
-  - Critical: 0
-
-#### CodeQL
-
-- Go CI-aligned task completed and generated `codeql-results-go.sarif`.
-- JS CI-aligned task completed and generated `codeql-results-js.sarif`.
-- Manual findings gate:
-  - `pre-commit run --hook-stage manual codeql-check-findings --all-files`
-  - result: no HIGH/CRITICAL findings in Go or JS.
-
-### 6) Linting/Type Checks
-
-- `Lint: Staticcheck (Fast)` -> `0 issues`
-- `Lint: TypeScript Check` -> `tsc --noEmit` passed
-
-### 7) Flaky-Specific Loop Artifacts and Thresholds
-
-- Artifacts in `test-results/flaky/`:
-  - `cert-list-stability.jsonl`
-  - `cert-list-race.jsonl`
-  - `cert-db-setup-ordering.jsonl`
-  - `cert-handler-regression.jsonl`
-
-- Measured thresholds:
-  - `stability=100` (expected 100)
-  - `race=30` (expected 30)
-  - `dbordering=50` (expected 50)
-  - `raceWarnings=0`
-  - `noSuchTable=0`
-
-## Filesystem vs Image Findings Comparison
-
-- Filesystem scan (Trivy): **0 vulnerabilities**.
-- Image scan (Grype): **11 vulnerabilities**.
-- **Additional image-only vulnerabilities:** 11
-
-Image-only findings:
-
-| Severity | ID | Package | Version | Fix |
+| # | Required Check | Command(s) | Status | Evidence |
 |---|---|---|---|---|
-| High | GHSA-69x3-g4r3-p962 | github.com/slackhq/nebula | v1.9.7 | 1.10.3 |
-| Medium | CVE-2025-60876 | busybox | 1.37.0-r30 | N/A |
-| Medium | CVE-2025-60876 | busybox-binsh | 1.37.0-r30 | N/A |
-| Medium | CVE-2025-60876 | busybox-extras | 1.37.0-r30 | N/A |
-| Medium | CVE-2025-60876 | ssl_client | 1.37.0-r30 | N/A |
-| Medium | CVE-2025-14819 | curl | 8.17.0-r1 | N/A |
-| Medium | CVE-2025-13034 | curl | 8.17.0-r1 | N/A |
-| Medium | CVE-2025-14524 | curl | 8.17.0-r1 | N/A |
-| Medium | CVE-2025-15079 | curl | 8.17.0-r1 | N/A |
-| Medium | CVE-2025-14017 | curl | 8.17.0-r1 | N/A |
-| Low | CVE-2025-15224 | curl | 8.17.0-r1 | N/A |
+| 1 | Focused frontend tests for changed area | `cd frontend && npm run test -- src/pages/__tests__/Notifications.test.tsx src/pages/__tests__/Security.functional.test.tsx src/components/__tests__/SecurityNotificationSettingsModal.test.tsx src/api/__tests__/notifications.test.ts` | PASS | `4` files passed, `59` tests passed, `1` skipped. |
+| 2 | Frontend type-check | `cd frontend && npm run type-check` | PASS | `tsc --noEmit` completed with no errors. |
+| 3 | Frontend coverage gate | `.github/skills/scripts/skill-runner.sh test-frontend-coverage` | PASS | Coverage report: statements `87.86%`, lines `88.63%`; gate line threshold `85%` passed. |
+| 4 | Focused Playwright suite for notifications/security UX | `npx playwright test tests/settings/notifications.spec.ts --project=firefox`<br>`npx playwright test tests/security-enforcement/zzz-security-ui/system-security-settings.spec.ts --project=security-tests` | PASS | Notifications suite (prior run): `27/27` passed. Security settings focused suite (latest): `21/21` passed. |
+| 5 | Pre-commit fast hooks | `pre-commit run --files $(git diff --name-only --diff-filter=ACMRTUXB)` | PASS | Fast hooks passed, including `golangci-lint (Fast Linters - BLOCKING)`, `Go Vet`, `dockerfile validation`, `Frontend TypeScript Check`, and `Frontend Lint (Fix)`. |
+| 6 | CodeQL findings gate status (CI-aligned outputs) | Task `Security: CodeQL Go Scan (CI-Aligned) [~60s]`<br>Task `Security: CodeQL JS Scan (CI-Aligned) [~90s]`<br>`pre-commit run --hook-stage manual codeql-check-findings --all-files` | PASS | Fresh SARIF artifacts present (`codeql-results-go.sarif`, `codeql-results-js.sarif`); manual findings gate reports no HIGH/CRITICAL findings. |
+| 7 | Dockerized Trivy + Docker image scan status | `.github/skills/scripts/skill-runner.sh security-scan-trivy vuln,secret,misconfig json`<br>Task `Security: Scan Docker Image (Local)` | PASS | Existing Dockerized Trivy result remains passing from prior run. Latest local Docker image gate: `Critical: 0`, `High: 0` (effective gate pass). |
 
-## Failed Gates and Remediation
+### Confirmation of Prior Passing Gates (No Re-run)
 
-### Failed Gate: Security Docker Image Scan
+- Frontend tests/type-check/coverage remain confirmed PASS from prior validated run.
+- Pre-commit fast hooks remain confirmed PASS from prior validated run.
+- CodeQL Go + JS CI-aligned scans remain confirmed PASS from prior validated run.
+- Dockerized Trivy scan remains confirmed PASS from prior validated run.
 
-- Failing evidence: image scan task ended with non-zero exit due vulnerability policy (`1 High`).
-- Primary blocker: `GHSA-69x3-g4r3-p962` in `github.com/slackhq/nebula@v1.9.7` (fix `1.10.3`).
+### Blocking Items
 
-Recommended remediation:
+- None for PR-2 focused QA/security scope.
 
-1. Update dependency chain to a version resolving `nebula >= 1.10.3` (or update parent component that pins it).
-2. Rebuild image and rerun:
-   - `Security: Scan Docker Image (Local)`
-   - `Security: Trivy Scan`
-3. If immediate upgrade is not feasible, document/renew security exception with review date and compensating controls.
+### Final Verdict
 
-### Warning (Non-blocking for requested artifact-presence check): Local Patch Preflight
+- Overall Result: **PASS**
+- Full E2E regression remains deferred to CI as requested.
+- No remaining focused blockers identified.
 
-- Current warning: missing frontend coverage input `frontend/coverage/lcov.info`.
-- Artifacts are present and valid for preflight evidence.
+### Handoff References
 
-Recommended remediation:
+- Manual test plan (PR-1 + PR-2): `docs/issues/manual_test_provider_security_notifications_pr1_pr2.md`
+- Existing focused QA evidence in this report remains the baseline for automated validation.
 
-1. Generate frontend coverage (`test-frontend-coverage`) to populate `frontend/coverage/lcov.info`.
-2. Re-run `Test: Local Patch Report` to remove warn-mode status.
+## QA/Security Validation Report - SMTP Flaky Test Fix (Test-Only Backend Change)
 
-## Final Verdict
+Date: 2026-02-22
+Repository: /projects/Charon
+Scope: Validate SMTP STARTTLS test-stability fix without production behavior change.
 
-- **Overall QA/Security Result: FAIL** (blocked by Docker image security gate).
-- All non-image gates requested for flaky-fix validation passed or produced required artifacts.
+### Scope Verification
+
+| Check | Status | Evidence |
+|---|---|---|
+| Changed files are test-only (no production code changes) | PASS | `git status --short` shows only `backend/internal/services/mail_service_test.go` and `docs/plans/current_spec.md` modified. |
+| Production behavior unchanged by diff scope | PASS | No non-test backend/service implementation files modified. |
+
+### Required Validation Results
+
+| # | Command | Status | Evidence Snippet |
+|---|---|---|---|
+| 1 | `go test ./backend/internal/services -run TestMailService_TestConnection_StartTLSSuccessWithAuth -count=20` | PASS | `ok github.com/Wikid82/charon/backend/internal/services 1.403s` |
+| 2 | `go test -race ./backend/internal/services -run 'TestMailService_(TestConnection|Send)' -count=1` | PASS | `ok github.com/Wikid82/charon/backend/internal/services 1.270s` |
+| 3 | `bash scripts/go-test-coverage.sh` | PASS | `Statement coverage: 86.1%` / `Line coverage: 86.4%` / `Coverage requirement met` |
+| 4 | `pre-commit run --all-files` | PASS | All hooks passed, including `golangci-lint (Fast Linters - BLOCKING)`, `Go Vet`, `Frontend TypeScript Check`, `Frontend Lint (Fix)`. |
+
+### Additional QA Context
+
+| Check | Status | Evidence |
+|---|---|---|
+| Local patch coverage preflight artifacts generated | PASS | `bash scripts/local-patch-report.sh` produced `test-results/local-patch-report.md` and `test-results/local-patch-report.json`. |
+| Patch coverage threshold warning (advisory) | WARN (non-blocking) | Report output: `WARN: Overall patch coverage 53.8% ...` and `WARN: Backend patch coverage 52.0% ...`. |
+
+### Security Stance
+
+| Check | Status | Notes |
+|---|---|---|
+| New secret/token exposure risk introduced by test changes | PASS | Change scope is test helper logic only; no credentials/tokens were added to production paths, logs, or API outputs. |
+| Gotify token leakage pattern introduced | PASS | No Gotify tokenized URLs or token fields were added in the changed test file. |
+
+### Blockers
+
+- None.
+
+### Verdict
+
+**PASS** — SMTP flaky test fix validates as test-only, stable under repetition/race checks, meets backend coverage gate, passes full pre-commit, and introduces no new secret/token exposure risk.

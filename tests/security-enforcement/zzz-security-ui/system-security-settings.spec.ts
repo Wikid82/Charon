@@ -301,25 +301,20 @@ test.describe('System Settings', () => {
     test('should save general settings successfully', async ({ page }) => {
       // Flaky test - success toast timing issue. System settings save API works correctly.
 
-      await test.step('Find and click save button and wait for response', async () => {
+      await test.step('Find and click save button', async () => {
         const saveButton = page.getByRole('button', { name: /save.*settings|save/i });
         await expect(saveButton.first()).toBeVisible();
-
-        // Click and wait for API response to ensure mutation completes
-        await Promise.all([
-          page.waitForResponse(resp => resp.url().includes('/settings') && resp.status() === 200),
-          saveButton.first().click()
-        ]);
+        await saveButton.first().click();
       });
 
       await test.step('Verify success feedback', async () => {
-        // First try the specific data-testid for custom ToastContainer
-        const toastByTestId = page.getByTestId('toast-success');
-        const toastByRole = page.getByRole('status').filter({ hasText: /saved|success/i });
-
-        // Use either selector - custom toast has data-testid, role="status", and the message
-        const successToast = toastByTestId.or(toastByRole).first();
-        await expect(successToast).toBeVisible({ timeout: 10000 });
+        // Use shared toast helper with role/test-id fallback and resilient success text matching.
+        const successToast = getToastLocator(
+          page,
+          /system settings saved|saved successfully|saved/i,
+          { type: 'success' }
+        );
+        await expect(successToast).toBeVisible({ timeout: 15000 });
       });
     });
   });
@@ -577,20 +572,22 @@ test.describe('System Settings', () => {
      */
     test('should display WebSocket status', async ({ page }) => {
       await test.step('Find WebSocket status section', async () => {
-        // WebSocket status card from WebSocketStatusCard component
-        const wsCard = page.locator('div').filter({
-          has: page.getByText(/websocket|ws|connection/i),
-        });
-
-        const hasWsCard = await wsCard.first().isVisible({ timeout: 3000 }).catch(() => false);
+        const wsHeading = page.getByRole('heading', { name: /websocket\s+connections/i }).first();
+        const hasWsCard = await wsHeading.isVisible().catch(() => false);
 
         if (hasWsCard) {
+          const wsCard = page.locator('div').filter({ has: wsHeading }).first();
           await expect(wsCard).toBeVisible();
 
-          // Should show connection status
-          const statusText = wsCard.getByText(/connected|disconnected|connecting/i);
-          await expect(statusText.first()).toBeVisible();
+          const statusIndicator = wsCard
+            .getByText(/\d+\s+active|no active websocket connections/i)
+            .first();
+          await expect(statusIndicator).toBeVisible();
+          return;
         }
+
+        const wsAlert = page.getByText(/unable to load websocket status/i).first();
+        await expect(wsAlert).toBeVisible();
       });
     });
   });

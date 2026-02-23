@@ -1,6 +1,6 @@
 # Notification System
 
-Charon's notification system keeps you informed about important events in your infrastructure through multiple channels, including Discord, Slack, Gotify, Telegram, and custom webhooks.
+Charon's notification system keeps you informed about important events in your infrastructure. With flexible JSON templates and support for multiple providers, you can customize how and where you receive alerts.
 
 ## Overview
 
@@ -11,15 +11,13 @@ Notifications can be triggered by various events:
 - **Security Events**: WAF blocks, CrowdSec alerts, ACL violations
 - **System Events**: Configuration changes, backup completions
 
-## Supported Services
+## Supported Service (Current Rollout)
 
 | Service | JSON Templates | Native API | Rich Formatting |
 |---------|----------------|------------|-----------------|
 | **Discord** | ✅ Yes | ✅ Webhooks | ✅ Embeds |
-| **Slack** | ✅ Yes | ✅ Incoming Webhooks | ✅ Block Kit |
-| **Gotify** | ✅ Yes | ✅ REST API | ✅ Extras |
-| **Generic Webhook** | ✅ Yes | ✅ HTTP POST | ✅ Custom |
-| **Telegram** | ❌ No | ✅ Bot API | ⚠️ Markdown |
+
+Additional providers are planned for later staged releases.
 
 ### Why JSON Templates?
 
@@ -43,7 +41,7 @@ JSON templates give you complete control over notification formatting, allowing 
 
 ### JSON Template Support
 
-For services supporting JSON (Discord, Slack, Gotify, Generic, Webhook), you can choose from three template options:
+For the currently supported service (Discord), you can choose from three template options:
 
 #### 1. Minimal Template (Default)
 
@@ -157,155 +155,11 @@ Discord supports rich embeds with colors, fields, and timestamps.
 - `16776960` - Yellow (warning)
 - `3066993` - Green (success)
 
-### Slack Webhooks
+## Planned Provider Expansion
 
-Slack uses Block Kit for rich message formatting.
-
-#### Basic Block
-
-```json
-{
-  "text": "{{.Title}}",
-  "blocks": [
-    {
-      "type": "header",
-      "text": {
-        "type": "plain_text",
-        "text": "{{.Title}}"
-      }
-    },
-    {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": "{{.Message}}"
-      }
-    }
-  ]
-}
-```
-
-#### Advanced Block with Context
-
-```json
-{
-  "text": "{{.Title}}",
-  "blocks": [
-    {
-      "type": "header",
-      "text": {
-        "type": "plain_text",
-        "text": "🔔 {{.Title}}",
-        "emoji": true
-      }
-    },
-    {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": "*Event:* {{.EventType}}\n*Message:* {{.Message}}"
-      }
-    },
-    {
-      "type": "section",
-      "fields": [
-        {
-          "type": "mrkdwn",
-          "text": "*Host:*\n{{.HostName}}"
-        },
-        {
-          "type": "mrkdwn",
-          "text": "*Time:*\n{{.Timestamp}}"
-        }
-      ]
-    },
-    {
-      "type": "context",
-      "elements": [
-        {
-          "type": "mrkdwn",
-          "text": "Notification from Charon"
-        }
-      ]
-    }
-  ]
-}
-```
-
-**Slack Markdown Tips:**
-
-- `*bold*` for emphasis
-- `_italic_` for subtle text
-- `~strike~` for deprecated info
-- `` `code` `` for technical details
-- Use `\n` for line breaks
-
-### Gotify Webhooks
-
-Gotify supports JSON payloads with priority levels and extras.
-
-#### Basic Message
-
-```json
-{
-  "title": "{{.Title}}",
-  "message": "{{.Message}}",
-  "priority": 5
-}
-```
-
-#### Advanced Message with Extras
-
-```json
-{
-  "title": "{{.Title}}",
-  "message": "{{.Message}}",
-  "priority": {{.Priority}},
-  "extras": {
-    "client::display": {
-      "contentType": "text/markdown"
-    },
-    "client::notification": {
-      "click": {
-        "url": "https://your-charon-instance.com"
-      }
-    },
-    "charon": {
-      "event_type": "{{.EventType}}",
-      "host_name": "{{.HostName}}",
-      "timestamp": "{{.Timestamp}}"
-    }
-  }
-}
-```
-
-**Gotify Priority Levels:**
-
-- `0` - Very low
-- `2` - Low
-- `5` - Normal (default)
-- `8` - High
-- `10` - Very high (emergency)
-
-### Generic Webhooks
-
-For custom integrations, use any JSON structure:
-
-```json
-{
-  "notification": {
-    "type": "{{.EventType}}",
-    "level": "{{.Severity}}",
-    "title": "{{.Title}}",
-    "body": "{{.Message}}",
-    "metadata": {
-      "host": "{{.HostName}}",
-      "timestamp": "{{.Timestamp}}",
-      "source": "charon"
-    }
-  }
-}
-```
+Additional providers (for example Slack, Gotify, Telegram, and generic webhooks)
+are planned for later staged releases. This page will be expanded as each
+provider is validated and released.
 
 ## Template Variables
 
@@ -374,12 +228,16 @@ Template: detailed (or custom)
 4. Test the notification
 5. Save changes
 
+If you previously used non-Discord provider types, keep those entries as
+historical records only. They are not active runtime dispatch paths in the
+current rollout.
+
 ### Testing Your Template
 
 Before saving, always test your template:
 
 1. Click **"Send Test Notification"** in the provider form
-2. Check your notification channel (Discord/Slack/etc.)
+2. Check your Discord channel
 3. Verify formatting, colors, and all fields appear correctly
 4. Adjust template if needed
 5. Test again until satisfied
@@ -407,7 +265,7 @@ Before saving, always test your template:
 1. ✅ Provider is enabled
 2. ✅ Event type is configured for notifications
 3. ✅ Webhook URL is correct
-4. ✅ Service (Discord/Slack/etc.) is online
+4. ✅ Discord is online
 5. ✅ Test notification succeeds
 6. ✅ Check Charon logs for errors: `docker logs charon | grep notification`
 
@@ -423,26 +281,6 @@ Before saving, always test your template:
     {
       "title": "{{.Title}}",
       "description": "{{.Message}}"
-    }
-  ]
-}
-```
-
-### Slack Message Appears Plain
-
-**Cause:** Block Kit requires specific formatting.
-
-**Solution:** Use `blocks` array with proper types:
-
-```json
-{
-  "blocks": [
-    {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": "{{.Message}}"
-      }
     }
   ]
 }
@@ -469,19 +307,17 @@ Consistent colors help quickly identify severity:
 
 ### 4. Group Related Events
 
-Configure multiple providers for different event types:
+Use separate Discord providers for different event types:
 
 - Critical alerts → Discord (with mentions)
-- Info notifications → Slack (general channel)
-- All events → Gotify (personal alerts)
+- Info notifications → Discord (general channel)
+- Security events → Discord (security channel)
 
 ### 5. Rate Limit Awareness
 
 Be mindful of service limits:
 
 - **Discord**: 5 requests per 2 seconds per webhook
-- **Slack**: 1 request per second per workspace
-- **Gotify**: No strict limits (self-hosted)
 
 ### 6. Keep Templates Maintainable
 
@@ -491,7 +327,7 @@ Be mindful of service limits:
 
 ## Advanced Use Cases
 
-### Multi-Channel Routing
+### Routing by Severity
 
 Create separate providers for different severity levels:
 
@@ -500,11 +336,11 @@ Provider: Discord Critical
 Events: uptime_down, ssl_failure
 Template: Custom with @everyone mention
 
-Provider: Slack Info
+Provider: Discord Info
 Events: ssl_renewal, backup_success
 Template: Minimal
 
-Provider: Gotify All
+Provider: Discord All
 Events: * (all)
 Template: Detailed
 ```
@@ -542,8 +378,6 @@ Forward notifications to automation tools:
 ## Additional Resources
 
 - [Discord Webhook Documentation](https://discord.com/developers/docs/resources/webhook)
-- [Slack Block Kit Builder](https://api.slack.com/block-kit)
-- [Gotify API Documentation](https://gotify.net/docs/)
 - [Charon Security Guide](../security.md)
 
 ## Need Help?
