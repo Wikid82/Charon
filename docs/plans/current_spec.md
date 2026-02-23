@@ -649,27 +649,118 @@ Rollback notes:
 
 - Revert patch retirement lines and keep previous pinned patch model.
 
-### PR-3: Optional UX/API exposure and cleanup
+### PR-3: Optional UX/API exposure and cleanup (Focused Execution Update)
 
-Scope:
+Decision summary:
 
-- only approved high-value settings exposed in existing settings surface
-- backend mapping and frontend wiring using existing settings flows
-- docs and translations updates if UI text changes
+- PR-3 remains optional and value-gated.
+- Expose only controls with clear operator value on existing `SystemSettings`.
+- Keep low-value/high-risk knobs backend-default and non-exposed.
+
+Operator-value exposure decision:
+
+| Candidate | Operator value | Decision in PR-3 |
+| --- | --- | --- |
+| `keepalive_idle`, `keepalive_count` | Helps operators tune long-lived upstream behavior (streaming, websocket-heavy, high-connection churn) without editing config by hand. | **Expose minimally** (only if PR-2 confirms stable runtime behavior). |
+| `trusted_proxies_unix` | Niche socket-chain use case, easy to misconfigure, low value for default Charon operators. | **Do not expose**; backend-default only. |
+| `renewal_window_ratio` / cert maintenance internals | Advanced certificate lifecycle tuning with low day-to-day value and higher support burden. | **Do not expose**; backend-default only. |
+
+Strict scope constraints:
+
+- No new routes, pages, tabs, or modals.
+- UI changes limited to existing `frontend/src/pages/SystemSettings.tsx` general/system section.
+- API surface remains existing settings endpoints only (`POST /settings`, `PATCH /config`).
+- Preserve backend defaults when setting is absent, empty, or invalid.
+
+Minimum viable controls (if PR-3 is activated):
+
+1. `caddy.keepalive_idle` (optional)
+   - Surface: `SystemSettings` under existing Caddy/system controls.
+   - UX: bounded select/input for duration-like value (validated server-side).
+   - Persistence: existing `updateSetting()` flow.
+2. `caddy.keepalive_count` (optional)
+   - Surface: `SystemSettings` adjacent to keepalive idle.
+   - UX: bounded numeric control (validated server-side).
+   - Persistence: existing `updateSetting()` flow.
+
+Exact files/functions/components to change:
+
+Backend (no new endpoints):
+
+1. `backend/internal/caddy/manager.go`
+   - Function: `ApplyConfig(ctx context.Context) error`
+   - Change: read optional settings keys (`caddy.keepalive_idle`, `caddy.keepalive_count`), normalize/validate parsed values, pass sanitized values into config generation.
+   - Default rule: on missing/invalid values, pass empty/zero equivalents so generated config keeps current backend-default behavior.
+2. `backend/internal/caddy/config.go`
+   - Function: `GenerateConfig(...)`
+   - Change: extend function parameters with optional keepalive values and apply them only when non-default/valid.
+   - Change location: HTTP server construction block where server-level settings (including trusted proxies) are assembled.
+3. `backend/internal/caddy/types.go`
+   - Type: `Server`
+   - Change: add optional fields required to emit keepalive keys in Caddy JSON only when provided.
+4. `backend/internal/api/handlers/settings_handler.go`
+   - Functions: `UpdateSetting(...)`, `PatchConfig(...)`
+   - Change: add narrow validation for `caddy.keepalive_idle` and `caddy.keepalive_count` to reject malformed/out-of-range values while preserving existing generic settings behavior for unrelated keys.
+
+Frontend (existing surface only):
+
+1. `frontend/src/pages/SystemSettings.tsx`
+   - Component: `SystemSettings`
+   - Change: add local state load/save wiring for optional keepalive controls using existing settings query/mutation flow.
+   - Change: render controls in existing General/System card only.
+2. `frontend/src/api/settings.ts`
+   - No contract expansion required; reuse `updateSetting(key, value, category, type)`.
+3. Localization files (labels/help text only, if controls are exposed):
+   - `frontend/src/locales/en/translation.json`
+   - `frontend/src/locales/de/translation.json`
+   - `frontend/src/locales/es/translation.json`
+   - `frontend/src/locales/fr/translation.json`
+   - `frontend/src/locales/zh/translation.json`
+
+Tests to update/add (targeted):
+
+1. `frontend/src/pages/__tests__/SystemSettings.test.tsx`
+   - Verify control rendering, default-state behavior, and save calls for optional keepalive keys.
+2. `backend/internal/caddy/config_generate_test.go`
+   - Verify keepalive keys are omitted when unset/invalid and emitted when valid.
+3. `backend/internal/api/handlers/settings_handler_test.go`
+   - Verify validation pass/fail for keepalive keys via both `UpdateSetting` and `PatchConfig` paths.
+4. Existing E2E settings coverage (no new suite)
+   - Extend existing settings-related specs only if UI controls are activated in PR-3.
 
 Dependencies:
 
-- PR-2 must establish stable runtime baseline first
+- PR-2 must establish stable runtime/security baseline first.
+- PR-3 activation requires explicit operator-value confirmation from PR-2 evidence.
 
-Acceptance criteria:
+Acceptance criteria (PR-3 complete):
 
-1. No net-new page; updates land in existing `SystemSettings` domain.
-2. E2E and unit tests cover newly exposed controls and defaults.
-3. Deferred features explicitly documented with rationale.
+1. No net-new page; all UI changes are within `SystemSettings` only.
+2. No new backend routes/endpoints; existing settings APIs are reused.
+3. Only approved controls (`caddy.keepalive_idle`, `caddy.keepalive_count`) are exposed, and exposure is allowed only if the PR-3 Value Gate checklist is fully satisfied.
+4. `trusted_proxies_unix`, `renewal_window_ratio`, and certificate-maintenance internals remain backend-default and non-exposed.
+5. Backend preserves current behavior when optional keepalive settings are absent or invalid (no generated-config drift).
+6. Unit tests pass for settings validation + config generation default/override behavior.
+7. Settings UI tests pass for load/save/default behavior on exposed controls.
+8. Deferred/non-exposed features are explicitly documented in PR notes as intentional non-goals.
+
+#### PR-3 Value Gate (required evidence and approval)
+
+Required evidence checklist (all items required):
+
+- [ ] PR-2 evidence bundle contains an explicit operator-value decision record for PR-3 controls, naming `caddy.keepalive_idle` and `caddy.keepalive_count` individually.
+- [ ] Decision record includes objective evidence for each exposed control from at least one concrete source: test/baseline artifact, compatibility/security report, or documented operator requirement.
+- [ ] PR includes before/after evidence proving scope containment: no new page, no new route, and no additional exposed Caddy keys beyond the two approved controls.
+- [ ] Validation artifacts for PR-3 are attached: backend unit tests, frontend settings tests, and generated-config assertions for default/override behavior.
+
+Approval condition (pass/fail):
+
+- **Pass**: all checklist items are complete and a maintainer approval explicitly states "PR-3 Value Gate approved".
+- **Fail**: any checklist item is missing or approval text is absent; PR-3 control exposure is blocked and controls remain backend-default/non-exposed.
 
 Rollback notes:
 
-- Revert UI/API additions while retaining already landed security/runtime upgrades.
+- Revert only PR-3 UI/settings mapping changes while retaining PR-1/PR-2 runtime and security upgrades.
 
 ## Config File Review and Proposed Updates
 
@@ -735,3 +826,32 @@ After approval of this plan:
    (especially patch removals).
 3. Treat PR-3 as optional and value-driven, not mandatory for the security
    update itself.
+
+## PR-3 QA Closure Addendum (2026-02-23)
+
+### Scope
+
+PR-3 closure only:
+
+1. Keepalive controls (`caddy.keepalive_idle`, `caddy.keepalive_count`)
+2. Safe defaults/fallback behavior when keepalive values are missing or invalid
+3. Non-exposure constraints for deferred settings
+
+### Final QA Outcome
+
+- Verdict: **READY (PASS)**
+- Targeted PR-3 E2E rerun: **30 passed, 0 failed**
+- Local patch preflight: **PASS** with required LCOV artifact present
+- Coverage/type-check/security gates: **PASS**
+
+### Scope Guardrails Confirmed
+
+- UI scope remains constrained to existing System Settings surface.
+- No PR-3 expansion beyond approved keepalive controls.
+- Non-exposed settings remain non-exposed (`trusted_proxies_unix` and certificate lifecycle internals).
+- Safe fallback/default behavior remains intact for invalid or absent keepalive input.
+
+### Reviewer References
+
+- QA closure report: `docs/reports/qa_report.md`
+- Manual verification plan: `docs/issues/manual_test_pr3_keepalive_controls_closure.md`
