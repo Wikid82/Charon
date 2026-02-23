@@ -280,7 +280,7 @@ jobs:
       - name: Upload Trivy SARIF to GitHub Security
         if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
         # github/codeql-action v4
-        uses: github/codeql-action/upload-sarif@710e2945787622b429f8982cacb154faa182de18
+        uses: github/codeql-action/upload-sarif@4ea06e96f5e27254d0ea8ff1b6bf2051ece134f0
         with:
           sarif_file: 'trivy-binary-results.sarif'
           category: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event.workflow_run.head_branch) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
