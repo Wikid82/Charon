@@ -14,7 +14,7 @@ func BenchmarkFormatDuration(b *testing.B) {
 }
 
 func BenchmarkExtractPort(b *testing.B) {
-	url := "http://example.com:8080"
+	url := "https://discord.com/api/webhooks/123/abc:8080"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		extractPort(url)

@@ -306,4 +306,5 @@ frontend/temp**
 playwright-output/**
 validation-evidence/**
 .github/agents/# Tools Configuration.md
-docs/plans/codecove_patch_report.md
+docs/reports/codecove_patch_report.md
+vuln-results.json

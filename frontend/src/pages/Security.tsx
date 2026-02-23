@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, Outlet } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink, Settings } from 'lucide-react'
+import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink, Bell } from 'lucide-react'
 import { getSecurityStatus, type SecurityStatus } from '../api/security'
 import { useSecurityConfig, useUpdateSecurityConfig, useGenerateBreakGlassToken } from '../hooks/useSecurity'
 import { startCrowdsec, stopCrowdsec, statusCrowdsec } from '../api/crowdsec'
@@ -10,7 +10,6 @@ import { updateSetting } from '../api/settings'
 import { toast } from '../utils/toast'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { LiveLogViewer } from '../components/LiveLogViewer'
-import { SecurityNotificationSettingsModal } from '../components/SecurityNotificationSettingsModal'
 import { CrowdSecKeyWarning } from '../components/CrowdSecKeyWarning'
 import { PageShell } from '../components/layout/PageShell'
 import {
@@ -85,7 +84,6 @@ export default function Security() {
   })
   const { data: securityConfig } = useSecurityConfig()
   const [adminWhitelist, setAdminWhitelist] = useState<string>('')
-  const [showNotificationSettings, setShowNotificationSettings] = useState(false)
   useEffect(() => {
     if (securityConfig && securityConfig.config) {
       setAdminWhitelist(securityConfig.config.admin_whitelist || '')
@@ -281,10 +279,9 @@ export default function Security() {
       </Button>
       <Button
         variant="secondary"
-        onClick={() => setShowNotificationSettings(true)}
-        disabled={!status.cerberus?.enabled}
+        onClick={() => navigate('/settings/notifications')}
       >
-        <Settings className="w-4 h-4 mr-2" />
+        <Bell className="w-4 h-4 mr-2" />
         {t('security.notifications')}
       </Button>
       <Button
@@ -632,11 +629,6 @@ export default function Security() {
           <LiveLogViewer mode="security" securityFilters={emptySecurityFilters} className="w-full" />
         )}
 
-        {/* Notification Settings Modal */}
-        <SecurityNotificationSettingsModal
-          isOpen={showNotificationSettings}
-          onClose={() => setShowNotificationSettings(false)}
-        />
       </PageShell>
     </TooltipProvider>
   )

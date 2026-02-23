@@ -3,7 +3,7 @@
  *
  * Tests the Notifications page functionality including:
  * - Provider list display and empty states
- * - Provider CRUD operations (Discord, Slack, Generic Webhook)
+ * - Provider CRUD operations (Discord-only)
  * - Template management (built-in and external)
  * - Testing and preview functionality
  * - Event selection configuration
@@ -92,6 +92,10 @@ test.describe('Notification Providers', () => {
         const errorAlert = page.getByRole('alert').filter({ hasText: /error|failed/i });
         await expect(errorAlert).toHaveCount(0);
       });
+
+      await test.step('Verify standalone security compatibility section is not rendered', async () => {
+        await expect(page.getByTestId('security-notifications-section')).toHaveCount(0);
+      });
     });
 
     /**
@@ -130,7 +134,7 @@ test.describe('Notification Providers', () => {
      * Test: Display provider type badges
      * Priority: P2
      */
-    test('should display provider type badges', async ({ page }) => {
+    test('should display provider type badges with explicit deprecated messaging for legacy types', async ({ page }) => {
       await test.step('Mock providers with different types', async () => {
         await page.route('**/api/v1/notifications/providers', async (route, request) => {
           if (request.method() === 'GET') {
@@ -159,14 +163,16 @@ test.describe('Notification Providers', () => {
         await expect(discordBadge).toBeVisible();
       });
 
-      await test.step('Verify Slack type badge', async () => {
-        const slackBadge = page.locator('span').filter({ hasText: /slack/i }).first();
-        await expect(slackBadge).toBeVisible();
+      await test.step('Verify explicit deprecated and non-dispatch messaging is rendered for non-discord provider', async () => {
+        await expect(page.getByTestId('provider-deprecated-status-2')).toHaveText(/deprecated/i);
+        await expect(page.getByTestId('provider-nondispatch-status-2')).toHaveText(/non-dispatch/i);
+        await expect(page.getByTestId('provider-deprecated-message-2')).toContainText(/deprecated/i);
       });
 
-      await test.step('Verify Generic type badge', async () => {
-        const genericBadge = page.locator('span').filter({ hasText: /generic/i }).first();
-        await expect(genericBadge).toBeVisible();
+      await test.step('Verify non-discord rows are read-only actions', async () => {
+        const legacyRow = page.getByTestId('provider-row-2');
+        const legacyButtons = legacyRow.getByRole('button');
+        await expect(legacyButtons).toHaveCount(1);
       });
     });
 
@@ -204,6 +210,12 @@ test.describe('Notification Providers', () => {
         await expect(page.getByText('Discord Two')).toBeVisible();
         await expect(page.getByText('Slack Notify')).toBeVisible();
       });
+
+      await test.step('Verify legacy provider row renders explicit deprecated messaging', async () => {
+        await expect(page.getByTestId('provider-deprecated-status-3')).toHaveText(/deprecated/i);
+        await expect(page.getByTestId('provider-nondispatch-status-3')).toHaveText(/non-dispatch/i);
+        await expect(page.getByTestId('provider-deprecated-message-3')).toContainText(/deprecated/i);
+      });
     });
   });
 
@@ -230,7 +242,8 @@ test.describe('Notification Providers', () => {
 
       await test.step('Fill provider form', async () => {
         await page.getByTestId('provider-name').fill(providerName);
-        await page.getByTestId('provider-type').selectOption('discord');
+        await expect(page.getByTestId('provider-type')).toHaveValue('discord');
+        await expect(page.getByTestId('provider-type')).toBeDisabled();
         await page.getByTestId('provider-url').fill('https://discord.com/api/webhooks/12345/abcdef');
       });
 
@@ -243,7 +256,14 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Save provider', async () => {
+        const createRequestPromise = page.waitForRequest(
+          (request) => request.method() === 'POST' && /\/api\/v1\/notifications\/providers$/.test(request.url())
+        );
         await page.getByTestId('provider-save-btn').click();
+
+        const createRequest = await createRequestPromise;
+        const payload = createRequest.postDataJSON() as Record<string, unknown>;
+        expect(payload.type).toBe('discord');
       });
 
       await test.step('Verify success feedback', async () => {
@@ -258,11 +278,10 @@ test.describe('Notification Providers', () => {
     });
 
     /**
-     * Test: Create Slack notification provider
+     * Test: Form only offers Discord provider type
      * Priority: P0
      */
-    test('should create Slack notification provider', async ({ page }) => {
-      const providerName = generateProviderName('slack');
+    test('should offer only Discord provider type option in form', async ({ page }) => {
 
       await test.step('Click Add Provider button', async () => {
         const addButton = page.getByRole('button', { name: /add.*provider/i });
@@ -276,74 +295,53 @@ test.describe('Notification Providers', () => {
         await expect(nameInput).toBeVisible({ timeout: 5000 });
       });
 
-      await test.step('Fill provider form', async () => {
-        await page.getByTestId('provider-name').fill(providerName);
-        await page.getByTestId('provider-type').selectOption('slack');
-        await page.getByTestId('provider-url').fill('https://hooks.example.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX');
-      });
-
-      await test.step('Configure uptime notifications', async () => {
-        const uptimeCheckbox = page.getByTestId('notify-uptime');
-        await uptimeCheckbox.check();
-      });
-
-      await test.step('Save provider', async () => {
-        await page.getByTestId('provider-save-btn').click();
-      });
-
-      await test.step('Verify provider appears in list', async () => {
-        const providerInList = page.getByText(providerName);
-        await expect(providerInList.first()).toBeVisible({ timeout: 10000 });
+      await test.step('Verify provider type select contains only Discord option', async () => {
+        const providerTypeSelect = page.getByTestId('provider-type');
+        await expect(providerTypeSelect.locator('option')).toHaveCount(1);
+        await expect(providerTypeSelect.locator('option')).toHaveText(/discord/i);
+        await expect(providerTypeSelect).toBeDisabled();
       });
     });
 
     /**
-     * Test: Create generic webhook provider
+     * Test: Legacy non-discord providers remain non-editable with explicit deprecated messaging
      * Priority: P0
      */
-    test('should create generic webhook provider', async ({ page }) => {
-      const providerName = generateProviderName('generic');
+    test('should keep legacy non-discord providers non-editable with explicit deprecated messaging', async ({ page }) => {
+      await test.step('Mock existing legacy provider', async () => {
+        await page.route('**/api/v1/notifications/providers', async (route, request) => {
+          if (request.method() === 'GET') {
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify([
+                {
+                  id: 'legacy-provider',
+                  name: 'Legacy Generic',
+                  type: 'generic',
+                  url: 'https://legacy.example.com/webhook',
+                  enabled: false,
+                },
+              ]),
+            });
+            return;
+          }
 
-      await test.step('Click Add Provider button', async () => {
-        const addButton = page.getByRole('button', { name: /add.*provider/i });
-        await addButton.click();
+          await route.continue();
+        });
       });
 
-      await test.step('Wait for form to render', async () => {
-        // Wait for the form dialog to be fully rendered before accessing inputs
-        await page.waitForLoadState('domcontentloaded');
-        const nameInput = page.getByTestId('provider-name');
-        await expect(nameInput).toBeVisible({ timeout: 5000 });
+      await test.step('Reload page and verify explicit deprecated row messaging', async () => {
+        await page.reload();
+        await waitForLoadingComplete(page);
+        await expect(page.getByTestId('provider-deprecated-status-legacy-provider')).toHaveText(/deprecated/i);
+        await expect(page.getByTestId('provider-nondispatch-status-legacy-provider')).toHaveText(/non-dispatch/i);
+        await expect(page.getByTestId('provider-deprecated-message-legacy-provider')).toContainText(/deprecated/i);
       });
 
-      await test.step('Fill provider form', async () => {
-        await page.getByTestId('provider-name').fill(providerName);
-        await page.getByTestId('provider-type').selectOption('generic');
-        await page.getByTestId('provider-url').fill('https://webhook.example.com/notify');
-      });
-
-      await test.step('Fill JSON config template', async () => {
-        const configTextarea = page.getByTestId('provider-config');
-        if (await configTextarea.isVisible()) {
-          await configTextarea.fill('{"message": "{{.Message}}", "title": "{{.Title}}"}');
-        }
-      });
-
-      await test.step('Enable all event types', async () => {
-        await page.getByTestId('notify-proxy-hosts').check();
-        await page.getByTestId('notify-remote-servers').check();
-        await page.getByTestId('notify-domains').check();
-        await page.getByTestId('notify-certs').check();
-        await page.getByTestId('notify-uptime').check();
-      });
-
-      await test.step('Save provider', async () => {
-        await page.getByTestId('provider-save-btn').click();
-      });
-
-      await test.step('Verify provider created', async () => {
-        const providerInList = page.getByText(providerName);
-        await expect(providerInList.first()).toBeVisible({ timeout: 10000 });
+      await test.step('Verify only delete action remains for legacy row', async () => {
+        const legacyRow = page.getByTestId('provider-row-legacy-provider');
+        await expect(legacyRow.getByRole('button')).toHaveCount(1);
       });
     });
 
@@ -380,6 +378,7 @@ test.describe('Notification Providers', () => {
         await page.route('**/api/v1/notifications/providers/*', async (route, request) => {
           if (request.method() === 'PUT') {
             const payload = (await request.postDataJSON()) as Record<string, unknown>;
+            expect(payload.type).toBe('discord');
             providers = providers.map((provider) =>
               provider.id === 'test-edit-id'
                 ? { ...provider, ...payload }
@@ -520,7 +519,7 @@ test.describe('Notification Providers', () => {
 
         // Either success toast or empty state
         const hasIndicator = await successIndicator.first().isVisible({ timeout: 5000 }).catch(() => false);
-        expect(hasIndicator || true).toBeTruthy();
+        expect(hasIndicator).toBeTruthy();
       });
     });
 
@@ -557,22 +556,18 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Click edit to access enabled toggle', async () => {
-        const editButton = page.getByRole('button').filter({ has: page.locator('svg') }).nth(1);
+        const providerCard = page.getByTestId('provider-row-toggle-me');
+        const editButton = providerCard.getByRole('button').nth(1); // 0=Send, 1=Edit, 2=Delete
+        await expect(editButton).toBeVisible({ timeout: 5000 });
         await editButton.click();
       });
 
       await test.step('Toggle enabled state', async () => {
-        const enabledCheckbox = page.locator('input[type="checkbox"]').filter({ has: page.locator('~ label:has-text("Enabled")') })
-          .or(page.getByRole('checkbox').first());
-
-        if (await enabledCheckbox.isVisible()) {
-          // Get current state and toggle
-          const isChecked = await enabledCheckbox.isChecked();
-          await enabledCheckbox.setChecked(!isChecked);
-
-          // Verify state changed
-          expect(await enabledCheckbox.isChecked()).toBe(!isChecked);
-        }
+        const enabledCheckbox = page.getByTestId('provider-enabled');
+        await expect(enabledCheckbox).toBeVisible({ timeout: 5000 });
+        const isChecked = await enabledCheckbox.isChecked();
+        await enabledCheckbox.setChecked(!isChecked);
+        expect(await enabledCheckbox.isChecked()).toBe(!isChecked);
       });
     });
 
@@ -639,7 +634,8 @@ test.describe('Notification Providers', () => {
 
       await test.step('Fill form with invalid URL', async () => {
         await page.getByTestId('provider-name').fill(providerName);
-        await page.getByTestId('provider-type').selectOption('discord');
+        await expect(page.getByTestId('provider-type')).toHaveValue('discord');
+        await expect(page.getByTestId('provider-type')).toBeDisabled();
         await page.getByTestId('provider-url').fill('not-a-valid-url');
       });
 
@@ -661,7 +657,7 @@ test.describe('Notification Providers', () => {
         const hasErrorMessage = await errorMessage.isVisible().catch(() => false);
 
         await expect(page.getByTestId('provider-save-btn')).toBeVisible();
-        expect(hasError || hasErrorMessage || true).toBeTruthy();
+        expect(hasError || hasErrorMessage).toBeTruthy();
       });
 
       await test.step('Correct URL and verify validation passes', async () => {
@@ -705,7 +701,8 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Leave name empty and fill other fields', async () => {
-        await page.getByTestId('provider-type').selectOption('discord');
+        await expect(page.getByTestId('provider-type')).toHaveValue('discord');
+        await expect(page.getByTestId('provider-type')).toBeDisabled();
         await page.getByTestId('provider-url').fill('https://discord.com/api/webhooks/test/token');
       });
 
@@ -756,7 +753,8 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Select provider type that supports templates', async () => {
-        await page.getByTestId('provider-type').selectOption('discord');
+        await expect(page.getByTestId('provider-type')).toHaveValue('discord');
+        await expect(page.getByTestId('provider-type')).toBeDisabled();
       });
 
       await test.step('Select minimal template button', async () => {
@@ -1120,7 +1118,8 @@ test.describe('Notification Providers', () => {
 
       await test.step('Fill provider form', async () => {
         await page.getByTestId('provider-name').fill('Test Provider');
-        await page.getByTestId('provider-type').selectOption('discord');
+        await expect(page.getByTestId('provider-type')).toHaveValue('discord');
+        await expect(page.getByTestId('provider-type')).toBeDisabled();
         await page.getByTestId('provider-url').fill('https://discord.com/api/webhooks/test/token');
       });
 
@@ -1138,9 +1137,16 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Click test button', async () => {
+        const testRequestPromise = page.waitForRequest(
+          (request) => request.method() === 'POST' && /\/api\/v1\/notifications\/providers\/test$/.test(request.url())
+        );
         const testButton = page.getByTestId('provider-test-btn');
         await expect(testButton).toBeVisible();
         await testButton.click();
+
+        const testRequest = await testRequestPromise;
+        const payload = testRequest.postDataJSON() as Record<string, unknown>;
+        expect(payload.type).toBe('discord');
       });
 
       await test.step('Verify test initiated', async () => {
@@ -1154,7 +1160,7 @@ test.describe('Notification Providers', () => {
           el.closest('button')?.querySelector('.text-green-500') !== null
         ).catch(() => false);
 
-        expect(hasSuccessIcon || true).toBeTruthy();
+        expect(hasSuccessIcon).toBeTruthy();
       });
     });
 
@@ -1170,8 +1176,9 @@ test.describe('Notification Providers', () => {
 
       await test.step('Fill provider form', async () => {
         await page.getByTestId('provider-name').fill('Success Test Provider');
-        await page.getByTestId('provider-type').selectOption('slack');
-        await page.getByTestId('provider-url').fill('https://hooks.example.com/services/test');
+        await expect(page.getByTestId('provider-type')).toHaveValue('discord');
+        await expect(page.getByTestId('provider-type')).toBeDisabled();
+        await page.getByTestId('provider-url').fill('https://discord.com/api/webhooks/success/test');
       });
 
       await test.step('Mock successful test', async () => {
@@ -1189,14 +1196,10 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Verify success feedback', async () => {
-        // Wait for success icon (checkmark)
-        await waitForLoadingComplete(page);
-
         const testButton = page.getByTestId('provider-test-btn');
-        const successIcon = testButton.locator('svg.text-green-500, svg[class*="green"]');
+        const successIcon = testButton.locator('svg.text-green-500');
 
-        const hasSuccessIcon = await successIcon.isVisible().catch(() => false);
-        expect(hasSuccessIcon || true).toBeTruthy();
+        await expect(successIcon).toBeVisible({ timeout: 5000 });
       });
     });
 
@@ -1213,8 +1216,9 @@ test.describe('Notification Providers', () => {
 
       await test.step('Fill provider form', async () => {
         await page.getByTestId('provider-name').fill('Preview Provider');
-        await page.getByTestId('provider-type').selectOption('generic');
-        await page.getByTestId('provider-url').fill('https://webhook.test.local/notify');
+        await expect(page.getByTestId('provider-type')).toHaveValue('discord');
+        await expect(page.getByTestId('provider-type')).toBeDisabled();
+        await page.getByTestId('provider-url').fill('https://discord.com/api/webhooks/preview/test');
 
         const configTextarea = page.getByTestId('provider-config');
         if (await configTextarea.isVisible()) {
@@ -1239,8 +1243,15 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Click preview button', async () => {
+        const previewRequestPromise = page.waitForRequest(
+          (request) => request.method() === 'POST' && /\/api\/v1\/notifications\/providers\/preview$/.test(request.url())
+        );
         const previewButton = page.getByRole('button', { name: /preview/i });
         await previewButton.first().click();
+
+        const previewRequest = await previewRequestPromise;
+        const payload = previewRequest.postDataJSON() as Record<string, unknown>;
+        expect(payload.type).toBe('discord');
       });
 
       await test.step('Verify preview displayed', async () => {
@@ -1285,6 +1296,13 @@ test.describe('Notification Providers', () => {
         await expect(page.getByTestId('notify-domains')).toBeVisible();
         await expect(page.getByTestId('notify-certs')).toBeVisible();
         await expect(page.getByTestId('notify-uptime')).toBeVisible();
+        await expect(page.getByTestId('notify-security-waf-blocks')).toBeVisible();
+        await expect(page.getByTestId('notify-security-acl-denies')).toBeVisible();
+        await expect(page.getByTestId('notify-security-rate-limit-hits')).toBeVisible();
+      });
+
+      await test.step('Verify no standalone compatibility section exists', async () => {
+        await expect(page.getByTestId('security-notifications-section')).toHaveCount(0);
       });
 
       await test.step('Toggle each event type', async () => {
@@ -1376,7 +1394,8 @@ test.describe('Notification Providers', () => {
 
       await test.step('Fill provider form with specific events', async () => {
         await page.getByTestId('provider-name').fill(providerName);
-        await page.getByTestId('provider-type').selectOption('discord');
+        await expect(page.getByTestId('provider-type')).toHaveValue('discord');
+        await expect(page.getByTestId('provider-type')).toBeDisabled();
         await page.getByTestId('provider-url').fill('https://discord.com/api/webhooks/events/test');
 
         // Configure specific events
@@ -1406,14 +1425,9 @@ test.describe('Notification Providers', () => {
 
       await test.step('Reload to fetch persisted provider state', async () => {
         // Reload ensures the edit form reflects server-side persisted event flags.
-        const providersResponsePromise = waitForAPIResponse(
-          page,
-          /\/api\/v1\/notifications\/providers$/,
-          { status: 200 }
-        );
         await page.reload();
-        await providersResponsePromise;
         await waitForLoadingComplete(page);
+        await expect(page.getByText(providerName).first()).toBeVisible({ timeout: 10000 });
       });
 
       await test.step('Edit provider to verify persisted values', async () => {
@@ -1591,17 +1605,17 @@ test.describe('Notification Providers', () => {
 
       await test.step('Fill provider form', async () => {
         await page.getByTestId('provider-name').fill('Error Test Provider');
-        await page.getByTestId('provider-type').selectOption('discord');
+        await expect(page.getByTestId('provider-type')).toHaveValue('discord');
+        await expect(page.getByTestId('provider-type')).toBeDisabled();
         await page.getByTestId('provider-url').fill('https://discord.com/api/webhooks/invalid');
       });
 
       await test.step('Mock failed test response', async () => {
         await page.route('**/api/v1/notifications/providers/test', async (route) => {
           await route.fulfill({
-            status: 200,
+            status: 500,
             contentType: 'application/json',
             body: JSON.stringify({
-              success: false,
               error: 'Failed to send notification: Invalid webhook URL',
             }),
           });
@@ -1620,7 +1634,7 @@ test.describe('Notification Providers', () => {
         const errorIcon = testButton.locator('svg.text-red-500, svg[class*="red"]');
 
         const hasErrorIcon = await errorIcon.isVisible().catch(() => false);
-        expect(hasErrorIcon || true).toBeTruthy();
+        expect(hasErrorIcon).toBeTruthy();
       });
     });
 
@@ -1637,8 +1651,9 @@ test.describe('Notification Providers', () => {
 
       await test.step('Fill form with invalid JSON config', async () => {
         await page.getByTestId('provider-name').fill('Invalid Template Provider');
-        await page.getByTestId('provider-type').selectOption('generic');
-        await page.getByTestId('provider-url').fill('https://webhook.test.local');
+        await expect(page.getByTestId('provider-type')).toHaveValue('discord');
+        await expect(page.getByTestId('provider-type')).toBeDisabled();
+        await page.getByTestId('provider-url').fill('https://discord.com/api/webhooks/invalid/template');
 
         const configTextarea = page.getByTestId('provider-config');
         if (await configTextarea.isVisible()) {
@@ -1664,7 +1679,8 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Verify error message displayed', async () => {
-        const errorMessage = page.getByText(/error|failed|invalid/i);
+        // Anchor to the unique "Preview Error:" i18n prefix rendered by the previewError state
+        const errorMessage = page.getByText(/Preview Error:/i);
         await expect(errorMessage.first()).toBeVisible({ timeout: 5000 });
       });
     });

@@ -68,11 +68,11 @@ describe('notifications api', () => {
     mockedClient.put.mockResolvedValue({ data: { id: 'new', name: 'Slack v2' } })
 
     const created = await createProvider({ name: 'Slack' })
-    expect(mockedClient.post).toHaveBeenCalledWith('/notifications/providers', { name: 'Slack' })
+    expect(mockedClient.post).toHaveBeenCalledWith('/notifications/providers', { name: 'Slack', type: 'discord' })
     expect(created.id).toBe('new')
 
     const updated = await updateProvider('new', { enabled: false })
-    expect(mockedClient.put).toHaveBeenCalledWith('/notifications/providers/new', { enabled: false })
+    expect(mockedClient.put).toHaveBeenCalledWith('/notifications/providers/new', { enabled: false, type: 'discord' })
     expect(updated.name).toBe('Slack v2')
 
     await testProvider({ id: 'new', name: 'Slack', enabled: true })
@@ -80,11 +80,22 @@ describe('notifications api', () => {
       id: 'new',
       name: 'Slack',
       enabled: true,
+      type: 'discord',
     })
 
     mockedClient.delete.mockResolvedValue({})
     await deleteProvider('new')
     expect(mockedClient.delete).toHaveBeenCalledWith('/notifications/providers/new')
+  })
+
+  it('rejects non-discord type before submit for provider mutations and preview', async () => {
+    await expect(createProvider({ name: 'Bad', type: 'slack' })).rejects.toThrow('Only discord notification providers are supported')
+    await expect(updateProvider('bad', { type: 'generic' })).rejects.toThrow('Only discord notification providers are supported')
+    await expect(testProvider({ id: 'bad', type: 'email' })).rejects.toThrow('Only discord notification providers are supported')
+    await expect(previewProvider({ id: 'bad', type: 'gotify' })).rejects.toThrow('Only discord notification providers are supported')
+
+    expect(mockedClient.post).not.toHaveBeenCalled()
+    expect(mockedClient.put).not.toHaveBeenCalled()
   })
 
   it('fetches templates and previews provider payloads with data', async () => {
@@ -99,6 +110,7 @@ describe('notifications api', () => {
     expect(mockedClient.post).toHaveBeenCalledWith('/notifications/providers/preview', {
       id: 'p1',
       name: 'Provider',
+      type: 'discord',
       data: { foo: 'bar' },
     })
     expect(preview).toEqual({ preview: 'ok' })
@@ -135,8 +147,8 @@ describe('notifications api', () => {
   })
 
   it('reads and updates security notification settings', async () => {
-    mockedClient.get.mockResolvedValueOnce({ data: { enabled: true, min_log_level: 'info', notify_waf_blocks: true, notify_acl_denials: false, notify_rate_limit_hits: true } })
-    mockedClient.put.mockResolvedValueOnce({ data: { enabled: false, min_log_level: 'error', notify_waf_blocks: false, notify_acl_denials: true, notify_rate_limit_hits: false } })
+    mockedClient.get.mockResolvedValueOnce({ data: { enabled: true, min_log_level: 'info', security_waf_enabled: true, security_acl_enabled: false, security_rate_limit_enabled: true } })
+    mockedClient.put.mockResolvedValueOnce({ data: { enabled: false, min_log_level: 'error', security_waf_enabled: false, security_acl_enabled: true, security_rate_limit_enabled: false } })
 
     const settings = await getSecurityNotificationSettings()
     expect(settings.enabled).toBe(true)

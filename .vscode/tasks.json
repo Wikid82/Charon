@@ -454,7 +454,7 @@
         {
             "label": "Security: Trivy Scan",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh security-scan-trivy",
+            "command": "TRIVY_DOCKER_RM=false .github/skills/scripts/skill-runner.sh security-scan-trivy",
             "group": "test",
             "problemMatcher": []
         },
@@ -501,14 +501,14 @@
         {
             "label": "Security: CodeQL Go Scan (DEPRECATED)",
             "type": "shell",
-            "command": "codeql database create codeql-db-go --language=go --source-root=backend --overwrite && codeql database analyze codeql-db-go /projects/codeql/codeql/go/ql/src/codeql-suites/go-security-extended.qls --format=sarif-latest --output=codeql-results-go.sarif",
+            "command": "bash scripts/pre-commit-hooks/codeql-go-scan.sh",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Security: CodeQL JS Scan (DEPRECATED)",
             "type": "shell",
-            "command": "codeql database create codeql-db-js --language=javascript --source-root=frontend --overwrite && codeql database analyze codeql-db-js /projects/codeql/codeql/javascript/ql/src/codeql-suites/javascript-security-extended.qls --format=sarif-latest --output=codeql-results-js.sarif",
+            "command": "bash scripts/pre-commit-hooks/codeql-js-scan.sh",
             "group": "test",
             "problemMatcher": []
         },

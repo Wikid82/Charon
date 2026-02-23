@@ -14,6 +14,16 @@ import * as securityApi from '../../api/security'
 import * as crowdsecApi from '../../api/crowdsec'
 import * as settingsApi from '../../api/settings'
 
+const mockNavigate = vi.hoisted(() => vi.fn())
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  }
+})
+
 vi.mock('../../api/security')
 vi.mock('../../api/crowdsec')
 vi.mock('../../api/settings')
@@ -22,11 +32,10 @@ vi.mock('../../hooks/useNotifications', () => ({
     data: {
       enabled: false,
       min_log_level: 'warn',
-      notify_waf_blocks: true,
-      notify_acl_denials: true,
-      notify_rate_limit_hits: true,
+      security_waf_enabled: true,
+      security_acl_enabled: true,
+      security_rate_limit_enabled: true,
       webhook_url: '',
-      email_recipients: '',
     },
     isLoading: false,
   })),
@@ -169,6 +178,7 @@ describe('Security Page - Functional Tests', () => {
       },
     })
     vi.clearAllMocks()
+    mockNavigate.mockReset()
     vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
     vi.mocked(settingsApi.updateSetting).mockResolvedValue()
   })
@@ -425,14 +435,29 @@ describe('Security Page - Functional Tests', () => {
       })
     })
 
-    it('should disable Notifications button when Cerberus is disabled', async () => {
+    it('should keep Notifications button enabled when Cerberus is disabled (navigation-only)', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusCerberusDisabled)
 
       await renderSecurityPage()
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Notifications/i })).toBeDisabled()
+        expect(screen.getByRole('button', { name: /Notifications/i })).not.toBeDisabled()
       })
+    })
+
+    it('should navigate to notifications settings when Notifications button is clicked', async () => {
+      const user = userEvent.setup()
+      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
+
+      await renderSecurityPage()
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Notifications/i })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: /Notifications/i }))
+
+      expect(mockNavigate).toHaveBeenCalledWith('/settings/notifications')
     })
   })
 

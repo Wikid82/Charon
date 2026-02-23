@@ -439,6 +439,81 @@ func TestSettingsHandler_UpdateSetting_SecurityKeyInvalidatesCache(t *testing.T)
 	assert.Equal(t, 1, mgr.calls)
 }
 
+func TestSettingsHandler_UpdateSetting_BlocksLegacyFallbackFlag(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	testCases := []struct {
+		name  string
+		value string
+	}{
+		{"true lowercase", "true"},
+		{"true uppercase", "TRUE"},
+		{"true mixed case", "True"},
+		{"true with whitespace", " true "},
+		{"true with tabs", "\ttrue\t"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := map[string]string{
+				"key":   "feature.notifications.legacy.fallback_enabled",
+				"value": tc.value,
+			}
+			body, _ := json.Marshal(payload)
+
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			var resp map[string]interface{}
+			err := json.Unmarshal(w.Body.Bytes(), &resp)
+			assert.NoError(t, err)
+			assert.Contains(t, resp["error"], "Legacy fallback has been removed")
+			assert.Equal(t, "LEGACY_FALLBACK_REMOVED", resp["code"])
+
+			// Verify flag was not saved to database
+			var setting models.Setting
+			err = db.Where("key = ?", "feature.notifications.legacy.fallback_enabled").First(&setting).Error
+			assert.Error(t, err) // Should not exist
+		})
+	}
+}
+
+func TestSettingsHandler_UpdateSetting_AllowsLegacyFallbackFlagFalse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{
+		"key":   "feature.notifications.legacy.fallback_enabled",
+		"value": "false",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Verify flag was saved to database with false value
+	var setting models.Setting
+	err := db.Where("key = ?", "feature.notifications.legacy.fallback_enabled").First(&setting).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "false", setting.Value)
+}
+
 func TestSettingsHandler_PatchConfig_InvalidAdminWhitelist(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
@@ -562,6 +637,98 @@ func TestSettingsHandler_PatchConfig_EnablesCerberusWhenACLEnabled(t *testing.T)
 	err = db.Where("name = ?", "default").First(&cfg).Error
 	assert.NoError(t, err)
 	assert.True(t, cfg.Enabled)
+}
+
+func TestSettingsHandler_PatchConfig_BlocksLegacyFallbackFlag(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.PATCH("/config", handler.PatchConfig)
+
+	testCases := []struct {
+		name    string
+		payload map[string]any
+	}{
+		{"nested true", map[string]any{
+			"feature": map[string]any{
+				"notifications": map[string]any{
+					"legacy": map[string]any{
+						"fallback_enabled": true,
+					},
+				},
+			},
+		}},
+		{"flat key true", map[string]any{
+			"feature.notifications.legacy.fallback_enabled": "true",
+		}},
+		{"nested string true", map[string]any{
+			"feature": map[string]any{
+				"notifications": map[string]any{
+					"legacy": map[string]any{
+						"fallback_enabled": "true",
+					},
+				},
+			},
+		}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			body, _ := json.Marshal(tc.payload)
+
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest("PATCH", "/config", bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			var resp map[string]interface{}
+			err := json.Unmarshal(w.Body.Bytes(), &resp)
+			assert.NoError(t, err)
+			assert.Contains(t, resp["error"], "Legacy fallback has been removed")
+			assert.Equal(t, "LEGACY_FALLBACK_REMOVED", resp["code"])
+
+			// Verify flag was not saved to database
+			var setting models.Setting
+			err = db.Where("key = ?", "feature.notifications.legacy.fallback_enabled").First(&setting).Error
+			assert.Error(t, err) // Should not exist
+		})
+	}
+}
+
+func TestSettingsHandler_PatchConfig_AllowsLegacyFallbackFlagFalse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.PATCH("/config", handler.PatchConfig)
+
+	payload := map[string]any{
+		"feature": map[string]any{
+			"notifications": map[string]any{
+				"legacy": map[string]any{
+					"fallback_enabled": false,
+				},
+			},
+		},
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/config", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Verify flag was saved to database with false value
+	var setting models.Setting
+	err := db.Where("key = ?", "feature.notifications.legacy.fallback_enabled").First(&setting).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "false", setting.Value)
 }
 
 func TestSettingsHandler_UpdateSetting_DatabaseError(t *testing.T) {

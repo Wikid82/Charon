@@ -1,38 +1,54 @@
 package handlers
 
 import (
-	"fmt"
+	"context"
+	"net"
 	"net/http"
-	"net/mail"
-	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
-	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 // SecurityNotificationServiceInterface defines the interface for security notification service.
 type SecurityNotificationServiceInterface interface {
 	GetSettings() (*models.NotificationConfig, error)
 	UpdateSettings(*models.NotificationConfig) error
+	SendViaProviders(ctx context.Context, event models.SecurityEvent) error
 }
 
 // SecurityNotificationHandler handles notification settings endpoints.
 type SecurityNotificationHandler struct {
-	service         SecurityNotificationServiceInterface
-	securityService *services.SecurityService
-	dataRoot        string
+	service             SecurityNotificationServiceInterface
+	securityService     *services.SecurityService
+	dataRoot            string
+	notificationService *services.NotificationService
+	managementCIDRs     []string
 }
 
 // NewSecurityNotificationHandler creates a new handler instance.
 func NewSecurityNotificationHandler(service SecurityNotificationServiceInterface) *SecurityNotificationHandler {
-	return NewSecurityNotificationHandlerWithDeps(service, nil, "")
+	return NewSecurityNotificationHandlerWithDeps(service, nil, "", nil, nil)
 }
 
-func NewSecurityNotificationHandlerWithDeps(service SecurityNotificationServiceInterface, securityService *services.SecurityService, dataRoot string) *SecurityNotificationHandler {
-	return &SecurityNotificationHandler{service: service, securityService: securityService, dataRoot: dataRoot}
+func NewSecurityNotificationHandlerWithDeps(
+	service SecurityNotificationServiceInterface,
+	securityService *services.SecurityService,
+	dataRoot string,
+	notificationService *services.NotificationService,
+	managementCIDRs []string,
+) *SecurityNotificationHandler {
+	return &SecurityNotificationHandler{
+		service:             service,
+		securityService:     securityService,
+		dataRoot:            dataRoot,
+		notificationService: notificationService,
+		managementCIDRs:     managementCIDRs,
+	}
 }
 
 // GetSettings retrieves the current notification settings.
@@ -45,82 +61,112 @@ func (h *SecurityNotificationHandler) GetSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, settings)
 }
 
-// UpdateSettings updates the notification settings.
+func (h *SecurityNotificationHandler) DeprecatedGetSettings(c *gin.Context) {
+	c.Header("X-Charon-Deprecated", "true")
+	c.Header("X-Charon-Canonical-Endpoint", "/api/v1/notifications/settings/security")
+	h.GetSettings(c)
+}
+
+// UpdateSettings is deprecated and returns 410 Gone (R6).
+// Security settings must now be managed via provider Notification Events.
 func (h *SecurityNotificationHandler) UpdateSettings(c *gin.Context) {
 	if !requireAdmin(c) {
 		return
 	}
 
-	var config models.NotificationConfig
-	if err := c.ShouldBindJSON(&config); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
-		return
-	}
-
-	// Validate min_log_level
-	validLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
-	if config.MinLogLevel != "" && !validLevels[config.MinLogLevel] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid min_log_level. Must be one of: debug, info, warn, error"})
-		return
-	}
-
-	// CRITICAL FIX: Validate webhook URL immediately (fail-fast principle)
-	// This prevents invalid/malicious URLs from being saved to the database
-	if config.WebhookURL != "" {
-		if _, err := security.ValidateExternalURL(config.WebhookURL,
-			security.WithAllowLocalhost(),
-			security.WithAllowHTTP(),
-		); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": fmt.Sprintf("Invalid webhook URL: %v", err),
-				"help":  "URL must be publicly accessible and cannot point to private networks or cloud metadata endpoints",
-			})
-			return
-		}
-	}
-
-	if normalized, err := normalizeEmailRecipients(config.EmailRecipients); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	} else {
-		config.EmailRecipients = normalized
-	}
-
-	if err := h.service.UpdateSettings(&config); err != nil {
-		if respondPermissionError(c, h.securityService, "security_notifications_save_failed", err, h.dataRoot) {
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update settings"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Settings updated successfully"})
+	c.JSON(http.StatusGone, gin.H{
+		"error":   "legacy_security_settings_deprecated",
+		"message": "Use provider Notification Events.",
+		"code":    "LEGACY_SECURITY_SETTINGS_DEPRECATED",
+	})
 }
 
-func normalizeEmailRecipients(input string) (string, error) {
-	trimmed := strings.TrimSpace(input)
-	if trimmed == "" {
-		return "", nil
+func (h *SecurityNotificationHandler) DeprecatedUpdateSettings(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
 	}
 
-	parts := strings.Split(trimmed, ",")
-	valid := make([]string, 0, len(parts))
-	invalid := make([]string, 0)
-	for _, part := range parts {
-		candidate := strings.TrimSpace(part)
-		if candidate == "" {
+	c.JSON(http.StatusGone, gin.H{
+		"error":   "legacy_security_settings_deprecated",
+		"message": "Use provider Notification Events.",
+		"code":    "LEGACY_SECURITY_SETTINGS_DEPRECATED",
+	})
+}
+
+// HandleSecurityEvent receives runtime security events from Caddy/Cerberus (Blocker 1: Production dispatch path).
+// This endpoint is called by Caddy bouncer/middleware when security events occur (WAF blocks, CrowdSec decisions, etc.).
+func (h *SecurityNotificationHandler) HandleSecurityEvent(c *gin.Context) {
+	// Blocker 2: Source validation - verify request originates from localhost or management CIDRs
+	clientIPStr := util.CanonicalizeIPForSecurity(c.ClientIP())
+	clientIP := net.ParseIP(clientIPStr)
+	if clientIP == nil {
+		logger.Log().WithField("ip", util.SanitizeForLog(clientIPStr)).Warn("Security event intake: invalid client IP")
+		c.JSON(http.StatusForbidden, gin.H{
+			"error":   "invalid_source",
+			"message": "Request source could not be validated",
+		})
+		return
+	}
+
+	// Check if IP is localhost (IPv4 or IPv6)
+	isLocalhost := clientIP.IsLoopback()
+
+	// Check if IP is in management CIDRs
+	isInManagementNetwork := false
+	for _, cidrStr := range h.managementCIDRs {
+		_, ipnet, err := net.ParseCIDR(cidrStr)
+		if err != nil {
+			logger.Log().WithError(err).WithField("cidr", util.SanitizeForLog(cidrStr)).Warn("Security event intake: invalid CIDR")
 			continue
 		}
-		if _, err := mail.ParseAddress(candidate); err != nil {
-			invalid = append(invalid, candidate)
-			continue
+		if ipnet.Contains(clientIP) {
+			isInManagementNetwork = true
+			break
 		}
-		valid = append(valid, candidate)
 	}
 
-	if len(invalid) > 0 {
-		return "", fmt.Errorf("invalid email recipients: %s", strings.Join(invalid, ", "))
+	// Reject if not from localhost or management network
+	if !isLocalhost && !isInManagementNetwork {
+		logger.Log().WithField("ip", util.SanitizeForLog(clientIP.String())).Warn("Security event intake: IP not authorized")
+		c.JSON(http.StatusForbidden, gin.H{
+			"error":   "unauthorized_source",
+			"message": "Request must originate from localhost or management network",
+		})
+		return
 	}
 
-	return strings.Join(valid, ", "), nil
+	var event models.SecurityEvent
+	if err := c.ShouldBindJSON(&event); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid security event payload"})
+		return
+	}
+
+	// Set timestamp if not provided
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now()
+	}
+
+	// Log the event for audit trail
+	logger.Log().WithFields(map[string]interface{}{
+		"event_type": util.SanitizeForLog(event.EventType),
+		"severity":   util.SanitizeForLog(event.Severity),
+		"client_ip":  util.SanitizeForLog(event.ClientIP),
+		"path":       util.SanitizeForLog(event.Path),
+	}).Info("Security event received")
+
+	c.Set("security_event_type", event.EventType)
+	c.Set("security_event_severity", event.Severity)
+
+	// Dispatch through provider-security-event authoritative path
+	// This enforces Discord-only rollout guarantee and proper event filtering
+	if err := h.service.SendViaProviders(c.Request.Context(), event); err != nil {
+		logger.Log().WithError(err).WithField("event_type", util.SanitizeForLog(event.EventType)).Error("Failed to dispatch security event")
+		// Continue - dispatch failure shouldn't prevent intake acknowledgment
+	}
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"message":    "Security event recorded",
+		"event_type": event.EventType,
+		"timestamp":  event.Timestamp.Format(time.RFC3339),
+	})
 }

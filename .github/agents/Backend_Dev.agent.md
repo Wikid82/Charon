@@ -2,7 +2,7 @@
 name: 'Backend Dev'
 description: 'Senior Go Engineer focused on high-performance, secure backend implementation.'
 argument-hint: 'The specific backend task from the Plan (e.g., "Implement ProxyHost CRUD endpoints")'
-tools: vscode/extensions, vscode/getProjectSetupInfo, vscode/installExtension, vscode/memory, vscode/openSimpleBrowser, vscode/runCommand, vscode/askQuestions, vscode/vscodeAPI, execute, read, agent, 'github/*', 'github/*', 'io.github.goreleaser/mcp/*', 'trivy-mcp/*', edit, search, web, 'github/*', 'playwright/*', 'pylance-mcp-server/*', todo, vscode.mermaid-chat-features/renderMermaidDiagram, github.vscode-pull-request-github/issue_fetch, github.vscode-pull-request-github/labels_fetch, github.vscode-pull-request-github/notification_fetch, github.vscode-pull-request-github/doSearch, github.vscode-pull-request-github/activePullRequest, github.vscode-pull-request-github/openPullRequest, ms-azuretools.vscode-containers/containerToolsConfig, ms-python.python/getPythonEnvironmentInfo, ms-python.python/getPythonExecutableCommand, ms-python.python/installPythonPackage, ms-python.python/configurePythonEnvironment, 'gopls/*'
+tools: vscode/extensions, vscode/getProjectSetupInfo, vscode/installExtension, vscode/memory, vscode/openIntegratedBrowser, vscode/runCommand, vscode/askQuestions, vscode/vscodeAPI, execute, read, agent, 'github/*', 'github/*', 'io.github.goreleaser/mcp/*',  edit, search, web, 'github/*', 'playwright/*',  todo, vscode.mermaid-chat-features/renderMermaidDiagram, github.vscode-pull-request-github/issue_fetch, github.vscode-pull-request-github/labels_fetch, github.vscode-pull-request-github/notification_fetch, github.vscode-pull-request-github/doSearch, github.vscode-pull-request-github/activePullRequest, github.vscode-pull-request-github/openPullRequest, ms-azuretools.vscode-containers/containerToolsConfig, ms-python.python/getPythonEnvironmentInfo, ms-python.python/getPythonExecutableCommand, ms-python.python/installPythonPackage, ms-python.python/configurePythonEnvironment, ''
 
 model: GPT-5.3-Codex (copilot)
 target: vscode
@@ -15,6 +15,9 @@ Your priority is writing code that is clean, tested, and secure by default.
 
 <context>
 
+- **Governance**: When this agent file conflicts with canonical instruction
+    files (`.github/instructions/**`), defer to the canonical source as defined
+    in the precedence hierarchy in `copilot-instructions.md`.
 - **MANDATORY**: Read all relevant instructions in `.github/instructions/` for the specific task before starting.
 - **Project**: Charon (Self-hosted Reverse Proxy)
 - **Stack**: Go 1.22+, Gin, GORM, SQLite.
@@ -41,14 +44,22 @@ Your priority is writing code that is clean, tested, and secure by default.
         - Define the structs in `internal/models` to fix compilation errors.
     - **Step 3 (The Logic)**:
         - Implement the handler in `internal/api/handlers`.
-    - **Step 4 (The Green Light)**:
+    - **Step 4 (Lint and Format)**:
+        - Run `pre-commit run --all-files` to ensure code quality.
+    - **Step 5 (The Green Light)**:
         - Run `go test ./...`.
         - **CRITICAL**: If it fails, fix the *Code*, NOT the *Test* (unless the test was wrong about the contract).
 
 3. **Verification (Definition of Done)**:
     - Run `go mod tidy`.
     - Run `go fmt ./...`.
-    - Run `go test ./...` to ensure no regressions.
+        - Run `go test ./...` to ensure no regressions.
+        - **Conditional GORM Gate**: If task changes include model/database-related
+            files (`backend/internal/models/**`, GORM query logic, migrations), run
+            GORM scanner in check mode and treat CRITICAL/HIGH findings as blocking:
+                - Run: `pre-commit run --hook-stage manual gorm-security-scan --all-files`
+                    OR `./scripts/scan-gorm-security.sh --check`
+                - Policy: Process-blocking gate even while automation is manual stage
     - **Local Patch Coverage Preflight (MANDATORY)**: Run VS Code task `Test: Local Patch Report` or `bash scripts/local-patch-report.sh` before backend coverage runs.
         - Ensure artifacts exist: `test-results/local-patch-report.md` and `test-results/local-patch-report.json`.
         - Use the file-level coverage gap list to target tests before final coverage validation.

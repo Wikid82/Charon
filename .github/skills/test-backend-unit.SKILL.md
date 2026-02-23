@@ -21,7 +21,11 @@ requirements:
   - name: "go"
     version: ">=1.23"
     optional: false
-environment_variables: []
+environment_variables:
+  - name: "CHARON_ENCRYPTION_KEY"
+    description: "Encryption key for backend test runtime. Auto-generated ephemerally if missing/invalid."
+    default: "(auto-generated for test run)"
+    required: false
 parameters:
   - name: "verbose"
     type: "boolean"
@@ -106,7 +110,9 @@ For use in GitHub Actions or other CI/CD pipelines:
 
 ## Environment Variables
 
-No environment variables are required for this skill.
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| CHARON_ENCRYPTION_KEY | No | auto-generated for test run | Backend test encryption key. If missing/invalid, an ephemeral 32-byte base64 key is generated for the run. |
 
 ## Outputs
 

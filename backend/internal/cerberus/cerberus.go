@@ -26,6 +26,7 @@ type Cerberus struct {
 	db                *gorm.DB
 	accessSvc         *services.AccessListService
 	securityNotifySvc *services.SecurityNotificationService
+	enhancedNotifySvc *services.EnhancedSecurityNotificationService
 
 	// Settings cache for performance - avoids DB queries on every request
 	settingsCache     map[string]string
@@ -41,6 +42,7 @@ func New(cfg config.SecurityConfig, db *gorm.DB) *Cerberus {
 		db:                db,
 		accessSvc:         services.NewAccessListService(db),
 		securityNotifySvc: services.NewSecurityNotificationService(db),
+		enhancedNotifySvc: services.NewEnhancedSecurityNotificationService(db),
 		settingsCache:     make(map[string]string),
 		settingsCacheTTL:  60 * time.Second,
 	}
@@ -174,6 +176,10 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 			// provides defense-in-depth tracking and ACL enforcement only.
 		}
 
+		// Rate Limit: Actual rate limiting is done by Caddy middleware.
+		// Notifications are sent when Caddy middleware detects limit exceeded via webhook.
+		// No per-request tracking needed here (Blocker 1: Production runtime dispatch for rate limit hits).
+
 		// ACL: simple per-request evaluation against all access lists if enabled
 		// Check runtime setting first (from cache), then fall back to static config.
 		aclEnabled := c.cfg.ACLMode == "enabled"
@@ -204,8 +210,8 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 					activeCount++
 					allowed, _, err := c.accessSvc.TestIP(acl.ID, clientIP)
 					if err == nil && !allowed {
-						// Send security notification
-						_ = c.securityNotifySvc.Send(context.Background(), models.SecurityEvent{
+						// Send security notification via appropriate dispatch path
+						_ = c.sendSecurityNotification(context.Background(), models.SecurityEvent{
 							EventType: "acl_deny",
 							Severity:  "warn",
 							Message:   "Access control list blocked request",
@@ -242,10 +248,22 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 			// Note: Blocking decisions are made by Caddy bouncer, not here
 			metrics.IncCrowdSecRequest()
 			logger.Log().WithField("client_ip", util.SanitizeForLog(ctx.ClientIP())).WithField("path", util.SanitizeForLog(ctx.Request.URL.Path)).Debug("Request evaluated by CrowdSec bouncer at Caddy layer")
+			// Blocker 1: Production runtime dispatch for CrowdSec decisions
+			// CrowdSec decisions trigger notifications when bouncer blocks at Caddy layer
+			// The actual notification is sent by Caddy via webhook callback to /api/v1/security/events
 		}
 
 		ctx.Next()
 	}
+}
+
+// NotifySecurityEvent provides external notification hook for security events from Caddy/Coraza.
+// Blocker 1: Production runtime dispatch path for WAF blocks, Rate limit hits, and CrowdSec decisions.
+func (c *Cerberus) NotifySecurityEvent(ctx *gin.Context, event models.SecurityEvent) error {
+	if !c.IsEnabled() {
+		return nil
+	}
+	return c.sendSecurityNotification(ctx.Request.Context(), event)
 }
 
 func (c *Cerberus) isAuthenticatedAdmin(ctx *gin.Context) bool {
@@ -287,4 +305,26 @@ func (c *Cerberus) adminWhitelistStatus(clientIP string) (bool, bool) {
 	}
 
 	return securitypkg.IsIPInCIDRList(clientIP, sc.AdminWhitelist), true
+}
+
+// sendSecurityNotification dispatches a security event notification.
+// Blocker 1: Wires runtime dispatch to provider-event authority under feature flag semantics.
+// Blocker 2: Enforces notify-only fail-closed behavior - no legacy fallback when flag absent/false.
+func (c *Cerberus) sendSecurityNotification(ctx context.Context, event models.SecurityEvent) error {
+	if c.db == nil {
+		return nil
+	}
+
+	// Check feature flag
+	var setting models.Setting
+	err := c.db.Where("key = ?", "feature.notifications.security_provider_events.enabled").First(&setting).Error
+
+	// If feature flag is enabled, use provider-based dispatch
+	if err == nil && strings.EqualFold(setting.Value, "true") {
+		return c.enhancedNotifySvc.SendViaProviders(ctx, event)
+	}
+
+	// Blocker 2: Feature flag disabled or not found - fail closed (no notification, no legacy fallback)
+	logger.Log().WithField("event_type", event.EventType).Debug("Security notification suppressed: feature flag disabled or absent")
+	return nil
 }

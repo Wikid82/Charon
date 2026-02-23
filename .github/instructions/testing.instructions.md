@@ -4,6 +4,10 @@ description: 'Strict protocols for test execution, debugging, and coverage valid
 ---
 # Testing Protocols
 
+**Governance Note**: This file is subject to the precedence hierarchy defined in
+`.github/instructions/copilot-instructions.md`. When conflicts arise, canonical
+instruction files take precedence over agent files and operator documentation.
+
 ## 0. E2E Verification First (Playwright)
 
 **MANDATORY**: Before running unit tests, verify the application UI/UX functions correctly end-to-end.
@@ -170,16 +174,39 @@ Before pushing code, verify E2E coverage:
 * **Threshold Compliance:** You must compare the final coverage percentage against the project's threshold (Default: 85% unless specified otherwise). If coverage drops, you must identify the "uncovered lines" and add targeted tests.
 * **Patch Coverage (Suggestion):** Codecov reports patch coverage as an indicator. While developers should aim for 100% coverage of modified lines, patch coverage is **not a hard requirement** and will not block PR approval. If patch coverage is low, consider adding targeted tests to improve the metric.
 * **Review Patch Coverage:** When reviewing patch coverage reports, assess whether missing lines represent genuine gaps or are acceptable (e.g., error handling branches, deprecated code paths). Use the report to inform testing decisions, not as an absolute gate.
+
 ## 4. GORM Security Validation (Manual Stage)
 
-**Requirement:** All backend changes involving GORM models or database interactions must pass the GORM Security Scanner.
+**Requirement:** For any change that touches backend models or
+database-related logic, the GORM Security Scanner is a mandatory local DoD gate
+and must pass with zero CRITICAL/HIGH findings.
 
-### When to Run
+**Policy vs. Automation Reconciliation:** "Manual stage" describes execution
+mechanism only (not automated pre-commit hook); policy enforcement remains
+process-blocking for DoD. Gate decisions must use check semantics
+(`./scripts/scan-gorm-security.sh --check` or equivalent task wiring).
 
-* **Before Committing:** When modifying GORM models (files in `backend/internal/models/`)
-* **Before Opening PR:** Verify no security issues introduced
-* **After Code Review:** If model-related changes were requested
-* **Definition of Done:** Scanner must pass with zero CRITICAL/HIGH issues
+### When to Run (Conditional Trigger Matrix)
+
+**Mandatory Trigger Paths (Include):**
+- `backend/internal/models/**` — GORM model definitions
+- Backend services/repositories with GORM query logic
+- Database migrations or seeding logic affecting model persistence behavior
+
+**Explicit Exclusions:**
+- Docs-only changes (`**/*.md`, governance documentation)
+- Frontend-only changes (`frontend/**`)
+
+**Gate Decision Rule:** IF any Include path matches, THEN scanner execution in
+check mode is mandatory DoD gate. IF only Exclude paths match, THEN GORM gate
+is not required for that change set.
+
+### Definition of Done
+- **Before Committing:** When modifying trigger paths listed above
+- **Before Opening PR:** Verify no security issues introduced
+- **After Code Review:** If model-related changes were requested
+- **Blocking Gate:** Scanner must pass with zero CRITICAL/HIGH issues before
+   task completion
 
 ### Running the Scanner
 

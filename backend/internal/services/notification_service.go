@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -20,7 +21,6 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
-	"github.com/containrrr/shoutrrr"
 	"gorm.io/gorm"
 )
 
@@ -49,6 +49,12 @@ func normalizeURL(serviceType, rawURL string) string {
 		}
 	}
 	return rawURL
+}
+
+var ErrLegacyFallbackDisabled = errors.New("legacy fallback is retired and disabled")
+
+func legacyFallbackInvocationError(providerType string) error {
+	return fmt.Errorf("%w: provider type %q is not supported by notify-only runtime", ErrLegacyFallbackDisabled, providerType)
 }
 
 func validateDiscordWebhookURL(rawURL string) error {
@@ -132,7 +138,7 @@ func (s *NotificationService) MarkAllAsRead() error {
 	return s.DB.Model(&models.Notification{}).Where("read = ?", false).Update("read", true).Error
 }
 
-// External Notifications (Shoutrrr & Custom Webhooks)
+// External Notifications (Custom Webhooks)
 
 func (s *NotificationService) SendExternal(ctx context.Context, eventType, title, message string, data map[string]any) {
 	var providers []models.NotificationProvider
@@ -164,57 +170,60 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 			shouldSend = provider.NotifyCerts
 		case "uptime":
 			shouldSend = provider.NotifyUptime
+		case "security_waf":
+			shouldSend = provider.NotifySecurityWAFBlocks
+		case "security_acl":
+			shouldSend = provider.NotifySecurityACLDenies
+		case "security_rate_limit":
+			shouldSend = provider.NotifySecurityRateLimitHits
+		case "security_crowdsec":
+			shouldSend = provider.NotifySecurityCrowdSecDecisions
 		case "test":
 			shouldSend = true
 		default:
-			// Default to true for unknown types or generic messages?
-			// Or false to be safe? Let's say true for now to avoid missing things,
-			// or maybe we should enforce types.
-			shouldSend = true
+			// Unknown event types default to false for security
+			shouldSend = false
 		}
 
 		if !shouldSend {
 			continue
 		}
-
+		// Non-dispatch policy for deprecated providers
+		if provider.Type != "discord" {
+			logger.Log().WithField("provider", util.SanitizeForLog(provider.Name)).
+				WithField("type", provider.Type).
+				Warn("Skipping dispatch to deprecated non-discord provider")
+			continue
+		}
 		go func(p models.NotificationProvider) {
-			// Use JSON templates for all supported services
-			if supportsJSONTemplates(p.Type) && p.Template != "" {
-				if err := s.sendJSONPayload(ctx, p, data); err != nil {
-					logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send JSON notification")
-				}
-			} else {
-				url := normalizeURL(p.Type, p.URL)
-				// Validate HTTP/HTTPS destinations used by shoutrrr to reduce SSRF risk
-				// Using security.ValidateExternalURL to break CodeQL taint chain for CWE-918
-				if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
-					if _, err := security.ValidateExternalURL(url,
-						security.WithAllowHTTP(),
-						security.WithAllowLocalhost(),
-					); err != nil {
-						logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).Warn("Skipping notification for provider due to invalid destination")
-						return
-					}
-				}
-				// Use newline for better formatting in chat apps
-				msg := fmt.Sprintf("%s\n\n%s", title, message)
-				if err := shoutrrrSendFunc(url, msg); err != nil {
-					logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send notification")
-				}
+			if !supportsJSONTemplates(p.Type) {
+				err := legacyFallbackInvocationError(p.Type)
+				logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Notify-only runtime blocked legacy fallback invocation")
+				return
+			}
+
+			if err := s.sendJSONPayload(ctx, p, data); err != nil {
+				logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send JSON notification")
 			}
 		}(provider)
 	}
 }
 
-// shoutrrrSendFunc is a test hook for outbound sends.
-// In production it defaults to shoutrrr.Send.
-var shoutrrrSendFunc = shoutrrr.Send
+// legacySendFunc is a test hook for outbound sends.
+// In notify-only mode this path is retired and always fails closed.
+var legacySendFunc = func(_ string, _ string) error {
+	return ErrLegacyFallbackDisabled
+}
 
 // webhookDoRequestFunc is a test hook for outbound JSON webhook requests.
 // In production it defaults to (*http.Client).Do.
 var webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
 	return client.Do(req)
 }
+
+// validateDiscordProviderURLFunc is a test hook for Discord webhook URL validation.
+// In tests, you can override this to bypass strict hostname checks for localhost testing.
+var validateDiscordProviderURLFunc = validateDiscordProviderURL
 
 func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.NotificationProvider, data map[string]any) error {
 	// Built-in templates
@@ -254,7 +263,7 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 	// Additionally, we apply `isValidRedirectURL` as a barrier-guard style predicate.
 	// CodeQL recognizes this pattern as a sanitizer for untrusted URL values, while
 	// the real SSRF protection remains `security.ValidateExternalURL`.
-	if err := validateDiscordProviderURL(p.Type, p.URL); err != nil {
+	if err := validateDiscordProviderURLFunc(p.Type, p.URL); err != nil {
 		return err
 	}
 
@@ -402,35 +411,28 @@ func isValidRedirectURL(rawURL string) bool {
 }
 
 func (s *NotificationService) TestProvider(provider models.NotificationProvider) error {
-	if err := validateDiscordProviderURL(provider.Type, provider.URL); err != nil {
+	// Discord-only enforcement for this rollout
+	if provider.Type != "discord" {
+		return fmt.Errorf("only discord provider type is supported in this release")
+	}
+
+	if err := validateDiscordProviderURLFunc(provider.Type, provider.URL); err != nil {
 		return err
 	}
 
-	if supportsJSONTemplates(provider.Type) && provider.Template != "" {
-		data := map[string]any{
-			"Title":   "Test Notification",
-			"Message": "This is a test notification from Charon",
-			"Status":  "TEST",
-			"Name":    "Test Monitor",
-			"Latency": 123,
-			"Time":    time.Now().Format(time.RFC3339),
-		}
-		return s.sendJSONPayload(context.Background(), provider, data)
+	if !supportsJSONTemplates(provider.Type) {
+		return legacyFallbackInvocationError(provider.Type)
 	}
-	url := normalizeURL(provider.Type, provider.URL)
-	// SSRF validation for HTTP/HTTPS URLs used by shoutrrr
-	// Using security.ValidateExternalURL to break CodeQL taint chain for CWE-918.
-	// Non-HTTP schemes (e.g., discord://, slack://) are protocol-specific and don't
-	// directly expose SSRF risks since shoutrrr handles their network connections.
-	if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
-		if _, err := security.ValidateExternalURL(url,
-			security.WithAllowHTTP(),
-			security.WithAllowLocalhost(),
-		); err != nil {
-			return fmt.Errorf("invalid notification URL: %w", err)
-		}
+
+	data := map[string]any{
+		"Title":   "Test Notification",
+		"Message": "This is a test notification from Charon",
+		"Status":  "TEST",
+		"Name":    "Test Monitor",
+		"Latency": 123,
+		"Time":    time.Now().Format(time.RFC3339),
 	}
-	return shoutrrrSendFunc(url, "Test notification from Charon")
+	return s.sendJSONPayload(context.Background(), provider, data)
 }
 
 // ListTemplates returns all external notification templates stored in the database.
@@ -521,7 +523,12 @@ func (s *NotificationService) ListProviders() ([]models.NotificationProvider, er
 }
 
 func (s *NotificationService) CreateProvider(provider *models.NotificationProvider) error {
-	if err := validateDiscordProviderURL(provider.Type, provider.URL); err != nil {
+	// Discord-only enforcement for this rollout
+	if provider.Type != "discord" {
+		return fmt.Errorf("only discord provider type is supported in this release")
+	}
+
+	if err := validateDiscordProviderURLFunc(provider.Type, provider.URL); err != nil {
 		return err
 	}
 
@@ -537,7 +544,28 @@ func (s *NotificationService) CreateProvider(provider *models.NotificationProvid
 }
 
 func (s *NotificationService) UpdateProvider(provider *models.NotificationProvider) error {
-	if err := validateDiscordProviderURL(provider.Type, provider.URL); err != nil {
+	// Fetch existing provider to check type
+	var existing models.NotificationProvider
+	if err := s.DB.Where("id = ?", provider.ID).First(&existing).Error; err != nil {
+		return err
+	}
+
+	// Block type mutation for non-Discord providers
+	if existing.Type != "discord" && provider.Type != existing.Type {
+		return fmt.Errorf("cannot change provider type for deprecated non-discord providers")
+	}
+
+	// Block enable mutation for non-Discord providers
+	if existing.Type != "discord" && provider.Enabled && !existing.Enabled {
+		return fmt.Errorf("cannot enable deprecated non-discord providers")
+	}
+
+	// Discord-only enforcement for type changes
+	if provider.Type != "discord" {
+		return fmt.Errorf("only discord provider type is supported in this release")
+	}
+
+	if err := validateDiscordProviderURLFunc(provider.Type, provider.URL); err != nil {
 		return err
 	}
 
@@ -548,9 +576,113 @@ func (s *NotificationService) UpdateProvider(provider *models.NotificationProvid
 			return fmt.Errorf("invalid custom template: %w", err)
 		}
 	}
-	return s.DB.Save(provider).Error
+
+	updates := map[string]any{
+		"name":                               provider.Name,
+		"type":                               provider.Type,
+		"url":                                provider.URL,
+		"config":                             provider.Config,
+		"template":                           provider.Template,
+		"enabled":                            provider.Enabled,
+		"notify_proxy_hosts":                 provider.NotifyProxyHosts,
+		"notify_remote_servers":              provider.NotifyRemoteServers,
+		"notify_domains":                     provider.NotifyDomains,
+		"notify_certs":                       provider.NotifyCerts,
+		"notify_uptime":                      provider.NotifyUptime,
+		"notify_security_waf_blocks":         provider.NotifySecurityWAFBlocks,
+		"notify_security_acl_denies":         provider.NotifySecurityACLDenies,
+		"notify_security_rate_limit_hits":    provider.NotifySecurityRateLimitHits,
+		"notify_security_crowdsec_decisions": provider.NotifySecurityCrowdSecDecisions,
+	}
+
+	return s.DB.Model(&models.NotificationProvider{}).
+		Where("id = ?", provider.ID).
+		Updates(updates).Error
 }
 
 func (s *NotificationService) DeleteProvider(id string) error {
 	return s.DB.Delete(&models.NotificationProvider{}, "id = ?", id).Error
+}
+
+// EnsureNotifyOnlyProviderMigration reconciles notification_providers rows to terminal state
+// for Discord-only rollout. This migration is:
+// - Idempotent: safe to run multiple times
+// - Transactional: all updates succeed or all fail
+// - Audited: logs all mutations with provider details
+//
+// Migration Policy:
+// - Discord providers: marked as "migrated" with engine "notify_v1"
+// - Non-Discord providers: marked as "deprecated" and disabled (non-dispatch, non-enable)
+//
+// Rollback Procedure:
+// To rollback this migration:
+// 1. Restore database from pre-migration backup (see data/backups/)
+// 2. OR manually update providers: UPDATE notification_providers SET migration_state='pending', enabled=true WHERE type != 'discord'
+// 3. Restart application with previous version
+//
+// This is invoked once at server boot.
+func (s *NotificationService) EnsureNotifyOnlyProviderMigration(ctx context.Context) error {
+	// Begin transaction for atomicity
+	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var providers []models.NotificationProvider
+		if err := tx.Find(&providers).Error; err != nil {
+			return fmt.Errorf("failed to fetch notification providers for migration: %w", err)
+		}
+
+		// Pre-migration audit log
+		logger.Log().WithField("provider_count", len(providers)).
+			Info("Starting Discord-only provider migration")
+
+		now := time.Now()
+		for _, provider := range providers {
+			// Skip if already in terminal state (idempotency)
+			if provider.MigrationState == "migrated" || provider.MigrationState == "deprecated" {
+				continue
+			}
+
+			var updates map[string]any
+
+			if provider.Type == "discord" {
+				// Discord provider: mark as migrated
+				updates = map[string]any{
+					"engine":           "notify_v1",
+					"migration_state":  "migrated",
+					"migration_error":  "",
+					"last_migrated_at": now,
+				}
+			} else {
+				// Non-Discord provider: mark as deprecated and disable
+				updates = map[string]any{
+					"migration_state":  "deprecated",
+					"migration_error":  "provider type not supported in discord-only rollout; delete and recreate as discord provider",
+					"enabled":          false,
+					"last_migrated_at": now,
+				}
+			}
+
+			// Preserve legacy_url if URL is being set but legacy_url is empty (audit field)
+			if provider.LegacyURL == "" && provider.URL != "" {
+				updates["legacy_url"] = provider.URL
+			}
+
+			if err := tx.Model(&models.NotificationProvider{}).
+				Where("id = ?", provider.ID).
+				Updates(updates).Error; err != nil {
+				return fmt.Errorf("failed to migrate notification provider (id=%s, name=%q, type=%q): %w",
+					provider.ID, util.SanitizeForLog(provider.Name), provider.Type, err)
+			}
+
+			// Audit log for each mutated row
+			logger.Log().WithField("provider_id", provider.ID).
+				WithField("provider_name", util.SanitizeForLog(provider.Name)).
+				WithField("provider_type", provider.Type).
+				WithField("migration_state", updates["migration_state"]).
+				WithField("enabled", updates["enabled"]).
+				WithField("migration_timestamp", now.Format(time.RFC3339)).
+				Info("Migrated notification provider")
+		}
+
+		logger.Log().Info("Discord-only provider migration completed successfully")
+		return nil
+	})
 }

@@ -11,10 +11,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Helper scripts are in .github/skills/scripts/
 SKILLS_SCRIPTS_DIR="$(cd "${SCRIPT_DIR}/../scripts" && pwd)"
 
+# shellcheck disable=SC1091
 # shellcheck source=../scripts/_logging_helpers.sh
 source "${SKILLS_SCRIPTS_DIR}/_logging_helpers.sh"
+# shellcheck disable=SC1091
 # shellcheck source=../scripts/_error_handling_helpers.sh
 source "${SKILLS_SCRIPTS_DIR}/_error_handling_helpers.sh"
+# shellcheck disable=SC1091
 # shellcheck source=../scripts/_environment_helpers.sh
 source "${SKILLS_SCRIPTS_DIR}/_environment_helpers.sh"
 
@@ -24,6 +27,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 # Validate environment
 log_step "ENVIRONMENT" "Validating prerequisites"
 validate_go_environment "1.23" || error_exit "Go 1.23+ is required"
+ensure_charon_encryption_key || error_exit "Failed to provision CHARON_ENCRYPTION_KEY for backend tests"
 
 # Validate project structure
 log_step "VALIDATION" "Checking project structure"

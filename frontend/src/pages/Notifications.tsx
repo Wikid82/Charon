@@ -8,25 +8,32 @@ import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react
 import { useForm } from 'react-hook-form';
 import { toast } from '../utils/toast';
 
+const DISCORD_PROVIDER_TYPE = 'discord' as const;
+
 // supportsJSONTemplates returns true if the provider type can use JSON templates
 const supportsJSONTemplates = (providerType: string | undefined): boolean => {
   if (!providerType) return false;
-  switch (providerType.toLowerCase()) {
-    case 'webhook':
-    case 'discord':
-    case 'slack':
-    case 'gotify':
-    case 'generic':
-      return true;
-    case 'telegram':
-      return false; // Telegram uses URL parameters
-    default:
-      return false;
+  return providerType.toLowerCase() === DISCORD_PROVIDER_TYPE;
+};
+
+const isNonDiscordProvider = (providerType: string | undefined): boolean => {
+  if (!providerType) {
+    return false;
   }
+
+  return providerType.toLowerCase() !== DISCORD_PROVIDER_TYPE;
+};
+
+const normalizeProviderType = (providerType: string | undefined): typeof DISCORD_PROVIDER_TYPE => {
+  if (!providerType || providerType.toLowerCase() !== DISCORD_PROVIDER_TYPE) {
+    return DISCORD_PROVIDER_TYPE;
+  }
+
+  return DISCORD_PROVIDER_TYPE;
 };
 
 const defaultProviderValues: Partial<NotificationProvider> = {
-  type: 'discord',
+  type: DISCORD_PROVIDER_TYPE,
   enabled: true,
   config: '',
   template: 'minimal',
@@ -35,6 +42,9 @@ const defaultProviderValues: Partial<NotificationProvider> = {
   notify_domains: true,
   notify_certs: true,
   notify_uptime: true,
+  notify_security_waf_blocks: false,
+  notify_security_acl_denies: false,
+  notify_security_rate_limit_hits: false,
 };
 
 const ProviderForm: FC<{
@@ -53,7 +63,11 @@ const ProviderForm: FC<{
 
   useEffect(() => {
     // Reset form state per open/edit to avoid event checkbox leakage between runs.
-    reset(initialData ? { ...defaultProviderValues, ...initialData } : defaultProviderValues);
+    const normalizedInitialData = initialData
+      ? { ...defaultProviderValues, ...initialData, type: normalizeProviderType(initialData.type) }
+      : defaultProviderValues;
+
+    reset(normalizedInitialData);
     setTestStatus('idle');
     setPreviewContent(null);
     setPreviewError(null);
@@ -73,7 +87,7 @@ const ProviderForm: FC<{
 
   const handleTest = () => {
     const formData = watch();
-    testMutation.mutate(formData as Partial<NotificationProvider>);
+    testMutation.mutate({ ...formData, type: DISCORD_PROVIDER_TYPE } as Partial<NotificationProvider>);
   };
 
   const handlePreview = async () => {
@@ -86,7 +100,7 @@ const ProviderForm: FC<{
         const res = await previewExternalTemplate(formData.template, undefined, undefined);
         if (res.parsed) setPreviewContent(JSON.stringify(res.parsed, null, 2)); else setPreviewContent(res.rendered);
       } else {
-        const res = await previewProvider(formData as Partial<NotificationProvider>);
+        const res = await previewProvider({ ...formData, type: DISCORD_PROVIDER_TYPE } as Partial<NotificationProvider>);
         if (res.parsed) setPreviewContent(JSON.stringify(res.parsed, null, 2)); else setPreviewContent(res.rendered);
       }
     } catch (err: unknown) {
@@ -96,6 +110,12 @@ const ProviderForm: FC<{
   };
 
   const type = watch('type');
+  useEffect(() => {
+    if (type !== DISCORD_PROVIDER_TYPE) {
+      setValue('type', DISCORD_PROVIDER_TYPE, { shouldDirty: false, shouldTouch: false });
+    }
+  }, [type, setValue]);
+
   const { data: builtins } = useQuery({ queryKey: ['notificationTemplates'], queryFn: getTemplates });
   const { data: externalTemplates } = useQuery({ queryKey: ['externalTemplates'], queryFn: getExternalTemplates });
   const template = watch('template');
@@ -121,7 +141,7 @@ const ProviderForm: FC<{
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form onSubmit={handleSubmit((data) => onSubmit({ ...data, type: DISCORD_PROVIDER_TYPE }))} className="space-y-4">
       <div>
         <label htmlFor="provider-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.providerName')}</label>
         <input
@@ -139,14 +159,11 @@ const ProviderForm: FC<{
         <select
           {...register('type')}
           data-testid="provider-type"
+          disabled
+          aria-readonly="true"
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
         >
           <option value="discord">Discord</option>
-          <option value="slack">Slack</option>
-          <option value="gotify">Gotify</option>
-          <option value="telegram">Telegram</option>
-          <option value="generic">{t('notificationProviders.genericWebhook')}</option>
-          <option value="webhook">{t('notificationProviders.customWebhook')}</option>
         </select>
       </div>
 
@@ -168,11 +185,6 @@ const ProviderForm: FC<{
           <span id="provider-url-error" data-testid="provider-url-error" className="text-red-500 text-xs">
             {errors.url.message as string}
           </span>
-        )}
-        {!supportsJSONTemplates(type) && (
-          <p className="text-xs text-gray-500 mt-1">
-            {t('notificationProviders.shoutrrrHelp')} <a href="https://containrrr.dev/shoutrrr/" target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">{t('common.docs')}</a>.
-          </p>
         )}
       </div>
 
@@ -238,6 +250,25 @@ const ProviderForm: FC<{
           <div className="flex items-center">
             <input type="checkbox" {...register('notify_uptime')} data-testid="notify-uptime" className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
             <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.uptime')}</label>
+          </div>
+        </div>
+
+        <div className="pt-2">
+          <h5 className="text-sm font-medium text-gray-900 dark:text-white">{t('notificationProviders.securityEventSubscriptions')}</h5>
+          <p className="text-xs text-gray-500 mt-0.5">{t('notificationProviders.securityEventSubscriptionsHelp')}</p>
+        </div>
+        <div className="grid grid-cols-1 gap-2">
+          <div className="flex items-center">
+            <input type="checkbox" {...register('notify_security_waf_blocks')} data-testid="notify-security-waf-blocks" className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+            <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.wafBlocks')}</label>
+          </div>
+          <div className="flex items-center">
+            <input type="checkbox" {...register('notify_security_acl_denies')} data-testid="notify-security-acl-denies" className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+            <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.aclDenials')}</label>
+          </div>
+          <div className="flex items-center">
+            <input type="checkbox" {...register('notify_security_rate_limit_hits')} data-testid="notify-security-rate-limit-hits" className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+            <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.rateLimitHits')}</label>
           </div>
         </div>
       </div>
@@ -532,7 +563,7 @@ const Notifications: FC = () => {
       <div className="grid gap-4">
         {providers?.map((provider) => (
           <Card key={provider.id} className="p-4" data-testid={`provider-row-${provider.id}`}>
-            {editingId === provider.id ? (
+            {editingId === provider.id && !isNonDiscordProvider(provider.type) ? (
               <ProviderForm
                 initialData={provider}
                 onClose={() => setEditingId(null)}
@@ -551,6 +582,30 @@ const Notifications: FC = () => {
                         {t('common.saved')}
                       </span>
                     )}
+                    {isNonDiscordProvider(provider.type) && (
+                      <div className="mt-2 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className="text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 px-2 py-0.5 rounded"
+                            data-testid={`provider-deprecated-status-${provider.id}`}
+                          >
+                            {t('notificationProviders.deprecatedReadOnly')}
+                          </span>
+                          <span
+                            className="text-xs font-semibold bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200 px-2 py-0.5 rounded"
+                            data-testid={`provider-nondispatch-status-${provider.id}`}
+                          >
+                            {t('notificationProviders.nonDispatch')}
+                          </span>
+                        </div>
+                        <p
+                          className="text-xs text-gray-600 dark:text-gray-300"
+                          data-testid={`provider-deprecated-message-${provider.id}`}
+                        >
+                          {t('notificationProviders.deprecatedProviderMessage')}
+                        </p>
+                      </div>
+                    )}
                     <div className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
                       <span className="uppercase text-xs font-bold bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded">
                         {provider.type}
@@ -561,18 +616,22 @@ const Notifications: FC = () => {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => testMutation.mutate(provider)}
-                    isLoading={testMutation.isPending}
-                    title={t('notificationProviders.sendTest')}
-                  >
-                    <Send className="w-4 h-4" />
-                  </Button>
-                  <Button variant="secondary" size="sm" onClick={() => setEditingId(provider.id)}>
-                    <Edit2 className="w-4 h-4" />
-                  </Button>
+                  {!isNonDiscordProvider(provider.type) && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => testMutation.mutate({ ...provider, type: DISCORD_PROVIDER_TYPE })}
+                      isLoading={testMutation.isPending}
+                      title={t('notificationProviders.sendTest')}
+                    >
+                      <Send className="w-4 h-4" />
+                    </Button>
+                  )}
+                  {!isNonDiscordProvider(provider.type) && (
+                    <Button variant="secondary" size="sm" onClick={() => setEditingId(provider.id)}>
+                      <Edit2 className="w-4 h-4" />
+                    </Button>
+                  )}
                   <Button
                     variant="danger"
                     size="sm"
