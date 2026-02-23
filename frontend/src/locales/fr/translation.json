@@ -768,6 +768,13 @@
       "newTab": "Nouvel Onglet (Par défaut)",
       "newWindow": "Nouvelle Fenêtre",
       "domainLinkBehaviorHelper": "Contrôle comment les liens de domaine s'ouvrent dans la liste des Hôtes Proxy.",
+      "keepaliveIdle": "Keepalive Idle (Optionnel)",
+      "keepaliveIdleHelper": "Durée Caddy optionnelle (ex. 2m, 30s). Laissez vide pour conserver les valeurs par défaut du backend.",
+      "keepaliveIdleError": "Entrez une durée valide (par exemple : 30s, 2m, 1h).",
+      "keepaliveCount": "Keepalive Count (Optionnel)",
+      "keepaliveCountHelper": "Nombre maximal optionnel de sondes keepalive (1-1000). Laissez vide pour conserver les valeurs par défaut du backend.",
+      "keepaliveCountError": "Entrez un nombre entier entre 1 et 1000.",
+      "keepaliveValidationFailed": "Les paramètres keepalive contiennent des valeurs invalides.",
       "languageHelper": "Sélectionnez votre langue préférée. Les modifications prennent effet immédiatement."
     },    "applicationUrl": {
       "title": "URL de l'application",

@@ -83,6 +83,8 @@ type Server struct {
 	AutoHTTPS      *AutoHTTPSConfig `json:"automatic_https,omitempty"`
 	Logs           *ServerLogs      `json:"logs,omitempty"`
 	TrustedProxies *TrustedProxies  `json:"trusted_proxies,omitempty"`
+	KeepaliveIdle  *string          `json:"keepalive_idle,omitempty"`
+	KeepaliveCount *int             `json:"keepalive_count,omitempty"`
 }
 
 // TrustedProxies defines the module for configuring trusted proxy IP ranges.

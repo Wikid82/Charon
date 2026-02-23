@@ -94,7 +94,7 @@ Configure the application via `docker-compose.yml`:
 | `CHARON_ENV` | `production` | Set to `development` for verbose logging (`CPM_ENV` supported for backward compatibility). |
 | `CHARON_HTTP_PORT` | `8080` | Port for the Web UI (`CPM_HTTP_PORT` supported for backward compatibility). |
 | `CHARON_DB_PATH` | `/app/data/charon.db` | Path to the SQLite database (`CPM_DB_PATH` supported for backward compatibility). |
-| `CHARON_CADDY_ADMIN_API` | `http://localhost:2019` | Internal URL for Caddy API (`CPM_CADDY_ADMIN_API` supported for backward compatibility). |
+| `CHARON_CADDY_ADMIN_API` | `http://localhost:2019` | Internal URL for Caddy API (`CPM_CADDY_ADMIN_API` supported for backward compatibility). Must resolve to an internal allowlisted host on port `2019`. |
 | `CHARON_CADDY_CONFIG_ROOT` | `/config` | Path to Caddy autosave configuration directory. |
 | `CHARON_CADDY_LOG_DIR` | `/var/log/caddy` | Directory for Caddy access logs. |
 | `CHARON_CROWDSEC_LOG_DIR` | `/var/log/crowdsec` | Directory for CrowdSec logs. |
@@ -217,6 +217,8 @@ If you already have Caddy running, you can point Charon to it:
 environment:
   - CPM_CADDY_ADMIN_API=http://your-caddy-host:2019
 ```
+
+If using a non-localhost internal hostname, add it to `CHARON_SSRF_INTERNAL_HOST_ALLOWLIST`.
 
 **Warning**: Charon will replace Caddy's entire configuration. Backup first!
 

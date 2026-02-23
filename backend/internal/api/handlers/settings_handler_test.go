@@ -413,6 +413,58 @@ func TestSettingsHandler_UpdateSetting_InvalidAdminWhitelist(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "Invalid admin_whitelist")
 }
 
+func TestSettingsHandler_UpdateSetting_InvalidKeepaliveIdle(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{
+		"key":   "caddy.keepalive_idle",
+		"value": "bad-duration",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "invalid caddy.keepalive_idle")
+}
+
+func TestSettingsHandler_UpdateSetting_ValidKeepaliveCount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{
+		"key":      "caddy.keepalive_count",
+		"value":    "9",
+		"category": "caddy",
+		"type":     "number",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var setting models.Setting
+	err := db.Where("key = ?", "caddy.keepalive_count").First(&setting).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "9", setting.Value)
+}
+
 func TestSettingsHandler_UpdateSetting_SecurityKeyInvalidatesCache(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
@@ -536,6 +588,64 @@ func TestSettingsHandler_PatchConfig_InvalidAdminWhitelist(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "Invalid admin_whitelist")
+}
+
+func TestSettingsHandler_PatchConfig_InvalidKeepaliveCount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.PATCH("/config", handler.PatchConfig)
+
+	payload := map[string]any{
+		"caddy": map[string]any{
+			"keepalive_count": 0,
+		},
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPatch, "/config", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "invalid caddy.keepalive_count")
+}
+
+func TestSettingsHandler_PatchConfig_ValidKeepaliveSettings(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.PATCH("/config", handler.PatchConfig)
+
+	payload := map[string]any{
+		"caddy": map[string]any{
+			"keepalive_idle":  "30s",
+			"keepalive_count": 12,
+		},
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPatch, "/config", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var idle models.Setting
+	err := db.Where("key = ?", "caddy.keepalive_idle").First(&idle).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "30s", idle.Value)
+
+	var count models.Setting
+	err = db.Where("key = ?", "caddy.keepalive_count").First(&count).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "12", count.Value)
 }
 
 func TestSettingsHandler_PatchConfig_ReloadFailureReturns500(t *testing.T) {
