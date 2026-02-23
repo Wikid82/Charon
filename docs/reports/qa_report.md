@@ -1,31 +1,25 @@
-## QA Report — PR-1 Caddy Compatibility Closure
+## QA Report — PR-2 Security Patch Posture Audit
 
 - Date: 2026-02-23
-- Scope: PR-1 compatibility slice only
-- Decision: Ready to close PR-1
+- Scope: PR-2 only (security patch posture, admin API hardening, rollback viability)
+- Verdict: **READY (PASS)**
 
-## Reviewer Checklist
+## Gate Summary
 
-| Gate | Status | Reviewer Action |
+| Gate | Status | Evidence |
 | --- | --- | --- |
-| Targeted Playwright blocker rerun | PASS | Confirm targeted tests are no longer failing. |
-| Compatibility matrix rerun (isolated output) | PASS | Confirm A/B/C rows exist for amd64 and arm64. |
-| Promotion guard decision | PASS | Confirm promotion depends only on Scenario A (both architectures). |
-| Non-drift runtime default | PASS | Confirm default remains non-candidate. |
-| Focused pre-commit and CodeQL findings gate | PASS | Confirm no blocking findings in this slice. |
+| Targeted E2E for PR-2 | PASS | Security settings test for Caddy Admin API URL passed (2/2). |
+| Local patch preflight artifacts | PASS | `test-results/local-patch-report.md` and `.json` regenerated. |
+| Coverage and type-check | PASS | Backend coverage 87.7% line / 87.4% statement; frontend type-check passed; frontend coverage preflight input passed (88.99% lines). |
+| Pre-commit gate | PASS | `pre-commit run --all-files` passed after resolving version and type-check hook issues. |
+| Security scans | PASS | CodeQL Go/JS CI-aligned scans passed; findings gate passed with no HIGH/CRITICAL; Trivy passed at configured severities. |
+| Runtime posture + rollback | PASS | Default scenario shifted `A -> B` for PR-2 posture; rollback remains explicit via `CADDY_PATCH_SCENARIO=A`; admin API URL now validated and normalized at config load. |
 
-## Evidence Snapshot
+## Resolved Items
 
-- Targeted rerun passed for prior blocker tests.
-- Matrix run completed with full rows and PASS outcomes in isolated output.
-- Promotion gate condition met: Scenario A passed on linux/amd64 and linux/arm64.
-- Candidate path remains opt-in; default path remains stable.
+1. `check-version-match` mismatch fixed by syncing `.version` to `v0.19.1`.
+2. `frontend-type-check` hook stabilized to `npx tsc --noEmit` for deterministic pre-commit behavior.
 
-## Open Risks to Monitor
+## PR-2 Closure Statement
 
-- Matrix artifact contamination if shared output directories are reused.
-- Candidate behavior drift if default build args are changed in future slices.
-
-## Final Verdict
-
-PR-1 closure gates are satisfied for the compatibility slice.
+All PR-2 QA/security gates required for merge are passing. No PR-3 scope is included in this report.
