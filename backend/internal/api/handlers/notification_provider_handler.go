@@ -10,12 +10,51 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type NotificationProviderHandler struct {
 	service         *services.NotificationService
 	securityService *services.SecurityService
 	dataRoot        string
+}
+
+type notificationProviderUpsertRequest struct {
+	Name                            string `json:"name"`
+	Type                            string `json:"type"`
+	URL                             string `json:"url"`
+	Config                          string `json:"config"`
+	Template                        string `json:"template"`
+	Enabled                         bool   `json:"enabled"`
+	NotifyProxyHosts                bool   `json:"notify_proxy_hosts"`
+	NotifyRemoteServers             bool   `json:"notify_remote_servers"`
+	NotifyDomains                   bool   `json:"notify_domains"`
+	NotifyCerts                     bool   `json:"notify_certs"`
+	NotifyUptime                    bool   `json:"notify_uptime"`
+	NotifySecurityWAFBlocks         bool   `json:"notify_security_waf_blocks"`
+	NotifySecurityACLDenies         bool   `json:"notify_security_acl_denies"`
+	NotifySecurityRateLimitHits     bool   `json:"notify_security_rate_limit_hits"`
+	NotifySecurityCrowdSecDecisions bool   `json:"notify_security_crowdsec_decisions"`
+}
+
+func (r notificationProviderUpsertRequest) toModel() models.NotificationProvider {
+	return models.NotificationProvider{
+		Name:                            r.Name,
+		Type:                            r.Type,
+		URL:                             r.URL,
+		Config:                          r.Config,
+		Template:                        r.Template,
+		Enabled:                         r.Enabled,
+		NotifyProxyHosts:                r.NotifyProxyHosts,
+		NotifyRemoteServers:             r.NotifyRemoteServers,
+		NotifyDomains:                   r.NotifyDomains,
+		NotifyCerts:                     r.NotifyCerts,
+		NotifyUptime:                    r.NotifyUptime,
+		NotifySecurityWAFBlocks:         r.NotifySecurityWAFBlocks,
+		NotifySecurityACLDenies:         r.NotifySecurityACLDenies,
+		NotifySecurityRateLimitHits:     r.NotifySecurityRateLimitHits,
+		NotifySecurityCrowdSecDecisions: r.NotifySecurityCrowdSecDecisions,
+	}
 }
 
 func NewNotificationProviderHandler(service *services.NotificationService) *NotificationProviderHandler {
@@ -40,11 +79,29 @@ func (h *NotificationProviderHandler) Create(c *gin.Context) {
 		return
 	}
 
-	var provider models.NotificationProvider
-	if err := c.ShouldBindJSON(&provider); err != nil {
+	var req notificationProviderUpsertRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Discord-only enforcement for this rollout
+	if req.Type != "discord" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "only discord provider type is supported in this release; additional providers will be enabled in future releases after validation",
+			"code":  "PROVIDER_TYPE_DISCORD_ONLY",
+		})
+		return
+	}
+
+	provider := req.toModel()
+	// Server-managed migration fields are set by the migration reconciliation logic
+	// and must not be set from user input
+	provider.Engine = ""
+	provider.MigrationState = ""
+	provider.MigrationError = ""
+	provider.LastMigratedAt = nil
+	provider.LegacyURL = ""
 
 	if err := h.service.CreateProvider(&provider); err != nil {
 		// If it's a validation error from template parsing, return 400
@@ -67,12 +124,58 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 	}
 
 	id := c.Param("id")
-	var provider models.NotificationProvider
-	if err := c.ShouldBindJSON(&provider); err != nil {
+	var req notificationProviderUpsertRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Check if existing provider is non-Discord (deprecated)
+	var existing models.NotificationProvider
+	if err := h.service.DB.Where("id = ?", id).First(&existing).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch provider"})
+		return
+	}
+
+	// Block type mutation for existing non-Discord providers
+	if existing.Type != "discord" && req.Type != existing.Type {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "cannot change provider type for deprecated non-discord providers; delete and recreate as discord provider instead",
+			"code":  "DEPRECATED_PROVIDER_TYPE_IMMUTABLE",
+		})
+		return
+	}
+
+	// Block enable mutation for existing non-Discord providers
+	if existing.Type != "discord" && req.Enabled && !existing.Enabled {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "cannot enable deprecated non-discord providers; only discord providers can be enabled",
+			"code":  "DEPRECATED_PROVIDER_CANNOT_ENABLE",
+		})
+		return
+	}
+
+	// Discord-only enforcement for this rollout (new providers or type changes)
+	if req.Type != "discord" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "only discord provider type is supported in this release; additional providers will be enabled in future releases after validation",
+			"code":  "PROVIDER_TYPE_DISCORD_ONLY",
+		})
+		return
+	}
+
+	provider := req.toModel()
 	provider.ID = id
+	// Server-managed migration fields must not be modified via user input
+	provider.Engine = ""
+	provider.MigrationState = ""
+	provider.MigrationError = ""
+	provider.LastMigratedAt = nil
+	provider.LegacyURL = ""
 
 	if err := h.service.UpdateProvider(&provider); err != nil {
 		if isProviderValidationError(err) {

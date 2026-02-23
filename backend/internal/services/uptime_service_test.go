@@ -201,7 +201,7 @@ func TestUptimeService_ListMonitors(t *testing.T) {
 	db.Create(&models.UptimeMonitor{
 		Name: "Test Monitor",
 		Type: "http",
-		URL:  "http://example.com",
+		URL:  "https://discord.com/api/webhooks/123/abc",
 	})
 
 	monitors, err := us.ListMonitors()
@@ -767,7 +767,7 @@ func TestUptimeService_CheckAll_Errors(t *testing.T) {
 			ID:          "orphan-1",
 			Name:        "Orphan Monitor",
 			Type:        "http",
-			URL:         "http://example.com",
+			URL:         "https://discord.com/api/webhooks/123/abc",
 			Status:      "pending",
 			Enabled:     true,
 			ProxyHostID: &orphanID, // Non-existent host
@@ -990,7 +990,7 @@ func TestUptimeService_UpdateMonitor(t *testing.T) {
 			ID:         "update-test",
 			Name:       "Update Test",
 			Type:       "http",
-			URL:        "http://example.com",
+			URL:        "https://discord.com/api/webhooks/123/abc",
 			MaxRetries: 3,
 			Interval:   60,
 		}
@@ -1410,7 +1410,7 @@ func TestUptimeService_DeleteMonitor(t *testing.T) {
 			ID:       "delete-test-1",
 			Name:     "Delete Test Monitor",
 			Type:     "http",
-			URL:      "http://example.com",
+			URL:      "https://discord.com/api/webhooks/123/abc",
 			Enabled:  true,
 			Status:   "up",
 			Interval: 60,
@@ -1493,7 +1493,7 @@ func TestUptimeService_UpdateMonitor_EnabledField(t *testing.T) {
 		ID:       "enabled-test",
 		Name:     "Enabled Test Monitor",
 		Type:     "http",
-		URL:      "http://example.com",
+		URL:      "https://discord.com/api/webhooks/123/abc",
 		Enabled:  true,
 		Interval: 60,
 	}

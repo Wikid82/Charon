@@ -121,6 +121,8 @@ ensure_event_branches_semantic \
 grep -Fq 'queries: security-and-quality' "$CODEQL_WORKFLOW" || fail "codeql.yml must pin init queries to security-and-quality"
 ensure_task_command "$TASKS_FILE" "Security: CodeQL Go Scan (CI-Aligned) [~60s]" "bash scripts/pre-commit-hooks/codeql-go-scan.sh" || fail "Missing or mismatched CI-aligned Go CodeQL task (label+command)"
 ensure_task_command "$TASKS_FILE" "Security: CodeQL JS Scan (CI-Aligned) [~90s]" "bash scripts/pre-commit-hooks/codeql-js-scan.sh" || fail "Missing or mismatched CI-aligned JS CodeQL task (label+command)"
+! grep -Fq 'go-security-extended.qls' "$TASKS_FILE" || fail "tasks.json contains deprecated go-security-extended suite; use CI-aligned scripts"
+! grep -Fq 'javascript-security-extended.qls' "$TASKS_FILE" || fail "tasks.json contains deprecated javascript-security-extended suite; use CI-aligned scripts"
 grep -Fq 'codeql/go-queries:codeql-suites/go-security-and-quality.qls' "$GO_PRECOMMIT_SCRIPT" || fail "Go pre-commit script must use go-security-and-quality suite"
 grep -Fq 'codeql/javascript-queries:codeql-suites/javascript-security-and-quality.qls' "$JS_PRECOMMIT_SCRIPT" || fail "JS pre-commit script must use javascript-security-and-quality suite"
 

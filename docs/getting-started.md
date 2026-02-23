@@ -518,22 +518,9 @@ To receive notifications about security updates:
 
 Click "Watch" → "Custom" → Select "Security advisories" on the [Charon repository](https://github.com/Wikid82/Charon)
 
-**2. Automatic Updates with Watchtower**
+**2. Notifications and Automatic Updates with Dockhand**
 
-```yaml
-services:
-  watchtower:
-    image: containrrr/watchtower
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_POLL_INTERVAL=86400  # Check daily
-```
-
-**3. Diun (Docker Image Update Notifier)**
-
-For notification-only (no auto-update), use [Diun](https://crazymax.dev/diun/). This sends alerts when new images are available without automatically updating.
+  - Dockhand is a free service that monitors Docker images for updates and can send notifications or trigger auto-updates. https://github.com/Finsys/dockhand
 
 **Best Practices:**
 

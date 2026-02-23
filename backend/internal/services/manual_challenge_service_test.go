@@ -515,10 +515,10 @@ func TestChallengeStatusResponse_Fields(t *testing.T) {
 
 func TestVerifyResult_Fields(t *testing.T) {
 	result := &VerifyResult{
-		Success:       true,
-		DNSFound:      true,
-		Message:       "DNS TXT record verified successfully",
-		Status:        "verified",
+		Success:  true,
+		DNSFound: true,
+		Message:  "DNS TXT record verified successfully",
+		Status:   "verified",
 	}
 
 	assert.True(t, result.Success)

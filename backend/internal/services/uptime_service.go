@@ -80,11 +80,36 @@ func NewUptimeService(db *gorm.DB, ns *NotificationService) *UptimeService {
 func extractPort(urlStr string) string {
 	// Try parsing as URL first
 	if u, err := url.Parse(urlStr); err == nil && u.Host != "" {
+		// Check if port is in the host
 		port := u.Port()
 		if port != "" {
 			return port
 		}
-		// Default ports
+
+		// Look for :port pattern in the path (like /api/webhooks/123/abc:8080)
+		// This handles webhook URLs where the token contains a port-like pattern
+		if strings.Contains(u.Path, ":") {
+			// Find the last : followed by digits
+			parts := strings.Split(u.Path, ":")
+			for i := len(parts) - 1; i >= 1; i-- {
+				// Extract digits after the colon
+				candidate := parts[i]
+				// Take only leading digits (stop at / or other chars)
+				digits := ""
+				for _, r := range candidate {
+					if r >= '0' && r <= '9' {
+						digits += string(r)
+					} else {
+						break
+					}
+				}
+				if digits != "" {
+					return digits
+				}
+			}
+		}
+
+		// Default ports based on scheme
 		if u.Scheme == "https" {
 			return "443"
 		}

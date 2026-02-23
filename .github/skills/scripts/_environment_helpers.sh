@@ -192,6 +192,101 @@ get_project_root() {
     return 1
 }
 
+# ensure_charon_encryption_key: Ensure CHARON_ENCRYPTION_KEY is present and valid
+# for backend tests. Generates an ephemeral base64-encoded 32-byte key when
+# missing or invalid.
+ensure_charon_encryption_key() {
+    local key_source="existing"
+    local decoded_key_hex=""
+    local decoded_key_bytes=0
+
+    generate_key() {
+        if command -v openssl >/dev/null 2>&1; then
+            openssl rand -base64 32 | tr -d '\n'
+            return
+        fi
+
+        if command -v python3 >/dev/null 2>&1; then
+            python3 - <<'PY'
+import base64
+import os
+
+print(base64.b64encode(os.urandom(32)).decode())
+PY
+            return
+        fi
+
+        echo ""
+    }
+
+    if [[ -z "${CHARON_ENCRYPTION_KEY:-}" ]]; then
+        key_source="generated"
+        CHARON_ENCRYPTION_KEY="$(generate_key)"
+    fi
+
+    if [[ -z "${CHARON_ENCRYPTION_KEY:-}" ]]; then
+        if declare -f log_error >/dev/null 2>&1; then
+            log_error "Could not auto-provision CHARON_ENCRYPTION_KEY (requires openssl or python3)"
+        else
+            echo "[ERROR] Could not auto-provision CHARON_ENCRYPTION_KEY (requires openssl or python3)" >&2
+        fi
+        return 1
+    fi
+
+    if ! decoded_key_hex=$(printf '%s' "$CHARON_ENCRYPTION_KEY" | base64 --decode 2>/dev/null | od -An -tx1 -v | tr -d ' \n'); then
+        key_source="regenerated"
+        CHARON_ENCRYPTION_KEY="$(generate_key)"
+        if ! decoded_key_hex=$(printf '%s' "$CHARON_ENCRYPTION_KEY" | base64 --decode 2>/dev/null | od -An -tx1 -v | tr -d ' \n'); then
+            if declare -f log_error >/dev/null 2>&1; then
+                log_error "CHARON_ENCRYPTION_KEY is invalid and regeneration failed"
+            else
+                echo "[ERROR] CHARON_ENCRYPTION_KEY is invalid and regeneration failed" >&2
+            fi
+            return 1
+        fi
+    fi
+
+    decoded_key_bytes=$(( ${#decoded_key_hex} / 2 ))
+    if [[ "$decoded_key_bytes" -ne 32 ]]; then
+        key_source="regenerated"
+        CHARON_ENCRYPTION_KEY="$(generate_key)"
+        if ! decoded_key_hex=$(printf '%s' "$CHARON_ENCRYPTION_KEY" | base64 --decode 2>/dev/null | od -An -tx1 -v | tr -d ' \n'); then
+            if declare -f log_error >/dev/null 2>&1; then
+                log_error "CHARON_ENCRYPTION_KEY has invalid length and regeneration failed"
+            else
+                echo "[ERROR] CHARON_ENCRYPTION_KEY has invalid length and regeneration failed" >&2
+            fi
+            return 1
+        fi
+
+        decoded_key_bytes=$(( ${#decoded_key_hex} / 2 ))
+        if [[ "$decoded_key_bytes" -ne 32 ]]; then
+            if declare -f log_error >/dev/null 2>&1; then
+                log_error "Could not provision a valid 32-byte CHARON_ENCRYPTION_KEY"
+            else
+                echo "[ERROR] Could not provision a valid 32-byte CHARON_ENCRYPTION_KEY" >&2
+            fi
+            return 1
+        fi
+    fi
+
+    export CHARON_ENCRYPTION_KEY
+
+    if [[ "$key_source" == "generated" ]]; then
+        if declare -f log_info >/dev/null 2>&1; then
+            log_info "CHARON_ENCRYPTION_KEY not set; generated ephemeral test key"
+        fi
+    elif [[ "$key_source" == "regenerated" ]]; then
+        if declare -f log_warn >/dev/null 2>&1; then
+            log_warn "CHARON_ENCRYPTION_KEY invalid; generated ephemeral test key"
+        elif declare -f log_info >/dev/null 2>&1; then
+            log_info "CHARON_ENCRYPTION_KEY invalid; generated ephemeral test key"
+        fi
+    fi
+
+    return 0
+}
+
 # Export functions
 export -f validate_go_environment
 export -f validate_python_environment
@@ -200,3 +295,4 @@ export -f validate_docker_environment
 export -f set_default_env
 export -f validate_project_structure
 export -f get_project_root
+export -f ensure_charon_encryption_key

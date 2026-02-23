@@ -17,6 +17,23 @@ Every session should improve the codebase, not just add to it. Actively refactor
 - **READABLE**: Maintain comments and clear naming for complex logic. Favor clarity over cleverness.
 - **CONVENTIONAL COMMITS**: Write commit messages using `feat:`, `fix:`, `chore:`, `refactor:`, or `docs:` prefixes.
 
+## Governance & Precedence
+
+When policy statements conflict across documentation sources, resolve using this precedence hierarchy:
+
+1. **Highest Precedence**: `.github/instructions/**` files (canonical source of truth)
+2. **Agent Overrides**: `.github/agents/**` files (agent-specific customizations)
+3. **Operator Documentation**: `SECURITY.md`, `docs/security.md`,
+   `docs/features/notifications.md` (user-facing guidance)
+
+**Reconciliation Rule**: When conflicts arise, the stricter security requirement
+wins. Update downstream documentation to match canonical text in
+`.github/instructions/**`.
+
+**Example**: If `.github/instructions/security.instructions.md` mandates token
+redaction but operator docs suggest logging is acceptable, token redaction
+requirement takes precedence and operator docs must be updated.
+
 ## 🚨 CRITICAL ARCHITECTURE RULES 🚨
 
 - **Single Frontend Source**: All frontend code MUST reside in `frontend/`. NEVER create `backend/frontend/` or any other nested frontend directory.
@@ -149,6 +166,21 @@ Before marking an implementation task as complete, perform the following in orde
     - **On Failure**: Trace root cause through frontend → backend flow before proceeding
     - **Base URL**: Uses `PLAYWRIGHT_BASE_URL` or default from `playwright.config.js`
     - All E2E tests must pass before proceeding to unit tests
+
+1.5. **GORM Security Scan** (CONDITIONAL, BLOCKING):
+    - **Trigger Condition**: Execute this gate when changes include backend models or database interaction logic:
+        - `backend/internal/models/**`
+        - GORM query/service layers
+        - Database migrations or seeding logic
+    - **Exclusions**: Skip this gate for docs-only (`**/*.md`) or frontend-only (`frontend/**`) changes
+    - **Run One Of**:
+        - VS Code task: `Lint: GORM Security Scan`
+        - Pre-commit: `pre-commit run --hook-stage manual gorm-security-scan --all-files`
+        - Direct: `./scripts/scan-gorm-security.sh --check`
+        - **Gate Enforcement**: DoD is process-blocking until scanner reports zero
+            CRITICAL/HIGH findings, even while automation remains in manual stage
+        - **Check Mode Required**: Gate decisions must use check mode semantics
+            (`--check` flag or equivalent task wiring) for pass/fail determination
 
 2. **Local Patch Coverage Preflight** (MANDATORY - Run Before Unit/Coverage Tests):
     - **Run**: VS Code task `Test: Local Patch Report` or `bash scripts/local-patch-report.sh` from repo root.

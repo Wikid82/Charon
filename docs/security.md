@@ -1119,6 +1119,17 @@ Charon supports rich notification formatting for multiple services using customi
 }
 ```
 
+**Gotify Token Hygiene (Required):**
+
+- Treat Gotify application tokens as secrets; never echo, log, or return token values.
+- Never expose tokenized endpoint query strings (for example,
+  `...?token=...`) in logs, diagnostics, examples, screenshots,
+  tickets, or reports.
+- Redact query parameters in all diagnostics/examples before display or storage.
+- Use write-only token inputs and store tokens in environment variables or a secret manager.
+- Validate Gotify connectivity over HTTPS only.
+- Rotate tokens immediately on suspected exposure.
+
 **Configuring Notification Templates:**
 
 1. Navigate to **Settings → Notifications**

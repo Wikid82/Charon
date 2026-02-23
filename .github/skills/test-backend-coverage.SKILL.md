@@ -25,6 +25,10 @@ requirements:
     version: ">=3.8"
     optional: false
 environment_variables:
+  - name: "CHARON_ENCRYPTION_KEY"
+    description: "Encryption key for backend test runtime. Auto-generated ephemerally by the script if missing/invalid."
+    default: "(auto-generated for test run)"
+    required: false
   - name: "CHARON_MIN_COVERAGE"
     description: "Minimum coverage percentage required (overrides default)"
     default: "85"
@@ -125,6 +129,7 @@ For use in GitHub Actions or other CI/CD pipelines:
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
+| CHARON_ENCRYPTION_KEY | No | auto-generated for test run | Backend test encryption key. If missing/invalid, an ephemeral 32-byte base64 key is generated for the run. |
 | CHARON_MIN_COVERAGE | No | 85 | Minimum coverage percentage required for success |
 | CPM_MIN_COVERAGE | No | 85 | Legacy name for minimum coverage (fallback) |
 | PERF_MAX_MS_GETSTATUS_P95 | No | 25ms | Max P95 latency for GetStatus endpoint |
