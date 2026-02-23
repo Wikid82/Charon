@@ -174,7 +174,7 @@ jobs:
       - name: Download PR image artifact
         if: steps.check-artifact.outputs.artifact_exists == 'true'
         # actions/download-artifact v4.1.8
-        uses: actions/download-artifact@ac21fcf45e0aaee541c0f7030558bdad38d77d6c
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
         with:
           name: ${{ steps.pr-info.outputs.is_push == 'true' && 'push-image' || format('pr-image-{0}', steps.pr-info.outputs.pr_number) }}
           run-id: ${{ steps.check-artifact.outputs.run_id }}
