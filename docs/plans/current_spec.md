@@ -23,6 +23,135 @@ Status: Active and authoritative
 Scope Type: Architecture/security/dependency research and implementation planning
 Authority: This is the only active authoritative plan section in this file.
 
+## Focused Remediation Plan Addendum: 3 Failing Playwright Tests
+
+Date: 2026-02-23
+Scope: Only the 3 failures reported in `docs/reports/qa_report.md`:
+- `tests/core/proxy-hosts.spec.ts` — `should open edit modal with existing values`
+- `tests/core/proxy-hosts.spec.ts` — `should update forward host and port`
+- `tests/settings/smtp-settings.spec.ts` — `should update existing SMTP configuration`
+
+### Introduction
+
+This addendum defines a minimal, deterministic remediation for the three reported flaky/timeout E2E failures. The objective is to stabilize test synchronization and preconditions while preserving existing assertions and behavior intent.
+
+### Research Findings
+
+#### 1) `tests/core/proxy-hosts.spec.ts` (2 timeouts)
+
+Observed test pattern:
+- Uses broad selector `page.getByRole('button', { name: /edit/i }).first()`.
+- Uses conditional execution (`if (editCount > 0)`) with no explicit precondition that at least one editable row exists.
+- Waits for modal after clicking the first matched "Edit" button.
+
+Likely root causes:
+- Broad role/name selector can resolve to non-row or non-visible edit controls first, causing click auto-wait timeout.
+- Test data state is non-deterministic (no guaranteed editable proxy host before the update tests).
+- In-file parallel execution (`fullyParallel: true` globally) increases race potential for shared host list mutations.
+
+#### 2) `tests/settings/smtp-settings.spec.ts` (waitForResponse timeout)
+
+Observed test pattern:
+- Uses `clickAndWaitForResponse(page, saveButton, /\/api\/v1\/settings\/smtp/)`, which internally waits for response status `200` by default.
+- Test updates only host field, relying on pre-existing validity of other required fields.
+
+Likely root causes:
+- If backend returns non-`200` (e.g., `400` validation), helper waits indefinitely for `200` and times out instead of failing fast.
+- The test assumes existing SMTP state is valid; this is brittle under parallel execution and prior test mutations.
+
+### Technical Specifications (Exact Test Changes)
+
+#### A) `tests/core/proxy-hosts.spec.ts`
+
+1. In `test.describe('Update Proxy Host', ...)`, add serial mode:
+- Add `test.describe.configure({ mode: 'serial' })` at the top of that describe block.
+
+2. Add a local helper in this file for deterministic precondition and row-scoped edit action:
+- Helper name: `ensureEditableProxyHost(page, testData)`
+- Behavior:
+   - Check `tbody tr` count.
+   - If count is `0`, create one host via `testData.createProxyHost({ domain: ..., forwardHost: ..., forwardPort: ... })`.
+   - Reload `/proxy-hosts` and wait for content readiness using existing wait helpers.
+
+3. Replace broad edit-button lookup in both failing tests with row-scoped visible locator:
+- Replace:
+   - `page.getByRole('button', { name: /edit/i }).first()`
+- With:
+   - `const firstRow = page.locator('tbody tr').first()`
+   - `const editButton = firstRow.getByRole('button', { name: /edit proxy host|edit/i }).first()`
+   - `await expect(editButton).toBeVisible()`
+   - `await editButton.click()`
+
+4. Remove silent pass-through for missing rows in these two tests:
+- Replace `if (editCount > 0) { ... }` branching with deterministic precondition call and explicit assertion that dialog appears.
+
+Affected tests:
+- `should open edit modal with existing values`
+- `should update forward host and port`
+
+Preserved assertions:
+- Edit modal opens.
+- Existing values are present.
+- Forward host/port fields accept and retain edited values before cancel.
+
+#### B) `tests/settings/smtp-settings.spec.ts`
+
+1. In `test.describe('CRUD Operations', ...)`, add serial mode:
+- Add `test.describe.configure({ mode: 'serial' })` to avoid concurrent mutation of shared SMTP configuration.
+
+2. Strengthen required-field preconditions in failing test before save:
+- In `should update existing SMTP configuration`, explicitly set:
+   - `#smtp-host` to `updated-smtp.test.local`
+   - `#smtp-port` to `587`
+   - `#smtp-from` to `noreply@test.local`
+
+3. Replace status-constrained response wait that can timeout on non-200:
+- Replace `clickAndWaitForResponse(...)` call with `Promise.all([page.waitForResponse(...) , saveButton.click()])` matching URL + `POST` method (not status).
+- Immediately assert returned status is `200` and then keep success-toast assertion.
+
+4. Keep existing persistence verification and cleanup step:
+- Reload and assert host persisted.
+- Restore original host value after assertion.
+
+Preserved assertions:
+- Save request succeeds.
+- Success feedback shown.
+- Updated value persists after reload.
+- Original value restoration still performed.
+
+### Implementation Plan
+
+#### Phase 1 — Targeted test edits
+- Update only:
+   - `tests/core/proxy-hosts.spec.ts`
+   - `tests/settings/smtp-settings.spec.ts`
+
+#### Phase 2 — Focused verification
+- Run only the 3 failing cases first (grep-targeted).
+- Then run both files fully on Firefox to validate no local regressions.
+
+#### Phase 3 — Gate confirmation
+- Re-run the previously failing targeted suite:
+   - `tests/core`
+   - `tests/settings/smtp-settings.spec.ts`
+
+### Acceptance Criteria
+
+1. `should open edit modal with existing values` passes without timeout.
+2. `should update forward host and port` passes without timeout.
+3. `should update existing SMTP configuration` passes without `waitForResponse` timeout.
+4. No assertion scope is broadened; test intent remains unchanged.
+5. No non-target files are modified.
+
+### PR Slicing Strategy
+
+- Decision: **Single PR**.
+- Rationale: 3 deterministic test-only fixes, same domain (Playwright stabilization), low blast radius.
+- Slice:
+   - `PR-1`: Update the two spec files above + rerun targeted Playwright validations.
+- Rollback:
+   - Revert only spec-file changes if unintended side effects appear.
+
 ## Introduction
 
 Charon’s control plane and data plane rely on Caddy as a core runtime backbone.
