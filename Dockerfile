@@ -18,7 +18,7 @@ ARG BUILD_DEBUG=0
 ARG CADDY_VERSION=2.11.0-beta.2
 ARG CADDY_CANDIDATE_VERSION=2.11.1
 ARG CADDY_USE_CANDIDATE=0
-ARG CADDY_PATCH_SCENARIO=A
+ARG CADDY_PATCH_SCENARIO=B
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
@@ -252,6 +252,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # renovate: datasource=go depName=github.com/hslatman/ipstore
         go get github.com/hslatman/ipstore@v0.4.0; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
+            # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
             # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
             # uses legacy nebula APIs removed in nebula v1.10+, which causes compile
             # failures in authority/provisioner. Keep this pinned to a known-compatible
@@ -259,6 +260,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             # renovate: datasource=go depName=github.com/slackhq/nebula
             go get github.com/slackhq/nebula@v1.9.7; \
         elif [ "${CADDY_PATCH_SCENARIO}" = "B" ] || [ "${CADDY_PATCH_SCENARIO}" = "C" ]; then \
+            # Default PR-2 posture: retire explicit nebula pin and use upstream resolution.
             echo "Skipping nebula pin for scenario ${CADDY_PATCH_SCENARIO}"; \
         else \
             echo "Unsupported CADDY_PATCH_SCENARIO=${CADDY_PATCH_SCENARIO}"; \

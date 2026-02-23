@@ -23,6 +23,91 @@ Status: Active and authoritative
 Scope Type: Architecture/security/dependency research and implementation planning
 Authority: This is the only active authoritative plan section in this file.
 
+## Focused Plan: GitHub Actions `setup-go` Cache Warning (`go.sum` path)
+
+Date: 2026-02-23
+Status: Planned
+Scope: Warning-only fix for GitHub Actions cache restore message:
+`Restore cache failed: Dependencies file is not found in
+/home/runner/work/Charon/Charon. Supported file pattern: go.sum`.
+
+### Introduction
+
+This focused section addresses a CI warning caused by `actions/setup-go` cache
+configuration assuming `go.sum` at repository root. Charon stores Go module
+dependencies in `backend/go.sum`.
+
+### Research Findings
+
+Verified workflow inventory (`.github/workflows/**`):
+
+- All workflows using `actions/setup-go` were identified.
+- Five workflows already set `cache-dependency-path: backend/go.sum`:
+   - `.github/workflows/codecov-upload.yml`
+   - `.github/workflows/quality-checks.yml`
+   - `.github/workflows/codeql.yml`
+   - `.github/workflows/benchmark.yml`
+   - `.github/workflows/e2e-tests-split.yml`
+- Two workflows use `actions/setup-go` without cache dependency path and are
+   the warning source:
+   - `.github/workflows/caddy-compat.yml`
+   - `.github/workflows/release-goreleaser.yml`
+- Repository check confirms only one `go.sum` exists:
+   - `backend/go.sum`
+
+### Technical Specification (Minimal Fix)
+
+Apply a warning-only cache path correction in both affected workflow steps:
+
+1. `.github/workflows/caddy-compat.yml`
+    - In `Set up Go` step, add:
+       - `cache-dependency-path: backend/go.sum`
+
+2. `.github/workflows/release-goreleaser.yml`
+    - In `Set up Go` step, add:
+       - `cache-dependency-path: backend/go.sum`
+
+No other workflow behavior, triggers, permissions, or build/test logic will be
+changed.
+
+### Implementation Plan
+
+#### Phase 1 — Workflow patch
+
+- Update only the two targeted workflow files listed above.
+
+#### Phase 2 — Validation
+
+- Run workflow YAML validation/lint checks already used by repository CI.
+- Confirm no cache restore warning appears in subsequent runs of:
+   - `Caddy Compatibility Gate`
+   - `Release (GoReleaser)`
+
+#### Phase 3 — Closeout
+
+- Mark warning remediated once both workflows execute without the missing
+   `go.sum` cache warning.
+
+### Acceptance Criteria
+
+1. Both targeted workflows include `cache-dependency-path: backend/go.sum` in
+    their `actions/setup-go` step.
+2. No unrelated workflow files are modified.
+3. No behavior changes beyond warning elimination.
+4. CI logs for affected workflows no longer show the missing dependencies-file
+    warning.
+
+### PR Slicing Strategy
+
+- Decision: Single PR.
+- Rationale: Two-line, warning-only correction in two workflow files with no
+   cross-domain behavior impact.
+- Slice:
+   - `PR-1`: Add `cache-dependency-path` to the two `setup-go` steps and verify
+      workflow run logs.
+- Rollback:
+   - Revert only these two workflow edits if unexpected cache behavior appears.
+
 ## Focused Remediation Plan Addendum: 3 Failing Playwright Tests
 
 Date: 2026-02-23

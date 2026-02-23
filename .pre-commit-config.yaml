@@ -113,7 +113,7 @@ repos:
         stages: [manual]  # Only runs when explicitly called
       - id: frontend-type-check
         name: Frontend TypeScript Check
-        entry: bash -c 'cd frontend && npm run type-check'
+        entry: bash -c 'cd frontend && npx tsc --noEmit'
         language: system
         files: '^frontend/.*\.(ts|tsx)$'
         pass_filenames: false
