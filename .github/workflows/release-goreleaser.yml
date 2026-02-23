@@ -20,6 +20,7 @@ permissions:
 
 jobs:
   goreleaser:
+    if: ${{ !contains(github.ref_name, '-candidate') && !contains(github.ref_name, '-rc') }}
     runs-on: ubuntu-latest
     env:
       # Use the built-in GITHUB_TOKEN by default for GitHub API operations.
@@ -32,10 +33,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Enforce PR-2 release promotion guard
+        env:
+          REPO_VARS_JSON: ${{ toJSON(vars) }}
+        run: |
+          PR2_GATE_STATUS="$(printf '%s' "$REPO_VARS_JSON" | jq -r '.CHARON_PR2_GATES_PASSED // "false"')"
+          if [[ "$PR2_GATE_STATUS" != "true" ]]; then
+            echo "::error::Releasable tag promotion is blocked until PR-2 security/retirement gates pass."
+            echo "::error::Set repository variable CHARON_PR2_GATES_PASSED=true only after PR-2 approval."
+            exit 1
+          fi
+
       - name: Set up Go
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
 
       - name: Set up Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6

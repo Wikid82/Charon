@@ -876,6 +876,13 @@
       "newTab": "New Tab (Default)",
       "newWindow": "New Window",
       "domainLinkBehaviorHelper": "Control how domain links open in the Proxy Hosts list.",
+      "keepaliveIdle": "Keepalive Idle (Optional)",
+      "keepaliveIdleHelper": "Optional Caddy duration (e.g., 2m, 30s). Leave blank to keep backend defaults.",
+      "keepaliveIdleError": "Enter a valid duration (for example: 30s, 2m, 1h).",
+      "keepaliveCount": "Keepalive Count (Optional)",
+      "keepaliveCountHelper": "Optional max keepalive probes (1-1000). Leave blank to keep backend defaults.",
+      "keepaliveCountError": "Enter a whole number between 1 and 1000.",
+      "keepaliveValidationFailed": "Keepalive settings contain invalid values.",
       "languageHelper": "Select your preferred language. Changes take effect immediately."
     },
     "applicationUrl": {
