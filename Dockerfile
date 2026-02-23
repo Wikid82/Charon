@@ -16,6 +16,9 @@ ARG BUILD_DEBUG=0
 ## Try to build the requested Caddy v2.x tag (Renovate can update this ARG).
 ## If the requested tag isn't available, fall back to a known-good v2.11.0-beta.2 build.
 ARG CADDY_VERSION=2.11.0-beta.2
+ARG CADDY_CANDIDATE_VERSION=2.11.1
+ARG CADDY_USE_CANDIDATE=0
+ARG CADDY_PATCH_SCENARIO=A
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
@@ -196,6 +199,9 @@ FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS caddy-builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
+ARG CADDY_CANDIDATE_VERSION
+ARG CADDY_USE_CANDIDATE
+ARG CADDY_PATCH_SCENARIO
 # renovate: datasource=go depName=github.com/caddyserver/xcaddy
 ARG XCADDY_VERSION=0.4.5
 
@@ -213,10 +219,16 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     sh -c 'set -e; \
+        CADDY_TARGET_VERSION="${CADDY_VERSION}"; \
+        if [ "${CADDY_USE_CANDIDATE}" = "1" ]; then \
+            CADDY_TARGET_VERSION="${CADDY_CANDIDATE_VERSION}"; \
+        fi; \
+        echo "Using Caddy target version: v${CADDY_TARGET_VERSION}"; \
+        echo "Using Caddy patch scenario: ${CADDY_PATCH_SCENARIO}"; \
         export XCADDY_SKIP_CLEANUP=1; \
         echo "Stage 1: Generate go.mod with xcaddy..."; \
         # Run xcaddy to generate the build directory and go.mod
-        GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_VERSION} \
+        GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_TARGET_VERSION} \
             --with github.com/greenpau/caddy-security \
             --with github.com/corazawaf/coraza-caddy/v2 \
             --with github.com/hslatman/caddy-crowdsec-bouncer@v0.10.0 \
@@ -239,12 +251,19 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         go get github.com/expr-lang/expr@v1.17.7; \
         # renovate: datasource=go depName=github.com/hslatman/ipstore
         go get github.com/hslatman/ipstore@v0.4.0; \
-        # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
-        # uses legacy nebula APIs removed in nebula v1.10+, which causes compile
-        # failures in authority/provisioner. Keep this pinned to a known-compatible
-        # v1.9.x release until upstream stack supports nebula v1.10+.
-        # renovate: datasource=go depName=github.com/slackhq/nebula
-        go get github.com/slackhq/nebula@v1.9.7; \
+        if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
+            # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
+            # uses legacy nebula APIs removed in nebula v1.10+, which causes compile
+            # failures in authority/provisioner. Keep this pinned to a known-compatible
+            # v1.9.x release until upstream stack supports nebula v1.10+.
+            # renovate: datasource=go depName=github.com/slackhq/nebula
+            go get github.com/slackhq/nebula@v1.9.7; \
+        elif [ "${CADDY_PATCH_SCENARIO}" = "B" ] || [ "${CADDY_PATCH_SCENARIO}" = "C" ]; then \
+            echo "Skipping nebula pin for scenario ${CADDY_PATCH_SCENARIO}"; \
+        else \
+            echo "Unsupported CADDY_PATCH_SCENARIO=${CADDY_PATCH_SCENARIO}"; \
+            exit 1; \
+        fi; \
         # Clean up go.mod and ensure all dependencies are resolved
         go mod tidy; \
         echo "Dependencies patched successfully"; \
