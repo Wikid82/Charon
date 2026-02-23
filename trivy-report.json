@@ -1,10 +1,6199 @@
+[INFO] Executing skill: security-scan-trivy
+[ENVIRONMENT] Validating prerequisites
+[SCANNING] Running Trivy security scan
+[INFO] Scanners: vuln,secret,misconfig
+[INFO] Format: json
+[INFO] Severity: CRITICAL,HIGH,MEDIUM
+[INFO] Timeout: 10m
+[PREPARE] Pulling latest Trivy Docker image
 {
   "SchemaVersion": 2,
   "Trivy": {
     "Version": "0.69.1"
   },
-  "ReportID": "019c31f7-70d6-7974-912c-81d08eba4356",
-  "CreatedAt": "2026-02-06T08:00:25.814622916Z",
-  "ArtifactName": ".github/workflows/supply-chain-pr.yml",
-  "ArtifactType": "filesystem"
+  "ReportID": "019c7910-87a6-79ec-b43b-88957bffef05",
+  "CreatedAt": "2026-02-20T03:20:52.390653972Z",
+  "ArtifactID": "sha256:54409cb9ab1417d5a5088afed6852280421011c22fd96cd0fb51523aae5807bc",
+  "ArtifactName": "/app",
+  "ArtifactType": "repository",
+  "Metadata": {
+    "RepoURL": "https://github.com/Wikid82/Charon.git",
+    "Branch": "feature/beta-release",
+    "Commit": "1a477f90f4ec8ba00351040b3c5a44db09197324",
+    "CommitMsg": "chore: enhance Trivy scan script with Docker image pull and cleanup options",
+    "Author": "GitHub Actions \u003cactions@github.com\u003e",
+    "Committer": "GitHub Actions \u003cactions@github.com\u003e"
+  },
+  "Results": [
+    {
+      "Target": "backend/go.mod",
+      "Class": "lang-pkgs",
+      "Type": "gomod",
+      "Packages": [
+        {
+          "ID": "github.com/Wikid82/charon/backend",
+          "Name": "github.com/Wikid82/charon/backend",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/wikid82/charon/backend",
+            "UID": "9ad33c476a3878fa"
+          },
+          "Relationship": "root",
+          "DependsOn": [
+            "github.com/docker/docker@v28.5.2+incompatible",
+            "github.com/gin-contrib/gzip@v1.2.5",
+            "github.com/gin-gonic/gin@v1.11.0",
+            "github.com/glebarez/sqlite@v1.11.0",
+            "github.com/golang-jwt/jwt/v5@v5.3.1",
+            "github.com/google/uuid@v1.6.0",
+            "github.com/gorilla/websocket@v1.5.3",
+            "github.com/mattn/go-sqlite3@v1.14.34",
+            "github.com/oschwald/geoip2-golang/v2@v2.1.0",
+            "github.com/prometheus/client_golang@v1.23.2",
+            "github.com/robfig/cron/v3@v3.0.1",
+            "github.com/sirupsen/logrus@v1.9.4",
+            "github.com/stretchr/testify@v1.11.1",
+            "golang.org/x/crypto@v0.48.0",
+            "golang.org/x/net@v0.50.0",
+            "golang.org/x/text@v0.34.0",
+            "golang.org/x/time@v0.14.0",
+            "gopkg.in/natefinch/lumberjack.v2@v2.2.1",
+            "gorm.io/driver/sqlite@v1.6.0",
+            "gorm.io/gorm@v1.31.1",
+            "github.com/Microsoft/go-winio@v0.6.2",
+            "github.com/beorn7/perks@v1.0.1",
+            "github.com/bytedance/gopkg@v0.1.3",
+            "github.com/bytedance/sonic@v1.14.1",
+            "github.com/bytedance/sonic/loader@v0.3.0",
+            "github.com/cespare/xxhash/v2@v2.3.0",
+            "github.com/cloudwego/base64x@v0.1.6",
+            "github.com/containerd/errdefs@v1.0.0",
+            "github.com/containerd/errdefs/pkg@v0.3.0",
+            "github.com/containerd/log@v0.1.0",
+            "github.com/davecgh/go-spew@v1.1.1",
+            "github.com/distribution/reference@v0.6.0",
+            "github.com/docker/go-connections@v0.6.0",
+            "github.com/docker/go-units@v0.5.0",
+            "github.com/dustin/go-humanize@v1.0.1",
+            "github.com/felixge/httpsnoop@v1.0.4",
+            "github.com/gabriel-vasile/mimetype@v1.4.12",
+            "github.com/gin-contrib/sse@v1.1.0",
+            "github.com/glebarez/go-sqlite@v1.21.2",
+            "github.com/go-logr/logr@v1.4.3",
+            "github.com/go-logr/stdr@v1.2.2",
+            "github.com/go-playground/locales@v0.14.1",
+            "github.com/go-playground/universal-translator@v0.18.1",
+            "github.com/go-playground/validator/v10@v10.30.1",
+            "github.com/goccy/go-json@v0.10.5",
+            "github.com/goccy/go-yaml@v1.18.0",
+            "github.com/jinzhu/inflection@v1.0.0",
+            "github.com/jinzhu/now@v1.1.5",
+            "github.com/json-iterator/go@v1.1.12",
+            "github.com/klauspost/cpuid/v2@v2.3.0",
+            "github.com/kylelemons/godebug@v1.1.0",
+            "github.com/leodido/go-urn@v1.4.0",
+            "github.com/mattn/go-isatty@v0.0.20",
+            "github.com/moby/docker-image-spec@v1.3.1",
+            "github.com/moby/sys/atomicwriter@v0.1.0",
+            "github.com/moby/term@v0.5.2",
+            "github.com/modern-go/concurrent@v0.0.0-20180306012644-bacd9c7ef1dd",
+            "github.com/modern-go/reflect2@v1.0.2",
+            "github.com/morikuni/aec@v1.0.0",
+            "github.com/munnerz/goautoneg@v0.0.0-20191010083416-a7dc8b61c822",
+            "github.com/opencontainers/go-digest@v1.0.0",
+            "github.com/opencontainers/image-spec@v1.1.1",
+            "github.com/oschwald/maxminddb-golang/v2@v2.1.1",
+            "github.com/pelletier/go-toml/v2@v2.2.4",
+            "github.com/pkg/errors@v0.9.1",
+            "github.com/pmezard/go-difflib@v1.0.0",
+            "github.com/prometheus/client_model@v0.6.2",
+            "github.com/prometheus/common@v0.66.1",
+            "github.com/prometheus/procfs@v0.16.1",
+            "github.com/quic-go/qpack@v0.6.0",
+            "github.com/quic-go/quic-go@v0.59.0",
+            "github.com/remyoudompheng/bigfft@v0.0.0-20230129092748-24d4a6f8daec",
+            "github.com/stretchr/objx@v0.5.2",
+            "github.com/twitchyliquid64/golang-asm@v0.15.1",
+            "github.com/ugorji/go/codec@v1.3.0",
+            "go.opentelemetry.io/auto/sdk@v1.1.0",
+            "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp@v0.63.0",
+            "go.opentelemetry.io/otel@v1.38.0",
+            "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.38.0",
+            "go.opentelemetry.io/otel/metric@v1.38.0",
+            "go.opentelemetry.io/otel/trace@v1.38.0",
+            "go.yaml.in/yaml/v2@v2.4.2",
+            "golang.org/x/arch@v0.22.0",
+            "golang.org/x/sys@v0.41.0",
+            "google.golang.org/protobuf@v1.36.11",
+            "gopkg.in/yaml.v3@v3.0.1",
+            "gotest.tools/v3@v3.5.2",
+            "modernc.org/libc@v1.22.5",
+            "modernc.org/mathutil@v1.5.0",
+            "modernc.org/memory@v1.5.0",
+            "modernc.org/sqlite@v1.23.1"
+          ],
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/docker/docker@v28.5.2+incompatible",
+          "Name": "github.com/docker/docker",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/docker/docker@v28.5.2%2Bincompatible",
+            "UID": "a170b759ae93353"
+          },
+          "Version": "v28.5.2+incompatible",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/gin-contrib/gzip@v1.2.5",
+          "Name": "github.com/gin-contrib/gzip",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/gin-contrib/gzip@v1.2.5",
+            "UID": "27d324704c871546"
+          },
+          "Version": "v1.2.5",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/gin-gonic/gin@v1.11.0",
+          "Name": "github.com/gin-gonic/gin",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/gin-gonic/gin@v1.11.0",
+            "UID": "452e56940be266fd"
+          },
+          "Version": "v1.11.0",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/glebarez/sqlite@v1.11.0",
+          "Name": "github.com/glebarez/sqlite",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/glebarez/sqlite@v1.11.0",
+            "UID": "dc3e5b5509d8b7b2"
+          },
+          "Version": "v1.11.0",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/golang-jwt/jwt/v5@v5.3.1",
+          "Name": "github.com/golang-jwt/jwt/v5",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/golang-jwt/jwt/v5@v5.3.1",
+            "UID": "e17f93c5be7e2522"
+          },
+          "Version": "v5.3.1",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/google/uuid@v1.6.0",
+          "Name": "github.com/google/uuid",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/google/uuid@v1.6.0",
+            "UID": "ba0d877507927b95"
+          },
+          "Version": "v1.6.0",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/gorilla/websocket@v1.5.3",
+          "Name": "github.com/gorilla/websocket",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/gorilla/websocket@v1.5.3",
+            "UID": "329dbf388bc9c23d"
+          },
+          "Version": "v1.5.3",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/mattn/go-sqlite3@v1.14.34",
+          "Name": "github.com/mattn/go-sqlite3",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/mattn/go-sqlite3@v1.14.34",
+            "UID": "5fe88e3b6ac40460"
+          },
+          "Version": "v1.14.34",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/oschwald/geoip2-golang/v2@v2.1.0",
+          "Name": "github.com/oschwald/geoip2-golang/v2",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/oschwald/geoip2-golang/v2@v2.1.0",
+            "UID": "110360e7ef48b514"
+          },
+          "Version": "v2.1.0",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/prometheus/client_golang@v1.23.2",
+          "Name": "github.com/prometheus/client_golang",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/prometheus/client_golang@v1.23.2",
+            "UID": "7ef07858a834f0e3"
+          },
+          "Version": "v1.23.2",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/robfig/cron/v3@v3.0.1",
+          "Name": "github.com/robfig/cron/v3",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/robfig/cron/v3@v3.0.1",
+            "UID": "9f68e3615f049784"
+          },
+          "Version": "v3.0.1",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/sirupsen/logrus@v1.9.4",
+          "Name": "github.com/sirupsen/logrus",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/sirupsen/logrus@v1.9.4",
+            "UID": "be1f0417747cae30"
+          },
+          "Version": "v1.9.4",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/stretchr/testify@v1.11.1",
+          "Name": "github.com/stretchr/testify",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/stretchr/testify@v1.11.1",
+            "UID": "41b844b58ea1ecce"
+          },
+          "Version": "v1.11.1",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "golang.org/x/crypto@v0.48.0",
+          "Name": "golang.org/x/crypto",
+          "Identifier": {
+            "PURL": "pkg:golang/golang.org/x/crypto@v0.48.0",
+            "UID": "973188afd8ae89c4"
+          },
+          "Version": "v0.48.0",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "golang.org/x/net@v0.50.0",
+          "Name": "golang.org/x/net",
+          "Identifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.50.0",
+            "UID": "e6e980ff9f58cb4f"
+          },
+          "Version": "v0.50.0",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "golang.org/x/text@v0.34.0",
+          "Name": "golang.org/x/text",
+          "Identifier": {
+            "PURL": "pkg:golang/golang.org/x/text@v0.34.0",
+            "UID": "2818080b548400f1"
+          },
+          "Version": "v0.34.0",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "golang.org/x/time@v0.14.0",
+          "Name": "golang.org/x/time",
+          "Identifier": {
+            "PURL": "pkg:golang/golang.org/x/time@v0.14.0",
+            "UID": "5b7e870dcfab3405"
+          },
+          "Version": "v0.14.0",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "gopkg.in/natefinch/lumberjack.v2@v2.2.1",
+          "Name": "gopkg.in/natefinch/lumberjack.v2",
+          "Identifier": {
+            "PURL": "pkg:golang/gopkg.in/natefinch/lumberjack.v2@v2.2.1",
+            "UID": "c60a2fe2bfc649ff"
+          },
+          "Version": "v2.2.1",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "gorm.io/driver/sqlite@v1.6.0",
+          "Name": "gorm.io/driver/sqlite",
+          "Identifier": {
+            "PURL": "pkg:golang/gorm.io/driver/sqlite@v1.6.0",
+            "UID": "d2fc1fc3b5013f88"
+          },
+          "Version": "v1.6.0",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "gorm.io/gorm@v1.31.1",
+          "Name": "gorm.io/gorm",
+          "Identifier": {
+            "PURL": "pkg:golang/gorm.io/gorm@v1.31.1",
+            "UID": "4497345ee044dc76"
+          },
+          "Version": "v1.31.1",
+          "Relationship": "direct",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/Microsoft/go-winio@v0.6.2",
+          "Name": "github.com/Microsoft/go-winio",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/microsoft/go-winio@v0.6.2",
+            "UID": "79e27619eb091c6b"
+          },
+          "Version": "v0.6.2",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/beorn7/perks@v1.0.1",
+          "Name": "github.com/beorn7/perks",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/beorn7/perks@v1.0.1",
+            "UID": "d8bd027e23119e01"
+          },
+          "Version": "v1.0.1",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/bytedance/gopkg@v0.1.3",
+          "Name": "github.com/bytedance/gopkg",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/bytedance/gopkg@v0.1.3",
+            "UID": "1f7bf80893189ec8"
+          },
+          "Version": "v0.1.3",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/bytedance/sonic@v1.14.1",
+          "Name": "github.com/bytedance/sonic",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/bytedance/sonic@v1.14.1",
+            "UID": "37f1d10c5d30b46"
+          },
+          "Version": "v1.14.1",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/bytedance/sonic/loader@v0.3.0",
+          "Name": "github.com/bytedance/sonic/loader",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/bytedance/sonic/loader@v0.3.0",
+            "UID": "aa0a508313540e83"
+          },
+          "Version": "v0.3.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/cespare/xxhash/v2@v2.3.0",
+          "Name": "github.com/cespare/xxhash/v2",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/cespare/xxhash/v2@v2.3.0",
+            "UID": "df1a7cfe3f0dee53"
+          },
+          "Version": "v2.3.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/cloudwego/base64x@v0.1.6",
+          "Name": "github.com/cloudwego/base64x",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/cloudwego/base64x@v0.1.6",
+            "UID": "eb3eab111ceb53a7"
+          },
+          "Version": "v0.1.6",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/containerd/errdefs@v1.0.0",
+          "Name": "github.com/containerd/errdefs",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/containerd/errdefs@v1.0.0",
+            "UID": "38989e7d61049bae"
+          },
+          "Version": "v1.0.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/containerd/errdefs/pkg@v0.3.0",
+          "Name": "github.com/containerd/errdefs/pkg",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/containerd/errdefs/pkg@v0.3.0",
+            "UID": "5ad27ec2c198d200"
+          },
+          "Version": "v0.3.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/containerd/log@v0.1.0",
+          "Name": "github.com/containerd/log",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/containerd/log@v0.1.0",
+            "UID": "29b0148f2bdfacf3"
+          },
+          "Version": "v0.1.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/davecgh/go-spew@v1.1.1",
+          "Name": "github.com/davecgh/go-spew",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/davecgh/go-spew@v1.1.1",
+            "UID": "dfa67975b8b44ca1"
+          },
+          "Version": "v1.1.1",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/distribution/reference@v0.6.0",
+          "Name": "github.com/distribution/reference",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/distribution/reference@v0.6.0",
+            "UID": "7d4b2bb5d6f814a1"
+          },
+          "Version": "v0.6.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/docker/go-connections@v0.6.0",
+          "Name": "github.com/docker/go-connections",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/docker/go-connections@v0.6.0",
+            "UID": "4c25cb7ebddc9b99"
+          },
+          "Version": "v0.6.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/docker/go-units@v0.5.0",
+          "Name": "github.com/docker/go-units",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/docker/go-units@v0.5.0",
+            "UID": "5396c348d7a36655"
+          },
+          "Version": "v0.5.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/dustin/go-humanize@v1.0.1",
+          "Name": "github.com/dustin/go-humanize",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/dustin/go-humanize@v1.0.1",
+            "UID": "c6c625ec26b014bf"
+          },
+          "Version": "v1.0.1",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/felixge/httpsnoop@v1.0.4",
+          "Name": "github.com/felixge/httpsnoop",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/felixge/httpsnoop@v1.0.4",
+            "UID": "d0f43522dadc5d37"
+          },
+          "Version": "v1.0.4",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/gabriel-vasile/mimetype@v1.4.12",
+          "Name": "github.com/gabriel-vasile/mimetype",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/gabriel-vasile/mimetype@v1.4.12",
+            "UID": "97267ffd1e70f6a6"
+          },
+          "Version": "v1.4.12",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/gin-contrib/sse@v1.1.0",
+          "Name": "github.com/gin-contrib/sse",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/gin-contrib/sse@v1.1.0",
+            "UID": "70719bc2abcae68e"
+          },
+          "Version": "v1.1.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/glebarez/go-sqlite@v1.21.2",
+          "Name": "github.com/glebarez/go-sqlite",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/glebarez/go-sqlite@v1.21.2",
+            "UID": "a69111981b93a670"
+          },
+          "Version": "v1.21.2",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/go-logr/logr@v1.4.3",
+          "Name": "github.com/go-logr/logr",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/go-logr/logr@v1.4.3",
+            "UID": "d0b98516496d396"
+          },
+          "Version": "v1.4.3",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/go-logr/stdr@v1.2.2",
+          "Name": "github.com/go-logr/stdr",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/go-logr/stdr@v1.2.2",
+            "UID": "d0edbbffdca3d42e"
+          },
+          "Version": "v1.2.2",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/go-playground/locales@v0.14.1",
+          "Name": "github.com/go-playground/locales",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/go-playground/locales@v0.14.1",
+            "UID": "28e890500726192e"
+          },
+          "Version": "v0.14.1",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/go-playground/universal-translator@v0.18.1",
+          "Name": "github.com/go-playground/universal-translator",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/go-playground/universal-translator@v0.18.1",
+            "UID": "2d94a0d22d6fe310"
+          },
+          "Version": "v0.18.1",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/go-playground/validator/v10@v10.30.1",
+          "Name": "github.com/go-playground/validator/v10",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/go-playground/validator/v10@v10.30.1",
+            "UID": "716b50771fa5da32"
+          },
+          "Version": "v10.30.1",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/goccy/go-json@v0.10.5",
+          "Name": "github.com/goccy/go-json",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/goccy/go-json@v0.10.5",
+            "UID": "83177e6370277d05"
+          },
+          "Version": "v0.10.5",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/goccy/go-yaml@v1.18.0",
+          "Name": "github.com/goccy/go-yaml",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/goccy/go-yaml@v1.18.0",
+            "UID": "df22f848c46222dd"
+          },
+          "Version": "v1.18.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/jinzhu/inflection@v1.0.0",
+          "Name": "github.com/jinzhu/inflection",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/jinzhu/inflection@v1.0.0",
+            "UID": "ad623cecd5b43be7"
+          },
+          "Version": "v1.0.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/jinzhu/now@v1.1.5",
+          "Name": "github.com/jinzhu/now",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/jinzhu/now@v1.1.5",
+            "UID": "c466d559c73eb68e"
+          },
+          "Version": "v1.1.5",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/json-iterator/go@v1.1.12",
+          "Name": "github.com/json-iterator/go",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/json-iterator/go@v1.1.12",
+            "UID": "812857eefa24c325"
+          },
+          "Version": "v1.1.12",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/klauspost/cpuid/v2@v2.3.0",
+          "Name": "github.com/klauspost/cpuid/v2",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/klauspost/cpuid/v2@v2.3.0",
+            "UID": "1bdc4e10c1f2adb0"
+          },
+          "Version": "v2.3.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/kylelemons/godebug@v1.1.0",
+          "Name": "github.com/kylelemons/godebug",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/kylelemons/godebug@v1.1.0",
+            "UID": "def8a92d76f24046"
+          },
+          "Version": "v1.1.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/leodido/go-urn@v1.4.0",
+          "Name": "github.com/leodido/go-urn",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/leodido/go-urn@v1.4.0",
+            "UID": "348b0973b15fec44"
+          },
+          "Version": "v1.4.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/mattn/go-isatty@v0.0.20",
+          "Name": "github.com/mattn/go-isatty",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/mattn/go-isatty@v0.0.20",
+            "UID": "4cf4c100e29212f1"
+          },
+          "Version": "v0.0.20",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/moby/docker-image-spec@v1.3.1",
+          "Name": "github.com/moby/docker-image-spec",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/moby/docker-image-spec@v1.3.1",
+            "UID": "1af5cef17dac5fd8"
+          },
+          "Version": "v1.3.1",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/moby/sys/atomicwriter@v0.1.0",
+          "Name": "github.com/moby/sys/atomicwriter",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/moby/sys/atomicwriter@v0.1.0",
+            "UID": "fe732ecbdff6d005"
+          },
+          "Version": "v0.1.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/moby/term@v0.5.2",
+          "Name": "github.com/moby/term",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/moby/term@v0.5.2",
+            "UID": "af5da5883bef2b9"
+          },
+          "Version": "v0.5.2",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/modern-go/concurrent@v0.0.0-20180306012644-bacd9c7ef1dd",
+          "Name": "github.com/modern-go/concurrent",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/modern-go/concurrent@v0.0.0-20180306012644-bacd9c7ef1dd",
+            "UID": "9b71b98f79db59c3"
+          },
+          "Version": "v0.0.0-20180306012644-bacd9c7ef1dd",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/modern-go/reflect2@v1.0.2",
+          "Name": "github.com/modern-go/reflect2",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/modern-go/reflect2@v1.0.2",
+            "UID": "123762cd799cbd01"
+          },
+          "Version": "v1.0.2",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/morikuni/aec@v1.0.0",
+          "Name": "github.com/morikuni/aec",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/morikuni/aec@v1.0.0",
+            "UID": "9361a9817771d9de"
+          },
+          "Version": "v1.0.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/munnerz/goautoneg@v0.0.0-20191010083416-a7dc8b61c822",
+          "Name": "github.com/munnerz/goautoneg",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/munnerz/goautoneg@v0.0.0-20191010083416-a7dc8b61c822",
+            "UID": "d6b191e8eb369f3c"
+          },
+          "Version": "v0.0.0-20191010083416-a7dc8b61c822",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/opencontainers/go-digest@v1.0.0",
+          "Name": "github.com/opencontainers/go-digest",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/opencontainers/go-digest@v1.0.0",
+            "UID": "a9ba5cf43818bf6b"
+          },
+          "Version": "v1.0.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/opencontainers/image-spec@v1.1.1",
+          "Name": "github.com/opencontainers/image-spec",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/opencontainers/image-spec@v1.1.1",
+            "UID": "b0cefdb7ec42f66a"
+          },
+          "Version": "v1.1.1",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/oschwald/maxminddb-golang/v2@v2.1.1",
+          "Name": "github.com/oschwald/maxminddb-golang/v2",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/oschwald/maxminddb-golang/v2@v2.1.1",
+            "UID": "ded979ae63bf9ca2"
+          },
+          "Version": "v2.1.1",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/pelletier/go-toml/v2@v2.2.4",
+          "Name": "github.com/pelletier/go-toml/v2",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/pelletier/go-toml/v2@v2.2.4",
+            "UID": "c43a79196d5267d4"
+          },
+          "Version": "v2.2.4",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/pkg/errors@v0.9.1",
+          "Name": "github.com/pkg/errors",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/pkg/errors@v0.9.1",
+            "UID": "3072a7e9099b81e6"
+          },
+          "Version": "v0.9.1",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/pmezard/go-difflib@v1.0.0",
+          "Name": "github.com/pmezard/go-difflib",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/pmezard/go-difflib@v1.0.0",
+            "UID": "9e89486295734b10"
+          },
+          "Version": "v1.0.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/prometheus/client_model@v0.6.2",
+          "Name": "github.com/prometheus/client_model",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/prometheus/client_model@v0.6.2",
+            "UID": "e6adc952f225adb6"
+          },
+          "Version": "v0.6.2",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/prometheus/common@v0.66.1",
+          "Name": "github.com/prometheus/common",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/prometheus/common@v0.66.1",
+            "UID": "92c99761dcfb27dc"
+          },
+          "Version": "v0.66.1",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/prometheus/procfs@v0.16.1",
+          "Name": "github.com/prometheus/procfs",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/prometheus/procfs@v0.16.1",
+            "UID": "206957b5cbeee385"
+          },
+          "Version": "v0.16.1",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/quic-go/qpack@v0.6.0",
+          "Name": "github.com/quic-go/qpack",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/quic-go/qpack@v0.6.0",
+            "UID": "1e739640f8d3a8e"
+          },
+          "Version": "v0.6.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/quic-go/quic-go@v0.59.0",
+          "Name": "github.com/quic-go/quic-go",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/quic-go/quic-go@v0.59.0",
+            "UID": "95d90f6165e3dab"
+          },
+          "Version": "v0.59.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/remyoudompheng/bigfft@v0.0.0-20230129092748-24d4a6f8daec",
+          "Name": "github.com/remyoudompheng/bigfft",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/remyoudompheng/bigfft@v0.0.0-20230129092748-24d4a6f8daec",
+            "UID": "f50200d640e893cf"
+          },
+          "Version": "v0.0.0-20230129092748-24d4a6f8daec",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/stretchr/objx@v0.5.2",
+          "Name": "github.com/stretchr/objx",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/stretchr/objx@v0.5.2",
+            "UID": "d7f34f692d23c90d"
+          },
+          "Version": "v0.5.2",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/twitchyliquid64/golang-asm@v0.15.1",
+          "Name": "github.com/twitchyliquid64/golang-asm",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/twitchyliquid64/golang-asm@v0.15.1",
+            "UID": "de8759c01752b4f0"
+          },
+          "Version": "v0.15.1",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "github.com/ugorji/go/codec@v1.3.0",
+          "Name": "github.com/ugorji/go/codec",
+          "Identifier": {
+            "PURL": "pkg:golang/github.com/ugorji/go/codec@v1.3.0",
+            "UID": "c748e50f11d4942f"
+          },
+          "Version": "v1.3.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "go.opentelemetry.io/auto/sdk@v1.1.0",
+          "Name": "go.opentelemetry.io/auto/sdk",
+          "Identifier": {
+            "PURL": "pkg:golang/go.opentelemetry.io/auto/sdk@v1.1.0",
+            "UID": "cc64b3439383e04e"
+          },
+          "Version": "v1.1.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp@v0.63.0",
+          "Name": "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp",
+          "Identifier": {
+            "PURL": "pkg:golang/go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp@v0.63.0",
+            "UID": "744690a2c8f239f7"
+          },
+          "Version": "v0.63.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "go.opentelemetry.io/otel@v1.38.0",
+          "Name": "go.opentelemetry.io/otel",
+          "Identifier": {
+            "PURL": "pkg:golang/go.opentelemetry.io/otel@v1.38.0",
+            "UID": "3304f6a32b4d6af3"
+          },
+          "Version": "v1.38.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.38.0",
+          "Name": "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp",
+          "Identifier": {
+            "PURL": "pkg:golang/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.38.0",
+            "UID": "7c5a92957234ed8"
+          },
+          "Version": "v1.38.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "go.opentelemetry.io/otel/metric@v1.38.0",
+          "Name": "go.opentelemetry.io/otel/metric",
+          "Identifier": {
+            "PURL": "pkg:golang/go.opentelemetry.io/otel/metric@v1.38.0",
+            "UID": "409613a07e9f9a2e"
+          },
+          "Version": "v1.38.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "go.opentelemetry.io/otel/trace@v1.38.0",
+          "Name": "go.opentelemetry.io/otel/trace",
+          "Identifier": {
+            "PURL": "pkg:golang/go.opentelemetry.io/otel/trace@v1.38.0",
+            "UID": "665b8ee2777a106c"
+          },
+          "Version": "v1.38.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "go.yaml.in/yaml/v2@v2.4.2",
+          "Name": "go.yaml.in/yaml/v2",
+          "Identifier": {
+            "PURL": "pkg:golang/go.yaml.in/yaml/v2@v2.4.2",
+            "UID": "d4ee492d7c40c664"
+          },
+          "Version": "v2.4.2",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "golang.org/x/arch@v0.22.0",
+          "Name": "golang.org/x/arch",
+          "Identifier": {
+            "PURL": "pkg:golang/golang.org/x/arch@v0.22.0",
+            "UID": "c00a98cfbed4aad2"
+          },
+          "Version": "v0.22.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "golang.org/x/sys@v0.41.0",
+          "Name": "golang.org/x/sys",
+          "Identifier": {
+            "PURL": "pkg:golang/golang.org/x/sys@v0.41.0",
+            "UID": "5f2cb4892bf5c5c3"
+          },
+          "Version": "v0.41.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "google.golang.org/protobuf@v1.36.11",
+          "Name": "google.golang.org/protobuf",
+          "Identifier": {
+            "PURL": "pkg:golang/google.golang.org/protobuf@v1.36.11",
+            "UID": "c765c9aa942afc9c"
+          },
+          "Version": "v1.36.11",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "gopkg.in/yaml.v3@v3.0.1",
+          "Name": "gopkg.in/yaml.v3",
+          "Identifier": {
+            "PURL": "pkg:golang/gopkg.in/yaml.v3@v3.0.1",
+            "UID": "684e48b3bafab17c"
+          },
+          "Version": "v3.0.1",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "gotest.tools/v3@v3.5.2",
+          "Name": "gotest.tools/v3",
+          "Identifier": {
+            "PURL": "pkg:golang/gotest.tools/v3@v3.5.2",
+            "UID": "ef716acb9364a4a6"
+          },
+          "Version": "v3.5.2",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "modernc.org/libc@v1.22.5",
+          "Name": "modernc.org/libc",
+          "Identifier": {
+            "PURL": "pkg:golang/modernc.org/libc@v1.22.5",
+            "UID": "ac9f0dba326af7d7"
+          },
+          "Version": "v1.22.5",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "modernc.org/mathutil@v1.5.0",
+          "Name": "modernc.org/mathutil",
+          "Identifier": {
+            "PURL": "pkg:golang/modernc.org/mathutil@v1.5.0",
+            "UID": "45a8df55f41e6a4b"
+          },
+          "Version": "v1.5.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "modernc.org/memory@v1.5.0",
+          "Name": "modernc.org/memory",
+          "Identifier": {
+            "PURL": "pkg:golang/modernc.org/memory@v1.5.0",
+            "UID": "12caeea79c5acf2a"
+          },
+          "Version": "v1.5.0",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        },
+        {
+          "ID": "modernc.org/sqlite@v1.23.1",
+          "Name": "modernc.org/sqlite",
+          "Identifier": {
+            "PURL": "pkg:golang/modernc.org/sqlite@v1.23.1",
+            "UID": "30897fec748b359d"
+          },
+          "Version": "v1.23.1",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "AnalyzedBy": "gomod"
+        }
+      ]
+    },
+    {
+      "Target": "frontend/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Packages": [
+        {
+          "ID": "@radix-ui/react-checkbox@1.3.3",
+          "Name": "@radix-ui/react-checkbox",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-checkbox@1.3.3",
+            "UID": "321d53a607b8410b"
+          },
+          "Version": "1.3.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@radix-ui/primitive@1.1.3",
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-context@1.1.2",
+            "@radix-ui/react-presence@1.1.5",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-use-controllable-state@1.2.2",
+            "@radix-ui/react-use-previous@1.1.1",
+            "@radix-ui/react-use-size@1.1.1",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1707,
+              "EndLine": 1734
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-dialog@1.1.15",
+          "Name": "@radix-ui/react-dialog",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-dialog@1.1.15",
+            "UID": "8aabc005c59e885e"
+          },
+          "Version": "1.1.15",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@radix-ui/primitive@1.1.3",
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-context@1.1.2",
+            "@radix-ui/react-dismissable-layer@1.1.11",
+            "@radix-ui/react-focus-guards@1.1.3",
+            "@radix-ui/react-focus-scope@1.1.7",
+            "@radix-ui/react-id@1.1.1",
+            "@radix-ui/react-portal@1.1.9",
+            "@radix-ui/react-presence@1.1.5",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-slot@1.2.3",
+            "@radix-ui/react-use-controllable-state@1.2.2",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "aria-hidden@1.2.6",
+            "react-dom@19.2.4",
+            "react-remove-scroll@2.7.2",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1785,
+              "EndLine": 1818
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-progress@1.1.8",
+          "Name": "@radix-ui/react-progress",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-progress@1.1.8",
+            "UID": "58539e8ec9847a37"
+          },
+          "Version": "1.1.8",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@radix-ui/react-context@1.1.3",
+            "@radix-ui/react-primitive@2.1.4",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2004,
+              "EndLine": 2025
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-select@2.2.6",
+          "Name": "@radix-ui/react-select",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-select@2.2.6",
+            "UID": "b2a9d78ff8551049"
+          },
+          "Version": "2.2.6",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@radix-ui/number@1.1.1",
+            "@radix-ui/primitive@1.1.3",
+            "@radix-ui/react-collection@1.1.7",
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-context@1.1.2",
+            "@radix-ui/react-direction@1.1.1",
+            "@radix-ui/react-dismissable-layer@1.1.11",
+            "@radix-ui/react-focus-guards@1.1.3",
+            "@radix-ui/react-focus-scope@1.1.7",
+            "@radix-ui/react-id@1.1.1",
+            "@radix-ui/react-popper@1.2.8",
+            "@radix-ui/react-portal@1.1.9",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-slot@1.2.3",
+            "@radix-ui/react-use-callback-ref@1.1.1",
+            "@radix-ui/react-use-controllable-state@1.2.2",
+            "@radix-ui/react-use-layout-effect@1.1.1",
+            "@radix-ui/react-use-previous@1.1.1",
+            "@radix-ui/react-visually-hidden@1.2.3",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "aria-hidden@1.2.6",
+            "react-dom@19.2.4",
+            "react-remove-scroll@2.7.2",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2105,
+              "EndLine": 2145
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-tabs@1.1.13",
+          "Name": "@radix-ui/react-tabs",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-tabs@1.1.13",
+            "UID": "a87bd0d6e2727180"
+          },
+          "Version": "1.1.13",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@radix-ui/primitive@1.1.3",
+            "@radix-ui/react-context@1.1.2",
+            "@radix-ui/react-direction@1.1.1",
+            "@radix-ui/react-id@1.1.1",
+            "@radix-ui/react-presence@1.1.5",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-roving-focus@1.1.11",
+            "@radix-ui/react-use-controllable-state@1.2.2",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2162,
+              "EndLine": 2189
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-tooltip@1.2.8",
+          "Name": "@radix-ui/react-tooltip",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-tooltip@1.2.8",
+            "UID": "a85601dc06664446"
+          },
+          "Version": "1.2.8",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@radix-ui/primitive@1.1.3",
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-context@1.1.2",
+            "@radix-ui/react-dismissable-layer@1.1.11",
+            "@radix-ui/react-id@1.1.1",
+            "@radix-ui/react-popper@1.2.8",
+            "@radix-ui/react-portal@1.1.9",
+            "@radix-ui/react-presence@1.1.5",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-slot@1.2.3",
+            "@radix-ui/react-use-controllable-state@1.2.2",
+            "@radix-ui/react-visually-hidden@1.2.3",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2190,
+              "EndLine": 2221
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@tanstack/react-query@5.90.21",
+          "Name": "@tanstack/react-query",
+          "Identifier": {
+            "PURL": "pkg:npm/%40tanstack/react-query@5.90.21",
+            "UID": "f6676ede82c2847"
+          },
+          "Version": "5.90.21",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@tanstack/query-core@5.90.20",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 3068,
+              "EndLine": 3083
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@types/react@19.2.14",
+          "Name": "@types/react",
+          "Identifier": {
+            "PURL": "pkg:npm/%40types/react@19.2.14",
+            "UID": "d3d2404ab903b60a"
+          },
+          "Version": "19.2.14",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "csstype@3.2.3"
+          ],
+          "Locations": [
+            {
+              "StartLine": 3252,
+              "EndLine": 3261
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@types/react-dom@19.2.3",
+          "Name": "@types/react-dom",
+          "Identifier": {
+            "PURL": "pkg:npm/%40types/react-dom@19.2.3",
+            "UID": "4293bb7f6bce9e9d"
+          },
+          "Version": "19.2.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@types/react@19.2.14"
+          ],
+          "Locations": [
+            {
+              "StartLine": 3262,
+              "EndLine": 3269
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "axios@1.13.5",
+          "Name": "axios",
+          "Identifier": {
+            "PURL": "pkg:npm/axios@1.13.5",
+            "UID": "cbe5e8bace53846d"
+          },
+          "Version": "1.13.5",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "follow-redirects@1.15.11",
+            "form-data@4.0.5",
+            "proxy-from-env@1.1.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 3851,
+              "EndLine": 3859
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "class-variance-authority@0.7.1",
+          "Name": "class-variance-authority",
+          "Identifier": {
+            "PURL": "pkg:npm/class-variance-authority@0.7.1",
+            "UID": "6aebde8653df0060"
+          },
+          "Version": "0.7.1",
+          "Licenses": [
+            "Apache-2.0"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "clsx@2.1.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 3999,
+              "EndLine": 4008
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "clsx@2.1.1",
+          "Name": "clsx",
+          "Identifier": {
+            "PURL": "pkg:npm/clsx@2.1.1",
+            "UID": "1f29557201e7338"
+          },
+          "Version": "2.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "Locations": [
+            {
+              "StartLine": 4009,
+              "EndLine": 4015
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "date-fns@4.1.0",
+          "Name": "date-fns",
+          "Identifier": {
+            "PURL": "pkg:npm/date-fns@4.1.0",
+            "UID": "c257742c8778a3ae"
+          },
+          "Version": "4.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "Locations": [
+            {
+              "StartLine": 4139,
+              "EndLine": 4146
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "i18next@25.8.11",
+          "Name": "i18next",
+          "Identifier": {
+            "PURL": "pkg:npm/i18next@25.8.11",
+            "UID": "a17b1e9cac3e80f7"
+          },
+          "Version": "25.8.11",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@babel/runtime@7.28.6",
+            "typescript@5.9.3"
+          ],
+          "Locations": [
+            {
+              "StartLine": 5006,
+              "EndLine": 5036
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "i18next-browser-languagedetector@8.2.1",
+          "Name": "i18next-browser-languagedetector",
+          "Identifier": {
+            "PURL": "pkg:npm/i18next-browser-languagedetector@8.2.1",
+            "UID": "f0efd5b659c27cd2"
+          },
+          "Version": "8.2.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@babel/runtime@7.28.6"
+          ],
+          "Locations": [
+            {
+              "StartLine": 5037,
+              "EndLine": 5045
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "lucide-react@0.575.0",
+          "Name": "lucide-react",
+          "Identifier": {
+            "PURL": "pkg:npm/lucide-react@0.575.0",
+            "UID": "87e5c762a46c06c5"
+          },
+          "Version": "0.575.0",
+          "Licenses": [
+            "ISC"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 5641,
+              "EndLine": 5649
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react@19.2.4",
+          "Name": "react",
+          "Identifier": {
+            "PURL": "pkg:npm/react@19.2.4",
+            "UID": "aa8448488ca51738"
+          },
+          "Version": "19.2.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "Locations": [
+            {
+              "StartLine": 6092,
+              "EndLine": 6098
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-dom@19.2.4",
+          "Name": "react-dom",
+          "Identifier": {
+            "PURL": "pkg:npm/react-dom@19.2.4",
+            "UID": "78bfe424ba240208"
+          },
+          "Version": "19.2.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "react@19.2.4",
+            "scheduler@0.27.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6099,
+              "EndLine": 6108
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-hook-form@7.71.1",
+          "Name": "react-hook-form",
+          "Identifier": {
+            "PURL": "pkg:npm/react-hook-form@7.71.1",
+            "UID": "a3deceef128c0cc0"
+          },
+          "Version": "7.71.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6109,
+              "EndLine": 6122
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-hot-toast@2.6.0",
+          "Name": "react-hot-toast",
+          "Identifier": {
+            "PURL": "pkg:npm/react-hot-toast@2.6.0",
+            "UID": "b9755d9b5b5e81cf"
+          },
+          "Version": "2.6.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "csstype@3.2.3",
+            "goober@2.1.18",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6123,
+              "EndLine": 6137
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-i18next@16.5.4",
+          "Name": "react-i18next",
+          "Identifier": {
+            "PURL": "pkg:npm/react-i18next@16.5.4",
+            "UID": "a077c34b54995ca0"
+          },
+          "Version": "16.5.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@babel/runtime@7.28.6",
+            "html-parse-stringify@3.0.1",
+            "i18next@25.8.11",
+            "react@19.2.4",
+            "typescript@5.9.3",
+            "use-sync-external-store@1.6.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6138,
+              "EndLine": 6162
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-router-dom@7.13.0",
+          "Name": "react-router-dom",
+          "Identifier": {
+            "PURL": "pkg:npm/react-router-dom@7.13.0",
+            "UID": "3a91e0236dee1c6e"
+          },
+          "Version": "7.13.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "react-dom@19.2.4",
+            "react-router@7.13.0",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6240,
+              "EndLine": 6253
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "tailwind-merge@3.5.0",
+          "Name": "tailwind-merge",
+          "Identifier": {
+            "PURL": "pkg:npm/tailwind-merge@3.5.0",
+            "UID": "16ea351d924ac4bb"
+          },
+          "Version": "3.5.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "Locations": [
+            {
+              "StartLine": 6514,
+              "EndLine": 6523
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "tldts@7.0.23",
+          "Name": "tldts",
+          "Identifier": {
+            "PURL": "pkg:npm/tldts@7.0.23",
+            "UID": "93faa9a73f75f"
+          },
+          "Version": "7.0.23",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "tldts-core@7.0.23"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6579,
+              "EndLine": 6588
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "typescript@5.9.3",
+          "Name": "typescript",
+          "Identifier": {
+            "PURL": "pkg:npm/typescript@5.9.3",
+            "UID": "ee5ce34095eea73a"
+          },
+          "Version": "5.9.3",
+          "Licenses": [
+            "Apache-2.0"
+          ],
+          "Relationship": "direct",
+          "Locations": [
+            {
+              "StartLine": 6660,
+              "EndLine": 6671
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@babel/runtime@7.28.6",
+          "Name": "@babel/runtime",
+          "Identifier": {
+            "PURL": "pkg:npm/%40babel/runtime@7.28.6",
+            "UID": "24b97e4ce6db8e20"
+          },
+          "Version": "7.28.6",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 352,
+              "EndLine": 358
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@floating-ui/core@1.7.4",
+          "Name": "@floating-ui/core",
+          "Identifier": {
+            "PURL": "pkg:npm/%40floating-ui/core@1.7.4",
+            "UID": "5b1a66ca9f64f11"
+          },
+          "Version": "1.7.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@floating-ui/utils@0.2.10"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1211,
+              "EndLine": 1217
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@floating-ui/dom@1.7.5",
+          "Name": "@floating-ui/dom",
+          "Identifier": {
+            "PURL": "pkg:npm/%40floating-ui/dom@1.7.5",
+            "UID": "b95926c8f3af8d37"
+          },
+          "Version": "1.7.5",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@floating-ui/core@1.7.4",
+            "@floating-ui/utils@0.2.10"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1218,
+              "EndLine": 1225
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@floating-ui/react-dom@2.1.7",
+          "Name": "@floating-ui/react-dom",
+          "Identifier": {
+            "PURL": "pkg:npm/%40floating-ui/react-dom@2.1.7",
+            "UID": "c28104c3be2bc673"
+          },
+          "Version": "2.1.7",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@floating-ui/dom@1.7.5",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1226,
+              "EndLine": 1236
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@floating-ui/utils@0.2.10",
+          "Name": "@floating-ui/utils",
+          "Identifier": {
+            "PURL": "pkg:npm/%40floating-ui/utils@0.2.10",
+            "UID": "92c769988add59ec"
+          },
+          "Version": "0.2.10",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1237,
+              "EndLine": 1240
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/number@1.1.1",
+          "Name": "@radix-ui/number",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/number@1.1.1",
+            "UID": "f0813edd9be44392"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1678,
+              "EndLine": 1681
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/primitive@1.1.3",
+          "Name": "@radix-ui/primitive",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/primitive@1.1.3",
+            "UID": "263c68326f338bb4"
+          },
+          "Version": "1.1.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1682,
+              "EndLine": 1685
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-arrow@1.1.7",
+          "Name": "@radix-ui/react-arrow",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-arrow@1.1.7",
+            "UID": "3e11a36ba55167e9"
+          },
+          "Version": "1.1.7",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-primitive@2.1.3",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1686,
+              "EndLine": 1706
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-collection@1.1.7",
+          "Name": "@radix-ui/react-collection",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-collection@1.1.7",
+            "UID": "7c600394286bb9dd"
+          },
+          "Version": "1.1.7",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-context@1.1.2",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-slot@1.2.3",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1735,
+              "EndLine": 1758
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-compose-refs@1.1.2",
+          "Name": "@radix-ui/react-compose-refs",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-compose-refs@1.1.2",
+            "UID": "e42c1a9eef37adaa"
+          },
+          "Version": "1.1.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.14",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1759,
+              "EndLine": 1771
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-context@1.1.2",
+          "Name": "@radix-ui/react-context",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-context@1.1.2",
+            "UID": "1a5153ec5410e41d"
+          },
+          "Version": "1.1.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.14",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1772,
+              "EndLine": 1784
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-context@1.1.3",
+          "Name": "@radix-ui/react-context",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-context@1.1.3",
+            "UID": "f4450ea0370726fb"
+          },
+          "Version": "1.1.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.14",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2026,
+              "EndLine": 2038
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-direction@1.1.1",
+          "Name": "@radix-ui/react-direction",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-direction@1.1.1",
+            "UID": "514008d7226c48f"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.14",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1819,
+              "EndLine": 1831
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-dismissable-layer@1.1.11",
+          "Name": "@radix-ui/react-dismissable-layer",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-dismissable-layer@1.1.11",
+            "UID": "3c829337ba2533c"
+          },
+          "Version": "1.1.11",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/primitive@1.1.3",
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-use-callback-ref@1.1.1",
+            "@radix-ui/react-use-escape-keydown@1.1.1",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1832,
+              "EndLine": 1856
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-focus-guards@1.1.3",
+          "Name": "@radix-ui/react-focus-guards",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-focus-guards@1.1.3",
+            "UID": "1a7772d7dd57e2cd"
+          },
+          "Version": "1.1.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.14",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1857,
+              "EndLine": 1869
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-focus-scope@1.1.7",
+          "Name": "@radix-ui/react-focus-scope",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-focus-scope@1.1.7",
+            "UID": "f7570107820b440c"
+          },
+          "Version": "1.1.7",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-use-callback-ref@1.1.1",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1870,
+              "EndLine": 1892
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-id@1.1.1",
+          "Name": "@radix-ui/react-id",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-id@1.1.1",
+            "UID": "8e0f87b803abb237"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-use-layout-effect@1.1.1",
+            "@types/react@19.2.14",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1893,
+              "EndLine": 1908
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-popper@1.2.8",
+          "Name": "@radix-ui/react-popper",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-popper@1.2.8",
+            "UID": "7a33f991a0f9a875"
+          },
+          "Version": "1.2.8",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@floating-ui/react-dom@2.1.7",
+            "@radix-ui/react-arrow@1.1.7",
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-context@1.1.2",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-use-callback-ref@1.1.1",
+            "@radix-ui/react-use-layout-effect@1.1.1",
+            "@radix-ui/react-use-rect@1.1.1",
+            "@radix-ui/react-use-size@1.1.1",
+            "@radix-ui/rect@1.1.1",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1909,
+              "EndLine": 1938
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-portal@1.1.9",
+          "Name": "@radix-ui/react-portal",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-portal@1.1.9",
+            "UID": "75c6a637f1584051"
+          },
+          "Version": "1.1.9",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-use-layout-effect@1.1.1",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1939,
+              "EndLine": 1960
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-presence@1.1.5",
+          "Name": "@radix-ui/react-presence",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-presence@1.1.5",
+            "UID": "705e4021aa46703d"
+          },
+          "Version": "1.1.5",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-use-layout-effect@1.1.1",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1961,
+              "EndLine": 1982
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-primitive@2.1.3",
+          "Name": "@radix-ui/react-primitive",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-primitive@2.1.3",
+            "UID": "778c4433ec9205ad"
+          },
+          "Version": "2.1.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-slot@1.2.3",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1983,
+              "EndLine": 2003
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-primitive@2.1.4",
+          "Name": "@radix-ui/react-primitive",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-primitive@2.1.4",
+            "UID": "bee193c7852bae7a"
+          },
+          "Version": "2.1.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-slot@1.2.4",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2039,
+              "EndLine": 2059
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-roving-focus@1.1.11",
+          "Name": "@radix-ui/react-roving-focus",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-roving-focus@1.1.11",
+            "UID": "f38a321ef346184b"
+          },
+          "Version": "1.1.11",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/primitive@1.1.3",
+            "@radix-ui/react-collection@1.1.7",
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-context@1.1.2",
+            "@radix-ui/react-direction@1.1.1",
+            "@radix-ui/react-id@1.1.1",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-use-callback-ref@1.1.1",
+            "@radix-ui/react-use-controllable-state@1.2.2",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2076,
+              "EndLine": 2104
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-slot@1.2.3",
+          "Name": "@radix-ui/react-slot",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-slot@1.2.3",
+            "UID": "1131f93a2ef4ca3e"
+          },
+          "Version": "1.2.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@types/react@19.2.14",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2146,
+              "EndLine": 2161
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-slot@1.2.4",
+          "Name": "@radix-ui/react-slot",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-slot@1.2.4",
+            "UID": "7cec3804731ed0e7"
+          },
+          "Version": "1.2.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@types/react@19.2.14",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2060,
+              "EndLine": 2075
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-use-callback-ref@1.1.1",
+          "Name": "@radix-ui/react-use-callback-ref",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-use-callback-ref@1.1.1",
+            "UID": "bde1c2e336803313"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.14",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2222,
+              "EndLine": 2234
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-use-controllable-state@1.2.2",
+          "Name": "@radix-ui/react-use-controllable-state",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-use-controllable-state@1.2.2",
+            "UID": "c5d60b72e2ef645d"
+          },
+          "Version": "1.2.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-use-effect-event@0.0.2",
+            "@radix-ui/react-use-layout-effect@1.1.1",
+            "@types/react@19.2.14",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2235,
+              "EndLine": 2251
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-use-effect-event@0.0.2",
+          "Name": "@radix-ui/react-use-effect-event",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-use-effect-event@0.0.2",
+            "UID": "6d6afc1f8f774e57"
+          },
+          "Version": "0.0.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-use-layout-effect@1.1.1",
+            "@types/react@19.2.14",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2252,
+              "EndLine": 2267
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-use-escape-keydown@1.1.1",
+          "Name": "@radix-ui/react-use-escape-keydown",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-use-escape-keydown@1.1.1",
+            "UID": "19282310ab9e07bc"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-use-callback-ref@1.1.1",
+            "@types/react@19.2.14",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2268,
+              "EndLine": 2283
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-use-layout-effect@1.1.1",
+          "Name": "@radix-ui/react-use-layout-effect",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-use-layout-effect@1.1.1",
+            "UID": "5fcf80a4223457f"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.14",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2284,
+              "EndLine": 2296
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-use-previous@1.1.1",
+          "Name": "@radix-ui/react-use-previous",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-use-previous@1.1.1",
+            "UID": "87bf9fdf385f4fdb"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.14",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2297,
+              "EndLine": 2309
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-use-rect@1.1.1",
+          "Name": "@radix-ui/react-use-rect",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-use-rect@1.1.1",
+            "UID": "17842653a91cda49"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/rect@1.1.1",
+            "@types/react@19.2.14",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2310,
+              "EndLine": 2325
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-use-size@1.1.1",
+          "Name": "@radix-ui/react-use-size",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-use-size@1.1.1",
+            "UID": "e1019df5d4fb42a"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-use-layout-effect@1.1.1",
+            "@types/react@19.2.14",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2326,
+              "EndLine": 2341
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-visually-hidden@1.2.3",
+          "Name": "@radix-ui/react-visually-hidden",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-visually-hidden@1.2.3",
+            "UID": "b7d31b7cc5a25be"
+          },
+          "Version": "1.2.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-primitive@2.1.3",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.14",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2342,
+              "EndLine": 2362
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/rect@1.1.1",
+          "Name": "@radix-ui/rect",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/rect@1.1.1",
+            "UID": "4d7221ecacb69ccd"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2363,
+              "EndLine": 2366
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@tanstack/query-core@5.90.20",
+          "Name": "@tanstack/query-core",
+          "Identifier": {
+            "PURL": "pkg:npm/%40tanstack/query-core@5.90.20",
+            "UID": "4973ac6c8b37c86"
+          },
+          "Version": "5.90.20",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 3060,
+              "EndLine": 3067
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "aria-hidden@1.2.6",
+          "Name": "aria-hidden",
+          "Identifier": {
+            "PURL": "pkg:npm/aria-hidden@1.2.6",
+            "UID": "db9b5e2817126723"
+          },
+          "Version": "1.2.6",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 3771,
+              "EndLine": 3780
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "asynckit@0.4.0",
+          "Name": "asynckit",
+          "Identifier": {
+            "PURL": "pkg:npm/asynckit@0.4.0",
+            "UID": "5ea1114ac681ca45"
+          },
+          "Version": "0.4.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 3812,
+              "EndLine": 3815
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "call-bind-apply-helpers@1.0.2",
+          "Name": "call-bind-apply-helpers",
+          "Identifier": {
+            "PURL": "pkg:npm/call-bind-apply-helpers@1.0.2",
+            "UID": "5520a0a07fd3abb"
+          },
+          "Version": "1.0.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "es-errors@1.3.0",
+            "function-bind@1.1.2"
+          ],
+          "Locations": [
+            {
+              "StartLine": 3934,
+              "EndLine": 3944
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "combined-stream@1.0.8",
+          "Name": "combined-stream",
+          "Identifier": {
+            "PURL": "pkg:npm/combined-stream@1.0.8",
+            "UID": "1f8d87054e3be083"
+          },
+          "Version": "1.0.8",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "delayed-stream@1.0.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4036,
+              "EndLine": 4045
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "cookie@1.1.1",
+          "Name": "cookie",
+          "Identifier": {
+            "PURL": "pkg:npm/cookie@1.1.1",
+            "UID": "4c5982570c965dc0"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4058,
+              "EndLine": 4068
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "csstype@3.2.3",
+          "Name": "csstype",
+          "Identifier": {
+            "PURL": "pkg:npm/csstype@3.2.3",
+            "UID": "379f530487ef1147"
+          },
+          "Version": "3.2.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4123,
+              "EndLine": 4126
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "delayed-stream@1.0.0",
+          "Name": "delayed-stream",
+          "Identifier": {
+            "PURL": "pkg:npm/delayed-stream@1.0.0",
+            "UID": "ed1a2d74adf02d0c"
+          },
+          "Version": "1.0.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4173,
+              "EndLine": 4179
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "detect-node-es@1.1.0",
+          "Name": "detect-node-es",
+          "Identifier": {
+            "PURL": "pkg:npm/detect-node-es@1.1.0",
+            "UID": "c7af776403d59e58"
+          },
+          "Version": "1.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4196,
+              "EndLine": 4199
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "dunder-proto@1.0.1",
+          "Name": "dunder-proto",
+          "Identifier": {
+            "PURL": "pkg:npm/dunder-proto@1.0.1",
+            "UID": "d6c5560ad8ed1dea"
+          },
+          "Version": "1.0.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "call-bind-apply-helpers@1.0.2",
+            "es-errors@1.3.0",
+            "gopd@1.2.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4206,
+              "EndLine": 4217
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "es-define-property@1.0.1",
+          "Name": "es-define-property",
+          "Identifier": {
+            "PURL": "pkg:npm/es-define-property@1.0.1",
+            "UID": "18c4ebb064211c8b"
+          },
+          "Version": "1.0.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4246,
+              "EndLine": 4252
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "es-errors@1.3.0",
+          "Name": "es-errors",
+          "Identifier": {
+            "PURL": "pkg:npm/es-errors@1.3.0",
+            "UID": "f38e61d9616f2aca"
+          },
+          "Version": "1.3.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4253,
+              "EndLine": 4259
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "es-object-atoms@1.1.1",
+          "Name": "es-object-atoms",
+          "Identifier": {
+            "PURL": "pkg:npm/es-object-atoms@1.1.1",
+            "UID": "4a3c79670f3c95c"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "es-errors@1.3.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4265,
+              "EndLine": 4274
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "es-set-tostringtag@2.1.0",
+          "Name": "es-set-tostringtag",
+          "Identifier": {
+            "PURL": "pkg:npm/es-set-tostringtag@2.1.0",
+            "UID": "a0f51c42e7ce9662"
+          },
+          "Version": "2.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "es-errors@1.3.0",
+            "get-intrinsic@1.3.0",
+            "has-tostringtag@1.0.2",
+            "hasown@2.0.2"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4275,
+              "EndLine": 4287
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "follow-redirects@1.15.11",
+          "Name": "follow-redirects",
+          "Identifier": {
+            "PURL": "pkg:npm/follow-redirects@1.15.11",
+            "UID": "eed64653f54ecc55"
+          },
+          "Version": "1.15.11",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4731,
+              "EndLine": 4748
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "form-data@4.0.5",
+          "Name": "form-data",
+          "Identifier": {
+            "PURL": "pkg:npm/form-data@4.0.5",
+            "UID": "5f8c0c1bad903e20"
+          },
+          "Version": "4.0.5",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "asynckit@0.4.0",
+            "combined-stream@1.0.8",
+            "es-set-tostringtag@2.1.0",
+            "hasown@2.0.2",
+            "mime-types@2.1.35"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4749,
+              "EndLine": 4762
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "function-bind@1.1.2",
+          "Name": "function-bind",
+          "Identifier": {
+            "PURL": "pkg:npm/function-bind@1.1.2",
+            "UID": "b00826597e2328f1"
+          },
+          "Version": "1.1.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4804,
+              "EndLine": 4810
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "get-intrinsic@1.3.0",
+          "Name": "get-intrinsic",
+          "Identifier": {
+            "PURL": "pkg:npm/get-intrinsic@1.3.0",
+            "UID": "ef15e3e9f7dbafe9"
+          },
+          "Version": "1.3.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "call-bind-apply-helpers@1.0.2",
+            "es-define-property@1.0.1",
+            "es-errors@1.3.0",
+            "es-object-atoms@1.1.1",
+            "function-bind@1.1.2",
+            "get-proto@1.0.1",
+            "gopd@1.2.0",
+            "has-symbols@1.1.0",
+            "hasown@2.0.2",
+            "math-intrinsics@1.1.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4819,
+              "EndLine": 4840
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "get-nonce@1.0.1",
+          "Name": "get-nonce",
+          "Identifier": {
+            "PURL": "pkg:npm/get-nonce@1.0.1",
+            "UID": "41b42aaf4647ce5b"
+          },
+          "Version": "1.0.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4841,
+              "EndLine": 4847
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "get-proto@1.0.1",
+          "Name": "get-proto",
+          "Identifier": {
+            "PURL": "pkg:npm/get-proto@1.0.1",
+            "UID": "af4c18f83481deda"
+          },
+          "Version": "1.0.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "dunder-proto@1.0.1",
+            "es-object-atoms@1.1.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4848,
+              "EndLine": 4858
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "goober@2.1.18",
+          "Name": "goober",
+          "Identifier": {
+            "PURL": "pkg:npm/goober@2.1.18",
+            "UID": "10c8115512c1f3d6"
+          },
+          "Version": "2.1.18",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "csstype@3.2.3"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4883,
+              "EndLine": 4889
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "gopd@1.2.0",
+          "Name": "gopd",
+          "Identifier": {
+            "PURL": "pkg:npm/gopd@1.2.0",
+            "UID": "49e09318430da35e"
+          },
+          "Version": "1.2.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4890,
+              "EndLine": 4899
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "has-symbols@1.1.0",
+          "Name": "has-symbols",
+          "Identifier": {
+            "PURL": "pkg:npm/has-symbols@1.1.0",
+            "UID": "4c193f4e6650824e"
+          },
+          "Version": "1.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4913,
+              "EndLine": 4922
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "has-tostringtag@1.0.2",
+          "Name": "has-tostringtag",
+          "Identifier": {
+            "PURL": "pkg:npm/has-tostringtag@1.0.2",
+            "UID": "55f3eb00818525b6"
+          },
+          "Version": "1.0.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "has-symbols@1.1.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4923,
+              "EndLine": 4935
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "hasown@2.0.2",
+          "Name": "hasown",
+          "Identifier": {
+            "PURL": "pkg:npm/hasown@2.0.2",
+            "UID": "2b3ad09710a33ce2"
+          },
+          "Version": "2.0.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "function-bind@1.1.2"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4936,
+              "EndLine": 4945
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "html-parse-stringify@3.0.1",
+          "Name": "html-parse-stringify",
+          "Identifier": {
+            "PURL": "pkg:npm/html-parse-stringify@3.0.1",
+            "UID": "4746f2b894a4e2e1"
+          },
+          "Version": "3.0.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "void-elements@3.1.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4975,
+              "EndLine": 4981
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "math-intrinsics@1.1.0",
+          "Name": "math-intrinsics",
+          "Identifier": {
+            "PURL": "pkg:npm/math-intrinsics@1.1.0",
+            "UID": "2c43c22fe10817b5"
+          },
+          "Version": "1.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 5691,
+              "EndLine": 5697
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "mime-db@1.52.0",
+          "Name": "mime-db",
+          "Identifier": {
+            "PURL": "pkg:npm/mime-db@1.52.0",
+            "UID": "796db43eacf46a80"
+          },
+          "Version": "1.52.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 5734,
+              "EndLine": 5740
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "mime-types@2.1.35",
+          "Name": "mime-types",
+          "Identifier": {
+            "PURL": "pkg:npm/mime-types@2.1.35",
+            "UID": "9e3f26aa3ab974ac"
+          },
+          "Version": "2.1.35",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "mime-db@1.52.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 5741,
+              "EndLine": 5750
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "proxy-from-env@1.1.0",
+          "Name": "proxy-from-env",
+          "Identifier": {
+            "PURL": "pkg:npm/proxy-from-env@1.1.0",
+            "UID": "2703b3977af7fbe3"
+          },
+          "Version": "1.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 6061,
+              "EndLine": 6064
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-remove-scroll@2.7.2",
+          "Name": "react-remove-scroll",
+          "Identifier": {
+            "PURL": "pkg:npm/react-remove-scroll@2.7.2",
+            "UID": "81728431a01c588f"
+          },
+          "Version": "2.7.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.14",
+            "react-remove-scroll-bar@2.3.8",
+            "react-style-singleton@2.2.3",
+            "react@19.2.4",
+            "tslib@2.8.1",
+            "use-callback-ref@1.3.3",
+            "use-sidecar@1.1.3"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6177,
+              "EndLine": 6199
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-remove-scroll-bar@2.3.8",
+          "Name": "react-remove-scroll-bar",
+          "Identifier": {
+            "PURL": "pkg:npm/react-remove-scroll-bar@2.3.8",
+            "UID": "1f9fa30d6cb50b8d"
+          },
+          "Version": "2.3.8",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.14",
+            "react-style-singleton@2.2.3",
+            "react@19.2.4",
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6200,
+              "EndLine": 6219
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-router@7.13.0",
+          "Name": "react-router",
+          "Identifier": {
+            "PURL": "pkg:npm/react-router@7.13.0",
+            "UID": "d0d1cffa59ffcbc2"
+          },
+          "Version": "7.13.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "cookie@1.1.1",
+            "react-dom@19.2.4",
+            "react@19.2.4",
+            "set-cookie-parser@2.7.2"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6220,
+              "EndLine": 6239
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-style-singleton@2.2.3",
+          "Name": "react-style-singleton",
+          "Identifier": {
+            "PURL": "pkg:npm/react-style-singleton@2.2.3",
+            "UID": "aa122772a82bf1b2"
+          },
+          "Version": "2.2.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.14",
+            "get-nonce@1.0.1",
+            "react@19.2.4",
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6254,
+              "EndLine": 6273
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "scheduler@0.27.0",
+          "Name": "scheduler",
+          "Identifier": {
+            "PURL": "pkg:npm/scheduler@0.27.0",
+            "UID": "6d0b9b4452d0ef2f"
+          },
+          "Version": "0.27.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 6389,
+              "EndLine": 6392
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "set-cookie-parser@2.7.2",
+          "Name": "set-cookie-parser",
+          "Identifier": {
+            "PURL": "pkg:npm/set-cookie-parser@2.7.2",
+            "UID": "c06e37180b6a4a8"
+          },
+          "Version": "2.7.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 6404,
+              "EndLine": 6407
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "tldts-core@7.0.23",
+          "Name": "tldts-core",
+          "Identifier": {
+            "PURL": "pkg:npm/tldts-core@7.0.23",
+            "UID": "6392db3303eb9335"
+          },
+          "Version": "7.0.23",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 6589,
+              "EndLine": 6592
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "tslib@2.8.1",
+          "Name": "tslib",
+          "Identifier": {
+            "PURL": "pkg:npm/tslib@2.8.1",
+            "UID": "adf969a7dd49fb6b"
+          },
+          "Version": "2.8.1",
+          "Licenses": [
+            "0BSD"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 3005,
+              "EndLine": 3011
+            },
+            {
+              "StartLine": 6645,
+              "EndLine": 6648
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "use-callback-ref@1.3.3",
+          "Name": "use-callback-ref",
+          "Identifier": {
+            "PURL": "pkg:npm/use-callback-ref@1.3.3",
+            "UID": "f07e9980d3a620c5"
+          },
+          "Version": "1.3.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.14",
+            "react@19.2.4",
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6750,
+              "EndLine": 6768
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "use-sidecar@1.1.3",
+          "Name": "use-sidecar",
+          "Identifier": {
+            "PURL": "pkg:npm/use-sidecar@1.1.3",
+            "UID": "c0876a00d775d7a0"
+          },
+          "Version": "1.1.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.14",
+            "detect-node-es@1.1.0",
+            "react@19.2.4",
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6769,
+              "EndLine": 6788
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "use-sync-external-store@1.6.0",
+          "Name": "use-sync-external-store",
+          "Identifier": {
+            "PURL": "pkg:npm/use-sync-external-store@1.6.0",
+            "UID": "27223e90065cd79e"
+          },
+          "Version": "1.6.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6789,
+              "EndLine": 6795
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "void-elements@3.1.0",
+          "Name": "void-elements",
+          "Identifier": {
+            "PURL": "pkg:npm/void-elements@3.1.0",
+            "UID": "e337f2223edad5d7"
+          },
+          "Version": "3.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 6960,
+              "EndLine": 6966
+            }
+          ],
+          "AnalyzedBy": "npm"
+        }
+      ]
+    },
+    {
+      "Target": "package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Packages": [
+        {
+          "ID": "@types/node@25.3.0",
+          "Name": "@types/node",
+          "Identifier": {
+            "PURL": "pkg:npm/%40types/node@25.3.0",
+            "UID": "9d2acdad2e365836"
+          },
+          "Version": "25.3.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "undici-types@7.18.2"
+          ],
+          "Locations": [
+            {
+              "StartLine": 937,
+              "EndLine": 946
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@typescript/analyze-trace@0.10.1",
+          "Name": "@typescript/analyze-trace",
+          "Identifier": {
+            "PURL": "pkg:npm/%40typescript/analyze-trace@0.10.1",
+            "UID": "2a4d9c7e65461fb3"
+          },
+          "Version": "0.10.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "chalk@4.1.2",
+            "exit@0.1.2",
+            "jsonparse@1.3.1",
+            "jsonstream-next@3.0.0",
+            "p-limit@3.1.0",
+            "split2@3.2.2",
+            "treeify@1.1.0",
+            "yargs@16.2.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 954,
+              "EndLine": 974
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "tldts@7.0.23",
+          "Name": "tldts",
+          "Identifier": {
+            "PURL": "pkg:npm/tldts@7.0.23",
+            "UID": "98633fc22bd8f528"
+          },
+          "Version": "7.0.23",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "tldts-core@7.0.23"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2915,
+              "EndLine": 2926
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "type-check@0.4.0",
+          "Name": "type-check",
+          "Identifier": {
+            "PURL": "pkg:npm/type-check@0.4.0",
+            "UID": "32292f1752017716"
+          },
+          "Version": "0.4.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "prelude-ls@1.2.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2955,
+              "EndLine": 2966
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "typescript@5.9.3",
+          "Name": "typescript",
+          "Identifier": {
+            "PURL": "pkg:npm/typescript@5.9.3",
+            "UID": "4e2f8e8acef70460"
+          },
+          "Version": "5.9.3",
+          "Licenses": [
+            "Apache-2.0"
+          ],
+          "Relationship": "direct",
+          "Locations": [
+            {
+              "StartLine": 2967,
+              "EndLine": 2979
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "vite@7.3.1",
+          "Name": "vite",
+          "Identifier": {
+            "PURL": "pkg:npm/vite@7.3.1",
+            "UID": "b0d745e4184846fd"
+          },
+          "Version": "7.3.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@types/node@25.3.0",
+            "esbuild@0.27.3",
+            "fdir@6.5.0",
+            "fsevents@2.3.3",
+            "picomatch@4.0.3",
+            "postcss@8.5.6",
+            "rollup@4.57.1",
+            "tinyglobby@0.2.15"
+          ],
+          "Locations": [
+            {
+              "StartLine": 3028,
+              "EndLine": 3101
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/aix-ppc64@0.27.3",
+          "Name": "@esbuild/aix-ppc64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/aix-ppc64@0.27.3",
+            "UID": "9e2e1b2182c015d8"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 51,
+              "EndLine": 66
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/android-arm@0.27.3",
+          "Name": "@esbuild/android-arm",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/android-arm@0.27.3",
+            "UID": "9408fe341e311b1"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 67,
+              "EndLine": 82
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/android-arm64@0.27.3",
+          "Name": "@esbuild/android-arm64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/android-arm64@0.27.3",
+            "UID": "e12190a1373f1202"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 83,
+              "EndLine": 98
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/android-x64@0.27.3",
+          "Name": "@esbuild/android-x64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/android-x64@0.27.3",
+            "UID": "df7e1cb871c28cbe"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 99,
+              "EndLine": 114
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/darwin-arm64@0.27.3",
+          "Name": "@esbuild/darwin-arm64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/darwin-arm64@0.27.3",
+            "UID": "18500ca585f6b34"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 115,
+              "EndLine": 130
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/darwin-x64@0.27.3",
+          "Name": "@esbuild/darwin-x64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/darwin-x64@0.27.3",
+            "UID": "df68fed39c9f41dd"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 131,
+              "EndLine": 146
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/freebsd-arm64@0.27.3",
+          "Name": "@esbuild/freebsd-arm64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/freebsd-arm64@0.27.3",
+            "UID": "7702e11720b92fbd"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 147,
+              "EndLine": 162
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/freebsd-x64@0.27.3",
+          "Name": "@esbuild/freebsd-x64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/freebsd-x64@0.27.3",
+            "UID": "cb194b5636149188"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 163,
+              "EndLine": 178
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/linux-arm@0.27.3",
+          "Name": "@esbuild/linux-arm",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/linux-arm@0.27.3",
+            "UID": "2af4480f71b08ae"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 179,
+              "EndLine": 194
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/linux-arm64@0.27.3",
+          "Name": "@esbuild/linux-arm64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/linux-arm64@0.27.3",
+            "UID": "c8fc1df36302be8d"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 195,
+              "EndLine": 210
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/linux-ia32@0.27.3",
+          "Name": "@esbuild/linux-ia32",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/linux-ia32@0.27.3",
+            "UID": "679c21254378e4c9"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 211,
+              "EndLine": 226
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/linux-loong64@0.27.3",
+          "Name": "@esbuild/linux-loong64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/linux-loong64@0.27.3",
+            "UID": "7481814f10ff6685"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 227,
+              "EndLine": 242
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/linux-mips64el@0.27.3",
+          "Name": "@esbuild/linux-mips64el",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/linux-mips64el@0.27.3",
+            "UID": "eeb552cc9cff87ea"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 243,
+              "EndLine": 258
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/linux-ppc64@0.27.3",
+          "Name": "@esbuild/linux-ppc64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/linux-ppc64@0.27.3",
+            "UID": "61e229419f9c45ee"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 259,
+              "EndLine": 274
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/linux-riscv64@0.27.3",
+          "Name": "@esbuild/linux-riscv64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/linux-riscv64@0.27.3",
+            "UID": "b588752ffd9e898e"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 275,
+              "EndLine": 290
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/linux-s390x@0.27.3",
+          "Name": "@esbuild/linux-s390x",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/linux-s390x@0.27.3",
+            "UID": "a6e14da478f8456a"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 291,
+              "EndLine": 306
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/linux-x64@0.27.3",
+          "Name": "@esbuild/linux-x64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/linux-x64@0.27.3",
+            "UID": "2e559685e2080fd"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 307,
+              "EndLine": 322
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/netbsd-arm64@0.27.3",
+          "Name": "@esbuild/netbsd-arm64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/netbsd-arm64@0.27.3",
+            "UID": "604deb67d51aae90"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 323,
+              "EndLine": 338
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/netbsd-x64@0.27.3",
+          "Name": "@esbuild/netbsd-x64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/netbsd-x64@0.27.3",
+            "UID": "be3017bd576f9add"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 339,
+              "EndLine": 354
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/openbsd-arm64@0.27.3",
+          "Name": "@esbuild/openbsd-arm64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/openbsd-arm64@0.27.3",
+            "UID": "841f1eb988aacbe9"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 355,
+              "EndLine": 370
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/openbsd-x64@0.27.3",
+          "Name": "@esbuild/openbsd-x64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/openbsd-x64@0.27.3",
+            "UID": "86920a1ea64b8eec"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 371,
+              "EndLine": 386
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/openharmony-arm64@0.27.3",
+          "Name": "@esbuild/openharmony-arm64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/openharmony-arm64@0.27.3",
+            "UID": "5c27d787811fa40f"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 387,
+              "EndLine": 402
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/sunos-x64@0.27.3",
+          "Name": "@esbuild/sunos-x64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/sunos-x64@0.27.3",
+            "UID": "c4eda2e1aa542940"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 403,
+              "EndLine": 418
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/win32-arm64@0.27.3",
+          "Name": "@esbuild/win32-arm64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/win32-arm64@0.27.3",
+            "UID": "a89c020a0fbf050d"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 419,
+              "EndLine": 434
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/win32-ia32@0.27.3",
+          "Name": "@esbuild/win32-ia32",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/win32-ia32@0.27.3",
+            "UID": "4290eefebb188cc8"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 435,
+              "EndLine": 450
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@esbuild/win32-x64@0.27.3",
+          "Name": "@esbuild/win32-x64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40esbuild/win32-x64@0.27.3",
+            "UID": "5117c4103d7a70f"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 451,
+              "EndLine": 466
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-android-arm-eabi@4.57.1",
+          "Name": "@rollup/rollup-android-arm-eabi",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-android-arm-eabi@4.57.1",
+            "UID": "42ee4f60101078d8"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 562,
+              "EndLine": 574
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-android-arm64@4.57.1",
+          "Name": "@rollup/rollup-android-arm64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-android-arm64@4.57.1",
+            "UID": "21404ad3836bc08d"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 575,
+              "EndLine": 587
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-darwin-arm64@4.57.1",
+          "Name": "@rollup/rollup-darwin-arm64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-darwin-arm64@4.57.1",
+            "UID": "ed739964c712a6f1"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 588,
+              "EndLine": 600
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-darwin-x64@4.57.1",
+          "Name": "@rollup/rollup-darwin-x64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-darwin-x64@4.57.1",
+            "UID": "89091183ae1f4207"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 601,
+              "EndLine": 613
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-freebsd-arm64@4.57.1",
+          "Name": "@rollup/rollup-freebsd-arm64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-freebsd-arm64@4.57.1",
+            "UID": "ce126a095ff12943"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 614,
+              "EndLine": 626
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-freebsd-x64@4.57.1",
+          "Name": "@rollup/rollup-freebsd-x64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-freebsd-x64@4.57.1",
+            "UID": "c77bb4448e7621f2"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 627,
+              "EndLine": 639
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-linux-arm-gnueabihf@4.57.1",
+          "Name": "@rollup/rollup-linux-arm-gnueabihf",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-linux-arm-gnueabihf@4.57.1",
+            "UID": "9b180203c08f0b26"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 640,
+              "EndLine": 652
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-linux-arm-musleabihf@4.57.1",
+          "Name": "@rollup/rollup-linux-arm-musleabihf",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-linux-arm-musleabihf@4.57.1",
+            "UID": "1acf299edabe5dc4"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 653,
+              "EndLine": 665
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-linux-arm64-gnu@4.57.1",
+          "Name": "@rollup/rollup-linux-arm64-gnu",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-linux-arm64-gnu@4.57.1",
+            "UID": "a993c60a2c2689bf"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 666,
+              "EndLine": 678
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-linux-arm64-musl@4.57.1",
+          "Name": "@rollup/rollup-linux-arm64-musl",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-linux-arm64-musl@4.57.1",
+            "UID": "86fbcd5afea3dda3"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 679,
+              "EndLine": 691
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-linux-loong64-gnu@4.57.1",
+          "Name": "@rollup/rollup-linux-loong64-gnu",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-linux-loong64-gnu@4.57.1",
+            "UID": "2a387c64e8434220"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 692,
+              "EndLine": 704
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-linux-loong64-musl@4.57.1",
+          "Name": "@rollup/rollup-linux-loong64-musl",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-linux-loong64-musl@4.57.1",
+            "UID": "56eb444b78999ca2"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 705,
+              "EndLine": 717
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-linux-ppc64-gnu@4.57.1",
+          "Name": "@rollup/rollup-linux-ppc64-gnu",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-linux-ppc64-gnu@4.57.1",
+            "UID": "4c4d8f35c53e0a5b"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 718,
+              "EndLine": 730
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-linux-ppc64-musl@4.57.1",
+          "Name": "@rollup/rollup-linux-ppc64-musl",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-linux-ppc64-musl@4.57.1",
+            "UID": "20ef2153071764a8"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 731,
+              "EndLine": 743
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-linux-riscv64-gnu@4.57.1",
+          "Name": "@rollup/rollup-linux-riscv64-gnu",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-linux-riscv64-gnu@4.57.1",
+            "UID": "dc0b02ee48dd6cae"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 744,
+              "EndLine": 756
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-linux-riscv64-musl@4.57.1",
+          "Name": "@rollup/rollup-linux-riscv64-musl",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-linux-riscv64-musl@4.57.1",
+            "UID": "8e5086062b69cfcf"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 757,
+              "EndLine": 769
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-linux-s390x-gnu@4.57.1",
+          "Name": "@rollup/rollup-linux-s390x-gnu",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-linux-s390x-gnu@4.57.1",
+            "UID": "d9299e9cd1abe4c9"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 770,
+              "EndLine": 782
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-linux-x64-gnu@4.57.1",
+          "Name": "@rollup/rollup-linux-x64-gnu",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-linux-x64-gnu@4.57.1",
+            "UID": "d6b4455ead578a9a"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 783,
+              "EndLine": 795
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-linux-x64-musl@4.57.1",
+          "Name": "@rollup/rollup-linux-x64-musl",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-linux-x64-musl@4.57.1",
+            "UID": "4af1d6e6429f9bd9"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 796,
+              "EndLine": 808
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-openbsd-x64@4.57.1",
+          "Name": "@rollup/rollup-openbsd-x64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-openbsd-x64@4.57.1",
+            "UID": "b4539892662f0d16"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 809,
+              "EndLine": 821
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-openharmony-arm64@4.57.1",
+          "Name": "@rollup/rollup-openharmony-arm64",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-openharmony-arm64@4.57.1",
+            "UID": "7a2c60fae7be08f4"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 822,
+              "EndLine": 834
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-win32-arm64-msvc@4.57.1",
+          "Name": "@rollup/rollup-win32-arm64-msvc",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-win32-arm64-msvc@4.57.1",
+            "UID": "c1e47b5f77a2d357"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 835,
+              "EndLine": 847
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-win32-ia32-msvc@4.57.1",
+          "Name": "@rollup/rollup-win32-ia32-msvc",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-win32-ia32-msvc@4.57.1",
+            "UID": "c4c40142825b1ed4"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 848,
+              "EndLine": 860
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-win32-x64-gnu@4.57.1",
+          "Name": "@rollup/rollup-win32-x64-gnu",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-win32-x64-gnu@4.57.1",
+            "UID": "9863bf6396f27efa"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 861,
+              "EndLine": 873
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@rollup/rollup-win32-x64-msvc@4.57.1",
+          "Name": "@rollup/rollup-win32-x64-msvc",
+          "Identifier": {
+            "PURL": "pkg:npm/%40rollup/rollup-win32-x64-msvc@4.57.1",
+            "UID": "98efc9def2416a42"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 874,
+              "EndLine": 886
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@types/estree@1.0.8",
+          "Name": "@types/estree",
+          "Identifier": {
+            "PURL": "pkg:npm/%40types/estree@1.0.8",
+            "UID": "a13709f9be51f309"
+          },
+          "Version": "1.0.8",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 910,
+              "EndLine": 915
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "ansi-regex@5.0.1",
+          "Name": "ansi-regex",
+          "Identifier": {
+            "PURL": "pkg:npm/ansi-regex@5.0.1",
+            "UID": "11b84611aa7b8350"
+          },
+          "Version": "5.0.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1093,
+              "EndLine": 1101
+            },
+            {
+              "StartLine": 3172,
+              "EndLine": 3180
+            },
+            {
+              "StartLine": 3253,
+              "EndLine": 3261
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "ansi-styles@4.3.0",
+          "Name": "ansi-styles",
+          "Identifier": {
+            "PURL": "pkg:npm/ansi-styles@4.3.0",
+            "UID": "42a01e02fb62eeb6"
+          },
+          "Version": "4.3.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "color-convert@2.0.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 988,
+              "EndLine": 1002
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "chalk@4.1.2",
+          "Name": "chalk",
+          "Identifier": {
+            "PURL": "pkg:npm/chalk@4.1.2",
+            "UID": "89d4fbf26ffdca69"
+          },
+          "Version": "4.1.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "ansi-styles@4.3.0",
+            "supports-color@7.2.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1023,
+              "EndLine": 1038
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "cliui@7.0.4",
+          "Name": "cliui",
+          "Identifier": {
+            "PURL": "pkg:npm/cliui@7.0.4",
+            "UID": "da0d11f575c40a32"
+          },
+          "Version": "7.0.4",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "string-width@4.2.3",
+            "strip-ansi@6.0.1",
+            "wrap-ansi@7.0.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1082,
+              "EndLine": 1092
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "color-convert@2.0.1",
+          "Name": "color-convert",
+          "Identifier": {
+            "PURL": "pkg:npm/color-convert@2.0.1",
+            "UID": "9d7ed3144cbda5f6"
+          },
+          "Version": "2.0.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "color-name@1.1.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1128,
+              "EndLine": 1139
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "color-name@1.1.4",
+          "Name": "color-name",
+          "Identifier": {
+            "PURL": "pkg:npm/color-name@1.1.4",
+            "UID": "6075a5810ff16388"
+          },
+          "Version": "1.1.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1140,
+              "EndLine": 1145
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "emoji-regex@8.0.0",
+          "Name": "emoji-regex",
+          "Identifier": {
+            "PURL": "pkg:npm/emoji-regex@8.0.0",
+            "UID": "7b37b393df8bd542"
+          },
+          "Version": "8.0.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1249,
+              "EndLine": 1254
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "esbuild@0.27.3",
+          "Name": "esbuild",
+          "Identifier": {
+            "PURL": "pkg:npm/esbuild@0.27.3",
+            "UID": "8645cb651db754b"
+          },
+          "Version": "0.27.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@esbuild/aix-ppc64@0.27.3",
+            "@esbuild/android-arm64@0.27.3",
+            "@esbuild/android-arm@0.27.3",
+            "@esbuild/android-x64@0.27.3",
+            "@esbuild/darwin-arm64@0.27.3",
+            "@esbuild/darwin-x64@0.27.3",
+            "@esbuild/freebsd-arm64@0.27.3",
+            "@esbuild/freebsd-x64@0.27.3",
+            "@esbuild/linux-arm64@0.27.3",
+            "@esbuild/linux-arm@0.27.3",
+            "@esbuild/linux-ia32@0.27.3",
+            "@esbuild/linux-loong64@0.27.3",
+            "@esbuild/linux-mips64el@0.27.3",
+            "@esbuild/linux-ppc64@0.27.3",
+            "@esbuild/linux-riscv64@0.27.3",
+            "@esbuild/linux-s390x@0.27.3",
+            "@esbuild/linux-x64@0.27.3",
+            "@esbuild/netbsd-arm64@0.27.3",
+            "@esbuild/netbsd-x64@0.27.3",
+            "@esbuild/openbsd-arm64@0.27.3",
+            "@esbuild/openbsd-x64@0.27.3",
+            "@esbuild/openharmony-arm64@0.27.3",
+            "@esbuild/sunos-x64@0.27.3",
+            "@esbuild/win32-arm64@0.27.3",
+            "@esbuild/win32-ia32@0.27.3",
+            "@esbuild/win32-x64@0.27.3"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1268,
+              "EndLine": 1308
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "escalade@3.2.0",
+          "Name": "escalade",
+          "Identifier": {
+            "PURL": "pkg:npm/escalade@3.2.0",
+            "UID": "9c49fdeb9b9d5c09"
+          },
+          "Version": "3.2.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1309,
+              "EndLine": 1317
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "exit@0.1.2",
+          "Name": "exit",
+          "Identifier": {
+            "PURL": "pkg:npm/exit@0.1.2",
+            "UID": "b48ec32cb638f9aa"
+          },
+          "Version": "0.1.2",
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1318,
+              "EndLine": 1325
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "fdir@6.5.0",
+          "Name": "fdir",
+          "Identifier": {
+            "PURL": "pkg:npm/fdir@6.5.0",
+            "UID": "ac337eb3abd878a4"
+          },
+          "Version": "6.5.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "picomatch@4.0.3"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2886,
+              "EndLine": 2902
+            },
+            {
+              "StartLine": 3102,
+              "EndLine": 3118
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "fsevents@2.3.2",
+          "Name": "fsevents",
+          "Identifier": {
+            "PURL": "pkg:npm/fsevents@2.3.2",
+            "UID": "ef1801dd936a0b4d"
+          },
+          "Version": "2.3.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1403,
+              "EndLine": 1416
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "fsevents@2.3.3",
+          "Name": "fsevents",
+          "Identifier": {
+            "PURL": "pkg:npm/fsevents@2.3.3",
+            "UID": "7730a396ffe74a40"
+          },
+          "Version": "2.3.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 3119,
+              "EndLine": 3132
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "get-caller-file@2.0.5",
+          "Name": "get-caller-file",
+          "Identifier": {
+            "PURL": "pkg:npm/get-caller-file@2.0.5",
+            "UID": "eb8312ad419f5477"
+          },
+          "Version": "2.0.5",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1417,
+              "EndLine": 1425
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "has-flag@4.0.0",
+          "Name": "has-flag",
+          "Identifier": {
+            "PURL": "pkg:npm/has-flag@4.0.0",
+            "UID": "f0cfc685a23d1af3"
+          },
+          "Version": "4.0.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1473,
+              "EndLine": 1481
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "inherits@2.0.4",
+          "Name": "inherits",
+          "Identifier": {
+            "PURL": "pkg:npm/inherits@2.0.4",
+            "UID": "fdb8fa6f309232f8"
+          },
+          "Version": "2.0.4",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1499,
+              "EndLine": 1504
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "is-fullwidth-code-point@3.0.0",
+          "Name": "is-fullwidth-code-point",
+          "Identifier": {
+            "PURL": "pkg:npm/is-fullwidth-code-point@3.0.0",
+            "UID": "8ed1c8222148c14"
+          },
+          "Version": "3.0.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1552,
+              "EndLine": 1560
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "jsonparse@1.3.1",
+          "Name": "jsonparse",
+          "Identifier": {
+            "PURL": "pkg:npm/jsonparse@1.3.1",
+            "UID": "9a14725c04abf6e6"
+          },
+          "Version": "1.3.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1667,
+              "EndLine": 1675
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "jsonstream-next@3.0.0",
+          "Name": "jsonstream-next",
+          "Identifier": {
+            "PURL": "pkg:npm/jsonstream-next@3.0.0",
+            "UID": "4e5cbdb72e80f717"
+          },
+          "Version": "3.0.0",
+          "Licenses": [
+            "(MIT OR Apache-2.0)"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "jsonparse@1.3.1",
+            "through2@4.0.2"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1676,
+              "EndLine": 1691
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "nanoid@3.3.11",
+          "Name": "nanoid",
+          "Identifier": {
+            "PURL": "pkg:npm/nanoid@3.3.11",
+            "UID": "59a125ddb6ca54c6"
+          },
+          "Version": "3.3.11",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2412,
+              "EndLine": 2429
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "p-limit@3.1.0",
+          "Name": "p-limit",
+          "Identifier": {
+            "PURL": "pkg:npm/p-limit@3.1.0",
+            "UID": "9588751838ae76e1"
+          },
+          "Version": "3.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "yocto-queue@0.1.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2470,
+              "EndLine": 2484
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "picocolors@1.1.1",
+          "Name": "picocolors",
+          "Identifier": {
+            "PURL": "pkg:npm/picocolors@1.1.1",
+            "UID": "269c2bd21d19943b"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2505,
+              "EndLine": 2510
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "picomatch@4.0.3",
+          "Name": "picomatch",
+          "Identifier": {
+            "PURL": "pkg:npm/picomatch@4.0.3",
+            "UID": "72e5a96fbc0051b"
+          },
+          "Version": "4.0.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2903,
+              "EndLine": 2914
+            },
+            {
+              "StartLine": 3133,
+              "EndLine": 3144
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "postcss@8.5.6",
+          "Name": "postcss",
+          "Identifier": {
+            "PURL": "pkg:npm/postcss@8.5.6",
+            "UID": "3ec091fe5c2bebff"
+          },
+          "Version": "8.5.6",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "nanoid@3.3.11",
+            "picocolors@1.1.1",
+            "source-map-js@1.2.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2556,
+              "EndLine": 2583
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "prelude-ls@1.2.1",
+          "Name": "prelude-ls",
+          "Identifier": {
+            "PURL": "pkg:npm/prelude-ls@1.2.1",
+            "UID": "71f3eb135f0ee387"
+          },
+          "Version": "1.2.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2584,
+              "EndLine": 2592
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "readable-stream@3.6.2",
+          "Name": "readable-stream",
+          "Identifier": {
+            "PURL": "pkg:npm/readable-stream@3.6.2",
+            "UID": "58f93e3206693c2e"
+          },
+          "Version": "3.6.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "inherits@2.0.4",
+            "string_decoder@1.3.0",
+            "util-deprecate@1.0.2"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2624,
+              "EndLine": 2637
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "require-directory@2.1.1",
+          "Name": "require-directory",
+          "Identifier": {
+            "PURL": "pkg:npm/require-directory@2.1.1",
+            "UID": "bc3a5035fa397710"
+          },
+          "Version": "2.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2638,
+              "EndLine": 2646
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "rollup@4.57.1",
+          "Name": "rollup",
+          "Identifier": {
+            "PURL": "pkg:npm/rollup@4.57.1",
+            "UID": "56c538582eed1a75"
+          },
+          "Version": "4.57.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@rollup/rollup-android-arm-eabi@4.57.1",
+            "@rollup/rollup-android-arm64@4.57.1",
+            "@rollup/rollup-darwin-arm64@4.57.1",
+            "@rollup/rollup-darwin-x64@4.57.1",
+            "@rollup/rollup-freebsd-arm64@4.57.1",
+            "@rollup/rollup-freebsd-x64@4.57.1",
+            "@rollup/rollup-linux-arm-gnueabihf@4.57.1",
+            "@rollup/rollup-linux-arm-musleabihf@4.57.1",
+            "@rollup/rollup-linux-arm64-gnu@4.57.1",
+            "@rollup/rollup-linux-arm64-musl@4.57.1",
+            "@rollup/rollup-linux-loong64-gnu@4.57.1",
+            "@rollup/rollup-linux-loong64-musl@4.57.1",
+            "@rollup/rollup-linux-ppc64-gnu@4.57.1",
+            "@rollup/rollup-linux-ppc64-musl@4.57.1",
+            "@rollup/rollup-linux-riscv64-gnu@4.57.1",
+            "@rollup/rollup-linux-riscv64-musl@4.57.1",
+            "@rollup/rollup-linux-s390x-gnu@4.57.1",
+            "@rollup/rollup-linux-x64-gnu@4.57.1",
+            "@rollup/rollup-linux-x64-musl@4.57.1",
+            "@rollup/rollup-openbsd-x64@4.57.1",
+            "@rollup/rollup-openharmony-arm64@4.57.1",
+            "@rollup/rollup-win32-arm64-msvc@4.57.1",
+            "@rollup/rollup-win32-ia32-msvc@4.57.1",
+            "@rollup/rollup-win32-x64-gnu@4.57.1",
+            "@rollup/rollup-win32-x64-msvc@4.57.1",
+            "@types/estree@1.0.8",
+            "fsevents@2.3.2"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2658,
+              "EndLine": 2701
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "safe-buffer@5.2.1",
+          "Name": "safe-buffer",
+          "Identifier": {
+            "PURL": "pkg:npm/safe-buffer@5.2.1",
+            "UID": "913659b3135111c7"
+          },
+          "Version": "5.2.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2726,
+              "EndLine": 2745
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "source-map-js@1.2.1",
+          "Name": "source-map-js",
+          "Identifier": {
+            "PURL": "pkg:npm/source-map-js@1.2.1",
+            "UID": "fca9f9f8cf174d46"
+          },
+          "Version": "1.2.1",
+          "Licenses": [
+            "BSD-3-Clause"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2772,
+              "EndLine": 2780
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "split2@3.2.2",
+          "Name": "split2",
+          "Identifier": {
+            "PURL": "pkg:npm/split2@3.2.2",
+            "UID": "b731a333c530575a"
+          },
+          "Version": "3.2.2",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "readable-stream@3.6.2"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2781,
+              "EndLine": 2789
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "string-width@4.2.3",
+          "Name": "string-width",
+          "Identifier": {
+            "PURL": "pkg:npm/string-width@4.2.3",
+            "UID": "d967db6a2f6564b4"
+          },
+          "Version": "4.2.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "emoji-regex@8.0.0",
+            "is-fullwidth-code-point@3.0.0",
+            "strip-ansi@6.0.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1102,
+              "EndLine": 1115
+            },
+            {
+              "StartLine": 3181,
+              "EndLine": 3194
+            },
+            {
+              "StartLine": 3262,
+              "EndLine": 3275
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "string_decoder@1.3.0",
+          "Name": "string_decoder",
+          "Identifier": {
+            "PURL": "pkg:npm/string_decoder@1.3.0",
+            "UID": "cef8d2b5f1ee6216"
+          },
+          "Version": "1.3.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "safe-buffer@5.2.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2790,
+              "EndLine": 2798
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "strip-ansi@6.0.1",
+          "Name": "strip-ansi",
+          "Identifier": {
+            "PURL": "pkg:npm/strip-ansi@6.0.1",
+            "UID": "300a4303bd3d2f6"
+          },
+          "Version": "6.0.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "ansi-regex@5.0.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1116,
+              "EndLine": 1127
+            },
+            {
+              "StartLine": 3195,
+              "EndLine": 3206
+            },
+            {
+              "StartLine": 3276,
+              "EndLine": 3287
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "supports-color@7.2.0",
+          "Name": "supports-color",
+          "Identifier": {
+            "PURL": "pkg:npm/supports-color@7.2.0",
+            "UID": "354aadf40ea20357"
+          },
+          "Version": "7.2.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "has-flag@4.0.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2832,
+              "EndLine": 2843
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "through2@4.0.2",
+          "Name": "through2",
+          "Identifier": {
+            "PURL": "pkg:npm/through2@4.0.2",
+            "UID": "89501fc05d69b17b"
+          },
+          "Version": "4.0.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "readable-stream@3.6.2"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2861,
+              "EndLine": 2869
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "tinyglobby@0.2.15",
+          "Name": "tinyglobby",
+          "Identifier": {
+            "PURL": "pkg:npm/tinyglobby@0.2.15",
+            "UID": "acdb064004ed7809"
+          },
+          "Version": "0.2.15",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "fdir@6.5.0",
+            "picomatch@4.0.3"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2870,
+              "EndLine": 2885
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "tldts-core@7.0.23",
+          "Name": "tldts-core",
+          "Identifier": {
+            "PURL": "pkg:npm/tldts-core@7.0.23",
+            "UID": "50cc8f7b796e268e"
+          },
+          "Version": "7.0.23",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2927,
+              "EndLine": 2932
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "treeify@1.1.0",
+          "Name": "treeify",
+          "Identifier": {
+            "PURL": "pkg:npm/treeify@1.1.0",
+            "UID": "fdd0fdf658e8c837"
+          },
+          "Version": "1.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2946,
+              "EndLine": 2954
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "undici-types@7.18.2",
+          "Name": "undici-types",
+          "Identifier": {
+            "PURL": "pkg:npm/undici-types@7.18.2",
+            "UID": "6964b424f64f07e6"
+          },
+          "Version": "7.18.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2987,
+              "EndLine": 2993
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "util-deprecate@1.0.2",
+          "Name": "util-deprecate",
+          "Identifier": {
+            "PURL": "pkg:npm/util-deprecate@1.0.2",
+            "UID": "2a101022ec3dcb7d"
+          },
+          "Version": "1.0.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 3007,
+              "EndLine": 3012
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "wrap-ansi@7.0.0",
+          "Name": "wrap-ansi",
+          "Identifier": {
+            "PURL": "pkg:npm/wrap-ansi@7.0.0",
+            "UID": "d91687278e28b11"
+          },
+          "Version": "7.0.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "ansi-styles@4.3.0",
+            "string-width@4.2.3",
+            "strip-ansi@6.0.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 3155,
+              "EndLine": 3171
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "y18n@5.0.8",
+          "Name": "y18n",
+          "Identifier": {
+            "PURL": "pkg:npm/y18n@5.0.8",
+            "UID": "238aa10724c94390"
+          },
+          "Version": "5.0.8",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 3207,
+              "EndLine": 3215
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "yargs@16.2.0",
+          "Name": "yargs",
+          "Identifier": {
+            "PURL": "pkg:npm/yargs@16.2.0",
+            "UID": "22054d59f02859dc"
+          },
+          "Version": "16.2.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "cliui@7.0.4",
+            "escalade@3.2.0",
+            "get-caller-file@2.0.5",
+            "require-directory@2.1.1",
+            "string-width@4.2.3",
+            "y18n@5.0.8",
+            "yargs-parser@20.2.9"
+          ],
+          "Locations": [
+            {
+              "StartLine": 3226,
+              "EndLine": 3243
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "yargs-parser@20.2.9",
+          "Name": "yargs-parser",
+          "Identifier": {
+            "PURL": "pkg:npm/yargs-parser@20.2.9",
+            "UID": "6bdacb90252e1ca8"
+          },
+          "Version": "20.2.9",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 3244,
+              "EndLine": 3252
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "yocto-queue@0.1.0",
+          "Name": "yocto-queue",
+          "Identifier": {
+            "PURL": "pkg:npm/yocto-queue@0.1.0",
+            "UID": "59af27081f355d09"
+          },
+          "Version": "0.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 3288,
+              "EndLine": 3299
+            }
+          ],
+          "AnalyzedBy": "npm"
+        }
+      ]
+    },
+    {
+      "Target": "Dockerfile",
+      "Class": "config",
+      "Type": "dockerfile",
+      "MisconfSummary": {
+        "Successes": 19,
+        "Failures": 1
+      },
+      "Misconfigurations": [
+        {
+          "Type": "Dockerfile Security Check",
+          "ID": "DS-0002",
+          "Title": "Image user should not be 'root'",
+          "Description": "Running containers with 'root' user can lead to a container escape situation. It is a best practice to run containers as non-root users, which can be done by adding a 'USER' statement to the Dockerfile.",
+          "Message": "Specify at least 1 USER command in Dockerfile with non-root user as argument",
+          "Namespace": "builtin.dockerfile.DS002",
+          "Query": "data.builtin.dockerfile.DS002.deny",
+          "Resolution": "Add 'USER \u003cnon root user name\u003e' line to the Dockerfile",
+          "Severity": "HIGH",
+          "PrimaryURL": "https://avd.aquasec.com/misconfig/ds-0002",
+          "References": [
+            "https://docs.docker.com/develop/develop-images/dockerfile_best-practices/",
+            "https://avd.aquasec.com/misconfig/ds-0002"
+          ],
+          "Status": "FAIL",
+          "CauseMetadata": {
+            "Provider": "Dockerfile",
+            "Service": "general"
+          }
+        }
+      ]
+    },
+    {
+      "Target": "playwright/.auth/user.json",
+      "Class": "secret"
+    }
+  ]
 }

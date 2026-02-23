@@ -92,6 +92,16 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 		return
 	}
 
+	// Block legacy fallback flag writes (LEGACY_FALLBACK_REMOVED)
+	if req.Key == "feature.notifications.legacy.fallback_enabled" &&
+		strings.EqualFold(strings.TrimSpace(req.Value), "true") {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Legacy fallback has been removed and cannot be re-enabled",
+			"code":  "LEGACY_FALLBACK_REMOVED",
+		})
+		return
+	}
+
 	if req.Key == "security.admin_whitelist" {
 		if err := validateAdminWhitelist(req.Value); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid admin_whitelist: %v", err)})
@@ -225,6 +235,12 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 
 	if err := h.DB.Transaction(func(tx *gorm.DB) error {
 		for key, value := range updates {
+			// Block legacy fallback flag writes (LEGACY_FALLBACK_REMOVED)
+			if key == "feature.notifications.legacy.fallback_enabled" &&
+				strings.EqualFold(strings.TrimSpace(value), "true") {
+				return fmt.Errorf("legacy fallback has been removed and cannot be re-enabled")
+			}
+
 			if key == "security.admin_whitelist" {
 				if err := validateAdminWhitelist(value); err != nil {
 					return fmt.Errorf("invalid admin_whitelist: %w", err)
@@ -257,6 +273,13 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 
 		return nil
 	}); err != nil {
+		if strings.Contains(err.Error(), "legacy fallback has been removed") {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Legacy fallback has been removed and cannot be re-enabled",
+				"code":  "LEGACY_FALLBACK_REMOVED",
+			})
+			return
+		}
 		if errors.Is(err, services.ErrInvalidAdminCIDR) || strings.Contains(err.Error(), "invalid admin_whitelist") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid admin_whitelist"})
 			return

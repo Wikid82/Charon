@@ -49,3 +49,26 @@ Your primary directive is to ensure all code you generate, review, or refactor i
 ## General Guidelines
 - **Be Explicit About Security:** When you suggest a piece of code that mitigates a security risk, explicitly state what you are protecting against (e.g., "Using a parameterized query here to prevent SQL injection.").
 - **Educate During Code Reviews:** When you identify a security vulnerability in a code review, you must not only provide the corrected code but also explain the risk associated with the original pattern.
+
+### Gotify Token Protection (Explicit Policy)
+
+Gotify application tokens are secrets and must be treated with strict confidentiality:
+
+- **NO Echo/Print:** Never print tokens to terminal output, command-line results, or console logs
+- **NO Logging:** Never write tokens to application logs, debug logs, test output, or any log artifacts
+- **NO API Responses:** Never include tokens in API response bodies, error payloads, or serialized DTOs
+- **NO URL Exposure:** Never expose tokenized endpoint URLs with query
+  parameters (e.g., `https://gotify.example.com/message?token=...`) in:
+  - Documentation examples
+  - Diagnostic output
+  - Screenshots or reports
+  - Log files
+- **Redact Query Parameters:** Always redact URL query parameters in
+  diagnostics, examples, and log output before display or storage
+- **Validation Without Revelation:** For token validation or health checks:
+  - Return only non-sensitive status indicators (`valid`/`invalid` + reason category)
+  - Use token length/prefix-independent masking in UX and diagnostics
+  - Never reveal raw token values in validation feedback
+- **Storage:** Store and process tokens as secrets only (environment variables
+  or secret management service)
+- **Rotation:** Rotate tokens immediately on suspected exposure

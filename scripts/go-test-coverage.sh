@@ -13,25 +13,78 @@ BACKEND_DIR="$ROOT_DIR/backend"
 COVERAGE_FILE="$BACKEND_DIR/coverage.txt"
 MIN_COVERAGE="${CHARON_MIN_COVERAGE:-${CPM_MIN_COVERAGE:-85}}"
 
-if [[ -z "${CHARON_ENCRYPTION_KEY:-}" ]]; then
-    echo "Error: CHARON_ENCRYPTION_KEY is required for backend tests."
-    echo "Set CHARON_ENCRYPTION_KEY to a base64-encoded 32-byte key before running this script."
-    exit 1
-fi
+generate_test_encryption_key() {
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -base64 32 | tr -d '\n'
+        return
+    fi
 
-DECODED_KEY_HEX=""
-if ! DECODED_KEY_HEX=$(printf '%s' "$CHARON_ENCRYPTION_KEY" | base64 --decode 2>/dev/null | od -An -tx1 -v | tr -d ' \n'); then
-    echo "Error: CHARON_ENCRYPTION_KEY is not valid base64."
-    echo "Provide a base64-encoded key whose decoded length is exactly 32 bytes."
-    exit 1
-fi
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - <<'PY'
+import base64
+import os
 
-DECODED_KEY_BYTES=$(( ${#DECODED_KEY_HEX} / 2 ))
-if [[ "$DECODED_KEY_BYTES" -ne 32 ]]; then
-    echo "Error: CHARON_ENCRYPTION_KEY decoded length is ${DECODED_KEY_BYTES} bytes; expected 32 bytes."
-    echo "Regenerate key (example): openssl rand -base64 32"
-    exit 1
-fi
+print(base64.b64encode(os.urandom(32)).decode())
+PY
+        return
+    fi
+
+    echo ""
+}
+
+ensure_encryption_key() {
+    local key_source="existing"
+    local decoded_key_hex=""
+    local decoded_key_bytes=0
+
+    if [[ -z "${CHARON_ENCRYPTION_KEY:-}" ]]; then
+        key_source="generated"
+        CHARON_ENCRYPTION_KEY="$(generate_test_encryption_key)"
+    fi
+
+    if [[ -z "${CHARON_ENCRYPTION_KEY:-}" ]]; then
+        echo "Error: Could not provision CHARON_ENCRYPTION_KEY automatically."
+        echo "Install openssl or python3, or set CHARON_ENCRYPTION_KEY manually to a base64-encoded 32-byte key."
+        exit 1
+    fi
+
+    if ! decoded_key_hex=$(printf '%s' "$CHARON_ENCRYPTION_KEY" | base64 --decode 2>/dev/null | od -An -tx1 -v | tr -d ' \n'); then
+        key_source="regenerated"
+        CHARON_ENCRYPTION_KEY="$(generate_test_encryption_key)"
+        if ! decoded_key_hex=$(printf '%s' "$CHARON_ENCRYPTION_KEY" | base64 --decode 2>/dev/null | od -An -tx1 -v | tr -d ' \n'); then
+            echo "Error: CHARON_ENCRYPTION_KEY could not be decoded and regeneration failed."
+            echo "Set CHARON_ENCRYPTION_KEY to a valid base64-encoded 32-byte key."
+            exit 1
+        fi
+    fi
+
+    decoded_key_bytes=$(( ${#decoded_key_hex} / 2 ))
+    if [[ "$decoded_key_bytes" -ne 32 ]]; then
+        key_source="regenerated"
+        CHARON_ENCRYPTION_KEY="$(generate_test_encryption_key)"
+        if ! decoded_key_hex=$(printf '%s' "$CHARON_ENCRYPTION_KEY" | base64 --decode 2>/dev/null | od -An -tx1 -v | tr -d ' \n'); then
+            echo "Error: CHARON_ENCRYPTION_KEY has invalid length and regeneration failed."
+            echo "Set CHARON_ENCRYPTION_KEY to a valid base64-encoded 32-byte key."
+            exit 1
+        fi
+
+        decoded_key_bytes=$(( ${#decoded_key_hex} / 2 ))
+        if [[ "$decoded_key_bytes" -ne 32 ]]; then
+            echo "Error: Could not provision a valid 32-byte CHARON_ENCRYPTION_KEY."
+            exit 1
+        fi
+    fi
+
+    export CHARON_ENCRYPTION_KEY
+
+    if [[ "$key_source" == "generated" ]]; then
+        echo "Info: CHARON_ENCRYPTION_KEY was not set; generated an ephemeral test key."
+    elif [[ "$key_source" == "regenerated" ]]; then
+        echo "Warning: CHARON_ENCRYPTION_KEY was invalid; generated an ephemeral test key."
+    fi
+}
+
+ensure_encryption_key
 
 # Perf asserts are sensitive to -race overhead; loosen defaults for hook runs
 export PERF_MAX_MS_GETSTATUS_P95="${PERF_MAX_MS_GETSTATUS_P95:-25ms}"

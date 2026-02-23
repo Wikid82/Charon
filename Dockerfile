@@ -548,13 +548,8 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
 # while maintaining the expected /etc/crowdsec path for compatibility
 RUN ln -sf /app/data/crowdsec/config /etc/crowdsec
 
-# Security: Container starts as root to handle Docker socket group permissions,
-# then the entrypoint script drops privileges to the charon user before starting
-# applications. This approach:
-#   1. Maintains CIS Docker Benchmark compliance (non-root execution)
-#   2. Enables Docker integration by dynamically adding charon to docker group
-#   3. Ensures proper ownership of mounted volumes
-# The entrypoint script uses gosu to securely drop privileges after setup.
+# Security: Run the container as non-root by default.
+USER charon
 
 # Use custom entrypoint to start both Caddy and Charon
 ENTRYPOINT ["/docker-entrypoint.sh"]

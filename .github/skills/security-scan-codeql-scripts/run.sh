@@ -95,6 +95,7 @@ run_codeql_scan() {
     local source_root=$2
     local db_name="codeql-db-${lang}"
     local sarif_file="codeql-results-${lang}.sarif"
+    local suite=""
     local build_mode_args=()
     local codescanning_config="${PROJECT_ROOT}/.github/codeql/codeql-config.yml"
 
@@ -107,6 +108,9 @@ run_codeql_scan() {
 
     if [[ "${lang}" == "javascript" ]]; then
         build_mode_args=(--build-mode=none)
+        suite="codeql/javascript-queries:codeql-suites/javascript-security-and-quality.qls"
+    else
+        suite="codeql/go-queries:codeql-suites/go-security-and-quality.qls"
     fi
 
     log_step "CODEQL" "Scanning ${lang} code in ${source_root}/"
@@ -135,8 +139,9 @@ run_codeql_scan() {
     fi
 
     # Run analysis
-    log_info "Analyzing with Code Scanning config (CI-aligned query filters)..."
+    log_info "Analyzing with CI-aligned suite: ${suite}"
     if ! codeql database analyze "${db_name}" \
+        "${suite}" \
         --format=sarif-latest \
         --output="${sarif_file}" \
         --sarif-add-baseline-file-info \

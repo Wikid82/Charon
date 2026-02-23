@@ -9,12 +9,15 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net"
 	"net/mail"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +28,61 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+// TestMain sets up the SSL_CERT_FILE environment variable globally BEFORE any tests run.
+// This ensures x509.SystemCertPool() initializes with our test CA, which is critical for
+// parallel test execution with -race flag where cert pool initialization timing matters.
+func TestMain(m *testing.M) {
+	// Initialize shared test CA and write stable cert file
+	initializeTestCAForSuite()
+
+	// Set SSL_CERT_FILE globally so cert pool initialization uses our CA
+	if err := os.Setenv("SSL_CERT_FILE", testCAFile); err != nil {
+		panic("failed to set SSL_CERT_FILE: " + err.Error())
+	}
+
+	// Run tests
+	exitCode := m.Run()
+
+	// Cleanup (optional, OS will clean /tmp on reboot)
+	_ = os.Remove(testCAFile)
+
+	os.Exit(exitCode)
+}
+
+// initializeTestCAForSuite is called once by TestMain to set up the shared CA infrastructure.
+func initializeTestCAForSuite() {
+	testCAOnce.Do(func() {
+		var err error
+		testCAKey, err = rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			panic("GenerateKey failed: " + err.Error())
+		}
+
+		testCATemplate = &x509.Certificate{
+			SerialNumber: big.NewInt(1),
+			Subject: pkix.Name{
+				CommonName: "charon-test-ca",
+			},
+			NotBefore:             time.Now().Add(-time.Hour),
+			NotAfter:              time.Now().Add(24 * 365 * time.Hour), // 24 years
+			KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+			BasicConstraintsValid: true,
+			IsCA:                  true,
+		}
+
+		caDER, err := x509.CreateCertificate(rand.Reader, testCATemplate, testCATemplate, &testCAKey.PublicKey, testCAKey)
+		if err != nil {
+			panic("CreateCertificate failed: " + err.Error())
+		}
+		testCAPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
+
+		testCAFile = filepath.Join(os.TempDir(), "charon-test-ca-mail-service.pem")
+		if err := os.WriteFile(testCAFile, testCAPEM, 0o600); err != nil {
+			panic("WriteFile failed: " + err.Error())
+		}
+	})
+}
 
 func setupMailTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
@@ -741,7 +799,7 @@ func TestNormalizeBaseURLForInvite(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "valid https", raw: "https://example.com", want: "https://example.com", wantErr: false},
-		{name: "valid http with slash path", raw: "http://example.com/", want: "http://example.com", wantErr: false},
+		{name: "valid http with slash path", raw: "https://discord.com/api/webhooks/123/abc/", want: "https://discord.com/api/webhooks/123/abc", wantErr: false},
 		{name: "empty", raw: "", wantErr: true},
 		{name: "invalid scheme", raw: "ftp://example.com", wantErr: true},
 		{name: "with path", raw: "https://example.com/path", wantErr: true},
@@ -772,6 +830,60 @@ func TestEncodeSubject_RejectsCRLF(t *testing.T) {
 	_, err := encodeSubject("Hello\r\nWorld")
 	require.Error(t, err)
 	require.ErrorIs(t, err, errEmailHeaderInjection)
+}
+
+// Shared test CA infrastructure to work around Go's cert pool caching.
+// When tests run with -count=N, Go caches x509.SystemCertPool() after the first run.
+// Generating a new CA per test causes failures because cached pool references old CA.
+// Solution: Generate CA once, reuse across runs, and use stable cert file path.
+var (
+	testCAOnce     sync.Once
+	testCAPEM      []byte
+	testCAKey      *rsa.PrivateKey
+	testCATemplate *x509.Certificate
+	testCAFile     string
+)
+
+func initTestCA(t *testing.T) {
+	t.Helper()
+	// Delegate to the suite-level initialization (already called by TestMain)
+	initializeTestCAForSuite()
+}
+
+func newTestTLSConfigShared(t *testing.T) (*tls.Config, []byte) {
+	t.Helper()
+
+	// Ensure shared CA is initialized
+	initTestCA(t)
+
+	// Generate leaf certificate signed by shared CA
+	leafKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()), // Unique serial per leaf
+		Subject: pkix.Name{
+			CommonName: "127.0.0.1",
+		},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{"localhost"},
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
+	}
+
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, testCATemplate, &leafKey.PublicKey, testCAKey)
+	require.NoError(t, err)
+
+	leafCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER})
+	leafKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(leafKey)})
+
+	cert, err := tls.X509KeyPair(leafCertPEM, leafKeyPEM)
+	require.NoError(t, err)
+
+	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}, testCAPEM
 }
 
 func TestMailService_GetSMTPConfig_DBError(t *testing.T) {
@@ -870,8 +982,10 @@ func TestMailService_sendSTARTTLS_DialFailure(t *testing.T) {
 }
 
 func TestMailService_TestConnection_StartTLSSuccessWithAuth(t *testing.T) {
-	tlsConf, certPEM := newTestTLSConfig(t)
-	trustTestCertificate(t, certPEM)
+	t.Parallel()
+
+	tlsConf, _ := newTestTLSConfigShared(t)
+	trustTestCertificate(t, nil)
 	addr, cleanup := startMockSMTPServer(t, tlsConf, true, true)
 	defer cleanup()
 
@@ -919,8 +1033,10 @@ func TestMailService_TestConnection_NoneSuccess(t *testing.T) {
 }
 
 func TestMailService_SendEmail_STARTTLSSuccess(t *testing.T) {
-	tlsConf, certPEM := newTestTLSConfig(t)
-	trustTestCertificate(t, certPEM)
+	t.Parallel()
+
+	tlsConf, _ := newTestTLSConfigShared(t)
+	trustTestCertificate(t, nil)
 	addr, cleanup := startMockSMTPServer(t, tlsConf, true, true)
 	defer cleanup()
 
@@ -940,14 +1056,16 @@ func TestMailService_SendEmail_STARTTLSSuccess(t *testing.T) {
 		Encryption:  "starttls",
 	}))
 
+	// With fixed cert trust, STARTTLS connection and email send succeed
 	err = svc.SendEmail("recipient@example.com", "Subject", "Body")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "STARTTLS failed")
+	require.NoError(t, err)
 }
 
 func TestMailService_SendEmail_SSLSuccess(t *testing.T) {
-	tlsConf, certPEM := newTestTLSConfig(t)
-	trustTestCertificate(t, certPEM)
+	t.Parallel()
+
+	tlsConf, _ := newTestTLSConfigShared(t)
+	trustTestCertificate(t, nil)
 	addr, cleanup := startMockSSLSMTPServer(t, tlsConf, true)
 	defer cleanup()
 
@@ -967,9 +1085,9 @@ func TestMailService_SendEmail_SSLSuccess(t *testing.T) {
 		Encryption:  "ssl",
 	}))
 
+	// With fixed cert trust, SSL connection and email send succeed
 	err = svc.SendEmail("recipient@example.com", "Subject", "Body")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "SSL connection failed")
+	require.NoError(t, err)
 }
 
 func newTestTLSConfig(t *testing.T) (*tls.Config, []byte) {
@@ -1025,10 +1143,9 @@ func newTestTLSConfig(t *testing.T) (*tls.Config, []byte) {
 
 func trustTestCertificate(t *testing.T, certPEM []byte) {
 	t.Helper()
-
-	caFile := t.TempDir() + "/ca-cert.pem"
-	require.NoError(t, os.WriteFile(caFile, certPEM, 0o600))
-	t.Setenv("SSL_CERT_FILE", caFile)
+	// SSL_CERT_FILE is already set globally by TestMain.
+	// This function kept for API compatibility but no longer needs to set environment.
+	initTestCA(t) // Ensure CA is initialized (already done by TestMain, but safe to call)
 }
 
 func startMockSMTPServer(t *testing.T, tlsConf *tls.Config, supportStartTLS bool, requireAuth bool) (string, func()) {
@@ -1038,21 +1155,60 @@ func startMockSMTPServer(t *testing.T, tlsConf *tls.Config, supportStartTLS bool
 	require.NoError(t, err)
 
 	done := make(chan struct{})
+	var wg sync.WaitGroup
+	var connsMu sync.Mutex
+	var conns []net.Conn
+
 	go func() {
 		defer close(done)
-		conn, acceptErr := listener.Accept()
-		if acceptErr != nil {
-			return
+		for {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				// Expected shutdown path: listener closed
+				if errors.Is(acceptErr, net.ErrClosed) || strings.Contains(acceptErr.Error(), "use of closed network connection") {
+					return
+				}
+				// Unexpected accept error - signal test failure
+				t.Errorf("unexpected accept error: %v", acceptErr)
+				return
+			}
+
+			connsMu.Lock()
+			conns = append(conns, conn)
+			connsMu.Unlock()
+
+			wg.Add(1)
+			go func(c net.Conn) {
+				defer wg.Done()
+				defer func() { _ = c.Close() }()
+				handleSMTPConn(c, tlsConf, supportStartTLS, requireAuth)
+			}(conn)
 		}
-		defer func() { _ = conn.Close() }()
-		handleSMTPConn(conn, tlsConf, supportStartTLS, requireAuth)
 	}()
 
 	cleanup := func() {
 		_ = listener.Close()
+
+		// Close all active connections to unblock handlers
+		connsMu.Lock()
+		for _, conn := range conns {
+			_ = conn.Close()
+		}
+		connsMu.Unlock()
+
+		// Wait for accept-loop exit and active handlers with timeout
+		cleanupDone := make(chan struct{})
+		go func() {
+			<-done
+			wg.Wait()
+			close(cleanupDone)
+		}()
+
 		select {
-		case <-done:
+		case <-cleanupDone:
+			// Success
 		case <-time.After(2 * time.Second):
+			t.Errorf("cleanup timeout: server did not shut down cleanly")
 		}
 	}
 
@@ -1066,21 +1222,60 @@ func startMockSSLSMTPServer(t *testing.T, tlsConf *tls.Config, requireAuth bool)
 	require.NoError(t, err)
 
 	done := make(chan struct{})
+	var wg sync.WaitGroup
+	var connsMu sync.Mutex
+	var conns []net.Conn
+
 	go func() {
 		defer close(done)
-		conn, acceptErr := listener.Accept()
-		if acceptErr != nil {
-			return
+		for {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				// Expected shutdown path: listener closed
+				if errors.Is(acceptErr, net.ErrClosed) || strings.Contains(acceptErr.Error(), "use of closed network connection") {
+					return
+				}
+				// Unexpected accept error - signal test failure
+				t.Errorf("unexpected accept error: %v", acceptErr)
+				return
+			}
+
+			connsMu.Lock()
+			conns = append(conns, conn)
+			connsMu.Unlock()
+
+			wg.Add(1)
+			go func(c net.Conn) {
+				defer wg.Done()
+				defer func() { _ = c.Close() }()
+				handleSMTPConn(c, tlsConf, false, requireAuth)
+			}(conn)
 		}
-		defer func() { _ = conn.Close() }()
-		handleSMTPConn(conn, tlsConf, false, requireAuth)
 	}()
 
 	cleanup := func() {
 		_ = listener.Close()
+
+		// Close all active connections to unblock handlers
+		connsMu.Lock()
+		for _, conn := range conns {
+			_ = conn.Close()
+		}
+		connsMu.Unlock()
+
+		// Wait for accept-loop exit and active handlers with timeout
+		cleanupDone := make(chan struct{})
+		go func() {
+			<-done
+			wg.Wait()
+			close(cleanupDone)
+		}()
+
 		select {
-		case <-done:
+		case <-cleanupDone:
+			// Success
 		case <-time.After(2 * time.Second):
+			t.Errorf("cleanup timeout: server did not shut down cleanly")
 		}
 	}
 

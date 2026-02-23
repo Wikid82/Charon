@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -49,16 +50,28 @@ func (s *ProxyHostService) ValidateUniqueDomain(domainNames string, excludeID ui
 
 // ValidateHostname checks if the provided string is a valid hostname or IP address.
 func (s *ProxyHostService) ValidateHostname(host string) error {
-	// Trim protocol if present
-	if len(host) > 8 && host[:8] == "https://" {
-		host = host[8:]
-	} else if len(host) > 7 && host[:7] == "http://" {
-		host = host[7:]
+	// Parse as URL to extract hostname if scheme is present
+	if strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://") {
+		if u, err := url.Parse(host); err == nil {
+			host = u.Hostname()
+		} else {
+			// Fallback to simple prefix stripping
+			if len(host) > 8 && host[:8] == "https://" {
+				host = host[8:]
+			} else if len(host) > 7 && host[:7] == "http://" {
+				host = host[7:]
+			}
+		}
 	}
 
 	// Remove port if present
 	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
 		host = parsedHost
+	}
+
+	// Remove any path components
+	if idx := strings.Index(host, "/"); idx != -1 {
+		host = host[:idx]
 	}
 
 	// Basic check: is it an IP?
@@ -93,12 +106,26 @@ func (s *ProxyHostService) validateProxyHost(host *models.ProxyHost) error {
 
 	// Basic hostname/IP validation
 	target := host.ForwardHost
-	// Strip protocol if user accidentally typed http://10.0.0.1
-	target = strings.TrimPrefix(target, "http://")
-	target = strings.TrimPrefix(target, "https://")
+
+	// Strip protocol and extract hostname if URL format
+	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
+		if u, err := url.Parse(target); err == nil {
+			target = u.Hostname()
+		} else {
+			// Fallback to simple prefix stripping
+			target = strings.TrimPrefix(target, "http://")
+			target = strings.TrimPrefix(target, "https://")
+		}
+	}
+
 	// Strip port if present
 	if h, _, err := net.SplitHostPort(target); err == nil {
 		target = h
+	}
+
+	// Remove any path components
+	if idx := strings.Index(target, "/"); idx != -1 {
+		target = target[:idx]
 	}
 
 	// Validate target
