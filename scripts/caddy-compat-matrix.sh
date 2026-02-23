@@ -9,7 +9,7 @@ readonly DEFAULT_PLUGIN_SET="caddy-security,coraza-caddy,caddy-crowdsec-bouncer,
 readonly DEFAULT_SMOKE_SET="boot_caddy,plugin_modules,config_validate,admin_api_health"
 
 OUTPUT_DIR="test-results/caddy-compat"
-DOCS_REPORT="docs/reports/caddy-pr1-compatibility-matrix.md"
+DOCS_REPORT="docs/reports/caddy-compatibility-matrix.md"
 CANDIDATE_VERSION="$DEFAULT_CANDIDATE_VERSION"
 PATCH_SCENARIOS="$DEFAULT_PATCH_SCENARIOS"
 PLATFORMS="$DEFAULT_PLATFORMS"
@@ -32,7 +32,7 @@ Usage: scripts/caddy-compat-matrix.sh [options]
 
 Options:
   --output-dir <path>         Output directory (default: test-results/caddy-compat)
-  --docs-report <path>        Markdown report path (default: docs/reports/caddy-pr1-compatibility-matrix.md)
+  --docs-report <path>        Markdown report path (default: docs/reports/caddy-compatibility-matrix.md)
   --candidate-version <ver>   Candidate Caddy version (default: 2.11.1)
   --patch-scenarios <csv>     Patch scenarios CSV (default: A,B,C)
   --platforms <csv>           Platforms CSV (default: linux/amd64,linux/arm64)

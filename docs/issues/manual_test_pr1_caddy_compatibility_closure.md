@@ -25,7 +25,7 @@
 
 ## Test Cases
 
-### TC-PR1-001 — Compatibility Matrix Completes
+### TC-001 — Compatibility Matrix Completes
 
 - Area: Compatibility matrix
 - Risk: False PASS due to partial artifacts or mixed output paths
@@ -39,7 +39,7 @@
 - Status: [ ] Not run [ ] Pass [ ] Fail
 - Notes:
 
-### TC-PR1-002 — Promotion Gate Enforces Scenario A Only
+### TC-002 — Promotion Gate Enforces Scenario A Only
 
 - Area: Release guard
 - Risk: Incorrect gate logic blocks or allows promotion unexpectedly
@@ -52,7 +52,7 @@
 - Status: [ ] Not run [ ] Pass [ ] Fail
 - Notes:
 
-### TC-PR1-003 — Candidate Build Path Is Opt-In
+### TC-003 — Candidate Build Path Is Opt-In
 
 - Area: Candidate build path
 - Risk: Candidate path becomes active without explicit opt-in
@@ -66,7 +66,7 @@
 - Status: [ ] Not run [ ] Pass [ ] Fail
 - Notes:
 
-### TC-PR1-004 — Default Runtime Behavior Does Not Drift
+### TC-004 — Default Runtime Behavior Does Not Drift
 
 - Area: Non-drift defaults
 - Risk: Silent default drift after PR-1 merge
