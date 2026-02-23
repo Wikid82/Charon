@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,15 @@ var (
 	// Test hooks for bandaging validation/generation flows
 	generateConfigFunc = GenerateConfig
 	validateConfigFunc = Validate
+)
+
+const (
+	minKeepaliveIdleDuration  = time.Second
+	maxKeepaliveIdleDuration  = 24 * time.Hour
+	minKeepaliveCount         = 1
+	maxKeepaliveCount         = 100
+	settingCaddyKeepaliveIdle = "caddy.keepalive_idle"
+	settingCaddyKeepaliveCnt  = "caddy.keepalive_count"
 )
 
 // DNSProviderConfig contains a DNS provider with its decrypted credentials
@@ -277,6 +287,18 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	// Compute effective security flags (re-read runtime overrides)
 	_, aclEnabled, wafEnabled, rateLimitEnabled, crowdsecEnabled := m.computeEffectiveFlags(ctx)
 
+	keepaliveIdle := ""
+	var keepaliveIdleSetting models.Setting
+	if err := m.db.Where("key = ?", settingCaddyKeepaliveIdle).First(&keepaliveIdleSetting).Error; err == nil {
+		keepaliveIdle = sanitizeKeepaliveIdle(keepaliveIdleSetting.Value)
+	}
+
+	keepaliveCount := 0
+	var keepaliveCountSetting models.Setting
+	if err := m.db.Where("key = ?", settingCaddyKeepaliveCnt).First(&keepaliveCountSetting).Error; err == nil {
+		keepaliveCount = sanitizeKeepaliveCount(keepaliveCountSetting.Value)
+	}
+
 	// Safety check: if Cerberus is enabled in DB and no admin whitelist configured,
 	// warn but allow initial startup to proceed. This prevents total lockout when
 	// the user has enabled Cerberus but hasn't configured admin_whitelist yet.
@@ -401,6 +423,8 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		return fmt.Errorf("generate config: %w", err)
 	}
 
+	applyOptionalServerKeepalive(generatedConfig, keepaliveIdle, keepaliveCount)
+
 	// Debug logging: WAF configuration state for troubleshooting integration issues
 	logger.Log().WithFields(map[string]any{
 		"waf_enabled":       wafEnabled,
@@ -465,6 +489,42 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func sanitizeKeepaliveIdle(value string) string {
+	idle := strings.TrimSpace(value)
+	if idle == "" {
+		return ""
+	}
+
+	d, err := time.ParseDuration(idle)
+	if err != nil {
+		return ""
+	}
+
+	if d < minKeepaliveIdleDuration || d > maxKeepaliveIdleDuration {
+		return ""
+	}
+
+	return idle
+}
+
+func sanitizeKeepaliveCount(value string) int {
+	raw := strings.TrimSpace(value)
+	if raw == "" {
+		return 0
+	}
+
+	count, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0
+	}
+
+	if count < minKeepaliveCount || count > maxKeepaliveCount {
+		return 0
+	}
+
+	return count
 }
 
 // saveSnapshot stores the config to disk with timestamp.

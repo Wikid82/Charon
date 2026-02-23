@@ -1,8 +1,10 @@
 package caddy
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -184,4 +186,94 @@ func TestManagerApplyConfig_DNSProviders_SkipsDecryptOrJSONFailures(t *testing.T
 
 	require.Len(t, captured, 1)
 	require.Equal(t, uint(24), captured[0].ID)
+}
+
+func TestManagerApplyConfig_MapsKeepaliveSettingsToGeneratedServer(t *testing.T) {
+	var loadBody []byte
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			payload, _ := io.ReadAll(r.Body)
+			loadBody = append([]byte(nil), payload...)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.ProxyHost{},
+		&models.Location{},
+		&models.Setting{},
+		&models.CaddyConfig{},
+		&models.SSLCertificate{},
+		&models.SecurityConfig{},
+		&models.SecurityRuleSet{},
+		&models.SecurityDecision{},
+		&models.DNSProvider{},
+	))
+
+	db.Create(&models.ProxyHost{DomainNames: "keepalive.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true})
+	db.Create(&models.SecurityConfig{Name: "default", Enabled: true})
+	db.Create(&models.Setting{Key: settingCaddyKeepaliveIdle, Value: "45s"})
+	db.Create(&models.Setting{Key: settingCaddyKeepaliveCnt, Value: "8"})
+
+	origVal := validateConfigFunc
+	defer func() { validateConfigFunc = origVal }()
+	validateConfigFunc = func(_ *Config) error { return nil }
+
+	manager := NewManager(newTestClient(t, caddyServer.URL), db, t.TempDir(), "", false, config.SecurityConfig{CerberusEnabled: true})
+	require.NoError(t, manager.ApplyConfig(context.Background()))
+	require.NotEmpty(t, loadBody)
+
+	require.True(t, bytes.Contains(loadBody, []byte(`"keepalive_idle":"45s"`)))
+	require.True(t, bytes.Contains(loadBody, []byte(`"keepalive_count":8`)))
+}
+
+func TestManagerApplyConfig_InvalidKeepaliveSettingsFallbackToDefaults(t *testing.T) {
+	var loadBody []byte
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			payload, _ := io.ReadAll(r.Body)
+			loadBody = append([]byte(nil), payload...)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	dsn := "file:" + t.Name() + "_invalid?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.ProxyHost{},
+		&models.Location{},
+		&models.Setting{},
+		&models.CaddyConfig{},
+		&models.SSLCertificate{},
+		&models.SecurityConfig{},
+		&models.SecurityRuleSet{},
+		&models.SecurityDecision{},
+		&models.DNSProvider{},
+	))
+
+	db.Create(&models.ProxyHost{DomainNames: "invalid-keepalive.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true})
+	db.Create(&models.SecurityConfig{Name: "default", Enabled: true})
+	db.Create(&models.Setting{Key: settingCaddyKeepaliveIdle, Value: "bad"})
+	db.Create(&models.Setting{Key: settingCaddyKeepaliveCnt, Value: "-1"})
+
+	origVal := validateConfigFunc
+	defer func() { validateConfigFunc = origVal }()
+	validateConfigFunc = func(_ *Config) error { return nil }
+
+	manager := NewManager(newTestClient(t, caddyServer.URL), db, t.TempDir(), "", false, config.SecurityConfig{CerberusEnabled: true})
+	require.NoError(t, manager.ApplyConfig(context.Background()))
+	require.NotEmpty(t, loadBody)
+
+	require.False(t, bytes.Contains(loadBody, []byte(`"keepalive_idle"`)))
+	require.False(t, bytes.Contains(loadBody, []byte(`"keepalive_count"`)))
 }

@@ -23,3 +23,35 @@
 ## PR-2 Closure Statement
 
 All PR-2 QA/security gates required for merge are passing. No PR-3 scope is included in this report.
+
+---
+
+## QA Report — PR-3 Keepalive Controls Closure
+
+- Date: 2026-02-23
+- Scope: PR-3 only (keepalive controls, safe fallback/default behavior, non-exposure constraints)
+- Verdict: **READY (PASS)**
+
+## Reviewer Gate Summary (PR-3)
+
+| Gate | Status | Reviewer evidence |
+| --- | --- | --- |
+| Targeted E2E rerun | PASS | Security settings targeted rerun completed: **30 passed, 0 failed**. |
+| Local patch preflight | PASS | `frontend/coverage/lcov.info` present; `scripts/local-patch-report.sh` artifacts regenerated with `pass` status. |
+| Coverage + type-check | PASS | Frontend coverage gate passed (89% lines vs 85% minimum); type-check passed. |
+| Pre-commit + security scans | PASS | `pre-commit --all-files`, CodeQL Go/JS CI-aligned scans, findings gate, and Trivy checks passed (no HIGH/CRITICAL blockers). |
+| Final readiness | PASS | All PR-3 closure gates are green. |
+
+## Scope Guardrails Verified (PR-3)
+
+- Keepalive controls are limited to approved PR-3 scope.
+- Safe fallback behavior remains intact when keepalive values are missing or invalid.
+- Non-exposure constraints remain intact (`trusted_proxies_unix` and certificate lifecycle internals are not exposed).
+
+## Manual Verification Reference
+
+- PR-3 manual test tracking plan: `docs/issues/manual_test_pr3_keepalive_controls_closure.md`
+
+## PR-3 Closure Statement
+
+PR-3 is **ready to merge** with no open QA blockers.

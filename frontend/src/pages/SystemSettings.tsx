@@ -41,10 +41,31 @@ export default function SystemSettings() {
   const queryClient = useQueryClient()
   const [caddyAdminAPI, setCaddyAdminAPI] = useState('http://localhost:2019')
   const [sslProvider, setSslProvider] = useState('auto')
+  const [keepaliveIdle, setKeepaliveIdle] = useState('')
+  const [keepaliveCount, setKeepaliveCount] = useState('')
   const [domainLinkBehavior, setDomainLinkBehavior] = useState('new_tab')
   const [publicURL, setPublicURL] = useState('')
   const [publicURLValid, setPublicURLValid] = useState<boolean | null>(null)
   const [publicURLSaving, setPublicURLSaving] = useState(false)
+
+  const keepaliveIdlePattern = /^(?:\d+)(?:ns|us|µs|ms|s|m|h)$/
+  const keepaliveIdleTrimmed = keepaliveIdle.trim()
+  const keepaliveCountTrimmed = keepaliveCount.trim()
+  const keepaliveIdleError =
+    keepaliveIdleTrimmed.length > 0 && !keepaliveIdlePattern.test(keepaliveIdleTrimmed)
+      ? t('systemSettings.general.keepaliveIdleError')
+      : undefined
+  const keepaliveCountError = (() => {
+    if (!keepaliveCountTrimmed) {
+      return undefined
+    }
+    const parsed = Number.parseInt(keepaliveCountTrimmed, 10)
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 1000) {
+      return t('systemSettings.general.keepaliveCountError')
+    }
+    return undefined
+  })()
+  const hasKeepaliveValidationError = Boolean(keepaliveIdleError || keepaliveCountError)
 
   // Fetch Settings
   const { data: settings } = useQuery({
@@ -62,6 +83,8 @@ export default function SystemSettings() {
         const provider = settings['caddy.ssl_provider']
         setSslProvider(validProviders.includes(provider) ? provider : 'auto')
       }
+      setKeepaliveIdle(settings['caddy.keepalive_idle'] ?? '')
+      setKeepaliveCount(settings['caddy.keepalive_count'] ?? '')
       if (settings['ui.domain_link_behavior']) setDomainLinkBehavior(settings['ui.domain_link_behavior'])
       if (settings['app.public_url']) setPublicURL(settings['app.public_url'])
     }
@@ -139,8 +162,14 @@ export default function SystemSettings() {
 
   const saveSettingsMutation = useMutation({
     mutationFn: async () => {
+      if (hasKeepaliveValidationError) {
+        throw new Error(t('systemSettings.general.keepaliveValidationFailed'))
+      }
+
       await updateSetting('caddy.admin_api', caddyAdminAPI, 'caddy', 'string')
       await updateSetting('caddy.ssl_provider', sslProvider, 'caddy', 'string')
+      await updateSetting('caddy.keepalive_idle', keepaliveIdleTrimmed, 'caddy', 'string')
+      await updateSetting('caddy.keepalive_count', keepaliveCountTrimmed, 'caddy', 'string')
       await updateSetting('ui.domain_link_behavior', domainLinkBehavior, 'ui', 'string')
       await updateSetting('app.public_url', publicURL, 'general', 'string')
     },
@@ -342,6 +371,36 @@ export default function SystemSettings() {
             </div>
 
             <div className="space-y-2">
+              <Label htmlFor="keepalive-idle">{t('systemSettings.general.keepaliveIdle')}</Label>
+              <Input
+                id="keepalive-idle"
+                type="text"
+                value={keepaliveIdle}
+                onChange={(e) => setKeepaliveIdle(e.target.value)}
+                placeholder="2m"
+                error={keepaliveIdleError}
+                helperText={t('systemSettings.general.keepaliveIdleHelper')}
+                aria-invalid={keepaliveIdleError ? 'true' : 'false'}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="keepalive-count">{t('systemSettings.general.keepaliveCount')}</Label>
+              <Input
+                id="keepalive-count"
+                type="number"
+                min={1}
+                max={1000}
+                value={keepaliveCount}
+                onChange={(e) => setKeepaliveCount(e.target.value)}
+                placeholder="3"
+                error={keepaliveCountError}
+                helperText={t('systemSettings.general.keepaliveCountHelper')}
+                aria-invalid={keepaliveCountError ? 'true' : 'false'}
+              />
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="language">{t('common.language')}</Label>
               <LanguageSelector />
               <p className="text-sm text-content-muted">
@@ -353,6 +412,7 @@ export default function SystemSettings() {
             <Button
               onClick={() => saveSettingsMutation.mutate()}
               isLoading={saveSettingsMutation.isPending}
+              disabled={hasKeepaliveValidationError}
             >
               <Save className="h-4 w-4 mr-2" />
               {t('systemSettings.saveSettings')}

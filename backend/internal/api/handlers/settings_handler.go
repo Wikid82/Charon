@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +37,15 @@ type SettingsHandler struct {
 	SecuritySvc  *services.SecurityService
 	DataRoot     string
 }
+
+const (
+	settingCaddyKeepaliveIdle     = "caddy.keepalive_idle"
+	settingCaddyKeepaliveCount    = "caddy.keepalive_count"
+	minCaddyKeepaliveIdleDuration = time.Second
+	maxCaddyKeepaliveIdleDuration = 24 * time.Hour
+	minCaddyKeepaliveCount        = 1
+	maxCaddyKeepaliveCount        = 100
+)
 
 func NewSettingsHandler(db *gorm.DB) *SettingsHandler {
 	return &SettingsHandler{
@@ -107,6 +117,11 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid admin_whitelist: %v", err)})
 			return
 		}
+	}
+
+	if err := validateOptionalKeepaliveSetting(req.Key, req.Value); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
 	setting := models.Setting{
@@ -247,6 +262,10 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 				}
 			}
 
+			if err := validateOptionalKeepaliveSetting(key, value); err != nil {
+				return err
+			}
+
 			setting := models.Setting{
 				Key:      key,
 				Value:    value,
@@ -282,6 +301,10 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 		}
 		if errors.Is(err, services.ErrInvalidAdminCIDR) || strings.Contains(err.Error(), "invalid admin_whitelist") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid admin_whitelist"})
+			return
+		}
+		if strings.Contains(err.Error(), "invalid caddy.keepalive_idle") || strings.Contains(err.Error(), "invalid caddy.keepalive_count") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
@@ -396,6 +419,53 @@ func validateAdminWhitelist(whitelist string) error {
 		if !strings.Contains(cidr, "/") {
 			return fmt.Errorf("invalid CIDR format: %s (must include /prefix)", cidr)
 		}
+	}
+
+	return nil
+}
+
+func validateOptionalKeepaliveSetting(key, value string) error {
+	switch key {
+	case settingCaddyKeepaliveIdle:
+		return validateKeepaliveIdleValue(value)
+	case settingCaddyKeepaliveCount:
+		return validateKeepaliveCountValue(value)
+	default:
+		return nil
+	}
+}
+
+func validateKeepaliveIdleValue(value string) error {
+	idle := strings.TrimSpace(value)
+	if idle == "" {
+		return nil
+	}
+
+	d, err := time.ParseDuration(idle)
+	if err != nil {
+		return fmt.Errorf("invalid caddy.keepalive_idle")
+	}
+
+	if d < minCaddyKeepaliveIdleDuration || d > maxCaddyKeepaliveIdleDuration {
+		return fmt.Errorf("invalid caddy.keepalive_idle")
+	}
+
+	return nil
+}
+
+func validateKeepaliveCountValue(value string) error {
+	raw := strings.TrimSpace(value)
+	if raw == "" {
+		return nil
+	}
+
+	count, err := strconv.Atoi(raw)
+	if err != nil {
+		return fmt.Errorf("invalid caddy.keepalive_count")
+	}
+
+	if count < minCaddyKeepaliveCount || count > maxCaddyKeepaliveCount {
+		return fmt.Errorf("invalid caddy.keepalive_count")
 	}
 
 	return nil
