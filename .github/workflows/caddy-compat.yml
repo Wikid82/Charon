@@ -1,4 +1,4 @@
-name: Caddy PR-1 Compatibility Gate
+name: Caddy Compatibility Gate
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
       - Dockerfile
       - scripts/caddy-compat-matrix.sh
       - docs/plans/current_spec.md
-      - .github/workflows/caddy-pr1-compat.yml
+      - .github/workflows/caddy-compat.yml
   workflow_dispatch:
 
 concurrency:
@@ -44,14 +44,14 @@ jobs:
             --platforms linux/amd64,linux/arm64 \
             --smoke-set boot_caddy,plugin_modules,config_validate,admin_api_health \
             --output-dir test-results/caddy-compat \
-            --docs-report docs/reports/caddy-pr1-compatibility-matrix.md
+            --docs-report docs/reports/caddy-compatibility-matrix.md
 
       - name: Upload compatibility artifacts
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: caddy-pr1-compatibility-artifacts
+          name: caddy-compatibility-artifacts
           path: |
             test-results/caddy-compat/**
-            docs/reports/caddy-pr1-compatibility-matrix.md
+            docs/reports/caddy-compatibility-matrix.md
           retention-days: 14
