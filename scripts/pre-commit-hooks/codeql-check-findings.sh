@@ -31,7 +31,17 @@ check_sarif() {
                     .runs[] as $run
                     | $run.results[]
                     | . as $result
-                    | (($result.level // ($run.tool.driver.rules[$result.ruleIndex].defaultConfiguration.level // "")) | ascii_downcase) as $effectiveLevel
+                    | ($run.tool.driver.rules // []) as $rules
+                    | ((
+                        $result.level
+                        // (if (($result.ruleIndex | type) == "number") then ($rules[$result.ruleIndex].defaultConfiguration.level // empty) else empty end)
+                        // ([
+                            $rules[]?
+                            | select((.id // "") == ($result.ruleId // ""))
+                            | (.defaultConfiguration.level // empty)
+                        ][0] // empty)
+                        // ""
+                    ) | ascii_downcase) as $effectiveLevel
                     | select($effectiveLevel == "error" or $effectiveLevel == "warning")
                 ] | length' "$sarif_file" 2>/dev/null || echo 0)
 
@@ -43,7 +53,17 @@ check_sarif() {
                             .runs[] as $run
                             | $run.results[]
                             | . as $result
-                            | (($result.level // ($run.tool.driver.rules[$result.ruleIndex].defaultConfiguration.level // "")) | ascii_downcase) as $effectiveLevel
+                            | ($run.tool.driver.rules // []) as $rules
+                            | ((
+                                $result.level
+                                // (if (($result.ruleIndex | type) == "number") then ($rules[$result.ruleIndex].defaultConfiguration.level // empty) else empty end)
+                                // ([
+                                    $rules[]?
+                                    | select((.id // "") == ($result.ruleId // ""))
+                                    | (.defaultConfiguration.level // empty)
+                                ][0] // empty)
+                                // ""
+                            ) | ascii_downcase) as $effectiveLevel
                             | select($effectiveLevel == "error" or $effectiveLevel == "warning")
                             | "\($effectiveLevel): \($result.ruleId // "<unknown-rule>"): \($result.message.text) (\($result.locations[0].physicalLocation.artifactLocation.uri):\($result.locations[0].physicalLocation.region.startLine))"
                         ' "$sarif_file" 2>/dev/null | head -10
