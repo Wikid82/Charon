@@ -120,25 +120,60 @@ func TestNotificationProviderHandler_Templates(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Test(t *testing.T) {
-	r, _ := setupNotificationProviderTest(t)
+	r, db := setupNotificationProviderTest(t)
 
-	// Test with invalid provider (should fail validation or service check)
-	// Since we don't have notification dispatch mocked easily here,
-	// we expect it might fail or pass depending on service implementation.
-	// Looking at service code, TestProvider should validate and dispatch.
-	// If URL is invalid, it should error.
-
-	provider := models.NotificationProvider{
-		Type: "discord",
-		URL:  "invalid-url",
+	stored := models.NotificationProvider{
+		ID:      "trusted-provider-id",
+		Name:    "Stored Provider",
+		Type:    "discord",
+		URL:     "invalid-url",
+		Enabled: true,
 	}
-	body, _ := json.Marshal(provider)
+	require.NoError(t, db.Create(&stored).Error)
+
+	payload := map[string]any{
+		"id":   stored.ID,
+		"type": "discord",
+		"url":  "https://discord.com/api/webhooks/123/override",
+	}
+	body, _ := json.Marshal(payload)
 	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	// It should probably fail with 400
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "PROVIDER_TEST_FAILED")
+}
+
+func TestNotificationProviderHandler_Test_RequiresTrustedProviderID(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	payload := map[string]any{
+		"type": "discord",
+		"url":  "https://discord.com/api/webhooks/123/abc",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "MISSING_PROVIDER_ID")
+}
+
+func TestNotificationProviderHandler_Test_ReturnsNotFoundForUnknownProvider(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	payload := map[string]any{
+		"id": "missing-provider-id",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "PROVIDER_NOT_FOUND")
 }
 
 func TestNotificationProviderHandler_Errors(t *testing.T) {

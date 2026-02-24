@@ -42,9 +42,6 @@ check_sarif() {
                         ][0] // empty)
                         // ""
                     ) | ascii_downcase) as $effectiveLevel
-                    # Exception scope: exact rule+file only.
-                    # TODO(2026-03-24): Re-review and remove this suppression once CodeQL recognizes existing SSRF controls here.
-                    | select(((($result.ruleId // "") == "go/request-forgery") and (($result.locations[0].physicalLocation.artifactLocation.uri // "") == "internal/notifications/http_wrapper.go")) | not)
                     | select($effectiveLevel == "error" or $effectiveLevel == "warning")
                 ] | length' "$sarif_file" 2>/dev/null || echo 0)
 
@@ -67,7 +64,6 @@ check_sarif() {
                                 ][0] // empty)
                                 // ""
                             ) | ascii_downcase) as $effectiveLevel
-                            | select(((($result.ruleId // "") == "go/request-forgery") and (($result.locations[0].physicalLocation.artifactLocation.uri // "") == "internal/notifications/http_wrapper.go")) | not)
                             | select($effectiveLevel == "error" or $effectiveLevel == "warning")
                             | "\($effectiveLevel): \($result.ruleId // "<unknown-rule>"): \($result.message.text) (\($result.locations[0].physicalLocation.artifactLocation.uri):\($result.locations[0].physicalLocation.region.startLine))"
                         ' "$sarif_file" 2>/dev/null | head -10

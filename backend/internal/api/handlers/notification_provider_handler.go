@@ -70,18 +70,6 @@ func (r notificationProviderUpsertRequest) toModel() models.NotificationProvider
 	}
 }
 
-func (r notificationProviderTestRequest) toModel() models.NotificationProvider {
-	return models.NotificationProvider{
-		ID:       strings.TrimSpace(r.ID),
-		Name:     r.Name,
-		Type:     r.Type,
-		URL:      r.URL,
-		Config:   r.Config,
-		Template: r.Template,
-		Token:    strings.TrimSpace(r.Token),
-	}
-}
-
 func providerRequestID(c *gin.Context) string {
 	if value, ok := c.Get(string(trace.RequestIDKey)); ok {
 		if requestID, ok := value.(string); ok {
@@ -260,28 +248,31 @@ func (h *NotificationProviderHandler) Test(c *gin.Context) {
 		return
 	}
 
-	provider := req.toModel()
-
-	provider.Type = strings.ToLower(strings.TrimSpace(provider.Type))
-	if provider.Type == "gotify" && strings.TrimSpace(provider.Token) != "" {
+	providerType := strings.ToLower(strings.TrimSpace(req.Type))
+	if providerType == "gotify" && strings.TrimSpace(req.Token) != "" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "TOKEN_WRITE_ONLY", "validation", "Gotify token is accepted only on provider create/update")
 		return
 	}
 
-	if provider.Type == "gotify" && strings.TrimSpace(provider.ID) != "" {
-		var stored models.NotificationProvider
-		if err := h.service.DB.Where("id = ?", provider.ID).First(&stored).Error; err == nil {
-			provider.Token = stored.Token
-			if provider.URL == "" {
-				provider.URL = stored.URL
-			}
-			if provider.Config == "" {
-				provider.Config = stored.Config
-			}
-			if provider.Template == "" {
-				provider.Template = stored.Template
-			}
+	providerID := strings.TrimSpace(req.ID)
+	if providerID == "" {
+		respondSanitizedProviderError(c, http.StatusBadRequest, "MISSING_PROVIDER_ID", "validation", "Trusted provider ID is required for test dispatch")
+		return
+	}
+
+	var provider models.NotificationProvider
+	if err := h.service.DB.Where("id = ?", providerID).First(&provider).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			respondSanitizedProviderError(c, http.StatusNotFound, "PROVIDER_NOT_FOUND", "validation", "Provider not found")
+			return
 		}
+		respondSanitizedProviderError(c, http.StatusInternalServerError, "PROVIDER_READ_FAILED", "internal", "Failed to read provider")
+		return
+	}
+
+	if strings.TrimSpace(provider.URL) == "" {
+		respondSanitizedProviderError(c, http.StatusBadRequest, "PROVIDER_CONFIG_MISSING", "validation", "Trusted provider configuration is incomplete")
+		return
 	}
 
 	if err := h.service.TestProvider(provider); err != nil {
