@@ -127,18 +127,17 @@ func isLocalRequest(c *gin.Context) bool {
 
 // setSecureCookie sets an auth cookie with security best practices
 // - HttpOnly: prevents JavaScript access (XSS protection)
-// - Secure: derived from request scheme to allow HTTP/IP logins when needed
+// - Secure: always true to prevent cookie transmission over cleartext channels
 // - SameSite: Strict for HTTPS, Lax for HTTP/IP to allow forward-auth redirects
 func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
 	scheme := requestScheme(c)
-	secure := scheme == "https"
+	secure := true
 	sameSite := http.SameSiteStrictMode
 	if scheme != "https" {
 		sameSite = http.SameSiteLaxMode
 	}
 
 	if isLocalRequest(c) {
-		secure = false
 		sameSite = http.SameSiteLaxMode
 	}
 
@@ -152,7 +151,7 @@ func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
 		maxAge, // maxAge in seconds
 		"/",    // path
 		domain, // domain (empty = current host)
-		secure, // secure (HTTPS only in production)
+		secure, // secure (always true)
 		true,   // httpOnly (no JS access)
 	)
 }

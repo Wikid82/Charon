@@ -464,3 +464,65 @@ If compatibility uploads create noise, duplicate alert confusion, or unstable ch
 
 - **PR-1 (recommended single PR, low-risk additive):** add compatibility SARIF uploads in `docker-build.yml` (`scan-pr-image`) with SARIF existence guards, `continue-on-error` on compatibility uploads, and mandatory non-PR category hardening, plus brief inline rationale comments.
 - **PR-2 (cleanup PR, delayed):** remove `.github/workflows/docker-publish.yml:build-and-push` compatibility upload after stabilization window and verify no warning recurrence.
+
+---
+
+## CodeQL Targeted Remediation Plan — Current Findings (2026-02-24)
+
+Status: Planned (minimal and surgical)
+Scope: Three current findings only; no broad refactors; no suppression-first approach.
+
+### Implementation Order (behavior-safe)
+
+1. **Frontend low-risk correctness fix first**
+  - Resolve `js/comparison-between-incompatible-types` in `frontend/src/components/CredentialManager.tsx`.
+  - Reason: isolated UI logic change with lowest regression risk.
+
+2. **Cookie security hardening second**
+  - Resolve `go/cookie-secure-not-set` in `backend/internal/api/handlers/auth_handler.go`.
+  - Reason: auth behavior impact is manageable with existing token-in-response fallback.
+
+3. **SSRF/request-forgery hardening last**
+  - Resolve `go/request-forgery` in `backend/internal/notifications/http_wrapper.go`.
+  - Reason: highest security sensitivity; keep changes narrowly at request sink path.
+
+### File-Level Actions
+
+1. **`frontend/src/components/CredentialManager.tsx`** (`js/comparison-between-incompatible-types`)
+  - Remove the redundant null comparison that is always true in the guarded render path (line currently flagged around delete-confirm dialog open state).
+  - Keep existing dialog UX and delete flow unchanged.
+  - Prefer direct logic cleanup (real fix), not query suppression.
+
+2. **`backend/internal/api/handlers/auth_handler.go`** (`go/cookie-secure-not-set`)
+  - Ensure auth cookie emission is secure-by-default and does not set insecure auth cookies on non-HTTPS requests.
+  - Preserve login behavior by continuing to return token in response body for non-cookie fallback clients.
+  - Add/update targeted tests to verify:
+    - secure flag is set for HTTPS auth cookie,
+    - no insecure auth cookie path is emitted,
+    - login/refresh/logout flows remain functional.
+
+3. **`backend/internal/notifications/http_wrapper.go`** (`go/request-forgery`)
+  - Strengthen sink-adjacent outbound validation before network send:
+    - enforce parsed host/IP re-validation immediately before `client.Do`,
+    - verify resolved destination IPs are not loopback/private/link-local/multicast/unspecified,
+    - keep existing HTTPS/query-auth restrictions and retry behavior intact.
+  - Add/update focused wrapper tests for blocked internal targets and allowed public targets.
+  - Prefer explicit validation controls over suppression annotations.
+
+### Post-Fix Validation Commands (exact)
+
+1. **Targeted tests**
+  - `cd /projects/Charon && go test ./backend/internal/notifications -count=1`
+  - `cd /projects/Charon && go test ./backend/internal/api/handlers -count=1`
+  - `cd /projects/Charon/frontend && npm run test -- src/components/__tests__/CredentialManager.test.tsx`
+
+2. **Lint / type-check**
+  - `cd /projects/Charon && make lint-fast`
+  - `cd /projects/Charon/frontend && npm run type-check`
+
+3. **CodeQL scans (CI-aligned local scripts)**
+  - `cd /projects/Charon && bash scripts/pre-commit-hooks/codeql-go-scan.sh`
+  - `cd /projects/Charon && bash scripts/pre-commit-hooks/codeql-js-scan.sh`
+
+4. **Findings gate**
+  - `cd /projects/Charon && bash scripts/pre-commit-hooks/codeql-check-findings.sh`

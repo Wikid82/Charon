@@ -94,7 +94,7 @@ func TestSetSecureCookie_HTTP_Lax(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	c := cookies[0]
-	assert.False(t, c.Secure)
+	assert.True(t, c.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, c.SameSite)
 }
 
@@ -115,7 +115,7 @@ func TestSetSecureCookie_ForwardedHTTPS_LocalhostForcesInsecure(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
-	assert.False(t, cookie.Secure)
+	assert.True(t, cookie.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
@@ -136,7 +136,7 @@ func TestSetSecureCookie_ForwardedHTTPS_LoopbackForcesInsecure(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
-	assert.False(t, cookie.Secure)
+	assert.True(t, cookie.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
@@ -158,7 +158,7 @@ func TestSetSecureCookie_ForwardedHostLocalhostForcesInsecure(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
-	assert.False(t, cookie.Secure)
+	assert.True(t, cookie.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
@@ -180,7 +180,7 @@ func TestSetSecureCookie_OriginLoopbackForcesInsecure(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
-	assert.False(t, cookie.Secure)
+	assert.True(t, cookie.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 

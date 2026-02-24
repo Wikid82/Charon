@@ -64,11 +64,13 @@ func main() {
 	jsonOutPath := resolvePath(repoRoot, *jsonOutFlag)
 	mdOutPath := resolvePath(repoRoot, *mdOutFlag)
 
-	if err := assertFileExists(backendCoveragePath, "backend coverage file"); err != nil {
+	err = assertFileExists(backendCoveragePath, "backend coverage file")
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if err := assertFileExists(frontendCoveragePath, "frontend coverage file"); err != nil {
+	err = assertFileExists(frontendCoveragePath, "frontend coverage file")
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
