@@ -1,528 +1,214 @@
 ---
-post_title: "Current Spec: Notify HTTP Wrapper Rollout for Gotify and Custom Webhook"
+post_title: "Current Spec: Docker Socket Local-vs-Remote Regression and Traceability"
 categories:
   - actions
+  - testing
+  - docker
   - backend
   - frontend
-  - testing
-  - security
 tags:
-  - notify-migration
-  - gotify
-  - webhook
   - playwright
-  - patch-coverage
-summary: "Single authoritative plan for Notify HTTP wrapper rollout for Gotify and Custom Webhook, including token secrecy contract, SSRF hardening, transport safety, expanded test matrix, and safe PR slicing."
-post_date: 2026-02-23
+  - docker-socket
+  - regression
+  - traceability
+  - coverage
+summary: "Execution-ready, strict-scope plan for docker socket local-vs-remote regression tests and traceability, with resolved test strategy, failure simulation, coverage sequencing, and minimal PR slicing."
+post_date: 2026-02-24
 ---
 
-## Active Plan: Notify Migration — HTTP Wrapper for Gotify and Custom Webhook
+## Active Plan
 
-Date: 2026-02-23
-Status: Ready for Supervisor Review
-Scope Type: Backend + Frontend + E2E + Coverage/CI alignment
-Authority: This is the only active authoritative plan in this file.
+Date: 2026-02-24
+Status: Execution-ready
+Scope: Docker socket local-vs-remote regression tests and traceability only
 
 ## Introduction
 
-This plan defines the Notify migration increment that enables HTTP-wrapper
-routing for `gotify` and `webhook` providers while preserving current Discord
-behavior.
+This plan protects the recent Playwright compose change where the docker socket
+mount was already added. The objective is to prevent regressions in local Docker
+source behavior, guarantee remote Docker no-regression behavior, and provide
+clear requirement-to-test traceability.
 
-Primary goals:
-
-1. Enable a unified wrapper path for outbound provider dispatch.
-2. Make Gotify token handling write-only and non-leaking by contract.
-3. Add explicit SSRF/redirect/rebinding protections.
-4. Add strict error leakage controls for preview/test paths.
-5. Add wrapper transport guardrails and expanded validation tests.
+Out of scope:
+- Gotify/notifications changes
+- security hardening outside this regression ask
+- backend/frontend feature refactors unrelated to docker source regression tests
 
 ## Research Findings
 
-### Current architecture and constraints
+Current-state confirmations:
+- Playwright compose already includes docker socket mount (user already added it)
+  and this plan assumes that current state as baseline.
+- Existing Docker source coverage is present but not sufficient to lock failure
+  classes and local-vs-remote recovery behavior.
 
-- Notification provider CRUD/Test/Preview routes already exist:
-  - `GET/POST/PUT/DELETE /api/v1/notifications/providers`
-  - `POST /api/v1/notifications/providers/test`
-  - `POST /api/v1/notifications/providers/preview`
-- Current provider handling is Discord-centric in handler/service/frontend.
-- Security-event dispatch path exists and is stable.
-- Existing notification E2E coverage is mostly Discord-focused.
+Known test/code areas for this scope:
+- E2E: `tests/core/proxy-hosts.spec.ts`
+- Frontend tests: `frontend/src/hooks/__tests__/useDocker.test.tsx`
+- Frontend form tests: `frontend/src/components/__tests__/ProxyHostForm-dropdown-changes.test.tsx`
+- Backend service tests: `backend/internal/services/docker_service_test.go`
+- Backend handler tests: `backend/internal/api/handlers/docker_handler_test.go`
 
-### Gaps to close
+Confidence score: 96%
 
-1. Wrapper enablement for Gotify/Webhook is incomplete end-to-end.
-2. Token secrecy contract is not explicit enough across write/read/test flows.
-3. SSRF policy needs explicit protocol, redirect, and DNS rebinding rules.
-4. Error details need strict sanitization and request correlation.
-5. Retry/body/header transport limits need explicit hard requirements.
+Rationale:
+- Required paths already exist.
+- Scope is strictly additive/traceability-focused.
+- No unresolved architecture choices remain.
 
 ## Requirements (EARS)
 
-1. WHEN provider type is `gotify` or `webhook`, THE SYSTEM SHALL dispatch
-   outbound notifications through a shared HTTP wrapper path.
-2. WHEN provider type is `discord`, THE SYSTEM SHALL preserve current behavior
-   with no regression in create/update/test/preview flows.
-3. WHEN a Gotify token is provided, THE SYSTEM SHALL accept it only on create
-   and update write paths.
-4. WHEN a Gotify token is accepted, THE SYSTEM SHALL store it securely
-   server-side.
-5. WHEN provider data is returned on read/test/preview responses, THE SYSTEM
-   SHALL NOT return token values or secret derivatives.
-6. WHEN validation errors or logs are emitted, THE SYSTEM SHALL NOT echo token,
-   auth header, or secret material.
-7. WHEN wrapper dispatch is used, THE SYSTEM SHALL enforce HTTPS-only targets by
-   default.
-8. WHEN development override is required for HTTP targets, THE SYSTEM SHALL
-   allow it only via explicit controlled dev flag, disabled by default.
-9. WHEN redirects are encountered, THE SYSTEM SHALL deny redirects by default;
-   if redirects are enabled, THE SYSTEM SHALL re-validate each hop.
-10. WHEN resolving destination addresses, THE SYSTEM SHALL block loopback,
-    link-local, private, multicast, and IPv6 ULA ranges.
-11. WHEN DNS resolution changes during request lifecycle, THE SYSTEM SHALL
-    perform re-resolution checks and reject rebinding to blocked ranges.
-12. WHEN wrapper mode dispatches Gotify/Webhook, THE SYSTEM SHALL use `POST`
-    only.
-13. WHEN preview/test/send errors are returned, THE SYSTEM SHALL return only
-    sanitized categories and include `request_id`.
-14. WHEN preview/test/send errors are returned, THE SYSTEM SHALL NOT include raw
-    payloads, token values, or raw query-string data.
-15. WHEN wrapper transport executes, THE SYSTEM SHALL enforce max request and
-    response body sizes, strict header allowlist, and bounded retry budget with
-    exponential backoff and jitter.
-16. WHEN retries are evaluated, THE SYSTEM SHALL retry only on network errors,
-    `429`, and `5xx`; it SHALL NOT retry other `4xx` responses.
+- WHEN Docker source is `Local (Docker Socket)` and socket access is available,
+  THE SYSTEM SHALL list containers successfully through the real request path.
+- WHEN local Docker returns permission denied,
+  THE SYSTEM SHALL surface a deterministic docker-unavailable error state.
+- WHEN local Docker returns missing socket,
+  THE SYSTEM SHALL surface a deterministic docker-unavailable error state.
+- WHEN local Docker returns daemon unreachable,
+  THE SYSTEM SHALL surface a deterministic docker-unavailable error state.
+- WHEN local Docker fails and user switches to remote Docker source,
+  THE SYSTEM SHALL allow recovery and load remote containers without reload.
+- WHEN remote Docker path is valid,
+  THE SYSTEM SHALL continue to work regardless of local failure-class tests.
 
-## Technical Specifications
+## Resolved Decisions
 
-### Backend contract
+1. Test-file strategy: keep all new E2E cases in existing
+   `tests/core/proxy-hosts.spec.ts` under one focused Docker regression describe block.
+2. Failure simulation strategy: use deterministic interception/mocking for failure
+   classes (`permission denied`, `missing socket`, `daemon unreachable`), and use
+   one non-intercepted real-path local-success test.
+3. Codecov timing: update `codecov.yml` only in PR-2 and only if needed after
+   PR-1 test signal review; no unrelated coverage policy churn.
 
-- New module: `backend/internal/notifications/http_wrapper.go`
-- Core types: `HTTPWrapperRequest`, `RetryPolicy`, `HTTPWrapperResult`,
-  `HTTPWrapper`
-- Core functions: `NewNotifyHTTPWrapper`, `Send`, `isRetryableStatus`,
-  `sanitizeOutboundHeaders`
+## Explicit Test Strategy
 
-### Gotify secret contract
+### E2E (Playwright)
 
-- Token accepted only in write path:
-  - `POST /api/v1/notifications/providers`
-  - `PUT /api/v1/notifications/providers/:id`
-- Token stored securely server-side.
-- Token never returned in:
-  - provider reads/lists
-  - test responses
-  - preview responses
-- Token never shown in:
-  - validation details
-  - logs
-  - debug payload echoes
-- Token transport uses header `X-Gotify-Key` only.
-- Query token usage is rejected.
+1. Real-path local-success test (no interception):
+   - Validate local Docker source works when socket is accessible in current
+     Playwright compose baseline.
+2. Deterministic failure-class tests (interception/mocking):
+   - local permission denied
+   - local missing socket
+   - local daemon unreachable
+3. Remote no-regression test:
+   - Validate remote Docker path still lists containers and remains unaffected by
+     local failure-class scenarios.
+4. Local-fail-to-remote-recover test:
+   - Validate source switch recovery without page reload.
 
-### SSRF hardening requirements
+### Unit tests
 
-- HTTPS-only by default.
-- Controlled dev override for HTTP (explicit flag, default-off).
-- Redirect policy:
-  - deny redirects by default, or
-  - if enabled, re-validate each redirect hop before follow.
-- Address range blocking includes:
-  - loopback
-  - link-local
-  - private RFC1918
-  - multicast
-  - IPv6 ULA
-  - other internal/non-routable ranges used by current SSRF guard.
-- DNS rebinding mitigation:
-  - resolve before request
-  - re-resolve before connect/use
-  - reject when resolved destination shifts into blocked space.
-- Wrapper dispatch method for Gotify/Webhook remains `POST` only.
+- Frontend: hook/form coverage for error surfacing and recovery UX.
+- Backend: connectivity classification and handler status mapping for the three
+  failure classes plus remote success control case.
 
-### Error leakage controls
+## Concrete DoD Order (Testing Protocol Aligned)
 
-- Preview/Test/Send errors return:
-  - `error`
-  - `code`
-  - `category` (sanitized)
-  - `request_id`
-- Forbidden in error payloads/logs:
-  - raw request payloads
-  - tokens/auth headers
-  - full query strings containing secrets
-  - raw upstream response dumps that can leak sensitive fields.
+1. Run E2E first (mandatory): execute Docker regression scenarios above.
+2. Generate local patch report artifacts (mandatory):
+   - `test-results/local-patch-report.md`
+   - `test-results/local-patch-report.json`
+3. Run unit tests and enforce coverage thresholds:
+   - backend unit tests with repository minimum coverage threshold
+   - frontend unit tests with repository minimum coverage threshold
+4. If patch coverage gaps remain for changed lines, add targeted tests until
+   regression lines are covered with clear rationale.
 
-### Wrapper transport safety
+## Traceability Matrix
 
-- Request body max: 256 KiB.
-- Response body max: 1 MiB.
-- Strict outbound header allowlist:
-  - `Content-Type`
-  - `User-Agent`
-  - `X-Request-ID`
-  - `X-Gotify-Key`
-  - explicitly allowlisted custom headers only.
-- Retry budget:
-  - max attempts: 3
-  - exponential backoff + jitter
-  - retry on network error, `429`, `5xx`
-  - no retry on other `4xx`.
-
-## API Behavior by Mode
-
-### `gotify`
-
-- Required: `type`, `url`, valid payload with `message`.
-- Token accepted only on create/update writes.
-- Outbound auth via `X-Gotify-Key` header.
-- Query-token requests are rejected.
-
-### `webhook`
-
-- Required: `type`, `url`, valid renderable template.
-- Outbound dispatch through wrapper (`POST` JSON) with strict header controls.
-
-### `discord`
-
-- Existing behavior remains unchanged for this migration.
-
-## Frontend Design
-
-- `frontend/src/api/notifications.ts`
-  - supports `discord`, `gotify`, `webhook`
-  - submits token only on create/update writes
-  - never expects token in read/test/preview payloads
-- `frontend/src/pages/Notifications.tsx`
-  - conditional provider fields
-  - masked Gotify token input
-  - no token re-display in readback views
-- `frontend/src/pages/__tests__/Notifications.test.tsx`
-  - update discord-only assumptions
-  - add redaction checks
-
-## Test Matrix Expansion
-
-### Playwright E2E
-
-- Update: `tests/settings/notifications.spec.ts`
-- Add: `tests/settings/notifications-payload.spec.ts`
-
-Required scenarios:
-
-1. Redirect-to-internal SSRF attempt is blocked.
-2. DNS rebinding simulation is blocked (unit/integration + E2E observable path).
-3. Retry policy verification:
-   - retry on `429` and `5xx`
-   - no retry on non-`429` `4xx`.
-4. Token redaction checks across API/log/UI surfaces.
-5. Query-token rejection.
-6. Oversized payload rejection.
-7. Discord regression coverage.
-
-### Backend Unit/Integration
-
-- Update/add:
-  - `backend/internal/services/notification_service_json_test.go`
-  - `backend/internal/services/notification_service_test.go`
-  - `backend/internal/services/enhanced_security_notification_service_test.go`
-  - `backend/internal/api/handlers/notification_provider_handler_test.go`
-  - `backend/internal/api/handlers/notification_provider_handler_validation_test.go`
-- Add integration file:
-  - `backend/integration/notification_http_wrapper_integration_test.go`
-
-Mandatory assertions:
-
-- redirect-hop SSRF blocking
-- DNS rebinding mitigation
-- retry/non-retry classification
-- token redaction in API/log/UI
-- query-token rejection
-- oversized payload rejection
+| Requirement | Test name | File | PR slice |
+|---|---|---|---|
+| Local works with accessible socket | `Docker Source - local socket accessible loads containers (real path)` | `tests/core/proxy-hosts.spec.ts` | PR-1 |
+| Local permission denied surfaces deterministic error | `Docker Source - local permission denied shows docker unavailable` | `tests/core/proxy-hosts.spec.ts` | PR-1 |
+| Local missing socket surfaces deterministic error | `Docker Source - local missing socket shows docker unavailable` | `tests/core/proxy-hosts.spec.ts` | PR-1 |
+| Local daemon unreachable surfaces deterministic error | `Docker Source - local daemon unreachable shows docker unavailable` | `tests/core/proxy-hosts.spec.ts` | PR-1 |
+| Remote path remains healthy | `Docker Source - remote server path no regression` | `tests/core/proxy-hosts.spec.ts` | PR-1 |
+| Recovery from local failure to remote success | `Docker Source - switch local failure to remote success recovers` | `tests/core/proxy-hosts.spec.ts` | PR-1 |
+| Frontend maps failure details correctly | `useDocker - maps docker unavailable details by failure class` | `frontend/src/hooks/__tests__/useDocker.test.tsx` | PR-1 |
+| Form keeps UX recoverable after local failure | `ProxyHostForm - allows remote switch after local docker error` | `frontend/src/components/__tests__/ProxyHostForm-dropdown-changes.test.tsx` | PR-1 |
+| Backend classifies failure classes | `TestIsDockerConnectivityError_*` | `backend/internal/services/docker_service_test.go` | PR-1 |
+| Handler maps unavailable classes and preserves remote success | `TestDockerHandler_ListContainers_*` | `backend/internal/api/handlers/docker_handler_test.go` | PR-1 |
+| Coverage traceability policy alignment (if needed) | `Codecov ignore policy update review` | `codecov.yml` | PR-2 |
 
 ## Implementation Plan
 
-### Phase 1 — Backend safety foundation
+### Phase 1: Regression tests
 
-- implement wrapper contract
-- implement secret contract + SSRF/error/transport controls
-- keep frontend unchanged
-
-Exit criteria:
-
-- backend tests green
-- no Discord regression in backend paths
-
-### Phase 2 — Frontend enablement
-
-- enable Gotify/Webhook UI/client paths
-- enforce token write-only UX semantics
+- Add E2E Docker regression block in `tests/core/proxy-hosts.spec.ts` with one
+  real-path success, three deterministic failure-class tests, one remote
+  no-regression test, and one recovery test.
+- Extend frontend and backend unit tests for the same failure taxonomy and
+  recovery behavior.
 
 Exit criteria:
+- All required tests exist and pass.
+- Failure classes are deterministic and non-flaky.
 
-- frontend tests green
-- accessibility and form behavior validated
+### Phase 2: Traceability and coverage policy (conditional)
 
-### Phase 3 — E2E and coverage hardening
-
-- add expanded matrix scenarios
-- enforce DoD sequence and patch-report artifacts
+- Review whether current `codecov.yml` ignore entries reduce traceability for
+  docker regression files.
+- If needed, apply minimal `codecov.yml` update only for docker-related ignores.
 
 Exit criteria:
-
-- E2E matrix passing
-- `test-results/local-patch-report.md` generated
-- `test-results/local-patch-report.json` generated
+- Traceability from requirement to coverage/reporting is clear.
+- No unrelated codecov policy changes.
 
 ## PR Slicing Strategy
 
-Decision: Multiple PRs for security and rollback safety.
+Decision: two minimal PRs.
 
-### Schema migration decision
-
-- Decision: no schema migration in `PR-1`.
-- Contingency: if schema changes become necessary, create separate `PR-0` for
-  migration-only changes before `PR-1`.
-
-### PR-1 — Backend wrapper + safety controls
+### PR-1: regression tests + compose profile baseline
 
 Scope:
-
-- wrapper module + service/handler integration
-- secret contract + SSRF + leakage + transport controls
-- unit/integration tests
-
-Mandatory rollout safety:
-
-- feature flags for Gotify/Webhook dispatch are default `OFF` in PR-1.
+- docker socket local-vs-remote regression tests (E2E + targeted unit tests)
+- preserve and validate current Playwright compose socket-mount baseline
 
 Validation gates:
+- E2E first pass for regression matrix
+- local patch report artifacts generated
+- unit tests and coverage thresholds pass
 
-- backend tests pass
-- no token leakage in API/log/error flows
-- no Discord regression
+Rollback contingency:
+- revert only newly added regression tests if instability appears
 
-### PR-2 — Frontend provider UX
+### PR-2: traceability/coverage policy update (if needed)
 
 Scope:
-
-- API client and Notifications page updates
-- frontend tests for mode handling and redaction
-
-Dependencies: PR-1 merged.
+- minimal `codecov.yml` adjustment strictly tied to docker regression
+  traceability
 
 Validation gates:
+- coverage reporting reflects changed docker regression surfaces
+- no unrelated policy drift
 
-- frontend tests pass
-- accessibility checks pass
+Rollback contingency:
+- revert only `codecov.yml` delta
 
-### PR-3 — Playwright matrix and coverage hardening
+## Acceptance Criteria
 
-Scope:
+- Exactly one coherent plan exists in this file with one frontmatter block.
+- Scope remains strictly docker socket local-vs-remote regression tests and
+  traceability only.
+- All key decisions are resolved directly in the plan.
+- Current-state assumption is consistent: socket mount already added in
+  Playwright compose baseline.
+- Test strategy explicitly includes:
+  - one non-intercepted real-path local-success test
+  - deterministic intercepted/mocked failure-class tests
+  - remote no-regression test
+- DoD order is concrete and protocol-aligned:
+  - E2E first
+  - local patch report artifacts
+  - unit tests and coverage thresholds
+- Traceability matrix maps requirement -> test name -> file -> PR slice.
+- PR slicing is minimal and non-contradictory:
+  - PR-1 regression tests + compose profile baseline
+  - PR-2 traceability/coverage policy update if needed
 
-- notifications E2E matrix expansion
-- fixture updates as required
+## Handoff
 
-Dependencies: PR-1 and PR-2 merged.
-
-Validation gates:
-
-- security matrix scenarios pass
-- patch-report artifacts generated
-
-## Risks and Mitigations
-
-1. Risk: secret leakage via error/log paths.
-   - Mitigation: mandatory redaction and sanitized-category responses.
-2. Risk: SSRF bypass via redirects/rebinding.
-   - Mitigation: default redirect deny + per-hop re-validation + re-resolution.
-3. Risk: retry storms or payload abuse.
-   - Mitigation: capped retries, exponential backoff+jitter, size caps.
-4. Risk: Discord regression.
-   - Mitigation: preserved behavior, regression tests, default-off new flags.
-
-## Acceptance Criteria (Definition of Done)
-
-1. `docs/plans/current_spec.md` contains one active Notify migration plan only.
-2. Gotify token contract is explicit: write-path only, secure storage, zero
-   read/test/preview return.
-3. SSRF hardening includes HTTPS default, redirect controls, blocked ranges,
-   rebinding checks, and POST-only wrapper method.
-4. Preview/test error details are sanitized with `request_id` and no raw
-   payload/token/query leakage.
-5. Transport safety includes body size limits, strict header allowlist, and
-   bounded retry/backoff+jitter policy.
-6. Test matrix includes redirect-to-internal SSRF, rebinding simulation,
-   retry split, redaction checks, query-token rejection, oversized-payload
-   rejection.
-7. PR slicing includes PR-1 default-off flags and explicit schema decision.
-8. No conflicting language remains.
-9. Status remains: Ready for Supervisor Review.
-
-## Supervisor Handoff
-
-Ready for Supervisor review.
-
----
-
-## GAS Warning Remediation Plan — Missing Code Scanning Configurations (2026-02-24)
-
-Status: Planned (ready for implementation PR)
-Issue: GitHub Advanced Security warning on PRs:
-
-> Code scanning cannot determine alerts introduced by this PR because 3 configurations present on refs/heads/development were not found: `trivy-nightly (nightly-build.yml)`, `.github/workflows/docker-build.yml:build-and-push`, `.github/workflows/docker-publish.yml:build-and-push`.
-
-### 1) Root Cause Summary
-
-Research outcome from current workflow state and history:
-
-- `.github/workflows/docker-publish.yml` was deleted in commit `f640524baaf9770aa49f6bd01c5bde04cd50526c` (2025-12-21), but historical code-scanning configuration identity from that workflow (`.github/workflows/docker-publish.yml:build-and-push`) still exists in baseline comparisons.
-- Both legacy `docker-publish.yml` and current `docker-build.yml` used job id `build-and-push` and uploaded Trivy SARIF only for non-PR events (`push`/scheduled paths), so PR branches often do not produce configuration parity.
-- `.github/workflows/nightly-build.yml` uploads SARIF with explicit category `trivy-nightly`, but this workflow is schedule/manual only, so PR branches do not emit `trivy-nightly`.
-- Current PR scanning in `docker-build.yml` uses `scan-pr-image` with category `docker-pr-image`, which does not satisfy parity for legacy/base configuration identities.
-- Result: GitHub cannot compute “introduced by this PR” for those 3 baseline configurations because matching configurations are absent in PR analysis runs.
-
-### 2) Minimal-Risk Remediation Strategy (Future-PR Safe)
-
-Decision: keep existing security scans and add compatibility SARIF uploads in PR context, without changing branch/release behavior.
-
-Why this is minimal risk:
-
-- No changes to image build semantics, release tags, or nightly promotion flow.
-- Reuses already-generated SARIF files (no new scanner runtime dependency).
-- Limited to additive upload steps and explicit categories.
-- Provides immediate parity for PRs while allowing controlled cleanup of legacy configuration.
-
-### 3) Exact Workflow Edits to Apply
-
-#### A. `.github/workflows/docker-build.yml`
-
-In job `scan-pr-image`, after existing `Upload Trivy scan results` step:
-
-1. Add compatibility upload step reusing `trivy-pr-results.sarif` with category:
-  - `.github/workflows/docker-build.yml:build-and-push`
-2. Add compatibility alias upload step reusing `trivy-pr-results.sarif` with category:
-  - `trivy-nightly`
-3. Add temporary legacy compatibility upload step reusing `trivy-pr-results.sarif` with category:
-  - `.github/workflows/docker-publish.yml:build-and-push`
-
-Implementation notes:
-
-- Keep existing `docker-pr-image` category upload unchanged.
-- Add SARIF file existence guards before each compatibility upload (for example, conditional check that `trivy-pr-results.sarif` exists) to avoid spurious step failures.
-- Keep compatibility upload steps non-blocking with `continue-on-error: true`; use `if: always()` plus existence guard so upload attempts are resilient but quiet when SARIF is absent.
-- Add TODO/date marker in step name/description indicating temporary status for `docker-publish` alias and planned removal checkpoint.
-
-#### B. Mandatory category hardening (same PR)
-
-In `docker-build.yml` non-PR Trivy upload, explicitly set category to `.github/workflows/docker-build.yml:build-and-push`.
-
-- Requirement level: mandatory (not optional).
-- Purpose: make identity explicit and stable even if future upload defaults change.
-- Safe because it aligns with currently reported baseline identity.
-
-### 4) Migration/Cleanup for Legacy `docker-publish` Configuration
-
-Planned two-stage cleanup:
-
-1. **Stabilization window (concrete trigger):**
-  - Keep compatibility upload for `.github/workflows/docker-publish.yml:build-and-push` enabled.
-  - Keep temporary alias active through **2026-03-24** and until **at least 8 merged PRs** with successful `scan-pr-image` runs are observed (both conditions required).
-  - Verify warning is gone across representative PRs.
-
-2. **Retirement window:**
-  - Remove compatibility step for `docker-publish` category from `docker-build.yml`.
-  - In GitHub UI/API, close/dismiss remaining alerts tied only to legacy configuration if they persist and are no longer actionable.
-  - Confirm new PRs still show introduced-alert computation without warnings.
-
-### 5) Validation Steps (Expected Workflow Observations)
-
-For at least two PRs (one normal feature PR and one workflow-only PR), verify:
-
-1. `docker-build.yml` runs `scan-pr-image` and uploads SARIF under:
-  - `docker-pr-image`
-  - `.github/workflows/docker-build.yml:build-and-push`
-  - `trivy-nightly`
-  - `.github/workflows/docker-publish.yml:build-and-push` (temporary)
-2. PR Security tab no longer shows:
-  - “Code scanning cannot determine alerts introduced by this PR because ... configurations ... were not found”.
-3. No regression:
-  - Existing Trivy PR blocking behavior remains intact.
-  - Main/development/nightly push flows continue unchanged.
-
-### 6) Rollback Notes
-
-If compatibility uploads create noise, duplicate alert confusion, or unstable checks:
-
-1. Revert only the newly added compatibility upload steps (keep original uploads).
-2. Re-run workflows on a test PR and confirm baseline behavior restored.
-3. If warning reappears, switch to fallback strategy:
-  - Keep only `.github/workflows/docker-build.yml:build-and-push` compatibility upload.
-  - Remove `trivy-nightly` alias and handle nightly parity via separate dedicated PR-safe workflow.
-
-### 7) PR Slicing Strategy for This Fix
-
-- **PR-1 (recommended single PR, low-risk additive):** add compatibility SARIF uploads in `docker-build.yml` (`scan-pr-image`) with SARIF existence guards, `continue-on-error` on compatibility uploads, and mandatory non-PR category hardening, plus brief inline rationale comments.
-- **PR-2 (cleanup PR, delayed):** remove `.github/workflows/docker-publish.yml:build-and-push` compatibility upload after stabilization window and verify no warning recurrence.
-
----
-
-## CodeQL Targeted Remediation Plan — Current Findings (2026-02-24)
-
-Status: Planned (minimal and surgical)
-Scope: Three current findings only; no broad refactors; no suppression-first approach.
-
-### Implementation Order (behavior-safe)
-
-1. **Frontend low-risk correctness fix first**
-  - Resolve `js/comparison-between-incompatible-types` in `frontend/src/components/CredentialManager.tsx`.
-  - Reason: isolated UI logic change with lowest regression risk.
-
-2. **Cookie security hardening second**
-  - Resolve `go/cookie-secure-not-set` in `backend/internal/api/handlers/auth_handler.go`.
-  - Reason: auth behavior impact is manageable with existing token-in-response fallback.
-
-3. **SSRF/request-forgery hardening last**
-  - Resolve `go/request-forgery` in `backend/internal/notifications/http_wrapper.go`.
-  - Reason: highest security sensitivity; keep changes narrowly at request sink path.
-
-### File-Level Actions
-
-1. **`frontend/src/components/CredentialManager.tsx`** (`js/comparison-between-incompatible-types`)
-  - Remove the redundant null comparison that is always true in the guarded render path (line currently flagged around delete-confirm dialog open state).
-  - Keep existing dialog UX and delete flow unchanged.
-  - Prefer direct logic cleanup (real fix), not query suppression.
-
-2. **`backend/internal/api/handlers/auth_handler.go`** (`go/cookie-secure-not-set`)
-  - Ensure auth cookie emission is secure-by-default and does not set insecure auth cookies on non-HTTPS requests.
-  - Preserve login behavior by continuing to return token in response body for non-cookie fallback clients.
-  - Add/update targeted tests to verify:
-    - secure flag is set for HTTPS auth cookie,
-    - no insecure auth cookie path is emitted,
-    - login/refresh/logout flows remain functional.
-
-3. **`backend/internal/notifications/http_wrapper.go`** (`go/request-forgery`)
-  - Strengthen sink-adjacent outbound validation before network send:
-    - enforce parsed host/IP re-validation immediately before `client.Do`,
-    - verify resolved destination IPs are not loopback/private/link-local/multicast/unspecified,
-    - keep existing HTTPS/query-auth restrictions and retry behavior intact.
-  - Add/update focused wrapper tests for blocked internal targets and allowed public targets.
-  - Prefer explicit validation controls over suppression annotations.
-
-### Post-Fix Validation Commands (exact)
-
-1. **Targeted tests**
-  - `cd /projects/Charon && go test ./backend/internal/notifications -count=1`
-  - `cd /projects/Charon && go test ./backend/internal/api/handlers -count=1`
-  - `cd /projects/Charon/frontend && npm run test -- src/components/__tests__/CredentialManager.test.tsx`
-
-2. **Lint / type-check**
-  - `cd /projects/Charon && make lint-fast`
-  - `cd /projects/Charon/frontend && npm run type-check`
-
-3. **CodeQL scans (CI-aligned local scripts)**
-  - `cd /projects/Charon && bash scripts/pre-commit-hooks/codeql-go-scan.sh`
-  - `cd /projects/Charon && bash scripts/pre-commit-hooks/codeql-js-scan.sh`
-
-4. **Findings gate**
-  - `cd /projects/Charon && bash scripts/pre-commit-hooks/codeql-check-findings.sh`
+This plan is clean, internally consistent, and execution-ready for Supervisor
+review and delegation.

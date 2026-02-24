@@ -63,7 +63,7 @@ func TestDockerHandler_ListContainers_DockerUnavailableMappedTo503(t *testing.T)
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	dockerSvc := &fakeDockerService{err: services.NewDockerUnavailableError(errors.New("no docker socket"))}
+	dockerSvc := &fakeDockerService{err: services.NewDockerUnavailableError(errors.New("no docker socket"), "Local Docker socket is mounted but not accessible by current process")}
 	remoteSvc := &fakeRemoteServerService{}
 	h := NewDockerHandler(dockerSvc, remoteSvc)
 
@@ -78,7 +78,7 @@ func TestDockerHandler_ListContainers_DockerUnavailableMappedTo503(t *testing.T)
 	assert.Contains(t, w.Body.String(), "Docker daemon unavailable")
 	// Verify the new details field is included in the response
 	assert.Contains(t, w.Body.String(), "details")
-	assert.Contains(t, w.Body.String(), "Docker is running")
+	assert.Contains(t, w.Body.String(), "not accessible by current process")
 }
 
 func TestDockerHandler_ListContainers_ServerIDResolvesToTCPHost(t *testing.T) {
