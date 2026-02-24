@@ -49,6 +49,8 @@ services:
       # True tmpfs for E2E test data - fresh on every run, in-memory only
       # mode=1777 allows any user to write (container runs as non-root)
       - /app/data:size=100M,mode=1777
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro # For container discovery in tests
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/v1/health || exit 1"]
       interval: 5s
