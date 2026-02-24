@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestBlocker3_CreateProviderRejectsNonDiscordWithSecurityEvents tests that create rejects non-Discord providers with security events.
+// TestBlocker3_CreateProviderValidationWithSecurityEvents verifies supported/unsupported provider handling with security events enabled.
 func TestBlocker3_CreateProviderRejectsNonDiscordWithSecurityEvents(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -31,15 +31,16 @@ func TestBlocker3_CreateProviderRejectsNonDiscordWithSecurityEvents(t *testing.T
 	service := services.NewNotificationService(db)
 	handler := NewNotificationProviderHandler(service)
 
-	// Test cases: non-Discord provider types with security events enabled
+	// Test cases: provider types with security events enabled
 	testCases := []struct {
 		name         string
 		providerType string
+		wantStatus   int
 	}{
-		{"webhook", "webhook"},
-		{"slack", "slack"},
-		{"gotify", "gotify"},
-		{"email", "email"},
+		{"webhook", "webhook", http.StatusCreated},
+		{"gotify", "gotify", http.StatusCreated},
+		{"slack", "slack", http.StatusBadRequest},
+		{"email", "email", http.StatusBadRequest},
 	}
 
 	for _, tc := range testCases {
@@ -69,14 +70,15 @@ func TestBlocker3_CreateProviderRejectsNonDiscordWithSecurityEvents(t *testing.T
 			// Call Create
 			handler.Create(c)
 
-			// Blocker 3: Should reject with 400
-			assert.Equal(t, http.StatusBadRequest, w.Code, "Should reject non-Discord provider with security events")
+			assert.Equal(t, tc.wantStatus, w.Code)
 
 			// Verify error message
 			var response map[string]interface{}
 			err = json.Unmarshal(w.Body.Bytes(), &response)
 			assert.NoError(t, err)
-			assert.Contains(t, response["error"], "discord", "Error should mention Discord")
+			if tc.wantStatus == http.StatusBadRequest {
+				assert.Contains(t, response["code"], "UNSUPPORTED_PROVIDER_TYPE")
+			}
 		})
 	}
 }
@@ -129,8 +131,7 @@ func TestBlocker3_CreateProviderAcceptsDiscordWithSecurityEvents(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, w.Code, "Should accept Discord provider with security events")
 }
 
-// TestBlocker3_CreateProviderAcceptsNonDiscordWithoutSecurityEvents tests that create NOW REJECTS non-Discord providers even without security events.
-// NOTE: This test was updated for Discord-only rollout (current_spec.md) - now globally rejects all non-Discord.
+// TestBlocker3_CreateProviderAcceptsNonDiscordWithoutSecurityEvents verifies webhook create without security events remains accepted.
 func TestBlocker3_CreateProviderAcceptsNonDiscordWithoutSecurityEvents(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -172,17 +173,10 @@ func TestBlocker3_CreateProviderAcceptsNonDiscordWithoutSecurityEvents(t *testin
 	// Call Create
 	handler.Create(c)
 
-	// Discord-only rollout: Now REJECTS with 400
-	assert.Equal(t, http.StatusBadRequest, w.Code, "Should reject non-Discord provider (Discord-only rollout)")
-
-	// Verify error message
-	var response map[string]interface{}
-	err = json.Unmarshal(w.Body.Bytes(), &response)
-	assert.NoError(t, err)
-	assert.Contains(t, response["error"], "discord", "Error should mention Discord")
+	assert.Equal(t, http.StatusCreated, w.Code)
 }
 
-// TestBlocker3_UpdateProviderRejectsNonDiscordWithSecurityEvents tests that update rejects non-Discord providers with security events.
+// TestBlocker3_UpdateProviderRejectsNonDiscordWithSecurityEvents verifies webhook update with security events is allowed in PR-1 scope.
 func TestBlocker3_UpdateProviderRejectsNonDiscordWithSecurityEvents(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -235,14 +229,7 @@ func TestBlocker3_UpdateProviderRejectsNonDiscordWithSecurityEvents(t *testing.T
 	// Call Update
 	handler.Update(c)
 
-	// Blocker 3: Should reject with 400
-	assert.Equal(t, http.StatusBadRequest, w.Code, "Should reject non-Discord provider update with security events")
-
-	// Verify error message
-	var response map[string]interface{}
-	err = json.Unmarshal(w.Body.Bytes(), &response)
-	assert.NoError(t, err)
-	assert.Contains(t, response["error"], "discord", "Error should mention Discord")
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 // TestBlocker3_UpdateProviderAcceptsDiscordWithSecurityEvents tests that update accepts Discord providers with security events.
@@ -302,7 +289,7 @@ func TestBlocker3_UpdateProviderAcceptsDiscordWithSecurityEvents(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code, "Should accept Discord provider update with security events")
 }
 
-// TestBlocker3_MultipleSecurityEventsEnforcesDiscordOnly tests that having any security event enabled enforces Discord-only.
+// TestBlocker3_MultipleSecurityEventsEnforcesDiscordOnly tests webhook remains accepted with security flags in PR-1 scope.
 func TestBlocker3_MultipleSecurityEventsEnforcesDiscordOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -353,9 +340,8 @@ func TestBlocker3_MultipleSecurityEventsEnforcesDiscordOnly(t *testing.T) {
 			// Call Create
 			handler.Create(c)
 
-			// Blocker 3: Should reject with 400
-			assert.Equal(t, http.StatusBadRequest, w.Code,
-				"Should reject webhook provider with %s enabled", field)
+			assert.Equal(t, http.StatusCreated, w.Code,
+				"Should accept webhook provider with %s enabled", field)
 		})
 	}
 }
@@ -407,5 +393,5 @@ func TestBlocker3_UpdateProvider_DatabaseError(t *testing.T) {
 	var response map[string]interface{}
 	err = json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
-	assert.Equal(t, "provider not found", response["error"])
+	assert.Equal(t, "Provider not found", response["error"])
 }

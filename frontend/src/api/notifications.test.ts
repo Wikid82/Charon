@@ -88,14 +88,38 @@ describe('notifications api', () => {
     expect(mockedClient.delete).toHaveBeenCalledWith('/notifications/providers/new')
   })
 
-  it('rejects non-discord type before submit for provider mutations and preview', async () => {
-    await expect(createProvider({ name: 'Bad', type: 'slack' })).rejects.toThrow('Only discord notification providers are supported')
-    await expect(updateProvider('bad', { type: 'generic' })).rejects.toThrow('Only discord notification providers are supported')
-    await expect(testProvider({ id: 'bad', type: 'email' })).rejects.toThrow('Only discord notification providers are supported')
-    await expect(previewProvider({ id: 'bad', type: 'gotify' })).rejects.toThrow('Only discord notification providers are supported')
+  it('supports discord, gotify, and webhook while enforcing token payload contract', async () => {
+    mockedClient.post.mockResolvedValue({ data: { id: 'ok' } })
+    mockedClient.put.mockResolvedValue({ data: { id: 'ok' } })
 
-    expect(mockedClient.post).not.toHaveBeenCalled()
-    expect(mockedClient.put).not.toHaveBeenCalled()
+    await createProvider({ name: 'Gotify', type: 'gotify', gotify_token: 'secret-token' })
+    expect(mockedClient.post).toHaveBeenCalledWith('/notifications/providers', {
+      name: 'Gotify',
+      type: 'gotify',
+      token: 'secret-token',
+    })
+
+    await updateProvider('ok', { type: 'webhook', url: 'https://example.com/webhook', gotify_token: 'should-not-send' })
+    expect(mockedClient.put).toHaveBeenCalledWith('/notifications/providers/ok', {
+      type: 'webhook',
+      url: 'https://example.com/webhook',
+    })
+
+    await testProvider({ id: 'ok', type: 'gotify', gotify_token: 'should-not-send' })
+    expect(mockedClient.post).toHaveBeenCalledWith('/notifications/providers/test', {
+      id: 'ok',
+      type: 'gotify',
+    })
+
+    await previewProvider({ id: 'ok', type: 'gotify', gotify_token: 'should-not-send' })
+    expect(mockedClient.post).toHaveBeenCalledWith('/notifications/providers/preview', {
+      id: 'ok',
+      type: 'gotify',
+    })
+
+    await expect(createProvider({ name: 'Bad', type: 'slack' })).rejects.toThrow('Unsupported notification provider type: slack')
+    await expect(updateProvider('bad', { type: 'generic' })).rejects.toThrow('Unsupported notification provider type: generic')
+    await expect(testProvider({ id: 'bad', type: 'email' })).rejects.toThrow('Unsupported notification provider type: email')
   })
 
   it('fetches templates and previews provider payloads with data', async () => {

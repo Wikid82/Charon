@@ -1,14 +1,22 @@
 import { useEffect, useState, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, NotificationProvider, getExternalTemplates, previewExternalTemplate, ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate, NotificationTemplate } from '../api/notifications';
+import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, NotificationProvider, getExternalTemplates, previewExternalTemplate, ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate, NotificationTemplate, SUPPORTED_NOTIFICATION_PROVIDER_TYPES, type SupportedNotificationProviderType } from '../api/notifications';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { toast } from '../utils/toast';
 
-const DISCORD_PROVIDER_TYPE = 'discord' as const;
+const DISCORD_PROVIDER_TYPE: SupportedNotificationProviderType = 'discord';
+
+const isSupportedProviderType = (providerType: string | undefined): providerType is SupportedNotificationProviderType => {
+  if (!providerType) {
+    return false;
+  }
+
+  return SUPPORTED_NOTIFICATION_PROVIDER_TYPES.includes(providerType.toLowerCase() as SupportedNotificationProviderType);
+};
 
 // supportsJSONTemplates returns true if the provider type can use JSON templates
 const supportsJSONTemplates = (providerType: string | undefined): boolean => {
@@ -16,26 +24,44 @@ const supportsJSONTemplates = (providerType: string | undefined): boolean => {
   return providerType.toLowerCase() === DISCORD_PROVIDER_TYPE;
 };
 
-const isNonDiscordProvider = (providerType: string | undefined): boolean => {
-  if (!providerType) {
-    return false;
-  }
+const isUnsupportedProviderType = (providerType: string | undefined): boolean => !isSupportedProviderType(providerType);
 
-  return providerType.toLowerCase() !== DISCORD_PROVIDER_TYPE;
-};
-
-const normalizeProviderType = (providerType: string | undefined): typeof DISCORD_PROVIDER_TYPE => {
-  if (!providerType || providerType.toLowerCase() !== DISCORD_PROVIDER_TYPE) {
+const normalizeProviderType = (providerType: string | undefined): SupportedNotificationProviderType => {
+  if (!isSupportedProviderType(providerType)) {
     return DISCORD_PROVIDER_TYPE;
   }
 
-  return DISCORD_PROVIDER_TYPE;
+  return providerType.toLowerCase() as SupportedNotificationProviderType;
+};
+
+const normalizeProviderPayloadForSubmit = (data: Partial<NotificationProvider>): Partial<NotificationProvider> => {
+  const type = normalizeProviderType(data.type);
+  const payload: Partial<NotificationProvider> = {
+    ...data,
+    type,
+  };
+
+  if (type === 'gotify') {
+    const normalizedToken = typeof payload.gotify_token === 'string' ? payload.gotify_token.trim() : '';
+
+    if (normalizedToken.length > 0) {
+      payload.token = normalizedToken;
+    } else {
+      delete payload.token;
+    }
+  } else {
+    delete payload.token;
+  }
+
+  delete payload.gotify_token;
+  return payload;
 };
 
 const defaultProviderValues: Partial<NotificationProvider> = {
   type: DISCORD_PROVIDER_TYPE,
   enabled: true,
   config: '',
+  gotify_token: '',
   template: 'minimal',
   notify_proxy_hosts: true,
   notify_remote_servers: true,
@@ -64,7 +90,7 @@ const ProviderForm: FC<{
   useEffect(() => {
     // Reset form state per open/edit to avoid event checkbox leakage between runs.
     const normalizedInitialData = initialData
-      ? { ...defaultProviderValues, ...initialData, type: normalizeProviderType(initialData.type) }
+      ? { ...defaultProviderValues, ...initialData, type: normalizeProviderType(initialData.type), gotify_token: '' }
       : defaultProviderValues;
 
     reset(normalizedInitialData);
@@ -87,7 +113,7 @@ const ProviderForm: FC<{
 
   const handleTest = () => {
     const formData = watch();
-    testMutation.mutate({ ...formData, type: DISCORD_PROVIDER_TYPE } as Partial<NotificationProvider>);
+    testMutation.mutate({ ...formData, type: normalizeProviderType(formData.type) } as Partial<NotificationProvider>);
   };
 
   const handlePreview = async () => {
@@ -100,7 +126,7 @@ const ProviderForm: FC<{
         const res = await previewExternalTemplate(formData.template, undefined, undefined);
         if (res.parsed) setPreviewContent(JSON.stringify(res.parsed, null, 2)); else setPreviewContent(res.rendered);
       } else {
-        const res = await previewProvider({ ...formData, type: DISCORD_PROVIDER_TYPE } as Partial<NotificationProvider>);
+        const res = await previewProvider({ ...formData, type: normalizeProviderType(formData.type) } as Partial<NotificationProvider>);
         if (res.parsed) setPreviewContent(JSON.stringify(res.parsed, null, 2)); else setPreviewContent(res.rendered);
       }
     } catch (err: unknown) {
@@ -109,10 +135,11 @@ const ProviderForm: FC<{
     }
   };
 
-  const type = watch('type');
+  const type = normalizeProviderType(watch('type'));
+  const isGotify = type === 'gotify';
   useEffect(() => {
-    if (type !== DISCORD_PROVIDER_TYPE) {
-      setValue('type', DISCORD_PROVIDER_TYPE, { shouldDirty: false, shouldTouch: false });
+    if (type !== 'gotify') {
+      setValue('gotify_token', '', { shouldDirty: false, shouldTouch: false });
     }
   }, [type, setValue]);
 
@@ -141,9 +168,9 @@ const ProviderForm: FC<{
   };
 
   return (
-    <form onSubmit={handleSubmit((data) => onSubmit({ ...data, type: DISCORD_PROVIDER_TYPE }))} className="space-y-4">
+    <form onSubmit={handleSubmit((data) => onSubmit(normalizeProviderPayloadForSubmit(data as Partial<NotificationProvider>)))} className="space-y-4">
       <div>
-        <label htmlFor="provider-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.providerName')}</label>
+        <label htmlFor="provider-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.providerName')} <span aria-hidden="true">*</span></label>
         <input
           id="provider-name"
           {...register('name', { required: t('errors.required') as string })}
@@ -155,20 +182,21 @@ const ProviderForm: FC<{
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('common.type')}</label>
+        <label htmlFor="provider-type" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('common.type')}</label>
         <select
+          id="provider-type"
           {...register('type')}
           data-testid="provider-type"
-          disabled
-          aria-readonly="true"
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
         >
           <option value="discord">Discord</option>
+          <option value="gotify">Gotify</option>
+          <option value="webhook">{t('notificationProviders.genericWebhook')}</option>
         </select>
       </div>
 
       <div>
-        <label htmlFor="provider-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.urlWebhook')}</label>
+        <label htmlFor="provider-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.urlWebhook')} <span aria-hidden="true">*</span></label>
         <input
           id="provider-url"
           {...register('url', {
@@ -176,7 +204,7 @@ const ProviderForm: FC<{
             validate: validateUrl,
           })}
           data-testid="provider-url"
-          placeholder="https://discord.com/api/webhooks/..."
+          placeholder={type === 'discord' ? 'https://discord.com/api/webhooks/...' : type === 'gotify' ? 'https://gotify.example.com/message' : 'https://example.com/webhook'}
           className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm ${errors.url ? 'border-red-500' : ''}`}
           aria-invalid={errors.url ? 'true' : 'false'}
           aria-describedby={errors.url ? 'provider-url-error' : undefined}
@@ -187,6 +215,24 @@ const ProviderForm: FC<{
           </span>
         )}
       </div>
+
+      {isGotify && (
+        <div>
+          <label htmlFor="provider-gotify-token" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            {t('notificationProviders.gotifyToken')}
+          </label>
+          <input
+            id="provider-gotify-token"
+            type="password"
+            autoComplete="new-password"
+            {...register('gotify_token')}
+            data-testid="provider-gotify-token"
+            placeholder={t('notificationProviders.gotifyTokenPlaceholder')}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
+          />
+          <p className="text-xs text-gray-500 mt-1">{t('notificationProviders.gotifyTokenWriteOnlyHint')}</p>
+        </div>
+      )}
 
       {supportsJSONTemplates(type) && (
         <div>
@@ -563,7 +609,7 @@ const Notifications: FC = () => {
       <div className="grid gap-4">
         {providers?.map((provider) => (
           <Card key={provider.id} className="p-4" data-testid={`provider-row-${provider.id}`}>
-            {editingId === provider.id && !isNonDiscordProvider(provider.type) ? (
+            {editingId === provider.id && !isUnsupportedProviderType(provider.type) ? (
               <ProviderForm
                 initialData={provider}
                 onClose={() => setEditingId(null)}
@@ -582,7 +628,7 @@ const Notifications: FC = () => {
                         {t('common.saved')}
                       </span>
                     )}
-                    {isNonDiscordProvider(provider.type) && (
+                    {isUnsupportedProviderType(provider.type) && (
                       <div className="mt-2 space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span
@@ -616,18 +662,18 @@ const Notifications: FC = () => {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {!isNonDiscordProvider(provider.type) && (
+                  {!isUnsupportedProviderType(provider.type) && (
                     <Button
                       variant="secondary"
                       size="sm"
-                      onClick={() => testMutation.mutate({ ...provider, type: DISCORD_PROVIDER_TYPE })}
+                      onClick={() => testMutation.mutate({ ...provider, type: normalizeProviderType(provider.type) })}
                       isLoading={testMutation.isPending}
                       title={t('notificationProviders.sendTest')}
                     >
                       <Send className="w-4 h-4" />
                     </Button>
                   )}
-                  {!isNonDiscordProvider(provider.type) && (
+                  {!isUnsupportedProviderType(provider.type) && (
                     <Button variant="secondary" size="sm" onClick={() => setEditingId(provider.id)}>
                       <Edit2 className="w-4 h-4" />
                     </Button>

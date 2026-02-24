@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/trace"
 )
 
 func setupNotificationCoverageDB(t *testing.T) *gorm.DB {
@@ -317,6 +318,63 @@ func TestNotificationProviderHandler_Test_InvalidJSON(t *testing.T) {
 	h.Test(c)
 
 	assert.Equal(t, 400, w.Code)
+}
+
+func TestNotificationProviderHandler_Test_RejectsClientSuppliedGotifyToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupNotificationCoverageDB(t)
+	svc := services.NewNotificationService(db)
+	h := NewNotificationProviderHandler(svc)
+
+	payload := map[string]any{
+		"type":  "gotify",
+		"url":   "https://gotify.example/message",
+		"token": "super-secret-client-token",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
+	c.Set(string(trace.RequestIDKey), "req-token-reject-1")
+	c.Request = httptest.NewRequest(http.MethodPost, "/providers/test", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Test(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "TOKEN_WRITE_ONLY", resp["code"])
+	assert.Equal(t, "validation", resp["category"])
+	assert.Equal(t, "Gotify token is accepted only on provider create/update", resp["error"])
+	assert.Equal(t, "req-token-reject-1", resp["request_id"])
+	assert.NotContains(t, w.Body.String(), "super-secret-client-token")
+}
+
+func TestNotificationProviderHandler_Test_RejectsGotifyTokenWithWhitespace(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupNotificationCoverageDB(t)
+	svc := services.NewNotificationService(db)
+	h := NewNotificationProviderHandler(svc)
+
+	payload := map[string]any{
+		"type":  "gotify",
+		"token": "   secret-with-space   ",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
+	c.Request = httptest.NewRequest(http.MethodPost, "/providers/test", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Test(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "TOKEN_WRITE_ONLY")
+	assert.NotContains(t, w.Body.String(), "secret-with-space")
 }
 
 func TestNotificationProviderHandler_Templates(t *testing.T) {

@@ -78,14 +78,15 @@ describe('Security Notification Settings on Notifications page', () => {
     expect(document.querySelector('.fixed.inset-0')).toBeNull();
   });
 
-  it('keeps provider setup focused on the Discord webhook flow', async () => {
+  it('defaults to Discord webhook flow while exposing supported provider modes', async () => {
     const user = userEvent.setup();
     renderPage();
 
     await user.click(await screen.findByTestId('add-provider-btn'));
 
     const typeSelect = screen.getByTestId('provider-type') as HTMLSelectElement;
-    expect(Array.from(typeSelect.options).map((option) => option.value)).toEqual(['discord']);
+    expect(Array.from(typeSelect.options).map((option) => option.value)).toEqual(['discord', 'gotify', 'webhook']);
+    expect(typeSelect.value).toBe('discord');
 
     const webhookInput = screen.getByTestId('provider-url') as HTMLInputElement;
     expect(webhookInput.placeholder).toContain('discord.com/api/webhooks');
