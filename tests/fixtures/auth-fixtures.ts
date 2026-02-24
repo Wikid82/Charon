@@ -80,6 +80,29 @@ let tokenCache: TokenCache | null = null;
 let tokenCacheQueue: Promise<void> = Promise.resolve();
 const TOKEN_REFRESH_THRESHOLD = 5 * 60 * 1000; // Refresh 5 min before expiry
 
+function readAuthTokenFromStorageState(storageStatePath: string): string | null {
+  try {
+    const savedState = JSON.parse(readFileSync(storageStatePath, 'utf-8'));
+    const origins = Array.isArray(savedState.origins) ? savedState.origins : [];
+
+    for (const originEntry of origins) {
+      const localStorageEntries = Array.isArray(originEntry?.localStorage)
+        ? originEntry.localStorage
+        : [];
+
+      const tokenEntry = localStorageEntries.find(
+        (entry: { name?: string; value?: string }) => entry?.name === 'charon_auth_token'
+      );
+      if (tokenEntry?.value) {
+        return tokenEntry.value;
+      }
+    }
+  } catch {
+  }
+
+  return null;
+}
+
 /**
  * Test-only helper to reset token refresh state between tests
  */
@@ -249,9 +272,11 @@ export const test = base.extend<AuthFixtures>({
       );
     }
 
+    const savedState = JSON.parse(readFileSync(STORAGE_STATE, 'utf-8'));
+    const authToken = readAuthTokenFromStorageState(STORAGE_STATE);
+
     // Validate cookie domain matches baseURL to catch configuration issues early
     try {
-      const savedState = JSON.parse(readFileSync(STORAGE_STATE, 'utf-8'));
       const cookies = savedState.cookies || [];
       const authCookie = cookies.find((c: { name: string }) => c.name === 'auth_token');
 
@@ -281,10 +306,11 @@ export const test = base.extend<AuthFixtures>({
       extraHTTPHeaders: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       },
     });
 
-    const manager = new TestDataManager(authenticatedContext, testInfo.title);
+    const manager = new TestDataManager(authenticatedContext, testInfo.title, authToken ?? undefined);
 
     try {
       await use(manager);
