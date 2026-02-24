@@ -144,6 +144,62 @@ func TestHTTPWrapperRetriesOn429ThenSucceeds(t *testing.T) {
 	}
 }
 
+func TestHTTPWrapperSendSuccessWithValidatedDestination(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("expected default content-type, got %q", got)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = true
+	wrapper.retryPolicy.MaxAttempts = 1
+	wrapper.httpClientFactory = func(bool, int) *http.Client {
+		return server.Client()
+	}
+
+	result, err := wrapper.Send(context.Background(), HTTPWrapperRequest{
+		URL:  server.URL,
+		Body: []byte(`{"message":"hello"}`),
+	})
+	if err != nil {
+		t.Fatalf("expected successful send, got error: %v", err)
+	}
+	if result.Attempts != 1 {
+		t.Fatalf("expected 1 attempt, got %d", result.Attempts)
+	}
+	if result.StatusCode != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, result.StatusCode)
+	}
+}
+
+func TestHTTPWrapperSendRejectsUserInfoInDestinationURL(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+
+	_, err := wrapper.Send(context.Background(), HTTPWrapperRequest{
+		URL:  "https://user:pass@example.com/hook",
+		Body: []byte(`{"message":"hello"}`),
+	})
+	if err == nil || !strings.Contains(err.Error(), "destination URL validation failed") {
+		t.Fatalf("expected destination validation failure, got: %v", err)
+	}
+}
+
+func TestHTTPWrapperSendRejectsFragmentInDestinationURL(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+
+	_, err := wrapper.Send(context.Background(), HTTPWrapperRequest{
+		URL:  "https://example.com/hook#fragment",
+		Body: []byte(`{"message":"hello"}`),
+	})
+	if err == nil || !strings.Contains(err.Error(), "destination URL validation failed") {
+		t.Fatalf("expected destination validation failure, got: %v", err)
+	}
+}
+
 func TestHTTPWrapperDoesNotRetryOn400(t *testing.T) {
 	var calls int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

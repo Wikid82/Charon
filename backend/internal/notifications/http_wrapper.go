@@ -87,8 +87,28 @@ func (w *HTTPWrapper) Send(ctx context.Context, request HTTPWrapperRequest) (*HT
 		return nil, fmt.Errorf("destination URL validation failed")
 	}
 
-	if err := w.guardDestination(parsedValidatedURL); err != nil {
+	validationOptions := []security.ValidationOption{}
+	if w.allowHTTP {
+		validationOptions = append(validationOptions, security.WithAllowHTTP(), security.WithAllowLocalhost())
+	}
+
+	safeURL, safeURLErr := security.ValidateExternalURL(parsedValidatedURL.String(), validationOptions...)
+	if safeURLErr != nil {
+		return nil, fmt.Errorf("destination URL validation failed")
+	}
+
+	safeParsedURL, safeParseErr := neturl.Parse(safeURL)
+	if safeParseErr != nil {
+		return nil, fmt.Errorf("destination URL validation failed")
+	}
+
+	if err := w.guardDestination(safeParsedURL); err != nil {
 		return nil, err
+	}
+
+	safeRequestURL, hostHeader, safeRequestErr := w.buildSafeRequestURL(safeParsedURL)
+	if safeRequestErr != nil {
+		return nil, safeRequestErr
 	}
 
 	headers := sanitizeOutboundHeaders(request.Headers)
@@ -97,10 +117,12 @@ func (w *HTTPWrapper) Send(ctx context.Context, request HTTPWrapperRequest) (*HT
 
 	var lastErr error
 	for attempt := 1; attempt <= w.retryPolicy.MaxAttempts; attempt++ {
-		httpReq, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, parsedValidatedURL.String(), bytes.NewReader(request.Body))
+		httpReq, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, safeRequestURL.String(), bytes.NewReader(request.Body))
 		if reqErr != nil {
 			return nil, fmt.Errorf("create outbound request: %w", reqErr)
 		}
+
+		httpReq.Host = hostHeader
 
 		for key, value := range headers {
 			httpReq.Header.Set(key, value)
@@ -110,28 +132,7 @@ func (w *HTTPWrapper) Send(ctx context.Context, request HTTPWrapperRequest) (*HT
 			httpReq.Header.Set("Content-Type", "application/json")
 		}
 
-		validationOptions := []security.ValidationOption{}
-		if w.allowHTTP {
-			validationOptions = append(validationOptions, security.WithAllowHTTP(), security.WithAllowLocalhost())
-		}
-
-		safeURL, safeURLErr := security.ValidateExternalURL(httpReq.URL.String(), validationOptions...)
-		if safeURLErr != nil {
-			return nil, fmt.Errorf("destination URL validation failed")
-		}
-
-		safeParsedURL, safeParseErr := neturl.Parse(safeURL)
-		if safeParseErr != nil {
-			return nil, fmt.Errorf("destination URL validation failed")
-		}
-
-		if guardErr := w.guardDestination(safeParsedURL); guardErr != nil {
-			return nil, guardErr
-		}
-
-		httpReq.URL = safeParsedURL
-
-		resp, doErr := client.Do(httpReq)
+		resp, doErr := executeNotifyRequest(client, httpReq)
 		if doErr != nil {
 			lastErr = doErr
 			if attempt < w.retryPolicy.MaxAttempts && shouldRetry(nil, doErr) {
@@ -297,6 +298,66 @@ func (w *HTTPWrapper) isAllowedDestinationIP(hostname string, ip net.IP) bool {
 	}
 
 	return true
+}
+
+func (w *HTTPWrapper) buildSafeRequestURL(destinationURL *neturl.URL) (*neturl.URL, string, error) {
+	if destinationURL == nil {
+		return nil, "", fmt.Errorf("destination URL validation failed")
+	}
+
+	hostname := strings.TrimSpace(destinationURL.Hostname())
+	if hostname == "" {
+		return nil, "", fmt.Errorf("destination URL validation failed")
+	}
+
+	resolvedIP, err := w.resolveAllowedDestinationIP(hostname)
+	if err != nil {
+		return nil, "", err
+	}
+
+	port := destinationURL.Port()
+	if port == "" {
+		if destinationURL.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+
+	safeRequestURL := &neturl.URL{
+		Scheme:   destinationURL.Scheme,
+		Host:     net.JoinHostPort(resolvedIP.String(), port),
+		Path:     destinationURL.EscapedPath(),
+		RawQuery: destinationURL.RawQuery,
+	}
+
+	if safeRequestURL.Path == "" {
+		safeRequestURL.Path = "/"
+	}
+
+	return safeRequestURL, destinationURL.Host, nil
+}
+
+func (w *HTTPWrapper) resolveAllowedDestinationIP(hostname string) (net.IP, error) {
+	if parsedIP := net.ParseIP(hostname); parsedIP != nil {
+		if !w.isAllowedDestinationIP(hostname, parsedIP) {
+			return nil, fmt.Errorf("destination URL validation failed")
+		}
+		return parsedIP, nil
+	}
+
+	resolvedIPs, err := net.LookupIP(hostname)
+	if err != nil || len(resolvedIPs) == 0 {
+		return nil, fmt.Errorf("destination URL validation failed")
+	}
+
+	for _, resolvedIP := range resolvedIPs {
+		if w.isAllowedDestinationIP(hostname, resolvedIP) {
+			return resolvedIP, nil
+		}
+	}
+
+	return nil, fmt.Errorf("destination URL validation failed")
 }
 
 func isLocalDestinationHost(host string) bool {
