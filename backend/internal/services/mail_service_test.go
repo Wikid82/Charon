@@ -1141,7 +1141,7 @@ func newTestTLSConfig(t *testing.T) (*tls.Config, []byte) {
 	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}, caPEM
 }
 
-func trustTestCertificate(t *testing.T, certPEM []byte) {
+func trustTestCertificate(t *testing.T, _ []byte) {
 	t.Helper()
 	// SSL_CERT_FILE is already set globally by TestMain.
 	// This function kept for API compatibility but no longer needs to set environment.
