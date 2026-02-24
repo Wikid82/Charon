@@ -24,6 +24,9 @@ on:
   pull_request:
   push:
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Docker Lint"]
+    types: [completed]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
@@ -38,7 +41,7 @@ env:
   TRIGGER_HEAD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
   TRIGGER_REF: ${{ github.event_name == 'workflow_run' && format('refs/heads/{0}', github.event.workflow_run.head_branch) || github.ref }}
   TRIGGER_HEAD_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.head_ref }}
-  TRIGGER_PR_NUMBER: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }}
+  TRIGGER_PR_NUMBER: ${{ github.event_name == 'workflow_run' && join(github.event.workflow_run.pull_requests.*.number, '') || github.event.pull_request.number }}
   TRIGGER_ACTOR: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.actor.login || github.actor }}
 
 jobs:
