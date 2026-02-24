@@ -182,10 +182,22 @@ jobs:
 
       - name: Load Docker image
         if: steps.check-artifact.outputs.artifact_exists == 'true'
+        id: load-image
         run: |
           echo "📦 Loading Docker image..."
+          SOURCE_IMAGE_REF=$(tar -xOf charon-pr-image.tar manifest.json | jq -r '.[0].RepoTags[0] // empty')
+          if [[ -z "${SOURCE_IMAGE_REF}" ]]; then
+            echo "❌ ERROR: Could not determine image tag from artifact manifest"
+            exit 1
+          fi
+
           docker load < charon-pr-image.tar
-          echo "✅ Docker image loaded"
+          docker tag "${SOURCE_IMAGE_REF}" "charon:artifact"
+
+          echo "source_image_ref=${SOURCE_IMAGE_REF}" >> "$GITHUB_OUTPUT"
+          echo "image_ref=charon:artifact" >> "$GITHUB_OUTPUT"
+
+          echo "✅ Docker image loaded and tagged as charon:artifact"
           docker images | grep charon
 
       - name: Extract charon binary from container
@@ -214,31 +226,10 @@ jobs:
             exit 0
           fi
 
-          # Normalize image name for reference
-          IMAGE_NAME=$(echo "${{ github.repository_owner }}/charon" | tr '[:upper:]' '[:lower:]')
-          if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
-            BRANCH_NAME="${{ github.event.workflow_run.head_branch }}"
-            if [[ -z "${BRANCH_NAME}" ]]; then
-              echo "❌ ERROR: Branch name is empty for push build"
-              exit 1
-            fi
-            # Normalize branch name for Docker tag (replace / and other special chars with -)
-            # This matches docker/metadata-action behavior: type=ref,event=branch
-            TAG_SAFE_BRANCH="${BRANCH_NAME//\//-}"
-            IMAGE_REF="ghcr.io/${IMAGE_NAME}:${TAG_SAFE_BRANCH}"
-          elif [[ -n "${{ steps.pr-info.outputs.pr_number }}" ]]; then
-            IMAGE_REF="ghcr.io/${IMAGE_NAME}:pr-${{ steps.pr-info.outputs.pr_number }}"
-          else
-            echo "❌ ERROR: Cannot determine image reference"
-            echo "  - is_push: ${{ steps.pr-info.outputs.is_push }}"
-            echo "  - pr_number: ${{ steps.pr-info.outputs.pr_number }}"
-            echo "  - branch: ${{ github.event.workflow_run.head_branch }}"
-            exit 1
-          fi
-
-          # Validate the image reference format
-          if [[ ! "${IMAGE_REF}" =~ ^ghcr\.io/[a-z0-9_-]+/[a-z0-9_-]+:[a-zA-Z0-9._-]+$ ]]; then
-            echo "❌ ERROR: Invalid image reference format: ${IMAGE_REF}"
+          # For workflow_run artifact path, always use locally tagged image from loaded artifact.
+          IMAGE_REF="${{ steps.load-image.outputs.image_ref }}"
+          if [[ -z "${IMAGE_REF}" ]]; then
+            echo "❌ ERROR: Loaded artifact image reference is empty"
             exit 1
           fi
 
@@ -277,8 +268,19 @@ jobs:
           severity: 'CRITICAL,HIGH,MEDIUM'
         continue-on-error: true
 
+      - name: Check Trivy SARIF output exists
+        if: always() && (steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request')
+        id: trivy-sarif-check
+        run: |
+          if [[ -f trivy-binary-results.sarif ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "ℹ️ No Trivy SARIF output found; skipping SARIF/artifact upload steps"
+          fi
+
       - name: Upload Trivy SARIF to GitHub Security
-        if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
+        if: always() && steps.trivy-sarif-check.outputs.exists == 'true'
         # github/codeql-action v4
         uses: github/codeql-action/upload-sarif@cb4e075f119f8bccbc942d49655b2cd4dc6e615a
         with:
@@ -298,7 +300,7 @@ jobs:
           exit-code: '1'
 
       - name: Upload scan artifacts
-        if: always() && (steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request')
+        if: always() && steps.trivy-sarif-check.outputs.exists == 'true'
         # actions/upload-artifact v4.4.3
         uses: actions/upload-artifact@47309c993abb98030a35d55ef7ff34b7fa1074b5
         with:
