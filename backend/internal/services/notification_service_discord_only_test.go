@@ -12,15 +12,15 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestDiscordOnly_CreateProviderRejectsNonDiscord tests service-level Discord-only enforcement for create.
-func TestDiscordOnly_CreateProviderRejectsNonDiscord(t *testing.T) {
+// TestDiscordOnly_CreateProviderRejectsUnsupported tests service-level provider allowlist for create.
+func TestDiscordOnly_CreateProviderRejectsUnsupported(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
 
 	service := NewNotificationService(db)
 
-	testCases := []string{"webhook", "slack", "gotify", "telegram", "generic"}
+	testCases := []string{"slack", "telegram", "generic", "email"}
 
 	for _, providerType := range testCases {
 		t.Run(providerType, func(t *testing.T) {
@@ -31,8 +31,8 @@ func TestDiscordOnly_CreateProviderRejectsNonDiscord(t *testing.T) {
 			}
 
 			err := service.CreateProvider(provider)
-			assert.Error(t, err, "Should reject non-Discord provider")
-			assert.Contains(t, err.Error(), "only discord provider type is supported")
+			assert.Error(t, err, "Should reject unsupported provider")
+			assert.Contains(t, err.Error(), "unsupported provider type")
 		})
 	}
 }
@@ -60,76 +60,81 @@ func TestDiscordOnly_CreateProviderAcceptsDiscord(t *testing.T) {
 	assert.Equal(t, "discord", created.Type)
 }
 
-// TestDiscordOnly_UpdateProviderRejectsNonDiscord tests service-level Discord-only enforcement for update.
-func TestDiscordOnly_UpdateProviderRejectsNonDiscord(t *testing.T) {
+func TestDiscordOnly_CreateProviderAcceptsWebhook(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
 
-	// Create a deprecated webhook provider
-	deprecatedProvider := models.NotificationProvider{
-		ID:             "test-id",
-		Name:           "Test Webhook",
-		Type:           "webhook",
-		URL:            "https://example.com/webhook",
-		MigrationState: "deprecated",
-	}
-	require.NoError(t, db.Create(&deprecatedProvider).Error)
-
 	service := NewNotificationService(db)
 
-	// Try to update with webhook type
 	provider := &models.NotificationProvider{
-		ID:   "test-id",
-		Name: "Updated",
+		Name: "Test Webhook",
 		Type: "webhook",
 		URL:  "https://example.com/webhook",
 	}
 
-	err = service.UpdateProvider(provider)
-	assert.Error(t, err, "Should reject non-Discord provider update")
-	assert.Contains(t, err.Error(), "only discord provider type is supported")
+	err = service.CreateProvider(provider)
+	assert.NoError(t, err, "Should accept webhook provider")
 }
 
-// TestDiscordOnly_UpdateProviderRejectsTypeMutation tests that service blocks type mutation for deprecated providers.
+func TestDiscordOnly_CreateProviderAcceptsGotifyWithOrWithoutToken(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
+
+	service := NewNotificationService(db)
+
+	provider := &models.NotificationProvider{
+		Name: "Test Gotify",
+		Type: "gotify",
+		URL:  "https://gotify.example.com/message",
+	}
+
+	err = service.CreateProvider(provider)
+	assert.NoError(t, err)
+
+	provider.ID = ""
+	provider.Token = "secret"
+	err = service.CreateProvider(provider)
+	assert.NoError(t, err)
+}
+
+// TestDiscordOnly_UpdateProviderRejectsTypeMutation tests immutable provider type on update.
 func TestDiscordOnly_UpdateProviderRejectsTypeMutation(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
 
-	// Create a deprecated webhook provider
-	deprecatedProvider := models.NotificationProvider{
+	provider := models.NotificationProvider{
 		ID:             "test-id",
 		Name:           "Test Webhook",
 		Type:           "webhook",
 		URL:            "https://example.com/webhook",
 		MigrationState: "deprecated",
 	}
-	require.NoError(t, db.Create(&deprecatedProvider).Error)
+	require.NoError(t, db.Create(&provider).Error)
 
 	service := NewNotificationService(db)
 
-	// Try to change type to discord
-	provider := &models.NotificationProvider{
+	updatedProvider := &models.NotificationProvider{
 		ID:   "test-id",
-		Name: "Test Webhook",
+		Name: "Updated",
 		Type: "discord",
 		URL:  "https://discord.com/api/webhooks/123/abc",
 	}
 
-	err = service.UpdateProvider(provider)
+	err = service.UpdateProvider(updatedProvider)
 	assert.Error(t, err, "Should reject type mutation")
 	assert.Contains(t, err.Error(), "cannot change provider type")
 }
 
-// TestDiscordOnly_UpdateProviderRejectsEnable tests that service blocks enabling deprecated providers.
-func TestDiscordOnly_UpdateProviderRejectsEnable(t *testing.T) {
+// TestDiscordOnly_UpdateProviderAllowsWebhookUpdates tests supported provider updates.
+func TestDiscordOnly_UpdateProviderAllowsWebhookUpdates(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
 
-	// Create a deprecated webhook provider (disabled)
-	deprecatedProvider := models.NotificationProvider{
+	provider := models.NotificationProvider{
 		ID:             "test-id",
 		Name:           "Test Webhook",
 		Type:           "webhook",
@@ -137,12 +142,11 @@ func TestDiscordOnly_UpdateProviderRejectsEnable(t *testing.T) {
 		Enabled:        false,
 		MigrationState: "deprecated",
 	}
-	require.NoError(t, db.Create(&deprecatedProvider).Error)
+	require.NoError(t, db.Create(&provider).Error)
 
 	service := NewNotificationService(db)
 
-	// Try to enable
-	provider := &models.NotificationProvider{
+	updatedProvider := &models.NotificationProvider{
 		ID:      "test-id",
 		Name:    "Test Webhook",
 		Type:    "webhook",
@@ -150,16 +154,15 @@ func TestDiscordOnly_UpdateProviderRejectsEnable(t *testing.T) {
 		Enabled: true,
 	}
 
-	err = service.UpdateProvider(provider)
-	assert.Error(t, err, "Should reject enabling deprecated provider")
-	assert.Contains(t, err.Error(), "cannot enable deprecated")
+	err = service.UpdateProvider(updatedProvider)
+	assert.NoError(t, err)
 }
 
-// TestDiscordOnly_TestProviderRejectsNonDiscord tests that TestProvider enforces Discord-only.
-func TestDiscordOnly_TestProviderRejectsNonDiscord(t *testing.T) {
+// TestDiscordOnly_TestProviderRejectsDisabledProviderTypes tests feature-flag gate for gotify/webhook dispatch.
+func TestDiscordOnly_TestProviderRejectsDisabledProviderTypes(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
+	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}, &models.Setting{}))
 
 	service := NewNotificationService(db)
 
@@ -170,7 +173,7 @@ func TestDiscordOnly_TestProviderRejectsNonDiscord(t *testing.T) {
 	}
 
 	err = service.TestProvider(provider)
-	assert.Error(t, err, "Should reject non-Discord provider test")
+	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "only discord provider type is supported")
 }
 

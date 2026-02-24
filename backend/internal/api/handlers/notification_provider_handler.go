@@ -9,6 +9,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/trace"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -25,6 +26,7 @@ type notificationProviderUpsertRequest struct {
 	URL                             string `json:"url"`
 	Config                          string `json:"config"`
 	Template                        string `json:"template"`
+	Token                           string `json:"token,omitempty"`
 	Enabled                         bool   `json:"enabled"`
 	NotifyProxyHosts                bool   `json:"notify_proxy_hosts"`
 	NotifyRemoteServers             bool   `json:"notify_remote_servers"`
@@ -37,6 +39,16 @@ type notificationProviderUpsertRequest struct {
 	NotifySecurityCrowdSecDecisions bool   `json:"notify_security_crowdsec_decisions"`
 }
 
+type notificationProviderTestRequest struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	URL      string `json:"url"`
+	Config   string `json:"config"`
+	Template string `json:"template"`
+	Token    string `json:"token,omitempty"`
+}
+
 func (r notificationProviderUpsertRequest) toModel() models.NotificationProvider {
 	return models.NotificationProvider{
 		Name:                            r.Name,
@@ -44,6 +56,7 @@ func (r notificationProviderUpsertRequest) toModel() models.NotificationProvider
 		URL:                             r.URL,
 		Config:                          r.Config,
 		Template:                        r.Template,
+		Token:                           strings.TrimSpace(r.Token),
 		Enabled:                         r.Enabled,
 		NotifyProxyHosts:                r.NotifyProxyHosts,
 		NotifyRemoteServers:             r.NotifyRemoteServers,
@@ -55,6 +68,39 @@ func (r notificationProviderUpsertRequest) toModel() models.NotificationProvider
 		NotifySecurityRateLimitHits:     r.NotifySecurityRateLimitHits,
 		NotifySecurityCrowdSecDecisions: r.NotifySecurityCrowdSecDecisions,
 	}
+}
+
+func (r notificationProviderTestRequest) toModel() models.NotificationProvider {
+	return models.NotificationProvider{
+		ID:       strings.TrimSpace(r.ID),
+		Name:     r.Name,
+		Type:     r.Type,
+		URL:      r.URL,
+		Config:   r.Config,
+		Template: r.Template,
+		Token:    strings.TrimSpace(r.Token),
+	}
+}
+
+func providerRequestID(c *gin.Context) string {
+	if value, ok := c.Get(string(trace.RequestIDKey)); ok {
+		if requestID, ok := value.(string); ok {
+			return requestID
+		}
+	}
+	return ""
+}
+
+func respondSanitizedProviderError(c *gin.Context, status int, code, category, message string) {
+	response := gin.H{
+		"error":    message,
+		"code":     code,
+		"category": category,
+	}
+	if requestID := providerRequestID(c); requestID != "" {
+		response["request_id"] = requestID
+	}
+	c.JSON(status, response)
 }
 
 func NewNotificationProviderHandler(service *services.NotificationService) *NotificationProviderHandler {
@@ -81,16 +127,13 @@ func (h *NotificationProviderHandler) Create(c *gin.Context) {
 
 	var req notificationProviderUpsertRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondSanitizedProviderError(c, http.StatusBadRequest, "INVALID_REQUEST", "validation", "Invalid notification provider payload")
 		return
 	}
 
-	// Discord-only enforcement for this rollout
-	if req.Type != "discord" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "only discord provider type is supported in this release; additional providers will be enabled in future releases after validation",
-			"code":  "PROVIDER_TYPE_DISCORD_ONLY",
-		})
+	providerType := strings.ToLower(strings.TrimSpace(req.Type))
+	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" {
+		respondSanitizedProviderError(c, http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE", "validation", "Unsupported notification provider type")
 		return
 	}
 
@@ -106,13 +149,13 @@ func (h *NotificationProviderHandler) Create(c *gin.Context) {
 	if err := h.service.CreateProvider(&provider); err != nil {
 		// If it's a validation error from template parsing, return 400
 		if isProviderValidationError(err) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			respondSanitizedProviderError(c, http.StatusBadRequest, "PROVIDER_VALIDATION_FAILED", "validation", "Notification provider validation failed")
 			return
 		}
 		if respondPermissionError(c, h.securityService, "notification_provider_save_failed", err, h.dataRoot) {
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create provider"})
+		respondSanitizedProviderError(c, http.StatusInternalServerError, "PROVIDER_CREATE_FAILED", "internal", "Failed to create provider")
 		return
 	}
 	c.JSON(http.StatusCreated, provider)
@@ -126,7 +169,7 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 	id := c.Param("id")
 	var req notificationProviderUpsertRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondSanitizedProviderError(c, http.StatusBadRequest, "INVALID_REQUEST", "validation", "Invalid notification provider payload")
 		return
 	}
 
@@ -134,39 +177,29 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 	var existing models.NotificationProvider
 	if err := h.service.DB.Where("id = ?", id).First(&existing).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
+			respondSanitizedProviderError(c, http.StatusNotFound, "PROVIDER_NOT_FOUND", "validation", "Provider not found")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch provider"})
+		respondSanitizedProviderError(c, http.StatusInternalServerError, "PROVIDER_READ_FAILED", "internal", "Failed to read provider")
 		return
 	}
 
-	// Block type mutation for existing non-Discord providers
-	if existing.Type != "discord" && req.Type != existing.Type {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "cannot change provider type for deprecated non-discord providers; delete and recreate as discord provider instead",
-			"code":  "DEPRECATED_PROVIDER_TYPE_IMMUTABLE",
-		})
+	if strings.TrimSpace(req.Type) != "" && strings.TrimSpace(req.Type) != existing.Type {
+		respondSanitizedProviderError(c, http.StatusBadRequest, "PROVIDER_TYPE_IMMUTABLE", "validation", "Provider type cannot be changed")
 		return
 	}
 
-	// Block enable mutation for existing non-Discord providers
-	if existing.Type != "discord" && req.Enabled && !existing.Enabled {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "cannot enable deprecated non-discord providers; only discord providers can be enabled",
-			"code":  "DEPRECATED_PROVIDER_CANNOT_ENABLE",
-		})
+	providerType := strings.ToLower(strings.TrimSpace(existing.Type))
+	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" {
+		respondSanitizedProviderError(c, http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE", "validation", "Unsupported notification provider type")
 		return
 	}
 
-	// Discord-only enforcement for this rollout (new providers or type changes)
-	if req.Type != "discord" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "only discord provider type is supported in this release; additional providers will be enabled in future releases after validation",
-			"code":  "PROVIDER_TYPE_DISCORD_ONLY",
-		})
-		return
+	if providerType == "gotify" && strings.TrimSpace(req.Token) == "" {
+		// Keep existing token if update payload omits token
+		req.Token = existing.Token
 	}
+	req.Type = existing.Type
 
 	provider := req.toModel()
 	provider.ID = id
@@ -179,13 +212,13 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 
 	if err := h.service.UpdateProvider(&provider); err != nil {
 		if isProviderValidationError(err) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			respondSanitizedProviderError(c, http.StatusBadRequest, "PROVIDER_VALIDATION_FAILED", "validation", "Notification provider validation failed")
 			return
 		}
 		if respondPermissionError(c, h.securityService, "notification_provider_save_failed", err, h.dataRoot) {
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update provider"})
+		respondSanitizedProviderError(c, http.StatusInternalServerError, "PROVIDER_UPDATE_FAILED", "internal", "Failed to update provider")
 		return
 	}
 	c.JSON(http.StatusOK, provider)
@@ -221,16 +254,40 @@ func (h *NotificationProviderHandler) Delete(c *gin.Context) {
 }
 
 func (h *NotificationProviderHandler) Test(c *gin.Context) {
-	var provider models.NotificationProvider
-	if err := c.ShouldBindJSON(&provider); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	var req notificationProviderTestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondSanitizedProviderError(c, http.StatusBadRequest, "INVALID_REQUEST", "validation", "Invalid test payload")
 		return
+	}
+
+	provider := req.toModel()
+
+	provider.Type = strings.ToLower(strings.TrimSpace(provider.Type))
+	if provider.Type == "gotify" && strings.TrimSpace(provider.Token) != "" {
+		respondSanitizedProviderError(c, http.StatusBadRequest, "TOKEN_WRITE_ONLY", "validation", "Gotify token is accepted only on provider create/update")
+		return
+	}
+
+	if provider.Type == "gotify" && strings.TrimSpace(provider.ID) != "" {
+		var stored models.NotificationProvider
+		if err := h.service.DB.Where("id = ?", provider.ID).First(&stored).Error; err == nil {
+			provider.Token = stored.Token
+			if provider.URL == "" {
+				provider.URL = stored.URL
+			}
+			if provider.Config == "" {
+				provider.Config = stored.Config
+			}
+			if provider.Template == "" {
+				provider.Template = stored.Template
+			}
+		}
 	}
 
 	if err := h.service.TestProvider(provider); err != nil {
 		// Create internal notification for the failure
-		_, _ = h.service.Create(models.NotificationTypeError, "Test Failed", fmt.Sprintf("Provider %s test failed: %v", provider.Name, err))
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		_, _ = h.service.Create(models.NotificationTypeError, "Test Failed", fmt.Sprintf("Provider %s test failed", provider.Name))
+		respondSanitizedProviderError(c, http.StatusBadRequest, "PROVIDER_TEST_FAILED", "dispatch", "Provider test failed")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Test notification sent"})
@@ -249,8 +306,14 @@ func (h *NotificationProviderHandler) Templates(c *gin.Context) {
 func (h *NotificationProviderHandler) Preview(c *gin.Context) {
 	var raw map[string]any
 	if err := c.ShouldBindJSON(&raw); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondSanitizedProviderError(c, http.StatusBadRequest, "INVALID_REQUEST", "validation", "Invalid preview payload")
 		return
+	}
+	if tokenValue, ok := raw["token"]; ok {
+		if tokenText, isString := tokenValue.(string); isString && strings.TrimSpace(tokenText) != "" {
+			respondSanitizedProviderError(c, http.StatusBadRequest, "TOKEN_WRITE_ONLY", "validation", "Gotify token is accepted only on provider create/update")
+			return
+		}
 	}
 
 	var provider models.NotificationProvider
@@ -279,7 +342,8 @@ func (h *NotificationProviderHandler) Preview(c *gin.Context) {
 
 	rendered, parsed, err := h.service.RenderTemplate(provider, payload)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "rendered": rendered})
+		_ = rendered
+		respondSanitizedProviderError(c, http.StatusBadRequest, "TEMPLATE_PREVIEW_FAILED", "validation", "Template preview failed")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"rendered": rendered, "parsed": parsed})

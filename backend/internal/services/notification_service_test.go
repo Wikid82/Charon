@@ -663,7 +663,7 @@ func TestSSRF_WebhookIntegration(t *testing.T) {
 		data := map[string]any{"Title": "Test", "Message": "Test Message"}
 		err := svc.sendJSONPayload(context.Background(), provider, data)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid webhook url")
+		assert.Contains(t, err.Error(), "destination URL validation failed")
 	})
 
 	t.Run("blocks cloud metadata endpoint", func(t *testing.T) {
@@ -674,7 +674,7 @@ func TestSSRF_WebhookIntegration(t *testing.T) {
 		data := map[string]any{"Title": "Test", "Message": "Test Message"}
 		err := svc.sendJSONPayload(context.Background(), provider, data)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid webhook url")
+		assert.Contains(t, err.Error(), "destination URL validation failed")
 	})
 
 	t.Run("allows localhost for testing", func(t *testing.T) {

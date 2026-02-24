@@ -248,8 +248,8 @@ func TestNotificationProviderHandler_CreateRejectsDiscordIPHost(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "invalid Discord webhook URL")
-	assert.Contains(t, w.Body.String(), "IP address hosts are not allowed")
+	assert.Contains(t, w.Body.String(), "PROVIDER_VALIDATION_FAILED")
+	assert.Contains(t, w.Body.String(), "validation")
 }
 
 func TestNotificationProviderHandler_CreateAcceptsDiscordHostname(t *testing.T) {

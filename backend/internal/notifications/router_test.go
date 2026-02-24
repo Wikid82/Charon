@@ -90,3 +90,21 @@ func TestRouter_ShouldUseNotify_GotifyServiceFlag(t *testing.T) {
 		t.Fatalf("expected notify routing disabled for gotify when FlagGotifyServiceEnabled is false")
 	}
 }
+
+func TestRouter_ShouldUseNotify_WebhookServiceFlag(t *testing.T) {
+	router := NewRouter()
+
+	flags := map[string]bool{
+		FlagNotifyEngineEnabled:   true,
+		FlagWebhookServiceEnabled: true,
+	}
+
+	if !router.ShouldUseNotify("webhook", EngineNotifyV1, flags) {
+		t.Fatalf("expected notify routing enabled for webhook when FlagWebhookServiceEnabled is true")
+	}
+
+	flags[FlagWebhookServiceEnabled] = false
+	if router.ShouldUseNotify("webhook", EngineNotifyV1, flags) {
+		t.Fatalf("expected notify routing disabled for webhook when FlagWebhookServiceEnabled is false")
+	}
+}

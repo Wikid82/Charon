@@ -16,6 +16,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/network"
+	"github.com/Wikid82/charon/backend/internal/notifications"
 	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/trace"
 
@@ -25,11 +26,15 @@ import (
 )
 
 type NotificationService struct {
-	DB *gorm.DB
+	DB          *gorm.DB
+	httpWrapper *notifications.HTTPWrapper
 }
 
 func NewNotificationService(db *gorm.DB) *NotificationService {
-	return &NotificationService{DB: db}
+	return &NotificationService{
+		DB:          db,
+		httpWrapper: notifications.NewNotifyHTTPWrapper(),
+	}
 }
 
 var discordWebhookRegex = regexp.MustCompile(`^https://discord(?:app)?\.com/api/webhooks/(\d+)/([a-zA-Z0-9_-]+)`)
@@ -98,13 +103,44 @@ func validateDiscordProviderURL(providerType, rawURL string) error {
 // supportsJSONTemplates returns true if the provider type can use JSON templates
 func supportsJSONTemplates(providerType string) bool {
 	switch strings.ToLower(providerType) {
-	case "webhook", "discord", "slack", "gotify", "generic":
+	case "webhook", "discord", "gotify", "slack", "generic":
 		return true
-	case "telegram":
-		return false // Telegram uses URL parameters
 	default:
 		return false
 	}
+}
+
+func isSupportedNotificationProviderType(providerType string) bool {
+	switch strings.ToLower(strings.TrimSpace(providerType)) {
+	case "discord", "gotify", "webhook":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *NotificationService) isDispatchEnabled(providerType string) bool {
+	switch strings.ToLower(strings.TrimSpace(providerType)) {
+	case "discord":
+		return true
+	case "gotify":
+		return s.getFeatureFlagValue(notifications.FlagGotifyServiceEnabled, false)
+	case "webhook":
+		return s.getFeatureFlagValue(notifications.FlagWebhookServiceEnabled, false)
+	default:
+		return false
+	}
+}
+
+func (s *NotificationService) getFeatureFlagValue(key string, fallback bool) bool {
+	var setting models.Setting
+	err := s.DB.Where("key = ?", key).First(&setting).Error
+	if err != nil {
+		return fallback
+	}
+
+	v := strings.ToLower(strings.TrimSpace(setting.Value))
+	return v == "1" || v == "true" || v == "yes"
 }
 
 // Internal Notifications (DB)
@@ -188,11 +224,10 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 		if !shouldSend {
 			continue
 		}
-		// Non-dispatch policy for deprecated providers
-		if provider.Type != "discord" {
+		if !s.isDispatchEnabled(provider.Type) {
 			logger.Log().WithField("provider", util.SanitizeForLog(provider.Name)).
 				WithField("type", provider.Type).
-				Warn("Skipping dispatch to deprecated non-discord provider")
+				Warn("Skipping dispatch because provider type is disabled for notify dispatch")
 			continue
 		}
 		go func(p models.NotificationProvider) {
@@ -253,31 +288,15 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 		return fmt.Errorf("template size exceeds maximum limit of %d bytes", maxTemplateSize)
 	}
 
-	// Validate webhook URL using the security package's SSRF-safe validator.
-	// ValidateExternalURL performs comprehensive validation including:
-	// - URL format and scheme validation (http/https only)
-	// - DNS resolution and IP blocking for private/reserved ranges
-	// - Protection against cloud metadata endpoints (169.254.169.254)
-	// Using the security package's function helps CodeQL recognize the sanitization.
-	//
-	// Additionally, we apply `isValidRedirectURL` as a barrier-guard style predicate.
-	// CodeQL recognizes this pattern as a sanitizer for untrusted URL values, while
-	// the real SSRF protection remains `security.ValidateExternalURL`.
-	if err := validateDiscordProviderURLFunc(p.Type, p.URL); err != nil {
-		return err
-	}
+	providerType := strings.ToLower(strings.TrimSpace(p.Type))
+	if providerType == "discord" {
+		if err := validateDiscordProviderURLFunc(p.Type, p.URL); err != nil {
+			return err
+		}
 
-	webhookURL := p.URL
-
-	if !isValidRedirectURL(webhookURL) {
-		return fmt.Errorf("invalid webhook url")
-	}
-	validatedURLStr, err := security.ValidateExternalURL(webhookURL,
-		security.WithAllowHTTP(),      // Allow both http and https for webhooks
-		security.WithAllowLocalhost(), // Allow localhost for testing
-	)
-	if err != nil {
-		return fmt.Errorf("invalid webhook url: %w", err)
+		if !isValidRedirectURL(p.URL) {
+			return fmt.Errorf("invalid webhook url")
+		}
 	}
 
 	// Parse template and add helper funcs
@@ -348,11 +367,43 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 		}
 	}
 
-	// Send Request with a safe client (SSRF protection, timeout, no auto-redirect)
-	// Using network.NewSafeHTTPClient() for defense-in-depth against SSRF attacks.
+	if providerType == "gotify" || providerType == "webhook" {
+		headers := map[string]string{
+			"Content-Type": "application/json",
+			"User-Agent":   "Charon-Notify/1.0",
+		}
+		if rid := ctx.Value(trace.RequestIDKey); rid != nil {
+			if ridStr, ok := rid.(string); ok {
+				headers["X-Request-ID"] = ridStr
+			}
+		}
+		if providerType == "gotify" {
+			if strings.TrimSpace(p.Token) != "" {
+				headers["X-Gotify-Key"] = strings.TrimSpace(p.Token)
+			}
+		}
+
+		if _, err := s.httpWrapper.Send(ctx, notifications.HTTPWrapperRequest{
+			URL:     p.URL,
+			Headers: headers,
+			Body:    body.Bytes(),
+		}); err != nil {
+			return fmt.Errorf("failed to send webhook: %w", err)
+		}
+		return nil
+	}
+
+	validatedURLStr, err := security.ValidateExternalURL(p.URL,
+		security.WithAllowHTTP(),
+		security.WithAllowLocalhost(),
+	)
+	if err != nil {
+		return fmt.Errorf("invalid webhook url: %w", err)
+	}
+
 	client := network.NewSafeHTTPClient(
 		network.WithTimeout(10*time.Second),
-		network.WithAllowLocalhost(), // Allow localhost for testing
+		network.WithAllowLocalhost(),
 	)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", validatedURLStr, &body)
@@ -360,20 +411,12 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 		return fmt.Errorf("failed to create webhook request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// Propagate request id header if present in context
 	if rid := ctx.Value(trace.RequestIDKey); rid != nil {
 		if ridStr, ok := rid.(string); ok {
 			req.Header.Set("X-Request-ID", ridStr)
 		}
 	}
-	// Safe: URL validated by security.ValidateExternalURL() which validates URL
-	// format/scheme and blocks private/reserved destinations through DNS+dial-time checks.
-	// Safe: URL validated by security.ValidateExternalURL() which:
-	// 1. Validates URL format and scheme (HTTPS required in production)
-	// 2. Resolves DNS and blocks private/reserved IPs (RFC 1918, loopback, link-local)
-	// 3. Uses ssrfSafeDialer for connection-time IP revalidation (TOCTOU protection)
-	// 4. No redirect following allowed
-	// See: internal/security/url_validator.go
+
 	resp, err := webhookDoRequestFunc(client, req)
 	if err != nil {
 		return fmt.Errorf("failed to send webhook: %w", err)
@@ -411,17 +454,21 @@ func isValidRedirectURL(rawURL string) bool {
 }
 
 func (s *NotificationService) TestProvider(provider models.NotificationProvider) error {
-	// Discord-only enforcement for this rollout
-	if provider.Type != "discord" {
+	providerType := strings.ToLower(strings.TrimSpace(provider.Type))
+	if !isSupportedNotificationProviderType(providerType) {
 		return fmt.Errorf("only discord provider type is supported in this release")
 	}
 
-	if err := validateDiscordProviderURLFunc(provider.Type, provider.URL); err != nil {
+	if !s.isDispatchEnabled(providerType) {
+		return fmt.Errorf("only discord provider type is supported in this release")
+	}
+
+	if err := validateDiscordProviderURLFunc(providerType, provider.URL); err != nil {
 		return err
 	}
 
-	if !supportsJSONTemplates(provider.Type) {
-		return legacyFallbackInvocationError(provider.Type)
+	if !supportsJSONTemplates(providerType) {
+		return legacyFallbackInvocationError(providerType)
 	}
 
 	data := map[string]any{
@@ -523,13 +570,17 @@ func (s *NotificationService) ListProviders() ([]models.NotificationProvider, er
 }
 
 func (s *NotificationService) CreateProvider(provider *models.NotificationProvider) error {
-	// Discord-only enforcement for this rollout
-	if provider.Type != "discord" {
-		return fmt.Errorf("only discord provider type is supported in this release")
+	provider.Type = strings.ToLower(strings.TrimSpace(provider.Type))
+	if !isSupportedNotificationProviderType(provider.Type) {
+		return fmt.Errorf("unsupported provider type")
 	}
 
 	if err := validateDiscordProviderURLFunc(provider.Type, provider.URL); err != nil {
 		return err
+	}
+
+	if provider.Type != "gotify" {
+		provider.Token = ""
 	}
 
 	// Validate custom template before creating
@@ -550,23 +601,26 @@ func (s *NotificationService) UpdateProvider(provider *models.NotificationProvid
 		return err
 	}
 
-	// Block type mutation for non-Discord providers
-	if existing.Type != "discord" && provider.Type != existing.Type {
-		return fmt.Errorf("cannot change provider type for deprecated non-discord providers")
+	// Block type mutation for existing providers to avoid cross-provider token/schema confusion
+	if strings.TrimSpace(provider.Type) != "" && provider.Type != existing.Type {
+		return fmt.Errorf("cannot change provider type for existing providers")
 	}
+	provider.Type = existing.Type
 
-	// Block enable mutation for non-Discord providers
-	if existing.Type != "discord" && provider.Enabled && !existing.Enabled {
-		return fmt.Errorf("cannot enable deprecated non-discord providers")
-	}
-
-	// Discord-only enforcement for type changes
-	if provider.Type != "discord" {
-		return fmt.Errorf("only discord provider type is supported in this release")
+	if !isSupportedNotificationProviderType(provider.Type) {
+		return fmt.Errorf("unsupported provider type")
 	}
 
 	if err := validateDiscordProviderURLFunc(provider.Type, provider.URL); err != nil {
 		return err
+	}
+
+	if provider.Type == "gotify" {
+		if strings.TrimSpace(provider.Token) == "" {
+			provider.Token = existing.Token
+		}
+	} else {
+		provider.Token = ""
 	}
 
 	// Validate custom template before saving
@@ -581,6 +635,7 @@ func (s *NotificationService) UpdateProvider(provider *models.NotificationProvid
 		"name":                               provider.Name,
 		"type":                               provider.Type,
 		"url":                                provider.URL,
+		"token":                              provider.Token,
 		"config":                             provider.Config,
 		"template":                           provider.Template,
 		"enabled":                            provider.Enabled,
