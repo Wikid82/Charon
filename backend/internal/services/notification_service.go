@@ -383,12 +383,12 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 			}
 		}
 
-		if _, err := s.httpWrapper.Send(ctx, notifications.HTTPWrapperRequest{
+		if _, sendErr := s.httpWrapper.Send(ctx, notifications.HTTPWrapperRequest{
 			URL:     p.URL,
 			Headers: headers,
 			Body:    body.Bytes(),
-		}); err != nil {
-			return fmt.Errorf("failed to send webhook: %w", err)
+		}); sendErr != nil {
+			return fmt.Errorf("failed to send webhook: %w", sendErr)
 		}
 		return nil
 	}

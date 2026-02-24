@@ -235,7 +235,8 @@ func TestGitDiffAndWriters(t *testing.T) {
 		t.Fatalf("expected empty diff for HEAD...HEAD, got: %q", diffContent)
 	}
 
-	if _, err := gitDiff(repoRoot, "bad-baseline"); err == nil {
+	_, err = gitDiff(repoRoot, "bad-baseline")
+	if err == nil {
 		t.Fatal("expected gitDiff failure for invalid baseline")
 	}
 
@@ -263,7 +264,8 @@ func TestGitDiffAndWriters(t *testing.T) {
 	}
 
 	jsonPath := filepath.Join(t.TempDir(), "report.json")
-	if err := writeJSON(jsonPath, report); err != nil {
+	err = writeJSON(jsonPath, report)
+	if err != nil {
 		t.Fatalf("writeJSON should succeed: %v", err)
 	}
 	// #nosec G304 -- Test reads artifact path created by this test.
@@ -276,7 +278,8 @@ func TestGitDiffAndWriters(t *testing.T) {
 	}
 
 	markdownPath := filepath.Join(t.TempDir(), "report.md")
-	if err := writeMarkdown(markdownPath, report, "backend/coverage.txt", "frontend/coverage/lcov.info"); err != nil {
+	err = writeMarkdown(markdownPath, report, "backend/coverage.txt", "frontend/coverage/lcov.info")
+	if err != nil {
 		t.Fatalf("writeMarkdown should succeed: %v", err)
 	}
 	// #nosec G304 -- Test reads artifact path created by this test.

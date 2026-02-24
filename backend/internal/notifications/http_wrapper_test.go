@@ -274,3 +274,24 @@ func TestHTTPWrapperGuardOutboundRequestURLAllowsValidatedDestination(t *testing
 		t.Fatalf("expected validated destination to pass guard, got: %v", err)
 	}
 }
+
+func TestHTTPWrapperGuardOutboundRequestURLRejectsUserInfo(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = true
+
+	httpReq := &http.Request{URL: &neturl.URL{Scheme: "http", Host: "127.0.0.1", User: neturl.UserPassword("user", "pass"), Path: "/hook"}}
+	err := wrapper.guardOutboundRequestURL(httpReq)
+	if err == nil || !strings.Contains(err.Error(), "destination URL validation failed") {
+		t.Fatalf("expected userinfo rejection, got: %v", err)
+	}
+}
+
+func TestHTTPWrapperGuardOutboundRequestURLRejectsFragment(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+
+	httpReq := &http.Request{URL: &neturl.URL{Scheme: "https", Host: "example.com", Path: "/hook", Fragment: "frag"}}
+	err := wrapper.guardOutboundRequestURL(httpReq)
+	if err == nil || !strings.Contains(err.Error(), "destination URL validation failed") {
+		t.Fatalf("expected fragment rejection, got: %v", err)
+	}
+}
