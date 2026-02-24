@@ -1,5 +1,5 @@
 # golangci-lint configuration
-version: 2
+version: "2"
 run:
   timeout: 5m
   tests: true
@@ -14,7 +14,7 @@ linters:
     - staticcheck
     - unused
     - errcheck
-  linters-settings:
+  settings:
     gocritic:
       enabled-tags:
         - diagnostic
