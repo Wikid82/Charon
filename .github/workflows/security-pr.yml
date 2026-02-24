@@ -4,6 +4,9 @@
 name: Security Scan (PR)
 
 on:
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -15,7 +18,7 @@ on:
 
 
 concurrency:
-  group: security-pr-${{ github.event.workflow_run.event || github.event_name }}-${{ github.event.workflow_run.head_branch || github.ref }}
+  group: security-pr-${{ github.event_name == 'workflow_run' && github.event.workflow_run.event || github.event_name }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -27,7 +30,8 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request' ||
-      ((github.event.workflow_run.event == 'push' || github.event.workflow_run.pull_requests[0].number != null) &&
+      (github.event_name == 'workflow_run' &&
+       (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'pull_request') &&
        (github.event.workflow_run.status != 'completed' || github.event.workflow_run.conclusion == 'success'))
 
     permissions:
@@ -41,7 +45,7 @@ jobs:
         # actions/checkout v4.2.2
         uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Extract PR number from workflow_run
         id: pr-info
@@ -61,7 +65,7 @@ jobs:
           fi
 
           # Extract PR number from context
-          HEAD_SHA="${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}"
+          HEAD_SHA="${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}"
           echo "🔍 Looking for PR with head SHA: ${HEAD_SHA}"
 
           # Query GitHub API for PR associated with this commit
@@ -80,8 +84,8 @@ jobs:
           fi
 
           # Check if this is a push event (not a PR)
-          if [[ "${{ github.event_name }}" == "push" || "${{ github.event.workflow_run.event }}" == "push" || -z "${PR_NUMBER}" ]]; then
-            HEAD_BRANCH="${{ github.event.workflow_run.head_branch || github.ref_name }}"
+          if [[ "${{ github.event_name }}" == "push" || "${{ github.event_name == 'workflow_run' && github.event.workflow_run.event || '' }}" == "push" || -z "${PR_NUMBER}" ]]; then
+            HEAD_BRANCH="${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}"
             echo "is_push=true" >> "$GITHUB_OUTPUT"
             echo "✅ Detected push build from branch: ${HEAD_BRANCH}"
           else
@@ -108,7 +112,7 @@ jobs:
             PR_NUMBER="${{ steps.pr-info.outputs.pr_number }}"
             ARTIFACT_NAME="pr-image-${PR_NUMBER}"
           fi
-          RUN_ID="${{ github.event.workflow_run.id }}"
+          RUN_ID="${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || '' }}"
 
           echo "🔍 Checking for artifact: ${ARTIFACT_NAME}"
 
@@ -127,7 +131,7 @@ jobs:
             fi
           elif [[ -z "${RUN_ID}" ]]; then
             # If triggered by push/pull_request, RUN_ID is empty. Find recent run for this commit.
-            HEAD_SHA="${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}"
+            HEAD_SHA="${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}"
             echo "🔍 Searching for workflow run for SHA: ${HEAD_SHA}"
             # Retry a few times as the run might be just starting or finishing
             for i in {1..3}; do
@@ -285,7 +289,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@cb4e075f119f8bccbc942d49655b2cd4dc6e615a
         with:
           sarif_file: 'trivy-binary-results.sarif'
-          category: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event.workflow_run.head_branch) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
+          category: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
         continue-on-error: true
 
       - name: Run Trivy filesystem scan (fail on CRITICAL/HIGH)
@@ -304,7 +308,7 @@ jobs:
         # actions/upload-artifact v4.4.3
         uses: actions/upload-artifact@47309c993abb98030a35d55ef7ff34b7fa1074b5
         with:
-          name: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event.workflow_run.head_branch) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
+          name: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
           path: |
             trivy-binary-results.sarif
           retention-days: 14
@@ -314,7 +318,7 @@ jobs:
         run: |
           {
             if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
-              echo "## 🔒 Security Scan Results - Branch: ${{ github.event.workflow_run.head_branch }}"
+              echo "## 🔒 Security Scan Results - Branch: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}"
             else
               echo "## 🔒 Security Scan Results - PR #${{ steps.pr-info.outputs.pr_number }}"
             fi
