@@ -561,6 +561,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
         with:
           sarif_file: 'trivy-results.sarif'
+          category: '.github/workflows/docker-build.yml:build-and-push'
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # Generate SBOM (Software Bill of Materials) for supply chain security
@@ -702,12 +703,46 @@ jobs:
           exit-code: '1'  # Intended to block, but continued on error for now
         continue-on-error: true
 
-      - name: Upload Trivy scan results
+      - name: Check Trivy PR SARIF exists
         if: always()
+        id: trivy-pr-check
+        run: |
+          if [ -f trivy-pr-results.sarif ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload Trivy scan results
+        if: always() && steps.trivy-pr-check.outputs.exists == 'true'
         uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
         with:
           sarif_file: 'trivy-pr-results.sarif'
           category: 'docker-pr-image'
+
+      - name: Upload Trivy compatibility results (docker-build category)
+        if: always() && steps.trivy-pr-check.outputs.exists == 'true'
+        uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
+        with:
+          sarif_file: 'trivy-pr-results.sarif'
+          category: '.github/workflows/docker-build.yml:build-and-push'
+        continue-on-error: true
+
+      - name: Upload Trivy compatibility results (docker-publish alias)
+        if: always() && steps.trivy-pr-check.outputs.exists == 'true'
+        uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
+        with:
+          sarif_file: 'trivy-pr-results.sarif'
+          category: '.github/workflows/docker-publish.yml:build-and-push'
+        continue-on-error: true
+
+      - name: Upload Trivy compatibility results (nightly alias)
+        if: always() && steps.trivy-pr-check.outputs.exists == 'true'
+        uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
+        with:
+          sarif_file: 'trivy-pr-results.sarif'
+          category: 'trivy-nightly'
+        continue-on-error: true
 
       - name: Create scan summary
         if: always()
