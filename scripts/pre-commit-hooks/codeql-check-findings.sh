@@ -22,16 +22,31 @@ check_sarif() {
 
     echo "🔍 Checking $lang findings..."
 
-    # Check for findings using jq (if available)
+        # Check for findings using jq (if available)
     if command -v jq &> /dev/null; then
-        # Count high/critical severity findings
-        HIGH_COUNT=$(jq -r '.runs[].results[] | select(.level == "error" or .level == "warning") | .level' "$sarif_file" 2>/dev/null | wc -l || echo 0)
+                # Count high/critical severity findings.
+                # Note: CodeQL SARIF may omit result-level `level`; when absent, severity
+                # is defined on the rule metadata (`tool.driver.rules[].defaultConfiguration.level`).
+                HIGH_COUNT=$(jq -r '[
+                    .runs[] as $run
+                    | $run.results[]
+                    | . as $result
+                    | (($result.level // ($run.tool.driver.rules[$result.ruleIndex].defaultConfiguration.level // "")) | ascii_downcase) as $effectiveLevel
+                    | select($effectiveLevel == "error" or $effectiveLevel == "warning")
+                ] | length' "$sarif_file" 2>/dev/null || echo 0)
 
         if [ "$HIGH_COUNT" -gt 0 ]; then
             echo -e "${RED}❌ Found $HIGH_COUNT potential security issues in $lang code${NC}"
             echo ""
             echo "Summary:"
-            jq -r '.runs[].results[] | "\(.level): \(.message.text) (\(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine))"' "$sarif_file" 2>/dev/null | head -10
+                        jq -r '
+                            .runs[] as $run
+                            | $run.results[]
+                            | . as $result
+                            | (($result.level // ($run.tool.driver.rules[$result.ruleIndex].defaultConfiguration.level // "")) | ascii_downcase) as $effectiveLevel
+                            | select($effectiveLevel == "error" or $effectiveLevel == "warning")
+                            | "\($effectiveLevel): \($result.ruleId // "<unknown-rule>"): \($result.message.text) (\($result.locations[0].physicalLocation.artifactLocation.uri):\($result.locations[0].physicalLocation.region.startLine))"
+                        ' "$sarif_file" 2>/dev/null | head -10
             echo ""
             echo "View full results: code $sarif_file"
             FAILED=1
