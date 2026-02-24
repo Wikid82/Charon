@@ -197,3 +197,37 @@ PR-3 is **ready to merge** with no open QA blockers.
 	- Initial Playwright run saw container availability drop (`ECONNREFUSED`); after E2E environment rebuild and deterministic rerun, gate passed.
 	- Initial pre-commit run required one automatic EOF fix and passed on rerun.
 	- Shell working-directory drift caused temporary command-not-found noise for root-level security scripts; rerun from repo root passed.
+
+---
+
+## Workflow Fix Validation — GHAS Trivy Compatibility (`docker-build.yml`)
+
+- Date: 2026-02-24
+- Scope: `.github/workflows/docker-build.yml` only
+- Result: **PASS**
+
+### Checks Run
+
+1. Workflow lint/syntax:
+	- `go run github.com/rhysd/actionlint/cmd/actionlint@latest .github/workflows/docker-build.yml` → `actionlint: OK`
+	- `python3` YAML parse (`yaml.safe_load`) for `.github/workflows/docker-build.yml` → `YAML parse: OK`
+2. Guard/category placement validation:
+	- Verified Trivy compatibility uploads are gated with `if: always() && steps.trivy-pr-check.outputs.exists == 'true'`.
+	- Verified compatibility uploads are non-blocking via `continue-on-error: true`.
+	- Verified category aliases present:
+	  - `.github/workflows/docker-build.yml:build-and-push`
+	  - `.github/workflows/docker-publish.yml:build-and-push`
+	  - `trivy-nightly`
+	- Verified main Trivy SARIF upload for non-PR path now explicitly sets category `.github/workflows/docker-build.yml:build-and-push`.
+3. Security regression review (workflow logic only):
+	- Patch is additive for SARIF upload routing/compatibility and existence guard.
+	- No new secret exposure, token scope elevation, or privilege expansion introduced.
+	- No blocking behavior added to compatibility uploads.
+
+### Blockers
+
+- None.
+
+### Proceed Recommendation
+
+- **Proceed**. Workflow-only GHAS Trivy compatibility patch is validated and safe to merge.
