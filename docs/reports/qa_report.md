@@ -231,3 +231,44 @@ PR-3 is **ready to merge** with no open QA blockers.
 ### Proceed Recommendation
 
 - **Proceed**. Workflow-only GHAS Trivy compatibility patch is validated and safe to merge.
+
+---
+
+## QA Validation — E2E Auth Helper + Local Docker Socket Diagnostics
+
+- Date: 2026-02-24
+- Scope: Validation only for:
+	1. E2E shard failures previously tied to missing `Authorization` header in test helpers (`createUser` path)
+	2. Local Docker socket connection diagnostics/behavior
+- Verdict: **PASS for both target tracks** (with unrelated shard test failures outside this scope)
+
+### Commands Executed
+
+1. `./.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`
+2. `pushd /projects/Charon >/dev/null && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : "${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=1 npx playwright test --project=firefox --shard=1/4 --output=playwright-output/firefox-shard-1 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks`
+3. `pushd /projects/Charon >/dev/null && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : "${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox tests/fixtures/api-helper-auth.spec.ts`
+4. `pushd /projects/Charon/backend >/dev/null && go test -count=1 -v ./internal/services -run 'TestDockerService|TestIsDocker|TestResolveDockerHost|TestBuildLocalDockerUnavailableDetails|TestGetErrorResponseDetails' && go test -count=1 -v ./internal/api/handlers -run 'TestDockerHandler'`
+
+### Results
+
+| Check | Status | Output Summary |
+| --- | --- | --- |
+| E2E environment rebuild | PASS | `charon-e2e` rebuilt and healthy; health endpoint responsive. |
+| CI-style non-security shard | PARTIAL (out-of-scope failures) | `124 passed`, `3 failed` in `tests/core/data-consistency.spec.ts` and `tests/core/domain-dns-management.spec.ts`; **no** `Failed to create user: {"error":"Authorization header required"}` observed. |
+| Focused `createUser` auth-path spec | PASS | `tests/fixtures/api-helper-auth.spec.ts` → `2 passed (4.5s)`. |
+| Backend docker service/handler tests | PASS | Targeted suites passed, including local diagnostics and mapping: `ok .../internal/services`, `ok .../internal/api/handlers`. |
+
+### Local Docker API Path / Diagnostics Validation
+
+- Verified via backend tests that local-mode behavior and diagnostics are correct:
+	- Local host resolution includes unix socket preference path (`unix:///var/run/docker.sock`) in service tests.
+	- Connectivity classification passes for permission denied, missing socket, daemon connectivity, timeout, and syscall/network error paths.
+	- Handler mapping passes for docker-unavailable scenarios and returns actionable details with `503` path assertions.
+
+### Env-only vs Regression Classification
+
+- Track 1 (`createUser` Authorization helper path): **No regression detected**.
+	- Focused spec passes and representative shard no longer shows prior auth-header failure signature.
+- Track 2 (local Docker socket diagnostics/behavior): **No regression detected**.
+	- Targeted backend tests pass across local unix socket and failure diagnostic scenarios.
+- Remaining shard failures: **Out of scope for requested tracks** (not env bootstrap failures and not related to auth-helper/docker-socket fixes).

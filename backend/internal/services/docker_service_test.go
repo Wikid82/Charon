@@ -6,10 +6,13 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDockerService_New(t *testing.T) {
@@ -58,6 +61,10 @@ func TestDockerUnavailableError_ErrorMethods(t *testing.T) {
 	unwrapped := err.Unwrap()
 	assert.Equal(t, baseErr, unwrapped)
 
+	// Test Details()
+	errWithDetails := NewDockerUnavailableError(baseErr, "socket permission mismatch")
+	assert.Equal(t, "socket permission mismatch", errWithDetails.Details())
+
 	// Test nil receiver cases
 	var nilErr *DockerUnavailableError
 	assert.Equal(t, "docker unavailable", nilErr.Error())
@@ -67,6 +74,7 @@ func TestDockerUnavailableError_ErrorMethods(t *testing.T) {
 	nilBaseErr := NewDockerUnavailableError(nil)
 	assert.Equal(t, "docker unavailable", nilBaseErr.Error())
 	assert.Nil(t, nilBaseErr.Unwrap())
+	assert.Equal(t, "", nilBaseErr.Details())
 }
 
 func TestIsDockerConnectivityError(t *testing.T) {
@@ -164,4 +172,45 @@ func TestIsDockerConnectivityError_NetErrorTimeout(t *testing.T) {
 
 	result := isDockerConnectivityError(netErr)
 	assert.True(t, result, "net.Error with Timeout() should return true")
+}
+
+func TestResolveLocalDockerHost_IgnoresRemoteTCPEnv(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "tcp://docker-proxy:2375")
+
+	host := resolveLocalDockerHost()
+
+	assert.Equal(t, "unix:///var/run/docker.sock", host)
+}
+
+func TestResolveLocalDockerHost_UsesExistingUnixSocketFromEnv(t *testing.T) {
+	tmpDir := t.TempDir()
+	socketFile := filepath.Join(tmpDir, "docker.sock")
+	require.NoError(t, os.WriteFile(socketFile, []byte(""), 0o600))
+
+	t.Setenv("DOCKER_HOST", "unix://"+socketFile)
+
+	host := resolveLocalDockerHost()
+
+	assert.Equal(t, "unix://"+socketFile, host)
+}
+
+func TestBuildLocalDockerUnavailableDetails_PermissionDeniedIncludesGroupHint(t *testing.T) {
+	err := &net.OpError{Op: "dial", Net: "unix", Err: syscall.EACCES}
+	details := buildLocalDockerUnavailableDetails(err, "unix:///var/run/docker.sock")
+
+	assert.Contains(t, details, "not accessible")
+	assert.Contains(t, details, "uid=")
+	assert.Contains(t, details, "gid=")
+	assert.NotContains(t, strings.ToLower(details), "token")
+}
+
+func TestBuildLocalDockerUnavailableDetails_MissingSocket(t *testing.T) {
+	err := &net.OpError{Op: "dial", Net: "unix", Err: syscall.ENOENT}
+	host := "unix:///tmp/nonexistent-docker.sock"
+
+	details := buildLocalDockerUnavailableDetails(err, host)
+
+	assert.Contains(t, details, "not found")
+	assert.Contains(t, details, "/tmp/nonexistent-docker.sock")
+	assert.Contains(t, details, host)
 }
