@@ -2,9 +2,12 @@ package notifications
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	neturl "net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -35,6 +38,79 @@ func TestHTTPWrapperRejectsTokenizedQueryURL(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "query authentication is not allowed") {
 		t.Fatalf("expected query token rejection, got: %v", err)
+	}
+}
+
+func TestHTTPWrapperRejectsQueryAuthCaseVariants(t *testing.T) {
+	testCases := []string{
+		"http://example.com/hook?Token=secret",
+		"http://example.com/hook?AUTH=secret",
+		"http://example.com/hook?apiKey=secret",
+	}
+
+	for _, testURL := range testCases {
+		t.Run(testURL, func(t *testing.T) {
+			wrapper := NewNotifyHTTPWrapper()
+			wrapper.allowHTTP = true
+
+			_, err := wrapper.Send(context.Background(), HTTPWrapperRequest{
+				URL:  testURL,
+				Body: []byte(`{"message":"hello"}`),
+			})
+			if err == nil || !strings.Contains(err.Error(), "query authentication is not allowed") {
+				t.Fatalf("expected query auth rejection for %q, got: %v", testURL, err)
+			}
+		})
+	}
+}
+
+func TestHTTPWrapperSendRejectsRedirectTargetWithDisallowedScheme(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		http.Redirect(w, r, "ftp://example.com/redirected", http.StatusFound)
+	}))
+	defer server.Close()
+
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = true
+	wrapper.maxRedirects = 3
+	wrapper.retryPolicy.MaxAttempts = 1
+
+	_, err := wrapper.Send(context.Background(), HTTPWrapperRequest{
+		URL:  server.URL,
+		Body: []byte(`{"message":"hello"}`),
+	})
+	if err == nil || !strings.Contains(err.Error(), "outbound request failed") {
+		t.Fatalf("expected outbound failure due to redirect target validation, got: %v", err)
+	}
+	if got := atomic.LoadInt32(&attempts); got != 1 {
+		t.Fatalf("expected only initial request due to blocked redirect, got %d attempts", got)
+	}
+}
+
+func TestHTTPWrapperSendRejectsRedirectTargetWithMixedCaseQueryAuth(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		http.Redirect(w, r, "https://example.com/redirected?Token=secret", http.StatusFound)
+	}))
+	defer server.Close()
+
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = true
+	wrapper.maxRedirects = 3
+	wrapper.retryPolicy.MaxAttempts = 1
+
+	_, err := wrapper.Send(context.Background(), HTTPWrapperRequest{
+		URL:  server.URL,
+		Body: []byte(`{"message":"hello"}`),
+	})
+	if err == nil || !strings.Contains(err.Error(), "outbound request failed") {
+		t.Fatalf("expected outbound failure due to redirect query auth validation, got: %v", err)
+	}
+	if got := atomic.LoadInt32(&attempts); got != 1 {
+		t.Fatalf("expected only initial request due to blocked redirect, got %d attempts", got)
 	}
 }
 
@@ -130,5 +206,71 @@ func TestSanitizeOutboundHeadersAllowlist(t *testing.T) {
 	}
 	if _, ok := headers["Cookie"]; ok {
 		t.Fatalf("cookie header must be stripped")
+	}
+}
+
+func TestHTTPWrapperGuardOutboundRequestURLRejectsNilRequest(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+
+	err := wrapper.guardOutboundRequestURL(nil)
+	if err == nil || !strings.Contains(err.Error(), "destination URL validation failed") {
+		t.Fatalf("expected validation failure for nil request, got: %v", err)
+	}
+}
+
+func TestHTTPWrapperGuardOutboundRequestURLRejectsQueryAuth(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = true
+
+	httpReq := &http.Request{URL: &neturl.URL{Scheme: "http", Host: "example.com", Path: "/hook", RawQuery: "token=secret"}}
+	err := wrapper.guardOutboundRequestURL(httpReq)
+	if err == nil || !strings.Contains(err.Error(), "query authentication is not allowed") {
+		t.Fatalf("expected query auth rejection, got: %v", err)
+	}
+}
+
+func TestHTTPWrapperGuardOutboundRequestURLRejectsMixedCaseQueryAuth(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = true
+
+	httpReq := &http.Request{URL: &neturl.URL{Scheme: "http", Host: "example.com", Path: "/hook", RawQuery: "apiKey=secret"}}
+	err := wrapper.guardOutboundRequestURL(httpReq)
+	if err == nil || !strings.Contains(err.Error(), "query authentication is not allowed") {
+		t.Fatalf("expected query auth rejection, got: %v", err)
+	}
+}
+
+func TestHTTPWrapperApplyRedirectGuardPreservesOriginalBehavior(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	baseErr := fmt.Errorf("base redirect policy")
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return baseErr
+	}}
+
+	wrapper.applyRedirectGuard(client)
+	err := client.CheckRedirect(&http.Request{URL: &neturl.URL{Scheme: "https", Host: "example.com"}}, nil)
+	if !errors.Is(err, baseErr) {
+		t.Fatalf("expected original redirect policy error, got: %v", err)
+	}
+}
+
+func TestHTTPWrapperGuardOutboundRequestURLRejectsUnsafeDestination(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = false
+
+	httpReq := &http.Request{URL: &neturl.URL{Scheme: "http", Host: "example.com", Path: "/hook"}}
+	err := wrapper.guardOutboundRequestURL(httpReq)
+	if err == nil || !strings.Contains(err.Error(), "destination URL validation failed") {
+		t.Fatalf("expected destination validation failure, got: %v", err)
+	}
+}
+
+func TestHTTPWrapperGuardOutboundRequestURLAllowsValidatedDestination(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+
+	httpReq := &http.Request{URL: &neturl.URL{Scheme: "https", Host: "example.com", Path: "/hook"}}
+	err := wrapper.guardOutboundRequestURL(httpReq)
+	if err != nil {
+		t.Fatalf("expected validated destination to pass guard, got: %v", err)
 	}
 }

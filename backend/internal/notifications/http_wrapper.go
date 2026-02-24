@@ -84,6 +84,7 @@ func (w *HTTPWrapper) Send(ctx context.Context, request HTTPWrapperRequest) (*HT
 
 	headers := sanitizeOutboundHeaders(request.Headers)
 	client := w.httpClientFactory(w.allowHTTP, w.maxRedirects)
+	w.applyRedirectGuard(client)
 
 	var lastErr error
 	for attempt := 1; attempt <= w.retryPolicy.MaxAttempts; attempt++ {
@@ -98,6 +99,10 @@ func (w *HTTPWrapper) Send(ctx context.Context, request HTTPWrapperRequest) (*HT
 
 		if httpReq.Header.Get("Content-Type") == "" {
 			httpReq.Header.Set("Content-Type", "application/json")
+		}
+
+		if guardErr := w.guardOutboundRequestURL(httpReq); guardErr != nil {
+			return nil, guardErr
 		}
 
 		resp, doErr := client.Do(httpReq)
@@ -142,14 +147,30 @@ func (w *HTTPWrapper) Send(ctx context.Context, request HTTPWrapperRequest) (*HT
 	return nil, fmt.Errorf("provider request failed")
 }
 
+func (w *HTTPWrapper) applyRedirectGuard(client *http.Client) {
+	if client == nil {
+		return
+	}
+
+	originalCheckRedirect := client.CheckRedirect
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if originalCheckRedirect != nil {
+			if err := originalCheckRedirect(req, via); err != nil {
+				return err
+			}
+		}
+
+		return w.guardOutboundRequestURL(req)
+	}
+}
+
 func (w *HTTPWrapper) validateURL(rawURL string) (string, error) {
 	parsedURL, err := neturl.Parse(rawURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid destination URL")
 	}
 
-	query := parsedURL.Query()
-	if query.Has("token") || query.Has("auth") || query.Has("apikey") || query.Has("api_key") {
+	if hasDisallowedQueryAuthKey(parsedURL.Query()) {
 		return "", fmt.Errorf("destination URL query authentication is not allowed")
 	}
 
@@ -164,6 +185,36 @@ func (w *HTTPWrapper) validateURL(rawURL string) (string, error) {
 	}
 
 	return validatedURL, nil
+}
+
+func hasDisallowedQueryAuthKey(query neturl.Values) bool {
+	for key := range query {
+		normalizedKey := strings.ToLower(strings.TrimSpace(key))
+		switch normalizedKey {
+		case "token", "auth", "apikey", "api_key":
+			return true
+		}
+	}
+
+	return false
+}
+
+func (w *HTTPWrapper) guardOutboundRequestURL(httpReq *http.Request) error {
+	if httpReq == nil || httpReq.URL == nil {
+		return fmt.Errorf("destination URL validation failed")
+	}
+
+	reqURL := httpReq.URL.String()
+	validatedURL, err := w.validateURL(reqURL)
+	if err != nil {
+		return err
+	}
+
+	if validatedURL != reqURL {
+		return fmt.Errorf("destination URL validation failed")
+	}
+
+	return nil
 }
 
 func shouldRetry(resp *http.Response, err error) bool {
