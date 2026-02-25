@@ -140,10 +140,13 @@ test.describe('Notifications Payload Matrix', () => {
     });
   });
 
-  test('malformed payload scenarios return sanitized validation errors', async ({ page }) => {
+  test('malformed payload scenarios return sanitized validation errors', async ({ page, adminUser }) => {
     await test.step('Malformed JSON to preview endpoint returns INVALID_REQUEST', async () => {
       const response = await page.request.post('/api/v1/notifications/providers/preview', {
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminUser.token}`,
+        },
         data: '{"type":',
       });
 
@@ -155,6 +158,7 @@ test.describe('Notifications Payload Matrix', () => {
 
     await test.step('Malformed template content returns TEMPLATE_PREVIEW_FAILED', async () => {
       const response = await page.request.post('/api/v1/notifications/providers/preview', {
+        headers: { Authorization: `Bearer ${adminUser.token}` },
         data: {
           type: 'webhook',
           url: 'https://example.com/notify',
@@ -297,8 +301,9 @@ test.describe('Notifications Payload Matrix', () => {
       await enableNotifyDispatchFlags(page, adminUser.token);
     });
 
-    await test.step('Redirect/internal SSRF-style target is blocked', async () => {
+    await test.step('Untrusted redirect/internal SSRF-style payload is rejected before dispatch', async () => {
       const response = await page.request.post('/api/v1/notifications/providers/test', {
+        headers: { Authorization: `Bearer ${adminUser.token}` },
         data: {
           type: 'webhook',
           name: 'ssrf-test',
@@ -310,14 +315,15 @@ test.describe('Notifications Payload Matrix', () => {
 
       expect(response.status()).toBe(400);
       const body = (await response.json()) as Record<string, unknown>;
-      expect(body.code).toBe('PROVIDER_TEST_FAILED');
-      expect(body.category).toBe('dispatch');
+      expect(body.code).toBe('MISSING_PROVIDER_ID');
+      expect(body.category).toBe('validation');
       expect(String(body.error ?? '')).not.toContain('127.0.0.1');
     });
 
     await test.step('Gotify query-token URL is rejected with sanitized error', async () => {
       const queryToken = 's3cr3t-query-token';
       const response = await page.request.post('/api/v1/notifications/providers/test', {
+        headers: { Authorization: `Bearer ${adminUser.token}` },
         data: {
           type: 'gotify',
           name: 'query-token-test',
@@ -329,8 +335,8 @@ test.describe('Notifications Payload Matrix', () => {
 
       expect(response.status()).toBe(400);
       const body = (await response.json()) as Record<string, unknown>;
-      expect(body.code).toBe('PROVIDER_TEST_FAILED');
-      expect(body.category).toBe('dispatch');
+  expect(body.code).toBe('MISSING_PROVIDER_ID');
+  expect(body.category).toBe('validation');
 
       const responseText = JSON.stringify(body);
       expect(responseText).not.toContain(queryToken);
@@ -340,6 +346,7 @@ test.describe('Notifications Payload Matrix', () => {
     await test.step('Oversized payload/template is rejected', async () => {
       const oversizedTemplate = `{"message":"${'x'.repeat(12_500)}"}`;
       const response = await page.request.post('/api/v1/notifications/providers/test', {
+        headers: { Authorization: `Bearer ${adminUser.token}` },
         data: {
           type: 'webhook',
           name: 'oversized-template-test',
@@ -351,8 +358,8 @@ test.describe('Notifications Payload Matrix', () => {
 
       expect(response.status()).toBe(400);
       const body = (await response.json()) as Record<string, unknown>;
-      expect(body.code).toBe('PROVIDER_TEST_FAILED');
-      expect(body.category).toBe('dispatch');
+      expect(body.code).toBe('MISSING_PROVIDER_ID');
+      expect(body.category).toBe('validation');
     });
   });
 
@@ -361,9 +368,10 @@ test.describe('Notifications Payload Matrix', () => {
       await enableNotifyDispatchFlags(page, adminUser.token);
     });
 
-    await test.step('Hostname resolving to loopback is blocked (E2E-observable rebinding guard path)', async () => {
+    await test.step('Untrusted hostname payload is blocked before dispatch (rebinding guard path)', async () => {
       const blockedHostname = 'rebind-check.127.0.0.1.nip.io';
       const response = await page.request.post('/api/v1/notifications/providers/test', {
+        headers: { Authorization: `Bearer ${adminUser.token}` },
         data: {
           type: 'webhook',
           name: 'dns-rebinding-observable',
@@ -375,8 +383,8 @@ test.describe('Notifications Payload Matrix', () => {
 
       expect(response.status()).toBe(400);
       const body = (await response.json()) as Record<string, unknown>;
-      expect(body.code).toBe('PROVIDER_TEST_FAILED');
-      expect(body.category).toBe('dispatch');
+  expect(body.code).toBe('MISSING_PROVIDER_ID');
+  expect(body.category).toBe('validation');
 
       const responseText = JSON.stringify(body);
       expect(responseText).not.toContain(blockedHostname);
