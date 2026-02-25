@@ -27,30 +27,24 @@ get_group_by_gid() {
 }
 
 create_group_with_gid() {
-    local gid="$1"
-    local name="$2"
-
     if command -v addgroup >/dev/null 2>&1; then
-        addgroup -g "$gid" "$name" 2>/dev/null || true
+        addgroup -g "$1" "$2" 2>/dev/null || true
         return
     fi
 
     if command -v groupadd >/dev/null 2>&1; then
-        groupadd -g "$gid" "$name" 2>/dev/null || true
+        groupadd -g "$1" "$2" 2>/dev/null || true
     fi
 }
 
 add_user_to_group() {
-    local user="$1"
-    local group="$2"
-
     if command -v addgroup >/dev/null 2>&1; then
-        addgroup "$user" "$group" 2>/dev/null || true
+        addgroup "$1" "$2" 2>/dev/null || true
         return
     fi
 
     if command -v usermod >/dev/null 2>&1; then
-        usermod -aG "$group" "$user" 2>/dev/null || true
+        usermod -aG "$2" "$1" 2>/dev/null || true
     fi
 }
 
@@ -198,7 +192,7 @@ if command -v cscli >/dev/null; then
         echo "Initializing persistent CrowdSec configuration..."
 
         # Check if .dist has content
-        if [ -d "/etc/crowdsec.dist" ] && [ -n "$(ls -A /etc/crowdsec.dist 2>/dev/null)" ]; then
+        if [ -d "/etc/crowdsec.dist" ] && find /etc/crowdsec.dist -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null | grep -q .; then
             echo "Copying config from /etc/crowdsec.dist..."
             if ! cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/"; then
                 echo "ERROR: Failed to copy config from /etc/crowdsec.dist"
@@ -215,7 +209,7 @@ if command -v cscli >/dev/null; then
                 exit 1
             fi
             echo "✓ Successfully initialized config from .dist directory"
-        elif [ -d "/etc/crowdsec" ] && [ ! -L "/etc/crowdsec" ] && [ -n "$(ls -A /etc/crowdsec 2>/dev/null)" ]; then
+        elif [ -d "/etc/crowdsec" ] && [ ! -L "/etc/crowdsec" ] && find /etc/crowdsec -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null | grep -q .; then
             echo "Copying config from /etc/crowdsec (fallback)..."
             if ! cp -r /etc/crowdsec/* "$CS_CONFIG_DIR/"; then
                 echo "ERROR: Failed to copy config from /etc/crowdsec (fallback)"
@@ -255,7 +249,7 @@ if command -v cscli >/dev/null; then
         echo "Expected: /etc/crowdsec -> /app/data/crowdsec/config"
         echo "This indicates a critical build-time issue. Symlink must be created at build time as root."
         echo "DEBUG: Directory check:"
-        ls -la /etc/ | grep crowdsec || echo "  (no crowdsec entry found)"
+        find /etc -mindepth 1 -maxdepth 1 -name '*crowdsec*' -exec ls -ld {} \; 2>/dev/null || echo "  (no crowdsec entry found)"
         exit 1
     fi
 
