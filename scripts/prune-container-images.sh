@@ -21,7 +21,7 @@ OWNER=${OWNER:-${GITHUB_REPOSITORY_OWNER:-Wikid82}}
 IMAGE_NAME=${IMAGE_NAME:-charon}
 KEEP_DAYS=${KEEP_DAYS:-30}
 KEEP_LAST_N=${KEEP_LAST_N:-30}
-DRY_RUN=${DRY_RUN:-true}
+DRY_RUN=${DRY_RUN:-false}
 PROTECTED_REGEX=${PROTECTED_REGEX:-'["^v","^latest$","^main$","^develop$"]'}
 
 LOG_PREFIX="[prune]"
