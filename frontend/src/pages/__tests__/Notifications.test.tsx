@@ -517,4 +517,86 @@ describe('Notifications', () => {
     const payload = vi.mocked(notificationsApi.testProvider).mock.calls[0][0]
     expect(payload.type).toBe('discord')
   })
+
+  it('shows token-stored indicator when editing provider with has_token=true', async () => {
+    const gotifyProviderWithToken: NotificationProvider = {
+      ...baseProvider,
+      id: 'provider-gotify-has-token',
+      type: 'gotify',
+      url: 'https://gotify.example.com/message',
+      has_token: true,
+    }
+
+    setupMocks([gotifyProviderWithToken])
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    const row = await screen.findByTestId('provider-row-provider-gotify-has-token')
+    const buttons = within(row).getAllByRole('button')
+    await user.click(buttons[1])
+
+    expect(screen.getByTestId('gotify-token-stored-indicator')).toHaveTextContent('notificationProviders.gotifyTokenStored')
+    const tokenInput = screen.getByTestId('provider-gotify-token') as HTMLInputElement
+    expect(tokenInput.placeholder).toBe('notificationProviders.gotifyTokenKeepPlaceholder')
+  })
+
+  it('hides token-stored indicator when has_token is false', async () => {
+    const gotifyProviderNoToken: NotificationProvider = {
+      ...baseProvider,
+      id: 'provider-gotify-no-token',
+      type: 'gotify',
+      url: 'https://gotify.example.com/message',
+      has_token: false,
+    }
+
+    setupMocks([gotifyProviderNoToken])
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    const row = await screen.findByTestId('provider-row-provider-gotify-no-token')
+    const buttons = within(row).getAllByRole('button')
+    await user.click(buttons[1])
+
+    expect(screen.queryByTestId('gotify-token-stored-indicator')).toBeNull()
+    const tokenInput = screen.getByTestId('provider-gotify-token') as HTMLInputElement
+    expect(tokenInput.placeholder).toBe('notificationProviders.gotifyTokenPlaceholder')
+  })
+
+  it('shows error toast when test mutation fails', async () => {
+    vi.mocked(notificationsApi.testProvider).mockRejectedValue(new Error('Connection refused'))
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+    await user.type(screen.getByTestId('provider-name'), 'Failing Provider')
+    await user.type(screen.getByTestId('provider-url'), 'https://example.com/webhook')
+    await user.click(screen.getByTestId('provider-test-btn'))
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('Connection refused')
+    })
+  })
+
+  it('shows JSON template selector for gotify provider', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+    await user.selectOptions(screen.getByTestId('provider-type'), 'gotify')
+
+    expect(screen.getByTestId('provider-config')).toBeInTheDocument()
+  })
+
+  it('shows JSON template selector for webhook provider', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+    await user.selectOptions(screen.getByTestId('provider-type'), 'webhook')
+
+    expect(screen.getByTestId('provider-config')).toBeInTheDocument()
+  })
 })

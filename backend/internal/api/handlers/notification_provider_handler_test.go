@@ -413,3 +413,100 @@ func TestNotificationProviderHandler_UpdatePreservesServerManagedMigrationFields
 	require.NotNil(t, dbProvider.LastMigratedAt)
 	assert.Equal(t, now, dbProvider.LastMigratedAt.UTC().Round(time.Second))
 }
+
+func TestNotificationProviderHandler_List_ReturnsHasTokenTrue(t *testing.T) {
+	r, db := setupNotificationProviderTest(t)
+
+	p := models.NotificationProvider{
+		ID:    "tok-true",
+		Name:  "Gotify With Token",
+		Type:  "gotify",
+		URL:   "https://gotify.example.com",
+		Token: "secret-app-token",
+	}
+	require.NoError(t, db.Create(&p).Error)
+
+	req, _ := http.NewRequest("GET", "/api/v1/notifications/providers", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var raw []map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+	require.Len(t, raw, 1)
+	assert.Equal(t, true, raw[0]["has_token"])
+}
+
+func TestNotificationProviderHandler_List_ReturnsHasTokenFalse(t *testing.T) {
+	r, db := setupNotificationProviderTest(t)
+
+	p := models.NotificationProvider{
+		ID:   "tok-false",
+		Name: "Discord No Token",
+		Type: "discord",
+		URL:  "https://discord.com/api/webhooks/123/abc",
+	}
+	require.NoError(t, db.Create(&p).Error)
+
+	req, _ := http.NewRequest("GET", "/api/v1/notifications/providers", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var raw []map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+	require.Len(t, raw, 1)
+	assert.Equal(t, false, raw[0]["has_token"])
+}
+
+func TestNotificationProviderHandler_List_NeverExposesRawToken(t *testing.T) {
+	r, db := setupNotificationProviderTest(t)
+
+	p := models.NotificationProvider{
+		ID:    "tok-hidden",
+		Name:  "Secret Gotify",
+		Type:  "gotify",
+		URL:   "https://gotify.example.com",
+		Token: "super-secret-value",
+	}
+	require.NoError(t, db.Create(&p).Error)
+
+	req, _ := http.NewRequest("GET", "/api/v1/notifications/providers", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotContains(t, w.Body.String(), "super-secret-value")
+
+	var raw []map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+	require.Len(t, raw, 1)
+	_, hasTokenField := raw[0]["token"]
+	assert.False(t, hasTokenField, "raw token field must not appear in JSON response")
+}
+
+func TestNotificationProviderHandler_Create_ResponseHasHasToken(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	payload := map[string]interface{}{
+		"name":     "New Gotify",
+		"type":     "gotify",
+		"url":      "https://gotify.example.com",
+		"token":    "app-token-123",
+		"template": "minimal",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	var raw map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+	assert.Equal(t, true, raw["has_token"])
+	assert.NotContains(t, w.Body.String(), "app-token-123")
+}

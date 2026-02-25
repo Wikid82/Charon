@@ -30,6 +30,7 @@ export interface NotificationProvider {
   template?: string;
   gotify_token?: string;
   token?: string;
+  has_token?: boolean;
   enabled: boolean;
   notify_proxy_hosts: boolean;
   notify_remote_servers: boolean;

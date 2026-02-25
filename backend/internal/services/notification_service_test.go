@@ -528,17 +528,7 @@ func TestNotificationService_TestProvider_Errors(t *testing.T) {
 		}
 		err := svc.TestProvider(provider)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "only discord provider type is supported")
-	})
-
-	t.Run("webhook type not supported", func(t *testing.T) {
-		provider := models.NotificationProvider{
-			Type: "webhook",
-			URL:  "https://example.com/webhook",
-		}
-		err := svc.TestProvider(provider)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "only discord provider type is supported")
+		assert.Contains(t, err.Error(), "unsupported provider type")
 	})
 
 	t.Run("discord with invalid URL format", func(t *testing.T) {
@@ -557,7 +547,7 @@ func TestNotificationService_TestProvider_Errors(t *testing.T) {
 		}
 		err := svc.TestProvider(provider)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "only discord provider type is supported")
+		assert.Contains(t, err.Error(), "unsupported provider type")
 	})
 
 	t.Run("webhook success", func(t *testing.T) {
@@ -1795,13 +1785,13 @@ func TestLegacyFallbackInvocationError(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db)
 
-	// Test non-discord providers are rejected with discord-only error
+	// Test non-supported providers are rejected
 	err := svc.TestProvider(models.NotificationProvider{
 		Type: "telegram",
 		URL:  "telegram://token@telegram?chats=1",
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "only discord provider type is supported")
+	assert.Contains(t, err.Error(), "unsupported provider type")
 }
 
 func TestLegacyFallbackInvocationError_DirectHelperAndHook(t *testing.T) {
@@ -1962,16 +1952,14 @@ func TestTestProvider_NotifyOnlyRejectsUnsupportedProvider(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db)
 
-	// Test non-discord providers are rejected
+	// Test truly unsupported providers are rejected
 	tests := []struct {
 		name         string
 		providerType string
 		url          string
 	}{
 		{"telegram", "telegram", "telegram://token@telegram?chats=123"},
-		{"webhook", "webhook", "https://example.com/webhook"},
 		{"slack", "slack", "https://hooks.slack.com/services/T/B/X"},
-		{"gotify", "gotify", "https://gotify.example.com/message"},
 		{"pushover", "pushover", "pushover://token@user"},
 	}
 
@@ -1985,7 +1973,7 @@ func TestTestProvider_NotifyOnlyRejectsUnsupportedProvider(t *testing.T) {
 
 			err := svc.TestProvider(provider)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "only discord provider type is supported")
+			assert.Contains(t, err.Error(), "unsupported provider type")
 		})
 	}
 }
@@ -2443,4 +2431,110 @@ func TestNotificationService_EnsureNotifyOnlyProviderMigration_FailsClosed(t *te
 	// - If update fails, function returns: fmt.Errorf("failed to migrate notification provider (id=%s, name=%q, type=%q): %w", ...)
 	// - No log-and-continue pattern present
 	// - Boot will treat migration incompleteness as failure
+}
+
+func TestIsDispatchEnabled_GotifyDefaultTrue(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	_ = db.AutoMigrate(&models.Setting{})
+	svc := NewNotificationService(db)
+
+	// No feature flag row exists — should default to true
+	assert.True(t, svc.isDispatchEnabled("gotify"))
+}
+
+func TestIsDispatchEnabled_WebhookDefaultTrue(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	_ = db.AutoMigrate(&models.Setting{})
+	svc := NewNotificationService(db)
+
+	// No feature flag row exists — should default to true
+	assert.True(t, svc.isDispatchEnabled("webhook"))
+}
+
+func TestTestProvider_GotifyWorksWithoutFeatureFlag(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	_ = db.AutoMigrate(&models.Setting{})
+	svc := NewNotificationService(db)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	provider := models.NotificationProvider{
+		Type:     "gotify",
+		URL:      ts.URL + "/message",
+		Template: "minimal",
+	}
+
+	err := svc.TestProvider(provider)
+	assert.NoError(t, err)
+}
+
+func TestTestProvider_WebhookWorksWithoutFeatureFlag(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	_ = db.AutoMigrate(&models.Setting{})
+	svc := NewNotificationService(db)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	provider := models.NotificationProvider{
+		Type:     "webhook",
+		URL:      ts.URL + "/webhook",
+		Template: "minimal",
+	}
+
+	err := svc.TestProvider(provider)
+	assert.NoError(t, err)
+}
+
+func TestTestProvider_GotifyWorksWhenFlagExplicitlyFalse(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	_ = db.AutoMigrate(&models.Setting{})
+	svc := NewNotificationService(db)
+
+	// Explicitly set feature flag to false
+	db.Create(&models.Setting{Key: "feature.notifications.service.gotify.enabled", Value: "false"})
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	provider := models.NotificationProvider{
+		Type:     "gotify",
+		URL:      ts.URL + "/message",
+		Template: "minimal",
+	}
+
+	// TestProvider bypasses the dispatch gate, so even with flag=false it should work
+	err := svc.TestProvider(provider)
+	assert.NoError(t, err)
+}
+
+func TestTestProvider_WebhookWorksWhenFlagExplicitlyFalse(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	_ = db.AutoMigrate(&models.Setting{})
+	svc := NewNotificationService(db)
+
+	// Explicitly set feature flag to false
+	db.Create(&models.Setting{Key: "feature.notifications.service.webhook.enabled", Value: "false"})
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	provider := models.NotificationProvider{
+		Type:     "webhook",
+		URL:      ts.URL + "/webhook",
+		Template: "minimal",
+	}
+
+	// TestProvider bypasses the dispatch gate, so even with flag=false it should work
+	err := svc.TestProvider(provider)
+	assert.NoError(t, err)
 }
