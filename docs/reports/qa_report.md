@@ -272,3 +272,27 @@ PR-3 is **ready to merge** with no open QA blockers.
 - Track 2 (local Docker socket diagnostics/behavior): **No regression detected**.
 	- Targeted backend tests pass across local unix socket and failure diagnostic scenarios.
 - Remaining shard failures: **Out of scope for requested tracks** (not env bootstrap failures and not related to auth-helper/docker-socket fixes).
+
+---
+
+## Fast Playwright No-HTML Triage (PR #754)
+
+- Date: 2026-02-25
+- Scope: Focused CI-like local rerun for previously failing no-HTML Playwright specs on Firefox and Chromium
+- Result: **PASS**
+
+### Commands Used
+
+1. `pushd /projects/Charon >/dev/null && if [ -f .env ]; then set -a; . ./.env; set +a; fi && export CHARON_EMERGENCY_TOKEN="${CHARON_EMERGENCY_TOKEN:-test-emergency-token-for-e2e-32chars}" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox tests/settings/no-html.spec.ts tests/settings/notifications-no-html.spec.ts tests/core/no-html-hardening.spec.ts tests/integration/no-html-regression.spec.ts`
+2. `pushd /projects/Charon >/dev/null && if [ -f .env ]; then set -a; . ./.env; set +a; fi && export CHARON_EMERGENCY_TOKEN="${CHARON_EMERGENCY_TOKEN:-test-emergency-token-for-e2e-32chars}" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=chromium tests/settings/no-html.spec.ts tests/settings/notifications-no-html.spec.ts tests/core/no-html-hardening.spec.ts tests/integration/no-html-regression.spec.ts`
+
+### Results
+
+| Browser | Status | Output Summary |
+| --- | --- | --- |
+| Firefox | PASS | **43 passed, 0 failed** |
+| Chromium | PASS | **43 passed, 0 failed** |
+
+### Conclusion
+
+All four previously failing specs are green locally when executed in CI-like environment settings.
