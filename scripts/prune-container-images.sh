@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
+echo "[prune] SCRIPT VERSION: GH_API_VARIANT"
 # prune-container-images.sh
 # Deletes old images from GHCR and Docker Hub according to retention and protection rules.
 
