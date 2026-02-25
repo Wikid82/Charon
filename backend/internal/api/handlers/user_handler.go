@@ -103,6 +103,18 @@ type SetupRequest struct {
 	Password string `json:"password" binding:"required,min=8"`
 }
 
+func isSetupConflictError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errText := strings.ToLower(err.Error())
+	return strings.Contains(errText, "unique constraint failed") ||
+		strings.Contains(errText, "duplicate key") ||
+		strings.Contains(errText, "database is locked") ||
+		strings.Contains(errText, "database table is locked")
+}
+
 // Setup creates the initial admin user and configures the ACME email.
 func (h *UserHandler) Setup(c *gin.Context) {
 	// 1. Check if setup is allowed
@@ -160,6 +172,17 @@ func (h *UserHandler) Setup(c *gin.Context) {
 	})
 
 	if err != nil {
+		var postTxCount int64
+		if countErr := h.DB.Model(&models.User{}).Count(&postTxCount).Error; countErr == nil && postTxCount > 0 {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Setup already completed"})
+			return
+		}
+
+		if isSetupConflictError(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "Setup conflict: setup already in progress or completed"})
+			return
+		}
+
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to complete setup: " + err.Error()})
 		return
 	}

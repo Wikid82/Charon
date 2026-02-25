@@ -355,10 +355,116 @@ jobs:
           sarif_file: 'trivy-nightly.sarif'
           category: 'trivy-nightly'
 
-      - name: Check for critical CVEs
+      - name: Security severity policy summary
         run: |
-          if grep -q "CRITICAL" trivy-nightly.sarif; then
-            echo "❌ Critical vulnerabilities found in nightly build"
+          {
+            echo "## 🔐 Nightly Supply Chain Severity Policy"
+            echo ""
+            echo "- Blocking: Critical, High"
+            echo "- Medium: non-blocking by default (report + triage SLA)"
+            echo "- Policy file: .github/security-severity-policy.yml"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check for Critical/High CVEs
+        run: |
+          set -euo pipefail
+
+          jq -e . trivy-nightly.sarif >/dev/null
+
+          CRITICAL_COUNT=$(jq -r '
+            [
+              .runs[] as $run
+              | ($run.tool.driver.rules // []) as $rules
+              | $run.results[]?
+              | . as $result
+              | (
+                  (
+                    if (($result.ruleIndex | type) == "number") then
+                      ($rules[$result.ruleIndex].properties["security-severity"] // empty)
+                    else
+                      empty
+                    end
+                  )
+                  // ([
+                      $rules[]?
+                      | select((.id // "") == ($result.ruleId // ""))
+                      | .properties["security-severity"]
+                    ][0] // empty)
+                  // empty
+                ) as $securitySeverity
+              | (try ($securitySeverity | tonumber) catch empty) as $score
+              | select($score != null and $score >= 9.0)
+            ] | length
+          ' trivy-nightly.sarif)
+
+          HIGH_COUNT=$(jq -r '
+            [
+              .runs[] as $run
+              | ($run.tool.driver.rules // []) as $rules
+              | $run.results[]?
+              | . as $result
+              | (
+                  (
+                    if (($result.ruleIndex | type) == "number") then
+                      ($rules[$result.ruleIndex].properties["security-severity"] // empty)
+                    else
+                      empty
+                    end
+                  )
+                  // ([
+                      $rules[]?
+                      | select((.id // "") == ($result.ruleId // ""))
+                      | .properties["security-severity"]
+                    ][0] // empty)
+                  // empty
+                ) as $securitySeverity
+              | (try ($securitySeverity | tonumber) catch empty) as $score
+              | select($score != null and $score >= 7.0 and $score < 9.0)
+            ] | length
+          ' trivy-nightly.sarif)
+
+          MEDIUM_COUNT=$(jq -r '
+            [
+              .runs[] as $run
+              | ($run.tool.driver.rules // []) as $rules
+              | $run.results[]?
+              | . as $result
+              | (
+                  (
+                    if (($result.ruleIndex | type) == "number") then
+                      ($rules[$result.ruleIndex].properties["security-severity"] // empty)
+                    else
+                      empty
+                    end
+                  )
+                  // ([
+                      $rules[]?
+                      | select((.id // "") == ($result.ruleId // ""))
+                      | .properties["security-severity"]
+                    ][0] // empty)
+                  // empty
+                ) as $securitySeverity
+              | (try ($securitySeverity | tonumber) catch empty) as $score
+              | select($score != null and $score >= 4.0 and $score < 7.0)
+            ] | length
+          ' trivy-nightly.sarif)
+
+          {
+            echo "- Structured SARIF counts: CRITICAL=${CRITICAL_COUNT}, HIGH=${HIGH_COUNT}, MEDIUM=${MEDIUM_COUNT}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            echo "❌ Critical vulnerabilities found in nightly build (${CRITICAL_COUNT})"
             exit 1
           fi
-          echo "✅ No critical vulnerabilities found"
+
+          if [ "$HIGH_COUNT" -gt 0 ]; then
+            echo "❌ High vulnerabilities found in nightly build (${HIGH_COUNT})"
+            exit 1
+          fi
+
+          if [ "$MEDIUM_COUNT" -gt 0 ]; then
+            echo "::warning::Medium vulnerabilities found in nightly build (${MEDIUM_COUNT}). Non-blocking by policy; triage with SLA per .github/security-severity-policy.yml"
+          fi
+
+          echo "✅ No Critical/High vulnerabilities found"

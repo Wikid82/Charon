@@ -260,6 +260,58 @@ PR-3 is **ready to merge** with no open QA blockers.
 
 ---
 
+## Final QA/Security Gates Delta — Blocker Remediation Validation
+
+- Date: 2026-02-25
+- Scope: Current branch state after latest blocker remediations
+- Verdict: **FAIL (single blocking gate remains)**
+
+### Exact Commands Run
+
+1. `.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`
+2. `.github/skills/scripts/skill-runner.sh test-e2e-playwright --project=firefox --grep="auth-api-enforcement|auth-middleware-cascade|authorization-rbac"`
+3. `.github/skills/scripts/skill-runner.sh test-e2e-playwright --project=firefox --grep="Security Enforcement API|Auth Middleware Cascade|Cerberus ACL Role-Based Access Control"`
+4. `bash scripts/local-patch-report.sh` (first attempt)
+5. `go test ./internal/api/routes -run 'TestRegister_StateChangingRoutesDenyByDefaultWithExplicitAllowlist|TestRegister_StateChangingRoutesRequireAuthentication' -count=1`
+6. `go test ./internal/api/handlers -run 'TestUserHandler_Setup_OneWayInvariant_ReentryRejectedAndSingleUser|TestUserHandler_Setup_ConcurrentAttemptInvariant|TestUserHandler_Setup_ResponseSecretEchoContract|TestUserHandler_GetProfile_SecretEchoContract|TestUserHandler_ListUsers_SecretEchoContract' -count=1`
+7. `bash /projects/Charon/scripts/go-test-coverage.sh`
+8. `bash /projects/Charon/scripts/frontend-test-coverage.sh`
+9. `bash /projects/Charon/scripts/local-patch-report.sh` (rerun with coverage inputs present)
+10. `bash /projects/Charon/.github/skills/scripts/skill-runner.sh security-scan-codeql go summary`
+11. `bash /projects/Charon/.github/skills/scripts/skill-runner.sh security-scan-codeql javascript summary`
+12. `pre-commit run --hook-stage manual codeql-check-findings --all-files`
+13. `pre-commit run --all-files` (first run)
+14. `bash /projects/Charon/.github/skills/scripts/skill-runner.sh security-scan-trivy vuln,secret,misconfig json`
+15. `bash /projects/Charon/.github/skills/scripts/skill-runner.sh security-scan-docker-image charon:local`
+16. `pre-commit run --all-files` (rerun)
+
+### Gate Results
+
+| Gate | Status | Evidence |
+| --- | --- | --- |
+| 1) E2E first (Playwright skill/task path) | PASS | E2E environment rebuilt and Playwright skill run completed with `7 passed` on Firefox. |
+| 2) Local patch coverage preflight | PASS (WARN) | First run failed due missing `frontend/coverage/lcov.info`; after coverage generation, rerun produced required artifacts and warn-mode report. |
+| 3) Focused backend regressions | PASS | Routes suite: `ok .../internal/api/routes`; handlers suite: `ok .../internal/api/handlers`. |
+| 4) Coverage gates | PASS | Backend: statement `87.0%`, line `87.2%` (min 87%). Frontend: lines `88.97%` (min 87%). |
+| 5) CodeQL CI-aligned Go + JS + manual findings hook | PASS | Go: `0 errors`; JS: `0 errors`; manual findings hook passed with no blocking findings. |
+| 6) `pre-commit run --all-files` | **FAIL (blocking)** | `actionlint` failed on `.github/workflows/codeql.yml` (ShellCheck `SC2016`). |
+| 7) Trivy filesystem + image scan | PASS | Filesystem scan completed with no blocking issues; image scan reported Critical=0, High=0, Medium=10, Low=4 (non-blocking by policy). |
+
+### Blocker Classification
+
+- **Real code defect (blocking):** `actionlint` failure in `.github/workflows/codeql.yml` (`SC2016`, single-quoted expression handling in shell block).
+- **Environment/tooling-only (non-code) observations:**
+	- VS Code task runner returned `Task started but no terminal was found` for configured tasks in this session.
+	- `runTests` tool did not discover Go tests for targeted file inputs.
+	- Initial local patch preflight required coverage artifacts to be generated before successful rerun.
+
+### Final Gate Decision
+
+- **DO NOT APPROVE / DO NOT MERGE YET**
+- Reason: one unresolved blocking gate remains (`pre-commit --all-files` -> `actionlint` on `.github/workflows/codeql.yml`).
+
+---
+
 ## QA/Security Delta — Post-Hardening E2E Remediation Pass
 
 - Date: 2026-02-25

@@ -638,7 +638,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 	proxyHostHandler.RegisterRoutes(protected)
 
 	remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
-	remoteServerHandler.RegisterRoutes(api)
+	remoteServerHandler.RegisterRoutes(protected)
 
 	// Initial Caddy Config Sync
 	go func() {
