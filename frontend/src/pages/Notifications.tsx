@@ -21,7 +21,8 @@ const isSupportedProviderType = (providerType: string | undefined): providerType
 // supportsJSONTemplates returns true if the provider type can use JSON templates
 const supportsJSONTemplates = (providerType: string | undefined): boolean => {
   if (!providerType) return false;
-  return providerType.toLowerCase() === DISCORD_PROVIDER_TYPE;
+  const t = providerType.toLowerCase();
+  return t === 'discord' || t === 'gotify' || t === 'webhook';
 };
 
 const isUnsupportedProviderType = (providerType: string | undefined): boolean => !isSupportedProviderType(providerType);
@@ -105,8 +106,9 @@ const ProviderForm: FC<{
       setTestStatus('success');
       setTimeout(() => setTestStatus('idle'), 3000);
     },
-    onError: () => {
+    onError: (err: Error) => {
       setTestStatus('error');
+      toast.error(err.message || t('notificationProviders.testFailed'));
       setTimeout(() => setTestStatus('idle'), 3000);
     }
   });
@@ -227,9 +229,15 @@ const ProviderForm: FC<{
             autoComplete="new-password"
             {...register('gotify_token')}
             data-testid="provider-gotify-token"
-            placeholder={t('notificationProviders.gotifyTokenPlaceholder')}
+            placeholder={initialData?.has_token ? t('notificationProviders.gotifyTokenKeepPlaceholder') : t('notificationProviders.gotifyTokenPlaceholder')}
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
+            aria-describedby={initialData?.has_token ? 'gotify-token-stored-hint' : undefined}
           />
+          {initialData?.has_token && (
+            <p id="gotify-token-stored-hint" data-testid="gotify-token-stored-indicator" className="text-xs text-green-600 dark:text-green-400 mt-1">
+              {t('notificationProviders.gotifyTokenStored')}
+            </p>
+          )}
           <p className="text-xs text-gray-500 mt-1">{t('notificationProviders.gotifyTokenWriteOnlyHint')}</p>
         </div>
       )}

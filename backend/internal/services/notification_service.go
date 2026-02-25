@@ -124,9 +124,9 @@ func (s *NotificationService) isDispatchEnabled(providerType string) bool {
 	case "discord":
 		return true
 	case "gotify":
-		return s.getFeatureFlagValue(notifications.FlagGotifyServiceEnabled, false)
+		return s.getFeatureFlagValue(notifications.FlagGotifyServiceEnabled, true)
 	case "webhook":
-		return s.getFeatureFlagValue(notifications.FlagWebhookServiceEnabled, false)
+		return s.getFeatureFlagValue(notifications.FlagWebhookServiceEnabled, true)
 	default:
 		return false
 	}
@@ -456,11 +456,7 @@ func isValidRedirectURL(rawURL string) bool {
 func (s *NotificationService) TestProvider(provider models.NotificationProvider) error {
 	providerType := strings.ToLower(strings.TrimSpace(provider.Type))
 	if !isSupportedNotificationProviderType(providerType) {
-		return fmt.Errorf("only discord provider type is supported in this release")
-	}
-
-	if !s.isDispatchEnabled(providerType) {
-		return fmt.Errorf("only discord provider type is supported in this release")
+		return fmt.Errorf("unsupported provider type: %s", providerType)
 	}
 
 	if err := validateDiscordProviderURLFunc(providerType, provider.URL); err != nil {

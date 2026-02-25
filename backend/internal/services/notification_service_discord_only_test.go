@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -158,23 +160,29 @@ func TestDiscordOnly_UpdateProviderAllowsWebhookUpdates(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// TestDiscordOnly_TestProviderRejectsDisabledProviderTypes tests feature-flag gate for gotify/webhook dispatch.
-func TestDiscordOnly_TestProviderRejectsDisabledProviderTypes(t *testing.T) {
+// TestDiscordOnly_TestProviderAllowsWebhookWithoutFeatureFlag tests that webhook TestProvider
+// works without explicit feature flag (bypasses dispatch gate).
+func TestDiscordOnly_TestProviderAllowsWebhookWithoutFeatureFlag(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}, &models.Setting{}))
 
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
 	service := NewNotificationService(db)
 
 	provider := models.NotificationProvider{
-		Name: "Test Webhook",
-		Type: "webhook",
-		URL:  "https://example.com/webhook",
+		Name:     "Test Webhook",
+		Type:     "webhook",
+		URL:      ts.URL + "/webhook",
+		Template: "minimal",
 	}
 
 	err = service.TestProvider(provider)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "only discord provider type is supported")
+	assert.NoError(t, err)
 }
 
 // TestDiscordOnly_MigrationDeprecatesNonDiscord tests that migration marks non-Discord as deprecated.

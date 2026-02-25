@@ -105,6 +105,10 @@ func (h *NotificationProviderHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list providers"})
 		return
 	}
+	for i := range providers {
+		providers[i].HasToken = providers[i].Token != ""
+		providers[i].Token = ""
+	}
 	c.JSON(http.StatusOK, providers)
 }
 
@@ -146,6 +150,8 @@ func (h *NotificationProviderHandler) Create(c *gin.Context) {
 		respondSanitizedProviderError(c, http.StatusInternalServerError, "PROVIDER_CREATE_FAILED", "internal", "Failed to create provider")
 		return
 	}
+	provider.HasToken = provider.Token != ""
+	provider.Token = ""
 	c.JSON(http.StatusCreated, provider)
 }
 
@@ -209,6 +215,8 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 		respondSanitizedProviderError(c, http.StatusInternalServerError, "PROVIDER_UPDATE_FAILED", "internal", "Failed to update provider")
 		return
 	}
+	provider.HasToken = provider.Token != ""
+	provider.Token = ""
 	c.JSON(http.StatusOK, provider)
 }
 
