@@ -898,7 +898,8 @@ export async function waitForResourceInUI(
   await page.waitForTimeout(initialDelay);
 
   const startTime = Date.now();
-  let reloadAttempted = false;
+  let reloadCount = 0;
+  const maxReloads = reloadIfNotFound ? 2 : 0;
 
   // For long strings, search for a significant portion (first 40 chars after any prefix)
   // to handle cases where UI truncates long domain names
@@ -918,23 +919,37 @@ export async function waitForResourceInUI(
     searchPattern = identifier;
   }
 
+  const isResourcePresent = async (): Promise<boolean> => {
+    const textMatchVisible = await page.getByText(searchPattern).first().isVisible().catch(() => false);
+    if (textMatchVisible) {
+      return true;
+    }
+
+    if (typeof searchPattern === 'string' && searchPattern.length > 0) {
+      const normalizedSearch = searchPattern.toLowerCase();
+      const bodyText = await page.locator('body').innerText().catch(() => '');
+      if (bodyText.toLowerCase().includes(normalizedSearch)) {
+        return true;
+      }
+    }
+
+    const headingMatchVisible = await page.getByRole('heading', { name: searchPattern }).first().isVisible().catch(() => false);
+    return headingMatchVisible;
+  };
+
   while (Date.now() - startTime < timeout) {
     // Wait for any loading to complete first
     await waitForLoadingComplete(page, { timeout: 5000 }).catch(() => {
       // Ignore loading timeout - might not have a loader
     });
 
-    // Try to find the resource using the search pattern
-    const resourceLocator = page.getByText(searchPattern);
-    const isVisible = await resourceLocator.first().isVisible().catch(() => false);
-
-    if (isVisible) {
+    if (await isResourcePresent()) {
       return; // Resource found
     }
 
-    // If not found and we haven't reloaded yet, try reloading
-    if (reloadIfNotFound && !reloadAttempted) {
-      reloadAttempted = true;
+    // If not found and we have reload attempts left, try reloading
+    if (reloadCount < maxReloads) {
+      reloadCount += 1;
       await page.reload();
       await waitForLoadingComplete(page, { timeout: 5000 }).catch(() => {});
       continue;

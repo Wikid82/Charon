@@ -7,11 +7,13 @@ async function resetSecurityState(page: import('@playwright/test').Page): Promis
     return;
   }
 
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+  const emergencyBase = process.env.EMERGENCY_SERVER_HOST || baseURL.replace(':8080', ':2020');
   const username = process.env.CHARON_EMERGENCY_USERNAME || 'admin';
   const password = process.env.CHARON_EMERGENCY_PASSWORD || 'changeme';
   const basicAuth = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
 
-  const response = await page.request.post('http://localhost:2020/emergency/security-reset', {
+  const response = await page.request.post(`${emergencyBase}/emergency/security-reset`, {
     headers: {
       Authorization: basicAuth,
       'X-Emergency-Token': emergencyToken,
@@ -20,21 +22,47 @@ async function resetSecurityState(page: import('@playwright/test').Page): Promis
     data: { reason: 'user-lifecycle deterministic setup' },
   });
 
-  expect(response.ok()).toBe(true);
+  if (response.ok()) {
+    return;
+  }
+
+  const fallbackResponse = await page.request.post('/api/v1/emergency/security-reset', {
+    headers: {
+      'X-Emergency-Token': emergencyToken,
+      'Content-Type': 'application/json',
+    },
+    data: { reason: 'user-lifecycle deterministic setup (fallback)' },
+  });
+
+  expect(fallbackResponse.ok()).toBe(true);
 }
 
 async function getAuthToken(page: import('@playwright/test').Page): Promise<string> {
   const token = await page.evaluate(() => {
+    const authRaw = localStorage.getItem('auth');
+    if (authRaw) {
+      try {
+        const parsed = JSON.parse(authRaw) as { token?: string };
+        if (parsed?.token) {
+          return parsed.token;
+        }
+      } catch {
+      }
+    }
+
     return (
       localStorage.getItem('token') ||
       localStorage.getItem('charon_auth_token') ||
-      localStorage.getItem('auth') ||
       ''
     );
   });
 
   expect(token).toBeTruthy();
   return token;
+}
+
+function buildAuthHeaders(token: string): Record<string, string> | undefined {
+  return token ? { Authorization: `Bearer ${token}` } : undefined;
 }
 
 function uniqueSuffix(): string {
@@ -88,7 +116,7 @@ async function getAuditLogEntries(
     }
 
     const auditResponse = await page.request.get(`/api/v1/audit-logs?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: buildAuthHeaders(token),
     });
     expect(auditResponse.ok()).toBe(true);
 
@@ -140,7 +168,7 @@ async function createUserViaApi(
   const token = await getAuthToken(page);
   const response = await page.request.post('/api/v1/users', {
     data: user,
-    headers: { Authorization: `Bearer ${token}` },
+    headers: buildAuthHeaders(token),
   });
 
   expect(response.ok()).toBe(true);
@@ -305,7 +333,7 @@ test.describe('Admin-User E2E Workflow', () => {
       const token = await getAuthToken(page);
       const updateRoleResponse = await page.request.put(`/api/v1/users/${createdUserId}`, {
         data: { role: 'user' },
-        headers: { Authorization: `Bearer ${token}` },
+        headers: buildAuthHeaders(token),
       });
 
       expect(updateRoleResponse.ok()).toBe(true);
@@ -442,7 +470,7 @@ test.describe('Admin-User E2E Workflow', () => {
       const token = await getAuthToken(page);
       const updateRoleResponse = await page.request.put(`/api/v1/users/${createdUserId}`, {
         data: { role: 'admin' },
-        headers: { Authorization: `Bearer ${token}` },
+        headers: buildAuthHeaders(token),
       });
 
       expect(updateRoleResponse.ok()).toBe(true);
@@ -453,7 +481,7 @@ test.describe('Admin-User E2E Workflow', () => {
       await loginWithCredentials(page, testUser.email, testUser.password);
       const token = await getAuthToken(page);
       const usersAccessResponse = await page.request.get('/api/v1/users', {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: buildAuthHeaders(token),
       });
       expect(usersAccessResponse.status()).toBe(200);
       await page.goto('/users', { waitUntil: 'domcontentloaded' });
@@ -461,7 +489,7 @@ test.describe('Admin-User E2E Workflow', () => {
       await page.reload({ waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page, { timeout: 15000 });
       const usersAccessAfterReload = await page.request.get('/api/v1/users', {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: buildAuthHeaders(token),
       });
       expect(usersAccessAfterReload.status()).toBe(200);
     });
@@ -486,7 +514,7 @@ test.describe('Admin-User E2E Workflow', () => {
     await test.step('Admin deletes user', async () => {
       const token = await getAuthToken(page);
       const deleteResponse = await page.request.delete(`/api/v1/users/${createdUserId}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: buildAuthHeaders(token),
       });
       expect(deleteResponse.ok()).toBe(true);
     });
@@ -631,7 +659,7 @@ test.describe('Admin-User E2E Workflow', () => {
     });
 
     await test.step('Note session storage', async () => {
-      firstSessionToken = await page.evaluate(() => localStorage.getItem('charon_auth_token') || '');
+      firstSessionToken = await getAuthToken(page);
       expect(firstSessionToken).toBeTruthy();
     });
 
@@ -655,7 +683,7 @@ test.describe('Admin-User E2E Workflow', () => {
     await test.step('Verify new session established', async () => {
       await expect.poll(async () => {
         try {
-          return await page.evaluate(() => localStorage.getItem('charon_auth_token') || '');
+          return await getAuthToken(page);
         } catch {
           return '';
         }
@@ -664,14 +692,16 @@ test.describe('Admin-User E2E Workflow', () => {
         message: 'Expected new auth token for second login',
       }).not.toBe('');
 
-      const token = await page.evaluate(() => localStorage.getItem('charon_auth_token') || '');
+      const token = await getAuthToken(page);
       expect(token).toBeTruthy();
       expect(token).not.toBe(firstSessionToken);
 
       const dashboard = page.getByRole('main').first();
       await expect(dashboard).toBeVisible();
 
-      const meAfterRelogin = await page.request.get('/api/v1/auth/me');
+      const meAfterRelogin = await page.request.get('/api/v1/auth/me', {
+        headers: buildAuthHeaders(token),
+      });
       expect(meAfterRelogin.ok()).toBe(true);
       const currentUser = await meAfterRelogin.json();
       expect(currentUser).toEqual(expect.objectContaining({ email: testUser.email }));
