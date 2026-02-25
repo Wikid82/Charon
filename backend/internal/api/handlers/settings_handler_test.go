@@ -999,6 +999,25 @@ func TestSettingsHandler_GetSMTPConfig_DatabaseError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
+func TestSettingsHandler_GetSMTPConfig_NonAdminForbidden(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, _ := setupSettingsHandlerWithMail(t)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "user")
+		c.Set("userID", uint(2))
+		c.Next()
+	})
+	router.GET("/api/v1/settings/smtp", handler.GetSMTPConfig)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/settings/smtp", http.NoBody)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
 func TestSettingsHandler_UpdateSMTPConfig_NonAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
