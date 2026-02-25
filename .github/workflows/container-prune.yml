@@ -36,7 +36,7 @@ jobs:
       KEEP_DAYS: ${{ github.event.inputs.keep_days || '30' }}
       KEEP_LAST_N: ${{ github.event.inputs.keep_last_n || '30' }}
       DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
-      PROTECTED_REGEX: '["^v","^latest$","^main$","^develop$"]'
+      PROTECTED_REGEX: '["^v?[0-9]+\\.[0-9]+\\.[0-9]+$","^latest$","^main$","^develop$"]'
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
