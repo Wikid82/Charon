@@ -351,3 +351,28 @@ func TestHTTPWrapperGuardOutboundRequestURLRejectsFragment(t *testing.T) {
 		t.Fatalf("expected fragment rejection, got: %v", err)
 	}
 }
+
+func TestSanitizeTransportErrorReason(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected string
+	}{
+		{name: "nil error", err: nil, expected: "connection failed"},
+		{name: "dns error", err: errors.New("dial tcp: lookup gotify.example: no such host"), expected: "dns lookup failed"},
+		{name: "connection refused", err: errors.New("connect: connection refused"), expected: "connection refused"},
+		{name: "network unreachable", err: errors.New("connect: no route to host"), expected: "network unreachable"},
+		{name: "timeout", err: errors.New("context deadline exceeded"), expected: "request timed out"},
+		{name: "tls failure", err: errors.New("tls: handshake failure"), expected: "tls handshake failed"},
+		{name: "fallback", err: errors.New("some unexpected transport error"), expected: "connection failed"},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			actual := sanitizeTransportErrorReason(testCase.err)
+			if actual != testCase.expected {
+				t.Fatalf("expected %q, got %q", testCase.expected, actual)
+			}
+		})
+	}
+}

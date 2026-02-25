@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -89,6 +90,49 @@ func respondSanitizedProviderError(c *gin.Context, status int, code, category, m
 		response["request_id"] = requestID
 	}
 	c.JSON(status, response)
+}
+
+var providerStatusCodePattern = regexp.MustCompile(`provider returned status\s+(\d{3})`)
+
+func classifyProviderTestFailure(err error) (code string, category string, message string) {
+	if err == nil {
+		return "PROVIDER_TEST_FAILED", "dispatch", "Provider test failed"
+	}
+
+	errText := strings.ToLower(strings.TrimSpace(err.Error()))
+
+	if strings.Contains(errText, "destination url validation failed") ||
+		strings.Contains(errText, "invalid webhook url") ||
+		strings.Contains(errText, "invalid discord webhook url") {
+		return "PROVIDER_TEST_URL_INVALID", "validation", "Provider URL is invalid or blocked. Verify the URL and try again"
+	}
+
+	if statusMatch := providerStatusCodePattern.FindStringSubmatch(errText); len(statusMatch) == 2 {
+		switch statusMatch[1] {
+		case "401", "403":
+			return "PROVIDER_TEST_AUTH_REJECTED", "dispatch", "Provider rejected authentication. Verify your Gotify token"
+		case "404":
+			return "PROVIDER_TEST_ENDPOINT_NOT_FOUND", "dispatch", "Provider endpoint was not found. Verify the provider URL path"
+		default:
+			return "PROVIDER_TEST_REMOTE_REJECTED", "dispatch", fmt.Sprintf("Provider rejected the test request (HTTP %s)", statusMatch[1])
+		}
+	}
+
+	if strings.Contains(errText, "outbound request failed") || strings.Contains(errText, "failed to send webhook") {
+		switch {
+		case strings.Contains(errText, "dns lookup failed"):
+			return "PROVIDER_TEST_DNS_FAILED", "dispatch", "DNS lookup failed for provider host. Verify the hostname in the provider URL"
+		case strings.Contains(errText, "connection refused"):
+			return "PROVIDER_TEST_CONNECTION_REFUSED", "dispatch", "Provider host refused the connection. Verify port and service availability"
+		case strings.Contains(errText, "request timed out"):
+			return "PROVIDER_TEST_TIMEOUT", "dispatch", "Provider request timed out. Verify network route and provider responsiveness"
+		case strings.Contains(errText, "tls handshake failed"):
+			return "PROVIDER_TEST_TLS_FAILED", "dispatch", "TLS handshake failed. Verify HTTPS certificate and URL scheme"
+		}
+		return "PROVIDER_TEST_UNREACHABLE", "dispatch", "Could not reach provider endpoint. Verify URL, DNS, and network connectivity"
+	}
+
+	return "PROVIDER_TEST_FAILED", "dispatch", "Provider test failed"
 }
 
 func NewNotificationProviderHandler(service *services.NotificationService) *NotificationProviderHandler {
@@ -286,7 +330,8 @@ func (h *NotificationProviderHandler) Test(c *gin.Context) {
 	if err := h.service.TestProvider(provider); err != nil {
 		// Create internal notification for the failure
 		_, _ = h.service.Create(models.NotificationTypeError, "Test Failed", fmt.Sprintf("Provider %s test failed", provider.Name))
-		respondSanitizedProviderError(c, http.StatusBadRequest, "PROVIDER_TEST_FAILED", "dispatch", "Provider test failed")
+		code, category, message := classifyProviderTestFailure(err)
+		respondSanitizedProviderError(c, http.StatusBadRequest, code, category, message)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Test notification sent"})
