@@ -122,10 +122,28 @@ jobs:
             exit 1
           fi
 
+          # shellcheck disable=SC2016
+          EFFECTIVE_LEVELS_JQ='[
+            .runs[] as $run
+            | $run.results[]
+            | . as $result
+            | ($run.tool.driver.rules // []) as $rules
+            | ((
+                $result.level
+                // (if (($result.ruleIndex | type) == "number") then ($rules[$result.ruleIndex].defaultConfiguration.level // empty) else empty end)
+                // ([
+                    $rules[]?
+                    | select((.id // "") == ($result.ruleId // ""))
+                    | (.defaultConfiguration.level // empty)
+                  ][0] // empty)
+                // ""
+              ) | ascii_downcase)
+          ]'
+
           echo "Found SARIF file: $SARIF_FILE"
-          ERROR_COUNT=$(jq '[.runs[].results[] | select(.level == "error")] | length' "$SARIF_FILE")
-          WARNING_COUNT=$(jq '[.runs[].results[] | select(.level == "warning")] | length' "$SARIF_FILE")
-          NOTE_COUNT=$(jq '[.runs[].results[] | select(.level == "note")] | length' "$SARIF_FILE")
+          ERROR_COUNT=$(jq -r "${EFFECTIVE_LEVELS_JQ} | map(select(. == \"error\")) | length" "$SARIF_FILE")
+          WARNING_COUNT=$(jq -r "${EFFECTIVE_LEVELS_JQ} | map(select(. == \"warning\")) | length" "$SARIF_FILE")
+          NOTE_COUNT=$(jq -r "${EFFECTIVE_LEVELS_JQ} | map(select(. == \"note\")) | length" "$SARIF_FILE")
 
           {
             echo "**Findings:**"
@@ -135,14 +153,32 @@ jobs:
             echo ""
 
             if [ "$ERROR_COUNT" -gt 0 ]; then
-              echo "❌ **CRITICAL:** High-severity security issues found!"
+              echo "❌ **BLOCKING:** CodeQL error-level security issues found"
               echo ""
               echo "### Top Issues:"
               echo '```'
-              jq -r '.runs[].results[] | select(.level == "error") | "\(.ruleId): \(.message.text)"' "$SARIF_FILE" | head -5
+              # shellcheck disable=SC2016
+              jq -r '
+                .runs[] as $run
+                | $run.results[]
+                | . as $result
+                | ($run.tool.driver.rules // []) as $rules
+                | ((
+                    $result.level
+                    // (if (($result.ruleIndex | type) == "number") then ($rules[$result.ruleIndex].defaultConfiguration.level // empty) else empty end)
+                    // ([
+                        $rules[]?
+                        | select((.id // "") == ($result.ruleId // ""))
+                        | (.defaultConfiguration.level // empty)
+                      ][0] // empty)
+                    // ""
+                  ) | ascii_downcase) as $effectiveLevel
+                | select($effectiveLevel == "error")
+                | "\($effectiveLevel): \($result.ruleId // \"<unknown-rule>\"): \($result.message.text)"
+              ' "$SARIF_FILE" | head -5
               echo '```'
             else
-              echo "✅ No high-severity issues found"
+              echo "✅ No blocking CodeQL issues found"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -169,9 +205,26 @@ jobs:
             exit 1
           fi
 
-          ERROR_COUNT=$(jq '[.runs[].results[] | select(.level == "error")] | length' "$SARIF_FILE")
+          # shellcheck disable=SC2016
+          ERROR_COUNT=$(jq -r '[
+            .runs[] as $run
+            | $run.results[]
+            | . as $result
+            | ($run.tool.driver.rules // []) as $rules
+            | ((
+                $result.level
+                // (if (($result.ruleIndex | type) == "number") then ($rules[$result.ruleIndex].defaultConfiguration.level // empty) else empty end)
+                // ([
+                    $rules[]?
+                    | select((.id // "") == ($result.ruleId // ""))
+                    | (.defaultConfiguration.level // empty)
+                  ][0] // empty)
+                // ""
+              ) | ascii_downcase) as $effectiveLevel
+            | select($effectiveLevel == "error")
+          ] | length' "$SARIF_FILE")
 
           if [ "$ERROR_COUNT" -gt 0 ]; then
-            echo "::error::CodeQL found $ERROR_COUNT high-severity security issues. Fix before merging."
+            echo "::error::CodeQL found $ERROR_COUNT blocking findings (effective-level=error). Fix before merging. Policy: .github/security-severity-policy.yml"
             exit 1
           fi

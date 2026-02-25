@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,15 +16,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
 func setupUserHandler(t *testing.T) (*UserHandler, *gorm.DB) {
-	// Use unique DB for each test to avoid pollution
-	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	_ = db.AutoMigrate(&models.User{}, &models.Setting{}, &models.SecurityAudit{})
 	return NewUserHandler(db), db
 }
@@ -129,6 +126,224 @@ func TestUserHandler_Setup(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestUserHandler_Setup_OneWayInvariant_ReentryRejectedAndSingleUser(t *testing.T) {
+	handler, db := setupUserHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/setup", handler.Setup)
+
+	initialBody := map[string]string{
+		"name":     "Admin",
+		"email":    "admin@example.com",
+		"password": "password123",
+	}
+	initialJSON, _ := json.Marshal(initialBody)
+
+	firstReq := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBuffer(initialJSON))
+	firstReq.Header.Set("Content-Type", "application/json")
+	firstResp := httptest.NewRecorder()
+	r.ServeHTTP(firstResp, firstReq)
+	require.Equal(t, http.StatusCreated, firstResp.Code)
+
+	secondBody := map[string]string{
+		"name":     "Different Admin",
+		"email":    "different@example.com",
+		"password": "password123",
+	}
+	secondJSON, _ := json.Marshal(secondBody)
+	secondReq := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBuffer(secondJSON))
+	secondReq.Header.Set("Content-Type", "application/json")
+	secondResp := httptest.NewRecorder()
+	r.ServeHTTP(secondResp, secondReq)
+
+	require.Equal(t, http.StatusForbidden, secondResp.Code)
+
+	var userCount int64
+	require.NoError(t, db.Model(&models.User{}).Count(&userCount).Error)
+	assert.Equal(t, int64(1), userCount)
+}
+
+func TestUserHandler_Setup_ConcurrentAttemptInvariant(t *testing.T) {
+	handler, db := setupUserHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/setup", handler.Setup)
+
+	concurrency := 6
+	start := make(chan struct{})
+	statuses := make(chan int, concurrency)
+
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+
+			body := map[string]string{
+				"name":     "Admin",
+				"email":    "admin@example.com",
+				"password": "password123",
+			}
+			jsonBody, _ := json.Marshal(body)
+
+			req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			resp := httptest.NewRecorder()
+			r.ServeHTTP(resp, req)
+			statuses <- resp.Code
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+	close(statuses)
+
+	createdCount := 0
+	forbiddenOrConflictCount := 0
+	for status := range statuses {
+		if status == http.StatusCreated {
+			createdCount++
+			continue
+		}
+
+		if status == http.StatusForbidden || status == http.StatusConflict {
+			forbiddenOrConflictCount++
+			continue
+		}
+
+		t.Fatalf("unexpected setup concurrency status: %d", status)
+	}
+
+	assert.Equal(t, 1, createdCount)
+	assert.Equal(t, concurrency-1, forbiddenOrConflictCount)
+
+	var userCount int64
+	require.NoError(t, db.Model(&models.User{}).Count(&userCount).Error)
+	assert.Equal(t, int64(1), userCount)
+}
+
+func TestUserHandler_Setup_ResponseSecretEchoContract(t *testing.T) {
+	handler, _ := setupUserHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/setup", handler.Setup)
+
+	body := map[string]string{
+		"name":     "Admin",
+		"email":    "admin@example.com",
+		"password": "password123",
+	}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusCreated, resp.Code)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &payload))
+
+	userValue, ok := payload["user"]
+	require.True(t, ok)
+	userMap, ok := userValue.(map[string]any)
+	require.True(t, ok)
+
+	_, hasAPIKey := userMap["api_key"]
+	_, hasPassword := userMap["password"]
+	_, hasPasswordHash := userMap["password_hash"]
+	_, hasInviteToken := userMap["invite_token"]
+
+	assert.False(t, hasAPIKey)
+	assert.False(t, hasPassword)
+	assert.False(t, hasPasswordHash)
+	assert.False(t, hasInviteToken)
+}
+
+func TestUserHandler_GetProfile_SecretEchoContract(t *testing.T) {
+	handler, db := setupUserHandler(t)
+
+	user := &models.User{
+		UUID:         uuid.NewString(),
+		Email:        "profile@example.com",
+		Name:         "Profile User",
+		APIKey:       "real-secret-api-key",
+		InviteToken:  "invite-secret-token",
+		PasswordHash: "hashed-password-value",
+	}
+	require.NoError(t, db.Create(user).Error)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("userID", user.ID)
+		c.Next()
+	})
+	r.GET("/profile", handler.GetProfile)
+
+	req := httptest.NewRequest(http.MethodGet, "/profile", http.NoBody)
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusOK, resp.Code)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &payload))
+
+	_, hasAPIKey := payload["api_key"]
+	_, hasPassword := payload["password"]
+	_, hasPasswordHash := payload["password_hash"]
+	_, hasInviteToken := payload["invite_token"]
+
+	assert.False(t, hasAPIKey)
+	assert.False(t, hasPassword)
+	assert.False(t, hasPasswordHash)
+	assert.False(t, hasInviteToken)
+	assert.Equal(t, "********", payload["api_key_masked"])
+}
+
+func TestUserHandler_ListUsers_SecretEchoContract(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	user := &models.User{
+		UUID:         uuid.NewString(),
+		Email:        "user@example.com",
+		Name:         "User",
+		Role:         "user",
+		APIKey:       "raw-api-key",
+		InviteToken:  "raw-invite-token",
+		PasswordHash: "raw-password-hash",
+	}
+	require.NoError(t, db.Create(user).Error)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.GET("/users", handler.ListUsers)
+
+	req := httptest.NewRequest(http.MethodGet, "/users", http.NoBody)
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusOK, resp.Code)
+	var users []map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &users))
+	require.Len(t, users, 1)
+
+	_, hasAPIKey := users[0]["api_key"]
+	_, hasPassword := users[0]["password"]
+	_, hasPasswordHash := users[0]["password_hash"]
+	_, hasInviteToken := users[0]["invite_token"]
+
+	assert.False(t, hasAPIKey)
+	assert.False(t, hasPassword)
+	assert.False(t, hasPasswordHash)
+	assert.False(t, hasInviteToken)
 }
 
 func TestUserHandler_Setup_DBError(t *testing.T) {
@@ -443,9 +658,7 @@ func TestUserHandler_UpdateProfile_Errors(t *testing.T) {
 // ============= User Management Tests (Admin functions) =============
 
 func setupUserHandlerWithProxyHosts(t *testing.T) (*UserHandler, *gorm.DB) {
-	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	_ = db.AutoMigrate(&models.User{}, &models.Setting{}, &models.ProxyHost{}, &models.SecurityAudit{})
 	return NewUserHandler(db), db
 }

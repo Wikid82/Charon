@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +16,16 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
+
+func materializeRoutePath(path string) string {
+	segments := strings.Split(path, "/")
+	for i, segment := range segments {
+		if strings.HasPrefix(segment, ":") {
+			segments[i] = "1"
+		}
+	}
+	return strings.Join(segments, "/")
+}
 
 func TestRegister(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -177,6 +188,70 @@ func TestRegister_ProxyHostsRequireAuth(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Contains(t, w.Body.String(), "Authorization header required")
+}
+
+func TestRegister_StateChangingRoutesDenyByDefaultWithExplicitAllowlist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_mutation_auth_guard"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	mutatingMethods := map[string]bool{
+		http.MethodPost:   true,
+		http.MethodPut:    true,
+		http.MethodPatch:  true,
+		http.MethodDelete: true,
+	}
+
+	publicMutationAllowlist := map[string]bool{
+		http.MethodPost + " /api/v1/auth/login":               true,
+		http.MethodPost + " /api/v1/auth/register":            true,
+		http.MethodPost + " /api/v1/setup":                    true,
+		http.MethodPost + " /api/v1/invite/accept":            true,
+		http.MethodPost + " /api/v1/security/events":          true,
+		http.MethodPost + " /api/v1/emergency/security-reset": true,
+	}
+
+	for _, route := range router.Routes() {
+		if !strings.HasPrefix(route.Path, "/api/v1/") {
+			continue
+		}
+		if !mutatingMethods[route.Method] {
+			continue
+		}
+
+		key := route.Method + " " + route.Path
+		if publicMutationAllowlist[key] {
+			continue
+		}
+
+		requestPath := materializeRoutePath(route.Path)
+		var body io.Reader = http.NoBody
+		if route.Method == http.MethodPost || route.Method == http.MethodPut || route.Method == http.MethodPatch {
+			body = strings.NewReader("{}")
+		}
+
+		req := httptest.NewRequest(route.Method, requestPath, body)
+		if route.Method == http.MethodPost || route.Method == http.MethodPut || route.Method == http.MethodPatch {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Contains(
+			t,
+			[]int{http.StatusUnauthorized, http.StatusForbidden},
+			w.Code,
+			"state-changing endpoint must deny unauthenticated access unless explicitly allowlisted: %s (materialized path: %s)",
+			key,
+			requestPath,
+		)
+	}
 }
 
 func TestRegister_DNSProviders_NotRegisteredWhenEncryptionKeyMissing(t *testing.T) {
@@ -360,6 +435,42 @@ func TestRegister_AuthenticatedRoutes(t *testing.T) {
 			req := httptest.NewRequest(tc.method, tc.path, nil)
 			router.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusUnauthorized, w.Code, "Route %s %s should require auth", tc.method, tc.path)
+		})
+	}
+}
+
+func TestRegister_StateChangingRoutesRequireAuthentication(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_mutating_auth_routes"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	stateChangingPaths := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/v1/backups"},
+		{http.MethodPost, "/api/v1/settings"},
+		{http.MethodPatch, "/api/v1/settings"},
+		{http.MethodPatch, "/api/v1/config"},
+		{http.MethodPost, "/api/v1/user/profile"},
+		{http.MethodPost, "/api/v1/remote-servers"},
+		{http.MethodPost, "/api/v1/remote-servers/test"},
+		{http.MethodPut, "/api/v1/remote-servers/1"},
+		{http.MethodDelete, "/api/v1/remote-servers/1"},
+		{http.MethodPost, "/api/v1/remote-servers/1/test"},
+	}
+
+	for _, tc := range stateChangingPaths {
+		t.Run(tc.method+"_"+tc.path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			router.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusUnauthorized, w.Code, "State-changing route %s %s should require auth", tc.method, tc.path)
 		})
 	}
 }
