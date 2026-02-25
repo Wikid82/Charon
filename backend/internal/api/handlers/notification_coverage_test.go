@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -375,6 +376,70 @@ func TestNotificationProviderHandler_Test_RejectsGotifyTokenWithWhitespace(t *te
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "TOKEN_WRITE_ONLY")
 	assert.NotContains(t, w.Body.String(), "secret-with-space")
+}
+
+func TestClassifyProviderTestFailure_URLValidation(t *testing.T) {
+	code, category, message := classifyProviderTestFailure(errors.New("destination URL validation failed"))
+
+	assert.Equal(t, "PROVIDER_TEST_URL_INVALID", code)
+	assert.Equal(t, "validation", category)
+	assert.Contains(t, message, "Provider URL")
+}
+
+func TestClassifyProviderTestFailure_AuthRejected(t *testing.T) {
+	code, category, message := classifyProviderTestFailure(errors.New("failed to send webhook: provider returned status 401"))
+
+	assert.Equal(t, "PROVIDER_TEST_AUTH_REJECTED", code)
+	assert.Equal(t, "dispatch", category)
+	assert.Contains(t, message, "rejected authentication")
+}
+
+func TestClassifyProviderTestFailure_EndpointNotFound(t *testing.T) {
+	code, category, message := classifyProviderTestFailure(errors.New("failed to send webhook: provider returned status 404"))
+
+	assert.Equal(t, "PROVIDER_TEST_ENDPOINT_NOT_FOUND", code)
+	assert.Equal(t, "dispatch", category)
+	assert.Contains(t, message, "endpoint was not found")
+}
+
+func TestClassifyProviderTestFailure_UnreachableEndpoint(t *testing.T) {
+	code, category, message := classifyProviderTestFailure(errors.New("failed to send webhook: outbound request failed"))
+
+	assert.Equal(t, "PROVIDER_TEST_UNREACHABLE", code)
+	assert.Equal(t, "dispatch", category)
+	assert.Contains(t, message, "Could not reach provider endpoint")
+}
+
+func TestClassifyProviderTestFailure_DNSLookupFailed(t *testing.T) {
+	code, category, message := classifyProviderTestFailure(errors.New("failed to send webhook: outbound request failed: dns lookup failed"))
+
+	assert.Equal(t, "PROVIDER_TEST_DNS_FAILED", code)
+	assert.Equal(t, "dispatch", category)
+	assert.Contains(t, message, "DNS lookup failed")
+}
+
+func TestClassifyProviderTestFailure_ConnectionRefused(t *testing.T) {
+	code, category, message := classifyProviderTestFailure(errors.New("failed to send webhook: outbound request failed: connection refused"))
+
+	assert.Equal(t, "PROVIDER_TEST_CONNECTION_REFUSED", code)
+	assert.Equal(t, "dispatch", category)
+	assert.Contains(t, message, "refused the connection")
+}
+
+func TestClassifyProviderTestFailure_Timeout(t *testing.T) {
+	code, category, message := classifyProviderTestFailure(errors.New("failed to send webhook: outbound request failed: request timed out"))
+
+	assert.Equal(t, "PROVIDER_TEST_TIMEOUT", code)
+	assert.Equal(t, "dispatch", category)
+	assert.Contains(t, message, "timed out")
+}
+
+func TestClassifyProviderTestFailure_TLSHandshakeFailed(t *testing.T) {
+	code, category, message := classifyProviderTestFailure(errors.New("failed to send webhook: outbound request failed: tls handshake failed"))
+
+	assert.Equal(t, "PROVIDER_TEST_TLS_FAILED", code)
+	assert.Equal(t, "dispatch", category)
+	assert.Contains(t, message, "TLS handshake failed")
 }
 
 func TestNotificationProviderHandler_Templates(t *testing.T) {

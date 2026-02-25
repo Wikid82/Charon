@@ -139,7 +139,7 @@ func (w *HTTPWrapper) Send(ctx context.Context, request HTTPWrapperRequest) (*HT
 				w.waitBeforeRetry(attempt)
 				continue
 			}
-			return nil, fmt.Errorf("outbound request failed")
+			return nil, fmt.Errorf("outbound request failed: %s", sanitizeTransportErrorReason(doErr))
 		}
 
 		body, bodyErr := readCappedResponseBody(resp.Body)
@@ -168,10 +168,33 @@ func (w *HTTPWrapper) Send(ctx context.Context, request HTTPWrapperRequest) (*HT
 	}
 
 	if lastErr != nil {
-		return nil, fmt.Errorf("provider request failed after retries")
+		return nil, fmt.Errorf("provider request failed after retries: %s", sanitizeTransportErrorReason(lastErr))
 	}
 
 	return nil, fmt.Errorf("provider request failed")
+}
+
+func sanitizeTransportErrorReason(err error) string {
+	if err == nil {
+		return "connection failed"
+	}
+
+	errText := strings.ToLower(strings.TrimSpace(err.Error()))
+
+	switch {
+	case strings.Contains(errText, "no such host"):
+		return "dns lookup failed"
+	case strings.Contains(errText, "connection refused"):
+		return "connection refused"
+	case strings.Contains(errText, "no route to host") || strings.Contains(errText, "network is unreachable"):
+		return "network unreachable"
+	case strings.Contains(errText, "timeout") || strings.Contains(errText, "deadline exceeded"):
+		return "request timed out"
+	case strings.Contains(errText, "tls") || strings.Contains(errText, "certificate") || strings.Contains(errText, "x509"):
+		return "tls handshake failed"
+	default:
+		return "connection failed"
+	}
 }
 
 func (w *HTTPWrapper) applyRedirectGuard(client *http.Client) {

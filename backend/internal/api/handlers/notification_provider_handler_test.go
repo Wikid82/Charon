@@ -142,7 +142,7 @@ func TestNotificationProviderHandler_Test(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "PROVIDER_TEST_FAILED")
+	assert.Contains(t, w.Body.String(), "PROVIDER_TEST_URL_INVALID")
 }
 
 func TestNotificationProviderHandler_Test_RequiresTrustedProviderID(t *testing.T) {
