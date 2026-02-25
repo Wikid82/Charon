@@ -296,3 +296,135 @@ PR-3 is **ready to merge** with no open QA blockers.
 ### Conclusion
 
 All four previously failing specs are green locally when executed in CI-like environment settings.
+
+---
+
+## Deep Security Audit — Huntarr-Style Hardening (Charon)
+
+- Date: 2026-02-25
+- Scope: Full backend/API/runtime/CI posture against Huntarr-style failure modes and self-hosted hardening requirements
+- Constraint honored: `docs/plans/current_spec.md` was not modified
+- Verdict: **FAIL (P0 findings present)**
+
+### Executive Summary
+
+Charon has strong baseline controls (JWT auth middleware, setup lockout, non-root container runtime, emergency token constant-time verification, and active CI security gates), but this audit found critical gaps in authorization boundaries and secret exposure behavior. The most severe risks are: (1) security-control mutation endpoints accessible to any authenticated user in multiple handlers, (2) import preview/status endpoints exposed without auth middleware and without admin checks, and (3) sensitive values returned in generic settings/profile/invite responses. One container-image vulnerability (HIGH) is also present in `usr/bin/caddy`.
+
+### Commands Executed
+
+1. `shell: Security: CodeQL All (CI-Aligned)`
+2. `shell: Security: CodeQL Go Scan (CI-Aligned) [~60s]`
+3. `shell: Security: CodeQL JS Scan (CI-Aligned) [~90s]`
+4. `python3` SARIF summary (`codeql-results-go.sarif`, `codeql-results-js.sarif`, `codeql-results-javascript.sarif`)
+5. `pre-commit run codeql-check-findings --all-files` (hook not registered locally; see blockers)
+6. `.github/skills/scripts/skill-runner.sh security-scan-trivy vuln,secret,misconfig json > trivy-report.json` (misconfig scanner panic; see blockers)
+7. `docker run ... aquasec/trivy:latest fs --scanners vuln,secret ... --format json > vuln-results.json`
+8. `docker run ... aquasec/trivy:latest image ... charon:local > trivy-image-report.json`
+9. `./scripts/scan-gorm-security.sh --check`
+10. `pre-commit run --all-files`
+
+### Gate Results
+
+| Gate | Status | Evidence |
+| --- | --- | --- |
+| CodeQL (Go + JS SARIF artifacts) | PASS | `codeql-results-go.sarif`, `codeql-results-js.sarif`, `codeql-results-javascript.sarif` all contained `0` results. |
+| Trivy filesystem (actionable scope: vuln+secret) | PASS | `vuln-results.json` reported `0` CRITICAL/HIGH findings after excluding local caches. |
+| Trivy image scan (`charon:local`) | **FAIL** | `trivy-image-report.json`: `1` HIGH vulnerability (`CVE-2026-25793`) in `usr/bin/caddy` (`github.com/slackhq/nebula v1.9.7`). |
+| GORM security gate (`--check`) | PASS | `0` CRITICAL/HIGH/MEDIUM; `2` INFO only. |
+| Pre-commit full gate | PASS | `pre-commit run --all-files` passed all configured hooks. |
+
+### Findings
+
+| ID | Severity | Category | CWE / OWASP | Evidence | Impact | Exploitability | Remediation |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| F-001 | **Critical** | Broken authorization on security mutation endpoints | CWE-862 / OWASP A01 | `backend/internal/api/routes/routes.go` exposes `/api/v1/security/config`, `/security/breakglass/generate`, `/security/decisions`, `/security/rulesets*` under authenticated routes; corresponding handlers in `backend/internal/api/handlers/security_handler.go` (`UpdateConfig`, `GenerateBreakGlass`, `CreateDecision`, `UpsertRuleSet`, `DeleteRuleSet`) do not enforce admin role. | Any authenticated non-admin can alter core security controls, generate break-glass token material, and tamper with decision/ruleset state. | High (single authenticated request path). | Enforce admin authorization at route-level or handler-level for all security-mutating endpoints; add deny-by-default middleware tests for all `/security/*` mutators. |
+| F-002 | **High** | Unauthenticated import status/preview exposure | CWE-200 + CWE-306 / OWASP A01 + A04 | `backend/internal/api/routes/routes.go` registers import handlers via `RegisterImportHandler`; `backend/internal/api/routes/routes.go` `RegisterImportHandler()` mounts `/api/v1/import/*` without auth middleware. In `backend/internal/api/handlers/import_handler.go`, `GetStatus` and `GetPreview` lack `requireAdmin` checks and can return `caddyfile_content`. | Potential disclosure of infrastructure hostnames/routes/config snippets to unauthenticated users. | Medium-High (network-accessible management endpoint). | Move import routes into protected/admin group; require admin check in `GetStatus` and `GetPreview`; redact/remove raw `caddyfile_content` from API responses. |
+| F-003 | **High** | Secret disclosure in API responses | CWE-200 / OWASP A02 + A01 | `backend/internal/api/handlers/settings_handler.go` `GetSettings()` returns full key/value map; `backend/internal/services/mail_service.go` persists `smtp_password` in settings. `backend/internal/api/handlers/user_handler.go` returns `api_key` in profile/regenerate responses and `invite_token` in invite/create/resend flows. | Secrets and account takeover tokens can leak through UI/API, logs, browser storage, and support channels. | Medium (requires authenticated access for some paths; invite token leak is high-risk in admin workflows). | Introduce server-side secret redaction policy: write-only secret fields, one-time reveal tokens, and masked settings API; remove raw invite/API key returns except explicit one-time secure exchange endpoints with re-auth. |
+| F-004 | **Medium** | Dangerous operation controls incomplete | CWE-285 / OWASP A01 | High-impact admin operations (security toggles, user role/user deletion pathways) do not consistently require re-auth/step-up confirmation; audit exists in places but not uniformly enforced with confirmation challenge. | Increases blast radius of stolen session or accidental clicks for destructive operations. | Medium. | Add re-auth (password/TOTP) for dangerous operations and explicit confirmation tokens with short TTL; enforce audit record parity for every security mutation endpoint. |
+| F-005 | **Medium** | Secure-by-default network exposure posture | CWE-1327 / OWASP A05 | `backend/cmd/api/main.go` starts HTTP server on `:<HTTPPort>` (all interfaces). Emergency server defaults are safer, but management API default bind remains broad in self-hosted deployments. | Expanded attack surface if deployment network controls are weak/misconfigured. | Medium (environment dependent). | Default management bind to loopback/private interface and require explicit opt-in for public exposure; document hardened reverse-proxy-only deployment mode. |
+| F-006 | **Medium** | Container image dependency vulnerability | CWE-1104 / OWASP A06 | `trivy-image-report.json`: `HIGH CVE-2026-25793` in `usr/bin/caddy` (`github.com/slackhq/nebula v1.9.7`) in `charon:local`. | Potential exposure via vulnerable transitive component in runtime image. | Medium (depends on exploit preconditions). | Rebuild with patched Caddy base/version; pin and verify fixed digest; keep image scan as blocking CI gate for CRITICAL/HIGH. |
+
+### Setup-Mode Re-entry Assessment
+
+- **Pass**: `backend/internal/api/handlers/user_handler.go` blocks setup when user count is greater than zero (`Setup already completed`).
+- Residual risk: concurrent first-run race conditions are still theoretically possible if multiple setup requests arrive before first transaction commits.
+
+### Charon Safety Contract (Current State)
+
+| Invariant | Status | Notes |
+| --- | --- | --- |
+| No state-changing endpoint without strict authz | **FAIL** | Security mutators and import preview/status gaps violate deny-by-default authorization expectations. |
+| No raw secrets in API/logs/diagnostics | **FAIL** | Generic settings/profile/invite responses include sensitive values/tokens. |
+| Secure-by-default management exposure | **PARTIAL** | Emergency server defaults safer; main API bind remains broad by default. |
+| Dangerous operations require re-auth + audit | **PARTIAL** | Audit is present in parts; step-up re-auth/confirmation is inconsistent. |
+| Setup mode is one-way lockout after initialization | **PASS** | Setup endpoint rejects execution when users already exist. |
+
+### Prioritized Remediation Plan
+
+**P0 (block release / immediate):**
+
+1. Enforce admin authz on all `/security/*` mutation endpoints (`UpdateConfig`, `GenerateBreakGlass`, `CreateDecision`, `UpsertRuleSet`, `DeleteRuleSet`, and any equivalent mutators).
+2. Move all import endpoints behind authenticated admin middleware; add explicit admin checks to `GetStatus`/`GetPreview`.
+3. Remove raw secret/token disclosure from settings/profile/invite APIs; implement write-only and masked read semantics.
+
+**P1 (next sprint):**
+
+1. Add step-up re-auth for dangerous operations (security toggles, user deletion/role changes, break-glass token generation).
+2. Add explicit confirmation challenge for destructive actions with short-lived confirmation tokens.
+3. Resolve image CVE by upgrading/pinning patched Caddy dependency and re-scan.
+
+**P2 (hardening backlog):**
+
+1. Tighten default bind posture for management API.
+2. Add startup race protection for first-run setup path.
+3. Expand documentation redaction standards for tokenized URLs and support artifacts.
+
+### CI Tripwires (Required Enhancements)
+
+1. **Route-auth crawler test (new):** enumerate all API routes and fail CI when any state-changing route (`POST/PUT/PATCH/DELETE`) is not protected by auth + role policy.
+2. **Secret exposure contract tests:** assert sensitive keys (`smtp_password`, API keys, invite tokens, provider tokens) are never returned by generic read APIs.
+3. **Security mutator RBAC tests:** negative tests for non-admin callers on all `/security/*` mutators.
+4. **Image vulnerability gate:** fail build on CRITICAL/HIGH vulnerabilities unless explicit waiver with expiry exists.
+5. **Trivy misconfig stability gate:** pin Trivy version or disable known-crashing parser path until upstream fix; keep scanner reliability monitored.
+
+### Blockers / Tooling Notes
+
+- `pre-commit run codeql-check-findings --all-files` failed locally because hook id is not registered in current pre-commit stage.
+- Trivy `misconfig` scanner path crashed with a nil-pointer panic in Ansible parser during full filesystem scan; workaround used (`vuln,secret`) for actionable gate execution.
+
+### Final DoD / Security Gate Decision
+
+- **Overall Security Gate:** **FAIL** (due to unresolved P0 findings F-001/F-002/F-003 and one HIGH image vulnerability F-006).
+- **If this code were Huntarr, would we call it safe now?** **No** — not until P0 authorization and secret-exposure issues are remediated and re-validated.
+
+### Remediation Update (2026-02-25)
+
+- Scope: P0 backend remediations from this audit were implemented in a single change set; `docs/plans/current_spec.md` remained untouched.
+
+**F-001 — Security mutator authorization:**
+
+- Added explicit admin checks in security mutator handlers (`UpdateConfig`, `GenerateBreakGlass`, `CreateDecision`, `UpsertRuleSet`, `DeleteRuleSet`, `ReloadGeoIP`, `LookupGeoIP`, `AddWAFExclusion`, `DeleteWAFExclusion`).
+- Updated security route wiring so mutation endpoints are mounted under admin-protected route groups.
+- Added/updated negative RBAC tests to verify non-admin callers receive `403` for security mutators.
+
+**F-002 — Import endpoint protection:**
+
+- Updated import route registration to require authenticated admin middleware for `/api/v1/import/*` endpoints.
+- Added admin enforcement in `GetStatus` and `GetPreview` handlers.
+- Added/updated route tests to verify unauthenticated and non-admin access is blocked.
+
+**F-003 — Secret/token exposure prevention:**
+
+- Updated settings read behavior to mask sensitive values and return metadata flags instead of raw secret values.
+- Removed raw `api_key` and invite token disclosure from profile/regenerate/invite responses; responses now return masked/redacted values and metadata.
+- Updated handler tests to enforce non-disclosure response contracts.
+
+**Validation executed for this remediation update:**
+
+- `go test ./internal/api/handlers -run 'SecurityHandler|ImportHandler|SettingsHandler|UserHandler'` ✅
+- `go test ./internal/api/routes` ✅
+
+**Residual gate status after this remediation update:**
+
+- P0 backend findings F-001/F-002/F-003 are addressed in code and covered by updated tests.
+- Image vulnerability finding F-006 remains open until runtime image dependency update and re-scan.
