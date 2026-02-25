@@ -162,15 +162,16 @@ func TestUserHandler_RegenerateAPIKey(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]string
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err, "Failed to unmarshal response")
-	assert.NotEmpty(t, resp["api_key"])
+	assert.Equal(t, "API key regenerated successfully", resp["message"])
+	assert.Equal(t, "********", resp["api_key_masked"])
 
 	// Verify DB
 	var updatedUser models.User
 	db.First(&updatedUser, user.ID)
-	assert.Equal(t, resp["api_key"], updatedUser.APIKey)
+	assert.NotEmpty(t, updatedUser.APIKey)
 }
 
 func TestUserHandler_GetProfile(t *testing.T) {
@@ -1376,7 +1377,7 @@ func TestUserHandler_InviteUser_Success(t *testing.T) {
 	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err, "Failed to unmarshal response")
-	assert.NotEmpty(t, resp["invite_token"])
+	assert.Equal(t, "********", resp["invite_token_masked"])
 	assert.Equal(t, "", resp["invite_url"])
 	// email_sent is false because no SMTP is configured
 	assert.Equal(t, false, resp["email_sent"].(bool))
@@ -1500,7 +1501,7 @@ func TestUserHandler_InviteUser_WithSMTPConfigured(t *testing.T) {
 	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err, "Failed to unmarshal response")
-	assert.NotEmpty(t, resp["invite_token"])
+	assert.Equal(t, "********", resp["invite_token_masked"])
 	assert.Equal(t, "", resp["invite_url"])
 	assert.Equal(t, false, resp["email_sent"].(bool))
 }
@@ -1553,8 +1554,8 @@ func TestUserHandler_InviteUser_WithSMTPAndConfiguredPublicURL_IncludesInviteURL
 	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err, "Failed to unmarshal response")
-	token := resp["invite_token"].(string)
-	assert.Equal(t, "https://charon.example.com/accept-invite?token="+token, resp["invite_url"])
+	assert.Equal(t, "********", resp["invite_token_masked"])
+	assert.Equal(t, "[REDACTED]", resp["invite_url"])
 	assert.Equal(t, true, resp["email_sent"].(bool))
 }
 
@@ -1606,7 +1607,7 @@ func TestUserHandler_InviteUser_WithSMTPAndMalformedPublicURL_DoesNotExposeInvit
 	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err, "Failed to unmarshal response")
-	assert.NotEmpty(t, resp["invite_token"])
+	assert.Equal(t, "********", resp["invite_token_masked"])
 	assert.Equal(t, "", resp["invite_url"])
 	assert.Equal(t, false, resp["email_sent"].(bool))
 }
@@ -1668,7 +1669,7 @@ func TestUserHandler_InviteUser_WithSMTPConfigured_DefaultAppName(t *testing.T) 
 	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err, "Failed to unmarshal response")
-	assert.NotEmpty(t, resp["invite_token"])
+	assert.Equal(t, "********", resp["invite_token_masked"])
 }
 
 // Note: TestGetBaseURL and TestGetAppName have been removed as these internal helper
@@ -2372,8 +2373,7 @@ func TestResendInvite_Success(t *testing.T) {
 	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err, "Failed to unmarshal response")
-	assert.NotEmpty(t, resp["invite_token"])
-	assert.NotEqual(t, "oldtoken123", resp["invite_token"])
+	assert.Equal(t, "********", resp["invite_token_masked"])
 	assert.Equal(t, "pending-user@example.com", resp["email"])
 	assert.Equal(t, false, resp["email_sent"].(bool)) // No SMTP configured
 
@@ -2381,7 +2381,7 @@ func TestResendInvite_Success(t *testing.T) {
 	var updatedUser models.User
 	db.First(&updatedUser, user.ID)
 	assert.NotEqual(t, "oldtoken123", updatedUser.InviteToken)
-	assert.Equal(t, resp["invite_token"], updatedUser.InviteToken)
+	assert.NotEmpty(t, updatedUser.InviteToken)
 }
 
 func TestResendInvite_WithExpiredInvite(t *testing.T) {
@@ -2419,8 +2419,7 @@ func TestResendInvite_WithExpiredInvite(t *testing.T) {
 	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err, "Failed to unmarshal response")
-	assert.NotEmpty(t, resp["invite_token"])
-	assert.NotEqual(t, "expiredtoken", resp["invite_token"])
+	assert.Equal(t, "********", resp["invite_token_masked"])
 
 	// Verify new expiration is in the future
 	var updatedUser models.User

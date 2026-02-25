@@ -75,12 +75,41 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 	}
 
 	// Convert to map for easier frontend consumption
-	settingsMap := make(map[string]string)
+	settingsMap := make(map[string]any)
 	for _, s := range settings {
+		if isSensitiveSettingKey(s.Key) {
+			hasSecret := strings.TrimSpace(s.Value) != ""
+			settingsMap[s.Key] = "********"
+			settingsMap[s.Key+".has_secret"] = hasSecret
+			settingsMap[s.Key+".last_updated"] = s.UpdatedAt.UTC().Format(time.RFC3339)
+			continue
+		}
+
 		settingsMap[s.Key] = s.Value
 	}
 
 	c.JSON(http.StatusOK, settingsMap)
+}
+
+func isSensitiveSettingKey(key string) bool {
+	normalizedKey := strings.ToLower(strings.TrimSpace(key))
+
+	sensitiveFragments := []string{
+		"password",
+		"secret",
+		"token",
+		"api_key",
+		"apikey",
+		"webhook",
+	}
+
+	for _, fragment := range sensitiveFragments {
+		if strings.Contains(normalizedKey, fragment) {
+			return true
+		}
+	}
+
+	return false
 }
 
 type UpdateSettingRequest struct {

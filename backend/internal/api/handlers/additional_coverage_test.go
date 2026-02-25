@@ -170,6 +170,7 @@ func TestSecurityHandler_UpdateConfig_ApplyCaddyError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("PUT", "/security/config", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -190,6 +191,7 @@ func TestSecurityHandler_GenerateBreakGlass_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/security/breakglass", http.NoBody)
 
 	h.GenerateBreakGlass(c)
@@ -252,6 +254,7 @@ func TestSecurityHandler_UpsertRuleSet_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/security/rulesets", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -277,6 +280,7 @@ func TestSecurityHandler_CreateDecision_LogError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Request = httptest.NewRequest("POST", "/security/decisions", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -297,6 +301,7 @@ func TestSecurityHandler_DeleteRuleSet_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
 	c.Params = gin.Params{{Key: "id", Value: "999"}}
 
 	h.DeleteRuleSet(c)

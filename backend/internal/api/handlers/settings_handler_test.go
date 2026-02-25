@@ -182,6 +182,31 @@ func TestSettingsHandler_GetSettings(t *testing.T) {
 	assert.Equal(t, "test_value", response["test_key"])
 }
 
+func TestSettingsHandler_GetSettings_MasksSensitiveValues(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	db.Create(&models.Setting{Key: "smtp_password", Value: "super-secret-password", Category: "smtp", Type: "string"})
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.GET("/settings", handler.GetSettings)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/settings", http.NoBody)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]any
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, "********", response["smtp_password"])
+	assert.Equal(t, true, response["smtp_password.has_secret"])
+	_, hasRaw := response["super-secret-password"]
+	assert.False(t, hasRaw)
+}
+
 func TestSettingsHandler_GetSettings_DatabaseError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
