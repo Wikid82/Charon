@@ -50,7 +50,7 @@ describe('users api', () => {
   it('creates, invites, updates, and deletes users', async () => {
     mockedClient.post
       .mockResolvedValueOnce({ data: { id: 3, uuid: 'u3', email: 'c@example.com', name: 'C', role: 'user', enabled: true, permission_mode: 'allow_all', created_at: '', updated_at: '' } })
-      .mockResolvedValueOnce({ data: { id: 4, uuid: 'u4', email: 'invite@example.com', role: 'user', invite_token: 'token', invite_url: 'https://charon.example.com/accept-invite?token=token', email_sent: true, expires_at: '' } })
+      .mockResolvedValueOnce({ data: { id: 4, uuid: 'u4', email: 'invite@example.com', role: 'user', invite_token_masked: '********', invite_url: '[REDACTED]', email_sent: true, expires_at: '' } })
 
     mockedClient.put.mockResolvedValueOnce({ data: { message: 'updated' } })
     mockedClient.delete.mockResolvedValueOnce({ data: { message: 'deleted' } })
@@ -61,7 +61,7 @@ describe('users api', () => {
 
     const invite = await inviteUser({ email: 'invite@example.com', role: 'user' })
     expect(mockedClient.post).toHaveBeenCalledWith('/users/invite', { email: 'invite@example.com', role: 'user' })
-    expect(invite.invite_token).toBe('token')
+    expect(invite.invite_token_masked).toBe('********')
 
     await updateUser(3, { enabled: false })
     expect(mockedClient.put).toHaveBeenCalledWith('/users/3', { enabled: false })
