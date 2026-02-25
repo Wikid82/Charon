@@ -258,6 +258,69 @@ PR-3 is **ready to merge** with no open QA blockers.
 | Focused `createUser` auth-path spec | PASS | `tests/fixtures/api-helper-auth.spec.ts` → `2 passed (4.5s)`. |
 | Backend docker service/handler tests | PASS | Targeted suites passed, including local diagnostics and mapping: `ok .../internal/services`, `ok .../internal/api/handlers`. |
 
+---
+
+## QA/Security Delta — Post-Hardening E2E Remediation Pass
+
+- Date: 2026-02-25
+- Scope: Post-hardening E2E remediation for authz restrictions, secret redaction behavior, setup/security guardrails, and settings endpoint protections.
+- Final Status: **PASS FOR REMEDIATION SCOPE** (targeted hardening suites green; see non-scope blockers below).
+
+### Commands Run
+
+1. `.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`
+2. `.github/skills/scripts/skill-runner.sh test-e2e-playwright`
+3. `PLAYWRIGHT_HTML_OPEN=never npx playwright test tests/security tests/security-enforcement tests/settings --project=firefox`
+4. `PLAYWRIGHT_HTML_OPEN=never npx playwright test tests/security tests/security-enforcement tests/settings --project=firefox` (post-fix rerun)
+5. `PLAYWRIGHT_HTML_OPEN=never npx playwright test tests/settings/account-settings.spec.ts tests/settings/notifications-payload.spec.ts --project=firefox`
+6. `bash scripts/local-patch-report.sh`
+7. `.github/skills/scripts/skill-runner.sh test-backend-coverage`
+8. `.github/skills/scripts/skill-runner.sh test-frontend-coverage`
+9. `.github/skills/scripts/skill-runner.sh qa-precommit-all`
+10. VS Code task: `Security: CodeQL Go Scan (CI-Aligned) [~60s]`
+11. VS Code task: `Security: CodeQL JS Scan (CI-Aligned) [~90s]`
+12. `pre-commit run --hook-stage manual codeql-go-scan --all-files`
+13. `pre-commit run --hook-stage manual codeql-js-scan --all-files`
+14. `pre-commit run --hook-stage manual codeql-check-findings --all-files`
+15. `.github/skills/scripts/skill-runner.sh security-scan-trivy`
+16. `.github/skills/scripts/skill-runner.sh security-scan-docker-image`
+
+### Gate Results
+
+| Gate | Status | Evidence |
+| --- | --- | --- |
+| E2E-first hardening verification | PASS (targeted) | Remediated files passed: `tests/settings/account-settings.spec.ts` and `tests/settings/notifications-payload.spec.ts` → **30/30 passed**. |
+| Local patch preflight artifacts | PASS (WARN) | `test-results/local-patch-report.md` and `test-results/local-patch-report.json` generated; warning mode due patch coverage below configured threshold. |
+| Backend coverage threshold | PASS | Coverage gate met (minimum **87%** required by local gate). |
+| Frontend coverage threshold | PASS | Coverage summary: **Lines 88.92%**; gate PASS vs **87%** minimum. |
+| Pre-commit all-files | PASS | `.github/skills/scripts/skill-runner.sh qa-precommit-all` passed all hooks. |
+| CodeQL Go/JS + findings gate | PASS | Manual-stage scans executed and findings gate reports no security issues in Go/JS. |
+| Trivy filesystem | PASS | `security-scan-trivy` completed with no reported issues at configured severities. |
+| Docker image vulnerability gate | PASS | No blocking critical/high vulnerabilities; non-blocking medium/low remain tracked in generated artifacts. |
+| GORM scanner | N/A | Not triggered: this remediation changed only E2E test files, not backend model/database scope. |
+
+### Remediation Notes
+
+1. Updated account settings E2E to reflect hardened API-key redaction behavior:
+	- Assert masked display and absence of copy action for API key.
+	- Assert regeneration success without expecting raw key disclosure.
+2. Updated notifications payload E2E to reflect hardened endpoint protection and trusted-provider test dispatch model:
+	- Added authenticated headers where protected endpoints are exercised.
+	- Updated assertions to expect guardrail contract (`MISSING_PROVIDER_ID`) for untrusted direct dispatch payloads.
+
+### Non-Scope Blockers (Observed in Broader Rerun)
+
+- A broad `tests/settings` rerun still showed unrelated failures in:
+  - `tests/settings/notifications.spec.ts` (event persistence reload timeout)
+  - `tests/settings/smtp-settings.spec.ts` (reload timeout)
+  - `tests/settings/user-management.spec.ts` (pending invite/reinvite timing)
+- These were not introduced by this remediation and were outside the hardening-failure set addressed here.
+
+### Recommendation
+
+- Continue with a separate stability pass for the remaining non-scope settings suite timeouts.
+- For this post-hardening remediation objective, proceed with the current changes.
+
 ### Local Docker API Path / Diagnostics Validation
 
 - Verified via backend tests that local-mode behavior and diagnostics are correct:

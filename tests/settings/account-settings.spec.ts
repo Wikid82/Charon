@@ -590,60 +590,22 @@ test.describe('Account Settings', () => {
      * Test: Copy API key to clipboard
      * Verifies copy button copies key to clipboard.
      */
-    test('should copy API key to clipboard', async ({ page, context }, testInfo) => {
-      // Grant clipboard permissions. Firefox/WebKit do not support 'clipboard-read'
-      // so only request it on Chromium projects.
-      const browserName = testInfo.project?.name || '';
-      if (browserName === 'chromium') {
-        await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-      }
-      // Do not request clipboard permissions for Firefox/WebKit — Playwright only
-      // supports clipboard permissions on Chromium. For other browsers we rely
-      // on the application's copy-to-clipboard behavior without granting perms.
-
-      await test.step('Click copy button', async () => {
-        const copyButton = page
-          .getByRole('button')
-          .filter({ has: page.locator('svg.lucide-copy') })
-          .or(page.getByRole('button', { name: /copy/i }))
-          .or(page.getByTitle(/copy/i));
-
-        await copyButton.click();
+    test('should not expose API key copy action when key is masked', async ({ page }) => {
+      await test.step('Verify API key input is masked and read-only', async () => {
+        const apiKeyInput = page.locator('input[readonly].font-mono');
+        await expect(apiKeyInput).toBeVisible();
+        await expect(apiKeyInput).toHaveValue(/^\*+$/);
       });
 
-      await test.step('Verify success toast', async () => {
-        const toast = page.getByRole('status').or(page.getByRole('alert'));
-        await expect(toast.filter({ hasText: /copied|clipboard/i })).toBeVisible({ timeout: 10000 });
-      });
+      await test.step('Verify no copy-to-clipboard control is present in API key section', async () => {
+        const apiKeyCard = page.locator('h3').filter({ hasText: /api.*key/i }).locator('..').locator('..');
 
-      await test.step('Verify clipboard contains API key (Chromium-only); verify toast for other browsers', async () => {
-        // Playwright: `clipboard-read` / navigator.clipboard.readText() is only
-        // reliably supported in Chromium in many CI environments. Do not call
-        // clipboard.readText() on WebKit/Firefox in CI — it throws NotAllowedError.
-        // See: https://playwright.dev/docs/api/class-browsercontext#browsercontextgrantpermissions
-        if (browserName !== 'chromium') {
-          // Non-Chromium: we've already asserted the user-visible success toast above.
-          // Additional, non-clipboard verification to reduce false positives: ensure
-          // the API key input still contains a non-empty value (defensive check).
-          const apiKeyInput = page.locator('input[readonly].font-mono');
-          await expect(apiKeyInput).toHaveValue(/\S+/);
-          return; // skip clipboard-read on non-Chromium
-        }
-
-        // Chromium-only: ensure permission was (optionally) granted earlier and
-        // then verify clipboard contents. Keep this assertion focused and stable
-        // (don't assert exact secret format — just that something sensible was copied).
-        const clipboardText = await page.evaluate(async () => {
-          try {
-            return await navigator.clipboard.readText();
-          } catch (err) {
-            // Re-throw with clearer message for CI logs
-            throw new Error(`clipboard.readText() failed: ${err?.message || err}`);
-          }
-        });
-
-        // Expect a plausible API key (alphanumeric + at least 16 chars)
-        expect(clipboardText).toMatch(/[A-Za-z0-9\-_]{16,}/);
+        await expect(
+          apiKeyCard
+            .getByRole('button', { name: /copy/i })
+            .or(apiKeyCard.getByTitle(/copy/i))
+            .or(apiKeyCard.locator('button:has(svg.lucide-copy)'))
+        ).toHaveCount(0);
       });
     });
 
@@ -685,7 +647,7 @@ test.describe('Account Settings', () => {
         await expect(toast.filter({ hasText: /regenerated|generated|new.*key/i })).toBeVisible({ timeout: 10000 });
       });
 
-      await test.step('Verify API key changed', async () => {
+      await test.step('Verify API key rotation succeeded without revealing raw key', async () => {
         const apiKeyInput = page
           .locator('input[readonly]')
           .filter({ has: page.locator('[class*="mono"]') })
@@ -693,7 +655,8 @@ test.describe('Account Settings', () => {
           .or(page.locator('input[readonly]').last());
 
         const newKey = await apiKeyInput.inputValue();
-        expect(newKey).not.toBe(originalKey);
+        expect(newKey).toBe('********');
+        expect(newKey).toBe(originalKey);
         expect(newKey.length).toBeGreaterThan(0);
       });
     });
