@@ -89,6 +89,44 @@ docker run -d \
 
 **Open <http://localhost:8080>** in your browser!
 
+### Docker Socket Access (Important)
+
+Charon runs as a non-root user inside the container. To discover your other Docker containers, it needs permission to read the Docker socket. Without this, you'll see a "Docker Connection Failed" message in the UI.
+
+**Step 1:** Find your Docker socket's group ID:
+
+```bash
+stat -c '%g' /var/run/docker.sock
+```
+
+This prints a number (for example, `998` or `999`).
+
+**Step 2:** Add that number to your compose file under `group_add`:
+
+```yaml
+services:
+  charon:
+    image: wikid82/charon:latest
+    group_add:
+      - "998"   # <-- replace with your number from Step 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # ... rest of your config
+```
+
+**Using `docker run` instead?** Add `--group-add <gid>` to your command:
+
+```bash
+docker run -d \
+  --name charon \
+  --group-add 998 \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  # ... rest of your flags
+  wikid82/charon:latest
+```
+
+**Why is this needed?** The Docker socket is owned by a specific group on your host machine. Adding that group lets Charon read the socket without running as root—keeping your setup secure.
+
 ---
 
 ## Step 1.5: Database Migrations (If Upgrading)
