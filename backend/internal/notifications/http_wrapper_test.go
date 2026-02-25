@@ -376,3 +376,124 @@ func TestSanitizeTransportErrorReason(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildSafeRequestURLPreservesHostnameForTLS(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = true
+
+	destinationURL := &neturl.URL{
+		Scheme: "https",
+		Host:   "example.com",
+		Path:   "/webhook",
+	}
+
+	safeURL, hostHeader, err := wrapper.buildSafeRequestURL(destinationURL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if safeURL.Hostname() != "example.com" {
+		t.Fatalf("expected hostname 'example.com' preserved in URL for TLS SNI, got %q", safeURL.Hostname())
+	}
+
+	if hostHeader != "example.com" {
+		t.Fatalf("expected host header 'example.com', got %q", hostHeader)
+	}
+
+	if safeURL.Scheme != "https" {
+		t.Fatalf("expected scheme 'https', got %q", safeURL.Scheme)
+	}
+
+	if safeURL.Path != "/webhook" {
+		t.Fatalf("expected path '/webhook', got %q", safeURL.Path)
+	}
+}
+
+func TestBuildSafeRequestURLDefaultsEmptyPathToSlash(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = true
+
+	destinationURL := &neturl.URL{
+		Scheme: "http",
+		Host:   "localhost",
+	}
+
+	safeURL, _, err := wrapper.buildSafeRequestURL(destinationURL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if safeURL.Path != "/" {
+		t.Fatalf("expected default path '/', got %q", safeURL.Path)
+	}
+}
+
+func TestBuildSafeRequestURLPreservesQueryString(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = true
+
+	destinationURL := &neturl.URL{
+		Scheme:   "https",
+		Host:     "example.com",
+		Path:     "/hook",
+		RawQuery: "key=value",
+	}
+
+	safeURL, _, err := wrapper.buildSafeRequestURL(destinationURL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if safeURL.RawQuery != "key=value" {
+		t.Fatalf("expected query 'key=value', got %q", safeURL.RawQuery)
+	}
+}
+
+func TestBuildSafeRequestURLRejectsNilDestination(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+
+	_, _, err := wrapper.buildSafeRequestURL(nil)
+	if err == nil || !strings.Contains(err.Error(), "destination URL validation failed") {
+		t.Fatalf("expected validation failure for nil URL, got: %v", err)
+	}
+}
+
+func TestBuildSafeRequestURLRejectsEmptyHostname(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+
+	destinationURL := &neturl.URL{
+		Scheme: "https",
+		Host:   "",
+		Path:   "/hook",
+	}
+
+	_, _, err := wrapper.buildSafeRequestURL(destinationURL)
+	if err == nil || !strings.Contains(err.Error(), "destination URL validation failed") {
+		t.Fatalf("expected validation failure for empty hostname, got: %v", err)
+	}
+}
+
+func TestBuildSafeRequestURLWithTLSServer(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	serverURL, _ := neturl.Parse(server.URL)
+
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = true
+
+	safeURL, hostHeader, err := wrapper.buildSafeRequestURL(serverURL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if safeURL.Host != serverURL.Host {
+		t.Fatalf("expected host %q preserved for TLS, got %q", serverURL.Host, safeURL.Host)
+	}
+
+	if hostHeader != serverURL.Host {
+		t.Fatalf("expected host header %q, got %q", serverURL.Host, hostHeader)
+	}
+}

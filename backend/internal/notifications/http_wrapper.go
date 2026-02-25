@@ -333,23 +333,20 @@ func (w *HTTPWrapper) buildSafeRequestURL(destinationURL *neturl.URL) (*neturl.U
 		return nil, "", fmt.Errorf("destination URL validation failed")
 	}
 
-	resolvedIP, err := w.resolveAllowedDestinationIP(hostname)
+	// Validate destination IPs are allowed (defense-in-depth alongside safeDialer).
+	_, err := w.resolveAllowedDestinationIP(hostname)
 	if err != nil {
 		return nil, "", err
 	}
 
-	port := destinationURL.Port()
-	if port == "" {
-		if destinationURL.Scheme == "https" {
-			port = "443"
-		} else {
-			port = "80"
-		}
-	}
-
+	// Preserve the original hostname in the URL so Go's TLS layer derives the
+	// correct ServerName for SNI and certificate verification. The safeDialer
+	// resolves DNS, validates IPs against SSRF rules, and connects to a
+	// validated IP at dial time, so protection is maintained without
+	// IP-pinning in the URL.
 	safeRequestURL := &neturl.URL{
 		Scheme:   destinationURL.Scheme,
-		Host:     net.JoinHostPort(resolvedIP.String(), port),
+		Host:     destinationURL.Host,
 		Path:     destinationURL.EscapedPath(),
 		RawQuery: destinationURL.RawQuery,
 	}
