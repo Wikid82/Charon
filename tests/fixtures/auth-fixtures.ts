@@ -85,17 +85,46 @@ function readAuthTokenFromStorageState(storageStatePath: string): string | null 
     const savedState = JSON.parse(readFileSync(storageStatePath, 'utf-8'));
     const origins = Array.isArray(savedState.origins) ? savedState.origins : [];
 
+    const extractToken = (value: unknown): string | null => {
+      if (typeof value !== 'string' || !value.trim()) {
+        return null;
+      }
+
+      if (value.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(value) as { token?: string };
+          if (typeof parsed?.token === 'string' && parsed.token.trim()) {
+            return parsed.token;
+          }
+        } catch {
+          return null;
+        }
+      }
+
+      return value;
+    };
+
     for (const originEntry of origins) {
       const localStorageEntries = Array.isArray(originEntry?.localStorage)
         ? originEntry.localStorage
         : [];
 
-      const tokenEntry = localStorageEntries.find(
-        (entry: { name?: string; value?: string }) => entry?.name === 'charon_auth_token'
-      );
-      if (tokenEntry?.value) {
-        return tokenEntry.value;
+      for (const key of ['charon_auth_token', 'token', 'auth']) {
+        const tokenEntry = localStorageEntries.find(
+          (entry: { name?: string; value?: string }) => entry?.name === key
+        );
+        const token = extractToken(tokenEntry?.value);
+        if (token) {
+          return token;
+        }
       }
+    }
+
+    const cookies = Array.isArray(savedState.cookies) ? savedState.cookies : [];
+    const authCookie = cookies.find((cookie: { name?: string; value?: string }) => cookie?.name === 'auth_token');
+    const cookieToken = extractToken(authCookie?.value);
+    if (cookieToken) {
+      return cookieToken;
     }
   } catch {
   }

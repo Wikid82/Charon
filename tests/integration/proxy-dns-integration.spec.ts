@@ -28,6 +28,41 @@ import {
  */
 type DNSProviderType = 'manual' | 'cloudflare' | 'route53' | 'webhook' | 'rfc2136';
 
+async function getAuthToken(page: import('@playwright/test').Page): Promise<string> {
+  const storageState = await page.request.storageState();
+  const origins = Array.isArray(storageState.origins) ? storageState.origins : [];
+
+  for (const originEntry of origins) {
+    const localStorageEntries = Array.isArray(originEntry?.localStorage)
+      ? originEntry.localStorage
+      : [];
+
+    const authEntry = localStorageEntries.find((entry) => entry.name === 'auth');
+    if (authEntry?.value) {
+      try {
+        const parsed = JSON.parse(authEntry.value) as { token?: string };
+        if (parsed?.token) {
+          return parsed.token;
+        }
+      } catch {
+      }
+    }
+
+    const tokenEntry = localStorageEntries.find(
+      (entry) => entry.name === 'token' || entry.name === 'charon_auth_token'
+    );
+    if (tokenEntry?.value) {
+      return tokenEntry.value;
+    }
+  }
+
+  return '';
+}
+
+function buildAuthHeaders(token: string): Record<string, string> | undefined {
+  return token ? { Authorization: `Bearer ${token}` } : undefined;
+}
+
 async function navigateToDnsProviders(page: import('@playwright/test').Page): Promise<void> {
   const providersResponse = waitForAPIResponse(page, /\/api\/v1\/dns-providers/);
   await page.goto('/dns/providers');
@@ -290,14 +325,18 @@ test.describe('Proxy + DNS Provider Integration', () => {
       const updatedName = 'Update-Credentials-DNS-Updated';
 
       await test.step('Update provider credentials via API', async () => {
+        const token = await getAuthToken(page);
+        expect(token).toBeTruthy();
+
         const response = await page.request.put(`/api/v1/dns-providers/${providerId}`, {
           data: {
-            type: 'cloudflare',
+            provider_type: 'cloudflare',
             name: updatedName,
             credentials: {
               api_token: 'updated-token',
             },
           },
+          headers: buildAuthHeaders(token),
         });
         expect(response.ok()).toBeTruthy();
       });
@@ -333,7 +372,10 @@ test.describe('Proxy + DNS Provider Integration', () => {
       });
 
       await test.step('Delete provider via API', async () => {
-        const response = await page.request.delete(`/api/v1/dns-providers/${providerId}`);
+        const token = await getAuthToken(page);
+        const response = await page.request.delete(`/api/v1/dns-providers/${providerId}`, {
+          headers: buildAuthHeaders(token),
+        });
         expect(response.ok()).toBeTruthy();
       });
 
@@ -373,7 +415,10 @@ test.describe('Proxy + DNS Provider Integration', () => {
       });
 
       await test.step('Verify API returns providers', async () => {
-        const response = await page.request.get('/api/v1/dns-providers');
+        const token = await getAuthToken(page);
+        const response = await page.request.get('/api/v1/dns-providers', {
+          headers: buildAuthHeaders(token),
+        });
         expect(response.ok()).toBeTruthy();
         const data = await response.json();
         const providers = data.providers || data.items || data;
