@@ -89,19 +89,38 @@ ghcr_list_all_versions_json() {
 
   while :; do
     local url="https://api.github.com/${namespace_type}/${OWNER}/packages/container/${IMAGE_NAME}/versions?per_page=$per_page&page=$page"
-    local resp
-    resp=$(curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" "$url" || true)
 
-    # Error handling
-    if echo "$resp" | jq -e '.message' >/dev/null 2>&1; then
+    # Use GitHub’s recommended headers
+    local resp
+    resp=$(curl -sS \
+      -H "Authorization: Bearer $GITHUB_TOKEN" \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "$url" || true)
+
+    # ✅ NEW: ensure we got JSON
+    if ! echo "$resp" | jq -e . >/dev/null 2>&1; then
+      echo "$LOG_PREFIX GHCR returned non-JSON for url=$url"
+      echo "$LOG_PREFIX GHCR response (first 200 chars): $(echo "$resp" | head -c 200 | tr '\n' ' ')"
+      echo "[]"
+      return 0
+    fi
+
+    # Handle JSON error messages
+    if echo "$resp" | jq -e 'has("message")' >/dev/null 2>&1; then
       local msg
       msg=$(echo "$resp" | jq -r '.message')
+
       if [[ "$msg" == "Not Found" ]]; then
         echo "$LOG_PREFIX GHCR ${namespace_type} endpoint returned Not Found"
         echo "[]"
         return 0
       fi
+
       echo "$LOG_PREFIX GHCR API error: $msg"
+      # also print documentation_url if present (helpful)
+      doc=$(echo "$resp" | jq -r '.documentation_url // empty')
+      [[ -n "$doc" ]] && echo "$LOG_PREFIX GHCR docs: $doc"
       echo "[]"
       return 0
     fi
