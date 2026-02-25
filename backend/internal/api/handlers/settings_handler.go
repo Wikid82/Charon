@@ -532,6 +532,10 @@ type SMTPConfigRequest struct {
 
 // GetSMTPConfig returns the current SMTP configuration.
 func (h *SettingsHandler) GetSMTPConfig(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	config, err := h.MailService.GetSMTPConfig()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch SMTP configuration"})

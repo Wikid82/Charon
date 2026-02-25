@@ -277,7 +277,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		protected.PATCH("/config", settingsHandler.PatchConfig)     // Bulk configuration update
 
 		// SMTP Configuration
-		protected.GET("/settings/smtp", settingsHandler.GetSMTPConfig)
+		protected.GET("/settings/smtp", middleware.RequireRole("admin"), settingsHandler.GetSMTPConfig)
 		protected.POST("/settings/smtp", settingsHandler.UpdateSMTPConfig)
 		protected.POST("/settings/smtp/test", settingsHandler.TestSMTPConfig)
 		protected.POST("/settings/smtp/test-email", settingsHandler.SendTestEmail)
