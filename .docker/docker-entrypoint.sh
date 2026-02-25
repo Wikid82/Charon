@@ -142,8 +142,15 @@ if [ -S "/var/run/docker.sock" ] && is_root; then
         fi
     fi
 elif [ -S "/var/run/docker.sock" ]; then
-    echo "Note: Docker socket mounted but container is running non-root; skipping docker.sock group setup."
-    echo "      If Docker discovery is needed, run with matching group permissions (e.g., --group-add)"
+    DOCKER_SOCK_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "unknown")
+    echo "Note: Docker socket mounted (GID=$DOCKER_SOCK_GID) but container is running non-root; skipping docker.sock group setup."
+    echo "      If Docker discovery is needed, add 'group_add: [\"$DOCKER_SOCK_GID\"]' to your compose service."
+    if [ "$DOCKER_SOCK_GID" = "0" ]; then
+        if [ "${ALLOW_DOCKER_SOCK_GID_0:-false}" != "true" ]; then
+            echo "⚠️  WARNING: Docker socket GID is 0 (root group). group_add: [\"0\"] grants root-group access."
+            echo "   Set ALLOW_DOCKER_SOCK_GID_0=true to acknowledge this risk."
+        fi
+    fi
 else
     echo "Note: Docker socket not found. Docker container discovery will be unavailable."
 fi

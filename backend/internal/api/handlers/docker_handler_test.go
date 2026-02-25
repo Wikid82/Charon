@@ -360,3 +360,47 @@ func TestDockerHandler_ListContainers_GenericError(t *testing.T) {
 		})
 	}
 }
+
+func TestDockerHandler_ListContainers_503FallbackDetailsWhenEmpty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	dockerSvc := &fakeDockerService{err: services.NewDockerUnavailableError(errors.New("socket error"))}
+	remoteSvc := &fakeRemoteServerService{}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Contains(t, w.Body.String(), "Docker daemon unavailable")
+	assert.Contains(t, w.Body.String(), "docker.sock is mounted")
+}
+
+func TestDockerHandler_ListContainers_503DetailsWithGroupGuidance(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	groupDetails := `Local Docker socket is mounted but not accessible by current process (uid=1000 gid=1000). Process groups (1000) do not include socket gid 988; run container with matching supplemental group (e.g., --group-add 988 or compose group_add: ["988"]).`
+	dockerSvc := &fakeDockerService{
+		err: services.NewDockerUnavailableError(errors.New("EACCES"), groupDetails),
+	}
+	remoteSvc := &fakeRemoteServerService{}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?host=local", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Contains(t, w.Body.String(), "Docker daemon unavailable")
+	assert.Contains(t, w.Body.String(), "--group-add 988")
+	assert.Contains(t, w.Body.String(), "group_add")
+}

@@ -1,214 +1,586 @@
 ---
-post_title: "Current Spec: Docker Socket Local-vs-Remote Regression and Traceability"
+post_title: "Current Spec: Local Docker Socket Group Access Remediation"
 categories:
-  - actions
-  - testing
+  - planning
   - docker
+  - security
   - backend
   - frontend
 tags:
-  - playwright
-  - docker-socket
-  - regression
-  - traceability
-  - coverage
-summary: "Execution-ready, strict-scope plan for docker socket local-vs-remote regression tests and traceability, with resolved test strategy, failure simulation, coverage sequencing, and minimal PR slicing."
-post_date: 2026-02-24
+  - docker.sock
+  - least-privilege
+  - group-add
+  - compose
+  - validation
+summary: "Comprehensive plan to resolve local docker socket access failures for non-root process uid=1000 gid=1000 when host socket gid is not in supplemental groups, with phased rollout, PR slicing, and least-privilege validation."
+post_date: 2026-02-25
 ---
 
-## Active Plan
+## 1) Introduction
 
-Date: 2026-02-24
-Status: Execution-ready
-Scope: Docker socket local-vs-remote regression tests and traceability only
+### Overview
 
-## Introduction
+Charon local Docker discovery currently fails in environments where:
 
-This plan protects the recent Playwright compose change where the docker socket
-mount was already added. The objective is to prevent regressions in local Docker
-source behavior, guarantee remote Docker no-regression behavior, and provide
-clear requirement-to-test traceability.
+- Socket mount exists: `/var/run/docker.sock:/var/run/docker.sock:ro`
+- Charon process runs non-root (typically `uid=1000 gid=1000`)
+- Host socket group (example: `gid=988`) is not present in process supplemental groups
 
-Out of scope:
-- Gotify/notifications changes
-- security hardening outside this regression ask
-- backend/frontend feature refactors unrelated to docker source regression tests
+Observed user-facing failure class (already emitted by backend details builder):
 
-## Research Findings
+- `Local Docker socket mounted but not accessible by current process (uid=1000 gid=1000)... Process groups do not include socket gid 988; run container with matching supplemental group (e.g., --group-add 988).`
 
-Current-state confirmations:
-- Playwright compose already includes docker socket mount (user already added it)
-  and this plan assumes that current state as baseline.
-- Existing Docker source coverage is present but not sufficient to lock failure
-  classes and local-vs-remote recovery behavior.
+### Goals
 
-Known test/code areas for this scope:
-- E2E: `tests/core/proxy-hosts.spec.ts`
-- Frontend tests: `frontend/src/hooks/__tests__/useDocker.test.tsx`
-- Frontend form tests: `frontend/src/components/__tests__/ProxyHostForm-dropdown-changes.test.tsx`
-- Backend service tests: `backend/internal/services/docker_service_test.go`
-- Backend handler tests: `backend/internal/api/handlers/docker_handler_test.go`
+1. Preserve non-root default execution (`USER charon`) while enabling local Docker discovery safely.
+2. Standardize supplemental-group strategy across compose variants and launcher scripts.
+3. Keep behavior deterministic in backend/API/frontend error surfacing when permissions are wrong.
+4. Validate least-privilege posture (non-root, minimal group grant, no broad privilege escalation).
 
-Confidence score: 96%
+### Non-Goals
 
-Rationale:
-- Required paths already exist.
-- Scope is strictly additive/traceability-focused.
-- No unresolved architecture choices remain.
+- No redesign of remote Docker support (`tcp://...`) beyond compatibility checks.
+- No changes to unrelated security modules (WAF, ACL, CrowdSec workflows).
+- No broad Docker daemon hardening beyond this socket-access path.
 
-## Requirements (EARS)
+### Scope Labels (Authoritative)
 
-- WHEN Docker source is `Local (Docker Socket)` and socket access is available,
-  THE SYSTEM SHALL list containers successfully through the real request path.
-- WHEN local Docker returns permission denied,
-  THE SYSTEM SHALL surface a deterministic docker-unavailable error state.
-- WHEN local Docker returns missing socket,
-  THE SYSTEM SHALL surface a deterministic docker-unavailable error state.
-- WHEN local Docker returns daemon unreachable,
-  THE SYSTEM SHALL surface a deterministic docker-unavailable error state.
-- WHEN local Docker fails and user switches to remote Docker source,
-  THE SYSTEM SHALL allow recovery and load remote containers without reload.
-- WHEN remote Docker path is valid,
-  THE SYSTEM SHALL continue to work regardless of local failure-class tests.
+- `repo-deliverable`: changes that must be included in repository PR slices under `/projects/Charon`.
+- `operator-local follow-up`: optional local environment changes outside repository scope (for example `/root/docker/...`), not required for repo PR acceptance.
 
-## Resolved Decisions
+---
 
-1. Test-file strategy: keep all new E2E cases in existing
-   `tests/core/proxy-hosts.spec.ts` under one focused Docker regression describe block.
-2. Failure simulation strategy: use deterministic interception/mocking for failure
-   classes (`permission denied`, `missing socket`, `daemon unreachable`), and use
-   one non-intercepted real-path local-success test.
-3. Codecov timing: update `codecov.yml` only in PR-2 and only if needed after
-   PR-1 test signal review; no unrelated coverage policy churn.
+## 2) Research Findings
 
-## Explicit Test Strategy
+### 2.1 Critical Runtime Files (Confirmed)
 
-### E2E (Playwright)
+- `backend/internal/services/docker_service.go`
+  - Key functions:
+    - `NewDockerService()`
+    - `(*DockerService).ListContainers(...)`
+    - `resolveLocalDockerHost()`
+    - `buildLocalDockerUnavailableDetails(...)`
+    - `isDockerConnectivityError(...)`
+    - `extractErrno(...)`
+    - `localSocketStatSummary(...)`
+  - Contains explicit supplemental-group hint text with `--group-add <gid>` when `EACCES/EPERM` occurs.
 
-1. Real-path local-success test (no interception):
-   - Validate local Docker source works when socket is accessible in current
-     Playwright compose baseline.
-2. Deterministic failure-class tests (interception/mocking):
-   - local permission denied
-   - local missing socket
-   - local daemon unreachable
-3. Remote no-regression test:
-   - Validate remote Docker path still lists containers and remains unaffected by
-     local failure-class scenarios.
-4. Local-fail-to-remote-recover test:
-   - Validate source switch recovery without page reload.
+- `backend/internal/api/handlers/docker_handler.go`
+  - Key function: `(*DockerHandler).ListContainers(...)`
+  - Maps `DockerUnavailableError` to HTTP `503` with `details` string consumed by UI.
 
-### Unit tests
+- `frontend/src/hooks/useDocker.ts`
+  - Hook: `useDocker(host?, serverId?)`
+  - Converts `503` payload details into surfaced `Error(message)`.
 
-- Frontend: hook/form coverage for error surfacing and recovery UX.
-- Backend: connectivity classification and handler status mapping for the three
-  failure classes plus remote success control case.
+- `frontend/src/components/ProxyHostForm.tsx`
+  - Uses `useDocker`.
+  - Error panel title: `Docker Connection Failed`.
+  - Existing troubleshooting text currently mentions socket mount but not explicit supplemental group action.
 
-## Concrete DoD Order (Testing Protocol Aligned)
+- `.docker/docker-entrypoint.sh`
+  - Root path auto-aligns docker socket GID with user group membership via:
+    - `get_group_by_gid()`
+    - `create_group_with_gid()`
+    - `add_user_to_group()`
+  - Non-root path logs generic `--group-add` guidance but does not include resolved host socket GID.
 
-1. Run E2E first (mandatory): execute Docker regression scenarios above.
-2. Generate local patch report artifacts (mandatory):
-   - `test-results/local-patch-report.md`
-   - `test-results/local-patch-report.json`
-3. Run unit tests and enforce coverage thresholds:
-   - backend unit tests with repository minimum coverage threshold
-   - frontend unit tests with repository minimum coverage threshold
-4. If patch coverage gaps remain for changed lines, add targeted tests until
-   regression lines are covered with clear rationale.
+- `Dockerfile`
+  - Creates non-root user `charon` (uid/gid 1000) and final `USER charon`.
+  - This is correct for least privilege and should remain default.
 
-## Traceability Matrix
+### 2.2 Compose and Script Surface Area
 
-| Requirement | Test name | File | PR slice |
-|---|---|---|---|
-| Local works with accessible socket | `Docker Source - local socket accessible loads containers (real path)` | `tests/core/proxy-hosts.spec.ts` | PR-1 |
-| Local permission denied surfaces deterministic error | `Docker Source - local permission denied shows docker unavailable` | `tests/core/proxy-hosts.spec.ts` | PR-1 |
-| Local missing socket surfaces deterministic error | `Docker Source - local missing socket shows docker unavailable` | `tests/core/proxy-hosts.spec.ts` | PR-1 |
-| Local daemon unreachable surfaces deterministic error | `Docker Source - local daemon unreachable shows docker unavailable` | `tests/core/proxy-hosts.spec.ts` | PR-1 |
-| Remote path remains healthy | `Docker Source - remote server path no regression` | `tests/core/proxy-hosts.spec.ts` | PR-1 |
-| Recovery from local failure to remote success | `Docker Source - switch local failure to remote success recovers` | `tests/core/proxy-hosts.spec.ts` | PR-1 |
-| Frontend maps failure details correctly | `useDocker - maps docker unavailable details by failure class` | `frontend/src/hooks/__tests__/useDocker.test.tsx` | PR-1 |
-| Form keeps UX recoverable after local failure | `ProxyHostForm - allows remote switch after local docker error` | `frontend/src/components/__tests__/ProxyHostForm-dropdown-changes.test.tsx` | PR-1 |
-| Backend classifies failure classes | `TestIsDockerConnectivityError_*` | `backend/internal/services/docker_service_test.go` | PR-1 |
-| Handler maps unavailable classes and preserves remote success | `TestDockerHandler_ListContainers_*` | `backend/internal/api/handlers/docker_handler_test.go` | PR-1 |
-| Coverage traceability policy alignment (if needed) | `Codecov ignore policy update review` | `codecov.yml` | PR-2 |
+Primary in-repo compose files with docker socket mount:
 
-## Implementation Plan
+- `.docker/compose/docker-compose.yml` (`charon` service)
+- `.docker/compose/docker-compose.local.yml` (`charon` service)
+- `.docker/compose/docker-compose.dev.yml` (`app` service)
+- `.docker/compose/docker-compose.playwright-local.yml` (`charon-e2e` service)
+- `.docker/compose/docker-compose.playwright-ci.yml` (`charon-app`, `crowdsec` services)
 
-### Phase 1: Regression tests
+Primary out-of-repo/local-ops file in active workspace:
 
-- Add E2E Docker regression block in `tests/core/proxy-hosts.spec.ts` with one
-  real-path success, three deterministic failure-class tests, one remote
-  no-regression test, and one recovery test.
-- Extend frontend and backend unit tests for the same failure taxonomy and
-  recovery behavior.
+- `/root/docker/containers/charon/docker-compose.yml` (`charon` service)
+  - Includes socket mount.
+  - `user:` is currently commented out.
+  - No `group_add` entry exists.
 
-Exit criteria:
-- All required tests exist and pass.
-- Failure classes are deterministic and non-flaky.
+Launcher scripts discovered:
 
-### Phase 2: Traceability and coverage policy (conditional)
+- `.github/skills/docker-start-dev-scripts/run.sh`
+  - Runs: `docker compose -f .docker/compose/docker-compose.dev.yml up -d`
+- `/root/docker/containers/charon/docker-compose-up-charon.sh`
+  - Runs: `docker compose up -d`
 
-- Review whether current `codecov.yml` ignore entries reduce traceability for
-  docker regression files.
-- If needed, apply minimal `codecov.yml` update only for docker-related ignores.
+### 2.3 Existing Tests Relevant to This Failure
 
-Exit criteria:
-- Traceability from requirement to coverage/reporting is clear.
-- No unrelated codecov policy changes.
+Backend service tests (`backend/internal/services/docker_service_test.go`):
 
-## PR Slicing Strategy
+- `TestBuildLocalDockerUnavailableDetails_PermissionDeniedIncludesGroupHint`
+- `TestBuildLocalDockerUnavailableDetails_MissingSocket`
+- Connectivity classification tests across URL/syscall/network errors.
 
-Decision: two minimal PRs.
+Backend handler tests (`backend/internal/api/handlers/docker_handler_test.go`):
 
-### PR-1: regression tests + compose profile baseline
+- `TestDockerHandler_ListContainers_DockerUnavailableMappedTo503`
+- Other selector and remote-host mapping tests.
+
+Frontend hook tests (`frontend/src/hooks/__tests__/useDocker.test.tsx`):
+
+- `it('extracts details from 503 service unavailable error', ...)`
+
+### 2.4 Config Review Findings (`.gitignore`, `codecov.yml`, `.dockerignore`, `Dockerfile`)
+
+- `.gitignore`: no blocker for this feature; already excludes local env/artifacts extensively.
+- `.dockerignore`: no blocker for this feature; includes docs/tests and build artifacts exclusions.
+- `Dockerfile`: non-root default is aligned with least-privilege intent.
+- `codecov.yml`: currently excludes the two key Docker logic files:
+  - `backend/internal/services/docker_service.go`
+  - `backend/internal/api/handlers/docker_handler.go`
+  This exclusion undermines regression visibility for this exact problem class and should be revised.
+
+### 2.5 Confidence
+
+Confidence score: **97%**
+
+Reasoning:
+
+- Root cause and symptom path are already explicit in code.
+- Required files and control points are concrete and localized.
+- Existing tests already cover adjacent behavior and reduce implementation risk.
+
+---
+
+## 3) Requirements (EARS)
+
+- WHEN local Docker source is selected and `/var/run/docker.sock` is mounted, THE SYSTEM SHALL return containers if the process has supplemental membership for socket GID.
+- WHEN local Docker source is selected and socket permissions deny access (`EACCES`/`EPERM`), THE SYSTEM SHALL return HTTP `503` with a deterministic, actionable details message including supplemental-group guidance.
+- WHEN container runs non-root and socket GID is known, THE SYSTEM SHALL provide explicit startup diagnostics indicating the required `group_add` value.
+- WHEN docker-compose-based local/dev startup is used, THE SYSTEM SHALL support local-only `group_add` configuration from host socket GID without requiring root process runtime.
+- WHEN remote Docker source is selected (`server_id` path), THE SYSTEM SHALL remain functionally unchanged.
+- WHEN least-privilege validation is executed, THE SYSTEM SHALL demonstrate non-root process execution and only necessary supplemental group grant.
+- IF resolved socket GID equals `0`, THEN THE SYSTEM SHALL require explicit operator opt-in and risk acknowledgment before any `group_add: ["0"]` path is used.
+
+---
+
+## 4) Technical Specifications
+
+### 4.1 Architecture and Data Flow
+
+User flow:
+
+1. UI `ProxyHostForm` sets source = `Local (Docker Socket)`.
+2. `useDocker(...)` calls `dockerApi.listContainers(...)`.
+3. Backend `DockerHandler.ListContainers(...)` invokes `DockerService.ListContainers(...)`.
+4. If socket access denied, backend emits `DockerUnavailableError` with details.
+5. Handler returns `503` JSON `{ error, details }`.
+6. Frontend surfaces message in `Docker Connection Failed` block.
+
+No database schema change is required.
+
+### 4.2 API Contract (No endpoint shape change)
+
+Endpoint:
+
+- `GET /api/v1/docker/containers`
+  - Query params:
+    - `host` (allowed: empty or `local` only)
+    - `server_id` (UUID for remote server lookup)
+
+Responses:
+
+- `200 OK`: `DockerContainer[]`
+- `503 Service Unavailable`:
+  - `error: "Docker daemon unavailable"`
+  - `details: <actionable message>`
+- `400`, `404`, `500` unchanged.
+
+### 4.3 Deterministic `group_add` Policy (Chosen)
+
+Chosen policy: **conditional local-only profile/override while keeping CI unaffected**.
+
+Authoritative policy statement:
+
+1. `repo-deliverable`: repository compose paths used for local operator runs (`.docker/compose/docker-compose.local.yml`, `.docker/compose/docker-compose.dev.yml`) may include local-only `group_add` wiring using `DOCKER_SOCK_GID`.
+2. `repo-deliverable`: CI compose paths (`.docker/compose/docker-compose.playwright-ci.yml`) remain unaffected by this policy and must not require `DOCKER_SOCK_GID`.
+3. `repo-deliverable`: base compose (`.docker/compose/docker-compose.yml`) remains safe by default and must not force a local host-specific GID requirement in CI.
+4. `operator-local follow-up`: out-of-repo operator files (for example `/root/docker/containers/charon/docker-compose.yml`) may mirror this policy but are explicitly outside mandatory repo PR scope.
+
+CI compatibility statement:
+
+- CI workflows remain deterministic because they do not depend on local host socket GID export for this remediation.
+- No CI job should fail due to missing `DOCKER_SOCK_GID` after this plan.
+
+Security guardrail for `gid==0` (mandatory):
+
+- If `stat -c '%g' /var/run/docker.sock` returns `0`, local profile/override usage must fail closed by default.
+- Enabling `group_add: ["0"]` requires explicit opt-in (for example `ALLOW_DOCKER_SOCK_GID_0=true`) and documented risk acknowledgment in operator guidance.
+- Silent fallback to GID `0` is prohibited.
+
+### 4.4 Entrypoint Diagnostic Improvements
+
+In `.docker/docker-entrypoint.sh` non-root socket branch:
+
+- Extend current message to include resolved socket GID from `stat -c '%g' /var/run/docker.sock`.
+- Emit exact recommendation format:
+  - `Use docker compose group_add: ["<gid>"] or run with --group-add <gid>`
+- If resolved GID is `0`, emit explicit warning requiring opt-in/risk acknowledgment instead of generic recommendation.
+
+No privilege escalation should be introduced.
+
+### 4.5 Frontend UX Message Precision
+
+In `frontend/src/components/ProxyHostForm.tsx` troubleshooting text:
+
+- Retain mount guidance.
+- Add supplemental-group guidance for containerized runs.
+- Keep language concise and operational.
+
+### 4.6 Coverage and Quality Config Adjustments
+
+`codecov.yml` review outcome:
+
+- Proposed: remove Docker logic file ignores for:
+  - `backend/internal/services/docker_service.go`
+  - `backend/internal/api/handlers/docker_handler.go`
+- Reason: this issue is rooted in these files; exclusion hides regressions.
+
+`.gitignore` review outcome:
+
+- No change required for core remediation.
+
+`.dockerignore` review outcome:
+
+- No required change for runtime fix.
+- Optional follow-up: verify no additional local-only compose/env files are copied in future.
+
+`Dockerfile` review outcome:
+
+- No required behavioral change; preserve non-root default.
+
+---
+
+## 5) Risks, Edge Cases, Mitigations
+
+### Risks
+
+1. Host socket GID differs across environments (`docker` group not stable numeric ID).
+2. CI runners may not permit or need explicit `group_add` depending on runner Docker setup.
+3. Over-granting groups could violate least-privilege intent.
+4. Socket GID can be `0` on some hosts and implies root-group blast radius.
+
+### Edge Cases
+
+- Socket path missing (`ENOENT`) remains handled with existing details path.
+- Rootless host Docker sockets (`/run/user/<uid>/docker.sock`) remain selectable by `resolveLocalDockerHost()`.
+- Remote server discovery path (`tcp://...`) must remain unaffected.
+
+### Mitigations
+
+- Use environment-substituted `DOCKER_SOCK_GID`, not hardcoded `988` in committed compose files.
+- Keep `group_add` scoped only to local operator flows that require socket discovery.
+- Fail closed on `DOCKER_SOCK_GID=0` unless explicit opt-in and risk acknowledgment are present.
+- Verify `id` output inside container to confirm only necessary supplemental group is present.
+
+---
+
+## 6) Implementation Plan (Phased, minimal request count)
+
+Design principle for phases: maximize delivery per request by grouping strongly-related changes into each phase and minimizing handoffs.
+
+### Phase 1 — Baseline + Diagnostics + Compose Foundations
 
 Scope:
-- docker socket local-vs-remote regression tests (E2E + targeted unit tests)
-- preserve and validate current Playwright compose socket-mount baseline
 
-Validation gates:
-- E2E first pass for regression matrix
-- local patch report artifacts generated
-- unit tests and coverage thresholds pass
+1. Compose updates in local/dev paths to support local-only `group_add` via `DOCKER_SOCK_GID`.
+2. Entrypoint diagnostic enhancement for non-root socket path.
 
-Rollback contingency:
-- revert only newly added regression tests if instability appears
+`repo-deliverable` files:
 
-### PR-2: traceability/coverage policy update (if needed)
+- `.docker/compose/docker-compose.local.yml`
+- `.docker/compose/docker-compose.dev.yml`
+- `.docker/docker-entrypoint.sh`
+
+`operator-local follow-up` files (non-blocking, out of repo PR scope):
+
+- `/root/docker/containers/charon/docker-compose.yml`
+- `/root/docker/containers/charon/docker-compose-up-charon.sh`
+
+Deliverables:
+
+- Deterministic startup guidance and immediate local remediation path.
+
+### Phase 2 — API/UI Behavior Tightening + Tests
 
 Scope:
-- minimal `codecov.yml` adjustment strictly tied to docker regression
-  traceability
 
-Validation gates:
-- coverage reporting reflects changed docker regression surfaces
-- no unrelated policy drift
+1. Preserve and, if needed, refine backend detail text consistency in `buildLocalDockerUnavailableDetails(...)`.
+2. UI troubleshooting copy update in `ProxyHostForm.tsx`.
+3. Expand/refresh tests for permission-denied + supplemental-group hint rendering path.
 
-Rollback contingency:
-- revert only `codecov.yml` delta
+Primary files:
 
-## Acceptance Criteria
+- `backend/internal/services/docker_service.go`
+- `backend/internal/services/docker_service_test.go`
+- `backend/internal/api/handlers/docker_handler.go`
+- `backend/internal/api/handlers/docker_handler_test.go`
+- `frontend/src/hooks/useDocker.ts`
+- `frontend/src/hooks/__tests__/useDocker.test.tsx`
+- `frontend/src/components/ProxyHostForm.tsx`
+- `frontend/src/components/__tests__/ProxyHostForm*.test.tsx`
 
-- Exactly one coherent plan exists in this file with one frontmatter block.
-- Scope remains strictly docker socket local-vs-remote regression tests and
-  traceability only.
-- All key decisions are resolved directly in the plan.
-- Current-state assumption is consistent: socket mount already added in
-  Playwright compose baseline.
-- Test strategy explicitly includes:
-  - one non-intercepted real-path local-success test
-  - deterministic intercepted/mocked failure-class tests
-  - remote no-regression test
-- DoD order is concrete and protocol-aligned:
-  - E2E first
-  - local patch report artifacts
-  - unit tests and coverage thresholds
-- Traceability matrix maps requirement -> test name -> file -> PR slice.
-- PR slicing is minimal and non-contradictory:
-  - PR-1 regression tests + compose profile baseline
-  - PR-2 traceability/coverage policy update if needed
+Deliverables:
 
-## Handoff
+- User sees precise, actionable guidance when failure occurs.
+- Regression tests protect failure classification and surfaced guidance.
 
-This plan is clean, internally consistent, and execution-ready for Supervisor
-review and delegation.
+### Phase 3 — Coverage Policy + Documentation + CI/Validation Hardening
+
+Scope:
+
+1. Remove Docker logic exclusions in `codecov.yml`.
+2. Update docs to include `group_add` guidance where socket mount is described.
+3. Validate CI/playwright compose behavior remains unaffected and verify local least-privilege checks.
+
+Primary files:
+
+- `codecov.yml`
+- `README.md`
+- `docs/getting-started.md`
+- `SECURITY.md`
+- `.vscode/tasks.json` (only if adding dedicated validation task labels)
+
+Deliverables:
+
+- Documentation and coverage policy match runtime behavior.
+- Verified validation playbook for operators and CI.
+
+---
+
+## 7) PR Slicing Strategy
+
+### Decision
+
+**Split into multiple PRs (PR-1 / PR-2 / PR-3).**
+
+### Trigger Reasons
+
+- Cross-domain change set (compose + shell entrypoint + backend + frontend + tests + docs + coverage policy).
+- Distinct rollback boundaries needed (runtime config vs behavior vs governance/reporting).
+- Faster and safer review with independently verifiable increments.
+
+### Ordered PR Slices
+
+#### PR-1: Runtime Access Foundation (Compose + Entrypoint)
+
+Scope:
+
+- Add local-only `group_add` strategy to local/dev compose flows.
+- Improve non-root entrypoint diagnostics to print required GID.
+
+Files (expected):
+
+- `.docker/compose/docker-compose.local.yml`
+- `.docker/compose/docker-compose.dev.yml`
+- `.docker/docker-entrypoint.sh`
+
+Operator-local follow-up (not part of repo PR gate):
+
+- `/root/docker/containers/charon/docker-compose.yml`
+- `/root/docker/containers/charon/docker-compose-up-charon.sh`
+
+Dependencies:
+
+- None.
+
+Acceptance criteria:
+
+1. Container remains non-root (`id -u = 1000`).
+2. With local-only config enabled and `DOCKER_SOCK_GID` exported, `id -G` inside container includes socket GID.
+3. `GET /api/v1/docker/containers?host=local` no longer fails due to `EACCES` in correctly configured environment.
+4. If resolved socket GID is `0`, setup fails by default unless explicit opt-in and risk acknowledgment are provided.
+
+Rollback/contingency:
+
+- Revert compose and entrypoint deltas only.
+
+#### PR-2: Behavior + UX + Tests
+
+Scope:
+
+- Backend details consistency (if required).
+- Frontend troubleshooting message update.
+- Add/adjust tests around permission-denied + supplemental-group guidance.
+
+Files (expected):
+
+- `backend/internal/services/docker_service.go`
+- `backend/internal/services/docker_service_test.go`
+- `backend/internal/api/handlers/docker_handler.go`
+- `backend/internal/api/handlers/docker_handler_test.go`
+- `frontend/src/hooks/useDocker.ts`
+- `frontend/src/hooks/__tests__/useDocker.test.tsx`
+- `frontend/src/components/ProxyHostForm.tsx`
+- `frontend/src/components/__tests__/ProxyHostForm*.test.tsx`
+
+Dependencies:
+
+- PR-1 recommended (runtime setup available for realistic local validation).
+
+Acceptance criteria:
+
+1. `503` details include actionable group guidance for permission-denied scenarios.
+2. UI error panel provides mount + supplemental-group troubleshooting.
+3. All touched unit/e2e tests pass for local Docker source path.
+
+Rollback/contingency:
+
+- Revert only behavior/UI/test deltas; keep PR-1 foundations.
+
+#### PR-3: Coverage + Docs + Validation Playbook
+
+Scope:
+
+- Update `codecov.yml` exclusions for Docker logic files.
+- Update user/operator docs where socket mount guidance appears.
+- Optional task additions for socket-permission diagnostics.
+
+Files (expected):
+
+- `codecov.yml`
+- `README.md`
+- `docs/getting-started.md`
+- `SECURITY.md`
+- `.vscode/tasks.json` (optional)
+
+Dependencies:
+
+- PR-2 preferred to ensure policy aligns with test coverage additions.
+
+Acceptance criteria:
+
+1. Codecov includes Docker service/handler in coverage accounting.
+2. Docs show both socket mount and supplemental-group requirement.
+3. Validation command set is documented and reproducible.
+
+Rollback/contingency:
+
+- Revert reporting/docs/task changes only.
+
+---
+
+## 8) Validation Strategy (Protocol-Ordered)
+
+### 8.1 E2E Prerequisite / Rebuild Check (Mandatory First)
+
+Follow project protocol to decide whether E2E container rebuild is required before tests:
+
+1. If application/runtime or Docker build inputs changed, rebuild E2E environment.
+2. If only test files changed and environment is healthy, reuse current container.
+3. If environment state is suspect, rebuild.
+
+Primary task:
+
+- VS Code task: `Docker: Rebuild E2E Environment` (or clean variant when needed).
+
+### 8.2 E2E First (Mandatory)
+
+Run E2E before unit tests:
+
+- VS Code task: `Test: E2E Playwright (Targeted Suite)` for scoped regression checks.
+- VS Code task: `Test: E2E Playwright (Skill)` for broader safety pass as needed.
+
+### 8.3 Local Patch Report (Mandatory Before Unit/Coverage)
+
+Generate patch artifacts immediately after E2E:
+
+```bash
+cd /projects/Charon
+bash scripts/local-patch-report.sh
+```
+
+Required artifacts:
+
+- `test-results/local-patch-report.md`
+- `test-results/local-patch-report.json`
+
+### 8.4 Unit + Coverage Validation
+
+Backend and frontend unit coverage gates after patch report:
+
+```bash
+cd /projects/Charon/backend && go test ./internal/services ./internal/api/handlers
+cd /projects/Charon/frontend && npm run test -- src/hooks/__tests__/useDocker.test.tsx
+```
+
+Then run coverage tasks/scripts per project protocol (minimum threshold enforcement remains unchanged).
+
+### 8.5 Least-Privilege + `gid==0` Guardrail Checks
+
+Pass conditions:
+
+1. Container process remains non-root.
+2. Supplemental group grant is limited to socket GID only for local operator flow.
+3. No privileged mode or unrelated capability additions.
+4. Socket remains read-only.
+5. If socket GID resolves to `0`, local run fails closed unless explicit opt-in and risk acknowledgment are present.
+
+---
+
+## 9) Suggested File-Level Updates Summary
+
+### `repo-deliverable` Must Update
+
+- `.docker/compose/docker-compose.local.yml`
+- `.docker/compose/docker-compose.dev.yml`
+- `.docker/docker-entrypoint.sh`
+- `frontend/src/components/ProxyHostForm.tsx`
+- `codecov.yml`
+
+### `repo-deliverable` Should Update
+
+- `README.md`
+- `docs/getting-started.md`
+- `SECURITY.md`
+
+### `repo-deliverable` Optional Update
+
+- `.vscode/tasks.json` (dedicated task to precompute/export `DOCKER_SOCK_GID` and start compose)
+
+### `operator-local follow-up` (Out of Mandatory Repo PR Scope)
+
+- `/root/docker/containers/charon/docker-compose.yml`
+- `/root/docker/containers/charon/docker-compose-up-charon.sh`
+
+### Reviewed, No Required Change
+
+- `.gitignore`
+- `.dockerignore`
+- `Dockerfile` (keep non-root default)
+
+---
+
+## 10) Acceptance Criteria / DoD
+
+1. Local Docker source works in non-root container when supplemental socket group is supplied.
+2. Failure path remains explicit and actionable when supplemental group is missing.
+3. Scope split is explicit and consistent: `repo-deliverable` vs `operator-local follow-up`.
+4. Chosen policy is unambiguous: conditional local-only `group_add`; CI remains unaffected.
+5. `gid==0` path is guarded by explicit opt-in/risk acknowledgment and never silently defaulted.
+6. Validation order is protocol-aligned: E2E prerequisite/rebuild check -> E2E first -> local patch report -> unit/coverage.
+7. Coverage policy no longer suppresses Docker service/handler regression visibility.
+8. PR-1, PR-2, PR-3 each pass their slice acceptance criteria with independent rollback safety.
+9. This file contains one active plan with one frontmatter block and no archived concatenated plan content.
+
+---
+
+## 11) Handoff
+
+This plan is complete and execution-ready for Supervisor review. It includes:
+
+- Root-cause grounded file/function map
+- EARS requirements
+- Specific multi-phase implementation path
+- PR slicing with dependencies and rollback notes
+- Validation sequence explicitly aligned to project protocol order and least-privilege guarantees

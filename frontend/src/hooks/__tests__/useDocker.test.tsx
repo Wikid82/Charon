@@ -152,6 +152,35 @@ describe('useDocker', () => {
     expect(errorMessage).toContain('Docker is running');
   });
 
+  it('extracts supplemental-group details from 503 error', async () => {
+    const mockError = {
+      response: {
+        status: 503,
+        data: {
+          error: 'Docker daemon unavailable',
+          details: 'Process groups do not include socket gid 988; run container with matching supplemental group (e.g., --group-add 988).'
+        }
+      }
+    };
+    vi.mocked(dockerApi.listContainers).mockRejectedValue(mockError);
+
+    const { result } = renderHook(() => useDocker('local'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(
+      () => {
+        expect(result.current.isLoading).toBe(false);
+      },
+      { timeout: 3000 }
+    );
+
+    expect(result.current.error).toBeTruthy();
+    const errorMessage = (result.current.error as Error)?.message;
+    expect(errorMessage).toContain('--group-add');
+    expect(errorMessage).toContain('supplemental group');
+  });
+
   it('provides refetch function', async () => {
     vi.mocked(dockerApi.listContainers).mockResolvedValue(mockContainers);
 

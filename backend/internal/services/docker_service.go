@@ -298,7 +298,7 @@ func buildLocalDockerUnavailableDetails(err error, localHost string) string {
 			infoMsg, socketGID := localSocketStatSummary(socketPath)
 			permissionHint := ""
 			if socketGID >= 0 && !slices.Contains(groups, socketGID) {
-				permissionHint = fmt.Sprintf(" Process groups (%s) do not include socket gid %d; run container with matching supplemental group (e.g., --group-add %d).", groupsStr, socketGID, socketGID)
+				permissionHint = fmt.Sprintf(" Process groups (%s) do not include socket gid %d; run container with matching supplemental group (e.g., --group-add %d or compose group_add: [\"%d\"]).", groupsStr, socketGID, socketGID, socketGID)
 			}
 			return fmt.Sprintf("Local Docker socket is mounted but not accessible by current process (uid=%d gid=%d). %s%s", uid, gid, infoMsg, permissionHint)
 		}
