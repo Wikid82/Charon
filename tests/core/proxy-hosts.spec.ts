@@ -274,10 +274,9 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
       });
 
       await test.step('Enter invalid domain', async () => {
-        const domainInput = page.locator('#domain-names').or(page.getByLabel(/domain/i));
-        await domainInput.first().fill('not a valid domain!');
-
-        // Tab away to trigger validation
+        const domainCombobox = page.locator('#domain-names');
+        await domainCombobox.click();
+        await page.keyboard.type('not a valid domain!');
         await page.keyboard.press('Tab');
       });
 
@@ -333,9 +332,11 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         const nameInput = page.locator('#proxy-name');
         await nameInput.fill(`Test Host ${Date.now()}`);
 
-        // Domain
-        const domainInput = page.locator('#domain-names');
-        await domainInput.fill(hostConfig.domain);
+        // Domain (combobox component)
+        const domainCombobox = page.locator('#domain-names');
+        await domainCombobox.click();
+        await page.keyboard.type(hostConfig.domain);
+        await page.keyboard.press('Tab');
 
         // Dismiss the "New Base Domain Detected" dialog if it appears after domain input
         await dismissDomainDialog(page);
@@ -428,7 +429,9 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
       await test.step('Fill in fields with SSL options', async () => {
         await page.locator('#proxy-name').fill(`SSL Test ${Date.now()}`);
-        await page.locator('#domain-names').fill(hostConfig.domain);
+        await page.locator('#domain-names').click();
+        await page.keyboard.type(hostConfig.domain);
+        await page.keyboard.press('Tab');
         await page.locator('#forward-host').fill(hostConfig.forwardHost);
         await page.locator('#forward-port').clear();
         await page.locator('#forward-port').fill(String(hostConfig.forwardPort));
@@ -476,7 +479,9 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
       await test.step('Fill form with WebSocket enabled', async () => {
         await page.locator('#proxy-name').fill(`WS Test ${Date.now()}`);
-        await page.locator('#domain-names').fill(hostConfig.domain);
+        await page.locator('#domain-names').click();
+        await page.keyboard.type(hostConfig.domain);
+        await page.keyboard.press('Tab');
         await page.locator('#forward-host').fill(hostConfig.forwardHost);
         await page.locator('#forward-port').clear();
         await page.locator('#forward-port').fill(String(hostConfig.forwardPort));
@@ -702,15 +707,20 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
           await expect(page.getByRole('dialog')).toBeVisible(); // Wait for edit modal to open
 
           const domainInput = page.locator('#domain-names');
-          const originalDomain = await domainInput.inputValue();
 
-          // Append a test suffix
+          // Clear existing domain and type new one (combobox component)
           const newDomain = `test-${Date.now()}.example.com`;
-          await domainInput.clear();
-          await domainInput.fill(newDomain);
+          await domainInput.click();
+          await page.keyboard.press('Control+a');
+          await page.keyboard.press('Backspace');
+          await page.keyboard.type(newDomain);
+          await page.keyboard.press('Tab');
 
-          // Save
-          await page.getByRole('button', { name: /save/i }).click();
+          // Dismiss the "New Base Domain Detected" dialog if it appears
+          await dismissDomainDialog(page);
+
+          // Save — use specific selector to avoid strict mode violation with domain dialog buttons
+          await page.getByTestId('proxy-host-save').or(page.getByRole('button', { name: /^save$/i })).first().click();
           await waitForLoadingComplete(page);
 
           // Verify update (check for new domain or revert)

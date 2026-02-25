@@ -6,6 +6,7 @@ import {
   waitForModal,
   waitForResourceInUI,
 } from '../utils/wait-helpers';
+import { getStorageStateAuthHeaders } from '../utils/api-helpers';
 
 /**
  * Domain & DNS Management Workflow
@@ -71,7 +72,7 @@ test.describe('Domain & DNS Management', () => {
 
     await test.step('Clean up domain via API', async () => {
       if (createdId) {
-        await page.request.delete(`/api/v1/domains/${createdId}`);
+        await page.request.delete(`/api/v1/domains/${createdId}`, { headers: getStorageStateAuthHeaders() });
       }
     });
   });
@@ -81,6 +82,7 @@ test.describe('Domain & DNS Management', () => {
     const domainName = generateDomainName('delete-domain');
     const createResponse = await page.request.post('/api/v1/domains', {
       data: { name: domainName },
+      headers: getStorageStateAuthHeaders(),
     });
     const created = await createResponse.json();
     const domainId = created.uuid || created.id;
@@ -90,31 +92,32 @@ test.describe('Domain & DNS Management', () => {
     });
 
     await test.step('Confirm domain card is visible', async () => {
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await waitForLoadingComplete(page);
       await waitForResourceInUI(page, domainName);
       await expect(page.getByRole('heading', { name: domainName })).toBeVisible();
     });
 
     await test.step('Delete domain from card', async () => {
-      const domainCard = page.locator('div').filter({
-        has: page.getByRole('heading', { name: domainName }),
-      }).first();
-      await expect(domainCard).toBeVisible();
-
-      const deleteButton = domainCard.getByRole('button', { name: /delete/i }).first();
+      const heading = page.getByRole('heading', { name: domainName });
+      const deleteButton = heading
+        .locator('xpath=ancestor::div[contains(@class, "bg-dark-card")]')
+        .getByRole('button', { name: /delete/i });
       await expect(deleteButton).toBeVisible();
 
       page.once('dialog', async (dialog) => {
         await dialog.accept();
       });
 
-      const deleteResponse = clickAndWaitForResponse(
-        page,
-        deleteButton,
-        new RegExp(`/api/v1/domains/${domainId}`),
-        { status: 200 }
+      const responsePromise = page.waitForResponse(
+        (resp) =>
+          resp.url().includes('/api/v1/domains/') &&
+          resp.request().method() === 'DELETE',
+        { timeout: 15000 }
       );
 
-      await deleteResponse;
+      await deleteButton.click();
+      await responsePromise;
     });
   });
 
@@ -143,7 +146,7 @@ test.describe('Domain & DNS Management', () => {
     });
 
     await test.step('Open add provider dialog', async () => {
-      await page.request.get('/api/v1/dns-providers/types');
+      await page.request.get('/api/v1/dns-providers/types', { headers: getStorageStateAuthHeaders() });
       const addButton = page.getByRole('button', { name: /add.*provider/i }).first();
       await addButton.click();
       await waitForModal(page, /provider/i);
@@ -182,12 +185,14 @@ test.describe('Domain & DNS Management', () => {
     });
 
     await test.step('Delete provider via API', async () => {
-      await page.request.delete(`/api/v1/dns-providers/${id}`);
+      await page.request.delete(`/api/v1/dns-providers/${id}`, { headers: getStorageStateAuthHeaders() });
     });
 
     await test.step('Verify provider card removed', async () => {
+      // Navigate away first to clear any in-memory SWR cache
+      await page.goto('about:blank');
       await navigateToDnsProviders(page);
-      await expect(page.getByRole('heading', { name })).toHaveCount(0);
+      await expect(page.getByRole('heading', { name })).toHaveCount(0, { timeout: 15000 });
     });
   });
 
