@@ -178,7 +178,7 @@ test.describe('User Management', () => {
 
       await test.step('Verify pending status appears in list', async () => {
         // Reload to see the new user
-        await page.reload();
+        await page.reload({ waitUntil: 'domcontentloaded' });
         await waitForLoadingComplete(page);
 
         // Find the pending status indicator
@@ -556,7 +556,7 @@ test.describe('User Management', () => {
       });
 
       await test.step('Reload page to see new user', async () => {
-        await page.reload();
+        await page.reload({ waitUntil: 'domcontentloaded' });
         await waitForLoadingComplete(page);
       });
 
@@ -603,7 +603,7 @@ test.describe('User Management', () => {
         await waitForLoadingComplete(page);
 
         // Reload to ensure newly created user is in the query cache
-        await page.reload();
+        await page.reload({ waitUntil: 'domcontentloaded' });
         await waitForLoadingComplete(page);
 
         // Wait for table to be visible
@@ -673,7 +673,7 @@ test.describe('User Management', () => {
 	      });
 
 	      const permissionsModal = await test.step('Open permissions modal', async () => {
-	        await page.reload();
+	        await page.reload({ waitUntil: 'domcontentloaded' });
 	        await waitForLoadingComplete(page);
 
 	        const userRow = page.getByRole('row').filter({
@@ -727,7 +727,7 @@ test.describe('User Management', () => {
 	      });
 
 	      const permissionsModal = await test.step('Open permissions modal', async () => {
-	        await page.reload();
+	        await page.reload({ waitUntil: 'domcontentloaded' });
 	        await waitForLoadingComplete(page);
 
 	        const userRow = page.getByRole('row').filter({
@@ -787,7 +787,7 @@ test.describe('User Management', () => {
       });
 
       await test.step('Open permissions modal', async () => {
-        await page.reload();
+        await page.reload({ waitUntil: 'domcontentloaded' });
         await waitForLoadingComplete(page);
 
         const userRow = page.getByRole('row').filter({
@@ -842,7 +842,7 @@ test.describe('User Management', () => {
       });
 
       await test.step('Reload to see new user', async () => {
-        await page.reload();
+        await page.reload({ waitUntil: 'domcontentloaded' });
         await waitForLoadingComplete(page);
         // Wait for table to have data
         await page.waitForSelector('table tbody tr', { timeout: 10000 });
@@ -910,7 +910,7 @@ test.describe('User Management', () => {
       });
 
       await test.step('Reload to see new user', async () => {
-        await page.reload();
+        await page.reload({ waitUntil: 'domcontentloaded' });
         await waitForLoadingComplete(page);
       });
 
@@ -1032,7 +1032,7 @@ test.describe('User Management', () => {
       });
 
       await test.step('Reload and find pending user', async () => {
-        await page.reload();
+        await page.reload({ waitUntil: 'domcontentloaded' });
         await waitForLoadingComplete(page);
 
         const userRow = page.getByRole('row').filter({

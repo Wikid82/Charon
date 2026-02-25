@@ -950,7 +950,7 @@ export async function waitForResourceInUI(
     // If not found and we have reload attempts left, try reloading
     if (reloadCount < maxReloads) {
       reloadCount += 1;
-      await page.reload();
+      await page.reload({ waitUntil: 'domcontentloaded' });
       await waitForLoadingComplete(page, { timeout: 5000 }).catch(() => {});
       continue;
     }

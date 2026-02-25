@@ -435,9 +435,28 @@ export async function loginUser(
     if (response.ok()) {
       const body = await response.json().catch(() => ({})) as { token?: string };
       if (body.token) {
-        await page.addInitScript((token: string) => {
+        // Navigate first, then set token via evaluate to avoid addInitScript race condition
+        await page.goto('/');
+        await page.evaluate((token: string) => {
           localStorage.setItem('charon_auth_token', token);
         }, body.token);
+
+        const storageState = await page.request.storageState();
+        if (storageState.cookies?.length) {
+          await page.context().addCookies(storageState.cookies);
+        }
+
+        // Reload so the app picks up the token from localStorage
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        await page.waitForLoadState('networkidle').catch(() => {});
+
+        // Guard: if app is stuck at loading splash, force reload
+        const loadingVisible = await page.locator('text=Loading application').isVisible().catch(() => false);
+        if (loadingVisible) {
+          await page.reload({ waitUntil: 'domcontentloaded' });
+          await page.waitForLoadState('networkidle').catch(() => {});
+        }
+        return;
       }
 
       const storageState = await page.request.storageState();
@@ -486,7 +505,7 @@ export async function logoutUser(page: import('@playwright/test').Page): Promise
   await logoutButton.click();
 
   // Wait for redirect to login page
-  await page.waitForURL(/\/login/, { timeout: 15000 });
+  await page.waitForURL(/\/login/, { timeout: 15000, waitUntil: 'domcontentloaded' });
 }
 
 /**
