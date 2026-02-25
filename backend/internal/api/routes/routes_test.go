@@ -103,11 +103,13 @@ func TestRegisterImportHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
+	cfg := config.Config{JWTSecret: "test-secret"}
+
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_import"), &gorm.Config{})
 	require.NoError(t, err)
 
 	// RegisterImportHandler should not panic
-	RegisterImportHandler(router, db, "/usr/bin/caddy", "/tmp/imports", "/tmp/mount")
+	RegisterImportHandler(router, db, cfg, "/usr/bin/caddy", "/tmp/imports", "/tmp/mount")
 
 	// Verify import routes exist
 	routes := router.Routes()
@@ -915,10 +917,12 @@ func TestRegisterImportHandler_RoutesExist(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
+	cfg := config.Config{JWTSecret: "test-secret"}
+
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_import_routes"), &gorm.Config{})
 	require.NoError(t, err)
 
-	RegisterImportHandler(router, db, "/usr/bin/caddy", "/tmp/imports", "/tmp/mount")
+	RegisterImportHandler(router, db, cfg, "/usr/bin/caddy", "/tmp/imports", "/tmp/mount")
 
 	routes := router.Routes()
 	routeMap := make(map[string]bool)
