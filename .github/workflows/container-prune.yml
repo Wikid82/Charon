@@ -1,6 +1,7 @@
 name: Container Registry Prune
 
 on:
+  pull_request:
   schedule:
     - cron: '0 3 * * 0' # Weekly: Sundays at 03:00 UTC
   workflow_dispatch:
@@ -44,6 +45,14 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update && sudo apt-get install -y jq curl gh
+
+      - name: Show prune script being executed
+        run: |
+          echo "===== SCRIPT PATH ====="
+          pwd
+          ls -la scripts
+          echo "===== FIRST 20 LINES ====="
+          head -n 20 scripts/prune-container-images.sh
 
       - name: Run container prune
         env:
