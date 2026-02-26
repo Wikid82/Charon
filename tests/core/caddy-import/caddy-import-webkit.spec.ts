@@ -165,7 +165,9 @@ test.describe('Caddy Import - WebKit-Specific @webkit-only', () => {
     if (testInfo.status !== 'passed') {
       await logImportFailureContext(page, 'caddy-import-webkit');
     }
-    await resetImportSession(page);
+    await resetImportSession(page).catch(() => {
+      // Best-effort cleanup to avoid leaking pending import sessions to subsequent tests.
+    });
   });
 
   /**
