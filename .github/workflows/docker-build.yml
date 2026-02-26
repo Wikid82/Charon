@@ -23,6 +23,7 @@ name: Docker Build, Publish & Test
 on:
   pull_request:
   push:
+    branches: [main]
   workflow_dispatch:
   workflow_run:
     workflows: ["Docker Lint"]
