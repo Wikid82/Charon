@@ -161,15 +161,6 @@ function extractTokenFromState(rawState: unknown): string | null {
   return null;
 }
 
-function readStoredAuthToken(): string | null {
-  try {
-    const raw = JSON.parse(readFileSync(STORAGE_STATE, 'utf-8'));
-    return extractTokenFromState(raw);
-  } catch {
-    return null;
-  }
-}
-
 async function restoreAuthFromStorageState(page: Page): Promise<boolean> {
   try {
     const state = JSON.parse(readFileSync(STORAGE_STATE, 'utf-8')) as {
