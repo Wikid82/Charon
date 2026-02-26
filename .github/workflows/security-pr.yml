@@ -306,7 +306,7 @@ jobs:
       - name: Upload scan artifacts
         if: always() && steps.trivy-sarif-check.outputs.exists == 'true'
         # actions/upload-artifact v4.4.3
-        uses: actions/upload-artifact@47309c993abb98030a35d55ef7ff34b7fa1074b5
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
           path: |
