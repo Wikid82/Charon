@@ -95,7 +95,7 @@ env:
   CI_LOG_LEVEL: 'verbose'
 
 concurrency:
-  group: e2e-split-${{ github.workflow }}-${{ github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
