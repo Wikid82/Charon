@@ -174,8 +174,7 @@ test.describe('Audit Logs @security', () => {
         hasText: /user|actor|all.*user/i
       }).first();
 
-      const userVisible = await userFilter.isVisible().catch(() => false);
-      expect(userVisible !== undefined).toBeTruthy();
+      await expect(userFilter).toBeVisible();
     });
 
     test('should perform search when input changes', async ({ page }) => {
@@ -230,8 +229,7 @@ test.describe('Audit Logs @security', () => {
         has: page.locator('button, a')
       }).first();
 
-      const paginationVisible = await pagination.isVisible().catch(() => false);
-      expect(paginationVisible !== undefined).toBeTruthy();
+      await expect(pagination).toBeVisible();
     });
 
     test('should display current page info', async ({ page }) => {

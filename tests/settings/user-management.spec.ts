@@ -1008,8 +1008,7 @@ test.describe('User Management', () => {
         });
 
         // Admin delete button should be disabled
-        const isDisabled = await deleteButton.first().isDisabled().catch(() => true);
-        expect(isDisabled).toBeTruthy();
+        await expect(deleteButton.first()).toBeDisabled();
       });
     });
 
