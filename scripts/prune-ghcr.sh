@@ -159,7 +159,8 @@ action_delete_ghcr() {
       created_at: .created_at,
       tags: (.metadata.container.tags // []),
       tags_csv: ((.metadata.container.tags // []) | join(",")),
-      created_ts: (.created_at | fromdateiso8601)
+      created_ts: (.created_at | fromdateiso8601),
+      size: (.metadata.container.size // .size // 0)
     })
   ')
 
@@ -239,15 +240,17 @@ action_delete_ghcr() {
 
     TOTAL_CANDIDATES=$((TOTAL_CANDIDATES + 1))
 
-    candidate_bytes=0
+    candidate_bytes=$(echo "$ver" | jq -r '.size // 0')
+    TOTAL_CANDIDATES_BYTES=$((TOTAL_CANDIDATES_BYTES + candidate_bytes))
 
     if $dry_run; then
-      echo "$LOG_PREFIX DRY RUN: would delete GHCR version id=$id (approx ${candidate_bytes} bytes)"
+      echo "$LOG_PREFIX DRY RUN: would delete GHCR version id=$id (approx $(human_readable "$candidate_bytes"))"
     else
-      echo "$LOG_PREFIX deleting GHCR version id=$id"
+      echo "$LOG_PREFIX deleting GHCR version id=$id (approx $(human_readable "$candidate_bytes"))"
       curl -sS -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN" \
         "https://api.github.com/${namespace_type}/${OWNER}/packages/container/${IMAGE_NAME}/versions/$id" >/dev/null || true
       TOTAL_DELETED=$((TOTAL_DELETED + 1))
+      TOTAL_DELETED_BYTES=$((TOTAL_DELETED_BYTES + candidate_bytes))
     fi
 
   done < <(echo "$normalized" | jq -c 'sort_by(.created_ts) | .[]')
