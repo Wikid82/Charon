@@ -429,7 +429,14 @@ export async function loginUser(
   page: import('@playwright/test').Page,
   user: TestUser
 ): Promise<void> {
+  const hasVisibleSignInControls = async (): Promise<boolean> => {
+    const signInButtonVisible = await page.getByRole('button', { name: /sign in|login/i }).first().isVisible().catch(() => false);
+    const emailInputVisible = await page.getByRole('textbox', { name: /email/i }).first().isVisible().catch(() => false);
+    return signInButtonVisible || emailInputVisible;
+  };
+
   const loginPayload = { email: user.email, password: TEST_PASSWORD };
+  let apiLoginError: Error | null = null;
   try {
     const response = await page.request.post('/api/v1/auth/login', { data: loginPayload });
     if (response.ok()) {
@@ -464,16 +471,31 @@ export async function loginUser(
         await page.context().addCookies(storageState.cookies);
       }
     }
-  } catch {
+  } catch (error) {
+    apiLoginError = error instanceof Error ? error : new Error(String(error));
+    console.error(`API login bootstrap failed for ${user.email}: ${apiLoginError.message}`);
   }
 
   await page.goto('/');
-  if (!page.url().includes('/login')) {
+  const loginRouteDetected = page.url().includes('/login');
+  const loginUiDetected = await hasVisibleSignInControls();
+  let authSessionConfirmed = false;
+  if (!loginRouteDetected && !loginUiDetected) {
+    const authProbeResponse = await page.request.get('/api/v1/auth/me').catch(() => null);
+    authSessionConfirmed = authProbeResponse?.ok() ?? false;
+  }
+
+  if (!loginRouteDetected && !loginUiDetected && authSessionConfirmed) {
+    if (apiLoginError) {
+      console.warn(`Continuing with existing authenticated session after API login bootstrap failure for ${user.email}`);
+    }
     await page.waitForLoadState('networkidle').catch(() => {});
     return;
   }
 
-  await page.goto('/login');
+  if (!loginRouteDetected) {
+    await page.goto('/login');
+  }
   await page.locator('input[type="email"]').fill(user.email);
   await page.locator('input[type="password"]').fill(TEST_PASSWORD);
 
@@ -485,7 +507,11 @@ export async function loginUser(
   const loginResponse = await loginResponsePromise;
   if (!loginResponse.ok()) {
     const body = await loginResponse.text();
-    throw new Error(`Login failed: ${loginResponse.status()} - ${body}`);
+    const fallbackMessage = `Login failed: ${loginResponse.status()} - ${body}`;
+    if (apiLoginError) {
+      throw new Error(`${fallbackMessage}; API login bootstrap error: ${apiLoginError.message}`);
+    }
+    throw new Error(fallbackMessage);
   }
 
   await page.waitForURL(/\/(?:$|dashboard)/, { timeout: 15000 });
