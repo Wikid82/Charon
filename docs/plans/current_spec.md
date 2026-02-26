@@ -1,586 +1,292 @@
 ---
-post_title: "Current Spec: Local Docker Socket Group Access Remediation"
+post_title: "Current Spec: Fix Workflow Concurrency Groups to Enable Run Cancellation"
 categories:
   - planning
-  - docker
-  - security
-  - backend
-  - frontend
+  - ci-cd
+  - github-actions
 tags:
-  - docker.sock
-  - least-privilege
-  - group-add
-  - compose
-  - validation
-summary: "Comprehensive plan to resolve local docker socket access failures for non-root process uid=1000 gid=1000 when host socket gid is not in supplemental groups, with phased rollout, PR slicing, and least-privilege validation."
-post_date: 2026-02-25
+  - concurrency
+  - e2e-tests
+  - workflow-optimization
+status: draft
+created: 2026-02-26
 ---
 
-## 1) Introduction
+# Fix Workflow Concurrency Groups to Enable Run Cancellation
+
+## 1. Introduction
 
 ### Overview
 
-Charon local Docker discovery currently fails in environments where:
+GitHub Actions workflow runs are queueing for hours instead of canceling prior runs when new commits are pushed to the same branch. The user observed 9+ pages of stacked E2E workflow runs.
 
-- Socket mount exists: `/var/run/docker.sock:/var/run/docker.sock:ro`
-- Charon process runs non-root (typically `uid=1000 gid=1000`)
-- Host socket group (example: `gid=988`) is not present in process supplemental groups
+### Objective
 
-Observed user-facing failure class (already emitted by backend details builder):
+Audit all 36 workflow files in `.github/workflows/`, identify misconfigured concurrency groups that prevent run cancellation, and define the fix for each affected workflow.
 
-- `Local Docker socket mounted but not accessible by current process (uid=1000 gid=1000)... Process groups do not include socket gid 988; run container with matching supplemental group (e.g., --group-add 988).`
+## 2. Root Cause Analysis
 
-### Goals
+### How GitHub Actions Concurrency Works
 
-1. Preserve non-root default execution (`USER charon`) while enabling local Docker discovery safely.
-2. Standardize supplemental-group strategy across compose variants and launcher scripts.
-3. Keep behavior deterministic in backend/API/frontend error surfacing when permissions are wrong.
-4. Validate least-privilege posture (non-root, minimal group grant, no broad privilege escalation).
+GitHub Actions uses the `concurrency` block to control parallel execution:
 
-### Non-Goals
-
-- No redesign of remote Docker support (`tcp://...`) beyond compatibility checks.
-- No changes to unrelated security modules (WAF, ACL, CrowdSec workflows).
-- No broad Docker daemon hardening beyond this socket-access path.
-
-### Scope Labels (Authoritative)
-
-- `repo-deliverable`: changes that must be included in repository PR slices under `/projects/Charon`.
-- `operator-local follow-up`: optional local environment changes outside repository scope (for example `/root/docker/...`), not required for repo PR acceptance.
-
----
-
-## 2) Research Findings
-
-### 2.1 Critical Runtime Files (Confirmed)
-
-- `backend/internal/services/docker_service.go`
-  - Key functions:
-    - `NewDockerService()`
-    - `(*DockerService).ListContainers(...)`
-    - `resolveLocalDockerHost()`
-    - `buildLocalDockerUnavailableDetails(...)`
-    - `isDockerConnectivityError(...)`
-    - `extractErrno(...)`
-    - `localSocketStatSummary(...)`
-  - Contains explicit supplemental-group hint text with `--group-add <gid>` when `EACCES/EPERM` occurs.
-
-- `backend/internal/api/handlers/docker_handler.go`
-  - Key function: `(*DockerHandler).ListContainers(...)`
-  - Maps `DockerUnavailableError` to HTTP `503` with `details` string consumed by UI.
-
-- `frontend/src/hooks/useDocker.ts`
-  - Hook: `useDocker(host?, serverId?)`
-  - Converts `503` payload details into surfaced `Error(message)`.
-
-- `frontend/src/components/ProxyHostForm.tsx`
-  - Uses `useDocker`.
-  - Error panel title: `Docker Connection Failed`.
-  - Existing troubleshooting text currently mentions socket mount but not explicit supplemental group action.
-
-- `.docker/docker-entrypoint.sh`
-  - Root path auto-aligns docker socket GID with user group membership via:
-    - `get_group_by_gid()`
-    - `create_group_with_gid()`
-    - `add_user_to_group()`
-  - Non-root path logs generic `--group-add` guidance but does not include resolved host socket GID.
-
-- `Dockerfile`
-  - Creates non-root user `charon` (uid/gid 1000) and final `USER charon`.
-  - This is correct for least privilege and should remain default.
-
-### 2.2 Compose and Script Surface Area
-
-Primary in-repo compose files with docker socket mount:
-
-- `.docker/compose/docker-compose.yml` (`charon` service)
-- `.docker/compose/docker-compose.local.yml` (`charon` service)
-- `.docker/compose/docker-compose.dev.yml` (`app` service)
-- `.docker/compose/docker-compose.playwright-local.yml` (`charon-e2e` service)
-- `.docker/compose/docker-compose.playwright-ci.yml` (`charon-app`, `crowdsec` services)
-
-Primary out-of-repo/local-ops file in active workspace:
-
-- `/root/docker/containers/charon/docker-compose.yml` (`charon` service)
-  - Includes socket mount.
-  - `user:` is currently commented out.
-  - No `group_add` entry exists.
-
-Launcher scripts discovered:
-
-- `.github/skills/docker-start-dev-scripts/run.sh`
-  - Runs: `docker compose -f .docker/compose/docker-compose.dev.yml up -d`
-- `/root/docker/containers/charon/docker-compose-up-charon.sh`
-  - Runs: `docker compose up -d`
-
-### 2.3 Existing Tests Relevant to This Failure
-
-Backend service tests (`backend/internal/services/docker_service_test.go`):
-
-- `TestBuildLocalDockerUnavailableDetails_PermissionDeniedIncludesGroupHint`
-- `TestBuildLocalDockerUnavailableDetails_MissingSocket`
-- Connectivity classification tests across URL/syscall/network errors.
-
-Backend handler tests (`backend/internal/api/handlers/docker_handler_test.go`):
-
-- `TestDockerHandler_ListContainers_DockerUnavailableMappedTo503`
-- Other selector and remote-host mapping tests.
-
-Frontend hook tests (`frontend/src/hooks/__tests__/useDocker.test.tsx`):
-
-- `it('extracts details from 503 service unavailable error', ...)`
-
-### 2.4 Config Review Findings (`.gitignore`, `codecov.yml`, `.dockerignore`, `Dockerfile`)
-
-- `.gitignore`: no blocker for this feature; already excludes local env/artifacts extensively.
-- `.dockerignore`: no blocker for this feature; includes docs/tests and build artifacts exclusions.
-- `Dockerfile`: non-root default is aligned with least-privilege intent.
-- `codecov.yml`: currently excludes the two key Docker logic files:
-  - `backend/internal/services/docker_service.go`
-  - `backend/internal/api/handlers/docker_handler.go`
-  This exclusion undermines regression visibility for this exact problem class and should be revised.
-
-### 2.5 Confidence
-
-Confidence score: **97%**
-
-Reasoning:
-
-- Root cause and symptom path are already explicit in code.
-- Required files and control points are concrete and localized.
-- Existing tests already cover adjacent behavior and reduce implementation risk.
-
----
-
-## 3) Requirements (EARS)
-
-- WHEN local Docker source is selected and `/var/run/docker.sock` is mounted, THE SYSTEM SHALL return containers if the process has supplemental membership for socket GID.
-- WHEN local Docker source is selected and socket permissions deny access (`EACCES`/`EPERM`), THE SYSTEM SHALL return HTTP `503` with a deterministic, actionable details message including supplemental-group guidance.
-- WHEN container runs non-root and socket GID is known, THE SYSTEM SHALL provide explicit startup diagnostics indicating the required `group_add` value.
-- WHEN docker-compose-based local/dev startup is used, THE SYSTEM SHALL support local-only `group_add` configuration from host socket GID without requiring root process runtime.
-- WHEN remote Docker source is selected (`server_id` path), THE SYSTEM SHALL remain functionally unchanged.
-- WHEN least-privilege validation is executed, THE SYSTEM SHALL demonstrate non-root process execution and only necessary supplemental group grant.
-- IF resolved socket GID equals `0`, THEN THE SYSTEM SHALL require explicit operator opt-in and risk acknowledgment before any `group_add: ["0"]` path is used.
-
----
-
-## 4) Technical Specifications
-
-### 4.1 Architecture and Data Flow
-
-User flow:
-
-1. UI `ProxyHostForm` sets source = `Local (Docker Socket)`.
-2. `useDocker(...)` calls `dockerApi.listContainers(...)`.
-3. Backend `DockerHandler.ListContainers(...)` invokes `DockerService.ListContainers(...)`.
-4. If socket access denied, backend emits `DockerUnavailableError` with details.
-5. Handler returns `503` JSON `{ error, details }`.
-6. Frontend surfaces message in `Docker Connection Failed` block.
-
-No database schema change is required.
-
-### 4.2 API Contract (No endpoint shape change)
-
-Endpoint:
-
-- `GET /api/v1/docker/containers`
-  - Query params:
-    - `host` (allowed: empty or `local` only)
-    - `server_id` (UUID for remote server lookup)
-
-Responses:
-
-- `200 OK`: `DockerContainer[]`
-- `503 Service Unavailable`:
-  - `error: "Docker daemon unavailable"`
-  - `details: <actionable message>`
-- `400`, `404`, `500` unchanged.
-
-### 4.3 Deterministic `group_add` Policy (Chosen)
-
-Chosen policy: **conditional local-only profile/override while keeping CI unaffected**.
-
-Authoritative policy statement:
-
-1. `repo-deliverable`: repository compose paths used for local operator runs (`.docker/compose/docker-compose.local.yml`, `.docker/compose/docker-compose.dev.yml`) may include local-only `group_add` wiring using `DOCKER_SOCK_GID`.
-2. `repo-deliverable`: CI compose paths (`.docker/compose/docker-compose.playwright-ci.yml`) remain unaffected by this policy and must not require `DOCKER_SOCK_GID`.
-3. `repo-deliverable`: base compose (`.docker/compose/docker-compose.yml`) remains safe by default and must not force a local host-specific GID requirement in CI.
-4. `operator-local follow-up`: out-of-repo operator files (for example `/root/docker/containers/charon/docker-compose.yml`) may mirror this policy but are explicitly outside mandatory repo PR scope.
-
-CI compatibility statement:
-
-- CI workflows remain deterministic because they do not depend on local host socket GID export for this remediation.
-- No CI job should fail due to missing `DOCKER_SOCK_GID` after this plan.
-
-Security guardrail for `gid==0` (mandatory):
-
-- If `stat -c '%g' /var/run/docker.sock` returns `0`, local profile/override usage must fail closed by default.
-- Enabling `group_add: ["0"]` requires explicit opt-in (for example `ALLOW_DOCKER_SOCK_GID_0=true`) and documented risk acknowledgment in operator guidance.
-- Silent fallback to GID `0` is prohibited.
-
-### 4.4 Entrypoint Diagnostic Improvements
-
-In `.docker/docker-entrypoint.sh` non-root socket branch:
-
-- Extend current message to include resolved socket GID from `stat -c '%g' /var/run/docker.sock`.
-- Emit exact recommendation format:
-  - `Use docker compose group_add: ["<gid>"] or run with --group-add <gid>`
-- If resolved GID is `0`, emit explicit warning requiring opt-in/risk acknowledgment instead of generic recommendation.
-
-No privilege escalation should be introduced.
-
-### 4.5 Frontend UX Message Precision
-
-In `frontend/src/components/ProxyHostForm.tsx` troubleshooting text:
-
-- Retain mount guidance.
-- Add supplemental-group guidance for containerized runs.
-- Keep language concise and operational.
-
-### 4.6 Coverage and Quality Config Adjustments
-
-`codecov.yml` review outcome:
-
-- Proposed: remove Docker logic file ignores for:
-  - `backend/internal/services/docker_service.go`
-  - `backend/internal/api/handlers/docker_handler.go`
-- Reason: this issue is rooted in these files; exclusion hides regressions.
-
-`.gitignore` review outcome:
-
-- No change required for core remediation.
-
-`.dockerignore` review outcome:
-
-- No required change for runtime fix.
-- Optional follow-up: verify no additional local-only compose/env files are copied in future.
-
-`Dockerfile` review outcome:
-
-- No required behavioral change; preserve non-root default.
-
----
-
-## 5) Risks, Edge Cases, Mitigations
-
-### Risks
-
-1. Host socket GID differs across environments (`docker` group not stable numeric ID).
-2. CI runners may not permit or need explicit `group_add` depending on runner Docker setup.
-3. Over-granting groups could violate least-privilege intent.
-4. Socket GID can be `0` on some hosts and implies root-group blast radius.
-
-### Edge Cases
-
-- Socket path missing (`ENOENT`) remains handled with existing details path.
-- Rootless host Docker sockets (`/run/user/<uid>/docker.sock`) remain selectable by `resolveLocalDockerHost()`.
-- Remote server discovery path (`tcp://...`) must remain unaffected.
-
-### Mitigations
-
-- Use environment-substituted `DOCKER_SOCK_GID`, not hardcoded `988` in committed compose files.
-- Keep `group_add` scoped only to local operator flows that require socket discovery.
-- Fail closed on `DOCKER_SOCK_GID=0` unless explicit opt-in and risk acknowledgment are present.
-- Verify `id` output inside container to confirm only necessary supplemental group is present.
-
----
-
-## 6) Implementation Plan (Phased, minimal request count)
-
-Design principle for phases: maximize delivery per request by grouping strongly-related changes into each phase and minimizing handoffs.
-
-### Phase 1 — Baseline + Diagnostics + Compose Foundations
-
-Scope:
-
-1. Compose updates in local/dev paths to support local-only `group_add` via `DOCKER_SOCK_GID`.
-2. Entrypoint diagnostic enhancement for non-root socket path.
-
-`repo-deliverable` files:
-
-- `.docker/compose/docker-compose.local.yml`
-- `.docker/compose/docker-compose.dev.yml`
-- `.docker/docker-entrypoint.sh`
-
-`operator-local follow-up` files (non-blocking, out of repo PR scope):
-
-- `/root/docker/containers/charon/docker-compose.yml`
-- `/root/docker/containers/charon/docker-compose-up-charon.sh`
-
-Deliverables:
-
-- Deterministic startup guidance and immediate local remediation path.
-
-### Phase 2 — API/UI Behavior Tightening + Tests
-
-Scope:
-
-1. Preserve and, if needed, refine backend detail text consistency in `buildLocalDockerUnavailableDetails(...)`.
-2. UI troubleshooting copy update in `ProxyHostForm.tsx`.
-3. Expand/refresh tests for permission-denied + supplemental-group hint rendering path.
-
-Primary files:
-
-- `backend/internal/services/docker_service.go`
-- `backend/internal/services/docker_service_test.go`
-- `backend/internal/api/handlers/docker_handler.go`
-- `backend/internal/api/handlers/docker_handler_test.go`
-- `frontend/src/hooks/useDocker.ts`
-- `frontend/src/hooks/__tests__/useDocker.test.tsx`
-- `frontend/src/components/ProxyHostForm.tsx`
-- `frontend/src/components/__tests__/ProxyHostForm*.test.tsx`
-
-Deliverables:
-
-- User sees precise, actionable guidance when failure occurs.
-- Regression tests protect failure classification and surfaced guidance.
-
-### Phase 3 — Coverage Policy + Documentation + CI/Validation Hardening
-
-Scope:
-
-1. Remove Docker logic exclusions in `codecov.yml`.
-2. Update docs to include `group_add` guidance where socket mount is described.
-3. Validate CI/playwright compose behavior remains unaffected and verify local least-privilege checks.
-
-Primary files:
-
-- `codecov.yml`
-- `README.md`
-- `docs/getting-started.md`
-- `SECURITY.md`
-- `.vscode/tasks.json` (only if adding dedicated validation task labels)
-
-Deliverables:
-
-- Documentation and coverage policy match runtime behavior.
-- Verified validation playbook for operators and CI.
-
----
-
-## 7) PR Slicing Strategy
-
-### Decision
-
-**Split into multiple PRs (PR-1 / PR-2 / PR-3).**
-
-### Trigger Reasons
-
-- Cross-domain change set (compose + shell entrypoint + backend + frontend + tests + docs + coverage policy).
-- Distinct rollback boundaries needed (runtime config vs behavior vs governance/reporting).
-- Faster and safer review with independently verifiable increments.
-
-### Ordered PR Slices
-
-#### PR-1: Runtime Access Foundation (Compose + Entrypoint)
-
-Scope:
-
-- Add local-only `group_add` strategy to local/dev compose flows.
-- Improve non-root entrypoint diagnostics to print required GID.
-
-Files (expected):
-
-- `.docker/compose/docker-compose.local.yml`
-- `.docker/compose/docker-compose.dev.yml`
-- `.docker/docker-entrypoint.sh`
-
-Operator-local follow-up (not part of repo PR gate):
-
-- `/root/docker/containers/charon/docker-compose.yml`
-- `/root/docker/containers/charon/docker-compose-up-charon.sh`
-
-Dependencies:
-
-- None.
-
-Acceptance criteria:
-
-1. Container remains non-root (`id -u = 1000`).
-2. With local-only config enabled and `DOCKER_SOCK_GID` exported, `id -G` inside container includes socket GID.
-3. `GET /api/v1/docker/containers?host=local` no longer fails due to `EACCES` in correctly configured environment.
-4. If resolved socket GID is `0`, setup fails by default unless explicit opt-in and risk acknowledgment are provided.
-
-Rollback/contingency:
-
-- Revert compose and entrypoint deltas only.
-
-#### PR-2: Behavior + UX + Tests
-
-Scope:
-
-- Backend details consistency (if required).
-- Frontend troubleshooting message update.
-- Add/adjust tests around permission-denied + supplemental-group guidance.
-
-Files (expected):
-
-- `backend/internal/services/docker_service.go`
-- `backend/internal/services/docker_service_test.go`
-- `backend/internal/api/handlers/docker_handler.go`
-- `backend/internal/api/handlers/docker_handler_test.go`
-- `frontend/src/hooks/useDocker.ts`
-- `frontend/src/hooks/__tests__/useDocker.test.tsx`
-- `frontend/src/components/ProxyHostForm.tsx`
-- `frontend/src/components/__tests__/ProxyHostForm*.test.tsx`
-
-Dependencies:
-
-- PR-1 recommended (runtime setup available for realistic local validation).
-
-Acceptance criteria:
-
-1. `503` details include actionable group guidance for permission-denied scenarios.
-2. UI error panel provides mount + supplemental-group troubleshooting.
-3. All touched unit/e2e tests pass for local Docker source path.
-
-Rollback/contingency:
-
-- Revert only behavior/UI/test deltas; keep PR-1 foundations.
-
-#### PR-3: Coverage + Docs + Validation Playbook
-
-Scope:
-
-- Update `codecov.yml` exclusions for Docker logic files.
-- Update user/operator docs where socket mount guidance appears.
-- Optional task additions for socket-permission diagnostics.
-
-Files (expected):
-
-- `codecov.yml`
-- `README.md`
-- `docs/getting-started.md`
-- `SECURITY.md`
-- `.vscode/tasks.json` (optional)
-
-Dependencies:
-
-- PR-2 preferred to ensure policy aligns with test coverage additions.
-
-Acceptance criteria:
-
-1. Codecov includes Docker service/handler in coverage accounting.
-2. Docs show both socket mount and supplemental-group requirement.
-3. Validation command set is documented and reproducible.
-
-Rollback/contingency:
-
-- Revert reporting/docs/task changes only.
-
----
-
-## 8) Validation Strategy (Protocol-Ordered)
-
-### 8.1 E2E Prerequisite / Rebuild Check (Mandatory First)
-
-Follow project protocol to decide whether E2E container rebuild is required before tests:
-
-1. If application/runtime or Docker build inputs changed, rebuild E2E environment.
-2. If only test files changed and environment is healthy, reuse current container.
-3. If environment state is suspect, rebuild.
-
-Primary task:
-
-- VS Code task: `Docker: Rebuild E2E Environment` (or clean variant when needed).
-
-### 8.2 E2E First (Mandatory)
-
-Run E2E before unit tests:
-
-- VS Code task: `Test: E2E Playwright (Targeted Suite)` for scoped regression checks.
-- VS Code task: `Test: E2E Playwright (Skill)` for broader safety pass as needed.
-
-### 8.3 Local Patch Report (Mandatory Before Unit/Coverage)
-
-Generate patch artifacts immediately after E2E:
-
-```bash
-cd /projects/Charon
-bash scripts/local-patch-report.sh
+```yaml
+concurrency:
+  group: <string>           # Runs sharing the same group string are subject to concurrency control
+  cancel-in-progress: true  # If true, a new run cancels any in-progress run in the same group
 ```
 
-Required artifacts:
+**The critical rule**: Two runs will only cancel each other if they resolve to the **exact same** `group` string at runtime.
 
-- `test-results/local-patch-report.md`
-- `test-results/local-patch-report.json`
+### The SHA-in-Group Anti-Pattern
 
-### 8.4 Unit + Coverage Validation
+The primary offender (`e2e-tests-split.yml`) uses:
 
-Backend and frontend unit coverage gates after patch report:
-
-```bash
-cd /projects/Charon/backend && go test ./internal/services ./internal/api/handlers
-cd /projects/Charon/frontend && npm run test -- src/hooks/__tests__/useDocker.test.tsx
+```yaml
+concurrency:
+  group: e2e-split-${{ github.workflow }}-${{ github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
 ```
 
-Then run coverage tasks/scripts per project protocol (minimum threshold enforcement remains unchanged).
+**Why this prevents cancellation:**
 
-### 8.5 Least-Privilege + `gid==0` Guardrail Checks
+| Push # | Branch | SHA | Resolved Group String |
+|--------|--------|-----|----------------------|
+| 1 | `refs/heads/feat-x` | `abc1234` | `e2e-split-E2E Tests-refs/heads/feat-x-abc1234` |
+| 2 | `refs/heads/feat-x` | `def5678` | `e2e-split-E2E Tests-refs/heads/feat-x-def5678` |
+| 3 | `refs/heads/feat-x` | `ghi9012` | `e2e-split-E2E Tests-refs/heads/feat-x-ghi9012` |
 
-Pass conditions:
+Every push produces a different SHA, so every run gets a **unique** concurrency group. Since no two runs share a group, `cancel-in-progress: true` has no effect — all runs execute to completion, creating the observed hour-long queue.
 
-1. Container process remains non-root.
-2. Supplemental group grant is limited to socket GID only for local operator flow.
-3. No privileged mode or unrelated capability additions.
-4. Socket remains read-only.
-5. If socket GID resolves to `0`, local run fails closed unless explicit opt-in and risk acknowledgment are present.
+### The `run_id`-in-Group Anti-Pattern
 
----
+`codecov-upload.yml` uses:
 
-## 9) Suggested File-Level Updates Summary
+```yaml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.run_id }}
+```
 
-### `repo-deliverable` Must Update
+`github.run_id` is unique per workflow run by definition, so this has the same effect as the SHA anti-pattern — runs never cancel each other.
 
-- `.docker/compose/docker-compose.local.yml`
-- `.docker/compose/docker-compose.dev.yml`
-- `.docker/docker-entrypoint.sh`
-- `frontend/src/components/ProxyHostForm.tsx`
-- `codecov.yml`
+### The Correct Pattern
 
-### `repo-deliverable` Should Update
+For workflows where you want a new push on the same branch to cancel the prior run:
 
-- `README.md`
-- `docs/getting-started.md`
-- `SECURITY.md`
+```yaml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+```
 
-### `repo-deliverable` Optional Update
+This produces the same group string for all runs of the same workflow on the same branch, enabling proper cancellation.
 
-- `.vscode/tasks.json` (dedicated task to precompute/export `DOCKER_SOCK_GID` and start compose)
+## 3. Full Audit Table
 
-### `operator-local follow-up` (Out of Mandatory Repo PR Scope)
+### Legend
 
-- `/root/docker/containers/charon/docker-compose.yml`
-- `/root/docker/containers/charon/docker-compose-up-charon.sh`
+| Symbol | Meaning |
+|--------|---------|
+| `BUG` | Has SHA/run_id in concurrency group — prevents cancellation |
+| `OK` | Concurrency group is branch-scoped and works correctly |
+| `NO-CANCEL` | `cancel-in-progress: false` — intentional (review needed) |
+| `NONE` | No concurrency block at all |
+| `N/A` | Workflow nature doesn't need cancellation (schedule-only, manual-only, etc.) |
 
-### Reviewed, No Required Change
+### Workflow Audit
 
-- `.gitignore`
-- `.dockerignore`
-- `Dockerfile` (keep non-root default)
+| # | Workflow File | Name | Triggers | Concurrency Group | cancel-in-progress | SHA/run_id Bug? | Verdict | Fix? |
+|---|--------------|------|----------|-------------------|-------------------|-----------------|---------|------|
+| 1 | `e2e-tests-split.yml` | E2E Tests | `workflow_call`, `workflow_dispatch`, `pull_request` | `e2e-split-${{ github.workflow }}-${{ github.ref }}-${{ github.event.pull_request.head.sha \|\| github.sha }}` | `true` | **YES — SHA** | **BUG** | **YES** |
+| 2 | `codecov-upload.yml` | Upload Coverage to Codecov | `pull_request`, `push(main)`, `workflow_dispatch` | `${{ github.workflow }}-${{ github.ref_name }}-${{ github.run_id }}` | `true` | **YES — run_id** | **BUG** | **YES** |
+| 3 | `codeql.yml` | CodeQL - Analyze | `pull_request`, `push(main)`, `workflow_dispatch`, `schedule` | `${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref \|\| github.ref_name }}` | `true` | No | OK | No |
+| 4 | `quality-checks.yml` | Quality Checks | `pull_request`, `push(main)` | `${{ github.workflow }}-${{ github.ref }}` | `true` | No | OK | No |
+| 5 | `docker-build.yml` | Docker Build, Publish & Test | `pull_request`, `push(main)`, `workflow_dispatch`, `workflow_run` | `${{ github.workflow }}-${{ github.event_name }}-${{ ... head_branch fallback }}` | `true` | No | OK | No |
+| 6 | `benchmark.yml` | Go Benchmark | `pull_request`, `push(main)`, `workflow_dispatch` | `${{ github.workflow }}-${{ github.event_name }}-${{ ... head_branch \|\| github.ref }}` | `true` | No | OK | No |
+| 7 | `cerberus-integration.yml` | Cerberus Integration | `workflow_dispatch`, `pull_request`, `push(main)` | `${{ github.workflow }}-${{ ... event_name }}-${{ ... head_branch \|\| github.ref }}` | `true` | No | OK | No |
+| 8 | `crowdsec-integration.yml` | CrowdSec Integration | `workflow_dispatch`, `pull_request`, `push(main)` | `${{ github.workflow }}-${{ ... event_name }}-${{ ... head_branch \|\| github.ref }}` | `true` | No | OK | No |
+| 9 | `waf-integration.yml` | WAF integration | `workflow_dispatch`, `pull_request`, `push(main)` | `${{ github.workflow }}-${{ ... event_name }}-${{ ... head_branch \|\| github.ref }}` | `true` | No | OK | No |
+| 10 | `rate-limit-integration.yml` | Rate Limit integration | `workflow_dispatch`, `pull_request`, `push(main)` | `${{ github.workflow }}-${{ ... event_name }}-${{ ... head_branch \|\| github.ref }}` | `true` | No | OK | No |
+| 11 | `supply-chain-pr.yml` | Supply Chain Verification (PR) | `workflow_dispatch`, `pull_request`, `push(main)` | `supply-chain-pr-${{ ... event_name }}-${{ ... head_branch \|\| github.ref }}` | `true` | No | OK | No |
+| 12 | `security-pr.yml` | Security Scan (PR) | `workflow_run`, `workflow_dispatch`, `pull_request`, `push(main)` | `security-pr-${{ ... event_name }}-${{ ... head_branch \|\| github.ref }}` | `true` | No | OK | No |
+| 13 | `docker-lint.yml` | Docker Lint | `workflow_dispatch` | `${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref \|\| github.ref_name }}` | `true` | No | OK | No |
+| 14 | `repo-health.yml` | Repo Health Check | `schedule`, `workflow_dispatch` | `${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref \|\| github.ref_name }}` | `true` | No | OK | No |
+| 15 | `auto-changelog.yml` | Auto Changelog | `workflow_run`, `release` | `${{ github.workflow }}-${{ github.event_name }}-${{ ... head_branch \|\| ... ref_name }}` | `true` | No | OK | No |
+| 16 | `history-rewrite-tests.yml` | History Rewrite Tests | `workflow_run` | `${{ github.workflow }}-${{ github.event_name }}-${{ ... head_branch \|\| ... ref_name }}` | `true` | No | OK | No |
+| 17 | `dry-run-history-rewrite.yml` | History Rewrite Dry-Run | `workflow_run`, `schedule`, `workflow_dispatch` | `${{ github.workflow }}-${{ github.event_name }}-${{ ... head_branch \|\| ... ref_name }}` | `true` | No | OK | No |
+| 18 | `pr-checklist.yml` | PR Checklist Validation | `workflow_dispatch` | `${{ github.workflow }}-${{ inputs.pr_number \|\| ... }}` | `true` | No | OK | No |
+| 19 | `auto-label-issues.yml` | Auto-label Issues | `issues` | `${{ github.workflow }}-${{ github.event.issue.number }}` | `true` | No | OK | No |
+| 20 | `renovate_prune.yml` | Prune Renovate Branches | `workflow_dispatch`, `schedule` | `prune-renovate-branches` (job-level) | `true` | No | OK | No |
+| 21 | `docs.yml` | Deploy Docs to Pages | `workflow_run`, `workflow_dispatch` | `pages-${{ github.event_name }}-${{ ... head_branch \|\| github.ref }}` | `false` | No | NO-CANCEL | No |
+| 22 | `propagate-changes.yml` | Propagate Changes | `workflow_run` | `${{ github.workflow }}-${{ ... head_branch \|\| github.ref }}` | `false` | No | NO-CANCEL | No |
+| 23 | `docs-to-issues.yml` | Convert Docs to Issues | `workflow_run`, `workflow_dispatch` | `${{ github.workflow }}-${{ ... head_branch \|\| github.ref }}` | `false` | No | NO-CANCEL | No |
+| 24 | `auto-versioning.yml` | Auto Versioning and Release | `workflow_run(main)` | `${{ github.workflow }}-${{ ... head_branch \|\| github.ref }}` | `false` | No | NO-CANCEL | No |
+| 25 | `release-goreleaser.yml` | Release (GoReleaser) | `push(tags: v*)` | `${{ github.workflow }}-${{ github.ref }}` | `false` | No | NO-CANCEL | No |
+| 26 | `weekly-nightly-promotion.yml` | Weekly Nightly Promotion | `schedule`, `workflow_dispatch` | `${{ github.workflow }}` | `false` | No | NO-CANCEL | No |
+| 27 | `caddy-major-monitor.yml` | Monitor Caddy Major | `schedule`, `workflow_dispatch` | `${{ github.workflow }}` | `false` | No | N/A | No |
+| 28 | `renovate.yml` | Renovate | `schedule`, `workflow_dispatch` | `${{ github.workflow }}` | `false` | No | N/A | No |
+| 29 | `create-labels.yml` | Create Project Labels | `workflow_dispatch` | `${{ github.workflow }}` | `false` | No | N/A | No |
+| 30 | `auto-add-to-project.yml` | Auto-add to Project | `issues` | `${{ github.workflow }}-${{ ... issue.number }}` | `false` | No | N/A | No |
+| 31 | `security-weekly-rebuild.yml` | Weekly Security Rebuild | `schedule`, `workflow_dispatch` | `${{ github.workflow }}-${{ github.ref }}` | `false` | No | NO-CANCEL | No |
+| 32 | `nightly-build.yml` | Nightly Build & Package | `schedule`, `workflow_dispatch` | **None** | — | — | NONE | Optional |
+| 33 | `supply-chain-verify.yml` | Supply Chain Verification | `workflow_dispatch`, `schedule`, `workflow_run`, `release` | **None** | — | — | NONE | Optional |
+| 34 | `update-geolite2.yml` | Update GeoLite2 Checksum | `schedule`, `workflow_dispatch` | **None** | — | — | NONE | No |
+| 35 | `gh_cache_cleanup.yml` | Cleanup GH caches | `workflow_dispatch` | **None** | — | — | NONE | No |
+| 36 | `container-prune.yml` | Container Registry Prune | `pull_request`, `schedule`, `workflow_dispatch` | **None** | — | — | NONE | Optional |
 
----
+## 4. Detailed Fix Plan
 
-## 10) Acceptance Criteria / DoD
+### 4.1 FIX: `e2e-tests-split.yml` — PRIMARY OFFENDER
 
-1. Local Docker source works in non-root container when supplemental socket group is supplied.
-2. Failure path remains explicit and actionable when supplemental group is missing.
-3. Scope split is explicit and consistent: `repo-deliverable` vs `operator-local follow-up`.
-4. Chosen policy is unambiguous: conditional local-only `group_add`; CI remains unaffected.
-5. `gid==0` path is guarded by explicit opt-in/risk acknowledgment and never silently defaulted.
-6. Validation order is protocol-aligned: E2E prerequisite/rebuild check -> E2E first -> local patch report -> unit/coverage.
-7. Coverage policy no longer suppresses Docker service/handler regression visibility.
-8. PR-1, PR-2, PR-3 each pass their slice acceptance criteria with independent rollback safety.
-9. This file contains one active plan with one frontmatter block and no archived concatenated plan content.
+**File:** `.github/workflows/e2e-tests-split.yml`, line 97-99
 
----
+**Current (broken):**
+```yaml
+concurrency:
+  group: e2e-split-${{ github.workflow }}-${{ github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+```
 
-## 11) Handoff
+**Fixed:**
+```yaml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+```
 
-This plan is complete and execution-ready for Supervisor review. It includes:
+**Rationale:**
+- Remove `e2e-split-` prefix: redundant since `${{ github.workflow }}` already resolves to `"E2E Tests"`.
+- Remove `${{ github.event.pull_request.head.sha || github.sha }}`: this is the root cause — makes every commit get its own group.
+- `github.ref` ensures PRs use `refs/pull/N/merge` and branches use `refs/heads/branch-name`.
 
-- Root-cause grounded file/function map
-- EARS requirements
-- Specific multi-phase implementation path
-- PR slicing with dependencies and rollback notes
-- Validation sequence explicitly aligned to project protocol order and least-privilege guarantees
+**Impact:** A new push to the same PR or branch will immediately cancel any in-progress E2E test run for that branch/PR.
+
+### 4.2 FIX: `codecov-upload.yml` — SECONDARY OFFENDER
+
+**File:** `.github/workflows/codecov-upload.yml`, line 21-23
+
+**Current (broken):**
+```yaml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.run_id }}
+  cancel-in-progress: true
+```
+
+**Fixed:**
+```yaml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+```
+
+**Rationale:**
+- Remove `${{ github.run_id }}`: unique per run, completely defeats concurrency cancellation.
+- Switch `github.ref_name` to `github.ref` for consistency with other workflows and to avoid name collisions between branches and tags with the same name.
+
+**Impact:** A new push to the same branch will cancel any in-progress Codecov upload for that branch.
+
+## 5. Workflows Without Concurrency Blocks (Review)
+
+| Workflow | Risk | Recommendation |
+|----------|------|----------------|
+| `nightly-build.yml` | Low — schedule/dispatch only | **Optional**: Add `group: ${{ github.workflow }}` with `cancel-in-progress: false` |
+| `supply-chain-verify.yml` | Low — schedule/dispatch/workflow_run | **Optional**: Add `group: ${{ github.workflow }}-${{ github.ref }}` with `cancel-in-progress: true` |
+| `update-geolite2.yml` | Negligible — weekly schedule | No action needed |
+| `gh_cache_cleanup.yml` | Negligible — manual only | No action needed |
+| `container-prune.yml` | Low — PR + weekly schedule | **Optional**: Add concurrency for PR trigger runs |
+
+## 6. Workflow Call Interaction Analysis
+
+`e2e-tests-split.yml` defines `workflow_call` inputs, meaning it can be invoked by other workflows as a reusable workflow. However:
+
+- **No workflow in the repository currently calls it via `uses:`**.
+- References found in `nightly-build.yml` (line 104) and `weekly-nightly-promotion.yml` (lines 83, 443) are JavaScript code within `actions/github-script` steps that *monitor* workflow run status — they do not invoke `e2e-tests-split.yml` as a reusable workflow.
+- The `pull_request` trigger on `e2e-tests-split.yml` is the main trigger that causes the queueing problem.
+
+**Important note about `workflow_call` concurrency**: When a workflow is called via `workflow_call`, the concurrency block in the **called** workflow is evaluated in the caller's context. The simplified group (`${{ github.workflow }}-${{ github.ref }}`) works correctly in both direct-trigger and `workflow_call` contexts.
+
+## 7. Risk Assessment
+
+### Workflows Where We Should NOT Change Concurrency
+
+| Workflow | Reason |
+|----------|--------|
+| `release-goreleaser.yml` | Releases must complete — canceling mid-publish could leave artifacts broken |
+| `auto-versioning.yml` | Version bumps must complete atomically |
+| `propagate-changes.yml` | Branch synchronization must complete |
+| `docs.yml` (Pages deploy) | GitHub Pages deployment should not be interrupted |
+| `weekly-nightly-promotion.yml` | Promotion PR creation must finish cleanly |
+| `security-weekly-rebuild.yml` | Security rebuild must complete for compliance |
+| `docs-to-issues.yml` | Issue creation should not be interrupted |
+| `create-labels.yml` | Manual-only, singleton |
+| `renovate.yml` | Dependency updates should complete |
+| `caddy-major-monitor.yml` | Monitoring check must complete |
+| `auto-add-to-project.yml` | Issue/PR project assignment must complete |
+
+**All of these are correctly configured. Do not modify them.**
+
+### Risks of the Proposed Fix
+
+| Risk | Severity | Mitigation |
+|------|----------|-----------|
+| In-flight E2E results discarded on cancel | Low | Desired behavior — stale results for an old commit are useless |
+| Codecov partial upload on cancel | Low | Codecov handles partial uploads gracefully; next full run uploads complete data |
+| `workflow_call` context mismatch if caller added later | None | Fix uses standard pattern that works in both direct and called contexts |
+
+## 8. Acceptance Criteria
+
+- [ ] `e2e-tests-split.yml` concurrency group does not contain SHA or run_id
+- [ ] `codecov-upload.yml` concurrency group does not contain SHA or run_id
+- [ ] Pushing a new commit to a PR cancels any in-progress E2E test run on that PR
+- [ ] Pushing a new commit to a PR cancels any in-progress Codecov upload on that PR
+- [ ] All other 34 workflows remain unchanged
+- [ ] No workflows with `cancel-in-progress: false` are modified
+
+## 9. Implementation Plan
+
+### Phase 1: Fix (Single PR)
+
+| Task | File | Line(s) | Change |
+|------|------|---------|--------|
+| 1 | `.github/workflows/e2e-tests-split.yml` | 97-99 | Replace concurrency group: remove SHA, simplify to `${{ github.workflow }}-${{ github.ref }}` |
+| 2 | `.github/workflows/codecov-upload.yml` | 21-23 | Replace concurrency group: remove `run_id`, simplify to `${{ github.workflow }}-${{ github.ref }}` |
+
+### Phase 2: Validate
+
+1. Push to a test branch, wait for workflows to start
+2. Push again to the same branch within 60 seconds
+3. Verify the first E2E run is labeled "cancelled" in the Actions tab
+4. Verify first Codecov run is labeled "cancelled"
+5. Verify all other workflows are unaffected
+
+## 10. PR Slicing Strategy
+
+**Decision: Single PR**
+
+**Rationale:**
+- Config-only change: 2 YAML files, ~4 lines changed total
+- No code changes, no build changes, no runtime impact
+- Changes are atomic and self-contained
+- Rollback is a single revert commit
+- Risk is minimal — worst case restores the existing (broken) behavior
+
+**PR Scope:**
+
+| ID | Scope | Files | Dependencies | Validation Gate |
+|----|-------|-------|--------------|----------------|
+| PR-1 | Fix concurrency groups | `e2e-tests-split.yml`, `codecov-upload.yml` | None | Push 2 commits in quick succession; confirm first run is canceled |
+
+**Rollback:** `git revert <commit-sha>` — restores prior concurrency groups immediately.
+
+## 11. Summary
+
+| Metric | Value |
+|--------|-------|
+| Total workflows audited | 36 |
+| Workflows with concurrency blocks | 31 |
+| Workflows without concurrency blocks | 5 |
+| **Workflows with SHA/run_id bug** | **2** |
+| Workflows with intentional no-cancel | 11 |
+| Workflows correctly configured | 18 |
+| Files to change | 2 |
+| Lines to change | ~4 |
