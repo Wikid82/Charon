@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	neturl "net/url"
@@ -495,5 +496,428 @@ func TestBuildSafeRequestURLWithTLSServer(t *testing.T) {
 
 	if hostHeader != serverURL.Host {
 		t.Fatalf("expected host header %q, got %q", serverURL.Host, hostHeader)
+	}
+}
+
+// ===== Additional coverage for uncovered paths =====
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) {
+	return 0, errors.New("simulated read error")
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestApplyRedirectGuardNilClient(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.applyRedirectGuard(nil)
+}
+
+func TestGuardDestinationNilURL(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	err := wrapper.guardDestination(nil)
+	if err == nil || !strings.Contains(err.Error(), "destination URL validation failed") {
+		t.Fatalf("expected validation failure for nil URL, got: %v", err)
+	}
+}
+
+func TestGuardDestinationEmptyHostname(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	err := wrapper.guardDestination(&neturl.URL{Scheme: "https", Host: ""})
+	if err == nil || !strings.Contains(err.Error(), "destination URL validation failed") {
+		t.Fatalf("expected validation failure for empty hostname, got: %v", err)
+	}
+}
+
+func TestGuardDestinationUserInfoRejection(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	u := &neturl.URL{Scheme: "https", Host: "example.com", User: neturl.User("admin")}
+	err := wrapper.guardDestination(u)
+	if err == nil || !strings.Contains(err.Error(), "destination URL validation failed") {
+		t.Fatalf("expected userinfo rejection, got: %v", err)
+	}
+}
+
+func TestGuardDestinationFragmentRejection(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	u := &neturl.URL{Scheme: "https", Host: "example.com", Fragment: "section"}
+	err := wrapper.guardDestination(u)
+	if err == nil || !strings.Contains(err.Error(), "destination URL validation failed") {
+		t.Fatalf("expected fragment rejection, got: %v", err)
+	}
+}
+
+func TestGuardDestinationPrivateIPRejection(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = false
+	err := wrapper.guardDestination(&neturl.URL{Scheme: "https", Host: "192.168.1.1"})
+	if err == nil || !strings.Contains(err.Error(), "destination URL validation failed") {
+		t.Fatalf("expected private IP rejection, got: %v", err)
+	}
+}
+
+func TestIsAllowedDestinationIPEdgeCases(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = false
+
+	tests := []struct {
+		name     string
+		hostname string
+		ip       net.IP
+		expected bool
+	}{
+		{"nil IP", "", nil, false},
+		{"unspecified", "0.0.0.0", net.IPv4zero, false},
+		{"multicast", "224.0.0.1", net.ParseIP("224.0.0.1"), false},
+		{"link-local unicast", "169.254.1.1", net.ParseIP("169.254.1.1"), false},
+		{"loopback without allowHTTP", "127.0.0.1", net.ParseIP("127.0.0.1"), false},
+		{"private 10.x", "10.0.0.1", net.ParseIP("10.0.0.1"), false},
+		{"private 172.16.x", "172.16.0.1", net.ParseIP("172.16.0.1"), false},
+		{"private 192.168.x", "192.168.1.1", net.ParseIP("192.168.1.1"), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := wrapper.isAllowedDestinationIP(tt.hostname, tt.ip)
+			if result != tt.expected {
+				t.Fatalf("isAllowedDestinationIP(%q, %v) = %v, want %v", tt.hostname, tt.ip, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIsAllowedDestinationIPLoopbackAllowHTTP(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = true
+
+	if !wrapper.isAllowedDestinationIP("localhost", net.ParseIP("127.0.0.1")) {
+		t.Fatal("expected loopback allowed for localhost with allowHTTP")
+	}
+
+	if wrapper.isAllowedDestinationIP("not-localhost", net.ParseIP("127.0.0.1")) {
+		t.Fatal("expected loopback rejected for non-localhost hostname")
+	}
+}
+
+func TestIsLocalDestinationHost(t *testing.T) {
+	tests := []struct {
+		host     string
+		expected bool
+	}{
+		{"localhost", true},
+		{"LOCALHOST", true},
+		{"127.0.0.1", true},
+		{"::1", true},
+		{"example.com", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			if got := isLocalDestinationHost(tt.host); got != tt.expected {
+				t.Fatalf("isLocalDestinationHost(%q) = %v, want %v", tt.host, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestShouldRetryComprehensive(t *testing.T) {
+	tests := []struct {
+		name     string
+		resp     *http.Response
+		err      error
+		expected bool
+	}{
+		{"nil resp nil err", nil, nil, false},
+		{"timeout error string", nil, errors.New("operation timeout"), true},
+		{"connection error string", nil, errors.New("connection reset"), true},
+		{"unrelated error", nil, errors.New("json parse error"), false},
+		{"500 response", &http.Response{StatusCode: 500}, nil, true},
+		{"502 response", &http.Response{StatusCode: 502}, nil, true},
+		{"503 response", &http.Response{StatusCode: 503}, nil, true},
+		{"429 response", &http.Response{StatusCode: 429}, nil, true},
+		{"200 response", &http.Response{StatusCode: 200}, nil, false},
+		{"400 response", &http.Response{StatusCode: 400}, nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldRetry(tt.resp, tt.err); got != tt.expected {
+				t.Fatalf("shouldRetry = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestShouldRetryNetError(t *testing.T) {
+	netErr := &net.DNSError{Err: "no such host", Name: "example.invalid"}
+	if !shouldRetry(nil, netErr) {
+		t.Fatal("expected net.Error to trigger retry via errors.As fallback")
+	}
+}
+
+func TestReadCappedResponseBodyReadError(t *testing.T) {
+	_, err := readCappedResponseBody(errReader{})
+	if err == nil || !strings.Contains(err.Error(), "read response body") {
+		t.Fatalf("expected read body error, got: %v", err)
+	}
+}
+
+func TestReadCappedResponseBodyOversize(t *testing.T) {
+	oversized := strings.NewReader(strings.Repeat("x", MaxNotifyResponseBodyBytes+10))
+	_, err := readCappedResponseBody(oversized)
+	if err == nil || !strings.Contains(err.Error(), "response payload exceeds") {
+		t.Fatalf("expected oversize error, got: %v", err)
+	}
+}
+
+func TestReadCappedResponseBodySuccess(t *testing.T) {
+	content, err := readCappedResponseBody(strings.NewReader("hello"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(content) != "hello" {
+		t.Fatalf("expected 'hello', got %q", string(content))
+	}
+}
+
+func TestHasDisallowedQueryAuthKeyAllVariants(t *testing.T) {
+	tests := []struct {
+		name     string
+		key      string
+		expected bool
+	}{
+		{"token", "token", true},
+		{"auth", "auth", true},
+		{"apikey", "apikey", true},
+		{"api_key", "api_key", true},
+		{"TOKEN uppercase", "TOKEN", true},
+		{"Api_Key mixed", "Api_Key", true},
+		{"safe key", "callback", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query := neturl.Values{}
+			query.Set(tt.key, "secret")
+			if got := hasDisallowedQueryAuthKey(query); got != tt.expected {
+				t.Fatalf("hasDisallowedQueryAuthKey with key %q = %v, want %v", tt.key, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestHasDisallowedQueryAuthKeyEmptyQuery(t *testing.T) {
+	if hasDisallowedQueryAuthKey(neturl.Values{}) {
+		t.Fatal("expected empty query to be safe")
+	}
+}
+
+func TestNotifyMaxRedirects(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue string
+		expected int
+	}{
+		{"empty", "", 0},
+		{"valid 3", "3", 3},
+		{"zero", "0", 0},
+		{"negative", "-1", 0},
+		{"above max", "10", 5},
+		{"exactly 5", "5", 5},
+		{"invalid", "abc", 0},
+		{"whitespace", " 2 ", 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("CHARON_NOTIFY_MAX_REDIRECTS", tt.envValue)
+			if got := notifyMaxRedirects(); got != tt.expected {
+				t.Fatalf("notifyMaxRedirects() = %d, want %d", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestResolveAllowedDestinationIPRejectsPrivateIP(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = false
+	_, err := wrapper.resolveAllowedDestinationIP("192.168.1.1")
+	if err == nil || !strings.Contains(err.Error(), "destination URL validation failed") {
+		t.Fatalf("expected private IP rejection, got: %v", err)
+	}
+}
+
+func TestResolveAllowedDestinationIPRejectsLoopback(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = false
+	_, err := wrapper.resolveAllowedDestinationIP("127.0.0.1")
+	if err == nil || !strings.Contains(err.Error(), "destination URL validation failed") {
+		t.Fatalf("expected loopback rejection, got: %v", err)
+	}
+}
+
+func TestResolveAllowedDestinationIPAllowsPublic(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	ip, err := wrapper.resolveAllowedDestinationIP("1.1.1.1")
+	if err != nil {
+		t.Fatalf("expected public IP to be allowed, got: %v", err)
+	}
+	if !ip.Equal(net.ParseIP("1.1.1.1")) {
+		t.Fatalf("expected 1.1.1.1, got %v", ip)
+	}
+}
+
+func TestBuildSafeRequestURLRejectsPrivateHostname(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = false
+	u := &neturl.URL{Scheme: "https", Host: "192.168.1.1", Path: "/hook"}
+	_, _, err := wrapper.buildSafeRequestURL(u)
+	if err == nil || !strings.Contains(err.Error(), "destination URL validation failed") {
+		t.Fatalf("expected private host rejection, got: %v", err)
+	}
+}
+
+func TestWaitBeforeRetryBasic(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	var sleptDuration time.Duration
+	wrapper.sleep = func(d time.Duration) { sleptDuration = d }
+	wrapper.jitterNanos = func(int64) int64 { return 0 }
+	wrapper.retryPolicy.BaseDelay = 100 * time.Millisecond
+	wrapper.retryPolicy.MaxDelay = 1 * time.Second
+
+	wrapper.waitBeforeRetry(1)
+	if sleptDuration != 100*time.Millisecond {
+		t.Fatalf("expected 100ms delay for attempt 1, got %v", sleptDuration)
+	}
+
+	wrapper.waitBeforeRetry(2)
+	if sleptDuration != 200*time.Millisecond {
+		t.Fatalf("expected 200ms delay for attempt 2, got %v", sleptDuration)
+	}
+}
+
+func TestWaitBeforeRetryClampedToMax(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	var sleptDuration time.Duration
+	wrapper.sleep = func(d time.Duration) { sleptDuration = d }
+	wrapper.jitterNanos = func(int64) int64 { return 0 }
+	wrapper.retryPolicy.BaseDelay = 1 * time.Second
+	wrapper.retryPolicy.MaxDelay = 2 * time.Second
+
+	wrapper.waitBeforeRetry(5)
+	if sleptDuration != 2*time.Second {
+		t.Fatalf("expected clamped delay of 2s, got %v", sleptDuration)
+	}
+}
+
+func TestWaitBeforeRetryDefaultJitter(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.jitterNanos = nil
+	wrapper.sleep = func(time.Duration) {}
+	wrapper.retryPolicy.BaseDelay = 100 * time.Millisecond
+	wrapper.retryPolicy.MaxDelay = 1 * time.Second
+	wrapper.waitBeforeRetry(1)
+}
+
+func TestHTTPWrapperSendExhaustsRetriesOnTransportError(t *testing.T) {
+	var calls int32
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = true
+	wrapper.sleep = func(time.Duration) {}
+	wrapper.jitterNanos = func(int64) int64 { return 0 }
+	wrapper.httpClientFactory = func(bool, int) *http.Client {
+		return &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				atomic.AddInt32(&calls, 1)
+				return nil, errors.New("connection timeout failure")
+			}),
+		}
+	}
+
+	_, err := wrapper.Send(context.Background(), HTTPWrapperRequest{
+		URL:  "http://localhost:19999/hook",
+		Body: []byte(`{"msg":"test"}`),
+	})
+	if err == nil {
+		t.Fatal("expected error after transport failures")
+	}
+	if !strings.Contains(err.Error(), "outbound request failed") {
+		t.Fatalf("expected outbound request failed message, got: %v", err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 3 {
+		t.Fatalf("expected 3 attempts, got %d", got)
+	}
+}
+
+func TestHTTPWrapperSendExhaustsRetriesOn500(t *testing.T) {
+	var calls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = true
+	wrapper.sleep = func(time.Duration) {}
+	wrapper.jitterNanos = func(int64) int64 { return 0 }
+
+	_, err := wrapper.Send(context.Background(), HTTPWrapperRequest{
+		URL:  server.URL,
+		Body: []byte(`{"msg":"test"}`),
+	})
+	if err == nil || !strings.Contains(err.Error(), "status 500") {
+		t.Fatalf("expected 500 status error, got: %v", err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 3 {
+		t.Fatalf("expected 3 attempts for 500 retries, got %d", got)
+	}
+}
+
+func TestHTTPWrapperSendTransportErrorNoRetry(t *testing.T) {
+	wrapper := NewNotifyHTTPWrapper()
+	wrapper.allowHTTP = true
+	wrapper.retryPolicy.MaxAttempts = 1
+	wrapper.httpClientFactory = func(bool, int) *http.Client {
+		return &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return nil, errors.New("some unretryable error")
+			}),
+		}
+	}
+
+	_, err := wrapper.Send(context.Background(), HTTPWrapperRequest{
+		URL:  "http://localhost:19999/hook",
+		Body: []byte(`{"msg":"test"}`),
+	})
+	if err == nil || !strings.Contains(err.Error(), "outbound request failed") {
+		t.Fatalf("expected outbound request failed, got: %v", err)
+	}
+}
+
+func TestSanitizeTransportErrorReasonNetworkUnreachable(t *testing.T) {
+	result := sanitizeTransportErrorReason(errors.New("connect: network is unreachable"))
+	if result != "network unreachable" {
+		t.Fatalf("expected 'network unreachable', got %q", result)
+	}
+}
+
+func TestSanitizeTransportErrorReasonCertificate(t *testing.T) {
+	result := sanitizeTransportErrorReason(errors.New("x509: certificate signed by unknown authority"))
+	if result != "tls handshake failed" {
+		t.Fatalf("expected 'tls handshake failed', got %q", result)
+	}
+}
+
+func TestAllowNotifyHTTPOverride(t *testing.T) {
+	result := allowNotifyHTTPOverride()
+	if !result {
+		t.Fatal("expected allowHTTP to be true in test binary")
 	}
 }
