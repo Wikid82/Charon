@@ -936,6 +936,42 @@
             }
         },
         {
+            "label": "Test: E2E Playwright (Chromium) - Security Suite",
+            "type": "shell",
+            "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=true PLAYWRIGHT_SKIP_SECURITY_DEPS=0 npx playwright test --project=security-tests --output=playwright-output/chromium-security tests/security",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (FireFox) - Security Suite",
+            "type": "shell",
+            "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=true PLAYWRIGHT_SKIP_SECURITY_DEPS=0 npx playwright test --project=firefox --output=playwright-output/firefox-security tests/security",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (WebKit) - Security Suite",
+            "type": "shell",
+            "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=true PLAYWRIGHT_SKIP_SECURITY_DEPS=0 npx playwright test --project=webkit --output=playwright-output/webkit-security tests/security",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
             "label": "Test: E2E Playwright with Coverage",
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage",
