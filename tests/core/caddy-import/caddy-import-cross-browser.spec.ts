@@ -17,8 +17,9 @@
  * Those are verified in backend/integration/ tests.
  */
 
-import { test, expect } from '../../fixtures/auth-fixtures';
+import { test, expect, type TestUser } from '../../fixtures/auth-fixtures';
 import { Page } from '@playwright/test';
+import { ensureImportUiPreconditions } from './import-page-helpers';
 
 /**
  * Mock Caddyfile content for testing
@@ -182,16 +183,20 @@ async function setupImportMocks(
   });
 }
 
+async function gotoImportPageWithAuthRecovery(page: Page, adminUser: TestUser): Promise<void> {
+  await ensureImportUiPreconditions(page, adminUser);
+}
+
 test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
   /**
    * TEST 1: Parse valid Caddyfile across all browsers
    * Verifies basic import flow works identically in Chromium, Firefox, and WebKit
    */
-  test('should parse valid Caddyfile in all browsers', async ({ page, browserName }) => {
+  test('should parse valid Caddyfile in all browsers', async ({ page, browserName, adminUser }) => {
     await setupImportMocks(page);
 
     await test.step(`[${browserName}] Navigate to import page`, async () => {
-      await page.goto('/tasks/import/caddyfile');
+      await gotoImportPageWithAuthRecovery(page, adminUser);
       await expect(page.locator('h1')).toContainText(/import/i);
     });
 
@@ -239,11 +244,11 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
    * TEST 2: Handle syntax errors across all browsers
    * Verifies error handling works consistently
    */
-  test('should show error for invalid Caddyfile syntax in all browsers', async ({ page, browserName }) => {
+  test('should show error for invalid Caddyfile syntax in all browsers', async ({ page, browserName, adminUser }) => {
     await setupImportMocks(page, { uploadSuccess: false });
 
     await test.step(`[${browserName}] Navigate to import page`, async () => {
-      await page.goto('/tasks/import/caddyfile');
+      await gotoImportPageWithAuthRecovery(page, adminUser);
     });
 
     await test.step(`[${browserName}] Paste invalid content and parse`, async () => {
@@ -267,9 +272,9 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
    * TEST 3: Multi-file import flow across all browsers
    * Tests the multi-file import modal and API interaction
    */
-  test('should handle multi-file import in all browsers', async ({ page, browserName }) => {
+  test('should handle multi-file import in all browsers', async ({ page, browserName, adminUser }) => {
     await test.step(`[${browserName}] Navigate to import page`, async () => {
-      await page.goto('/tasks/import/caddyfile');
+      await gotoImportPageWithAuthRecovery(page, adminUser);
     });
 
     await test.step(`[${browserName}] Set up multi-file API mocks`, async () => {
@@ -314,7 +319,7 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
    * TEST 4: Conflict resolution flow across all browsers
    * Creates a host, then imports a conflicting host to verify conflict handling
    */
-  test('should handle conflict resolution in all browsers', async ({ page, browserName }) => {
+  test('should handle conflict resolution in all browsers', async ({ page, browserName, adminUser }) => {
     await setupImportMocks(page, {
       previewHosts: [
         { domain_names: 'existing.example.com', forward_host: 'new-server', forward_port: 8080, forward_scheme: 'https' },
@@ -354,7 +359,7 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
     });
 
     await test.step(`[${browserName}] Navigate to import page`, async () => {
-      await page.goto('/tasks/import/caddyfile');
+      await gotoImportPageWithAuthRecovery(page, adminUser);
     });
 
     await test.step(`[${browserName}] Parse conflicting Caddyfile`, async () => {
@@ -388,7 +393,7 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
    * TEST 5: Session resume across all browsers
    * Verifies that starting an import, navigating away, and returning shows the session
    */
-  test('should resume import session in all browsers', async ({ page, browserName }) => {
+  test('should resume import session in all browsers', async ({ page, browserName, adminUser }) => {
     await setupImportMocks(page, {
       previewHosts: [
         { domain_names: 'test.example.com', forward_host: 'localhost', forward_port: 3000, forward_scheme: 'http' },
@@ -396,7 +401,7 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
     });
 
     await test.step(`[${browserName}] Navigate to import page`, async () => {
-      await page.goto('/tasks/import/caddyfile');
+      await gotoImportPageWithAuthRecovery(page, adminUser);
     });
 
     await test.step(`[${browserName}] Start import session`, async () => {
@@ -432,7 +437,7 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
         });
       });
 
-      await page.goto('/tasks/import/caddyfile');
+      await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
 
       // Should show banner or button to resume
       const banner = page.locator('[data-testid="import-banner"]').or(page.getByText(/pending|resume|continue/i));
@@ -444,7 +449,7 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
    * TEST 6: Cancel import session across all browsers
    * Verifies session cancellation clears state correctly
    */
-  test('should cancel import session in all browsers', async ({ page, browserName }) => {
+  test('should cancel import session in all browsers', async ({ page, browserName, adminUser }) => {
     await setupImportMocks(page, {
       previewHosts: [
         { domain_names: 'test.example.com', forward_host: 'localhost', forward_port: 3000, forward_scheme: 'http' },
@@ -452,7 +457,7 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
     });
 
     await test.step(`[${browserName}] Navigate to import page`, async () => {
-      await page.goto('/tasks/import/caddyfile');
+      await gotoImportPageWithAuthRecovery(page, adminUser);
     });
 
     await test.step(`[${browserName}] Start import session`, async () => {

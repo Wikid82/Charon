@@ -429,6 +429,12 @@ export async function loginUser(
   page: import('@playwright/test').Page,
   user: TestUser
 ): Promise<void> {
+  const hasVisibleSignInControls = async (): Promise<boolean> => {
+    const signInButtonVisible = await page.getByRole('button', { name: /sign in|login/i }).first().isVisible().catch(() => false);
+    const emailInputVisible = await page.getByRole('textbox', { name: /email/i }).first().isVisible().catch(() => false);
+    return signInButtonVisible || emailInputVisible;
+  };
+
   const loginPayload = { email: user.email, password: TEST_PASSWORD };
   let apiLoginError: Error | null = null;
   try {
@@ -467,11 +473,19 @@ export async function loginUser(
     }
   } catch (error) {
     apiLoginError = error instanceof Error ? error : new Error(String(error));
-    console.warn(`API login bootstrap failed for ${user.email}: ${apiLoginError.message}`);
+    console.error(`API login bootstrap failed for ${user.email}: ${apiLoginError.message}`);
   }
 
   await page.goto('/');
-  if (!page.url().includes('/login')) {
+  const loginRouteDetected = page.url().includes('/login');
+  const loginUiDetected = await hasVisibleSignInControls();
+  let authSessionConfirmed = false;
+  if (!loginRouteDetected && !loginUiDetected) {
+    const authProbeResponse = await page.request.get('/api/v1/auth/me').catch(() => null);
+    authSessionConfirmed = authProbeResponse?.ok() ?? false;
+  }
+
+  if (!loginRouteDetected && !loginUiDetected && authSessionConfirmed) {
     if (apiLoginError) {
       console.warn(`Continuing with existing authenticated session after API login bootstrap failure for ${user.email}`);
     }
@@ -479,7 +493,9 @@ export async function loginUser(
     return;
   }
 
-  await page.goto('/login');
+  if (!loginRouteDetected) {
+    await page.goto('/login');
+  }
   await page.locator('input[type="email"]').fill(user.email);
   await page.locator('input[type="password"]').fill(TEST_PASSWORD);
 
