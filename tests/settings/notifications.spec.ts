@@ -1693,12 +1693,11 @@ test.describe('Notification Providers', () => {
       await test.step('Verify error feedback', async () => {
         await waitForLoadingComplete(page);
 
-        // Should show error icon (X)
+        // Should show error icon (X) — use auto-retrying assertion instead of point-in-time check
         const testButton = page.getByTestId('provider-test-btn');
         const errorIcon = testButton.locator('svg.text-red-500, svg[class*="red"]');
 
-        const hasErrorIcon = await errorIcon.isVisible().catch(() => false);
-        expect(hasErrorIcon).toBeTruthy();
+        await expect(errorIcon).toBeVisible({ timeout: 10000 });
       });
     });
 

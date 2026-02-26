@@ -278,6 +278,17 @@ test.describe('Long-Running Operations', () => {
       const backupButton = page.getByRole('button', { name: /create backup/i }).first();
       await expect(backupButton).toBeVisible();
 
+      // Add a small delay to the backup API response so the disabled state is observable
+      await page.route('**/api/v1/backups', async (route) => {
+        if (route.request().method() === 'POST') {
+          const response = await route.fetch();
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          await route.fulfill({ response });
+        } else {
+          await route.continue();
+        }
+      });
+
       const createResponsePromise = page.waitForResponse(
         (response) =>
           response.url().includes('/api/v1/backups') &&
