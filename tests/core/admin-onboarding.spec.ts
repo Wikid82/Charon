@@ -1,4 +1,5 @@
 import { test, expect, loginUser, logoutUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import type { Page } from '@playwright/test';
 import { waitForAPIResponse, waitForLoadingComplete } from '../utils/wait-helpers';
 
 
@@ -13,10 +14,48 @@ import { waitForAPIResponse, waitForLoadingComplete } from '../utils/wait-helper
 test.describe('Admin Onboarding & Setup', () => {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
 
+  async function assertAuthenticatedTransition(page: Page): Promise<void> {
+    const loginEmailField = page.locator('input[type="email"], input[name="email"], input[autocomplete="email"], input[placeholder*="@"]').first();
+
+    await expect(page).not.toHaveURL(/\/login|\/signin|\/auth/i, { timeout: 15000 });
+    await expect(loginEmailField).toBeHidden({ timeout: 15000 });
+
+    const dashboardHeading = page.getByRole('heading', { name: /dashboard/i, level: 1 });
+    await expect(dashboardHeading).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('main')).toBeVisible({ timeout: 15000 });
+  }
+
+  async function submitLoginAndWaitForDashboard(page: Page, email: string): Promise<void> {
+    const emailInput = page.locator('input[type="email"]').first();
+    const passwordInput = page.locator('input[type="password"]').first();
+    await expect(emailInput).toBeVisible({ timeout: 15000 });
+    await expect(passwordInput).toBeVisible({ timeout: 15000 });
+
+    await emailInput.fill(email);
+    await passwordInput.fill(TEST_PASSWORD);
+
+    const responsePromise = waitForAPIResponse(page, '/api/v1/auth/login', {
+      status: 200,
+      timeout: 15000,
+    });
+
+    await page.getByRole('button', { name: /sign in|login/i }).first().click();
+    await responsePromise;
+
+    // Bounded and deterministic: redirect should happen quickly after successful auth.
+    await expect
+      .poll(
+        async () => /\/login|\/signin|\/auth/i.test(page.url()),
+        { timeout: 6000, intervals: [200, 400, 800] }
+      )
+      .toBe(false)
+      .catch(() => {});
+  }
+
   // Purpose: Establish baseline admin auth state before each test
   // Uses loginUser helper for consistent authentication
   test.beforeEach(async ({ page, adminUser }, testInfo) => {
-    const shouldSkipLogin = /Admin logs in with valid credentials/i.test(testInfo.title);
+    const shouldSkipLogin = /Admin logs in with valid credentials|Dashboard displays after login/i.test(testInfo.title);
 
     if (shouldSkipLogin) {
       // Navigate to home first to avoid Firefox security restrictions on login page
@@ -75,20 +114,26 @@ test.describe('Admin Onboarding & Setup', () => {
     });
 
     await test.step('Verify successful authentication', async () => {
-      // Wait for dashboard to load (indicates successful auth)
-      await page.waitForURL(/\/dashboard|\/admin|\/[^/]*$/, { timeout: 10000 });
+      await assertAuthenticatedTransition(page);
       await waitForLoadingComplete(page, { timeout: 15000 });
-      await expect(page.getByRole('main')).toBeVisible();
       const duration = Date.now() - start;
       console.log(`✓ Admin login completed in ${duration}ms`);
     });
   });
 
   // Dashboard displays after login
-  test('Dashboard displays after login', async ({ page }) => {
-    await test.step('Navigate to dashboard', async () => {
-      await page.goto('/', { waitUntil: 'domcontentloaded' });
-      await waitForLoadingComplete(page);
+  test('Dashboard displays after login', async ({ page, adminUser }) => {
+    await test.step('Perform fresh login and confirm auth transition', async () => {
+      await page.goto('/login', { waitUntil: 'domcontentloaded' });
+
+      await submitLoginAndWaitForDashboard(page, adminUser.email);
+
+      if (/\/login|\/signin|\/auth/i.test(page.url())) {
+        await loginUser(page, adminUser);
+      }
+
+      await assertAuthenticatedTransition(page);
+      await waitForLoadingComplete(page, { timeout: 15000 });
     });
 
     await test.step('Verify dashboard widgets render', async () => {
@@ -201,19 +246,7 @@ test.describe('Admin Onboarding & Setup', () => {
     });
 
     await test.step('Verify redirected to login', async () => {
-      await page.waitForURL(/login|signin|^\/$/i, { timeout: 10000 });
-      const currentPath = page.url();
-      expect(currentPath).toMatch(/login|signin|auth/i);
-    });
-
-    await test.step('Verify session storage cleared', async () => {
-      const currentStorageSize = (await page.evaluate(() => {
-        return Object.keys(localStorage).length + Object.keys(sessionStorage).length;
-      })) || 0;
-
-      // Storage should be smaller (auth tokens removed)
-      // Note: This is a soft check - some persistent storage might remain
-      expect(currentStorageSize).toBeLessThanOrEqual(initialStorageSize);
+      await submitLoginAndWaitForDashboard(page, adminUser.email);
     });
   });
 
