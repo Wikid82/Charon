@@ -188,14 +188,12 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
    * Verifies basic import flow works identically in Chromium, Firefox, and WebKit
    */
   test('should parse valid Caddyfile in all browsers', async ({ page, adminUser, browserName }) => {
+    await setupImportMocks(page);
+
     await test.step(`[${browserName}] Navigate to import page`, async () => {
       await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');
       await expect(page.locator('h1')).toContainText(/import/i);
-    });
-
-    await test.step(`[${browserName}] Set up API mocks`, async () => {
-      await setupImportMocks(page);
     });
 
     await test.step(`[${browserName}] Paste Caddyfile content`, async () => {
@@ -243,13 +241,11 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
    * Verifies error handling works consistently
    */
   test('should show error for invalid Caddyfile syntax in all browsers', async ({ page, adminUser, browserName }) => {
+    await setupImportMocks(page, { uploadSuccess: false });
+
     await test.step(`[${browserName}] Navigate to import page`, async () => {
       await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');
-    });
-
-    await test.step(`[${browserName}] Set up API mock with error`, async () => {
-      await setupImportMocks(page, { uploadSuccess: false });
     });
 
     await test.step(`[${browserName}] Paste invalid content and parse`, async () => {
@@ -322,49 +318,47 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
    * Creates a host, then imports a conflicting host to verify conflict handling
    */
   test('should handle conflict resolution in all browsers', async ({ page, adminUser, browserName }) => {
-    await test.step(`[${browserName}] Navigate to import page`, async () => {
-      await loginUser(page, adminUser);
-      await page.goto('/tasks/import/caddyfile');
+    await setupImportMocks(page, {
+      previewHosts: [
+        { domain_names: 'existing.example.com', forward_host: 'new-server', forward_port: 8080, forward_scheme: 'https' },
+      ],
+      conflicts: ['existing.example.com'],
     });
 
-    await test.step(`[${browserName}] Set up API mocks with conflict`, async () => {
-      await setupImportMocks(page, {
-        previewHosts: [
-          { domain_names: 'existing.example.com', forward_host: 'new-server', forward_port: 8080, forward_scheme: 'https' },
-        ],
-        conflicts: ['existing.example.com'],
-      });
-
-      // Mock conflict details
-      await page.route('**/api/v1/import/preview', async (route) => {
-        await route.fulfill({
-          status: 200,
-          json: {
-            session: { id: 'conflict-session', state: 'reviewing' },
-            preview: {
-              hosts: [
-                { domain_names: 'existing.example.com', forward_host: 'new-server', forward_port: 8080, forward_scheme: 'https' },
-              ],
-              conflicts: ['existing.example.com'],
-              warnings: [],
-            },
-            conflict_details: {
-              'existing.example.com': {
-                existing: {
-                  forward_scheme: 'http',
-                  forward_host: 'old-server',
-                  forward_port: 80,
-                },
-                imported: {
-                  forward_scheme: 'https',
-                  forward_host: 'new-server',
-                  forward_port: 8080,
-                },
+    // Mock conflict details (overrides the preview route from setupImportMocks)
+    await page.route('**/api/v1/import/preview', async (route) => {
+      await route.fulfill({
+        status: 200,
+        json: {
+          session: { id: 'conflict-session', state: 'reviewing' },
+          preview: {
+            hosts: [
+              { domain_names: 'existing.example.com', forward_host: 'new-server', forward_port: 8080, forward_scheme: 'https' },
+            ],
+            conflicts: ['existing.example.com'],
+            warnings: [],
+          },
+          conflict_details: {
+            'existing.example.com': {
+              existing: {
+                forward_scheme: 'http',
+                forward_host: 'old-server',
+                forward_port: 80,
+              },
+              imported: {
+                forward_scheme: 'https',
+                forward_host: 'new-server',
+                forward_port: 8080,
               },
             },
           },
-        });
+        },
       });
+    });
+
+    await test.step(`[${browserName}] Navigate to import page`, async () => {
+      await loginUser(page, adminUser);
+      await page.goto('/tasks/import/caddyfile');
     });
 
     await test.step(`[${browserName}] Parse conflicting Caddyfile`, async () => {
@@ -399,18 +393,18 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
    * Verifies that starting an import, navigating away, and returning shows the session
    */
   test('should resume import session in all browsers', async ({ page, adminUser, browserName }) => {
+    await setupImportMocks(page, {
+      previewHosts: [
+        { domain_names: 'test.example.com', forward_host: 'localhost', forward_port: 3000, forward_scheme: 'http' },
+      ],
+    });
+
     await test.step(`[${browserName}] Navigate to import page`, async () => {
       await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');
     });
 
     await test.step(`[${browserName}] Start import session`, async () => {
-      await setupImportMocks(page, {
-        previewHosts: [
-          { domain_names: 'test.example.com', forward_host: 'localhost', forward_port: 3000, forward_scheme: 'http' },
-        ],
-      });
-
       const textarea = page.locator('textarea');
       await textarea.fill(SINGLE_HOST_CADDYFILE);
 
@@ -456,18 +450,18 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
    * Verifies session cancellation clears state correctly
    */
   test('should cancel import session in all browsers', async ({ page, adminUser, browserName }) => {
+    await setupImportMocks(page, {
+      previewHosts: [
+        { domain_names: 'test.example.com', forward_host: 'localhost', forward_port: 3000, forward_scheme: 'http' },
+      ],
+    });
+
     await test.step(`[${browserName}] Navigate to import page`, async () => {
       await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');
     });
 
     await test.step(`[${browserName}] Start import session`, async () => {
-      await setupImportMocks(page, {
-        previewHosts: [
-          { domain_names: 'test.example.com', forward_host: 'localhost', forward_port: 3000, forward_scheme: 'http' },
-        ],
-      });
-
       const textarea = page.locator('textarea');
       await textarea.fill(SINGLE_HOST_CADDYFILE);
 
