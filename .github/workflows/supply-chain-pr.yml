@@ -264,7 +264,7 @@ jobs:
       # Generate SBOM using official Anchore action (auto-updated by Renovate)
       - name: Generate SBOM
         if: steps.set-target.outputs.image_name != ''
-        uses: anchore/sbom-action@28d71544de8eaf1b958d335707167c5f783590ad # v0.22.2
+        uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11 # v0.23.0
         id: sbom
         with:
           image: ${{ steps.set-target.outputs.image_name }}
@@ -369,7 +369,7 @@ jobs:
       - name: Upload supply chain artifacts
         if: steps.set-target.outputs.image_name != ''
         # actions/upload-artifact v4.6.0
-        uses: actions/upload-artifact@47309c993abb98030a35d55ef7ff34b7fa1074b5
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: ${{ steps.pr-number.outputs.is_push == 'true' && format('supply-chain-{0}', steps.sanitize.outputs.branch) || format('supply-chain-pr-{0}', steps.pr-number.outputs.pr_number) }}
           path: |
