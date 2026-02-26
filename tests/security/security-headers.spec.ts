@@ -51,8 +51,7 @@ test.describe('Security Headers Configuration @security', () => {
         hasText: /a|b|c|d|f|\d+%/i
       });
 
-      const detailsVisible = await scoreDetails.first().isVisible().catch(() => false);
-      expect(detailsVisible !== undefined).toBeTruthy();
+      await expect(scoreDetails.first()).toBeVisible();
     });
   });
 
@@ -185,8 +184,7 @@ test.describe('Security Headers Configuration @security', () => {
         has: page.locator('[class*="card"], tr, [class*="item"]')
       }).first();
 
-      const listVisible = await profileList.isVisible().catch(() => false);
-      expect(listVisible !== undefined).toBeTruthy();
+      await expect(profileList).toBeVisible();
     });
   });
 

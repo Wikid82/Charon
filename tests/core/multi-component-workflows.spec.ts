@@ -267,8 +267,7 @@ test.describe('Multi-Component Workflows', () => {
       await page.reload();
 
       const deletedUser = page.locator(`text=${userToBackup.email}`).first();
-      const isVisible = await deletedUser.isVisible().catch(() => false);
-      expect(isVisible).toBe(false);
+      await expect(deletedUser).not.toBeVisible();
     });
 
     await test.step('Restore from backup', async () => {

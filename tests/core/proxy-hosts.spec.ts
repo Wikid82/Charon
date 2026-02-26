@@ -571,8 +571,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         await expect(testButton).toBeVisible();
 
         // Button should be disabled initially (no host/port entered)
-        const isDisabled = await testButton.isDisabled();
-        expect(isDisabled).toBe(true);
+        await expect(testButton).toBeDisabled();
       });
 
       await test.step('Enter host details and check button becomes enabled', async () => {
@@ -580,8 +579,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         await page.locator('#forward-port').fill('80');
 
         const testButton = page.getByRole('button', { name: /test.*connection/i });
-        const isDisabled = await testButton.isDisabled();
-        expect(isDisabled).toBe(false);
+        await expect(testButton).toBeEnabled();
       });
 
       await test.step('Close form', async () => {
@@ -998,8 +996,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         const nameInput = page.locator('#proxy-name');
         const label = page.locator('label[for="proxy-name"]');
 
-        const hasLabel = await label.isVisible().catch(() => false);
-        expect(hasLabel).toBeTruthy();
+        await expect(label).toBeVisible();
 
         // Close form
         await page.getByRole('button', { name: /cancel/i }).click();

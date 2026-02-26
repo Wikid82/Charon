@@ -39,8 +39,7 @@ test.describe('Rate Limiting Configuration @security', () => {
         hasText: /enabled|disabled|active|inactive/i
       });
 
-      const statusVisible = await statusBadge.first().isVisible().catch(() => false);
-      expect(statusVisible !== undefined).toBeTruthy();
+      await expect(statusBadge.first()).toBeVisible();
     });
   });
 
@@ -173,8 +172,7 @@ test.describe('Rate Limiting Configuration @security', () => {
         }).first()
       );
 
-      const inputVisible = await windowInput.isVisible().catch(() => false);
-      expect(inputVisible !== undefined).toBeTruthy();
+      await expect(windowInput).toBeVisible();
     });
   });
 

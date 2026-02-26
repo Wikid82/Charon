@@ -331,9 +331,7 @@ test.describe('Data Consistency', () => {
 
       const nameOne = page.getByText('Update One').first();
       const nameTwo = page.getByText('Update Two').first();
-      const hasOne = await nameOne.isVisible();
-      const hasTwo = await nameTwo.isVisible();
-      expect(hasOne || hasTwo).toBe(true);
+      await expect(nameOne.or(nameTwo)).toBeVisible();
     });
   });
 
