@@ -3,6 +3,8 @@ name: Upload Coverage to Codecov
 on:
   pull_request:
   push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       run_backend:
