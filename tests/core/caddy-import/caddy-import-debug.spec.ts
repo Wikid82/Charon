@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { ensureImportFormReady } from './import-page-helpers';
 
 const execAsync = promisify(exec);
 
@@ -89,6 +90,7 @@ test.describe('Caddy Import Debug Tests @caddy-import-debug', () => {
       // Navigate to import page
       console.log('[Navigation] Going to /tasks/import/caddyfile');
       await page.goto('/tasks/import/caddyfile');
+      await ensureImportFormReady(page);
 
       // Simple valid Caddyfile with single reverse proxy
       const caddyfile = `
@@ -180,6 +182,7 @@ test-simple.example.com {
       // Auth state loaded from storage - no login needed
       console.log('[Auth] Using stored authentication state');
       await page.goto('/tasks/import/caddyfile');
+      await ensureImportFormReady(page);
       console.log('[Navigation] Navigated to import page');
 
       const caddyfileWithImports = `
@@ -263,6 +266,7 @@ admin.example.com {
       // Auth state loaded from storage
       console.log('[Auth] Using stored authentication state');
       await page.goto('/tasks/import/caddyfile');
+      await ensureImportFormReady(page);
       console.log('[Navigation] Navigated to import page');
 
       const fileServerCaddyfile = `
@@ -348,6 +352,7 @@ docs.example.com {
       // Auth state loaded from storage
       console.log('[Auth] Using stored authentication state');
       await page.goto('/tasks/import/caddyfile');
+      await ensureImportFormReady(page);
       console.log('[Navigation] Navigated to import page');
 
       const mixedCaddyfile = `
@@ -456,6 +461,7 @@ redirect.example.com {
       // Auth state loaded from storage
       console.log('[Auth] Using stored authentication state');
       await page.goto('/tasks/import/caddyfile');
+      await ensureImportFormReady(page);
       console.log('[Navigation] Navigated to import page');
 
       const invalidCaddyfile = `
@@ -549,6 +555,7 @@ broken.example.com {
       // Auth state loaded from storage
       console.log('[Auth] Using stored authentication state');
       await page.goto('/tasks/import/caddyfile');
+      await ensureImportFormReady(page);
       console.log('[Navigation] Navigated to import page');
 
       // Main Caddyfile

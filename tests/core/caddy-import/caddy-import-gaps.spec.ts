@@ -16,9 +16,10 @@
  * - Row-scoped selectors (filter by domain, then find within row)
  */
 
-import { test, expect } from '../../fixtures/auth-fixtures';
+import { test, expect, type TestUser } from '../../fixtures/auth-fixtures';
 import type { TestDataManager } from '../../utils/TestDataManager';
 import type { Page } from '@playwright/test';
+import { ensureAuthenticatedImportFormReady, ensureImportFormReady, resetImportSession } from './import-page-helpers';
 
 /**
  * Helper: Generate unique domain with namespace isolation
@@ -34,10 +35,17 @@ function generateDomain(testData: TestDataManager, suffix: string): string {
  */
 async function completeImportFlow(
   page: Page,
-  caddyfile: string
+  caddyfile: string,
+  browserName: string,
+  adminUser: TestUser
 ): Promise<void> {
   await test.step('Navigate to import page', async () => {
     await page.goto('/tasks/import/caddyfile');
+    if (browserName === 'webkit') {
+      await ensureAuthenticatedImportFormReady(page, adminUser);
+    } else {
+      await ensureImportFormReady(page);
+    }
   });
 
   await test.step('Paste Caddyfile content', async () => {
@@ -66,15 +74,19 @@ async function completeImportFlow(
 }
 
 test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
+  test.afterEach(async ({ page }) => {
+    await resetImportSession(page);
+  });
+
   // =========================================================================
   // Gap 1: Success Modal Navigation
   // =========================================================================
   test.describe('Success Modal Navigation', () => {
-    test('1.1: should display success modal after successful import commit', async ({ page, testData }) => {
+    test('1.1: should display success modal after successful import commit', async ({ page, testData, browserName, adminUser }) => {
       const domain = generateDomain(testData, 'success-modal-test');
       const caddyfile = `${domain} { reverse_proxy localhost:3000 }`;
 
-      await completeImportFlow(page, caddyfile);
+      await completeImportFlow(page, caddyfile, browserName, adminUser);
 
       // Verify success modal is visible
       await expect(page.getByTestId('import-success-modal')).toBeVisible();
@@ -87,11 +99,11 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       await expect(modal).toContainText(/1.*created/i);
     });
 
-    test('1.2: should navigate to /proxy-hosts when clicking View Proxy Hosts button', async ({ page, testData }) => {
+    test('1.2: should navigate to /proxy-hosts when clicking View Proxy Hosts button', async ({ page, testData, browserName, adminUser }) => {
       const domain = generateDomain(testData, 'view-hosts-nav');
       const caddyfile = `${domain} { reverse_proxy localhost:3000 }`;
 
-      await completeImportFlow(page, caddyfile);
+      await completeImportFlow(page, caddyfile, browserName, adminUser);
 
       await test.step('Click View Proxy Hosts button', async () => {
         const modal = page.getByTestId('import-success-modal');
@@ -104,11 +116,11 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       });
     });
 
-    test('1.3: should navigate to /dashboard when clicking Go to Dashboard button', async ({ page, testData }) => {
+    test('1.3: should navigate to /dashboard when clicking Go to Dashboard button', async ({ page, testData, browserName, adminUser }) => {
       const domain = generateDomain(testData, 'dashboard-nav');
       const caddyfile = `${domain} { reverse_proxy localhost:3000 }`;
 
-      await completeImportFlow(page, caddyfile);
+      await completeImportFlow(page, caddyfile, browserName, adminUser);
 
       await test.step('Click Go to Dashboard button', async () => {
         const modal = page.getByTestId('import-success-modal');
@@ -122,11 +134,11 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       });
     });
 
-    test('1.4: should close modal and stay on import page when clicking Close', async ({ page, testData }) => {
+    test('1.4: should close modal and stay on import page when clicking Close', async ({ page, testData, browserName, adminUser }) => {
       const domain = generateDomain(testData, 'close-modal');
       const caddyfile = `${domain} { reverse_proxy localhost:3000 }`;
 
-      await completeImportFlow(page, caddyfile);
+      await completeImportFlow(page, caddyfile, browserName, adminUser);
 
       await test.step('Click Close button', async () => {
         const modal = page.getByTestId('import-success-modal');
