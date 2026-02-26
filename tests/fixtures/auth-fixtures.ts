@@ -430,6 +430,7 @@ export async function loginUser(
   user: TestUser
 ): Promise<void> {
   const loginPayload = { email: user.email, password: TEST_PASSWORD };
+  let apiLoginError: Error | null = null;
   try {
     const response = await page.request.post('/api/v1/auth/login', { data: loginPayload });
     if (response.ok()) {
@@ -464,11 +465,16 @@ export async function loginUser(
         await page.context().addCookies(storageState.cookies);
       }
     }
-  } catch {
+  } catch (error) {
+    apiLoginError = error instanceof Error ? error : new Error(String(error));
+    console.warn(`API login bootstrap failed for ${user.email}: ${apiLoginError.message}`);
   }
 
   await page.goto('/');
   if (!page.url().includes('/login')) {
+    if (apiLoginError) {
+      console.warn(`Continuing with existing authenticated session after API login bootstrap failure for ${user.email}`);
+    }
     await page.waitForLoadState('networkidle').catch(() => {});
     return;
   }
@@ -485,7 +491,11 @@ export async function loginUser(
   const loginResponse = await loginResponsePromise;
   if (!loginResponse.ok()) {
     const body = await loginResponse.text();
-    throw new Error(`Login failed: ${loginResponse.status()} - ${body}`);
+    const fallbackMessage = `Login failed: ${loginResponse.status()} - ${body}`;
+    if (apiLoginError) {
+      throw new Error(`${fallbackMessage}; API login bootstrap error: ${apiLoginError.message}`);
+    }
+    throw new Error(fallbackMessage);
   }
 
   await page.waitForURL(/\/(?:$|dashboard)/, { timeout: 15000 });
