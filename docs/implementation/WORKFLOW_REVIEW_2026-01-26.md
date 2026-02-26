@@ -159,7 +159,8 @@ A new scheduled workflow and helper script were added to safely prune old contai
 
 - **Files added**:
   - `.github/workflows/container-prune.yml` (weekly schedule, manual dispatch)
-  - `scripts/prune-container-images.sh` (dry-run by default; supports GHCR and Docker Hub)
+  - `scripts/prune-ghcr.sh` (GHCR cleanup)
+  - `scripts/prune-dockerhub.sh` (Docker Hub cleanup)
 
 - **Behavior**:
   - Default: **dry-run=true** (no destructive changes).

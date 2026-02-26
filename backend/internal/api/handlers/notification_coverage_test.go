@@ -378,6 +378,38 @@ func TestNotificationProviderHandler_Test_RejectsGotifyTokenWithWhitespace(t *te
 	assert.NotContains(t, w.Body.String(), "secret-with-space")
 }
 
+func TestClassifyProviderTestFailure_NilError(t *testing.T) {
+	code, category, message := classifyProviderTestFailure(nil)
+
+	assert.Equal(t, "PROVIDER_TEST_FAILED", code)
+	assert.Equal(t, "dispatch", category)
+	assert.Equal(t, "Provider test failed", message)
+}
+
+func TestClassifyProviderTestFailure_DefaultStatusCode(t *testing.T) {
+	code, category, message := classifyProviderTestFailure(errors.New("provider returned status 500"))
+
+	assert.Equal(t, "PROVIDER_TEST_REMOTE_REJECTED", code)
+	assert.Equal(t, "dispatch", category)
+	assert.Contains(t, message, "HTTP 500")
+}
+
+func TestClassifyProviderTestFailure_GenericError(t *testing.T) {
+	code, category, message := classifyProviderTestFailure(errors.New("something completely unexpected"))
+
+	assert.Equal(t, "PROVIDER_TEST_FAILED", code)
+	assert.Equal(t, "dispatch", category)
+	assert.Equal(t, "Provider test failed", message)
+}
+
+func TestClassifyProviderTestFailure_InvalidDiscordWebhookURL(t *testing.T) {
+	code, category, message := classifyProviderTestFailure(errors.New("invalid discord webhook url"))
+
+	assert.Equal(t, "PROVIDER_TEST_URL_INVALID", code)
+	assert.Equal(t, "validation", category)
+	assert.Contains(t, message, "Provider URL")
+}
+
 func TestClassifyProviderTestFailure_URLValidation(t *testing.T) {
 	code, category, message := classifyProviderTestFailure(errors.New("destination URL validation failed"))
 
@@ -747,4 +779,259 @@ func TestNotificationTemplateHandler_Preview_InvalidTemplate(t *testing.T) {
 	h.Preview(c)
 
 	assert.Equal(t, 400, w.Code)
+}
+
+func TestNotificationProviderHandler_Preview_TokenWriteOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupNotificationCoverageDB(t)
+	svc := services.NewNotificationService(db)
+	h := NewNotificationProviderHandler(svc)
+
+	payload := map[string]any{
+		"template": "minimal",
+		"token":    "secret-token-value",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
+	c.Request = httptest.NewRequest("POST", "/providers/preview", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Preview(c)
+
+	assert.Equal(t, 400, w.Code)
+	assert.Contains(t, w.Body.String(), "TOKEN_WRITE_ONLY")
+}
+
+func TestNotificationProviderHandler_Update_TypeChangeRejected(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupNotificationCoverageDB(t)
+	svc := services.NewNotificationService(db)
+	h := NewNotificationProviderHandler(svc)
+
+	existing := models.NotificationProvider{
+		ID:   "update-type-test",
+		Name: "Discord Provider",
+		Type: "discord",
+		URL:  "https://discord.com/api/webhooks/123/abc",
+	}
+	require.NoError(t, db.Create(&existing).Error)
+
+	payload := map[string]any{
+		"name": "Changed Type Provider",
+		"type": "gotify",
+		"url":  "https://gotify.example.com",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
+	c.Params = gin.Params{{Key: "id", Value: "update-type-test"}}
+	c.Request = httptest.NewRequest("PUT", "/providers/update-type-test", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Update(c)
+
+	assert.Equal(t, 400, w.Code)
+	assert.Contains(t, w.Body.String(), "PROVIDER_TYPE_IMMUTABLE")
+}
+
+func TestNotificationProviderHandler_Test_MissingProviderID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupNotificationCoverageDB(t)
+	svc := services.NewNotificationService(db)
+	h := NewNotificationProviderHandler(svc)
+
+	payload := map[string]any{
+		"type": "discord",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
+	c.Request = httptest.NewRequest("POST", "/providers/test", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Test(c)
+
+	assert.Equal(t, 400, w.Code)
+	assert.Contains(t, w.Body.String(), "MISSING_PROVIDER_ID")
+}
+
+func TestNotificationProviderHandler_Test_ProviderNotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupNotificationCoverageDB(t)
+	svc := services.NewNotificationService(db)
+	h := NewNotificationProviderHandler(svc)
+
+	payload := map[string]any{
+		"type": "discord",
+		"id":   "nonexistent-provider",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
+	c.Request = httptest.NewRequest("POST", "/providers/test", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Test(c)
+
+	assert.Equal(t, 404, w.Code)
+	assert.Contains(t, w.Body.String(), "PROVIDER_NOT_FOUND")
+}
+
+func TestNotificationProviderHandler_Test_EmptyProviderURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupNotificationCoverageDB(t)
+	svc := services.NewNotificationService(db)
+	h := NewNotificationProviderHandler(svc)
+
+	existing := models.NotificationProvider{
+		ID:   "empty-url-test",
+		Name: "Empty URL Provider",
+		Type: "discord",
+		URL:  "",
+	}
+	require.NoError(t, db.Create(&existing).Error)
+
+	payload := map[string]any{
+		"type": "discord",
+		"id":   "empty-url-test",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
+	c.Request = httptest.NewRequest("POST", "/providers/test", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Test(c)
+
+	assert.Equal(t, 400, w.Code)
+	assert.Contains(t, w.Body.String(), "PROVIDER_CONFIG_MISSING")
+}
+
+func TestIsProviderValidationError_Comprehensive(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    error
+		expect bool
+	}{
+		{"nil", nil, false},
+		{"invalid_custom_template", errors.New("invalid custom template: missing field"), true},
+		{"rendered_template", errors.New("rendered template exceeds maximum"), true},
+		{"failed_to_parse", errors.New("failed to parse template: unexpected end"), true},
+		{"failed_to_render", errors.New("failed to render template: missing key"), true},
+		{"invalid_discord_webhook", errors.New("invalid Discord webhook URL"), true},
+		{"unrelated_error", errors.New("database connection failed"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expect, isProviderValidationError(tc.err))
+		})
+	}
+}
+
+func TestNotificationProviderHandler_Update_UnsupportedType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupNotificationCoverageDB(t)
+	svc := services.NewNotificationService(db)
+	h := NewNotificationProviderHandler(svc)
+
+	existing := models.NotificationProvider{
+		ID:   "unsupported-type",
+		Name: "Custom Provider",
+		Type: "slack",
+		URL:  "https://hooks.slack.com/test",
+	}
+	require.NoError(t, db.Create(&existing).Error)
+
+	payload := map[string]any{
+		"name": "Updated Slack Provider",
+		"url":  "https://hooks.slack.com/updated",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
+	c.Params = gin.Params{{Key: "id", Value: "unsupported-type"}}
+	c.Request = httptest.NewRequest("PUT", "/providers/unsupported-type", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Update(c)
+
+	assert.Equal(t, 400, w.Code)
+	assert.Contains(t, w.Body.String(), "UNSUPPORTED_PROVIDER_TYPE")
+}
+
+func TestNotificationProviderHandler_Update_GotifyKeepsExistingToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupNotificationCoverageDB(t)
+	svc := services.NewNotificationService(db)
+	h := NewNotificationProviderHandler(svc)
+
+	existing := models.NotificationProvider{
+		ID:    "gotify-keep-token",
+		Name:  "Gotify Provider",
+		Type:  "gotify",
+		URL:   "https://gotify.example.com",
+		Token: "existing-secret-token",
+	}
+	require.NoError(t, db.Create(&existing).Error)
+
+	payload := map[string]any{
+		"name":     "Updated Gotify",
+		"url":      "https://gotify.example.com/new",
+		"template": "minimal",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
+	c.Params = gin.Params{{Key: "id", Value: "gotify-keep-token"}}
+	c.Request = httptest.NewRequest("PUT", "/providers/gotify-keep-token", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Update(c)
+
+	assert.Equal(t, 200, w.Code)
+
+	var updated models.NotificationProvider
+	require.NoError(t, db.Where("id = ?", "gotify-keep-token").First(&updated).Error)
+	assert.Equal(t, "existing-secret-token", updated.Token)
+}
+
+func TestNotificationProviderHandler_Test_ReadDBError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupNotificationCoverageDB(t)
+	svc := services.NewNotificationService(db)
+	h := NewNotificationProviderHandler(svc)
+
+	_ = db.Migrator().DropTable(&models.NotificationProvider{})
+
+	payload := map[string]any{
+		"type": "discord",
+		"id":   "some-provider",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
+	c.Request = httptest.NewRequest("POST", "/providers/test", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Test(c)
+
+	assert.Equal(t, 500, w.Code)
+	assert.Contains(t, w.Body.String(), "PROVIDER_READ_FAILED")
 }

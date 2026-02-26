@@ -2538,3 +2538,79 @@ func TestTestProvider_WebhookWorksWhenFlagExplicitlyFalse(t *testing.T) {
 	err := svc.TestProvider(provider)
 	assert.NoError(t, err)
 }
+
+func TestUpdateProvider_TypeMutationBlocked(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	existing := models.NotificationProvider{
+		ID:   "prov-type-mut",
+		Type: "webhook",
+		Name: "Original",
+		URL:  "https://example.com/hook",
+	}
+	require.NoError(t, db.Create(&existing).Error)
+
+	update := models.NotificationProvider{
+		ID:   "prov-type-mut",
+		Type: "discord",
+		Name: "Changed",
+		URL:  "https://discord.com/api/webhooks/123/abc",
+	}
+	err := svc.UpdateProvider(&update)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot change provider type")
+}
+
+func TestUpdateProvider_GotifyKeepsExistingToken(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	existing := models.NotificationProvider{
+		ID:    "prov-gotify-token",
+		Type:  "gotify",
+		Name:  "My Gotify",
+		URL:   "https://gotify.example.com",
+		Token: "original-secret-token",
+	}
+	require.NoError(t, db.Create(&existing).Error)
+
+	update := models.NotificationProvider{
+		ID:    "prov-gotify-token",
+		Type:  "gotify",
+		Name:  "My Gotify Updated",
+		URL:   "https://gotify.example.com",
+		Token: "",
+	}
+	err := svc.UpdateProvider(&update)
+	require.NoError(t, err)
+	assert.Equal(t, "original-secret-token", update.Token)
+}
+
+func TestGetFeatureFlagValue_FoundSetting(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}))
+	svc := NewNotificationService(db)
+
+	tests := []struct {
+		name     string
+		value    string
+		expected bool
+	}{
+		{"true_string", "true", true},
+		{"yes_string", "yes", true},
+		{"one_string", "1", true},
+		{"false_string", "false", false},
+		{"no_string", "no", false},
+		{"zero_string", "0", false},
+		{"whitespace_true", "  True  ", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db.Where("key = ?", "test.flag").Delete(&models.Setting{})
+			db.Create(&models.Setting{Key: "test.flag", Value: tt.value})
+			result := svc.getFeatureFlagValue("test.flag", false)
+			assert.Equal(t, tt.expected, result, "value=%q", tt.value)
+		})
+	}
+}
