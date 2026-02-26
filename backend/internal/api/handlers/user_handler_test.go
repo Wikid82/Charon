@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -2638,4 +2639,69 @@ func TestResendInvite_WithExpiredInvite(t *testing.T) {
 	var updatedUser models.User
 	db.First(&updatedUser, user.ID)
 	assert.True(t, updatedUser.InviteExpires.After(time.Now()))
+}
+
+// ===== Additional coverage for uncovered utility functions =====
+
+func TestIsSetupConflictError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{"nil error", nil, false},
+		{"unique constraint failed", errors.New("UNIQUE constraint failed: users.email"), true},
+		{"duplicate key", errors.New("duplicate key value violates unique constraint"), true},
+		{"database is locked", errors.New("database is locked"), true},
+		{"database table is locked", errors.New("database table is locked"), true},
+		{"case insensitive", errors.New("UNIQUE CONSTRAINT FAILED"), true},
+		{"unrelated error", errors.New("connection refused"), false},
+		{"empty error", errors.New(""), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isSetupConflictError(tt.err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestMaskSecretForResponse(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"non-empty secret", "my-secret-key", "********"},
+		{"empty string", "", ""},
+		{"whitespace only", "   ", ""},
+		{"single char", "x", "********"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := maskSecretForResponse(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestRedactInviteURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"non-empty url", "https://example.com/invite/abc123", "[REDACTED]"},
+		{"empty string", "", ""},
+		{"whitespace only", "   ", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := redactInviteURL(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
