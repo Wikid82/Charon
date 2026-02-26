@@ -17,15 +17,11 @@
  * NOTE: Tests are skipped if not running in WebKit browser.
  */
 
-import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
+import { test, expect } from '../../fixtures/auth-fixtures';
 import { Page } from '@playwright/test';
 
-/**
- * Skip test if not running in WebKit
- * REMOVED: Running all browser tests to identify true platform issues
- */
 function webkitOnly(browserName: string) {
-  // Previously called test.skip() - now disabled for full test suite execution
+  test.skip(browserName !== 'webkit', 'This suite only runs on WebKit');
 }
 
 /**
@@ -93,13 +89,16 @@ async function setupImportMocks(page: Page, success: boolean = true) {
 }
 
 test.describe('Caddy Import - WebKit-Specific @webkit-only', () => {
+  test.beforeEach(async ({ browserName }) => {
+    webkitOnly(browserName);
+  });
+
   /**
    * TEST 1: Event listener attachment verification
    * Safari/WebKit may handle React event delegation differently
    */
-  test('should have click handler attached to Parse button', async ({ page, adminUser, browserName }) => {
+  test('should have click handler attached to Parse button', async ({ page }) => {
     await test.step('Navigate to import page', async () => {
-      await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');
     });
 
@@ -138,9 +137,8 @@ test.describe('Caddy Import - WebKit-Specific @webkit-only', () => {
    * TEST 2: Async state update race condition
    * WebKit's JavaScript engine (JavaScriptCore) may have different timing
    */
-  test('should handle async state updates correctly', async ({ page, adminUser, browserName }) => {
+  test('should handle async state updates correctly', async ({ page }) => {
     await test.step('Navigate to import page', async () => {
-      await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');
     });
 
@@ -185,9 +183,8 @@ test.describe('Caddy Import - WebKit-Specific @webkit-only', () => {
    * TEST 3: Form submission behavior
    * Safari may treat button clicks inside forms differently
    */
-  test('should handle button click without form submission', async ({ page, adminUser, browserName }) => {
+  test('should handle button click without form submission', async ({ page }) => {
     await test.step('Navigate to import page', async () => {
-      await loginUser(page, adminUser);
       await setupImportMocks(page);
       await page.goto('/tasks/import/caddyfile');
     });
@@ -225,9 +222,8 @@ test.describe('Caddy Import - WebKit-Specific @webkit-only', () => {
    * TEST 4: Cookie/session storage handling
    * WebKit's cookie/storage behavior may differ from Chromium
    */
-  test('should maintain session state and send cookies', async ({ page, adminUser, browserName }) => {
+  test('should maintain session state and send cookies', async ({ page }) => {
     await test.step('Navigate to import page', async () => {
-      await loginUser(page, adminUser);
       await setupImportMocks(page);
       await page.goto('/tasks/import/caddyfile');
     });
@@ -264,9 +260,8 @@ test.describe('Caddy Import - WebKit-Specific @webkit-only', () => {
    * TEST 5: Button interaction after rapid state changes
    * Safari may handle rapid state updates differently
    */
-  test('should handle button state changes correctly', async ({ page, adminUser, browserName }) => {
+  test('should handle button state changes correctly', async ({ page }) => {
     await test.step('Navigate to import page', async () => {
-      await loginUser(page, adminUser);
       await setupImportMocks(page);
       await page.goto('/tasks/import/caddyfile');
     });
@@ -308,9 +303,8 @@ test.describe('Caddy Import - WebKit-Specific @webkit-only', () => {
    * TEST 6: Large file handling
    * WebKit memory management may differ from Chromium/Firefox
    */
-  test('should handle large Caddyfile upload without memory issues', async ({ page, adminUser, browserName }) => {
+  test('should handle large Caddyfile upload without memory issues', async ({ page }) => {
     await test.step('Navigate to import page', async () => {
-      await loginUser(page, adminUser);
       await page.goto('/tasks/import/caddyfile');
     });
 
