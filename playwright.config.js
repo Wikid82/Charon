@@ -35,10 +35,6 @@ if (!process.env.PLAYWRIGHT_BASE_URL) {
 // to restore the legacy dependency behavior when needed.
 const skipSecurityDeps = process.env.PLAYWRIGHT_SKIP_SECURITY_DEPS !== '0';
 const browserDependencies = skipSecurityDeps ? ['setup'] : ['setup', 'security-tests'];
-const crossBrowserCaddyImportSpec =
-  /security-enforcement\/zzz-caddy-imports\/caddy-import-cross-browser\.spec\.(ts|js)$/;
-const securityEnforcementExceptCrossBrowser =
-  /security-enforcement\/(?!zzz-caddy-imports\/caddy-import-cross-browser\.spec\.(ts|js)$).*/;
 
 const coverageReporterConfig = enableCoverage ? defineCoverageReporterConfig({
   sourceRoot: __dirname,
@@ -266,8 +262,8 @@ export default defineConfig({
         storageState: STORAGE_STATE,
       },
       dependencies: browserDependencies,
-      testMatch: [crossBrowserCaddyImportSpec, /.*\.spec\.(ts|js)$/],
-      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', securityEnforcementExceptCrossBrowser, '**/security/**'],
+      testMatch: /.*\.spec\.(ts|js)$/,
+      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
     },
 
     {
@@ -277,8 +273,8 @@ export default defineConfig({
         storageState: STORAGE_STATE,
       },
       dependencies: browserDependencies,
-      testMatch: [crossBrowserCaddyImportSpec, /.*\.spec\.(ts|js)$/],
-      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', securityEnforcementExceptCrossBrowser, '**/security/**'],
+      testMatch: /.*\.spec\.(ts|js)$/,
+      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
     },
 
     {
@@ -288,8 +284,8 @@ export default defineConfig({
         storageState: STORAGE_STATE,
       },
       dependencies: browserDependencies,
-      testMatch: [crossBrowserCaddyImportSpec, /.*\.spec\.(ts|js)$/],
-      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', securityEnforcementExceptCrossBrowser, '**/security/**'],
+      testMatch: /.*\.spec\.(ts|js)$/,
+      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
     },
 
     /* Test against mobile viewports. */

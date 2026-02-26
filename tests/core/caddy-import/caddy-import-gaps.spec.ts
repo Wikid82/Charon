@@ -17,7 +17,7 @@
  */
 
 import { test, expect } from '../../fixtures/auth-fixtures';
-import type { TestDataManager } from '../utils/TestDataManager';
+import type { TestDataManager } from '../../utils/TestDataManager';
 import type { Page } from '@playwright/test';
 
 /**
