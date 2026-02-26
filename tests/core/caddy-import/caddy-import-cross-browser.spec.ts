@@ -19,7 +19,7 @@
 
 import { test, expect, type TestUser } from '../../fixtures/auth-fixtures';
 import { Page } from '@playwright/test';
-import { ensureImportUiPreconditions } from './import-page-helpers';
+import { ensureImportUiPreconditions, resetImportSession } from './import-page-helpers';
 
 /**
  * Mock Caddyfile content for testing
@@ -188,6 +188,15 @@ async function gotoImportPageWithAuthRecovery(page: Page, adminUser: TestUser): 
 }
 
 test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
+  test.beforeEach(async ({ page, adminUser }) => {
+    await resetImportSession(page);
+    await ensureImportUiPreconditions(page, adminUser);
+  });
+
+  test.afterEach(async ({ page }) => {
+    await resetImportSession(page);
+  });
+
   /**
    * TEST 1: Parse valid Caddyfile across all browsers
    * Verifies basic import flow works identically in Chromium, Firefox, and WebKit
