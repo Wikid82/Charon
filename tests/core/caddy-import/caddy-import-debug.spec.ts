@@ -1,9 +1,42 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { ensureImportFormReady } from './import-page-helpers';
+import {
+  attachImportDiagnostics,
+  ensureImportFormReady,
+  logImportFailureContext,
+  resetImportSession,
+  waitForSuccessfulImportResponse,
+} from './import-page-helpers';
 
 const execAsync = promisify(exec);
+
+async function fillImportTextarea(page: Page, content: string): Promise<void> {
+  const importPageMarker = page.getByTestId('import-banner').first();
+  if ((await importPageMarker.count()) > 0) {
+    await expect(importPageMarker).toBeVisible();
+  }
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const textarea = page.locator('textarea').first();
+
+    try {
+      await expect(textarea).toBeVisible();
+      await expect(textarea).toBeEditable();
+      await textarea.click();
+      await textarea.press('ControlOrMeta+A');
+      await textarea.fill(content);
+      return;
+    } catch (error) {
+      if (attempt === 2) {
+        throw error;
+      }
+
+      // Retry after ensuring the form remains in an interactive state.
+      await ensureImportFormReady(page);
+    }
+  }
+}
 
 /**
  * Caddy Import Debug Tests - POC Implementation
@@ -20,6 +53,13 @@ const execAsync = promisify(exec);
  * Current Status: POC - Test 1 only (Baseline validation)
  */
 test.describe('Caddy Import Debug Tests @caddy-import-debug', () => {
+  const diagnosticsByPage = new WeakMap<Page, () => void>();
+
+  test.beforeEach(async ({ page }) => {
+    diagnosticsByPage.set(page, attachImportDiagnostics(page, 'caddy-import-debug'));
+    await resetImportSession(page);
+  });
+
   // CRITICAL FIX #4: Pre-test health check
   test.beforeAll(async ({ baseURL }) => {
     console.log('[Health Check] Validating Charon container state...');
@@ -40,8 +80,11 @@ test.describe('Caddy Import Debug Tests @caddy-import-debug', () => {
   });
 
   // CRITICAL FIX #3: Programmatic backend log capture on test failure
-  test.afterEach(async ({ }, testInfo) => {
+  test.afterEach(async ({ page }, testInfo) => {
+    diagnosticsByPage.get(page)?.();
+
     if (testInfo.status !== 'passed') {
+      await logImportFailureContext(page, 'caddy-import-debug');
       console.log('[Log Capture] Test failed - capturing backend logs...');
 
       try {
@@ -104,31 +147,21 @@ test-simple.example.com {
 
       // Step 1: Paste Caddyfile content into textarea
       console.log('[Action] Filling textarea with Caddyfile content...');
-      await page.locator('textarea').fill(caddyfile);
+      await fillImportTextarea(page, caddyfile);
       console.log('[Action] ✅ Content pasted');
 
       // Step 2: Set up API response waiter BEFORE clicking parse button
       // CRITICAL FIX #2: Race condition prevention
-      console.log('[Setup] Registering API response waiter...');
       const parseButton = page.getByRole('button', { name: /parse|review/i });
-
-      // Register promise FIRST to avoid race condition
-      const responsePromise = page.waitForResponse(response => {
-        const matches = response.url().includes('/api/v1/import/upload') && response.status() === 200;
-        if (matches) {
-          console.log('[API] Matched upload response:', response.url(), response.status());
-        }
-        return matches;
-      }, { timeout: 15000 });
-
-      console.log('[Setup] ✅ Response waiter registered');
-
-      // NOW trigger the action
-      console.log('[Action] Clicking parse button...');
-      await parseButton.click();
-      console.log('[Action] ✅ Parse button clicked, waiting for API response...');
-
-      const apiResponse = await responsePromise;
+      const apiResponse = await waitForSuccessfulImportResponse(
+        page,
+        async () => {
+          console.log('[Action] Clicking parse button...');
+          await parseButton.click();
+          console.log('[Action] ✅ Parse button clicked, waiting for API response...');
+        },
+        'debug-simple-parse'
+      );
       console.log('[API] Response received:', apiResponse.status(), apiResponse.statusText());
 
       // Step 3: Log full API response for diagnostics
@@ -198,26 +231,16 @@ admin.example.com {
 
       // Paste content with import directive
       console.log('[Action] Filling textarea...');
-      await page.locator('textarea').fill(caddyfileWithImports);
+      await fillImportTextarea(page, caddyfileWithImports);
       console.log('[Action] ✅ Content pasted');
 
       // Click parse and capture response (FIX: waitForResponse BEFORE click)
       const parseButton = page.getByRole('button', { name: /parse|review/i });
 
-      // Register response waiter FIRST
-      console.log('[Setup] Registering API response waiter...');
-      const responsePromise = page.waitForResponse(response => {
-        const matches = response.url().includes('/api/v1/import/upload');
-        if (matches) {
-          console.log('[API] Matched upload response:', response.url(), response.status());
-        }
-        return matches;
-      }, { timeout: 15000 });
-
-      // THEN trigger action
-      console.log('[Action] Clicking parse button...');
-      await parseButton.click();
-      const apiResponse = await responsePromise;
+      const [apiResponse] = await Promise.all([
+        page.waitForResponse((response) => response.url().includes('/api/v1/import/upload'), { timeout: 15000 }),
+        parseButton.click(),
+      ]);
       console.log('[API] Response received');
 
       // Log status and response body
@@ -286,22 +309,14 @@ docs.example.com {
 
       // Paste file server config
       console.log('[Action] Filling textarea...');
-      await page.locator('textarea').fill(fileServerCaddyfile);
+      await fillImportTextarea(page, fileServerCaddyfile);
       console.log('[Action] ✅ Content pasted');
 
       // Parse and capture API response (FIX: register waiter first)
-      console.log('[Setup] Registering API response waiter...');
-      const responsePromise = page.waitForResponse(response => {
-        const matches = response.url().includes('/api/v1/import/upload');
-        if (matches) {
-          console.log('[API] Matched upload response:', response.url(), response.status());
-        }
-        return matches;
-      }, { timeout: 15000 });
-
-      console.log('[Action] Clicking parse button...');
-      await page.getByRole('button', { name: /parse|review/i }).click();
-      const apiResponse = await responsePromise;
+      const [apiResponse] = await Promise.all([
+        page.waitForResponse((response) => response.url().includes('/api/v1/import/upload') && response.ok(), { timeout: 15000 }),
+        page.getByRole('button', { name: /parse|review/i }).click(),
+      ]);
       console.log('[API] Response received');
 
       const status = apiResponse.status();
@@ -385,22 +400,14 @@ redirect.example.com {
 
       // Paste mixed content
       console.log('[Action] Filling textarea...');
-      await page.locator('textarea').fill(mixedCaddyfile);
+      await fillImportTextarea(page, mixedCaddyfile);
       console.log('[Action] ✅ Content pasted');
 
       // Parse and capture response (FIX: waiter registered first)
-      console.log('[Setup] Registering API response waiter...');
-      const responsePromise = page.waitForResponse(response => {
-        const matches = response.url().includes('/api/v1/import/upload');
-        if (matches) {
-          console.log('[API] Matched upload response:', response.url(), response.status());
-        }
-        return matches;
-      }, { timeout: 15000 });
-
-      console.log('[Action] Clicking parse button...');
-      await page.getByRole('button', { name: /parse|review/i }).click();
-      const apiResponse = await responsePromise;
+      const [apiResponse] = await Promise.all([
+        page.waitForResponse((response) => response.url().includes('/api/v1/import/upload') && response.ok(), { timeout: 15000 }),
+        page.getByRole('button', { name: /parse|review/i }).click(),
+      ]);
       console.log('[API] Response received');
 
       const responseBody = await apiResponse.json();
@@ -477,22 +484,14 @@ broken.example.com {
 
       // Paste invalid content
       console.log('[Action] Filling textarea...');
-      await page.locator('textarea').fill(invalidCaddyfile);
+      await fillImportTextarea(page, invalidCaddyfile);
       console.log('[Action] ✅ Content pasted');
 
       // Parse and capture response (FIX: waiter before click)
-      console.log('[Setup] Registering API response waiter...');
-      const responsePromise = page.waitForResponse(response => {
-        const matches = response.url().includes('/api/v1/import/upload');
-        if (matches) {
-          console.log('[API] Matched upload response:', response.url(), response.status());
-        }
-        return matches;
-      }, { timeout: 15000 });
-
-      console.log('[Action] Clicking parse button...');
-      await page.getByRole('button', { name: /parse|review/i }).click();
-      const apiResponse = await responsePromise;
+      const [apiResponse] = await Promise.all([
+        page.waitForResponse((response) => response.url().includes('/api/v1/import/upload'), { timeout: 15000 }),
+        page.getByRole('button', { name: /parse|review/i }).click(),
+      ]);
       console.log('[API] Response received');
 
       const status = apiResponse.status();
@@ -614,19 +613,12 @@ api.example.com {
       const uploadButton = modal.getByRole('button', { name: /Parse and Review/i });
 
       // Register response waiter BEFORE clicking
-      console.log('[Setup] Registering API response waiter...');
-      const responsePromise = page.waitForResponse(response => {
-        const matches = response.url().includes('/api/v1/import/upload-multi') ||
-                       response.url().includes('/api/v1/import/upload');
-        if (matches) {
-          console.log('[API] Matched upload response:', response.url(), response.status());
-        }
-        return matches;
-      }, { timeout: 15000 });
-
-      console.log('[Action] Clicking upload button...');
-      await uploadButton.click();
-      const apiResponse = await responsePromise;
+      const [apiResponse] = await Promise.all([
+        page.waitForResponse((response) =>
+          (response.url().includes('/api/v1/import/upload-multi') || response.url().includes('/api/v1/import/upload')) &&
+          response.ok(), { timeout: 15000 }),
+        uploadButton.click(),
+      ]);
       console.log('[API] Response received');
 
       const responseBody = await apiResponse.json();
