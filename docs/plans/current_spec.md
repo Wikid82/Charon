@@ -1,260 +1,383 @@
-# Caddy Import Tests Reorganization: Move from Security Shard to Core
-
-**Date:** 2026-02-26
-**Status:** Ready for Implementation
-
----
+# Security Scan (PR) Deterministic Artifact Policy - Supervisor Remediation Plan
 
 ## 1. Introduction
 
 ### Overview
 
-The 5 Caddyfile import UI test files were manually moved from
-`tests/security-enforcement/zzz-caddy-imports/` to `tests/core/caddy-import/`.
-These tests verify Caddyfile parsing/import UI functionality and do **not**
-require Cerberus middleware — they belong in the non-security (core) shard.
+`Security Scan (PR)` failed because `.github/workflows/security-pr.yml` loaded
+an artifact image tag (`pr-718-385081f`) and later attempted extraction with a
+different synthesized tag (`pr-718`).
+
+Supervisor conflict resolution in this plan selects Option A:
+`workflow_run` artifact handling is restricted to upstream
+`pull_request` events only.
+
+### Root-Cause Clarity (Preserved)
+
+The failure was not a Docker load failure. It was a source-of-truth violation in
+image selection:
+
+1. Artifact load path succeeded.
+2. Extraction path reconstructed an alternate reference.
+3. Alternate reference did not exist, causing `docker create ... not found`.
+
+This plan keeps scope strictly on `.github/workflows/security-pr.yml`.
 
 ### Objectives
 
-1. Update CI workflow to reflect the new file locations.
-2. Simplify the Playwright config by removing the now-unnecessary
-   `crossBrowserCaddyImportSpec` / `securityEnforcementExceptCrossBrowser`
-   special-case regex logic.
-3. Fix one broken relative import in the moved test files.
-4. Confirm all security UI tests remain in the security shard untouched.
+1. Remove all ambiguous behavior for artifact absence on `workflow_run`.
+2. Remove `workflow_run` support for upstream `push` events to align with PR
+   artifact naming contract (`pr-image-<pr_number>`).
+3. Codify one deterministic `workflow_dispatch` policy in SHALL form.
+4. Harden image selection so it is not brittle on `RepoTags[0]`.
+5. Add CI security hardening requirements for permissions and trust boundary.
+6. Expand validation matrix to include `pull_request` and negative paths.
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 Current File State
+### 2.1 Failure Evidence
 
-**Moved to `tests/core/caddy-import/` (confirmed present):**
+Source: `.github/logs/ci_failure.log`
 
-| File | Description |
-|------|-------------|
-| `caddy-import-cross-browser.spec.ts` | Cross-browser Caddyfile import scenarios |
-| `caddy-import-debug.spec.ts` | Diagnostic/debug tests for import flow |
-| `caddy-import-firefox.spec.ts` | Firefox-specific edge cases |
-| `caddy-import-gaps.spec.ts` | Gap coverage (conflict details, session resume, etc.) |
-| `caddy-import-webkit.spec.ts` | WebKit-specific edge cases |
+Observed facts:
 
-**Old directory `tests/security-enforcement/zzz-caddy-imports/`:** Fully removed (confirmed via filesystem scan).
+1. Artifact `pr-image-718` was found and downloaded from run `22164807859`.
+2. `docker load` reported: `Loaded image: ghcr.io/wikid82/charon:pr-718-385081f`.
+3. Extraction attempted: `docker create ghcr.io/wikid82/charon:pr-718`.
+4. Docker reported: `... pr-718: not found`.
 
-### 2.2 Security Shard — Intact (No Changes Needed)
+### 2.2 Producer Contract
 
-**`tests/security-enforcement/`** (17 files + 1 subdirectory):
-- `acl-enforcement.spec.ts`, `acl-waf-layering.spec.ts`, `auth-api-enforcement.spec.ts`,
-  `auth-middleware-cascade.spec.ts`, `authorization-rbac.spec.ts`,
-  `combined-enforcement.spec.ts`, `crowdsec-enforcement.spec.ts`,
-  `emergency-reset.spec.ts`, `emergency-server/`, `emergency-token.spec.ts`,
-  `multi-component-security-workflows.spec.ts`, `rate-limit-enforcement.spec.ts`,
-  `security-headers-enforcement.spec.ts`, `waf-enforcement.spec.ts`,
-  `waf-rate-limit-interaction.spec.ts`, `zzz-admin-whitelist-blocking.spec.ts`,
-  `zzzz-break-glass-recovery.spec.ts`
+Source: `.github/workflows/docker-build.yml`
 
-**`tests/security-enforcement/zzz-security-ui/`** (5 files):
-- `access-lists-crud.spec.ts`, `crowdsec-import.spec.ts`,
-  `encryption-management.spec.ts`, `real-time-logs.spec.ts`,
-  `system-security-settings.spec.ts`
+Producer emits immutable PR tags with SHA suffix (`pr-<num>-<sha>`). Consumer
+must consume artifact metadata/load output, not reconstruct mutable tags.
 
-**`tests/security/`** (15 files):
-- `acl-integration.spec.ts`, `audit-logs.spec.ts`, `crowdsec-config.spec.ts`,
-  `crowdsec-console-enrollment.spec.ts`, `crowdsec-decisions.spec.ts`,
-  `crowdsec-diagnostics.spec.ts`, `crowdsec-import.spec.ts`,
-  `emergency-operations.spec.ts`, `rate-limiting.spec.ts`,
-  `security-dashboard.spec.ts`, `security-headers.spec.ts`,
-  `suite-integration.spec.ts`, `system-settings-feature-toggles.spec.ts`,
-  `waf-config.spec.ts`, `workflow-security.spec.ts`
+### 2.3 Current Consumer Gaps
 
-All of these require Cerberus ON and stay in the security shard.
+Source: `.github/workflows/security-pr.yml`
 
-### 2.3 Broken Import
+Current consumer contains ambiguous policy points:
 
-In `tests/core/caddy-import/caddy-import-gaps.spec.ts` (line 20):
-
-```typescript
-import type { TestDataManager } from '../utils/TestDataManager';
-```
-
-This resolves to `tests/core/utils/TestDataManager` — **does not exist**.
-The actual file is at `tests/utils/TestDataManager.ts`.
-
-**Fix:** Change to `../../utils/TestDataManager`.
-
-All other imports (`../../fixtures/auth-fixtures`) resolve correctly from the
-new location.
+1. `workflow_run` artifact absence behavior can be interpreted as skip or fail.
+2. `workflow_dispatch` policy is not single-path deterministic.
+3. Image identification relies on single `RepoTags[0]` assumption.
+4. Trust boundary and permission minimization are not explicitly codified as
+   requirements.
 
 ---
 
 ## 3. Technical Specifications
 
-### 3.1 CI Workflow Changes
+### 3.1 Deterministic EARS Requirements (Blocking)
 
-**File:** `.github/workflows/e2e-tests-split.yml`
+1. WHEN `security-pr.yml` is triggered by `workflow_run` with
+   `conclusion == success` and upstream event `pull_request`, THE SYSTEM SHALL
+   require the expected image artifact to exist and SHALL hard fail the job if
+   the artifact is missing.
 
-The non-security shards explicitly list test directories. Since they already
-include `tests/core`, the new `tests/core/caddy-import/` directory is
-**automatically picked up** — no CI changes needed for test path inclusion.
+2. WHEN `security-pr.yml` is triggered by `workflow_run` and artifact lookup
+   fails, THEN THE SYSTEM SHALL exit non-zero with a diagnostic that includes:
+   upstream run id, expected artifact name, and reason category (`not found` or
+   `api/error`).
 
-The security shards explicitly list `tests/security-enforcement/` and
-`tests/security/`. Since `zzz-caddy-imports/` was removed from
-`tests/security-enforcement/`, the caddy import tests are **automatically
-excluded** from the security shard — no CI changes needed.
+3. WHEN `security-pr.yml` is triggered by `workflow_run` and upstream event is
+   not `pull_request`, THEN THE SYSTEM SHALL hard fail immediately with reason
+   category `unsupported_upstream_event` and SHALL NOT attempt artifact lookup,
+   image load, or extraction.
 
-**Verification matrix:**
+4. WHEN `security-pr.yml` is triggered by `workflow_dispatch`, THE SYSTEM SHALL
+   require `inputs.pr_number` and SHALL hard fail immediately if input is empty.
 
-| Shard Type | Test Paths in Workflow | Picks Up `tests/core/caddy-import/`? |
+5. WHEN `security-pr.yml` is triggered by `workflow_dispatch` with valid
+   `inputs.pr_number`, THE SYSTEM SHALL resolve artifact `pr-image-<pr_number>`
+   from the latest successful `docker-build.yml` run for that PR and SHALL hard
+   fail if artifact resolution or download fails.
+
+6. WHEN artifact image is loaded, THE SYSTEM SHALL derive a canonical local
+   image alias (`charon:artifact`) from validated load result and SHALL use only
+   that alias for `docker create` in artifact-based paths.
+
+7. WHEN artifact metadata parsing is required, THE SYSTEM SHALL NOT depend only
+   on `RepoTags[0]`; it SHALL validate all available repo tags and SHALL support
+   fallback selection using docker load image ID when tags are absent/corrupt.
+
+8. IF no valid tag and no valid load image ID can be resolved, THEN THE SYSTEM
+   SHALL hard fail before extraction.
+
+9. WHEN event is `pull_request` or `push`, THE SYSTEM SHALL build and use
+   `charon:local` only and SHALL NOT execute artifact lookup/load logic.
+
+### 3.2 Deterministic Policy Decisions
+
+#### Policy A: `workflow_run` Missing Artifact
+
+Decision: hard fail only.
+
+No skip behavior is allowed for upstream-success `workflow_run`.
+
+#### Policy A1: `workflow_run` Upstream Event Contract
+
+Decision: upstream event MUST be `pull_request`.
+
+If upstream event is `push` or any non-PR event, fail immediately with
+`unsupported_upstream_event`; no artifact path execution is allowed.
+
+#### Policy B: `workflow_dispatch`
+
+Decision: artifact-only manual replay.
+
+No local-build fallback is allowed for `workflow_dispatch`. Required input is
+`pr_number`; missing input is immediate hard fail.
+
+### 3.3 Image Selection Hardening Contract
+
+For step `Load Docker image` in `.github/workflows/security-pr.yml`:
+
+1. Validate artifact file exists and is readable tar.
+2. Parse `manifest.json` and iterate all candidate tags under `RepoTags[]`.
+3. Run `docker load` and capture structured output.
+4. Resolve source image by deterministic priority:
+   - First valid tag from `RepoTags[]` that exists locally after load.
+   - Else image ID extracted from `docker load` output (if present).
+   - Else fail.
+5. Retag resolved source to `charon:artifact`.
+6. Emit outputs:
+   - `image_ref=charon:artifact`
+   - `source_image_ref=<resolved tag or image id>`
+   - `source_resolution_mode=manifest_tag|load_image_id`
+
+### 3.4 CI Security Hardening Requirements
+
+For job `security-scan` in `.github/workflows/security-pr.yml`:
+
+1. THE SYSTEM SHALL enforce least-privilege permissions by default:
+   - `contents: read`
+   - `actions: read`
+   - `security-events: write`
+   - No additional write scopes unless explicitly required.
+
+2. THE SYSTEM SHALL restrict `pull-requests: write` usage to only steps that
+   require PR annotations/comments. If no such step exists, this permission
+   SHALL be removed.
+
+3. THE SYSTEM SHALL enforce workflow_run trust boundary guards:
+   - Upstream workflow name must match expected producer.
+   - Upstream conclusion must be `success`.
+   - Upstream event must be `pull_request` only.
+   - Upstream head repository must equal `${{ github.repository }}` (same-repo
+     trust boundary), otherwise hard fail.
+
+4. THE SYSTEM SHALL NOT use untrusted `workflow_run` payload values to build
+   shell commands without validation and quoting.
+
+### 3.5 Step-Level Scope in `security-pr.yml`
+
+Targeted steps:
+
+1. `Extract PR number from workflow_run`
+2. `Validate workflow_run upstream event contract`
+3. `Check for PR image artifact`
+4. `Skip if no artifact` (to be converted to deterministic fail paths for
+   `workflow_run` and `workflow_dispatch`)
+5. `Load Docker image`
+6. `Extract charon binary from container`
+
+### 3.6 Event Data Flow (Deterministic)
+
+```text
+pull_request/push
+  -> Build Docker image (Local)
+  -> image_ref=charon:local
+  -> Extract /app/charon
+  -> Trivy scan
+
+workflow_run (upstream success only)
+   -> Assert upstream event == pull_request (hard fail if false)
+  -> Require artifact exists (hard fail if missing)
+  -> Load/validate image
+  -> image_ref=charon:artifact
+  -> Extract /app/charon
+  -> Trivy scan
+
+workflow_dispatch
+  -> Require pr_number input (hard fail if missing)
+  -> Resolve pr-image-<pr_number> artifact (hard fail if missing)
+  -> Load/validate image
+  -> image_ref=charon:artifact
+  -> Extract /app/charon
+  -> Trivy scan
+```
+
+### 3.7 Error Handling Matrix
+
+| Step | Condition | Required Behavior |
 |---|---|---|
-| Security (Chromium, line 331-333) | `tests/security-enforcement/`, `tests/security/`, `tests/integration/multi-feature-workflows.spec.ts` | No |
-| Security (Firefox, line 540-542) | Same pattern | No |
-| Security (WebKit, line 749-751) | Same pattern | No |
-| Non-Security Chromium (line 945-952) | `tests/core`, `tests/dns-provider-crud.spec.ts`, `tests/dns-provider-types.spec.ts`, `tests/integration`, `tests/manual-dns-provider.spec.ts`, `tests/monitoring`, `tests/settings`, `tests/tasks` | **Yes** (via `tests/core`) |
-| Non-Security Firefox (line 1157-1164) | Same pattern | **Yes** |
-| Non-Security WebKit (line 1369-1376) | Same pattern | **Yes** |
+| Validate workflow_run upstream event contract | `workflow_run` upstream event is not `pull_request` | Hard fail with `unsupported_upstream_event`; stop before artifact lookup |
+| Check for PR image artifact | `workflow_run` upstream success but artifact missing | Hard fail with run id + artifact name |
+| Extract PR number from workflow_run | `workflow_dispatch` and empty `inputs.pr_number` | Hard fail with input requirement message |
+| Load Docker image | Missing/corrupt `charon-pr-image.tar` | Hard fail before `docker load` |
+| Load Docker image | Missing/corrupt `manifest.json` | Attempt load-image-id fallback; fail if unresolved |
+| Load Docker image | No valid `RepoTags[]` and no load image id | Hard fail |
+| Extract charon binary from container | Empty/invalid `image_ref` | Hard fail before `docker create` |
+| Extract charon binary from container | `/app/charon` missing | Hard fail with chosen image reference |
 
-**Result: No CI workflow file changes required.**
+### 3.8 API/DB Changes
 
-### 3.2 Playwright Config Changes
-
-**File:** `playwright.config.js`
-
-The config has special-case regex logic (lines 38-41) that was created to
-handle the old `zzz-caddy-imports` location within `security-enforcement/`:
-
-```javascript
-// CURRENT (lines 38-41) — references old, non-existent path
-const crossBrowserCaddyImportSpec =
-  /security-enforcement\/zzz-caddy-imports\/caddy-import-cross-browser\.spec\.(ts|js)$/;
-const securityEnforcementExceptCrossBrowser =
-  /security-enforcement\/(?!zzz-caddy-imports\/caddy-import-cross-browser\.spec\.(ts|js)$).*/;
-```
-
-Now that the caddy import tests live under `tests/core/caddy-import/`:
-- `crossBrowserCaddyImportSpec` no longer matches any file — dead code.
-- `securityEnforcementExceptCrossBrowser` negative lookahead is now
-  unnecessary — all files in `security-enforcement/` are security tests.
-- The browser projects' `testIgnore` already includes `'**/security/**'` and
-  the simplified `security-enforcement` pattern will exclude all security tests.
-
-**Required change:** Remove the special-case variables and simplify `testIgnore`
-to use a plain `**/security-enforcement/**` glob.
-
-#### Diff: `playwright.config.js`
-
-```diff
- const skipSecurityDeps = process.env.PLAYWRIGHT_SKIP_SECURITY_DEPS !== '0';
- const browserDependencies = skipSecurityDeps ? ['setup'] : ['setup', 'security-tests'];
--const crossBrowserCaddyImportSpec =
--  /security-enforcement\/zzz-caddy-imports\/caddy-import-cross-browser\.spec\.(ts|js)$/;
--const securityEnforcementExceptCrossBrowser =
--  /security-enforcement\/(?!zzz-caddy-imports\/caddy-import-cross-browser\.spec\.(ts|js)$).*/;
-```
-
-For each of the 3 browser projects (chromium, firefox, webkit), change:
-
-```diff
--      testMatch: [crossBrowserCaddyImportSpec, /.*\.spec\.(ts|js)$/],
--      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', securityEnforcementExceptCrossBrowser, '**/security/**'],
-+      testMatch: /.*\.spec\.(ts|js)$/,
-+      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
-```
-
-**Rationale:** The `crossBrowserCaddyImportSpec` regex was a workaround to
-include one specific file from the security-enforcement directory in cross-browser
-runs. Now that all caddy import tests are under `tests/core/`, they are
-naturally included by the default `.*\.spec\.(ts|js)$` pattern and naturally
-excluded from the security ignore patterns.
-
-### 3.3 Broken Import Fix
-
-**File:** `tests/core/caddy-import/caddy-import-gaps.spec.ts` (line 20)
-
-```diff
--import type { TestDataManager } from '../utils/TestDataManager';
-+import type { TestDataManager } from '../../utils/TestDataManager';
-```
-
-**Rationale:** From the new location `tests/core/caddy-import/`, the correct
-relative path to `tests/utils/TestDataManager.ts` is `../../utils/TestDataManager`.
+No backend API, frontend, or database schema changes.
 
 ---
 
 ## 4. Implementation Plan
 
-### Phase 1: Fix Broken Import (1 file)
+### Phase 1: Playwright Impact Check
 
-| Task | File | Change |
-|------|------|--------|
-| Fix `TestDataManager` import path | `tests/core/caddy-import/caddy-import-gaps.spec.ts:20` | `../utils/TestDataManager` → `../../utils/TestDataManager` |
+1. Mark Playwright scope as N/A because this change is workflow-only.
+2. Record N/A rationale in PR description.
 
-### Phase 2: Simplify Playwright Config (1 file, 4 locations)
+### Phase 2: Deterministic Event Policies
 
-| Task | File | Lines | Change |
-|------|------|-------|--------|
-| Remove `crossBrowserCaddyImportSpec` variable | `playwright.config.js` | 38-39 | Delete |
-| Remove `securityEnforcementExceptCrossBrowser` variable | `playwright.config.js` | 40-41 | Delete |
-| Simplify Chromium project config | `playwright.config.js` | 269-270 | Replace `testMatch`/`testIgnore` |
-| Simplify Firefox project config | `playwright.config.js` | 280-281 | Replace `testMatch`/`testIgnore` |
-| Simplify WebKit project config | `playwright.config.js` | 291-292 | Replace `testMatch`/`testIgnore` |
+File: `.github/workflows/security-pr.yml`
 
-### Phase 3: Validation
+1. Convert ambiguous skip/fail logic to hard-fail policy for
+   `workflow_run` missing artifact after upstream success.
+2. Enforce deterministic `workflow_dispatch` policy:
+   - Required `pr_number` input.
+   - Artifact-only replay path.
+   - No local fallback.
+3. Enforce PR-only `workflow_run` event contract:
+   - Upstream event must be `pull_request`.
+   - Upstream `push` or any non-PR event hard fails with
+     `unsupported_upstream_event`.
 
-| Task | Command | Expected Result |
-|------|---------|-----------------|
-| Run caddy import tests locally (Firefox) | `npx playwright test --project=firefox tests/core/caddy-import/` | All 5 files discovered, tests execute |
-| Run caddy import tests locally (all browsers) | `npx playwright test tests/core/caddy-import/` | Tests run on chromium, firefox, webkit |
-| Verify security tests excluded from non-security run | `npx playwright test --project=firefox --list tests/core` | No security-enforcement files listed |
-| Verify security shard unchanged | `npx playwright test --project=security-tests --list` | All security-enforcement + security files listed |
+### Phase 3: Image Selection Hardening
 
-### Phase 4: Documentation
+File: `.github/workflows/security-pr.yml`
 
-No external documentation changes needed. The archive docs in
-`docs/reports/archive/` reference old paths but are historical records
-and should not be updated.
+1. Harden `Load Docker image` with manifest validation and multi-tag handling.
+2. Add fallback resolution via docker load image ID.
+3. Emit explicit outputs for traceability (`source_resolution_mode`).
+4. Ensure extraction consumes only selected alias (`charon:artifact`).
 
----
+### Phase 4: CI Security Hardening
 
-## 5. Acceptance Criteria
+File: `.github/workflows/security-pr.yml`
 
-- [ ] `tests/core/caddy-import/` contains all 5 caddy import test files.
-- [ ] `tests/security-enforcement/zzz-caddy-imports/` no longer exists.
-- [ ] All security UI tests remain in `tests/security-enforcement/zzz-security-ui/` and `tests/security/`.
-- [ ] `caddy-import-gaps.spec.ts` import path resolves correctly.
-- [ ] `playwright.config.js` has no references to `zzz-caddy-imports`.
-- [ ] Non-security shards automatically pick up `tests/core/caddy-import/` via `tests/core`.
-- [ ] Security shards do not run caddy import tests.
-- [ ] No CI workflow file changes needed (paths already correct).
-- [ ] Playwright test discovery lists caddy import files under all 3 browser projects.
+1. Reduce job permissions to least privilege.
+2. Remove/conditionalize `pull-requests: write` if not required.
+3. Add workflow_run trust-boundary guard conditions and explicit fail messages.
+
+### Phase 5: Validation
+
+1. `pre-commit run actionlint --files .github/workflows/security-pr.yml`
+2. Simulate deterministic paths (or equivalent CI replay) for all matrix cases.
+3. Verify logs show chosen `source_image_ref` and `source_resolution_mode`.
 
 ---
 
-## 6. PR Slicing Strategy
+## 5. Validation Matrix
 
-**Decision:** Single PR.
-
-**Rationale:**
-- Small scope: 2 files changed (1 import fix + 1 config simplification).
-- Low risk: Test-only changes, no production code affected.
-- No cross-domain concerns.
-- Fully reversible.
-
-### PR-1: Caddy Import Test Reorganization Cleanup
-
-| Attribute | Value |
-|-----------|-------|
-| Scope | Fix broken import + simplify playwright config |
-| Files | `tests/core/caddy-import/caddy-import-gaps.spec.ts`, `playwright.config.js` |
-| Dependencies | None (file move already done manually) |
-| Validation | Run `npx playwright test --project=firefox tests/core/caddy-import/` |
-| Rollback | Revert the 2-file change |
+| ID | Trigger Path | Scenario | Expected Result |
+|---|---|---|---|
+| V1 | `workflow_run` | Upstream success + artifact present | Pass, uses `charon:artifact` |
+| V2 | `workflow_run` | Upstream success + artifact missing | Hard fail (non-zero) |
+| V3 | `workflow_run` | Upstream success + artifact manifest corrupted | Hard fail after validation/fallback attempt |
+| V4 | `workflow_run` | Upstream success + upstream event `push` | Hard fail with `unsupported_upstream_event` |
+| V5 | `pull_request` | Direct PR trigger | Pass, uses `charon:local`, no artifact lookup |
+| V6 | `push` | Direct push trigger | Pass, uses `charon:local`, no artifact lookup |
+| V7 | `workflow_dispatch` | Missing `pr_number` input | Hard fail immediately |
+| V8 | `workflow_dispatch` | Valid `pr_number` + artifact exists | Pass, uses `charon:artifact` |
+| V9 | `workflow_dispatch` | Valid `pr_number` + artifact missing | Hard fail |
+| V10 | `workflow_run` | Upstream from untrusted repository context | Hard fail by trust-boundary guard |
 
 ---
 
-## 7. Risk Assessment
+## 6. Acceptance Criteria
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Caddy import tests silently dropped from CI | Low | High | Verify with `--list` that files are discovered |
-| Security tests accidentally run in non-security shard | Low | Medium | `testIgnore` patterns verified against all security paths |
-| Other tests break from playwright config change | Very Low | Medium | Only `testMatch`/`testIgnore` simplified; no new exclusions added |
+1. Plan states unambiguous hard-fail behavior for missing artifact on
+   `workflow_run` after upstream `pull_request` success.
+2. Plan states `workflow_run` event contract is PR-only and that upstream
+   `push` is a deterministic hard-fail contract violation.
+3. Plan states one deterministic `workflow_dispatch` policy in SHALL terms:
+   required `pr_number`, artifact-only path, no local fallback.
+4. Plan defines robust image resolution beyond `RepoTags[0]`, including
+   load-image-id fallback and deterministic aliasing.
+5. Plan includes least-privilege permissions and explicit workflow_run trust
+   boundary constraints.
+6. Plan includes validation coverage for `pull_request` and direct `push` local
+   paths plus negative paths: unsupported upstream event, missing dispatch
+   input, missing artifact, corrupted/missing manifest.
+7. Root cause remains explicit: image-reference mismatch inside
+   `.github/workflows/security-pr.yml` after successful artifact load.
+
+---
+
+## 7. Risks and Mitigations
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| Overly strict dispatch policy blocks ad-hoc scans | Medium | Document explicit manual replay contract in workflow description |
+| PR-only workflow_run contract fails upstream push-triggered runs | Medium | Intentional contract enforcement; document `unsupported_upstream_event` and route push scans through direct push path |
+| Manifest parsing edge cases | Medium | Multi-source resolver with load-image-id fallback |
+| Permission tightening breaks optional PR annotations | Low | Make PR-write permission step-scoped only if needed |
+| Trust-boundary guards reject valid internal events | Medium | Add clear diagnostics and test cases V1/V10 |
+
+---
+
+## 8. PR Slicing Strategy
+
+### Decision
+
+Single PR.
+
+### Trigger Reasons
+
+1. Change is isolated to one workflow (`security-pr.yml`).
+2. Deterministic policy + hardening are tightly coupled and safest together.
+3. Split PRs would create temporary policy inconsistency.
+
+### Ordered Slice
+
+#### PR-1: Deterministic Policy and Security Hardening for `security-pr.yml`
+
+Scope:
+
+1. Deterministic missing-artifact handling (`workflow_run` hard fail).
+2. Deterministic `workflow_dispatch` artifact-only policy.
+3. Hardened image resolution and aliasing.
+4. Least-privilege + trust-boundary constraints.
+5. Validation matrix execution evidence.
+
+Files:
+
+1. `.github/workflows/security-pr.yml`
+2. `docs/plans/current_spec.md`
+
+Dependencies:
+
+1. `.github/workflows/docker-build.yml` artifact naming contract unchanged.
+
+Validation Gates:
+
+1. actionlint passes.
+2. Validation matrix V1-V10 results captured.
+3. No regression to `ghcr.io/...:pr-<num> not found` pattern.
+
+Rollback / Contingency:
+
+1. Revert PR-1 if trust-boundary guards block legitimate same-repo runs.
+2. Keep hard-fail semantics; adjust guard predicate, not policy.
+
+---
+
+## 9. Handoff
+
+After approval, implementation handoff to Supervisor SHALL include:
+
+1. Exact step-level edits required in `.github/workflows/security-pr.yml`.
+2. Proof logs for each failed/pass matrix case.
+3. Confirmation that no files outside plan scope were required.
+3. Require explicit evidence that artifact path no longer performs GHCR PR tag
+   reconstruction.
