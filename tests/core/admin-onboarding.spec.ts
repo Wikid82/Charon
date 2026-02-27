@@ -14,6 +14,31 @@ import { waitForAPIResponse, waitForLoadingComplete } from '../utils/wait-helper
 test.describe('Admin Onboarding & Setup', () => {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
 
+  async function navigateToLoginDeterministic(page: Page): Promise<void> {
+    const gotoLogin = async (timeout: number): Promise<void> => {
+      await page.goto('/login', { waitUntil: 'domcontentloaded', timeout });
+      await expect(page).toHaveURL(/\/login|\/signin|\/auth/i, { timeout: 5000 });
+    };
+
+    try {
+      await gotoLogin(15000);
+      return;
+    } catch {
+      // Recover from stale route/session and retry with a short bounded navigation.
+      await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {});
+      await page.context().clearCookies();
+      try {
+        await page.evaluate(() => {
+          localStorage.clear();
+          sessionStorage.clear();
+        });
+      } catch {
+        // Firefox can block storage access in some transitional states.
+      }
+      await gotoLogin(10000);
+    }
+  }
+
   async function assertAuthenticatedTransition(page: Page): Promise<void> {
     const loginEmailField = page.locator('input[type="email"], input[name="email"], input[autocomplete="email"], input[placeholder*="@"]').first();
 
@@ -58,19 +83,7 @@ test.describe('Admin Onboarding & Setup', () => {
     const shouldSkipLogin = /Admin logs in with valid credentials|Dashboard displays after login/i.test(testInfo.title);
 
     if (shouldSkipLogin) {
-      // Navigate to home first to avoid Firefox security restrictions on login page
-      await page.goto('/', { waitUntil: 'domcontentloaded' });
-      // Clear auth state for the login test
-      await page.context().clearCookies();
-      try {
-        await page.evaluate(() => {
-          localStorage.clear();
-          sessionStorage.clear();
-        });
-      } catch {
-        // Firefox may block storage access on some pages - continue anyway
-      }
-      await page.goto('/login', { waitUntil: 'domcontentloaded' });
+      await navigateToLoginDeterministic(page);
       return;
     }
 
@@ -86,11 +99,11 @@ test.describe('Admin Onboarding & Setup', () => {
     const start = Date.now();
 
     await test.step('Navigate to login page', async () => {
-      await page.goto('/login', { waitUntil: 'domcontentloaded' });
+      await navigateToLoginDeterministic(page);
 
       if (!/\/login|\/signin|\/auth/i.test(page.url())) {
         await logoutUser(page).catch(() => {});
-        await page.goto('/login', { waitUntil: 'domcontentloaded' });
+        await navigateToLoginDeterministic(page);
       }
 
       const emailField = page.locator('input[type="email"], input[name="email"], input[autocomplete="email"], input[placeholder*="@"]');
@@ -124,7 +137,7 @@ test.describe('Admin Onboarding & Setup', () => {
   // Dashboard displays after login
   test('Dashboard displays after login', async ({ page, adminUser }) => {
     await test.step('Perform fresh login and confirm auth transition', async () => {
-      await page.goto('/login', { waitUntil: 'domcontentloaded' });
+      await navigateToLoginDeterministic(page);
 
       await submitLoginAndWaitForDashboard(page, adminUser.email);
 
