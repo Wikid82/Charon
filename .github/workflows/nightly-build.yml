@@ -103,10 +103,11 @@ jobs:
             const workflows = [
               { id: 'e2e-tests-split.yml' },
               { id: 'codecov-upload.yml', inputs: { run_backend: 'true', run_frontend: 'true' } },
-              { id: 'security-pr.yml' },
               { id: 'supply-chain-verify.yml' },
               { id: 'codeql.yml' },
             ];
+
+            core.info('Skipping security-pr.yml: PR-only workflow intentionally excluded from nightly non-PR dispatch');
 
             for (const workflow of workflows) {
               const { data: workflowRuns } = await github.rest.actions.listWorkflowRuns({
@@ -220,14 +221,66 @@ jobs:
           echo "- ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Generate SBOM
+        id: sbom_primary
+        continue-on-error: true
         uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11  # v0.23.0
         with:
           image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.build.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom-nightly.json
+          syft-version: v1.42.1
+
+      - name: Generate SBOM fallback with pinned Syft
+        if: always()
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ steps.sbom_primary.outcome }}" == "success" ]] && [[ -s sbom-nightly.json ]] && jq -e . sbom-nightly.json >/dev/null 2>&1; then
+            echo "Primary SBOM generation succeeded with valid JSON; skipping fallback"
+            exit 0
+          fi
+
+          echo "Primary SBOM generation failed or produced missing/invalid output; using deterministic Syft fallback"
+
+          SYFT_VERSION="v1.42.1"
+          OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            x86_64) ARCH="amd64" ;;
+            aarch64|arm64) ARCH="arm64" ;;
+            *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+          esac
+
+          TARBALL="syft_${SYFT_VERSION#v}_${OS}_${ARCH}.tar.gz"
+          BASE_URL="https://github.com/anchore/syft/releases/download/${SYFT_VERSION}"
+
+          curl -fsSLo "$TARBALL" "${BASE_URL}/${TARBALL}"
+          curl -fsSLo checksums.txt "${BASE_URL}/syft_${SYFT_VERSION#v}_checksums.txt"
+
+          grep "  ${TARBALL}$" checksums.txt > checksum_line.txt
+          sha256sum -c checksum_line.txt
+
+          tar -xzf "$TARBALL" syft
+          chmod +x syft
+
+          ./syft "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.build.outputs.digest }}" -o cyclonedx-json=sbom-nightly.json
+
+      - name: Verify SBOM artifact
+        if: always()
+        run: |
+          set -euo pipefail
+          test -s sbom-nightly.json
+          jq -e . sbom-nightly.json >/dev/null
+          jq -e '
+            .bomFormat == "CycloneDX"
+            and (.specVersion | type == "string" and length > 0)
+            and has("version")
+            and has("metadata")
+            and (.components | type == "array")
+          ' sbom-nightly.json >/dev/null
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: sbom-nightly
           path: sbom-nightly.json
