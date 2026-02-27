@@ -1,332 +1,308 @@
-# Security Scan (PR) Deterministic Artifact Policy - Supervisor Remediation Plan
-
 ## 1. Introduction
 
 ### Overview
 
-`Security Scan (PR)` failed because `.github/workflows/security-pr.yml` loaded
-an artifact image tag (`pr-718-385081f`) and later attempted extraction with a
-different synthesized tag (`pr-718`).
+`Nightly Build & Package` currently has two active workflow failures that must
+be fixed together in one minimal-scope PR:
 
-Supervisor conflict resolution in this plan selects Option A:
-`workflow_run` artifact handling is restricted to upstream
-`pull_request` events only.
+1. SBOM generation failure in `Generate SBOM` (Syft fetch/version resolution).
+2. Dispatch failure from nightly workflow with `Missing required input
+   'pr_number' not provided`.
 
-### Root-Cause Clarity (Preserved)
-
-The failure was not a Docker load failure. It was a source-of-truth violation in
-image selection:
-
-1. Artifact load path succeeded.
-2. Extraction path reconstructed an alternate reference.
-3. Alternate reference did not exist, causing `docker create ... not found`.
-
-This plan keeps scope strictly on `.github/workflows/security-pr.yml`.
+This plan hard-locks runtime code changes to
+`.github/workflows/nightly-build.yml` only.
 
 ### Objectives
 
-1. Remove all ambiguous behavior for artifact absence on `workflow_run`.
-2. Remove `workflow_run` support for upstream `push` events to align with PR
-   artifact naming contract (`pr-image-<pr_number>`).
-3. Codify one deterministic `workflow_dispatch` policy in SHALL form.
-4. Harden image selection so it is not brittle on `RepoTags[0]`.
-5. Add CI security hardening requirements for permissions and trust boundary.
-6. Expand validation matrix to include `pull_request` and negative paths.
-
----
+1. Restore deterministic nightly SBOM generation.
+2. Enforce strict default-deny dispatch behavior for non-PR nightly events
+   (`schedule`, `workflow_dispatch`).
+3. Preserve GitHub Actions best practices: pinned SHAs, least privilege, and
+   deterministic behavior.
+4. Keep both current failures in a single scope and do not pivot to unrelated fixes.
+5. Remove `security-pr.yml` from nightly dispatch list unless a hard
+   requirement is proven.
 
 ## 2. Research Findings
 
-### 2.1 Failure Evidence
+### 2.1 Primary Workflow Scope
 
-Source: `.github/logs/ci_failure.log`
+File analyzed: `.github/workflows/nightly-build.yml`
 
-Observed facts:
+Relevant areas:
 
-1. Artifact `pr-image-718` was found and downloaded from run `22164807859`.
-2. `docker load` reported: `Loaded image: ghcr.io/wikid82/charon:pr-718-385081f`.
-3. Extraction attempted: `docker create ghcr.io/wikid82/charon:pr-718`.
-4. Docker reported: `... pr-718: not found`.
+1. Job `build-and-push-nightly`, step `Generate SBOM` uses
+   `anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11`.
+2. Job `trigger-nightly-validation` dispatches downstream workflows using
+   `actions/github-script` and currently includes `security-pr.yml`.
 
-### 2.2 Producer Contract
+### 2.2 Root Cause: Missing `pr_number`
 
-Source: `.github/workflows/docker-build.yml`
+Directly related called workflow:
 
-Producer emits immutable PR tags with SHA suffix (`pr-<num>-<sha>`). Consumer
-must consume artifact metadata/load output, not reconstruct mutable tags.
+1. `.github/workflows/security-pr.yml`
+2. Trigger contract includes:
+   - `workflow_dispatch.inputs.pr_number.required: true`
 
-### 2.3 Current Consumer Gaps
+Impact:
 
-Source: `.github/workflows/security-pr.yml`
+1. Nightly dispatcher invokes `createWorkflowDispatch` for `security-pr.yml`
+   without `pr_number`.
+2. For nightly non-PR contexts (scheduled/manual nightly), there is no natural
+   PR number, so dispatch fails by contract.
+3. PR lookup by nightly head SHA is not a valid safety mechanism for nightly
+   non-PR trigger types and must not be relied on for `schedule` or
+   `workflow_dispatch`.
 
-Current consumer contains ambiguous policy points:
+### 2.3 Decision: Remove PR-Only Workflow from Nightly Dispatch List
 
-1. `workflow_run` artifact absence behavior can be interpreted as skip or fail.
-2. `workflow_dispatch` policy is not single-path deterministic.
-3. Image identification relies on single `RepoTags[0]` assumption.
-4. Trust boundary and permission minimization are not explicitly codified as
-   requirements.
+Assessment result:
 
----
+1. No hard requirement was found that requires nightly workflow to dispatch
+   `security-pr.yml`.
+2. `security-pr.yml` is contractually PR/manual-oriented because it requires
+   `pr_number`.
+3. Keeping it in nightly fan-out adds avoidable failure risk and encourages
+   invalid context synthesis.
 
-## 3. Technical Specifications
+Decision:
 
-### 3.1 Deterministic EARS Requirements (Blocking)
+1. Remove `security-pr.yml` from nightly dispatch list.
+2. Keep strict default-deny guard logic to prevent accidental future dispatch
+   from non-PR events.
 
-1. WHEN `security-pr.yml` is triggered by `workflow_run` with
-   `conclusion == success` and upstream event `pull_request`, THE SYSTEM SHALL
-   require the expected image artifact to exist and SHALL hard fail the job if
-   the artifact is missing.
+Risk reduction from removal:
 
-2. WHEN `security-pr.yml` is triggered by `workflow_run` and artifact lookup
-   fails, THEN THE SYSTEM SHALL exit non-zero with a diagnostic that includes:
-   upstream run id, expected artifact name, and reason category (`not found` or
-   `api/error`).
+1. Eliminates `pr_number` contract mismatch in nightly non-PR events.
+2. Removes a class of false failures from nightly reliability metrics.
+3. Simplifies dispatcher logic and review surface.
 
-3. WHEN `security-pr.yml` is triggered by `workflow_run` and upstream event is
-   not `pull_request`, THEN THE SYSTEM SHALL hard fail immediately with reason
-   category `unsupported_upstream_event` and SHALL NOT attempt artifact lookup,
-   image load, or extraction.
+### 2.4 Root Cause: SBOM/Syft Fetch Failure
 
-4. WHEN `security-pr.yml` is triggered by `workflow_dispatch`, THE SYSTEM SHALL
-   require `inputs.pr_number` and SHALL hard fail immediately if input is empty.
+Observed behavior indicates Syft retrieval/version resolution instability during
+the SBOM step. In current workflow, no explicit `syft-version` is set in
+`nightly-build.yml`, so resolution is not explicitly pinned at the workflow
+layer.
 
-5. WHEN `security-pr.yml` is triggered by `workflow_dispatch` with valid
-   `inputs.pr_number`, THE SYSTEM SHALL resolve artifact `pr-image-<pr_number>`
-   from the latest successful `docker-build.yml` run for that PR and SHALL hard
-   fail if artifact resolution or download fails.
+### 2.5 Constraints and Policy Alignment
 
-6. WHEN artifact image is loaded, THE SYSTEM SHALL derive a canonical local
-   image alias (`charon:artifact`) from validated load result and SHALL use only
-   that alias for `docker create` in artifact-based paths.
+1. Keep action SHAs pinned.
+2. Keep permission scopes unchanged unless required.
+3. Keep change minimal and limited to nightly workflow path only.
 
-7. WHEN artifact metadata parsing is required, THE SYSTEM SHALL NOT depend only
-   on `RepoTags[0]`; it SHALL validate all available repo tags and SHALL support
-   fallback selection using docker load image ID when tags are absent/corrupt.
+## 3. Technical Specification (EARS)
 
-8. IF no valid tag and no valid load image ID can be resolved, THEN THE SYSTEM
-   SHALL hard fail before extraction.
+1. WHEN nightly runs from `schedule` or `workflow_dispatch`, THE SYSTEM SHALL
+   enforce strict default-deny for PR-only dispatches.
 
-9. WHEN event is `pull_request` or `push`, THE SYSTEM SHALL build and use
-   `charon:local` only and SHALL NOT execute artifact lookup/load logic.
+2. WHEN nightly runs from `schedule` or `workflow_dispatch`, THE SYSTEM SHALL
+   NOT perform PR-number lookup from nightly head SHA.
 
-### 3.2 Deterministic Policy Decisions
+3. WHEN evaluating downstream nightly dispatches, THE SYSTEM SHALL exclude
+   `security-pr.yml` from nightly dispatch targets unless a hard requirement
+   is explicitly introduced and documented.
 
-#### Policy A: `workflow_run` Missing Artifact
+4. IF `security-pr.yml` is reintroduced in the future, THEN THE SYSTEM SHALL
+   dispatch it ONLY when a real PR context includes a concrete `pr_number`,
+   and SHALL deny by default in all other contexts.
 
-Decision: hard fail only.
+5. WHEN `Generate SBOM` runs in nightly, THE SYSTEM SHALL use a deterministic
+   two-stage strategy in the same PR scope:
+   - Primary path: `syft-version: v1.42.1` via `anchore/sbom-action`
+   - In-PR fallback path: explicit Syft CLI installation/generation
+     with pinned version/checksum and hard verification
 
-No skip behavior is allowed for upstream-success `workflow_run`.
+6. IF primary SBOM generation fails or does not produce a valid file, THEN THE
+   SYSTEM SHALL execute fallback generation and SHALL fail the job when fallback
+   also fails or output validation fails.
 
-#### Policy A1: `workflow_run` Upstream Event Contract
+7. THE SYSTEM SHALL keep GitHub Actions pinned to immutable SHAs and SHALL NOT
+   broaden token permissions for this fix.
 
-Decision: upstream event MUST be `pull_request`.
+## 4. Exact Implementation Edits
 
-If upstream event is `push` or any non-PR event, fail immediately with
-`unsupported_upstream_event`; no artifact path execution is allowed.
+### 4.1 `.github/workflows/nightly-build.yml`
 
-#### Policy B: `workflow_dispatch`
+### Edit A: Harden downstream dispatch for non-PR triggers
 
-Decision: artifact-only manual replay.
+Location: job `trigger-nightly-validation`, step
+`Dispatch Missing Nightly Validation Workflows`.
 
-No local-build fallback is allowed for `workflow_dispatch`. Required input is
-`pr_number`; missing input is immediate hard fail.
+Exact change intent:
 
-### 3.3 Image Selection Hardening Contract
+1. Remove `security-pr.yml` from the nightly dispatch list.
+2. Keep dispatch for `e2e-tests-split.yml`, `codecov-upload.yml`,
+   `supply-chain-verify.yml`, and `codeql.yml` unchanged.
+3. Add explicit guard comments and logging stating non-PR nightly events are
+   default-deny for PR-only workflows.
+4. Explicitly prohibit PR number synthesis and prohibit PR lookup from nightly
+   SHA for `schedule` and `workflow_dispatch`.
 
-For step `Load Docker image` in `.github/workflows/security-pr.yml`:
+Implementation shape (script-level):
 
-1. Validate artifact file exists and is readable tar.
-2. Parse `manifest.json` and iterate all candidate tags under `RepoTags[]`.
-3. Run `docker load` and capture structured output.
-4. Resolve source image by deterministic priority:
-   - First valid tag from `RepoTags[]` that exists locally after load.
-   - Else image ID extracted from `docker load` output (if present).
-   - Else fail.
-5. Retag resolved source to `charon:artifact`.
-6. Emit outputs:
-   - `image_ref=charon:artifact`
-   - `source_image_ref=<resolved tag or image id>`
-   - `source_resolution_mode=manifest_tag|load_image_id`
-
-### 3.4 CI Security Hardening Requirements
-
-For job `security-scan` in `.github/workflows/security-pr.yml`:
-
-1. THE SYSTEM SHALL enforce least-privilege permissions by default:
-   - `contents: read`
-   - `actions: read`
-   - `security-events: write`
-   - No additional write scopes unless explicitly required.
-
-2. THE SYSTEM SHALL restrict `pull-requests: write` usage to only steps that
-   require PR annotations/comments. If no such step exists, this permission
-   SHALL be removed.
-
-3. THE SYSTEM SHALL enforce workflow_run trust boundary guards:
-   - Upstream workflow name must match expected producer.
-   - Upstream conclusion must be `success`.
-   - Upstream event must be `pull_request` only.
-   - Upstream head repository must equal `${{ github.repository }}` (same-repo
-     trust boundary), otherwise hard fail.
-
-4. THE SYSTEM SHALL NOT use untrusted `workflow_run` payload values to build
-   shell commands without validation and quoting.
-
-### 3.5 Step-Level Scope in `security-pr.yml`
-
-Targeted steps:
-
-1. `Extract PR number from workflow_run`
-2. `Validate workflow_run upstream event contract`
-3. `Check for PR image artifact`
-4. `Skip if no artifact` (to be converted to deterministic fail paths for
-   `workflow_run` and `workflow_dispatch`)
-5. `Load Docker image`
-6. `Extract charon binary from container`
-
-### 3.6 Event Data Flow (Deterministic)
-
-```text
-pull_request/push
-  -> Build Docker image (Local)
-  -> image_ref=charon:local
-  -> Extract /app/charon
-  -> Trivy scan
-
-workflow_run (upstream success only)
-   -> Assert upstream event == pull_request (hard fail if false)
-  -> Require artifact exists (hard fail if missing)
-  -> Load/validate image
-  -> image_ref=charon:artifact
-  -> Extract /app/charon
-  -> Trivy scan
-
-workflow_dispatch
-  -> Require pr_number input (hard fail if missing)
-  -> Resolve pr-image-<pr_number> artifact (hard fail if missing)
-  -> Load/validate image
-  -> image_ref=charon:artifact
-  -> Extract /app/charon
-  -> Trivy scan
-```
-
-### 3.7 Error Handling Matrix
-
-| Step | Condition | Required Behavior |
-|---|---|---|
-| Validate workflow_run upstream event contract | `workflow_run` upstream event is not `pull_request` | Hard fail with `unsupported_upstream_event`; stop before artifact lookup |
-| Check for PR image artifact | `workflow_run` upstream success but artifact missing | Hard fail with run id + artifact name |
-| Extract PR number from workflow_run | `workflow_dispatch` and empty `inputs.pr_number` | Hard fail with input requirement message |
-| Load Docker image | Missing/corrupt `charon-pr-image.tar` | Hard fail before `docker load` |
-| Load Docker image | Missing/corrupt `manifest.json` | Attempt load-image-id fallback; fail if unresolved |
-| Load Docker image | No valid `RepoTags[]` and no load image id | Hard fail |
-| Extract charon binary from container | Empty/invalid `image_ref` | Hard fail before `docker create` |
-| Extract charon binary from container | `/app/charon` missing | Hard fail with chosen image reference |
-
-### 3.8 API/DB Changes
-
-No backend API, frontend, or database schema changes.
-
----
-
-## 4. Implementation Plan
-
-### Phase 1: Playwright Impact Check
-
-1. Mark Playwright scope as N/A because this change is workflow-only.
-2. Record N/A rationale in PR description.
-
-### Phase 2: Deterministic Event Policies
-
-File: `.github/workflows/security-pr.yml`
-
-1. Convert ambiguous skip/fail logic to hard-fail policy for
-   `workflow_run` missing artifact after upstream success.
-2. Enforce deterministic `workflow_dispatch` policy:
-   - Required `pr_number` input.
-   - Artifact-only replay path.
-   - No local fallback.
-3. Enforce PR-only `workflow_run` event contract:
-   - Upstream event must be `pull_request`.
-   - Upstream `push` or any non-PR event hard fails with
-     `unsupported_upstream_event`.
-
-### Phase 3: Image Selection Hardening
-
-File: `.github/workflows/security-pr.yml`
-
-1. Harden `Load Docker image` with manifest validation and multi-tag handling.
-2. Add fallback resolution via docker load image ID.
-3. Emit explicit outputs for traceability (`source_resolution_mode`).
-4. Ensure extraction consumes only selected alias (`charon:artifact`).
-
-### Phase 4: CI Security Hardening
-
-File: `.github/workflows/security-pr.yml`
-
-1. Reduce job permissions to least privilege.
-2. Remove/conditionalize `pull-requests: write` if not required.
-3. Add workflow_run trust-boundary guard conditions and explicit fail messages.
-
-### Phase 5: Validation
-
-1. `pre-commit run actionlint --files .github/workflows/security-pr.yml`
-2. Simulate deterministic paths (or equivalent CI replay) for all matrix cases.
-3. Verify logs show chosen `source_image_ref` and `source_resolution_mode`.
-
----
-
-## 5. Validation Matrix
-
-| ID | Trigger Path | Scenario | Expected Result |
-|---|---|---|---|
-| V1 | `workflow_run` | Upstream success + artifact present | Pass, uses `charon:artifact` |
-| V2 | `workflow_run` | Upstream success + artifact missing | Hard fail (non-zero) |
-| V3 | `workflow_run` | Upstream success + artifact manifest corrupted | Hard fail after validation/fallback attempt |
-| V4 | `workflow_run` | Upstream success + upstream event `push` | Hard fail with `unsupported_upstream_event` |
-| V5 | `pull_request` | Direct PR trigger | Pass, uses `charon:local`, no artifact lookup |
-| V6 | `push` | Direct push trigger | Pass, uses `charon:local`, no artifact lookup |
-| V7 | `workflow_dispatch` | Missing `pr_number` input | Hard fail immediately |
-| V8 | `workflow_dispatch` | Valid `pr_number` + artifact exists | Pass, uses `charon:artifact` |
-| V9 | `workflow_dispatch` | Valid `pr_number` + artifact missing | Hard fail |
-| V10 | `workflow_run` | Upstream from untrusted repository context | Hard fail by trust-boundary guard |
-
----
-
-## 6. Acceptance Criteria
-
-1. Plan states unambiguous hard-fail behavior for missing artifact on
-   `workflow_run` after upstream `pull_request` success.
-2. Plan states `workflow_run` event contract is PR-only and that upstream
-   `push` is a deterministic hard-fail contract violation.
-3. Plan states one deterministic `workflow_dispatch` policy in SHALL terms:
-   required `pr_number`, artifact-only path, no local fallback.
-4. Plan defines robust image resolution beyond `RepoTags[0]`, including
-   load-image-id fallback and deterministic aliasing.
-5. Plan includes least-privilege permissions and explicit workflow_run trust
-   boundary constraints.
-6. Plan includes validation coverage for `pull_request` and direct `push` local
-   paths plus negative paths: unsupported upstream event, missing dispatch
-   input, missing artifact, corrupted/missing manifest.
-7. Root cause remains explicit: image-reference mismatch inside
-   `.github/workflows/security-pr.yml` after successful artifact load.
-
----
-
-## 7. Risks and Mitigations
+1. Keep workflow list explicit.
+2. Keep a local denylist/set for PR-only workflows and ensure they are never
+   dispatched from nightly non-PR events.
+3. No PR-number inputs are synthesized from nightly SHA or non-PR context.
+4. No PR lookup calls are executed for nightly non-PR events.
+
+### Edit B: Stabilize Syft source in `Generate SBOM`
+
+Location: job `build-and-push-nightly`, step `Generate SBOM`.
+
+Exact change intent:
+
+1. Keep existing pinned `anchore/sbom-action` SHA unless evidence shows that SHA
+   itself is the failure source.
+2. Add explicit `syft-version: v1.42.1` in `with:` block as the primary pin.
+3. Set the primary SBOM step to `continue-on-error: true` to allow deterministic
+   in-PR fallback execution.
+4. Add fallback step gated on primary step failure OR missing/invalid output:
+   - Install Syft CLI `v1.42.1` from official release with checksum validation.
+   - Generate `sbom-nightly.json` via CLI.
+5. Add mandatory verification step (no `continue-on-error`) with explicit
+   pass/fail criteria:
+   - `sbom-nightly.json` exists.
+   - file size is greater than 0 bytes.
+   - JSON parses successfully (`jq empty`).
+   - expected top-level fields exist for selected format.
+6. If verification fails, job fails. SBOM cannot pass silently without
+   generated artifact.
+
+### 4.2 Scope Lock
+
+1. No edits to `.github/workflows/security-pr.yml` in this plan.
+2. Contract remains unchanged: `workflow_dispatch.inputs.pr_number.required: true`.
+
+## 5. Reconfirmation: Non-Target Files
+
+No changes required:
+
+1. `.gitignore`
+2. `codecov.yml`
+3. `.dockerignore`
+4. `Dockerfile`
+
+Rationale:
+
+1. Both failures are workflow orchestration issues, not source-ignore, coverage
+   policy, Docker context, or image build recipe issues.
+
+## 6. Risks and Mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Overly strict dispatch policy blocks ad-hoc scans | Medium | Document explicit manual replay contract in workflow description |
-| PR-only workflow_run contract fails upstream push-triggered runs | Medium | Intentional contract enforcement; document `unsupported_upstream_event` and route push scans through direct push path |
-| Manifest parsing edge cases | Medium | Multi-source resolver with load-image-id fallback |
-| Permission tightening breaks optional PR annotations | Low | Make PR-write permission step-scoped only if needed |
-| Trust-boundary guards reject valid internal events | Medium | Add clear diagnostics and test cases V1/V10 |
+| `security-pr.yml` accidentally dispatched in non-PR mode | Low | Remove from nightly dispatch list and enforce default-deny comments/guards |
+| Primary Syft acquisition fails (`v1.42.1`) | Medium | Execute deterministic in-PR fallback with pinned checksum and hard output verification |
+| SBOM step appears green without real artifact | High | Mandatory verification step with explicit file/JSON checks and hard fail |
+| Action SHA update introduces side effects | Medium | Limit SHA change to `Generate SBOM` step only and validate end-to-end nightly path |
+| Over-dispatch/under-dispatch in validation job | Low | Preserve existing dispatch logic for all non-PR-dependent workflows |
 
----
+## 7. Rollback Plan
 
-## 8. PR Slicing Strategy
+1. Revert runtime behavior changes in
+   `.github/workflows/nightly-build.yml`:
+   - `trigger-nightly-validation` dispatch logic
+   - `Generate SBOM` primary + fallback + verification sequence
+2. Re-run nightly dispatch manually to verify previous baseline runtime
+   behavior.
+
+Rollback scope: runtime workflow behavior only in
+`.github/workflows/nightly-build.yml`. Documentation updates are not part of
+runtime rollback.
+
+## 8. Validation Plan
+
+### 8.1 Static Validation
+
+```bash
+cd /projects/Charon
+pre-commit run actionlint --files .github/workflows/nightly-build.yml
+```
+
+### 8.2 Behavioral Validation (Nightly non-PR)
+
+```bash
+gh workflow run nightly-build.yml --ref nightly -f reason="nightly dual-fix validation" -f skip_tests=true
+gh run list --workflow "Nightly Build & Package" --branch nightly --limit 1
+gh run view <run-id> --json databaseId,headSha,event,status,conclusion,createdAt
+gh run view <run-id> --log
+```
+
+Expected outcomes:
+
+1. `Generate SBOM` succeeds through primary path or deterministic fallback and
+    `sbom-nightly.json` is uploaded.
+2. Dispatch step does not attempt `security-pr.yml` from nightly run.
+3. No `Missing required input 'pr_number' not provided` error.
+4. Both targeted nightly failures are resolved in the same run scope:
+   `pr_number` dispatch failure and Syft/SBOM failure.
+
+### 8.3 Explicit Negative Dispatch Verification (Run-Scoped/Time-Scoped)
+
+Verify `security-pr.yml` was not dispatched by this specific nightly run using
+time scope and actor scope (not SHA-only):
+
+```bash
+RUN_JSON=$(gh run view <nightly-run-id> --json databaseId,createdAt,updatedAt,event,headBranch)
+START=$(echo "$RUN_JSON" | jq -r '.createdAt')
+END=$(echo "$RUN_JSON" | jq -r '.updatedAt')
+
+gh api repos/<owner>/<repo>/actions/workflows/security-pr.yml/runs \
+   --paginate \
+   -f event=workflow_dispatch | \
+jq --arg start "$START" --arg end "$END" '
+   [ .workflow_runs[]
+      | select(.created_at >= $start and .created_at <= $end)
+      | select(.head_branch == "nightly")
+      | select(.triggering_actor.login == "github-actions[bot]")
+   ] | length'
+```
+
+Expected result: `0`
+
+### 8.4 Positive Validation: Manual `security-pr.yml` Dispatch Still Works
+
+Run a manual dispatch with a valid PR number and verify successful start:
+
+```bash
+gh workflow run security-pr.yml --ref <pr-branch> -f pr_number=<valid-pr-number>
+gh run list --workflow "Security Scan (PR)" --limit 5 \
+   --json databaseId,event,status,conclusion,createdAt,headBranch
+gh run view <security-pr-run-id> --log
+```
+
+Expected results:
+
+1. Workflow is accepted (no missing-input validation errors).
+2. Run event is `workflow_dispatch`.
+3. Run completes according to existing workflow behavior.
+
+### 8.5 Contract Validation (No Contract Change)
+
+1. `security-pr.yml` contract remains PR/manual specific and unchanged.
+2. Nightly non-PR paths do not consume or synthesize `pr_number`.
+
+## 9. Acceptance Criteria
+
+1. `Nightly Build & Package` no longer fails in `Generate SBOM` due to Syft
+   fetch/version resolution, with deterministic in-PR fallback.
+2. Nightly validation dispatch no longer fails with missing required
+   `pr_number`.
+3. For non-PR nightly triggers (`schedule`/`workflow_dispatch`), PR-only
+   dispatch of `security-pr.yml` is default-deny and not attempted from nightly
+   dispatch targets.
+4. Workflow remains SHA-pinned and permissions are not broadened.
+5. Validation evidence includes explicit run-scoped/time-scoped proof that
+   `security-pr.yml` was not dispatched by the tested nightly run.
+6. No changes made to `.gitignore`, `codecov.yml`, `.dockerignore`, or
+   `Dockerfile`.
+7. Manual dispatch of `security-pr.yml` with valid `pr_number` is validated to
+   still work.
+8. SBOM step fails hard when neither primary nor fallback path produces a valid
+   SBOM artifact.
+
+## 10. PR Slicing Strategy
 
 ### Decision
 
@@ -334,50 +310,47 @@ Single PR.
 
 ### Trigger Reasons
 
-1. Change is isolated to one workflow (`security-pr.yml`).
-2. Deterministic policy + hardening are tightly coupled and safest together.
-3. Split PRs would create temporary policy inconsistency.
+1. Changes are tightly coupled inside one workflow path.
+2. Shared validation path (nightly run) verifies both fixes together.
+3. Rollback safety is high with one-file revert.
 
-### Ordered Slice
+### Ordered Slices
 
-#### PR-1: Deterministic Policy and Security Hardening for `security-pr.yml`
+#### PR-1: Nightly Dual-Failure Workflow Fix
 
 Scope:
 
-1. Deterministic missing-artifact handling (`workflow_run` hard fail).
-2. Deterministic `workflow_dispatch` artifact-only policy.
-3. Hardened image resolution and aliasing.
-4. Least-privilege + trust-boundary constraints.
-5. Validation matrix execution evidence.
+1. `.github/workflows/nightly-build.yml` only.
+2. SBOM Syft stabilization with explicit tag pin + fallback rule.
+3. Remove `security-pr.yml` from nightly dispatch list and enforce strict
+   default-deny semantics for non-PR nightly events.
 
 Files:
 
-1. `.github/workflows/security-pr.yml`
+1. `.github/workflows/nightly-build.yml`
 2. `docs/plans/current_spec.md`
 
 Dependencies:
 
-1. `.github/workflows/docker-build.yml` artifact naming contract unchanged.
+1. `security-pr.yml` keeps required `workflow_dispatch` `pr_number` contract.
 
-Validation Gates:
+Validation gates:
 
-1. actionlint passes.
-2. Validation matrix V1-V10 results captured.
-3. No regression to `ghcr.io/...:pr-<num> not found` pattern.
+1. `actionlint` passes.
+2. Nightly manual dispatch run passes both targeted failure points.
+3. SBOM artifact upload succeeds through primary path or fallback path.
+4. Explicit run-scoped/time-scoped negative check confirms zero
+   bot-triggered `security-pr.yml` dispatches during the nightly run window.
+5. Positive manual dispatch check with valid `pr_number` succeeds.
 
-Rollback / Contingency:
+Rollback and contingency:
 
-1. Revert PR-1 if trust-boundary guards block legitimate same-repo runs.
-2. Keep hard-fail semantics; adjust guard predicate, not policy.
+1. Revert PR-1.
+2. If both primary and fallback Syft paths fail, treat as blocking regression
+   and do not merge until generation criteria pass.
 
----
+## 11. Complexity Estimate
 
-## 9. Handoff
-
-After approval, implementation handoff to Supervisor SHALL include:
-
-1. Exact step-level edits required in `.github/workflows/security-pr.yml`.
-2. Proof logs for each failed/pass matrix case.
-3. Confirmation that no files outside plan scope were required.
-3. Require explicit evidence that artifact path no longer performs GHCR PR tag
-   reconstruction.
+1. Implementation complexity: Low.
+2. Validation complexity: Medium (requires workflow run completion).
+3. Blast radius: Low (single workflow file, no runtime code changes).
