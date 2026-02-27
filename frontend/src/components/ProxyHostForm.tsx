@@ -101,9 +101,12 @@ interface ProxyHostFormProps {
   onCancel: () => void
 }
 
-export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) {
-  type ProxyHostFormState = Partial<ProxyHost> & { addUptime?: boolean; uptimeInterval?: number; uptimeMaxRetries?: number }
-  const [formData, setFormData] = useState<ProxyHostFormState>({
+function buildInitialFormData(host?: ProxyHost): Partial<ProxyHost> & {
+  addUptime?: boolean
+  uptimeInterval?: number
+  uptimeMaxRetries?: number
+} {
+  return {
     name: host?.name || '',
     domain_names: host?.domain_names || '',
     forward_scheme: host?.forward_scheme || 'http',
@@ -123,7 +126,42 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     access_list_id: host?.access_list_id,
     security_header_profile_id: host?.security_header_profile_id,
     dns_provider_id: host?.dns_provider_id || null,
-  })
+  }
+}
+
+function normalizeNullableID(value: unknown): number | null | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  if (value === null) {
+    return null
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (trimmed === '') {
+      return null
+    }
+
+    const parsed = Number.parseInt(trimmed, 10)
+    return Number.isNaN(parsed) ? null : parsed
+  }
+
+  return null
+}
+
+export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) {
+  type ProxyHostFormState = Partial<ProxyHost> & { addUptime?: boolean; uptimeInterval?: number; uptimeMaxRetries?: number }
+  const [formData, setFormData] = useState<ProxyHostFormState>(buildInitialFormData(host))
+
+  useEffect(() => {
+    setFormData(buildInitialFormData(host))
+  }, [host?.uuid])
 
   // Charon internal IP for config helpers (previously CPMP internal IP)
   const [charonInternalIP, setCharonInternalIP] = useState<string>('')
@@ -420,6 +458,10 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       // strip temporary uptime-only flags from payload by destructuring
       const { addUptime: _addUptime, uptimeInterval: _uptimeInterval, uptimeMaxRetries: _uptimeMaxRetries, ...payloadWithoutUptime } = payload as ProxyHostFormState
       void _addUptime; void _uptimeInterval; void _uptimeMaxRetries;
+
+      payloadWithoutUptime.access_list_id = normalizeNullableID(payloadWithoutUptime.access_list_id)
+      payloadWithoutUptime.security_header_profile_id = normalizeNullableID(payloadWithoutUptime.security_header_profile_id)
+
       const res = await onSubmit(payloadWithoutUptime)
 
       // if user asked to add uptime, request server to sync monitors
@@ -824,7 +866,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
           {/* Access Control List */}
           <AccessListSelector
-            value={formData.access_list_id || null}
+            value={formData.access_list_id ?? null}
             onChange={id => setFormData(prev => ({ ...prev, access_list_id: id }))}
           />
 
@@ -836,9 +878,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             </label>
 
             <Select
-              value={String(formData.security_header_profile_id || 0)}
+              value={formData.security_header_profile_id == null ? 'none' : String(formData.security_header_profile_id)}
               onValueChange={e => {
-                const value = e === "0" ? null : parseInt(e) || null
+                const value = e === 'none' ? null : normalizeNullableID(e)
                 setFormData(prev => ({ ...prev, security_header_profile_id: value }))
               }}
             >
@@ -846,7 +888,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="0">None (No Security Headers)</SelectItem>
+                <SelectItem value="none">None (No Security Headers)</SelectItem>
                 {securityProfiles
                   ?.filter(p => p.is_preset)
                   .sort((a, b) => a.security_score - b.security_score)

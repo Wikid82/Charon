@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed: Added robust validation and debug logging for Docker image tags to prevent invalid reference errors.
 - Fixed: Removed log masking for image references and added manifest validation to debug CI failures.
+- **Proxy Hosts**: Fixed ACL and Security Headers dropdown selections so create/edit saves now keep the selected values (including clearing to none) after submit and reload.
 - **CI**: Fixed Docker image reference output so integration jobs never pull an empty image ref
 - **E2E Test Reliability**: Resolved test timeout issues affecting CI/CD pipeline stability
   - Fixed config reload overlay blocking test interactions
