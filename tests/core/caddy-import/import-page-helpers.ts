@@ -239,22 +239,73 @@ export async function resetImportSession(page: Page): Promise<void> {
     // Best-effort navigation only
   }
 
-  try {
-    const statusResponse = await page.request.get('/api/v1/import/status');
-    if (statusResponse.ok()) {
-      const statusBody = await statusResponse.json();
-      if (statusBody?.has_pending) {
-        await page.request.post('/api/v1/import/cancel');
-      }
-    }
-  } catch {
+  await clearPendingImportSession(page).catch(() => {
     // Best-effort cleanup only
-  }
+  });
 
   try {
     await page.goto(IMPORT_PAGE_PATH, { waitUntil: 'domcontentloaded' });
   } catch {
     // Best-effort return to import page only
+  }
+}
+
+async function readImportStatus(page: Page): Promise<{ hasPending: boolean; sessionId: string }> {
+  try {
+    const statusResponse = await page.request.get('/api/v1/import/status');
+    if (!statusResponse.ok()) {
+      return { hasPending: false, sessionId: '' };
+    }
+
+    const statusBody = (await statusResponse.json().catch(() => ({}))) as {
+      has_pending?: boolean;
+      session?: { id?: string };
+    };
+
+    return {
+      hasPending: Boolean(statusBody?.has_pending),
+      sessionId: statusBody?.session?.id || '',
+    };
+  } catch {
+    return { hasPending: false, sessionId: '' };
+  }
+}
+
+async function issuePendingSessionCancel(page: Page, sessionId: string): Promise<void> {
+  if (sessionId) {
+    await page
+      .request
+      .delete(`/api/v1/import/cancel?session_uuid=${encodeURIComponent(sessionId)}`)
+      .catch(() => null);
+  }
+
+  // Keep legacy endpoints for compatibility across backend variants.
+  await page.request.delete('/api/v1/import/cancel').catch(() => null);
+  await page.request.post('/api/v1/import/cancel').catch(() => null);
+}
+
+async function clearPendingImportSession(page: Page): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const status = await readImportStatus(page);
+    if (!status.hasPending) {
+      return;
+    }
+
+    await issuePendingSessionCancel(page, status.sessionId);
+
+    await expect
+      .poll(async () => {
+        const next = await readImportStatus(page);
+        return next.hasPending;
+      }, {
+        timeout: 3000,
+      })
+      .toBeFalsy();
+  }
+
+  const finalStatus = await readImportStatus(page);
+  if (finalStatus.hasPending) {
+    throw new Error(`Unable to clear pending import session after retries (sessionId=${finalStatus.sessionId || 'unknown'})`);
   }
 }
 
@@ -275,55 +326,22 @@ export async function ensureImportFormReady(page: Page): Promise<void> {
   }
 
   const textarea = page.locator('textarea').first();
-  const textareaVisible = await textarea.isVisible().catch(() => false);
+  let textareaVisible = await textarea.isVisible().catch(() => false);
   if (!textareaVisible) {
     const pendingSessionVisible = await page.getByText(/pending import session/i).first().isVisible().catch(() => false);
     if (pendingSessionVisible) {
       diagnosticLog('[Diag:import-ready] pending import session detected, canceling to restore textarea');
-
-      const browserCancelStatus = await page
-        .evaluate(async () => {
-          const token = localStorage.getItem('charon_auth_token');
-          const commonHeaders = token ? { Authorization: `Bearer ${token}` } : {};
-
-          const statusResponse = await fetch('/api/v1/import/status', {
-            method: 'GET',
-            credentials: 'include',
-            headers: commonHeaders,
-          });
-          let sessionId = '';
-          if (statusResponse.ok) {
-            const statusBody = (await statusResponse.json()) as { session?: { id?: string } };
-            sessionId = statusBody?.session?.id || '';
-          }
-
-          const cancelUrl = sessionId
-            ? `/api/v1/import/cancel?session_uuid=${encodeURIComponent(sessionId)}`
-            : '/api/v1/import/cancel';
-
-          const response = await fetch(cancelUrl, {
-            method: 'DELETE',
-            credentials: 'include',
-            headers: commonHeaders,
-          });
-          return response.status;
-        })
-        .catch(() => null);
-      diagnosticLog(`[Diag:import-ready] browser cancel status=${browserCancelStatus ?? 'n/a'}`);
-
-      const cancelButton = page.getByRole('button', { name: /^cancel$/i }).first();
-      const cancelButtonVisible = await cancelButton.isVisible().catch(() => false);
-
-      if (cancelButtonVisible) {
-        await Promise.all([
-          page.waitForResponse((response) => response.url().includes('/api/v1/import/cancel'), { timeout: 10000 }).catch(() => null),
-          cancelButton.click(),
-        ]);
-      }
-
+      await clearPendingImportSession(page);
       await page.goto(IMPORT_PAGE_PATH, { waitUntil: 'domcontentloaded' });
       await assertNoAuthRedirect(page, 'ensureImportFormReady after pending-session reset');
+      textareaVisible = await textarea.isVisible().catch(() => false);
     }
+  }
+
+  if (!textareaVisible) {
+    // One deterministic refresh recovers WebKit hydration timing without broad retries.
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await assertNoAuthRedirect(page, 'ensureImportFormReady after reload recovery');
   }
 
   await expect(textarea).toBeVisible();

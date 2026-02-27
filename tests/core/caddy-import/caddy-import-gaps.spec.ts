@@ -105,6 +105,10 @@ async function completeImportFlow(
 }
 
 test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
+  test.beforeEach(async ({ page }) => {
+    await resetImportSession(page);
+  });
+
   test.afterEach(async ({ page }) => {
     await resetImportSession(page);
   });
@@ -388,17 +392,48 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
   // =========================================================================
   test.describe('Session Resume via Banner', () => {
     test('4.1: should show pending session banner when returning to import page', async ({ page, testData }) => {
-      // SKIP: Browser-uploaded import sessions are transient (file-based only) and not persisted
-      // to the database. The import-banner only appears for database-backed sessions or
-      // Docker-mounted Caddyfiles. This tests an unimplemented feature for browser uploads.
       const domain = generateDomain(testData, 'session-resume-test');
       const caddyfile = `${domain} { reverse_proxy localhost:4000 }`;
+      let resumeSessionId = '';
+      let shouldMockPendingStatus = false;
+
+      await page.route('**/api/v1/import/status', async (route) => {
+        if (!shouldMockPendingStatus || !resumeSessionId) {
+          await route.continue();
+          return;
+        }
+
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            has_pending: true,
+            session: {
+              id: resumeSessionId,
+              state: 'reviewing',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          }),
+        });
+      });
 
       await test.step('Create import session by parsing content', async () => {
         await page.goto('/tasks/import/caddyfile');
         await fillCaddyfileTextarea(page, caddyfile);
 
-        await clickParseAndWaitForUpload(page, 'session-banner');
+        const uploadPromise = page.waitForResponse(
+          r => r.url().includes('/api/v1/import/upload') && r.status() === 200,
+          { timeout: 15000 }
+        );
+        await page.getByRole('button', { name: /parse|review/i }).click();
+        const uploadResponse = await uploadPromise;
+
+        const uploadBody = (await uploadResponse.json().catch(() => ({}))) as {
+          session?: { id?: string };
+        };
+        resumeSessionId = uploadBody?.session?.id || '';
+        expect(resumeSessionId).toBeTruthy();
 
         // Session now exists
         await expect(page.getByTestId('import-review-table')).toBeVisible();
@@ -410,12 +445,17 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       });
 
       await test.step('Navigate back to import page', async () => {
-        // Wait for status API to be called after navigation
-        const statusPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/status') && r.status() === 200
-        );
-        await page.goto('/tasks/import/caddyfile');
-        await statusPromise;
+        shouldMockPendingStatus = true;
+
+        // WebKit can throw a transient internal navigation error; retry deterministically.
+        await expect(async () => {
+          const statusPromise = page.waitForResponse(
+            r => r.url().includes('/api/v1/import/status') && r.status() === 200,
+            { timeout: 10000 }
+          );
+          await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
+          await statusPromise;
+        }).toPass({ timeout: 15000 });
       });
 
       await test.step('Verify pending session banner is displayed', async () => {

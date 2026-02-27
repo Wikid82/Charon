@@ -14,6 +14,28 @@ import { dirname } from 'path';
 import { TestDataManager } from './utils/TestDataManager';
 import { STORAGE_STATE } from './constants';
 
+function isSqliteFullFailure(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('database or disk is full') ||
+    normalized.includes('sqlite_full') ||
+    (normalized.includes('(13)') && normalized.includes('sqlite'))
+  );
+}
+
+function buildSqliteFullInfrastructureError(context: string, details: string): Error {
+  const error = new Error(
+    `[INFRASTRUCTURE][SQLITE_FULL] ${context}\n` +
+    `Detected SQLite storage exhaustion during Playwright global setup.\n` +
+    `Action required:\n` +
+    `1. Free disk space and verify SQLite volume permissions.\n` +
+    `2. Rebuild/restart E2E environment before retry.\n` +
+    `Original error: ${details}`
+  );
+  error.name = 'InfrastructureSQLiteFullError';
+  return error;
+}
+
 // Singleton to prevent duplicate validation across workers
 let tokenValidated = false;
 
@@ -433,6 +455,12 @@ async function emergencySecurityReset(requestContext: APIRequestContext): Promis
       const body = await response.text();
       console.error(`  ❌ Emergency reset failed: ${response.status()}`);
       console.error(`  📄 Response body: ${body}`);
+      if (isSqliteFullFailure(body)) {
+        throw buildSqliteFullInfrastructureError(
+          'Emergency security reset returned non-OK status',
+          body
+        );
+      }
       throw new Error(`Emergency reset returned ${response.status()}: ${body}`);
     }
 
