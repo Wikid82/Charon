@@ -19,36 +19,76 @@ Example: `0.1.0-alpha`, `1.0.0-beta.1`, `2.0.0-rc.2`
 
 ## Creating a Release
 
-### Automated Release Process
+### Canonical Release Process (Tag-Derived CI)
 
-1. **Update version** in `.version` file:
-
-   ```bash
-   echo "1.0.0" > .version
-   ```
-
-2. **Commit version bump**:
+1. **Create and push a release tag**:
 
    ```bash
-   git add .version
-   git commit -m "chore: bump version to 1.0.0"
+  git tag -a v1.0.0 -m "Release v1.0.0"
+  git push origin v1.0.0
    ```
 
-3. **Create and push tag**:
+2. **GitHub Actions automatically**:
+  - Runs release workflow from the pushed tag (`.github/workflows/release-goreleaser.yml`)
+  - Builds and publishes release artifacts/images through CI (`.github/workflows/docker-build.yml`)
+  - Creates/updates GitHub Release metadata
+
+3. **Container tags are published**:
+  - `v1.0.0` (exact version)
+  - `1.0` (minor version)
+  - `1` (major version)
+  - `latest` (for non-prerelease on main branch)
+
+### Legacy/Optional `.version` Path
+
+The `.version` file is optional and not the canonical release trigger.
+
+Use it only when you need local/version-file parity checks:
+
+1. **Set `.version` locally (optional)**:
 
    ```bash
-   git tag -a v1.0.0 -m "Release v1.0.0"
-   git push origin v1.0.0
+  echo "1.0.0" > .version
    ```
 
-4. **GitHub Actions automatically**:
-   - Creates GitHub Release with changelog
-   - Builds multi-arch Docker images (amd64, arm64)
-   - Publishes to GitHub Container Registry with tags:
-     - `v1.0.0` (exact version)
-     - `1.0` (minor version)
-     - `1` (major version)
-     - `latest` (for non-prerelease on main branch)
+2. **Validate `.version` matches the latest tag**:
+
+   ```bash
+  bash scripts/check-version-match-tag.sh
+   ```
+
+### Deterministic Rollout Verification Gates (Mandatory)
+
+Release sign-off is blocked until all items below pass in the same validation
+run.
+
+Enforcement points:
+
+- Release sign-off checklist/process (mandatory): All gates below remain required for release sign-off.
+- CI-supported checks (current): `.github/workflows/docker-build.yml` and `.github/workflows/supply-chain-verify.yml` enforce the subset currently implemented in workflows.
+- Manual validation required until CI parity: Validate any not-yet-implemented workflow gates via VS Code tasks `Security: Full Supply Chain Audit`, `Security: Verify SBOM`, `Security: Generate SLSA Provenance`, and `Security: Sign with Cosign`.
+- Optional version-file parity check: `Utility: Check Version Match Tag` (script: `scripts/check-version-match-tag.sh`).
+
+- [ ] **Digest freshness/parity:** Capture pre-push and post-push index digests
+  for the target tag in GHCR and Docker Hub, confirm expected freshness,
+  and confirm cross-registry index digest parity.
+- [ ] **Per-arch parity:** Confirm per-platform (`linux/amd64`, `linux/arm64`,
+  and any published platform) digest parity between GHCR and Docker Hub.
+- [ ] **Immutable digest scanning:** Run SBOM and vulnerability scans against
+  immutable refs only, using `image@sha256:<index-digest>`.
+- [ ] **Artifact freshness:** Confirm scan artifacts are generated after the
+  push timestamp and in the same validation run.
+- [ ] **Evidence block present:** Include the mandatory evidence block fields
+  listed below.
+
+#### Mandatory Evidence Block Fields
+
+- Tag name
+- Index digest (`sha256:...`)
+- Per-arch digests (platform -> digest)
+- Scan tool versions
+- Push timestamp and scan timestamp(s)
+- Artifact file names generated in this run
 
 ## Container Image Tags
 

@@ -229,6 +229,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
+
       - name: Log in to Docker Hub
         if: needs.build.outputs.image_source == 'registry'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
@@ -429,6 +430,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+
 
       - name: Log in to Docker Hub
         if: needs.build.outputs.image_source == 'registry'
@@ -638,6 +640,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+
 
       - name: Log in to Docker Hub
         if: needs.build.outputs.image_source == 'registry'
@@ -860,6 +863,39 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
+      - name: Preflight disk diagnostics (before cleanup)
+        run: |
+          echo "Disk usage before cleanup"
+          df -h
+          docker system df || true
+
+      - name: Preflight cleanup (best effort)
+        run: |
+          echo "Best-effort cleanup for CI runner"
+          docker system prune -af || true
+          rm -rf playwright-report playwright-output coverage/e2e test-results diagnostics || true
+          rm -f docker-logs-*.txt charon-e2e-image.tar || true
+
+      - name: Preflight disk diagnostics and threshold gate
+        run: |
+          set -euo pipefail
+          MIN_FREE_BYTES=$((5 * 1024 * 1024 * 1024))
+          echo "Disk usage after cleanup"
+          df -h
+          docker system df || true
+
+          WORKSPACE_PATH="${GITHUB_WORKSPACE:-$PWD}"
+          FREE_ROOT_BYTES=$(df -PB1 / | awk 'NR==2 {print $4}')
+          FREE_WORKSPACE_BYTES=$(df -PB1 "$WORKSPACE_PATH" | awk 'NR==2 {print $4}')
+
+          echo "Free bytes on /: $FREE_ROOT_BYTES"
+          echo "Free bytes on workspace ($WORKSPACE_PATH): $FREE_WORKSPACE_BYTES"
+
+          if [ "$FREE_ROOT_BYTES" -lt "$MIN_FREE_BYTES" ] || [ "$FREE_WORKSPACE_BYTES" -lt "$MIN_FREE_BYTES" ]; then
+            echo "::error::[CI_DISK_PRESSURE] Insufficient free disk after cleanup. Required >= 5GiB on both / and workspace. root=${FREE_ROOT_BYTES}B workspace=${FREE_WORKSPACE_BYTES}B"
+            exit 42
+          fi
+
       - name: Log in to Docker Hub
         if: needs.build.outputs.image_source == 'registry'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
@@ -1063,6 +1099,39 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+
+      - name: Preflight disk diagnostics (before cleanup)
+        run: |
+          echo "Disk usage before cleanup"
+          df -h
+          docker system df || true
+
+      - name: Preflight cleanup (best effort)
+        run: |
+          echo "Best-effort cleanup for CI runner"
+          docker system prune -af || true
+          rm -rf playwright-report playwright-output coverage/e2e test-results diagnostics || true
+          rm -f docker-logs-*.txt charon-e2e-image.tar || true
+
+      - name: Preflight disk diagnostics and threshold gate
+        run: |
+          set -euo pipefail
+          MIN_FREE_BYTES=$((5 * 1024 * 1024 * 1024))
+          echo "Disk usage after cleanup"
+          df -h
+          docker system df || true
+
+          WORKSPACE_PATH="${GITHUB_WORKSPACE:-$PWD}"
+          FREE_ROOT_BYTES=$(df -PB1 / | awk 'NR==2 {print $4}')
+          FREE_WORKSPACE_BYTES=$(df -PB1 "$WORKSPACE_PATH" | awk 'NR==2 {print $4}')
+
+          echo "Free bytes on /: $FREE_ROOT_BYTES"
+          echo "Free bytes on workspace ($WORKSPACE_PATH): $FREE_WORKSPACE_BYTES"
+
+          if [ "$FREE_ROOT_BYTES" -lt "$MIN_FREE_BYTES" ] || [ "$FREE_WORKSPACE_BYTES" -lt "$MIN_FREE_BYTES" ]; then
+            echo "::error::[CI_DISK_PRESSURE] Insufficient free disk after cleanup. Required >= 5GiB on both / and workspace. root=${FREE_ROOT_BYTES}B workspace=${FREE_WORKSPACE_BYTES}B"
+            exit 42
+          fi
 
       - name: Log in to Docker Hub
         if: needs.build.outputs.image_source == 'registry'
@@ -1275,6 +1344,39 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+
+      - name: Preflight disk diagnostics (before cleanup)
+        run: |
+          echo "Disk usage before cleanup"
+          df -h
+          docker system df || true
+
+      - name: Preflight cleanup (best effort)
+        run: |
+          echo "Best-effort cleanup for CI runner"
+          docker system prune -af || true
+          rm -rf playwright-report playwright-output coverage/e2e test-results diagnostics || true
+          rm -f docker-logs-*.txt charon-e2e-image.tar || true
+
+      - name: Preflight disk diagnostics and threshold gate
+        run: |
+          set -euo pipefail
+          MIN_FREE_BYTES=$((5 * 1024 * 1024 * 1024))
+          echo "Disk usage after cleanup"
+          df -h
+          docker system df || true
+
+          WORKSPACE_PATH="${GITHUB_WORKSPACE:-$PWD}"
+          FREE_ROOT_BYTES=$(df -PB1 / | awk 'NR==2 {print $4}')
+          FREE_WORKSPACE_BYTES=$(df -PB1 "$WORKSPACE_PATH" | awk 'NR==2 {print $4}')
+
+          echo "Free bytes on /: $FREE_ROOT_BYTES"
+          echo "Free bytes on workspace ($WORKSPACE_PATH): $FREE_WORKSPACE_BYTES"
+
+          if [ "$FREE_ROOT_BYTES" -lt "$MIN_FREE_BYTES" ] || [ "$FREE_WORKSPACE_BYTES" -lt "$MIN_FREE_BYTES" ]; then
+            echo "::error::[CI_DISK_PRESSURE] Insufficient free disk after cleanup. Required >= 5GiB on both / and workspace. root=${FREE_ROOT_BYTES}B workspace=${FREE_WORKSPACE_BYTES}B"
+            exit 42
+          fi
 
       - name: Log in to Docker Hub
         if: needs.build.outputs.image_source == 'registry'
