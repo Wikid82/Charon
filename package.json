@@ -19,7 +19,7 @@
   "devDependencies": {
     "@bgotink/playwright-coverage": "^0.3.2",
     "@playwright/test": "^1.58.2",
-    "@types/node": "^25.3.0",
+    "@types/node": "^25.3.2",
     "dotenv": "^17.3.1",
     "markdownlint-cli2": "^0.21.0",
     "prettier": "^3.8.1",

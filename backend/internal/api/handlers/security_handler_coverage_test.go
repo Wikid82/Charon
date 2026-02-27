@@ -27,6 +27,10 @@ func TestSecurityHandler_UpdateConfig_Success(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/config", handler.UpdateConfig)
 
 	payload := map[string]any{
@@ -55,6 +59,10 @@ func TestSecurityHandler_UpdateConfig_DefaultName(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/config", handler.UpdateConfig)
 
 	// Payload without name - should default to "default"
@@ -78,6 +86,10 @@ func TestSecurityHandler_UpdateConfig_InvalidPayload(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/config", handler.UpdateConfig)
 
 	w := httptest.NewRecorder()
@@ -193,6 +205,10 @@ func TestSecurityHandler_CreateDecision_Success(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/decisions", handler.CreateDecision)
 
 	payload := map[string]any{
@@ -218,6 +234,10 @@ func TestSecurityHandler_CreateDecision_MissingIP(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/decisions", handler.CreateDecision)
 
 	payload := map[string]any{
@@ -240,6 +260,10 @@ func TestSecurityHandler_CreateDecision_MissingAction(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/decisions", handler.CreateDecision)
 
 	payload := map[string]any{
@@ -262,6 +286,10 @@ func TestSecurityHandler_CreateDecision_InvalidPayload(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/decisions", handler.CreateDecision)
 
 	w := httptest.NewRecorder()
@@ -306,6 +334,10 @@ func TestSecurityHandler_UpsertRuleSet_Success(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/rulesets", handler.UpsertRuleSet)
 
 	payload := map[string]any{
@@ -330,6 +362,10 @@ func TestSecurityHandler_UpsertRuleSet_MissingName(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/rulesets", handler.UpsertRuleSet)
 
 	payload := map[string]any{
@@ -353,6 +389,10 @@ func TestSecurityHandler_UpsertRuleSet_InvalidPayload(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/rulesets", handler.UpsertRuleSet)
 
 	w := httptest.NewRecorder()
@@ -375,6 +415,10 @@ func TestSecurityHandler_DeleteRuleSet_Success(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.DELETE("/security/rulesets/:id", handler.DeleteRuleSet)
 
 	w := httptest.NewRecorder()
@@ -395,6 +439,10 @@ func TestSecurityHandler_DeleteRuleSet_NotFound(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.DELETE("/security/rulesets/:id", handler.DeleteRuleSet)
 
 	w := httptest.NewRecorder()
@@ -411,6 +459,10 @@ func TestSecurityHandler_DeleteRuleSet_InvalidID(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.DELETE("/security/rulesets/:id", handler.DeleteRuleSet)
 
 	w := httptest.NewRecorder()
@@ -427,6 +479,10 @@ func TestSecurityHandler_DeleteRuleSet_EmptyID(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	// Note: This route pattern won't match empty ID, but testing the handler directly
 	router.DELETE("/security/rulesets/:id", handler.DeleteRuleSet)
 
@@ -509,6 +565,10 @@ func TestSecurityHandler_Enable_WithValidBreakGlassToken(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/breakglass/generate", handler.GenerateBreakGlass)
 	router.POST("/security/enable", handler.Enable)
 
@@ -600,6 +660,10 @@ func TestSecurityHandler_Disable_FromRemoteWithToken(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/breakglass/generate", handler.GenerateBreakGlass)
 	router.POST("/security/disable", func(c *gin.Context) {
 		c.Request.RemoteAddr = "192.168.1.100:12345" // Remote IP
@@ -689,6 +753,10 @@ func TestSecurityHandler_GenerateBreakGlass_NoConfig(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/breakglass/generate", handler.GenerateBreakGlass)
 
 	w := httptest.NewRecorder()

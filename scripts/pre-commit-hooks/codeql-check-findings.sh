@@ -1,5 +1,5 @@
 #!/bin/bash
-# Check CodeQL SARIF results for HIGH/CRITICAL findings
+# Check CodeQL SARIF results for blocking findings (CI-aligned)
 set -e
 
 RED='\033[0;31m'
@@ -22,36 +22,93 @@ check_sarif() {
 
     echo "🔍 Checking $lang findings..."
 
-    # Check for findings using jq (if available)
+        # Check for findings using jq (if available)
     if command -v jq &> /dev/null; then
-        # Count high/critical severity findings
-        HIGH_COUNT=$(jq -r '.runs[].results[] | select(.level == "error" or .level == "warning") | .level' "$sarif_file" 2>/dev/null | wc -l || echo 0)
+                # Count blocking findings.
+                # CI behavior: block only effective level=error (high/critical equivalent);
+                # warnings are reported but non-blocking unless escalated by policy.
+                BLOCKING_COUNT=$(jq -r '[
+                    .runs[] as $run
+                    | $run.results[]
+                    | . as $result
+                    | ($run.tool.driver.rules // []) as $rules
+                    | ((
+                        $result.level
+                        // (if (($result.ruleIndex | type) == "number") then ($rules[$result.ruleIndex].defaultConfiguration.level // empty) else empty end)
+                        // ([
+                            $rules[]?
+                            | select((.id // "") == ($result.ruleId // ""))
+                            | (.defaultConfiguration.level // empty)
+                        ][0] // empty)
+                        // ""
+                    ) | ascii_downcase) as $effectiveLevel
+                    | select($effectiveLevel == "error")
+                ] | length' "$sarif_file" 2>/dev/null || echo 0)
 
-        if [ "$HIGH_COUNT" -gt 0 ]; then
-            echo -e "${RED}❌ Found $HIGH_COUNT potential security issues in $lang code${NC}"
+                WARNING_COUNT=$(jq -r '[
+                    .runs[] as $run
+                    | $run.results[]
+                    | . as $result
+                    | ($run.tool.driver.rules // []) as $rules
+                    | ((
+                        $result.level
+                        // (if (($result.ruleIndex | type) == "number") then ($rules[$result.ruleIndex].defaultConfiguration.level // empty) else empty end)
+                        // ([
+                            $rules[]?
+                            | select((.id // "") == ($result.ruleId // ""))
+                            | (.defaultConfiguration.level // empty)
+                        ][0] // empty)
+                        // ""
+                    ) | ascii_downcase) as $effectiveLevel
+                    | select($effectiveLevel == "warning")
+                ] | length' "$sarif_file" 2>/dev/null || echo 0)
+
+        if [ "$BLOCKING_COUNT" -gt 0 ]; then
+            echo -e "${RED}❌ Found $BLOCKING_COUNT blocking CodeQL issues in $lang code${NC}"
             echo ""
-            echo "Summary:"
-            jq -r '.runs[].results[] | "\(.level): \(.message.text) (\(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine))"' "$sarif_file" 2>/dev/null | head -10
+            echo "Blocking summary (error-level):"
+                        jq -r '
+                            .runs[] as $run
+                            | $run.results[]
+                            | . as $result
+                            | ($run.tool.driver.rules // []) as $rules
+                            | ((
+                                $result.level
+                                // (if (($result.ruleIndex | type) == "number") then ($rules[$result.ruleIndex].defaultConfiguration.level // empty) else empty end)
+                                // ([
+                                    $rules[]?
+                                    | select((.id // "") == ($result.ruleId // ""))
+                                    | (.defaultConfiguration.level // empty)
+                                ][0] // empty)
+                                // ""
+                            ) | ascii_downcase) as $effectiveLevel
+                            | select($effectiveLevel == "error")
+                            | "\($effectiveLevel): \($result.ruleId // "<unknown-rule>"): \($result.message.text) (\($result.locations[0].physicalLocation.artifactLocation.uri):\($result.locations[0].physicalLocation.region.startLine))"
+                        ' "$sarif_file" 2>/dev/null | head -10
             echo ""
             echo "View full results: code $sarif_file"
             FAILED=1
         else
-            echo -e "${GREEN}✅ No security issues found in $lang code${NC}"
+            echo -e "${GREEN}✅ No blocking CodeQL issues found in $lang code${NC}"
+            if [ "$WARNING_COUNT" -gt 0 ]; then
+                echo -e "${YELLOW}⚠️  Non-blocking warnings in $lang: $WARNING_COUNT (policy triage required)${NC}"
+            fi
         fi
     else
-        # Fallback: check if file has results
-        if grep -q '"results"' "$sarif_file" && ! grep -q '"results": \[\]' "$sarif_file"; then
-            echo -e "${YELLOW}⚠️  CodeQL findings detected in $lang (install jq for details)${NC}"
-            echo "View results: code $sarif_file"
-            FAILED=1
-        else
-            echo -e "${GREEN}✅ No security issues found in $lang code${NC}"
-        fi
+                        echo -e "${RED}❌ jq is required for semantic CodeQL severity evaluation (${lang})${NC}"
+                        echo "Install jq and re-run: pre-commit run --hook-stage manual codeql-check-findings --all-files"
+                        FAILED=1
     fi
 }
 
 echo "🔒 Checking CodeQL findings..."
 echo ""
+
+                if ! command -v jq &> /dev/null; then
+                    echo -e "${RED}❌ jq is required for CodeQL finding checks${NC}"
+                    echo "Install jq and re-run: pre-commit run --hook-stage manual codeql-check-findings --all-files"
+                    exit 1
+                fi
 
 check_sarif "codeql-results-go.sarif" "go"
 
@@ -67,7 +124,7 @@ fi
 
 if [ $FAILED -eq 1 ]; then
     echo ""
-    echo -e "${RED}❌ CodeQL scan found security issues. Please fix before committing.${NC}"
+    echo -e "${RED}❌ CodeQL scan found blocking findings (error-level). Please fix before committing.${NC}"
     echo ""
     echo "To view results:"
     echo "  - VS Code: Install SARIF Viewer extension"

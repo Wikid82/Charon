@@ -80,7 +80,6 @@ on:
         default: false
         type: boolean
   pull_request:
-  push:
 
 env:
   NODE_VERSION: '20'
@@ -96,7 +95,7 @@ env:
   CI_LOG_LEVEL: 'verbose'
 
 concurrency:
-  group: e2e-split-${{ github.workflow }}-${{ github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -143,7 +142,7 @@ jobs:
 
       - name: Set up Go
         if: steps.resolve-image.outputs.image_source == 'build'
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -247,7 +246,7 @@ jobs:
 
       - name: Download Docker image artifact
         if: needs.build.outputs.image_source == 'build'
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
         with:
           name: docker-image
 
@@ -448,7 +447,7 @@ jobs:
 
       - name: Download Docker image artifact
         if: needs.build.outputs.image_source == 'build'
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
         with:
           name: docker-image
 
@@ -657,7 +656,7 @@ jobs:
 
       - name: Download Docker image artifact
         if: needs.build.outputs.image_source == 'build'
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
         with:
           name: docker-image
 
@@ -878,7 +877,7 @@ jobs:
 
       - name: Download Docker image artifact
         if: needs.build.outputs.image_source == 'build'
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
         with:
           name: docker-image
 
@@ -1082,7 +1081,7 @@ jobs:
 
       - name: Download Docker image artifact
         if: needs.build.outputs.image_source == 'build'
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
         with:
           name: docker-image
 
@@ -1294,7 +1293,7 @@ jobs:
 
       - name: Download Docker image artifact
         if: needs.build.outputs.image_source == 'build'
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
         with:
           name: docker-image
 

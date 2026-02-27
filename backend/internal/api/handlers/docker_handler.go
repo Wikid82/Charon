@@ -71,10 +71,14 @@ func (h *DockerHandler) ListContainers(c *gin.Context) {
 	if err != nil {
 		var unavailableErr *services.DockerUnavailableError
 		if errors.As(err, &unavailableErr) {
+			details := unavailableErr.Details()
+			if details == "" {
+				details = "Cannot connect to Docker. Please ensure Docker is running and the socket is accessible (e.g., /var/run/docker.sock is mounted)."
+			}
 			log.WithFields(map[string]any{"server_id": util.SanitizeForLog(serverID), "host": util.SanitizeForLog(host), "error": util.SanitizeForLog(err.Error())}).Warn("docker unavailable")
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"error":   "Docker daemon unavailable",
-				"details": "Cannot connect to Docker. Please ensure Docker is running and the socket is accessible (e.g., /var/run/docker.sock is mounted).",
+				"details": details,
 			})
 			return
 		}

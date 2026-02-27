@@ -250,8 +250,11 @@ test.describe('Navigation', () => {
           await page.goto('/proxy-hosts');
           await waitForLoadingComplete(page);
 
-          const isStillVisible = await sidebar.isVisible().catch(() => false);
-          expect(isStillVisible).toBe(wasVisible);
+          if (wasVisible) {
+            await expect(sidebar).toBeVisible();
+          } else {
+            await expect(sidebar).not.toBeVisible();
+          }
         });
       });
     });

@@ -22,6 +22,8 @@ func (r *Router) ShouldUseNotify(providerType, providerEngine string, flags map[
 		return flags[FlagDiscordServiceEnabled]
 	case "gotify":
 		return flags[FlagGotifyServiceEnabled]
+	case "webhook":
+		return flags[FlagWebhookServiceEnabled]
 	default:
 		return false
 	}

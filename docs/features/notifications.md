@@ -11,11 +11,13 @@ Notifications can be triggered by various events:
 - **Security Events**: WAF blocks, CrowdSec alerts, ACL violations
 - **System Events**: Configuration changes, backup completions
 
-## Supported Service (Current Rollout)
+## Supported Services
 
 | Service | JSON Templates | Native API | Rich Formatting |
 |---------|----------------|------------|-----------------|
 | **Discord** | ✅ Yes | ✅ Webhooks | ✅ Embeds |
+| **Gotify** | ✅ Yes | ✅ HTTP API | ✅ Priority + Extras |
+| **Custom Webhook** | ✅ Yes | ✅ HTTP API | ✅ Template-Controlled |
 
 Additional providers are planned for later staged releases.
 
@@ -41,7 +43,7 @@ JSON templates give you complete control over notification formatting, allowing 
 
 ### JSON Template Support
 
-For the currently supported service (Discord), you can choose from three template options:
+For current services (Discord, Gotify, and Custom Webhook), you can choose from three template options.
 
 #### 1. Minimal Template (Default)
 
@@ -157,9 +159,9 @@ Discord supports rich embeds with colors, fields, and timestamps.
 
 ## Planned Provider Expansion
 
-Additional providers (for example Slack, Gotify, Telegram, and generic webhooks)
-are planned for later staged releases. This page will be expanded as each
-provider is validated and released.
+Additional providers (for example Slack and Telegram) are planned for later
+staged releases. This page will be expanded as each provider is validated and
+released.
 
 ## Template Variables
 
@@ -228,9 +230,13 @@ Template: detailed (or custom)
 4. Test the notification
 5. Save changes
 
-If you previously used non-Discord provider types, keep those entries as
-historical records only. They are not active runtime dispatch paths in the
-current rollout.
+Gotify and Custom Webhook providers are active runtime paths in the current
+rollout and can be used in production.
+
+## Validation Coverage
+
+The current rollout includes payload-focused notification tests to catch
+formatting and delivery regressions across provider types before release.
 
 ### Testing Your Template
 

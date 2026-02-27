@@ -204,7 +204,7 @@ test.describe('CrowdSec Configuration @security', () => {
 
       // Import functionality may not be implemented
       if (importVisible || inputVisible) {
-        expect(importVisible || inputVisible).toBeTruthy();
+        await expect(importButton.or(importInput)).toBeVisible();
       } else {
         test.info().annotations.push({
           type: 'info',

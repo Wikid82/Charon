@@ -6,7 +6,8 @@ export interface UserProfile {
   email: string
   name: string
   role: string
-  api_key: string
+  has_api_key: boolean
+  api_key_masked: string
 }
 
 /**
@@ -24,8 +25,15 @@ export const getProfile = async (): Promise<UserProfile> => {
  * @returns Promise resolving to object containing the new API key
  * @throws {AxiosError} If regeneration fails
  */
-export const regenerateApiKey = async (): Promise<{ api_key: string }> => {
-  const response = await client.post('/user/api-key')
+export interface RegenerateApiKeyResponse {
+  message: string
+  has_api_key: boolean
+  api_key_masked: string
+  api_key_updated: string
+}
+
+export const regenerateApiKey = async (): Promise<RegenerateApiKeyResponse> => {
+  const response = await client.post<RegenerateApiKeyResponse>('/user/api-key')
   return response.data
 }
 

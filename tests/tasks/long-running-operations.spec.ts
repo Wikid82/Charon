@@ -1,5 +1,6 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForToast, waitForLoadingComplete } from '../utils/wait-helpers';
+import { getStorageStateAuthHeaders } from '../utils/api-helpers';
 
 /**
  * Integration: Long-Running Operations
@@ -28,6 +29,7 @@ test.describe('Long-Running Operations', () => {
   const createUserViaApi = async (page: import('@playwright/test').Page) => {
     const response = await page.request.post('/api/v1/users', {
       data: testUser,
+      headers: getStorageStateAuthHeaders(),
     });
 
     expect(response.ok()).toBe(true);
@@ -44,6 +46,7 @@ test.describe('Long-Running Operations', () => {
         websocket_support: false,
         enabled: true,
       },
+      headers: getStorageStateAuthHeaders(),
     });
 
     expect(response.ok()).toBe(true);
@@ -170,7 +173,7 @@ test.describe('Long-Running Operations', () => {
     await test.step('Perform additional operations during backup', async () => {
       const start = Date.now();
 
-      const response = await page.request.get('/api/v1/proxy-hosts');
+      const response = await page.request.get('/api/v1/proxy-hosts', { headers: getStorageStateAuthHeaders() });
 
       const duration = Date.now() - start;
 
@@ -274,6 +277,17 @@ test.describe('Long-Running Operations', () => {
 
       const backupButton = page.getByRole('button', { name: /create backup/i }).first();
       await expect(backupButton).toBeVisible();
+
+      // Add a small delay to the backup API response so the disabled state is observable
+      await page.route('**/api/v1/backups', async (route) => {
+        if (route.request().method() === 'POST') {
+          const response = await route.fetch();
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          await route.fulfill({ response });
+        } else {
+          await route.continue();
+        }
+      });
 
       const createResponsePromise = page.waitForResponse(
         (response) =>

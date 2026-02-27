@@ -4,18 +4,22 @@
 name: Security Scan (PR)
 
 on:
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       pr_number:
-        description: 'PR number to scan (optional)'
-        required: false
+        description: 'PR number to scan'
+        required: true
         type: string
   pull_request:
   push:
+    branches: [main]
 
 
 concurrency:
-  group: security-pr-${{ github.event.workflow_run.event || github.event_name }}-${{ github.event.workflow_run.head_branch || github.ref }}
+  group: security-pr-${{ github.event_name == 'workflow_run' && github.event.workflow_run.event || github.event_name }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -23,16 +27,18 @@ jobs:
     name: Trivy Binary Scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Run for: manual dispatch, PR builds, or any push builds from docker-build
+    # Run for manual dispatch, direct PR/push, or successful upstream workflow_run
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request' ||
-      ((github.event.workflow_run.event == 'push' || github.event.workflow_run.pull_requests[0].number != null) &&
-       (github.event.workflow_run.status != 'completed' || github.event.workflow_run.conclusion == 'success'))
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.status == 'completed' &&
+       github.event.workflow_run.conclusion == 'success')
 
     permissions:
       contents: read
-      pull-requests: write
       security-events: write
       actions: read
 
@@ -41,27 +47,65 @@ jobs:
         # actions/checkout v4.2.2
         uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Extract PR number from workflow_run
         id: pr-info
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            # Manual dispatch - use input or fail gracefully
-            if [[ -n "${{ inputs.pr_number }}" ]]; then
-              echo "pr_number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
-              echo "✅ Using manually provided PR number: ${{ inputs.pr_number }}"
-            else
-              echo "⚠️ No PR number provided for manual dispatch"
-              echo "pr_number=" >> "$GITHUB_OUTPUT"
-            fi
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "pr_number=" >> "$GITHUB_OUTPUT"
+            echo "is_push=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Push event detected; using local image path"
             exit 0
           fi
 
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "pr_number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+            echo "is_push=false" >> "$GITHUB_OUTPUT"
+            echo "✅ Pull request event detected: PR #${{ github.event.pull_request.number }}"
+            exit 0
+          fi
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            INPUT_PR_NUMBER="${{ inputs.pr_number }}"
+            if [[ -z "${INPUT_PR_NUMBER}" ]]; then
+              echo "❌ workflow_dispatch requires inputs.pr_number"
+              exit 1
+            fi
+
+            if [[ ! "${INPUT_PR_NUMBER}" =~ ^[0-9]+$ ]]; then
+              echo "❌ reason_category=invalid_input"
+              echo "reason=workflow_dispatch pr_number must be digits-only"
+              exit 1
+            fi
+
+            PR_NUMBER="${INPUT_PR_NUMBER}"
+            echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "is_push=false" >> "$GITHUB_OUTPUT"
+            echo "✅ Using manually provided PR number: ${PR_NUMBER}"
+            exit 0
+          fi
+
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            if [[ "${{ github.event.workflow_run.event }}" != "pull_request" ]]; then
+              # Explicit contract validation happens in the dedicated guard step.
+              echo "pr_number=" >> "$GITHUB_OUTPUT"
+              echo "is_push=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            if [[ -n "${{ github.event.workflow_run.pull_requests[0].number || '' }}" ]]; then
+              echo "pr_number=${{ github.event.workflow_run.pull_requests[0].number }}" >> "$GITHUB_OUTPUT"
+              echo "is_push=false" >> "$GITHUB_OUTPUT"
+              echo "✅ Found PR number from workflow_run payload: ${{ github.event.workflow_run.pull_requests[0].number }}"
+              exit 0
+            fi
+          fi
+
           # Extract PR number from context
-          HEAD_SHA="${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}"
+          HEAD_SHA="${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}"
           echo "🔍 Looking for PR with head SHA: ${HEAD_SHA}"
 
           # Query GitHub API for PR associated with this commit
@@ -73,20 +117,37 @@ jobs:
 
           if [[ -n "${PR_NUMBER}" ]]; then
             echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "is_push=false" >> "$GITHUB_OUTPUT"
             echo "✅ Found PR number: ${PR_NUMBER}"
           else
-            echo "⚠️ Could not find PR number for SHA: ${HEAD_SHA}"
-            echo "pr_number=" >> "$GITHUB_OUTPUT"
+            echo "❌ Could not determine PR number for workflow_run SHA: ${HEAD_SHA}"
+            exit 1
           fi
 
-          # Check if this is a push event (not a PR)
-          if [[ "${{ github.event_name }}" == "push" || "${{ github.event.workflow_run.event }}" == "push" || -z "${PR_NUMBER}" ]]; then
-            HEAD_BRANCH="${{ github.event.workflow_run.head_branch || github.ref_name }}"
-            echo "is_push=true" >> "$GITHUB_OUTPUT"
-            echo "✅ Detected push build from branch: ${HEAD_BRANCH}"
-          else
-            echo "is_push=false" >> "$GITHUB_OUTPUT"
+      - name: Validate workflow_run trust boundary and event contract
+        if: github.event_name == 'workflow_run'
+        run: |
+          if [[ "${{ github.event.workflow_run.name }}" != "Docker Build, Publish & Test" ]]; then
+            echo "❌ reason_category=unexpected_upstream_workflow"
+            echo "workflow_name=${{ github.event.workflow_run.name }}"
+            exit 1
           fi
+
+          if [[ "${{ github.event.workflow_run.event }}" != "pull_request" ]]; then
+            echo "❌ reason_category=unsupported_upstream_event"
+            echo "upstream_event=${{ github.event.workflow_run.event }}"
+            echo "run_id=${{ github.event.workflow_run.id }}"
+            exit 1
+          fi
+
+          if [[ "${{ github.event.workflow_run.head_repository.full_name }}" != "${{ github.repository }}" ]]; then
+            echo "❌ reason_category=untrusted_upstream_repository"
+            echo "upstream_head_repository=${{ github.event.workflow_run.head_repository.full_name }}"
+            echo "expected_repository=${{ github.repository }}"
+            exit 1
+          fi
+
+          echo "✅ workflow_run trust boundary and event contract validated"
 
       - name: Build Docker image (Local)
         if: github.event_name == 'push' || github.event_name == 'pull_request'
@@ -97,95 +158,149 @@ jobs:
 
       - name: Check for PR image artifact
         id: check-artifact
-        if: (steps.pr-info.outputs.pr_number != '' || steps.pr-info.outputs.is_push == 'true') && github.event_name != 'push' && github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Determine artifact name based on event type
-          if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
-            ARTIFACT_NAME="push-image"
-          else
-            PR_NUMBER="${{ steps.pr-info.outputs.pr_number }}"
-            ARTIFACT_NAME="pr-image-${PR_NUMBER}"
+          PR_NUMBER="${{ steps.pr-info.outputs.pr_number }}"
+          if [[ ! "${PR_NUMBER}" =~ ^[0-9]+$ ]]; then
+            echo "❌ reason_category=invalid_input"
+            echo "reason=Resolved PR number must be digits-only"
+            exit 1
           fi
-          RUN_ID="${{ github.event.workflow_run.id }}"
+
+          ARTIFACT_NAME="pr-image-${PR_NUMBER}"
+          RUN_ID="${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || '' }}"
 
           echo "🔍 Checking for artifact: ${ARTIFACT_NAME}"
 
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            # For manual dispatch, find the most recent workflow run with this artifact
-            RUN_ID=$(gh api \
+            # Manual replay path: find latest successful docker-build pull_request run for this PR.
+            RUNS_JSON=$(gh api \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              "/repos/${{ github.repository }}/actions/workflows/docker-build.yml/runs?status=success&per_page=10" \
-              --jq '.workflow_runs[0].id // empty' 2>/dev/null || echo "")
+              "/repos/${{ github.repository }}/actions/workflows/docker-build.yml/runs?event=pull_request&status=success&per_page=100" 2>&1)
+            RUNS_STATUS=$?
+
+            if [[ ${RUNS_STATUS} -ne 0 ]]; then
+              echo "❌ reason_category=api_error"
+              echo "reason=Failed to query workflow runs for PR lookup"
+              echo "upstream_run_id=unknown"
+              echo "artifact_name=${ARTIFACT_NAME}"
+              echo "api_output=${RUNS_JSON}"
+              exit 1
+            fi
+
+            RUN_ID=$(printf '%s' "${RUNS_JSON}" | jq -r --argjson pr "${PR_NUMBER}" '.workflow_runs[] | select((.pull_requests // []) | any(.number == $pr)) | .id' | head -n 1)
 
             if [[ -z "${RUN_ID}" ]]; then
-              echo "⚠️ No successful workflow runs found"
-              echo "artifact_exists=false" >> "$GITHUB_OUTPUT"
-              exit 0
+              echo "❌ reason_category=not_found"
+              echo "reason=No successful docker-build pull_request run found for PR #${PR_NUMBER}"
+              echo "upstream_run_id=unknown"
+              echo "artifact_name=${ARTIFACT_NAME}"
+              exit 1
             fi
-          elif [[ -z "${RUN_ID}" ]]; then
-            # If triggered by push/pull_request, RUN_ID is empty. Find recent run for this commit.
-            HEAD_SHA="${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}"
-            echo "🔍 Searching for workflow run for SHA: ${HEAD_SHA}"
-            # Retry a few times as the run might be just starting or finishing
-            for i in {1..3}; do
-              RUN_ID=$(gh api \
-                -H "Accept: application/vnd.github+json" \
-                -H "X-GitHub-Api-Version: 2022-11-28" \
-                "/repos/${{ github.repository }}/actions/workflows/docker-build.yml/runs?head_sha=${HEAD_SHA}&status=success&per_page=1" \
-                --jq '.workflow_runs[0].id // empty' 2>/dev/null || echo "")
-              if [[ -n "${RUN_ID}" ]]; then break; fi
-              echo "⏳ Waiting for workflow run to appear/complete... ($i/3)"
-              sleep 5
-            done
           fi
 
           echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
 
           # Check if the artifact exists in the workflow run
-          ARTIFACT_ID=$(gh api \
+          ARTIFACTS_JSON=$(gh api \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" \
-            --jq ".artifacts[] | select(.name == \"${ARTIFACT_NAME}\") | .id" 2>/dev/null || echo "")
+            "/repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" 2>&1)
+          ARTIFACTS_STATUS=$?
 
-          if [[ -n "${ARTIFACT_ID}" ]]; then
-            echo "artifact_exists=true" >> "$GITHUB_OUTPUT"
-            echo "artifact_id=${ARTIFACT_ID}" >> "$GITHUB_OUTPUT"
-            echo "✅ Found artifact: ${ARTIFACT_NAME} (ID: ${ARTIFACT_ID})"
-          else
-            echo "artifact_exists=false" >> "$GITHUB_OUTPUT"
-            echo "⚠️ Artifact not found: ${ARTIFACT_NAME}"
-            echo "ℹ️ This is expected for non-PR builds or if the image was not uploaded"
+          if [[ ${ARTIFACTS_STATUS} -ne 0 ]]; then
+            echo "❌ reason_category=api_error"
+            echo "reason=Failed to query artifacts for upstream run"
+            echo "upstream_run_id=${RUN_ID}"
+            echo "artifact_name=${ARTIFACT_NAME}"
+            echo "api_output=${ARTIFACTS_JSON}"
+            exit 1
           fi
 
-      - name: Skip if no artifact
-        if: ((steps.pr-info.outputs.pr_number == '' && steps.pr-info.outputs.is_push != 'true') || steps.check-artifact.outputs.artifact_exists != 'true') && github.event_name != 'push' && github.event_name != 'pull_request'
-        run: |
-          echo "ℹ️ Skipping security scan - no PR image artifact available"
-          echo "This is expected for:"
-          echo "  - Pushes to main/release branches"
-          echo "  - PRs where Docker build failed"
-          echo "  - Manual dispatch without PR number"
-          exit 0
+          ARTIFACT_ID=$(printf '%s' "${ARTIFACTS_JSON}" | jq -r --arg name "${ARTIFACT_NAME}" '.artifacts[] | select(.name == $name) | .id' | head -n 1)
+
+          if [[ -z "${ARTIFACT_ID}" ]]; then
+            echo "❌ reason_category=not_found"
+            echo "reason=Required artifact was not found"
+            echo "upstream_run_id=${RUN_ID}"
+            echo "artifact_name=${ARTIFACT_NAME}"
+            exit 1
+          fi
+
+          {
+            echo "artifact_exists=true"
+            echo "artifact_id=${ARTIFACT_ID}"
+            echo "artifact_name=${ARTIFACT_NAME}"
+          } >> "$GITHUB_OUTPUT"
+          echo "✅ Found artifact: ${ARTIFACT_NAME} (ID: ${ARTIFACT_ID})"
 
       - name: Download PR image artifact
-        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
         # actions/download-artifact v4.1.8
-        uses: actions/download-artifact@ac21fcf45e0aaee541c0f7030558bdad38d77d6c
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
         with:
-          name: ${{ steps.pr-info.outputs.is_push == 'true' && 'push-image' || format('pr-image-{0}', steps.pr-info.outputs.pr_number) }}
+          name: ${{ steps.check-artifact.outputs.artifact_name }}
           run-id: ${{ steps.check-artifact.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Load Docker image
-        if: steps.check-artifact.outputs.artifact_exists == 'true'
+        if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
+        id: load-image
         run: |
           echo "📦 Loading Docker image..."
-          docker load < charon-pr-image.tar
-          echo "✅ Docker image loaded"
+
+          if [[ ! -r "charon-pr-image.tar" ]]; then
+            echo "❌ ERROR: Artifact image tar is missing or unreadable"
+            exit 1
+          fi
+
+          MANIFEST_TAGS=""
+          if tar -tf charon-pr-image.tar | grep -qx "manifest.json"; then
+            MANIFEST_TAGS=$(tar -xOf charon-pr-image.tar manifest.json 2>/dev/null | jq -r '.[]?.RepoTags[]?' 2>/dev/null | sed '/^$/d' || true)
+          else
+            echo "⚠️ manifest.json not found in artifact tar; will try docker-load-image-id fallback"
+          fi
+
+          LOAD_OUTPUT=$(docker load < charon-pr-image.tar 2>&1)
+          echo "${LOAD_OUTPUT}"
+
+          SOURCE_IMAGE_REF=""
+          SOURCE_RESOLUTION_MODE=""
+
+          while IFS= read -r tag; do
+            [[ -z "${tag}" ]] && continue
+            if docker image inspect "${tag}" >/dev/null 2>&1; then
+              SOURCE_IMAGE_REF="${tag}"
+              SOURCE_RESOLUTION_MODE="manifest_tag"
+              break
+            fi
+          done <<< "${MANIFEST_TAGS}"
+
+          if [[ -z "${SOURCE_IMAGE_REF}" ]]; then
+            LOAD_IMAGE_ID=$(printf '%s\n' "${LOAD_OUTPUT}" | sed -nE 's/^Loaded image ID: (sha256:[0-9a-f]+)$/\1/p' | head -n1)
+            if [[ -n "${LOAD_IMAGE_ID}" ]] && docker image inspect "${LOAD_IMAGE_ID}" >/dev/null 2>&1; then
+              SOURCE_IMAGE_REF="${LOAD_IMAGE_ID}"
+              SOURCE_RESOLUTION_MODE="load_image_id"
+            fi
+          fi
+
+          if [[ -z "${SOURCE_IMAGE_REF}" ]]; then
+            echo "❌ ERROR: Could not resolve a valid image reference from manifest tags or docker load image ID"
+            exit 1
+          fi
+
+          docker tag "${SOURCE_IMAGE_REF}" "charon:artifact"
+
+          {
+            echo "source_image_ref=${SOURCE_IMAGE_REF}"
+            echo "source_resolution_mode=${SOURCE_RESOLUTION_MODE}"
+            echo "image_ref=charon:artifact"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "✅ Docker image resolved via ${SOURCE_RESOLUTION_MODE} and tagged as charon:artifact"
           docker images | grep charon
 
       - name: Extract charon binary from container
@@ -214,31 +329,10 @@ jobs:
             exit 0
           fi
 
-          # Normalize image name for reference
-          IMAGE_NAME=$(echo "${{ github.repository_owner }}/charon" | tr '[:upper:]' '[:lower:]')
-          if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
-            BRANCH_NAME="${{ github.event.workflow_run.head_branch }}"
-            if [[ -z "${BRANCH_NAME}" ]]; then
-              echo "❌ ERROR: Branch name is empty for push build"
-              exit 1
-            fi
-            # Normalize branch name for Docker tag (replace / and other special chars with -)
-            # This matches docker/metadata-action behavior: type=ref,event=branch
-            TAG_SAFE_BRANCH="${BRANCH_NAME//\//-}"
-            IMAGE_REF="ghcr.io/${IMAGE_NAME}:${TAG_SAFE_BRANCH}"
-          elif [[ -n "${{ steps.pr-info.outputs.pr_number }}" ]]; then
-            IMAGE_REF="ghcr.io/${IMAGE_NAME}:pr-${{ steps.pr-info.outputs.pr_number }}"
-          else
-            echo "❌ ERROR: Cannot determine image reference"
-            echo "  - is_push: ${{ steps.pr-info.outputs.is_push }}"
-            echo "  - pr_number: ${{ steps.pr-info.outputs.pr_number }}"
-            echo "  - branch: ${{ github.event.workflow_run.head_branch }}"
-            exit 1
-          fi
-
-          # Validate the image reference format
-          if [[ ! "${IMAGE_REF}" =~ ^ghcr\.io/[a-z0-9_-]+/[a-z0-9_-]+:[a-zA-Z0-9._-]+$ ]]; then
-            echo "❌ ERROR: Invalid image reference format: ${IMAGE_REF}"
+          # For workflow_run artifact path, always use locally tagged image from loaded artifact.
+          IMAGE_REF="${{ steps.load-image.outputs.image_ref }}"
+          if [[ -z "${IMAGE_REF}" ]]; then
+            echo "❌ ERROR: Loaded artifact image reference is empty"
             exit 1
           fi
 
@@ -268,7 +362,7 @@ jobs:
       - name: Run Trivy filesystem scan (SARIF output)
         if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
         # aquasecurity/trivy-action v0.33.1
-        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518
+        uses: aquasecurity/trivy-action@1bd062560b422f5944df1de50abd05162bea079e
         with:
           scan-type: 'fs'
           scan-ref: ${{ steps.extract.outputs.binary_path }}
@@ -277,19 +371,30 @@ jobs:
           severity: 'CRITICAL,HIGH,MEDIUM'
         continue-on-error: true
 
+      - name: Check Trivy SARIF output exists
+        if: always() && (steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request')
+        id: trivy-sarif-check
+        run: |
+          if [[ -f trivy-binary-results.sarif ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "ℹ️ No Trivy SARIF output found; skipping SARIF/artifact upload steps"
+          fi
+
       - name: Upload Trivy SARIF to GitHub Security
-        if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
+        if: always() && steps.trivy-sarif-check.outputs.exists == 'true'
         # github/codeql-action v4
-        uses: github/codeql-action/upload-sarif@cb4e075f119f8bccbc942d49655b2cd4dc6e615a
+        uses: github/codeql-action/upload-sarif@b0ed4dedcb6dac75e55f599c0ac323404c92645a
         with:
           sarif_file: 'trivy-binary-results.sarif'
-          category: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event.workflow_run.head_branch) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
+          category: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
         continue-on-error: true
 
       - name: Run Trivy filesystem scan (fail on CRITICAL/HIGH)
         if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
         # aquasecurity/trivy-action v0.33.1
-        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518
+        uses: aquasecurity/trivy-action@1bd062560b422f5944df1de50abd05162bea079e
         with:
           scan-type: 'fs'
           scan-ref: ${{ steps.extract.outputs.binary_path }}
@@ -298,11 +403,11 @@ jobs:
           exit-code: '1'
 
       - name: Upload scan artifacts
-        if: always() && (steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request')
+        if: always() && steps.trivy-sarif-check.outputs.exists == 'true'
         # actions/upload-artifact v4.4.3
-        uses: actions/upload-artifact@47309c993abb98030a35d55ef7ff34b7fa1074b5
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
-          name: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event.workflow_run.head_branch) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
+          name: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
           path: |
             trivy-binary-results.sarif
           retention-days: 14
@@ -312,7 +417,7 @@ jobs:
         run: |
           {
             if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
-              echo "## 🔒 Security Scan Results - Branch: ${{ github.event.workflow_run.head_branch }}"
+              echo "## 🔒 Security Scan Results - Branch: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}"
             else
               echo "## 🔒 Security Scan Results - PR #${{ steps.pr-info.outputs.pr_number }}"
             fi

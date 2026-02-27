@@ -120,6 +120,10 @@ func TestSecurityHandler_GenerateBreakGlass_ReturnsToken(t *testing.T) {
 	db := setupTestDB(t)
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/breakglass/generate", handler.GenerateBreakGlass)
 
 	w := httptest.NewRecorder()
@@ -251,6 +255,10 @@ func TestSecurityHandler_Enable_Disable_WithAdminWhitelistAndToken(t *testing.T)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	api := router.Group("/api/v1")
 	api.POST("/security/enable", handler.Enable)
 	api.POST("/security/disable", handler.Disable)

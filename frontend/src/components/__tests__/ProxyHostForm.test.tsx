@@ -1343,4 +1343,32 @@ describe('ProxyHostForm', () => {
       })
     })
   })
+
+  describe('Docker Connection Failed troubleshooting', () => {
+    it('renders supplemental group guidance when docker error is present', async () => {
+      const { useDocker } = await import('../../hooks/useDocker')
+      vi.mocked(useDocker).mockReturnValue({
+        containers: [],
+        isLoading: false,
+        error: new Error('Docker socket permission denied'),
+        refetch: vi.fn(),
+      })
+
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Select Local Docker Socket source to trigger error panel
+      await selectComboboxOption('Source', 'Local (Docker Socket)')
+
+      await waitFor(() => {
+        expect(screen.getByText('Docker Connection Failed')).toBeInTheDocument()
+      })
+
+      expect(screen.getByText(/Troubleshooting:/)).toBeInTheDocument()
+      expect(screen.getByText(/Docker socket group/)).toBeInTheDocument()
+      expect(screen.getByText('group_add')).toBeInTheDocument()
+      expect(screen.getByText('--group-add')).toBeInTheDocument()
+    })
+  })
 })

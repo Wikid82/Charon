@@ -794,14 +794,12 @@ test.describe('Real-Time Logs Viewer', () => {
       // Toggle the checkbox
       await blockedCheckbox.click({ force: true });
       await page.waitForTimeout(100);
-      const isChecked = await blockedCheckbox.isChecked();
-      expect(isChecked).toBe(true);
+      await expect(blockedCheckbox).toBeChecked();
 
       // Uncheck
       await blockedCheckbox.click({ force: true });
       await page.waitForTimeout(100);
-      const isUnchecked = await blockedCheckbox.isChecked();
-      expect(isUnchecked).toBe(false);
+      await expect(blockedCheckbox).not.toBeChecked();
     });
 
     test('should hide source filter in app mode', async ({ page, authenticatedUser }) => {

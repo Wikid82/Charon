@@ -22,6 +22,31 @@
  */
 
 import { APIRequestContext, APIResponse } from '@playwright/test';
+import { readFileSync } from 'fs';
+import { STORAGE_STATE } from '../constants';
+
+/**
+ * Read auth token from storage state and return Authorization headers.
+ * Use this for page.request calls that need Bearer token auth.
+ */
+export function getStorageStateAuthHeaders(): Record<string, string> {
+  try {
+    const state = JSON.parse(readFileSync(STORAGE_STATE, 'utf-8'));
+    for (const origin of state.origins ?? []) {
+      for (const entry of origin.localStorage ?? []) {
+        if (entry.name === 'charon_auth_token' && entry.value) {
+          return { Authorization: `Bearer ${entry.value}` };
+        }
+      }
+    }
+    for (const cookie of state.cookies ?? []) {
+      if (cookie.name === 'auth_token' && cookie.value) {
+        return { Authorization: `Bearer ${cookie.value}` };
+      }
+    }
+  } catch { /* no-op */ }
+  return {};
+}
 
 /**
  * API error response

@@ -25,11 +25,10 @@ We take security seriously. If you discover a security vulnerability in Charon, 
    - Impact assessment
    - Suggested fix (if applicable)
 
-**Alternative Method**: Email
+**Alternative Method**: GitHub Issues (Public)
 
-- Send to: `security@charon.dev` (if configured)
-- Use PGP encryption (key available below, if applicable)
-- Include same information as GitHub advisory
+1. Go to <https://github.com/Wikid82/Charon/issues>
+2. Create a new issue with the same information as above
 
 ### What to Include
 
@@ -125,6 +124,7 @@ For complete technical details, see:
 
 ### Infrastructure Security
 
+- **Non-root by default**: Charon runs as an unprivileged user (`charon`, uid 1000) inside the container. Docker socket access is granted via a minimal supplemental group matching the host socket's GID—never by running as root. If the socket GID is `0` (root group), Charon requires explicit opt-in before granting access.
 - **Container isolation**: Docker-based deployment
 - **Minimal attack surface**: Alpine Linux base image
 - **Dependency scanning**: Regular Trivy and govulncheck scans

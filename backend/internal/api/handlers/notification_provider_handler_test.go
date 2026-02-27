@@ -120,25 +120,60 @@ func TestNotificationProviderHandler_Templates(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Test(t *testing.T) {
-	r, _ := setupNotificationProviderTest(t)
+	r, db := setupNotificationProviderTest(t)
 
-	// Test with invalid provider (should fail validation or service check)
-	// Since we don't have notification dispatch mocked easily here,
-	// we expect it might fail or pass depending on service implementation.
-	// Looking at service code, TestProvider should validate and dispatch.
-	// If URL is invalid, it should error.
-
-	provider := models.NotificationProvider{
-		Type: "discord",
-		URL:  "invalid-url",
+	stored := models.NotificationProvider{
+		ID:      "trusted-provider-id",
+		Name:    "Stored Provider",
+		Type:    "discord",
+		URL:     "invalid-url",
+		Enabled: true,
 	}
-	body, _ := json.Marshal(provider)
+	require.NoError(t, db.Create(&stored).Error)
+
+	payload := map[string]any{
+		"id":   stored.ID,
+		"type": "discord",
+		"url":  "https://discord.com/api/webhooks/123/override",
+	}
+	body, _ := json.Marshal(payload)
 	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	// It should probably fail with 400
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "PROVIDER_TEST_URL_INVALID")
+}
+
+func TestNotificationProviderHandler_Test_RequiresTrustedProviderID(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	payload := map[string]any{
+		"type": "discord",
+		"url":  "https://discord.com/api/webhooks/123/abc",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "MISSING_PROVIDER_ID")
+}
+
+func TestNotificationProviderHandler_Test_ReturnsNotFoundForUnknownProvider(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	payload := map[string]any{
+		"id": "missing-provider-id",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "PROVIDER_NOT_FOUND")
 }
 
 func TestNotificationProviderHandler_Errors(t *testing.T) {
@@ -248,8 +283,8 @@ func TestNotificationProviderHandler_CreateRejectsDiscordIPHost(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "invalid Discord webhook URL")
-	assert.Contains(t, w.Body.String(), "IP address hosts are not allowed")
+	assert.Contains(t, w.Body.String(), "PROVIDER_VALIDATION_FAILED")
+	assert.Contains(t, w.Body.String(), "validation")
 }
 
 func TestNotificationProviderHandler_CreateAcceptsDiscordHostname(t *testing.T) {
@@ -377,4 +412,101 @@ func TestNotificationProviderHandler_UpdatePreservesServerManagedMigrationFields
 	assert.Equal(t, "discord://legacy", dbProvider.LegacyURL)
 	require.NotNil(t, dbProvider.LastMigratedAt)
 	assert.Equal(t, now, dbProvider.LastMigratedAt.UTC().Round(time.Second))
+}
+
+func TestNotificationProviderHandler_List_ReturnsHasTokenTrue(t *testing.T) {
+	r, db := setupNotificationProviderTest(t)
+
+	p := models.NotificationProvider{
+		ID:    "tok-true",
+		Name:  "Gotify With Token",
+		Type:  "gotify",
+		URL:   "https://gotify.example.com",
+		Token: "secret-app-token",
+	}
+	require.NoError(t, db.Create(&p).Error)
+
+	req, _ := http.NewRequest("GET", "/api/v1/notifications/providers", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var raw []map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+	require.Len(t, raw, 1)
+	assert.Equal(t, true, raw[0]["has_token"])
+}
+
+func TestNotificationProviderHandler_List_ReturnsHasTokenFalse(t *testing.T) {
+	r, db := setupNotificationProviderTest(t)
+
+	p := models.NotificationProvider{
+		ID:   "tok-false",
+		Name: "Discord No Token",
+		Type: "discord",
+		URL:  "https://discord.com/api/webhooks/123/abc",
+	}
+	require.NoError(t, db.Create(&p).Error)
+
+	req, _ := http.NewRequest("GET", "/api/v1/notifications/providers", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var raw []map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+	require.Len(t, raw, 1)
+	assert.Equal(t, false, raw[0]["has_token"])
+}
+
+func TestNotificationProviderHandler_List_NeverExposesRawToken(t *testing.T) {
+	r, db := setupNotificationProviderTest(t)
+
+	p := models.NotificationProvider{
+		ID:    "tok-hidden",
+		Name:  "Secret Gotify",
+		Type:  "gotify",
+		URL:   "https://gotify.example.com",
+		Token: "super-secret-value",
+	}
+	require.NoError(t, db.Create(&p).Error)
+
+	req, _ := http.NewRequest("GET", "/api/v1/notifications/providers", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotContains(t, w.Body.String(), "super-secret-value")
+
+	var raw []map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+	require.Len(t, raw, 1)
+	_, hasTokenField := raw[0]["token"]
+	assert.False(t, hasTokenField, "raw token field must not appear in JSON response")
+}
+
+func TestNotificationProviderHandler_Create_ResponseHasHasToken(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	payload := map[string]interface{}{
+		"name":     "New Gotify",
+		"type":     "gotify",
+		"url":      "https://gotify.example.com",
+		"token":    "app-token-123",
+		"template": "minimal",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	var raw map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+	assert.Equal(t, true, raw["has_token"])
+	assert.NotContains(t, w.Body.String(), "app-token-123")
 }

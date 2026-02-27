@@ -1,15 +1,20 @@
 package routes_test
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/routes"
+	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 func setupTestImportDB(t *testing.T) *gorm.DB {
@@ -27,7 +32,7 @@ func TestRegisterImportHandler(t *testing.T) {
 	db := setupTestImportDB(t)
 
 	router := gin.New()
-	routes.RegisterImportHandler(router, db, "echo", "/tmp", "/import/Caddyfile")
+	routes.RegisterImportHandler(router, db, config.Config{JWTSecret: "test-secret"}, "echo", "/tmp", "/import/Caddyfile")
 
 	// Verify routes are registered by checking the routes list
 	routeInfo := router.Routes()
@@ -52,4 +57,31 @@ func TestRegisterImportHandler(t *testing.T) {
 	for route, found := range expectedRoutes {
 		assert.True(t, found, "route %s should be registered", route)
 	}
+}
+
+func TestRegisterImportHandler_AuthzGuards(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestImportDB(t)
+	require.NoError(t, db.AutoMigrate(&models.User{}))
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	router := gin.New()
+	routes.RegisterImportHandler(router, db, cfg, "echo", "/tmp", "/import/Caddyfile")
+
+	unauthReq := httptest.NewRequest(http.MethodGet, "/api/v1/import/status", http.NoBody)
+	unauthW := httptest.NewRecorder()
+	router.ServeHTTP(unauthW, unauthReq)
+	assert.Equal(t, http.StatusUnauthorized, unauthW.Code)
+
+	nonAdmin := &models.User{Email: "user@example.com", Role: "user", Enabled: true}
+	require.NoError(t, db.Create(nonAdmin).Error)
+	authSvc := services.NewAuthService(db, cfg)
+	token, err := authSvc.GenerateToken(nonAdmin)
+	require.NoError(t, err)
+
+	nonAdminReq := httptest.NewRequest(http.MethodGet, "/api/v1/import/preview", http.NoBody)
+	nonAdminReq.Header.Set("Authorization", "Bearer "+token)
+	nonAdminW := httptest.NewRecorder()
+	router.ServeHTTP(nonAdminW, nonAdminReq)
+	assert.Equal(t, http.StatusForbidden, nonAdminW.Code)
 }

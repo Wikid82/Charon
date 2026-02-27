@@ -1,857 +1,383 @@
+# Security Scan (PR) Deterministic Artifact Policy - Supervisor Remediation Plan
+
+## 1. Introduction
+
+### Overview
+
+`Security Scan (PR)` failed because `.github/workflows/security-pr.yml` loaded
+an artifact image tag (`pr-718-385081f`) and later attempted extraction with a
+different synthesized tag (`pr-718`).
+
+Supervisor conflict resolution in this plan selects Option A:
+`workflow_run` artifact handling is restricted to upstream
+`pull_request` events only.
+
+### Root-Cause Clarity (Preserved)
+
+The failure was not a Docker load failure. It was a source-of-truth violation in
+image selection:
+
+1. Artifact load path succeeded.
+2. Extraction path reconstructed an alternate reference.
+3. Alternate reference did not exist, causing `docker create ... not found`.
+
+This plan keeps scope strictly on `.github/workflows/security-pr.yml`.
+
+### Objectives
+
+1. Remove all ambiguous behavior for artifact absence on `workflow_run`.
+2. Remove `workflow_run` support for upstream `push` events to align with PR
+   artifact naming contract (`pr-image-<pr_number>`).
+3. Codify one deterministic `workflow_dispatch` policy in SHALL form.
+4. Harden image selection so it is not brittle on `RepoTags[0]`.
+5. Add CI security hardening requirements for permissions and trust boundary.
+6. Expand validation matrix to include `pull_request` and negative paths.
+
 ---
-post_title: "Current Spec: Caddy 2.11.1 Compatibility, Security, and UX Impact Plan"
-categories:
-  - actions
-  - security
-  - backend
-  - frontend
-  - infrastructure
-tags:
-  - caddy
-  - xcaddy
-  - dependency-management
-  - vulnerability-management
-  - release-planning
-summary: "Comprehensive, phased plan to evaluate and safely adopt Caddy v2.11.1 in Charon, covering plugin compatibility, CVE impact, xcaddy patch retirement decisions, UI/UX exposure opportunities, and PR slicing strategy with strict validation gates."
-post_date: 2026-02-23
+
+## 2. Research Findings
+
+### 2.1 Failure Evidence
+
+Source: `.github/logs/ci_failure.log`
+
+Observed facts:
+
+1. Artifact `pr-image-718` was found and downloaded from run `22164807859`.
+2. `docker load` reported: `Loaded image: ghcr.io/wikid82/charon:pr-718-385081f`.
+3. Extraction attempted: `docker create ghcr.io/wikid82/charon:pr-718`.
+4. Docker reported: `... pr-718: not found`.
+
+### 2.2 Producer Contract
+
+Source: `.github/workflows/docker-build.yml`
+
+Producer emits immutable PR tags with SHA suffix (`pr-<num>-<sha>`). Consumer
+must consume artifact metadata/load output, not reconstruct mutable tags.
+
+### 2.3 Current Consumer Gaps
+
+Source: `.github/workflows/security-pr.yml`
+
+Current consumer contains ambiguous policy points:
+
+1. `workflow_run` artifact absence behavior can be interpreted as skip or fail.
+2. `workflow_dispatch` policy is not single-path deterministic.
+3. Image identification relies on single `RepoTags[0]` assumption.
+4. Trust boundary and permission minimization are not explicitly codified as
+   requirements.
+
 ---
 
-## Active Plan: Caddy 2.11.1 Deep Compatibility and Security Rollout
+## 3. Technical Specifications
 
-Date: 2026-02-23
-Status: Active and authoritative
-Scope Type: Architecture/security/dependency research and implementation planning
-Authority: This is the only active authoritative plan section in this file.
+### 3.1 Deterministic EARS Requirements (Blocking)
 
-## Focused Plan: GitHub Actions `setup-go` Cache Warning (`go.sum` path)
+1. WHEN `security-pr.yml` is triggered by `workflow_run` with
+   `conclusion == success` and upstream event `pull_request`, THE SYSTEM SHALL
+   require the expected image artifact to exist and SHALL hard fail the job if
+   the artifact is missing.
 
-Date: 2026-02-23
-Status: Planned
-Scope: Warning-only fix for GitHub Actions cache restore message:
-`Restore cache failed: Dependencies file is not found in
-/home/runner/work/Charon/Charon. Supported file pattern: go.sum`.
+2. WHEN `security-pr.yml` is triggered by `workflow_run` and artifact lookup
+   fails, THEN THE SYSTEM SHALL exit non-zero with a diagnostic that includes:
+   upstream run id, expected artifact name, and reason category (`not found` or
+   `api/error`).
 
-### Introduction
+3. WHEN `security-pr.yml` is triggered by `workflow_run` and upstream event is
+   not `pull_request`, THEN THE SYSTEM SHALL hard fail immediately with reason
+   category `unsupported_upstream_event` and SHALL NOT attempt artifact lookup,
+   image load, or extraction.
 
-This focused section addresses a CI warning caused by `actions/setup-go` cache
-configuration assuming `go.sum` at repository root. Charon stores Go module
-dependencies in `backend/go.sum`.
+4. WHEN `security-pr.yml` is triggered by `workflow_dispatch`, THE SYSTEM SHALL
+   require `inputs.pr_number` and SHALL hard fail immediately if input is empty.
 
-### Research Findings
+5. WHEN `security-pr.yml` is triggered by `workflow_dispatch` with valid
+   `inputs.pr_number`, THE SYSTEM SHALL resolve artifact `pr-image-<pr_number>`
+   from the latest successful `docker-build.yml` run for that PR and SHALL hard
+   fail if artifact resolution or download fails.
 
-Verified workflow inventory (`.github/workflows/**`):
+6. WHEN artifact image is loaded, THE SYSTEM SHALL derive a canonical local
+   image alias (`charon:artifact`) from validated load result and SHALL use only
+   that alias for `docker create` in artifact-based paths.
 
-- All workflows using `actions/setup-go` were identified.
-- Five workflows already set `cache-dependency-path: backend/go.sum`:
-   - `.github/workflows/codecov-upload.yml`
-   - `.github/workflows/quality-checks.yml`
-   - `.github/workflows/codeql.yml`
-   - `.github/workflows/benchmark.yml`
-   - `.github/workflows/e2e-tests-split.yml`
-- Two workflows use `actions/setup-go` without cache dependency path and are
-   the warning source:
-   - `.github/workflows/caddy-compat.yml`
-   - `.github/workflows/release-goreleaser.yml`
-- Repository check confirms only one `go.sum` exists:
-   - `backend/go.sum`
+7. WHEN artifact metadata parsing is required, THE SYSTEM SHALL NOT depend only
+   on `RepoTags[0]`; it SHALL validate all available repo tags and SHALL support
+   fallback selection using docker load image ID when tags are absent/corrupt.
 
-### Technical Specification (Minimal Fix)
+8. IF no valid tag and no valid load image ID can be resolved, THEN THE SYSTEM
+   SHALL hard fail before extraction.
 
-Apply a warning-only cache path correction in both affected workflow steps:
+9. WHEN event is `pull_request` or `push`, THE SYSTEM SHALL build and use
+   `charon:local` only and SHALL NOT execute artifact lookup/load logic.
 
-1. `.github/workflows/caddy-compat.yml`
-    - In `Set up Go` step, add:
-       - `cache-dependency-path: backend/go.sum`
+### 3.2 Deterministic Policy Decisions
 
-2. `.github/workflows/release-goreleaser.yml`
-    - In `Set up Go` step, add:
-       - `cache-dependency-path: backend/go.sum`
+#### Policy A: `workflow_run` Missing Artifact
 
-No other workflow behavior, triggers, permissions, or build/test logic will be
-changed.
+Decision: hard fail only.
 
-### Implementation Plan
+No skip behavior is allowed for upstream-success `workflow_run`.
 
-#### Phase 1 — Workflow patch
+#### Policy A1: `workflow_run` Upstream Event Contract
 
-- Update only the two targeted workflow files listed above.
+Decision: upstream event MUST be `pull_request`.
 
-#### Phase 2 — Validation
+If upstream event is `push` or any non-PR event, fail immediately with
+`unsupported_upstream_event`; no artifact path execution is allowed.
 
-- Run workflow YAML validation/lint checks already used by repository CI.
-- Confirm no cache restore warning appears in subsequent runs of:
-   - `Caddy Compatibility Gate`
-   - `Release (GoReleaser)`
+#### Policy B: `workflow_dispatch`
 
-#### Phase 3 — Closeout
+Decision: artifact-only manual replay.
 
-- Mark warning remediated once both workflows execute without the missing
-   `go.sum` cache warning.
+No local-build fallback is allowed for `workflow_dispatch`. Required input is
+`pr_number`; missing input is immediate hard fail.
 
-### Acceptance Criteria
+### 3.3 Image Selection Hardening Contract
 
-1. Both targeted workflows include `cache-dependency-path: backend/go.sum` in
-    their `actions/setup-go` step.
-2. No unrelated workflow files are modified.
-3. No behavior changes beyond warning elimination.
-4. CI logs for affected workflows no longer show the missing dependencies-file
-    warning.
+For step `Load Docker image` in `.github/workflows/security-pr.yml`:
 
-### PR Slicing Strategy
+1. Validate artifact file exists and is readable tar.
+2. Parse `manifest.json` and iterate all candidate tags under `RepoTags[]`.
+3. Run `docker load` and capture structured output.
+4. Resolve source image by deterministic priority:
+   - First valid tag from `RepoTags[]` that exists locally after load.
+   - Else image ID extracted from `docker load` output (if present).
+   - Else fail.
+5. Retag resolved source to `charon:artifact`.
+6. Emit outputs:
+   - `image_ref=charon:artifact`
+   - `source_image_ref=<resolved tag or image id>`
+   - `source_resolution_mode=manifest_tag|load_image_id`
 
-- Decision: Single PR.
-- Rationale: Two-line, warning-only correction in two workflow files with no
-   cross-domain behavior impact.
-- Slice:
-   - `PR-1`: Add `cache-dependency-path` to the two `setup-go` steps and verify
-      workflow run logs.
-- Rollback:
-   - Revert only these two workflow edits if unexpected cache behavior appears.
+### 3.4 CI Security Hardening Requirements
 
-## Focused Remediation Plan Addendum: 3 Failing Playwright Tests
+For job `security-scan` in `.github/workflows/security-pr.yml`:
 
-Date: 2026-02-23
-Scope: Only the 3 failures reported in `docs/reports/qa_report.md`:
-- `tests/core/proxy-hosts.spec.ts` — `should open edit modal with existing values`
-- `tests/core/proxy-hosts.spec.ts` — `should update forward host and port`
-- `tests/settings/smtp-settings.spec.ts` — `should update existing SMTP configuration`
+1. THE SYSTEM SHALL enforce least-privilege permissions by default:
+   - `contents: read`
+   - `actions: read`
+   - `security-events: write`
+   - No additional write scopes unless explicitly required.
 
-### Introduction
+2. THE SYSTEM SHALL restrict `pull-requests: write` usage to only steps that
+   require PR annotations/comments. If no such step exists, this permission
+   SHALL be removed.
 
-This addendum defines a minimal, deterministic remediation for the three reported flaky/timeout E2E failures. The objective is to stabilize test synchronization and preconditions while preserving existing assertions and behavior intent.
+3. THE SYSTEM SHALL enforce workflow_run trust boundary guards:
+   - Upstream workflow name must match expected producer.
+   - Upstream conclusion must be `success`.
+   - Upstream event must be `pull_request` only.
+   - Upstream head repository must equal `${{ github.repository }}` (same-repo
+     trust boundary), otherwise hard fail.
 
-### Research Findings
+4. THE SYSTEM SHALL NOT use untrusted `workflow_run` payload values to build
+   shell commands without validation and quoting.
 
-#### 1) `tests/core/proxy-hosts.spec.ts` (2 timeouts)
+### 3.5 Step-Level Scope in `security-pr.yml`
 
-Observed test pattern:
-- Uses broad selector `page.getByRole('button', { name: /edit/i }).first()`.
-- Uses conditional execution (`if (editCount > 0)`) with no explicit precondition that at least one editable row exists.
-- Waits for modal after clicking the first matched "Edit" button.
+Targeted steps:
 
-Likely root causes:
-- Broad role/name selector can resolve to non-row or non-visible edit controls first, causing click auto-wait timeout.
-- Test data state is non-deterministic (no guaranteed editable proxy host before the update tests).
-- In-file parallel execution (`fullyParallel: true` globally) increases race potential for shared host list mutations.
+1. `Extract PR number from workflow_run`
+2. `Validate workflow_run upstream event contract`
+3. `Check for PR image artifact`
+4. `Skip if no artifact` (to be converted to deterministic fail paths for
+   `workflow_run` and `workflow_dispatch`)
+5. `Load Docker image`
+6. `Extract charon binary from container`
 
-#### 2) `tests/settings/smtp-settings.spec.ts` (waitForResponse timeout)
+### 3.6 Event Data Flow (Deterministic)
 
-Observed test pattern:
-- Uses `clickAndWaitForResponse(page, saveButton, /\/api\/v1\/settings\/smtp/)`, which internally waits for response status `200` by default.
-- Test updates only host field, relying on pre-existing validity of other required fields.
+```text
+pull_request/push
+  -> Build Docker image (Local)
+  -> image_ref=charon:local
+  -> Extract /app/charon
+  -> Trivy scan
 
-Likely root causes:
-- If backend returns non-`200` (e.g., `400` validation), helper waits indefinitely for `200` and times out instead of failing fast.
-- The test assumes existing SMTP state is valid; this is brittle under parallel execution and prior test mutations.
+workflow_run (upstream success only)
+   -> Assert upstream event == pull_request (hard fail if false)
+  -> Require artifact exists (hard fail if missing)
+  -> Load/validate image
+  -> image_ref=charon:artifact
+  -> Extract /app/charon
+  -> Trivy scan
 
-### Technical Specifications (Exact Test Changes)
-
-#### A) `tests/core/proxy-hosts.spec.ts`
-
-1. In `test.describe('Update Proxy Host', ...)`, add serial mode:
-- Add `test.describe.configure({ mode: 'serial' })` at the top of that describe block.
-
-2. Add a local helper in this file for deterministic precondition and row-scoped edit action:
-- Helper name: `ensureEditableProxyHost(page, testData)`
-- Behavior:
-   - Check `tbody tr` count.
-   - If count is `0`, create one host via `testData.createProxyHost({ domain: ..., forwardHost: ..., forwardPort: ... })`.
-   - Reload `/proxy-hosts` and wait for content readiness using existing wait helpers.
-
-3. Replace broad edit-button lookup in both failing tests with row-scoped visible locator:
-- Replace:
-   - `page.getByRole('button', { name: /edit/i }).first()`
-- With:
-   - `const firstRow = page.locator('tbody tr').first()`
-   - `const editButton = firstRow.getByRole('button', { name: /edit proxy host|edit/i }).first()`
-   - `await expect(editButton).toBeVisible()`
-   - `await editButton.click()`
-
-4. Remove silent pass-through for missing rows in these two tests:
-- Replace `if (editCount > 0) { ... }` branching with deterministic precondition call and explicit assertion that dialog appears.
-
-Affected tests:
-- `should open edit modal with existing values`
-- `should update forward host and port`
-
-Preserved assertions:
-- Edit modal opens.
-- Existing values are present.
-- Forward host/port fields accept and retain edited values before cancel.
-
-#### B) `tests/settings/smtp-settings.spec.ts`
-
-1. In `test.describe('CRUD Operations', ...)`, add serial mode:
-- Add `test.describe.configure({ mode: 'serial' })` to avoid concurrent mutation of shared SMTP configuration.
-
-2. Strengthen required-field preconditions in failing test before save:
-- In `should update existing SMTP configuration`, explicitly set:
-   - `#smtp-host` to `updated-smtp.test.local`
-   - `#smtp-port` to `587`
-   - `#smtp-from` to `noreply@test.local`
-
-3. Replace status-constrained response wait that can timeout on non-200:
-- Replace `clickAndWaitForResponse(...)` call with `Promise.all([page.waitForResponse(...) , saveButton.click()])` matching URL + `POST` method (not status).
-- Immediately assert returned status is `200` and then keep success-toast assertion.
-
-4. Keep existing persistence verification and cleanup step:
-- Reload and assert host persisted.
-- Restore original host value after assertion.
-
-Preserved assertions:
-- Save request succeeds.
-- Success feedback shown.
-- Updated value persists after reload.
-- Original value restoration still performed.
-
-### Implementation Plan
-
-#### Phase 1 — Targeted test edits
-- Update only:
-   - `tests/core/proxy-hosts.spec.ts`
-   - `tests/settings/smtp-settings.spec.ts`
-
-#### Phase 2 — Focused verification
-- Run only the 3 failing cases first (grep-targeted).
-- Then run both files fully on Firefox to validate no local regressions.
-
-#### Phase 3 — Gate confirmation
-- Re-run the previously failing targeted suite:
-   - `tests/core`
-   - `tests/settings/smtp-settings.spec.ts`
-
-### Acceptance Criteria
-
-1. `should open edit modal with existing values` passes without timeout.
-2. `should update forward host and port` passes without timeout.
-3. `should update existing SMTP configuration` passes without `waitForResponse` timeout.
-4. No assertion scope is broadened; test intent remains unchanged.
-5. No non-target files are modified.
-
-### PR Slicing Strategy
-
-- Decision: **Single PR**.
-- Rationale: 3 deterministic test-only fixes, same domain (Playwright stabilization), low blast radius.
-- Slice:
-   - `PR-1`: Update the two spec files above + rerun targeted Playwright validations.
-- Rollback:
-   - Revert only spec-file changes if unintended side effects appear.
-
-## Introduction
-
-Charon’s control plane and data plane rely on Caddy as a core runtime backbone.
-Because Caddy is embedded and rebuilt via `xcaddy`, upgrading from
-`2.11.0-beta.2` to `2.11.1` is not a routine version bump: it impacts
-runtime behavior, plugin compatibility, vulnerability posture, and potential UX
-surface area.
-
-This plan defines a low-risk, high-observability rollout strategy that answers:
-
-1. Which Caddy 2.11.x features should be exposed in Charon UI/API?
-2. Which existing Charon workarounds became redundant upstream?
-3. Which `xcaddy` dependency patches remain necessary vs removable?
-4. Which known vulnerabilities are fixed now and which should remain on watch?
-
-## Research Findings
-
-### External release and security findings
-
-1. Official release statement confirms `v2.11.1` has no runtime code delta from
-   `v2.11.0` except CI/release process correction. Practical implication:
-   compatibility/security validation should target **2.11.x** behavior, not
-   2.11.1-specific runtime changes.
-2. Caddy release lists six security patches (mapped to GitHub advisories):
-   - `CVE-2026-27590` → `GHSA-5r3v-vc8m-m96g` (FastCGI split_path confusion)
-   - `CVE-2026-27589` → `GHSA-879p-475x-rqh2` (admin API cross-origin no-cors)
-   - `CVE-2026-27588` → `GHSA-x76f-jf84-rqj8` (host matcher case bypass)
-   - `CVE-2026-27587` → `GHSA-g7pc-pc7g-h8jh` (path matcher escaped-case bypass)
-   - `CVE-2026-27586` → `GHSA-hffm-g8v7-wrv7` (mTLS client-auth fail-open)
-   - `CVE-2026-27585` → `GHSA-4xrr-hq4w-6vf4` (glob sanitization bypass)
-3. NVD/CVE.org entries are currently reserved/not fully enriched. GitHub
-   advisories are the most actionable source right now.
-
-### Charon architecture and integration findings
-
-1. Charon compiles custom Caddy in `Dockerfile` via `xcaddy` and injects:
-   - `github.com/greenpau/caddy-security`
-   - `github.com/corazawaf/coraza-caddy/v2`
-   - `github.com/hslatman/caddy-crowdsec-bouncer@v0.10.0`
-   - `github.com/zhangjiayin/caddy-geoip2`
-   - `github.com/mholt/caddy-ratelimit`
-2. Charon applies explicit post-generation `go get` patching in `Dockerfile` for:
-   - `github.com/expr-lang/expr@v1.17.7`
-   - `github.com/hslatman/ipstore@v0.4.0`
-   - `github.com/slackhq/nebula@v1.9.7` (with comment indicating temporary pin)
-3. Charon CI has explicit dependency inspection gate in
-   `.github/workflows/docker-build.yml` to verify patched `expr-lang/expr`
-   versions in built binaries.
-
-### Plugin compatibility findings (highest risk area)
-
-Current plugin module declarations (upstream `go.mod`) target older Caddy cores:
-
-- `greenpau/caddy-security`: `caddy/v2 v2.10.2`
-- `hslatman/caddy-crowdsec-bouncer`: `caddy/v2 v2.10.2`
-- `corazawaf/coraza-caddy/v2`: `caddy/v2 v2.9.1`
-- `zhangjiayin/caddy-geoip2`: `caddy/v2 v2.10.0`
-- `mholt/caddy-ratelimit`: `caddy/v2 v2.8.0`
-
-Implication: compile success against 2.11.1 is plausible but not guaranteed.
-The plan must include matrix build/provision tests before merge.
-
-### Charon UX and config-surface findings
-
-Current Caddy-related UI/API exposure is narrow:
-
-- `frontend/src/pages/SystemSettings.tsx`
-  - state: `caddyAdminAPI`, `sslProvider`
-  - saves keys: `caddy.admin_api`, `caddy.ssl_provider`
-- `frontend/src/pages/ImportCaddy.tsx` and import components:
-  - Caddyfile parsing/import workflow, not runtime feature toggles
-- `frontend/src/api/import.ts`, `frontend/src/api/settings.ts`
-- Backend routes and handlers:
-  - `backend/internal/api/routes/routes.go`
-  - `backend/internal/api/handlers/settings_handler.go`
-  - `backend/internal/api/handlers/import_handler.go`
-  - `backend/internal/caddy/manager.go`
-  - `backend/internal/caddy/config.go`
-  - `backend/internal/caddy/types.go`
-
-No UI controls currently exist for new Caddy 2.11.x capabilities such as
-`keepalive_idle`, `keepalive_count`, `trusted_proxies_unix`,
-`renewal_window_ratio`, or `0-RTT` behavior.
-
-## Requirements (EARS)
-
-1. WHEN evaluating Caddy `v2.11.1`, THE SYSTEM SHALL validate compatibility
-   against all currently enabled `xcaddy` plugins before changing production
-   defaults.
-2. WHEN security advisories in Caddy 2.11.x affect modules Charon may use,
-   THE SYSTEM SHALL document exploitability for Charon’s deployment model and
-   prioritize remediation accordingly.
-3. WHEN an `xcaddy` patch/workaround no longer provides value,
-   THE SYSTEM SHALL remove it only after reproducible build and runtime
-   validation gates pass.
-4. IF a Caddy 2.11.x feature maps to an existing Charon concept,
-   THEN THE SYSTEM SHALL prefer extending existing UI/components over adding new
-   parallel controls.
-5. WHEN no direct UX value exists, THE SYSTEM SHALL avoid adding UI for upstream
-   options and keep behavior backend-managed.
-6. WHEN this rollout completes, THE SYSTEM SHALL provide explicit upstream watch
-   criteria for unresolved/reserved CVEs and plugin dependency lag.
-
-## Technical Specifications
-
-### Compatibility scope map (code touch inventory)
-
-#### Build/packaging
-
-- `Dockerfile`
-  - `ARG CADDY_VERSION`
-  - `ARG XCADDY_VERSION`
-  - `caddy-builder` stage (`xcaddy build`, plugin list, `go get` patches)
-- `.github/workflows/docker-build.yml`
-  - binary dependency checks (`go version -m` extraction/gates)
-- `.github/renovate.json`
-  - regex managers tracking `Dockerfile` patch dependencies
-
-#### Caddy runtime config generation
-
-- `backend/internal/caddy/manager.go`
-  - `NewManager(...)`
-  - `ApplyConfig(ctx)`
-- `backend/internal/caddy/config.go`
-  - `GenerateConfig(...)`
-- `backend/internal/caddy/types.go`
-  - JSON struct model for Caddy config (`Server`, `TrustedProxies`, etc.)
-
-#### Settings and admin surface
-
-- `backend/internal/api/handlers/settings_handler.go`
-  - `UpdateSetting(...)`, `PatchConfig(...)`
-- `backend/internal/api/routes/routes.go`
-  - Caddy manager wiring + settings routes
-- `frontend/src/pages/SystemSettings.tsx`
-  - current Caddy-related controls
-
-#### Caddyfile import behavior
-
-- `backend/internal/api/handlers/import_handler.go`
-  - `RegisterRoutes(...)`, `Upload(...)`, `GetPreview(...)`
-- `backend/internal/caddy/importer.go`
-  - `NormalizeCaddyfile(...)`, `ParseCaddyfile(...)`, `ExtractHosts(...)`
-- `frontend/src/pages/ImportCaddy.tsx`
-  - import UX and warning handling
-
-### Feature impact assessment (2.11.x)
-
-#### Candidate features for potential Charon exposure
-
-1. Keepalive server options (`keepalive_idle`, `keepalive_count`)
-   - Candidate mapping: advanced per-host connection tuning
-   - Likely files: `backend/internal/caddy/types.go`,
-     `backend/internal/caddy/config.go`, host settings API + UI
-2. `trusted_proxies_unix`
-   - Candidate mapping: trusted local socket proxy chains
-   - Current `TrustedProxies` struct lacks explicit unix-socket trust fields
-3. Certificate lifecycle tunables (`renewal_window_ratio`, maintenance interval)
-   - Candidate mapping: advanced TLS policy controls
-   - Potentially belongs under system-level TLS settings, not per-host UI
-
-#### Features likely backend-only / no new UI by default
-
-1. Reverse-proxy automatic `Host` rewrite for TLS upstreams
-2. ECH key auto-rotation
-3. `SIGUSR1` reload fallback behavior
-4. Logging backend internals (`timberjack`, ordering fixes)
-
-Plan decision rule: expose only options that produce clear operator value and
-can be represented without adding UX complexity.
-
-### Security patch relevance matrix
-
-#### Advisory exploitability rubric and ownership
-
-Use the following deterministic rubric for each advisory before any promotion:
-
-| Field | Required Values | Rule |
-| --- | --- | --- |
-| Exploitability | `Affected` / `Not affected` / `Mitigated` | `Affected` means a reachable vulnerable path exists in Charon runtime; `Not affected` means required feature/path is not present; `Mitigated` means vulnerable path exists upstream but Charon deployment/runtime controls prevent exploitation. |
-| Evidence source | advisory + code/config/runtime proof | Must include at least one authoritative upstream source (GitHub advisory/Caddy release) and one Charon-local proof (config path, test, scan, or runtime verification). |
-| Owner | named role | Security owner for final disposition (`QA_Security` lead or delegated maintainer). |
-| Recheck cadence | `weekly` / `release-candidate` / `on-upstream-change` | Minimum cadence: weekly until CVE enrichment is complete and disposition is stable for two consecutive checks. |
-
-Promotion gate: every advisory must have all four fields populated and signed by
-owner in the PR evidence bundle.
-
-#### High-priority for Charon context
-
-1. `GHSA-879p-475x-rqh2` (admin API cross-origin no-cors)
-   - Charon binds admin API internally but still uses `0.0.0.0:2019` in
-     generated config. Must verify actual network isolation and container
-     exposure assumptions.
-2. `GHSA-hffm-g8v7-wrv7` (mTLS fail-open)
-   - Relevant if client-auth CA pools are configured anywhere in generated or
-     imported config paths.
-3. matcher bypass advisories (`GHSA-x76f-jf84-rqj8`, `GHSA-g7pc-pc7g-h8jh`)
-   - Potentially relevant to host/path-based access control routing in Caddy.
-
-#### Contextual/conditional relevance
-
-- `GHSA-5r3v-vc8m-m96g` (FastCGI split_path)
-  - Relevant only if FastCGI transport is in active use.
-- `GHSA-4xrr-hq4w-6vf4` (file matcher glob sanitization)
-  - Relevant when file matchers are used in route logic.
-
-### xcaddy patch retirement candidates
-
-#### Candidate to re-evaluate for removal
-
-- `go get github.com/slackhq/nebula@v1.9.7`
-  - Upstream Caddy has moved forward to `nebula v1.10.3` and references
-    security-related maintenance in the 2.11.x line.
-  - Existing Charon pin comment may be stale after upstream smallstep updates.
-
-#### Likely retain until proven redundant
-
-- `go get github.com/expr-lang/expr@v1.17.7`
-- `go get github.com/hslatman/ipstore@v0.4.0`
-
-Retention/removal decision must be made using reproducible build + binary
-inspection evidence, not assumption.
-
-#### Hard retirement gates (mandatory before removing any pin)
-
-Pin removal is blocked unless all gates pass:
-
-1. Binary module diff gate
-   - Produce before/after `go version -m` module diff for Caddy binary.
-   - No unexpected module major-version jumps outside approved advisory scope.
-2. Security regression gate
-   - No new HIGH/CRITICAL findings in CodeQL/Trivy/Grype compared to baseline.
-3. Reproducible build parity gate
-   - Two clean rebuilds produce equivalent module inventory and matching runtime
-     smoke results.
-4. Rollback proof gate (mandatory, with explicit `nebula` focus)
-   - Demonstrate one-command rollback to previous pin set, with successful
-     compile + runtime smoke set after rollback.
-
-Retirement decision for `nebula` cannot proceed without explicit rollback proof
-artifact attached to PR evidence.
-
-### Feature-to-control mapping (exposure decision matrix)
-
-| Feature | Control surface | Expose vs backend-only rationale | Persistence path |
-| --- | --- | --- | --- |
-| `keepalive_idle`, `keepalive_count` | Existing advanced system settings (if approved) | Expose only if operators need deterministic upstream connection control; otherwise keep backend defaults to avoid UX bloat. | `frontend/src/pages/SystemSettings.tsx` → `frontend/src/api/settings.ts` → `backend/internal/api/handlers/settings_handler.go` → DB settings → `backend/internal/caddy/config.go` (`GenerateConfig`) |
-| `trusted_proxies_unix` | Backend-only default initially | Backend-only until proven demand for unix-socket trust tuning; avoid misconfiguration risk in general UI. | backend config model (`backend/internal/caddy/types.go`) + generated config path (`backend/internal/caddy/config.go`) |
-| `renewal_window_ratio`, cert maintenance interval | Backend-only policy | Keep backend-only unless operations requires explicit lifecycle tuning controls. | settings store (if introduced) → `settings_handler.go` → `GenerateConfig` |
-| Reverse-proxy Host rewrite / ECH rotation / reload fallback internals | Backend-only | Operational internals with low direct UI value; exposing would increase complexity without clear user benefit. | backend runtime defaults and generated Caddy config only |
-
-## Implementation Plan
-
-### Phase 1: Playwright and behavior baselining (mandatory first)
-
-Objective: capture stable pre-upgrade behavior and ensure UI/UX parity checks.
-
-1. Run targeted E2E suites covering Caddy-critical flows:
-   - `tests/tasks/import-caddyfile.spec.ts`
-   - `tests/security-enforcement/zzz-caddy-imports/*.spec.ts`
-   - system settings-related tests around Caddy admin API and SSL provider
-2. Capture baseline artifacts:
-   - Caddy import warning behavior
-   - security settings save/reload behavior
-   - admin API connectivity assumptions from test fixtures
-3. Produce a baseline report in `docs/reports/` for diffing in later phases.
-
-### Phase 2: Backend and build compatibility research implementation
-
-Objective: validate compile/runtime compatibility of Caddy 2.11.1 with current
-plugin set and patch set.
-
-1. Bump candidate in `Dockerfile`:
-   - `ARG CADDY_VERSION=2.11.1`
-2. Execute matrix builds with toggles:
-   - Scenario A: current patch set unchanged
-   - Scenario B: remove `nebula` pin only
-   - Scenario C: remove `nebula` + retain `expr/ipstore`
-3. Execute explicit compatibility gate matrix (deterministic):
-
-   | Dimension | Values |
-   | --- | --- |
-   | Plugin set | `caddy-security`, `coraza-caddy`, `caddy-crowdsec-bouncer`, `caddy-geoip2`, `caddy-ratelimit` |
-   | Patch scenario | `A` current pins, `B` no `nebula` pin, `C` no `nebula` pin + retained `expr/ipstore` pins |
-   | Platform/arch | `linux/amd64`, `linux/arm64` |
-   | Runtime smoke set | boot Caddy, apply generated config, admin API health, import preview, one secured proxy request path |
-
-   Deterministic pass/fail rule:
-   - **Pass**: all plugin modules compile/load for the matrix cell AND all smoke
-     tests pass.
-   - **Fail**: any compile/load error, missing module, or smoke failure.
-
-   Promotion criteria:
-   - PR-1 promotion requires 100% pass for Scenario A on both architectures.
-   - Scenario B/C may progress only as candidate evidence; they cannot promote to
-     default unless all hard retirement gates pass.
-4. Validate generated binary dependencies from CI/local:
-   - verify `expr`, `ipstore`, `nebula`, `smallstep/certificates` versions
-5. Validate runtime config application path:
-   - `backend/internal/caddy/manager.go` → `ApplyConfig(ctx)`
-   - `backend/internal/caddy/config.go` → `GenerateConfig(...)`
-6. Run Caddy package tests and relevant integration tests:
-   - `backend/internal/caddy/*`
-   - security middleware integration paths that rely on Caddy behavior
-
-### Phase 3: Security hardening and vulnerability posture updates
-
-Objective: translate upstream advisories into Charon policy and tests.
-
-1. Add/adjust regression tests for advisory-sensitive behavior in
-   `backend/internal/caddy` and integration test suites, especially:
-   - host matcher behavior with large host lists
-   - escaped path matcher handling
-   - admin API cross-origin assumptions
-2. Update security documentation and operational guidance:
-   - identify which advisories are mitigated by upgrade alone
-   - identify deployment assumptions (e.g., local admin API exposure)
-3. Introduce watchlist process for RESERVED CVEs pending NVD enrichment:
-   - monitor Caddy advisories and module-level disclosures weekly
-
-### Phase 4: Frontend and API exposure decisions (only if justified)
-
-Objective: decide whether 2.11.x features merit UI controls.
-
-1. Evaluate additions to existing `SystemSettings` UX only (no new page):
-   - optional advanced toggles for keepalive tuning and trusted proxy unix scope
-2. Add backend settings keys and mapping only where persisted behavior is
-   needed:
-   - settings handler support in
-     `backend/internal/api/handlers/settings_handler.go`
-   - propagation to config generation in `GenerateConfig(...)`
-3. If no high-value operator need is proven, keep features backend-default and
-   document rationale.
-
-### Phase 5: Validation, docs, and release readiness
-
-Objective: ensure secure, reversible, and auditable rollout.
-
-1. Re-run full DoD sequence (E2E, patch report, security scans, coverage).
-2. Update architectural docs if behavior/config model changes.
-3. Publish release decision memo:
-   - accepted changes
-   - rejected/deferred UX features
-   - retained/removed patches with evidence
-
-## PR Slicing Strategy
+workflow_dispatch
+  -> Require pr_number input (hard fail if missing)
+  -> Resolve pr-image-<pr_number> artifact (hard fail if missing)
+  -> Load/validate image
+  -> image_ref=charon:artifact
+  -> Extract /app/charon
+  -> Trivy scan
+```
+
+### 3.7 Error Handling Matrix
+
+| Step | Condition | Required Behavior |
+|---|---|---|
+| Validate workflow_run upstream event contract | `workflow_run` upstream event is not `pull_request` | Hard fail with `unsupported_upstream_event`; stop before artifact lookup |
+| Check for PR image artifact | `workflow_run` upstream success but artifact missing | Hard fail with run id + artifact name |
+| Extract PR number from workflow_run | `workflow_dispatch` and empty `inputs.pr_number` | Hard fail with input requirement message |
+| Load Docker image | Missing/corrupt `charon-pr-image.tar` | Hard fail before `docker load` |
+| Load Docker image | Missing/corrupt `manifest.json` | Attempt load-image-id fallback; fail if unresolved |
+| Load Docker image | No valid `RepoTags[]` and no load image id | Hard fail |
+| Extract charon binary from container | Empty/invalid `image_ref` | Hard fail before `docker create` |
+| Extract charon binary from container | `/app/charon` missing | Hard fail with chosen image reference |
+
+### 3.8 API/DB Changes
+
+No backend API, frontend, or database schema changes.
+
+---
+
+## 4. Implementation Plan
+
+### Phase 1: Playwright Impact Check
+
+1. Mark Playwright scope as N/A because this change is workflow-only.
+2. Record N/A rationale in PR description.
+
+### Phase 2: Deterministic Event Policies
+
+File: `.github/workflows/security-pr.yml`
+
+1. Convert ambiguous skip/fail logic to hard-fail policy for
+   `workflow_run` missing artifact after upstream success.
+2. Enforce deterministic `workflow_dispatch` policy:
+   - Required `pr_number` input.
+   - Artifact-only replay path.
+   - No local fallback.
+3. Enforce PR-only `workflow_run` event contract:
+   - Upstream event must be `pull_request`.
+   - Upstream `push` or any non-PR event hard fails with
+     `unsupported_upstream_event`.
+
+### Phase 3: Image Selection Hardening
+
+File: `.github/workflows/security-pr.yml`
+
+1. Harden `Load Docker image` with manifest validation and multi-tag handling.
+2. Add fallback resolution via docker load image ID.
+3. Emit explicit outputs for traceability (`source_resolution_mode`).
+4. Ensure extraction consumes only selected alias (`charon:artifact`).
+
+### Phase 4: CI Security Hardening
+
+File: `.github/workflows/security-pr.yml`
+
+1. Reduce job permissions to least privilege.
+2. Remove/conditionalize `pull-requests: write` if not required.
+3. Add workflow_run trust-boundary guard conditions and explicit fail messages.
+
+### Phase 5: Validation
+
+1. `pre-commit run actionlint --files .github/workflows/security-pr.yml`
+2. Simulate deterministic paths (or equivalent CI replay) for all matrix cases.
+3. Verify logs show chosen `source_image_ref` and `source_resolution_mode`.
+
+---
+
+## 5. Validation Matrix
+
+| ID | Trigger Path | Scenario | Expected Result |
+|---|---|---|---|
+| V1 | `workflow_run` | Upstream success + artifact present | Pass, uses `charon:artifact` |
+| V2 | `workflow_run` | Upstream success + artifact missing | Hard fail (non-zero) |
+| V3 | `workflow_run` | Upstream success + artifact manifest corrupted | Hard fail after validation/fallback attempt |
+| V4 | `workflow_run` | Upstream success + upstream event `push` | Hard fail with `unsupported_upstream_event` |
+| V5 | `pull_request` | Direct PR trigger | Pass, uses `charon:local`, no artifact lookup |
+| V6 | `push` | Direct push trigger | Pass, uses `charon:local`, no artifact lookup |
+| V7 | `workflow_dispatch` | Missing `pr_number` input | Hard fail immediately |
+| V8 | `workflow_dispatch` | Valid `pr_number` + artifact exists | Pass, uses `charon:artifact` |
+| V9 | `workflow_dispatch` | Valid `pr_number` + artifact missing | Hard fail |
+| V10 | `workflow_run` | Upstream from untrusted repository context | Hard fail by trust-boundary guard |
+
+---
+
+## 6. Acceptance Criteria
+
+1. Plan states unambiguous hard-fail behavior for missing artifact on
+   `workflow_run` after upstream `pull_request` success.
+2. Plan states `workflow_run` event contract is PR-only and that upstream
+   `push` is a deterministic hard-fail contract violation.
+3. Plan states one deterministic `workflow_dispatch` policy in SHALL terms:
+   required `pr_number`, artifact-only path, no local fallback.
+4. Plan defines robust image resolution beyond `RepoTags[0]`, including
+   load-image-id fallback and deterministic aliasing.
+5. Plan includes least-privilege permissions and explicit workflow_run trust
+   boundary constraints.
+6. Plan includes validation coverage for `pull_request` and direct `push` local
+   paths plus negative paths: unsupported upstream event, missing dispatch
+   input, missing artifact, corrupted/missing manifest.
+7. Root cause remains explicit: image-reference mismatch inside
+   `.github/workflows/security-pr.yml` after successful artifact load.
+
+---
+
+## 7. Risks and Mitigations
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| Overly strict dispatch policy blocks ad-hoc scans | Medium | Document explicit manual replay contract in workflow description |
+| PR-only workflow_run contract fails upstream push-triggered runs | Medium | Intentional contract enforcement; document `unsupported_upstream_event` and route push scans through direct push path |
+| Manifest parsing edge cases | Medium | Multi-source resolver with load-image-id fallback |
+| Permission tightening breaks optional PR annotations | Low | Make PR-write permission step-scoped only if needed |
+| Trust-boundary guards reject valid internal events | Medium | Add clear diagnostics and test cases V1/V10 |
+
+---
+
+## 8. PR Slicing Strategy
 
 ### Decision
 
-Use **multiple PRs (PR-1/PR-2/PR-3)**.
+Single PR.
 
-Reasoning:
+### Trigger Reasons
 
-1. Work spans infra/build security + backend runtime + potential frontend UX.
-2. Caddy is a blast-radius-critical dependency; rollback safety is mandatory.
-3. Review quality and CI signal are stronger with isolated, testable slices.
+1. Change is isolated to one workflow (`security-pr.yml`).
+2. Deterministic policy + hardening are tightly coupled and safest together.
+3. Split PRs would create temporary policy inconsistency.
 
-### PR-1: Compatibility and evidence foundation
+### Ordered Slice
 
-Scope:
-
-- `Dockerfile` Caddy candidate bump (and temporary feature branch matrix toggles)
-- CI/workflow compatibility instrumentation if needed
-- compatibility report artifacts and plan-linked documentation
-
-Dependencies:
-
-- None
-
-Acceptance criteria:
-
-1. Caddy 2.11.1 compiles with existing plugin set under at least one stable
-   patch scenario.
-2. Compatibility gate matrix (plugin × patch scenario × platform/arch × runtime
-    smoke set) executed with deterministic pass/fail output and attached evidence.
-3. Binary module inventory report generated and attached.
-4. No production behavior changes merged beyond compatibility scaffolding.
-
-Release guard (mandatory for PR-1):
-
-- Candidate tag only (`*-rc`/`*-candidate`) is allowed.
-- Release pipeline exclusion is required; PR-1 artifacts must not be eligible
-   for production release jobs.
-- Promotion to releasable tag is blocked until PR-2 security/retirement gates
-   pass.
-
-Rollback notes:
-
-- Revert `Dockerfile` arg changes and instrumentation only.
-
-### PR-2: Security patch posture + patch retirement decision
+#### PR-1: Deterministic Policy and Security Hardening for `security-pr.yml`
 
 Scope:
 
-- finalize retained/removed `go get` patch lines in `Dockerfile`
-- update security tests/docs tied to six Caddy advisories
-- tighten/confirm admin API exposure assumptions
+1. Deterministic missing-artifact handling (`workflow_run` hard fail).
+2. Deterministic `workflow_dispatch` artifact-only policy.
+3. Hardened image resolution and aliasing.
+4. Least-privilege + trust-boundary constraints.
+5. Validation matrix execution evidence.
+
+Files:
+
+1. `.github/workflows/security-pr.yml`
+2. `docs/plans/current_spec.md`
 
 Dependencies:
 
-- PR-1 evidence
+1. `.github/workflows/docker-build.yml` artifact naming contract unchanged.
 
-Acceptance criteria:
+Validation Gates:
 
-1. Decision logged for each patch (`expr`, `ipstore`, `nebula`) with rationale.
-2. Advisory coverage matrix completed with Charon applicability labels.
-3. Security scans clean at required policy thresholds.
+1. actionlint passes.
+2. Validation matrix V1-V10 results captured.
+3. No regression to `ghcr.io/...:pr-<num> not found` pattern.
 
-Rollback notes:
+Rollback / Contingency:
 
-- Revert patch retirement lines and keep previous pinned patch model.
+1. Revert PR-1 if trust-boundary guards block legitimate same-repo runs.
+2. Keep hard-fail semantics; adjust guard predicate, not policy.
 
-### PR-3: Optional UX/API exposure and cleanup (Focused Execution Update)
+---
 
-Decision summary:
+## 9. Handoff
 
-- PR-3 remains optional and value-gated.
-- Expose only controls with clear operator value on existing `SystemSettings`.
-- Keep low-value/high-risk knobs backend-default and non-exposed.
+After approval, implementation handoff to Supervisor SHALL include:
 
-Operator-value exposure decision:
-
-| Candidate | Operator value | Decision in PR-3 |
-| --- | --- | --- |
-| `keepalive_idle`, `keepalive_count` | Helps operators tune long-lived upstream behavior (streaming, websocket-heavy, high-connection churn) without editing config by hand. | **Expose minimally** (only if PR-2 confirms stable runtime behavior). |
-| `trusted_proxies_unix` | Niche socket-chain use case, easy to misconfigure, low value for default Charon operators. | **Do not expose**; backend-default only. |
-| `renewal_window_ratio` / cert maintenance internals | Advanced certificate lifecycle tuning with low day-to-day value and higher support burden. | **Do not expose**; backend-default only. |
-
-Strict scope constraints:
-
-- No new routes, pages, tabs, or modals.
-- UI changes limited to existing `frontend/src/pages/SystemSettings.tsx` general/system section.
-- API surface remains existing settings endpoints only (`POST /settings`, `PATCH /config`).
-- Preserve backend defaults when setting is absent, empty, or invalid.
-
-Minimum viable controls (if PR-3 is activated):
-
-1. `caddy.keepalive_idle` (optional)
-   - Surface: `SystemSettings` under existing Caddy/system controls.
-   - UX: bounded select/input for duration-like value (validated server-side).
-   - Persistence: existing `updateSetting()` flow.
-2. `caddy.keepalive_count` (optional)
-   - Surface: `SystemSettings` adjacent to keepalive idle.
-   - UX: bounded numeric control (validated server-side).
-   - Persistence: existing `updateSetting()` flow.
-
-Exact files/functions/components to change:
-
-Backend (no new endpoints):
-
-1. `backend/internal/caddy/manager.go`
-   - Function: `ApplyConfig(ctx context.Context) error`
-   - Change: read optional settings keys (`caddy.keepalive_idle`, `caddy.keepalive_count`), normalize/validate parsed values, pass sanitized values into config generation.
-   - Default rule: on missing/invalid values, pass empty/zero equivalents so generated config keeps current backend-default behavior.
-2. `backend/internal/caddy/config.go`
-   - Function: `GenerateConfig(...)`
-   - Change: extend function parameters with optional keepalive values and apply them only when non-default/valid.
-   - Change location: HTTP server construction block where server-level settings (including trusted proxies) are assembled.
-3. `backend/internal/caddy/types.go`
-   - Type: `Server`
-   - Change: add optional fields required to emit keepalive keys in Caddy JSON only when provided.
-4. `backend/internal/api/handlers/settings_handler.go`
-   - Functions: `UpdateSetting(...)`, `PatchConfig(...)`
-   - Change: add narrow validation for `caddy.keepalive_idle` and `caddy.keepalive_count` to reject malformed/out-of-range values while preserving existing generic settings behavior for unrelated keys.
-
-Frontend (existing surface only):
-
-1. `frontend/src/pages/SystemSettings.tsx`
-   - Component: `SystemSettings`
-   - Change: add local state load/save wiring for optional keepalive controls using existing settings query/mutation flow.
-   - Change: render controls in existing General/System card only.
-2. `frontend/src/api/settings.ts`
-   - No contract expansion required; reuse `updateSetting(key, value, category, type)`.
-3. Localization files (labels/help text only, if controls are exposed):
-   - `frontend/src/locales/en/translation.json`
-   - `frontend/src/locales/de/translation.json`
-   - `frontend/src/locales/es/translation.json`
-   - `frontend/src/locales/fr/translation.json`
-   - `frontend/src/locales/zh/translation.json`
-
-Tests to update/add (targeted):
-
-1. `frontend/src/pages/__tests__/SystemSettings.test.tsx`
-   - Verify control rendering, default-state behavior, and save calls for optional keepalive keys.
-2. `backend/internal/caddy/config_generate_test.go`
-   - Verify keepalive keys are omitted when unset/invalid and emitted when valid.
-3. `backend/internal/api/handlers/settings_handler_test.go`
-   - Verify validation pass/fail for keepalive keys via both `UpdateSetting` and `PatchConfig` paths.
-4. Existing E2E settings coverage (no new suite)
-   - Extend existing settings-related specs only if UI controls are activated in PR-3.
-
-Dependencies:
-
-- PR-2 must establish stable runtime/security baseline first.
-- PR-3 activation requires explicit operator-value confirmation from PR-2 evidence.
-
-Acceptance criteria (PR-3 complete):
-
-1. No net-new page; all UI changes are within `SystemSettings` only.
-2. No new backend routes/endpoints; existing settings APIs are reused.
-3. Only approved controls (`caddy.keepalive_idle`, `caddy.keepalive_count`) are exposed, and exposure is allowed only if the PR-3 Value Gate checklist is fully satisfied.
-4. `trusted_proxies_unix`, `renewal_window_ratio`, and certificate-maintenance internals remain backend-default and non-exposed.
-5. Backend preserves current behavior when optional keepalive settings are absent or invalid (no generated-config drift).
-6. Unit tests pass for settings validation + config generation default/override behavior.
-7. Settings UI tests pass for load/save/default behavior on exposed controls.
-8. Deferred/non-exposed features are explicitly documented in PR notes as intentional non-goals.
-
-#### PR-3 Value Gate (required evidence and approval)
-
-Required evidence checklist (all items required):
-
-- [ ] PR-2 evidence bundle contains an explicit operator-value decision record for PR-3 controls, naming `caddy.keepalive_idle` and `caddy.keepalive_count` individually.
-- [ ] Decision record includes objective evidence for each exposed control from at least one concrete source: test/baseline artifact, compatibility/security report, or documented operator requirement.
-- [ ] PR includes before/after evidence proving scope containment: no new page, no new route, and no additional exposed Caddy keys beyond the two approved controls.
-- [ ] Validation artifacts for PR-3 are attached: backend unit tests, frontend settings tests, and generated-config assertions for default/override behavior.
-
-Approval condition (pass/fail):
-
-- **Pass**: all checklist items are complete and a maintainer approval explicitly states "PR-3 Value Gate approved".
-- **Fail**: any checklist item is missing or approval text is absent; PR-3 control exposure is blocked and controls remain backend-default/non-exposed.
-
-Rollback notes:
-
-- Revert only PR-3 UI/settings mapping changes while retaining PR-1/PR-2 runtime and security upgrades.
-
-## Config File Review and Proposed Updates
-
-### Dockerfile (required updates)
-
-1. Update `ARG CADDY_VERSION` target to `2.11.1` after PR-1 gating.
-2. Reassess and potentially remove stale `nebula` pin in caddy-builder stage
-   if matrix build proves compatibility and security posture improves.
-3. Keep `expr`/`ipstore` patch enforcement until binary inspection proves
-   upstream transitive versions are consistently non-vulnerable.
-
-### .gitignore (suggested updates)
-
-No mandatory update for rollout, but recommended if new evidence artifacts are
-generated in temporary paths:
-
-- ensure transient compatibility artifacts are ignored (for example,
-  `test-results/caddy-compat/**` if used).
-
-### .dockerignore (suggested updates)
-
-No mandatory update; current file already excludes heavy test/docs/security
-artifacts and keeps build context lean. Revisit only if new compatibility
-fixture directories are introduced.
-
-### codecov.yml (suggested updates)
-
-No mandatory change for version upgrade itself. If new compatibility harness
-tests are intentionally non-coverage-bearing, add explicit ignore patterns to
-avoid noise in project and patch coverage reports.
-
-## Risk Register and Mitigations
-
-1. Plugin/API incompatibility with Caddy 2.11.1
-   - Mitigation: matrix compile + targeted runtime tests before merge.
-2. False confidence from scanner-only dependency policies
-   - Mitigation: combine advisory-context review with binary-level inspection.
-3. Behavioral drift in reverse proxy/matcher semantics
-   - Mitigation: baseline E2E + focused security regression tests.
-4. UI sprawl from exposing too many Caddy internals
-   - Mitigation: only extend existing settings surface when operator value is
-     clear and validated.
-
-## Acceptance Criteria
-
-1. Charon builds and runs with Caddy 2.11.1 and current plugin set under
-   deterministic CI validation.
-2. A patch disposition table exists for `expr`, `ipstore`, and `nebula`
-   (retain/remove/replace + evidence).
-3. Caddy advisory applicability matrix is documented, including exploitability
-   notes for Charon deployment model.
-4. Any added settings are mapped end-to-end:
-   frontend state → API payload → persisted setting → `GenerateConfig(...)`.
-5. E2E, security scans, and coverage gates pass without regression.
-6. PR-1/PR-2/PR-3 deliverables are independently reviewable and rollback-safe.
-
-## Handoff
-
-After approval of this plan:
-
-1. Delegate PR-1 execution to implementation workflow.
-2. Require evidence artifacts before approving PR-2 scope reductions
-   (especially patch removals).
-3. Treat PR-3 as optional and value-driven, not mandatory for the security
-   update itself.
-
-## PR-3 QA Closure Addendum (2026-02-23)
-
-### Scope
-
-PR-3 closure only:
-
-1. Keepalive controls (`caddy.keepalive_idle`, `caddy.keepalive_count`)
-2. Safe defaults/fallback behavior when keepalive values are missing or invalid
-3. Non-exposure constraints for deferred settings
-
-### Final QA Outcome
-
-- Verdict: **READY (PASS)**
-- Targeted PR-3 E2E rerun: **30 passed, 0 failed**
-- Local patch preflight: **PASS** with required LCOV artifact present
-- Coverage/type-check/security gates: **PASS**
-
-### Scope Guardrails Confirmed
-
-- UI scope remains constrained to existing System Settings surface.
-- No PR-3 expansion beyond approved keepalive controls.
-- Non-exposed settings remain non-exposed (`trusted_proxies_unix` and certificate lifecycle internals).
-- Safe fallback/default behavior remains intact for invalid or absent keepalive input.
-
-### Reviewer References
-
-- QA closure report: `docs/reports/qa_report.md`
-- Manual verification plan: `docs/issues/manual_test_pr3_keepalive_controls_closure.md`
+1. Exact step-level edits required in `.github/workflows/security-pr.yml`.
+2. Proof logs for each failed/pass matrix case.
+3. Confirmation that no files outside plan scope were required.
+3. Require explicit evidence that artifact path no longer performs GHCR PR tag
+   reconstruction.
