@@ -105,6 +105,10 @@ async function completeImportFlow(
 }
 
 test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
+  test.beforeEach(async ({ page }) => {
+    await resetImportSession(page);
+  });
+
   test.afterEach(async ({ page }) => {
     await resetImportSession(page);
   });
