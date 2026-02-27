@@ -246,7 +246,18 @@ test.describe('Admin Onboarding & Setup', () => {
     });
 
     await test.step('Verify redirected to login', async () => {
-      await submitLoginAndWaitForDashboard(page, adminUser.email);
+      await expect(page).toHaveURL(/\/login|\/signin|\/auth/i, { timeout: 15000 });
+
+      const currentStorageSize = await page.evaluate(() => {
+        return Object.keys(localStorage).length + Object.keys(sessionStorage).length;
+      });
+      expect(currentStorageSize).toBeLessThanOrEqual(initialStorageSize);
+
+      const hasAuthStorage = await page.evaluate(() => {
+        const authKeys = ['auth', 'token', 'charon_auth_token'];
+        return authKeys.some((key) => !!localStorage.getItem(key) || !!sessionStorage.getItem(key));
+      });
+      expect(hasAuthStorage).toBe(false);
     });
   });
 
