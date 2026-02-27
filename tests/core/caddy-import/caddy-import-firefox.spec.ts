@@ -20,7 +20,7 @@
 
 import { test, expect } from '../../fixtures/auth-fixtures';
 import { Page } from '@playwright/test';
-import { ensureImportUiPreconditions } from './import-page-helpers';
+import { ensureImportUiPreconditions, resetImportSession, waitForSuccessfulImportResponse } from './import-page-helpers';
 
 function firefoxOnly(browserName: string) {
   test.skip(browserName !== 'firefox', 'This suite only runs on Firefox');
@@ -103,6 +103,7 @@ test.describe('Caddy Import - Firefox-Specific @firefox-only', () => {
 
     await test.step('Navigate to import page', async () => {
       await setupImportMocks(page);
+      await resetImportSession(page);
       await ensureImportUiPreconditions(page, adminUser);
     });
 
@@ -115,25 +116,18 @@ test.describe('Caddy Import - Firefox-Specific @firefox-only', () => {
       await textarea.fill('test.example.com { reverse_proxy localhost:3000 }');
       await expect(parseButton).toBeEnabled();
 
-      // Verify button is clickable (not obscured by overlays)
-      const isClickable = await parseButton.evaluate((btn) => {
-        const rect = btn.getBoundingClientRect();
-        const centerX = rect.left + rect.width / 2;
-        const centerY = rect.top + rect.height / 2;
-        const topElement = document.elementFromPoint(centerX, centerY);
-        return topElement === btn || btn.contains(topElement);
-      });
-      expect(isClickable).toBeTruthy();
+      // Firefox-safe actionability check without mutating state.
+      await parseButton.click({ trial: true });
     });
 
     await test.step('Verify click event fires in Firefox', async () => {
-      const requestPromise = page.waitForRequest((req) => req.url().includes('/api/v1/import/upload'));
-
       const parseButton = page.getByRole('button', { name: /parse|review/i });
-      await parseButton.click();
-
-      // Wait for request to be sent
-      const request = await requestPromise;
+      const response = await waitForSuccessfulImportResponse(
+        page,
+        () => parseButton.click(),
+        'firefox-click-handler'
+      );
+      const request = response.request();
       expect(request.url()).toContain('/api/v1/import/upload');
       expect(request.method()).toBe('POST');
     });
@@ -322,13 +316,14 @@ test.describe('Caddy Import - Firefox-Specific @firefox-only', () => {
   test('should handle large Caddyfile upload (10KB+)', async ({ page, adminUser }) => {
     await test.step('Navigate to import page', async () => {
       await setupImportMocks(page);
+      await resetImportSession(page);
       await ensureImportUiPreconditions(page, adminUser);
     });
 
     await test.step('Generate large Caddyfile content', async () => {
-      // Generate 100 host entries (~10KB+)
+      // Generate deterministic payload >10KB for all browsers/runtimes.
       let largeCaddyfile = '';
-      for (let i = 0; i < 100; i++) {
+      for (let i = 0; i < 180; i++) {
         largeCaddyfile += `
 host${i}.example.com {
   reverse_proxy backend${i}:${3000 + i}
@@ -344,7 +339,7 @@ host${i}.example.com {
       // Verify no UI lag (textarea should update immediately)
       const value = await textarea.inputValue();
       expect(value.length).toBeGreaterThan(10000);
-      expect(value).toContain('host99.example.com');
+      expect(value).toContain('host179.example.com');
     });
 
     await test.step('Upload large file to API', async () => {
