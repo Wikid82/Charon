@@ -447,12 +447,15 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       await test.step('Navigate back to import page', async () => {
         shouldMockPendingStatus = true;
 
-        // Wait for status API to be called after navigation
-        const statusPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/status') && r.status() === 200
-        );
-        await page.goto('/tasks/import/caddyfile');
-        await statusPromise;
+        // WebKit can throw a transient internal navigation error; retry deterministically.
+        await expect(async () => {
+          const statusPromise = page.waitForResponse(
+            r => r.url().includes('/api/v1/import/status') && r.status() === 200,
+            { timeout: 10000 }
+          );
+          await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
+          await statusPromise;
+        }).toPass({ timeout: 15000 });
       });
 
       await test.step('Verify pending session banner is displayed', async () => {
