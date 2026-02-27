@@ -410,4 +410,130 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
       )
     })
   })
+
+  it('persists null to value transitions for ACL and security headers in edit flow', async () => {
+    const user = userEvent.setup()
+    const Wrapper = createWrapper()
+
+    const existingHostWithNulls: ProxyHost = {
+      uuid: 'host-uuid-null-fields',
+      name: 'Existing Null Fields',
+      domain_names: 'existing-null.com',
+      forward_scheme: 'http',
+      forward_host: 'localhost',
+      forward_port: 8080,
+      ssl_forced: true,
+      http2_support: true,
+      hsts_enabled: true,
+      hsts_subdomains: true,
+      block_exploits: true,
+      websocket_support: false,
+      enable_standard_headers: true,
+      application: 'none',
+      advanced_config: '',
+      enabled: true,
+      locations: [],
+      certificate_id: null,
+      access_list_id: null,
+      security_header_profile_id: null,
+      dns_provider_id: null,
+      created_at: '2024-01-01',
+      updated_at: '2024-01-01',
+    }
+
+    render(
+      <Wrapper>
+        <ProxyHostForm host={existingHostWithNulls} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      </Wrapper>
+    )
+
+    const aclTrigger = screen.getByRole('combobox', { name: /Access Control List/i })
+    await user.click(aclTrigger)
+    await user.click(await screen.findByRole('option', { name: /Office Network/i }))
+
+    const headersTrigger = screen.getByRole('combobox', { name: /Security Headers/i })
+    await user.click(headersTrigger)
+    await user.click(await screen.findByRole('option', { name: /Strict Security/i }))
+
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          access_list_id: 1,
+          security_header_profile_id: 2,
+        })
+      )
+    })
+  })
+
+  it('resets ACL/security header form state when editing target host changes', async () => {
+    const user = userEvent.setup()
+    const Wrapper = createWrapper()
+
+    const firstHost: ProxyHost = {
+      uuid: 'host-uuid-first',
+      name: 'First Host',
+      domain_names: 'first.example.com',
+      forward_scheme: 'http',
+      forward_host: 'localhost',
+      forward_port: 8080,
+      ssl_forced: true,
+      http2_support: true,
+      hsts_enabled: true,
+      hsts_subdomains: true,
+      block_exploits: true,
+      websocket_support: false,
+      enable_standard_headers: true,
+      application: 'none',
+      advanced_config: '',
+      enabled: true,
+      locations: [],
+      certificate_id: null,
+      access_list_id: 1,
+      security_header_profile_id: 1,
+      dns_provider_id: null,
+      created_at: '2024-01-01',
+      updated_at: '2024-01-01',
+    }
+
+    const secondHost: ProxyHost = {
+      ...firstHost,
+      uuid: 'host-uuid-second',
+      name: 'Second Host',
+      domain_names: 'second.example.com',
+      access_list_id: null,
+      security_header_profile_id: null,
+    }
+
+    const { rerender } = render(
+      <Wrapper>
+        <ProxyHostForm host={firstHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      </Wrapper>
+    )
+
+    // Mutate first host state in the form before switching targets.
+    await user.click(screen.getByRole('combobox', { name: /Access Control List/i }))
+    await user.click(await screen.findByRole('option', { name: /VPN Users/i }))
+
+    await user.click(screen.getByRole('combobox', { name: /Security Headers/i }))
+    await user.click(await screen.findByRole('option', { name: /Strict Security/i }))
+
+    rerender(
+      <Wrapper>
+        <ProxyHostForm host={secondHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      </Wrapper>
+    )
+
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          access_list_id: null,
+          security_header_profile_id: null,
+        })
+      )
+    })
+  })
 })

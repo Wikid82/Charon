@@ -75,6 +75,145 @@ func createTestSecurityHeaderProfile(t *testing.T, db *gorm.DB, name string) mod
 	return profile
 }
 
+// createTestAccessList creates an access list for testing.
+func createTestAccessList(t *testing.T, db *gorm.DB, name string) models.AccessList {
+	t.Helper()
+	acl := models.AccessList{
+		UUID:    uuid.NewString(),
+		Name:    name,
+		Type:    "ip",
+		Enabled: true,
+	}
+	require.NoError(t, db.Create(&acl).Error)
+	return acl
+}
+
+func TestProxyHostUpdate_AccessListID_Transitions_NoUnrelatedMutation(t *testing.T) {
+	t.Parallel()
+	router, db := setupUpdateTestRouter(t)
+
+	aclOne := createTestAccessList(t, db, "ACL One")
+	aclTwo := createTestAccessList(t, db, "ACL Two")
+
+	host := models.ProxyHost{
+		UUID:          uuid.NewString(),
+		Name:          "Access List Transition Host",
+		DomainNames:   "acl-transition.test.com",
+		ForwardScheme: "http",
+		ForwardHost:   "localhost",
+		ForwardPort:   8080,
+		Enabled:       true,
+		SSLForced:     true,
+		Application:   "none",
+		AccessListID:  &aclOne.ID,
+	}
+	require.NoError(t, db.Create(&host).Error)
+
+	assertUnrelatedFields := func(t *testing.T, current models.ProxyHost) {
+		t.Helper()
+		assert.Equal(t, "Access List Transition Host", current.Name)
+		assert.Equal(t, "acl-transition.test.com", current.DomainNames)
+		assert.Equal(t, "localhost", current.ForwardHost)
+		assert.Equal(t, 8080, current.ForwardPort)
+		assert.True(t, current.SSLForced)
+		assert.Equal(t, "none", current.Application)
+	}
+
+	runUpdate := func(t *testing.T, update map[string]any) {
+		t.Helper()
+		body, _ := json.Marshal(update)
+		req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		require.Equal(t, http.StatusOK, resp.Code)
+	}
+
+	// value -> value
+	runUpdate(t, map[string]any{"access_list_id": aclTwo.ID})
+	var updated models.ProxyHost
+	require.NoError(t, db.First(&updated, "uuid = ?", host.UUID).Error)
+	require.NotNil(t, updated.AccessListID)
+	assert.Equal(t, aclTwo.ID, *updated.AccessListID)
+	assertUnrelatedFields(t, updated)
+
+	// value -> null
+	runUpdate(t, map[string]any{"access_list_id": nil})
+	require.NoError(t, db.First(&updated, "uuid = ?", host.UUID).Error)
+	assert.Nil(t, updated.AccessListID)
+	assertUnrelatedFields(t, updated)
+
+	// null -> value
+	runUpdate(t, map[string]any{"access_list_id": aclOne.ID})
+	require.NoError(t, db.First(&updated, "uuid = ?", host.UUID).Error)
+	require.NotNil(t, updated.AccessListID)
+	assert.Equal(t, aclOne.ID, *updated.AccessListID)
+	assertUnrelatedFields(t, updated)
+}
+
+func TestProxyHostUpdate_SecurityHeaderProfileID_Transitions_NoUnrelatedMutation(t *testing.T) {
+	t.Parallel()
+	router, db := setupUpdateTestRouter(t)
+
+	profileOne := createTestSecurityHeaderProfile(t, db, "Security Profile One")
+	profileTwo := createTestSecurityHeaderProfile(t, db, "Security Profile Two")
+
+	host := models.ProxyHost{
+		UUID:                    uuid.NewString(),
+		Name:                    "Security Profile Transition Host",
+		DomainNames:             "security-transition.test.com",
+		ForwardScheme:           "http",
+		ForwardHost:             "localhost",
+		ForwardPort:             9090,
+		Enabled:                 true,
+		SSLForced:               true,
+		Application:             "none",
+		SecurityHeaderProfileID: &profileOne.ID,
+	}
+	require.NoError(t, db.Create(&host).Error)
+
+	assertUnrelatedFields := func(t *testing.T, current models.ProxyHost) {
+		t.Helper()
+		assert.Equal(t, "Security Profile Transition Host", current.Name)
+		assert.Equal(t, "security-transition.test.com", current.DomainNames)
+		assert.Equal(t, "localhost", current.ForwardHost)
+		assert.Equal(t, 9090, current.ForwardPort)
+		assert.True(t, current.SSLForced)
+		assert.Equal(t, "none", current.Application)
+	}
+
+	runUpdate := func(t *testing.T, update map[string]any) {
+		t.Helper()
+		body, _ := json.Marshal(update)
+		req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		require.Equal(t, http.StatusOK, resp.Code)
+	}
+
+	// value -> value
+	runUpdate(t, map[string]any{"security_header_profile_id": fmt.Sprintf("%d", profileTwo.ID)})
+	var updated models.ProxyHost
+	require.NoError(t, db.First(&updated, "uuid = ?", host.UUID).Error)
+	require.NotNil(t, updated.SecurityHeaderProfileID)
+	assert.Equal(t, profileTwo.ID, *updated.SecurityHeaderProfileID)
+	assertUnrelatedFields(t, updated)
+
+	// value -> null
+	runUpdate(t, map[string]any{"security_header_profile_id": ""})
+	require.NoError(t, db.First(&updated, "uuid = ?", host.UUID).Error)
+	assert.Nil(t, updated.SecurityHeaderProfileID)
+	assertUnrelatedFields(t, updated)
+
+	// null -> value
+	runUpdate(t, map[string]any{"security_header_profile_id": fmt.Sprintf("%d", profileOne.ID)})
+	require.NoError(t, db.First(&updated, "uuid = ?", host.UUID).Error)
+	require.NotNil(t, updated.SecurityHeaderProfileID)
+	assert.Equal(t, profileOne.ID, *updated.SecurityHeaderProfileID)
+	assertUnrelatedFields(t, updated)
+}
+
 // TestProxyHostUpdate_EnableStandardHeaders_Null tests updating enable_standard_headers to null.
 func TestProxyHostUpdate_EnableStandardHeaders_Null(t *testing.T) {
 	t.Parallel()

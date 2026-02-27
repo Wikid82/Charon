@@ -453,54 +453,12 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 
 	// Security Header Profile: update only if provided
 	if v, ok := payload["security_header_profile_id"]; ok {
-		logger := middleware.GetRequestLogger(c)
-		// Sanitize user-provided values for log injection protection (CWE-117)
-		safeUUID := sanitizeForLog(uuidStr)
-		logger.WithField("host_uuid", safeUUID).WithField("raw_value", sanitizeForLog(fmt.Sprintf("%v", v))).Debug("Processing security_header_profile_id update")
-
-		if v == nil {
-			logger.WithField("host_uuid", safeUUID).Debug("Setting security_header_profile_id to nil")
-			host.SecurityHeaderProfileID = nil
-		} else {
-			conversionSuccess := false
-			switch t := v.(type) {
-			case float64:
-				logger.Debug("Received security_header_profile_id as float64")
-				if id, ok := safeFloat64ToUint(t); ok {
-					host.SecurityHeaderProfileID = &id
-					conversionSuccess = true
-					logger.Info("Successfully converted security_header_profile_id from float64")
-				} else {
-					logger.Warn("Failed to convert security_header_profile_id from float64: value is negative or not a valid uint")
-				}
-			case int:
-				logger.Debug("Received security_header_profile_id as int")
-				if id, ok := safeIntToUint(t); ok {
-					host.SecurityHeaderProfileID = &id
-					conversionSuccess = true
-					logger.Info("Successfully converted security_header_profile_id from int")
-				} else {
-					logger.Warn("Failed to convert security_header_profile_id from int: value is negative")
-				}
-			case string:
-				logger.Debug("Received security_header_profile_id as string")
-				if n, err := strconv.ParseUint(t, 10, 32); err == nil {
-					id := uint(n)
-					host.SecurityHeaderProfileID = &id
-					conversionSuccess = true
-					logger.WithField("host_uuid", safeUUID).WithField("profile_id", id).Info("Successfully converted security_header_profile_id from string")
-				} else {
-					logger.Warn("Failed to parse security_header_profile_id from string")
-				}
-			default:
-				logger.Warn("Unsupported type for security_header_profile_id")
-			}
-
-			if !conversionSuccess {
-				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid security_header_profile_id: unable to convert value %v of type %T to uint", v, v)})
-				return
-			}
+		parsedID, _, parseErr := parseNullableUintField(v, "security_header_profile_id")
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": parseErr.Error()})
+			return
 		}
+		host.SecurityHeaderProfileID = parsedID
 	}
 
 	// Locations: replace only if provided
