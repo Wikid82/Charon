@@ -311,7 +311,8 @@ func TestMain_DefaultStartupGracefulShutdown_Subprocess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("find free http port: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o750); err != nil {
+	err = os.MkdirAll(filepath.Dir(dbPath), 0o750)
+	if err != nil {
 		t.Fatalf("mkdir db dir: %v", err)
 	}
 

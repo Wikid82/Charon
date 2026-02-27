@@ -168,3 +168,34 @@ func TestLogPermissionAudit_ActorFallback(t *testing.T) {
 	assert.Equal(t, "permissions", audit.EventCategory)
 	assert.Contains(t, audit.Details, fmt.Sprintf("\"admin\":%v", false))
 }
+
+func TestRequireAuthenticatedAdmin_NoUserID(t *testing.T) {
+	t.Parallel()
+
+	ctx, rec := newTestContextWithRequest()
+	result := requireAuthenticatedAdmin(ctx)
+	assert.False(t, result)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Authorization header required")
+}
+
+func TestRequireAuthenticatedAdmin_UserIDPresentAndAdmin(t *testing.T) {
+	t.Parallel()
+
+	ctx, _ := newTestContextWithRequest()
+	ctx.Set("userID", uint(1))
+	ctx.Set("role", "admin")
+	result := requireAuthenticatedAdmin(ctx)
+	assert.True(t, result)
+}
+
+func TestRequireAuthenticatedAdmin_UserIDPresentButNotAdmin(t *testing.T) {
+	t.Parallel()
+
+	ctx, rec := newTestContextWithRequest()
+	ctx.Set("userID", uint(1))
+	ctx.Set("role", "user")
+	result := requireAuthenticatedAdmin(ctx)
+	assert.False(t, result)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}

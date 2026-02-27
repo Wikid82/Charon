@@ -11,7 +11,7 @@ import { Skeleton } from '../components/ui/Skeleton'
 import { toast } from '../utils/toast'
 import { getProfile, regenerateApiKey, updateProfile } from '../api/user'
 import { getSettings, updateSetting } from '../api/settings'
-import { Copy, RefreshCw, Shield, Mail, User, AlertTriangle, Key } from 'lucide-react'
+import { RefreshCw, Shield, Mail, User, AlertTriangle, Key } from 'lucide-react'
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter'
 import { isValidEmail } from '../utils/validation'
 import { useAuth } from '../hooks/useAuth'
@@ -242,13 +242,6 @@ export default function Account() {
     }
   }
 
-  const copyApiKey = () => {
-    if (profile?.api_key) {
-      navigator.clipboard.writeText(profile.api_key)
-      toast.success(t('account.apiKeyCopied'))
-    }
-  }
-
   if (isLoadingProfile) {
     return (
       <div className="space-y-6">
@@ -444,13 +437,10 @@ export default function Account() {
         <CardContent>
           <div className="flex gap-2">
             <Input
-              value={profile?.api_key || ''}
+              value={profile?.api_key_masked || ''}
               readOnly
               className="font-mono text-sm"
             />
-            <Button type="button" variant="secondary" onClick={copyApiKey} title={t('account.copyToClipboard')}>
-              <Copy className="h-4 w-4" />
-            </Button>
             <Button
               type="button"
               variant="secondary"

@@ -74,10 +74,6 @@ ignore:
   - "backend/*.html"
   - "backend/codeql-db/**"
 
-  # Docker-only code (not testable in CI)
-  - "backend/internal/services/docker_service.go"
-  - "backend/internal/api/handlers/docker_handler.go"
-
   # CodeQL artifacts
   - "codeql-db/**"
   - "codeql-db-*/**"

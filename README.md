@@ -94,6 +94,19 @@ services:
       retries: 3
       start_period: 40s
 ```
+> **Docker Socket Access:** Charon runs as a non-root user. If you mount the Docker socket for container discovery, the container needs permission to read it. Find your socket's group ID and add it to the compose file:
+>
+> ```bash
+> stat -c '%g' /var/run/docker.sock
+> ```
+>
+> Then add `group_add: ["<gid>"]` under your service (replace `<gid>` with the number from the command above). For example, if the result is `998`:
+>
+> ```yaml
+>     group_add:
+>       - "998"
+> ```
+
 ### 2️⃣ Generate encryption key:
 ```bash
 openssl rand -base64 32

@@ -651,7 +651,11 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                       </p>
                       <p className="text-gray-400">
                         <strong>Troubleshooting:</strong> Ensure Docker is running and the socket is accessible.
-                        If running in a container, mount <code className="text-xs bg-gray-800 px-1 py-0.5 rounded">/var/run/docker.sock</code>.
+                        If running in a container, mount <code className="text-xs bg-gray-800 px-1 py-0.5 rounded">/var/run/docker.sock</code> and
+                        ensure the container has access to the Docker socket group
+                        (e.g., <code className="text-xs bg-gray-800 px-1 py-0.5 rounded">group_add</code> in
+                        Compose or <code className="text-xs bg-gray-800 px-1 py-0.5 rounded">--group-add</code> with
+                        Docker&nbsp;CLI).
                       </p>
                     </div>
                   </div>

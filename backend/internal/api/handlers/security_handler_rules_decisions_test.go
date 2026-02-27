@@ -30,6 +30,10 @@ func setupSecurityTestRouterWithExtras(t *testing.T) (*gin.Engine, *gorm.DB) {
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.AccessList{}, &models.SecurityConfig{}, &models.SecurityDecision{}, &models.SecurityAudit{}, &models.SecurityRuleSet{}))
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	api := r.Group("/api/v1")
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
@@ -148,6 +152,10 @@ func TestSecurityHandler_UpsertDeleteTriggersApplyConfig(t *testing.T) {
 	m := caddy.NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	api := r.Group("/api/v1")
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, m)

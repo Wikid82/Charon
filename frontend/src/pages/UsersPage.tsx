@@ -53,11 +53,15 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('allow_all')
   const [selectedHosts, setSelectedHosts] = useState<number[]>([])
   const [inviteResult, setInviteResult] = useState<{
-    token: string
     inviteUrl: string
     emailSent: boolean
     expiresAt: string
   } | null>(null)
+  const hasUsableInviteUrl = (inviteUrl?: string): inviteUrl is string => {
+    const normalized = (inviteUrl ?? '').trim()
+    return normalized.length > 0 && normalized !== '[REDACTED]'
+  }
+
   const [urlPreview, setUrlPreview] = useState<{
     preview_url: string
     base_url: string
@@ -125,8 +129,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
       setInviteResult({
-        token: data.invite_token,
-        inviteUrl: data.invite_url,
+        inviteUrl: data.invite_url ?? '',
         emailSent: data.email_sent,
         expiresAt: data.expires_at,
       })
@@ -143,8 +146,8 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
   })
 
   const copyInviteLink = async () => {
-    if (inviteResult?.token) {
-      const link = inviteResult.inviteUrl || `${window.location.origin}/accept-invite?token=${inviteResult.token}`
+    if (inviteResult?.inviteUrl && hasUsableInviteUrl(inviteResult.inviteUrl)) {
+      const link = inviteResult.inviteUrl
 
       try {
         await navigator.clipboard.writeText(link)
@@ -231,17 +234,23 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
                 <label className="block text-sm font-medium text-gray-300">
                   {t('users.inviteLink')}
                 </label>
-                <div className="flex gap-2">
-                  <Input
-                    type="text"
-                    value={inviteResult.inviteUrl || `${window.location.origin}/accept-invite?token=${inviteResult.token}`}
-                    readOnly
-                    className="flex-1 text-sm"
-                  />
-                  <Button onClick={copyInviteLink} aria-label={t('users.copyInviteLink')} title={t('users.copyInviteLink')}>
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                </div>
+                {hasUsableInviteUrl(inviteResult.inviteUrl) ? (
+                  <div className="flex gap-2">
+                    <Input
+                      type="text"
+                      value={inviteResult.inviteUrl}
+                      readOnly
+                      className="flex-1 text-sm"
+                    />
+                    <Button onClick={copyInviteLink} aria-label={t('users.copyInviteLink')} title={t('users.copyInviteLink')}>
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-300">
+                    {t('users.inviteLinkHiddenForSecurity', { defaultValue: 'Invite link is hidden for security. Share the invite through configured email delivery.' })}
+                  </p>
+                )}
                 <p className="text-xs text-gray-500">
                   {t('users.expires')}: {new Date(inviteResult.expiresAt).toLocaleString()}
                 </p>

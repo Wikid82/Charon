@@ -14,6 +14,7 @@ type NotificationProvider struct {
 	Type           string     `json:"type" gorm:"index"`                         // discord (only supported type in current rollout)
 	URL            string     `json:"url"`                                       // Discord webhook URL (HTTPS format required)
 	Token          string     `json:"-"`                                         // Auth token for providers (e.g., Gotify) - never exposed in API
+	HasToken       bool       `json:"has_token" gorm:"-"`                          // Computed: indicates whether a token is set (never exposes raw value)
 	Engine         string     `json:"engine,omitempty" gorm:"index"`             // notify_v1 (notify-only runtime)
 	Config         string     `json:"config"`                                    // JSON payload template for custom webhooks
 	ServiceConfig  string     `json:"service_config,omitempty" gorm:"type:text"` // JSON blob for typed service config

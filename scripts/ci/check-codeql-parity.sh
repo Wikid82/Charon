@@ -116,8 +116,8 @@ ensure_event_branches_semantic \
 ensure_event_branches_semantic \
   "$CODEQL_WORKFLOW" \
   "push" \
-  "branches: [main, nightly, development, 'feature/**', 'fix/**']" \
-  "main" "nightly" "development" "feature/**" "fix/**" || fail "codeql.yml push branches must be [main, nightly, development, 'feature/**', 'fix/**']"
+  "branches: [main]" \
+  "main" || fail "codeql.yml push branches must be [main]"
 grep -Fq 'queries: security-and-quality' "$CODEQL_WORKFLOW" || fail "codeql.yml must pin init queries to security-and-quality"
 ensure_task_command "$TASKS_FILE" "Security: CodeQL Go Scan (CI-Aligned) [~60s]" "bash scripts/pre-commit-hooks/codeql-go-scan.sh" || fail "Missing or mismatched CI-aligned Go CodeQL task (label+command)"
 ensure_task_command "$TASKS_FILE" "Security: CodeQL JS Scan (CI-Aligned) [~90s]" "bash scripts/pre-commit-hooks/codeql-js-scan.sh" || fail "Missing or mismatched CI-aligned JS CodeQL task (label+command)"

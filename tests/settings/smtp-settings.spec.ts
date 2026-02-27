@@ -745,8 +745,7 @@ test.describe('SMTP Settings', () => {
 
         // Verify form is keyboard accessible by checking we can navigate
         const currentFocused = page.locator(':focus');
-        const isVisible = await currentFocused.isVisible().catch(() => false);
-        expect(isVisible).toBeTruthy();
+        await expect(currentFocused).toBeVisible();
       });
 
       await test.step('Fill form field with keyboard', async () => {
