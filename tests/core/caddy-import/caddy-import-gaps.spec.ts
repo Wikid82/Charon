@@ -29,6 +29,41 @@ function generateDomain(testData: TestDataManager, suffix: string): string {
   return `${testData.getNamespace()}-${suffix}.example.com`;
 }
 
+async function fillCaddyfileTextarea(page: Page, caddyfile: string): Promise<void> {
+  await ensureImportFormReady(page);
+
+  await expect(async () => {
+    const textarea = page.locator('textarea').first();
+    await expect(textarea).toBeVisible();
+    await textarea.fill(caddyfile);
+    await expect(textarea).toHaveValue(caddyfile);
+  }).toPass({ timeout: 15000 });
+}
+
+async function clickParseAndWaitForUpload(page: Page, context: string): Promise<void> {
+  const uploadPromise = page.waitForResponse(
+    r => r.url().includes('/api/v1/import/upload'),
+    { timeout: 15000 }
+  );
+
+  await page.getByRole('button', { name: /parse|review/i }).click();
+
+  let response;
+  try {
+    response = await uploadPromise;
+  } catch {
+    throw new Error(`[caddy-import-gaps] Timed out waiting for /api/v1/import/upload (${context})`);
+  }
+
+  const status = response.status();
+  if (status !== 200) {
+    const body = (await response.text().catch(() => '')).slice(0, 500);
+    throw new Error(
+      `[caddy-import-gaps] /api/v1/import/upload returned ${status} (${context}). Body: ${body || '<empty>'}`
+    );
+  }
+}
+
 /**
  * Helper: Complete the full import flow from paste to success modal
  * Reusable across multiple tests to reduce duplication
@@ -49,15 +84,11 @@ async function completeImportFlow(
   });
 
   await test.step('Paste Caddyfile content', async () => {
-    await page.locator('textarea').fill(caddyfile);
+    await fillCaddyfileTextarea(page, caddyfile);
   });
 
   await test.step('Parse and wait for review table', async () => {
-    const uploadPromise = page.waitForResponse(r =>
-      r.url().includes('/api/v1/import/upload') && r.status() === 200
-    );
-    await page.getByRole('button', { name: /parse|review/i }).click();
-    await uploadPromise;
+    await clickParseAndWaitForUpload(page, 'completeImportFlow');
 
     await expect(page.getByTestId('import-review-table')).toBeVisible();
   });
@@ -171,15 +202,11 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       await test.step('Navigate to import page and paste conflicting Caddyfile', async () => {
         await page.goto('/tasks/import/caddyfile');
         const caddyfile = `${namespacedDomain} { reverse_proxy localhost:9000 }`;
-        await page.locator('textarea').fill(caddyfile);
+        await fillCaddyfileTextarea(page, caddyfile);
       });
 
       await test.step('Parse and wait for review table', async () => {
-        const uploadPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/upload') && r.status() === 200
-        );
-        await page.getByRole('button', { name: /parse|review/i }).click();
-        await uploadPromise;
+        await clickParseAndWaitForUpload(page, 'conflict-test-indicator');
 
         await expect(page.getByTestId('import-review-table')).toBeVisible();
       });
@@ -213,13 +240,9 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       await test.step('Navigate to import page and parse conflicting Caddyfile', async () => {
         await page.goto('/tasks/import/caddyfile');
         const caddyfile = `${namespacedDomain} { reverse_proxy new-server:9000 }`;
-        await page.locator('textarea').fill(caddyfile);
+        await fillCaddyfileTextarea(page, caddyfile);
 
-        const uploadPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/upload') && r.status() === 200
-        );
-        await page.getByRole('button', { name: /parse|review/i }).click();
-        await uploadPromise;
+        await clickParseAndWaitForUpload(page, 'conflict-expand-details');
 
         await expect(page.getByTestId('import-review-table')).toBeVisible();
       });
@@ -262,13 +285,9 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       await test.step('Navigate to import page and parse conflicting Caddyfile', async () => {
         await page.goto('/tasks/import/caddyfile');
         const caddyfile = `${namespacedDomain} { reverse_proxy server2:4000 }`;
-        await page.locator('textarea').fill(caddyfile);
+        await fillCaddyfileTextarea(page, caddyfile);
 
-        const uploadPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/upload') && r.status() === 200
-        );
-        await page.getByRole('button', { name: /parse|review/i }).click();
-        await uploadPromise;
+        await clickParseAndWaitForUpload(page, 'conflict-recommendation');
 
         await expect(page.getByTestId('import-review-table')).toBeVisible();
       });
@@ -310,13 +329,9 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
         await page.goto('/tasks/import/caddyfile');
         // Import with different config (new-server:9000)
         const caddyfile = `${namespacedDomain} { reverse_proxy new-server:9000 }`;
-        await page.locator('textarea').fill(caddyfile);
+        await fillCaddyfileTextarea(page, caddyfile);
 
-        const uploadPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/upload') && r.status() === 200
-        );
-        await page.getByRole('button', { name: /parse|review/i }).click();
-        await uploadPromise;
+        await clickParseAndWaitForUpload(page, 'overwrite-resolution');
 
         await expect(page.getByTestId('import-review-table')).toBeVisible();
       });
@@ -381,13 +396,9 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
 
       await test.step('Create import session by parsing content', async () => {
         await page.goto('/tasks/import/caddyfile');
-        await page.locator('textarea').fill(caddyfile);
+        await fillCaddyfileTextarea(page, caddyfile);
 
-        const uploadPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/upload') && r.status() === 200
-        );
-        await page.getByRole('button', { name: /parse|review/i }).click();
-        await uploadPromise;
+        await clickParseAndWaitForUpload(page, 'session-banner');
 
         // Session now exists
         await expect(page.getByTestId('import-review-table')).toBeVisible();
@@ -430,13 +441,9 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
 
       await test.step('Create import session', async () => {
         await page.goto('/tasks/import/caddyfile');
-        await page.locator('textarea').fill(caddyfile);
+        await fillCaddyfileTextarea(page, caddyfile);
 
-        const uploadPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/upload') && r.status() === 200
-        );
-        await page.getByRole('button', { name: /parse|review/i }).click();
-        await uploadPromise;
+        await clickParseAndWaitForUpload(page, 'session-review-changes');
 
         await expect(page.getByTestId('import-review-table')).toBeVisible();
       });
@@ -482,13 +489,9 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
 
       await test.step('Navigate to import page and parse Caddyfile', async () => {
         await page.goto('/tasks/import/caddyfile');
-        await page.locator('textarea').fill(caddyfile);
+        await fillCaddyfileTextarea(page, caddyfile);
 
-        const uploadPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/upload') && r.status() === 200
-        );
-        await page.getByRole('button', { name: /parse|review/i }).click();
-        await uploadPromise;
+        await clickParseAndWaitForUpload(page, 'name-editing');
 
         await expect(page.getByTestId('import-review-table')).toBeVisible();
       });
