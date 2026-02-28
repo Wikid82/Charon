@@ -9,27 +9,83 @@ import {
 } from './ui/Select';
 
 interface AccessListSelectorProps {
-  value: number | null;
-  onChange: (id: number | null) => void;
+  value: number | string | null;
+  onChange: (id: number | string | null) => void;
+}
+
+function resolveAccessListToken(value: number | string | null | undefined): string {
+  if (value === null || value === undefined) {
+    return 'none';
+  }
+
+  if (typeof value === 'number') {
+    return `id:${value}`;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    return 'none';
+  }
+
+  if (trimmed.startsWith('id:') || trimmed.startsWith('uuid:')) {
+    return trimmed;
+  }
+
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isNaN(parsed)) {
+    return `id:${parsed}`;
+  }
+
+  return `uuid:${trimmed}`;
+}
+
+function getOptionToken(acl: { id?: number; uuid?: string }): string | null {
+  if (typeof acl.id === 'number' && Number.isFinite(acl.id)) {
+    return `id:${acl.id}`;
+  }
+
+  if (acl.uuid) {
+    return `uuid:${acl.uuid}`;
+  }
+
+  return null;
 }
 
 export default function AccessListSelector({ value, onChange }: AccessListSelectorProps) {
   const { data: accessLists } = useAccessLists();
 
-  const selectedACL = accessLists?.find((acl) => acl.id === value);
+  const selectedToken = resolveAccessListToken(value);
+  const selectedACL = accessLists?.find((acl) => getOptionToken(acl) === selectedToken);
 
-  // Convert between component's string-based value and the prop's number|null
-  const selectValue = value === null || value === undefined ? 'none' : String(value);
+  // Keep select value stable for both numeric-ID and UUID-only payload shapes.
+  const selectValue = selectedToken;
 
   const handleValueChange = (newValue: string) => {
     if (newValue === 'none') {
       onChange(null);
-    } else {
-      const numericId = parseInt(newValue, 10);
-      if (!isNaN(numericId)) {
+      return;
+    }
+
+    if (newValue.startsWith('id:')) {
+      const numericId = Number.parseInt(newValue.slice(3), 10);
+      if (!Number.isNaN(numericId)) {
         onChange(numericId);
       }
+      return;
     }
+
+    if (newValue.startsWith('uuid:')) {
+      onChange(newValue.slice(5));
+      return;
+    }
+
+    const numericId = Number.parseInt(newValue, 10);
+    if (!Number.isNaN(numericId)) {
+      onChange(numericId);
+      return;
+    }
+
+    onChange(newValue);
   };
 
   return (
@@ -49,11 +105,18 @@ export default function AccessListSelector({ value, onChange }: AccessListSelect
           <SelectItem value="none">No Access Control (Public)</SelectItem>
           {accessLists
             ?.filter((acl) => acl.enabled)
-            .map((acl) => (
-              <SelectItem key={acl.id} value={String(acl.id)}>
-                {acl.name} ({acl.type.replace('_', ' ')})
-              </SelectItem>
-            ))}
+            .map((acl) => {
+              const optionToken = getOptionToken(acl);
+              if (!optionToken) {
+                return null;
+              }
+
+              return (
+                <SelectItem key={optionToken} value={optionToken}>
+                  {acl.name} ({acl.type.replace('_', ' ')})
+                </SelectItem>
+              );
+            })}
         </SelectContent>
       </Select>
 

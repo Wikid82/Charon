@@ -6,6 +6,8 @@ import ProxyHostForm from '../ProxyHostForm'
 import type { ProxyHost } from '../../api/proxyHosts'
 import type { AccessList } from '../../api/accessLists'
 import type { SecurityHeaderProfile } from '../../api/securityHeaders'
+import { useAccessLists } from '../../hooks/useAccessLists'
+import { useSecurityHeaderProfiles } from '../../hooks/useSecurityHeaders'
 
 // Mock all required hooks
 vi.mock('../../hooks/useRemoteServers', () => ({
@@ -179,6 +181,18 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
   beforeEach(() => {
     mockOnSubmit = vi.fn<(data: Partial<ProxyHost>) => Promise<void>>()
     mockOnCancel = vi.fn<() => void>()
+
+    vi.mocked(useAccessLists).mockReturnValue({
+      data: mockAccessLists,
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useAccessLists>)
+
+    vi.mocked(useSecurityHeaderProfiles).mockReturnValue({
+      data: mockSecurityProfiles,
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useSecurityHeaderProfiles>)
   })
 
   it('allows changing ACL selection after initial selection', async () => {
@@ -534,6 +548,70 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
           security_header_profile_id: null,
         })
       )
+    })
+  })
+
+  it('persists ACL and security header selections with UUID-only option payloads', async () => {
+    const user = userEvent.setup()
+    const Wrapper = createWrapper()
+
+    const uuidOnlyAccessLists = [
+      {
+        ...mockAccessLists[0],
+        id: undefined,
+        uuid: 'acl-uuid-only',
+        name: 'UUID Office Network',
+      },
+    ]
+
+    const uuidOnlySecurityProfiles = [
+      {
+        ...mockSecurityProfiles[0],
+        id: undefined,
+        uuid: 'profile-uuid-only',
+        name: 'UUID Basic Security',
+      },
+    ]
+
+    vi.mocked(useAccessLists).mockReturnValue({
+      data: uuidOnlyAccessLists as unknown as AccessList[],
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useAccessLists>)
+
+    vi.mocked(useSecurityHeaderProfiles).mockReturnValue({
+      data: uuidOnlySecurityProfiles as unknown as SecurityHeaderProfile[],
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useSecurityHeaderProfiles>)
+
+    render(
+      <Wrapper>
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      </Wrapper>
+    )
+
+    await user.type(screen.getByLabelText(/^Name/), 'UUID Test Service')
+    await user.type(screen.getByLabelText(/Domain Names/), 'test.com')
+    await user.type(screen.getByLabelText(/^Host$/), 'localhost')
+    await user.clear(screen.getByLabelText(/^Port$/))
+    await user.type(screen.getByLabelText(/^Port$/), '8080')
+
+    const aclTrigger = screen.getByRole('combobox', { name: /Access Control List/i })
+    await user.click(aclTrigger)
+    await user.click(await screen.findByRole('option', { name: /UUID Office Network/i }))
+
+    const headersTrigger = screen.getByRole('combobox', { name: /Security Headers/i })
+    await user.click(headersTrigger)
+    await user.click(await screen.findByRole('option', { name: /UUID Basic Security/i }))
+
+    expect(screen.getByRole('combobox', { name: /Access Control List/i })).toHaveTextContent('UUID Office Network')
+    expect(screen.getByRole('combobox', { name: /Security Headers/i })).toHaveTextContent('UUID Basic Security')
+
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalled()
     })
   })
 })
