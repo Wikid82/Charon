@@ -130,6 +130,7 @@ func generateForwardHostWarnings(forwardHost string) []ProxyHostWarning {
 // ProxyHostHandler handles CRUD operations for proxy hosts.
 type ProxyHostHandler struct {
 	service             *services.ProxyHostService
+	db                  *gorm.DB
 	caddyManager        *caddy.Manager
 	notificationService *services.NotificationService
 	uptimeService       *services.UptimeService
@@ -183,6 +184,38 @@ func parseNullableUintField(value any, fieldName string) (*uint, bool, error) {
 	}
 }
 
+func (h *ProxyHostHandler) resolveAccessListReference(value any) (*uint, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	parsedID, _, parseErr := parseNullableUintField(value, "access_list_id")
+	if parseErr == nil {
+		return parsedID, nil
+	}
+
+	uuidValue, isString := value.(string)
+	if !isString {
+		return nil, parseErr
+	}
+
+	trimmed := strings.TrimSpace(uuidValue)
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	var acl models.AccessList
+	if err := h.db.Select("id").Where("uuid = ?", trimmed).First(&acl).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("access list not found")
+		}
+		return nil, fmt.Errorf("failed to resolve access list")
+	}
+
+	id := acl.ID
+	return &id, nil
+}
+
 func parseForwardPortField(value any) (int, error) {
 	switch v := value.(type) {
 	case float64:
@@ -221,6 +254,7 @@ func parseForwardPortField(value any) (int, error) {
 func NewProxyHostHandler(db *gorm.DB, caddyManager *caddy.Manager, ns *services.NotificationService, uptimeService *services.UptimeService) *ProxyHostHandler {
 	return &ProxyHostHandler{
 		service:             services.NewProxyHostService(db),
+		db:                  db,
 		caddyManager:        caddyManager,
 		notificationService: ns,
 		uptimeService:       uptimeService,
@@ -252,8 +286,29 @@ func (h *ProxyHostHandler) List(c *gin.Context) {
 
 // Create creates a new proxy host.
 func (h *ProxyHostHandler) Create(c *gin.Context) {
+	var payload map[string]any
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if rawAccessListRef, ok := payload["access_list_id"]; ok {
+		resolvedAccessListID, resolveErr := h.resolveAccessListReference(rawAccessListRef)
+		if resolveErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
+			return
+		}
+		payload["access_list_id"] = resolvedAccessListID
+	}
+
+	payloadBytes, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request payload"})
+		return
+	}
+
 	var host models.ProxyHost
-	if err := c.ShouldBindJSON(&host); err != nil {
+	if err := json.Unmarshal(payloadBytes, &host); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -430,12 +485,12 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		host.CertificateID = parsedID
 	}
 	if v, ok := payload["access_list_id"]; ok {
-		parsedID, _, parseErr := parseNullableUintField(v, "access_list_id")
-		if parseErr != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": parseErr.Error()})
+		resolvedAccessListID, resolveErr := h.resolveAccessListReference(v)
+		if resolveErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
 			return
 		}
-		host.AccessListID = parsedID
+		host.AccessListID = resolvedAccessListID
 	}
 
 	if v, ok := payload["dns_provider_id"]; ok {
