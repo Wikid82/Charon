@@ -101,6 +101,46 @@ async function resetAdminCredentials(baseURL: string | undefined): Promise<boole
   }
 }
 
+async function recoverFromAclLockout(baseURL: string | undefined): Promise<boolean> {
+  if (!baseURL || !EMERGENCY_TOKEN) {
+    return false;
+  }
+
+  const emergencyURL = new URL(baseURL);
+  emergencyURL.port = process.env.EMERGENCY_SERVER_PORT || '2020';
+
+  const recoveryContext = await playwrightRequest.newContext({
+    baseURL: emergencyURL.toString(),
+    httpCredentials: {
+      username: process.env.CHARON_EMERGENCY_USERNAME || 'admin',
+      password: process.env.CHARON_EMERGENCY_PASSWORD || 'changeme',
+    },
+  });
+
+  try {
+    const response = await recoveryContext.post('/emergency/security-reset', {
+      headers: {
+        'X-Emergency-Token': EMERGENCY_TOKEN,
+        'Content-Type': 'application/json',
+      },
+      data: { reason: 'Auth setup ACL lockout recovery' },
+    });
+
+    if (!response.ok()) {
+      console.warn(`⚠️ ACL lockout recovery failed with status ${response.status()}`);
+      return false;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return true;
+  } catch (err) {
+    console.warn('⚠️ ACL lockout recovery request failed:', err instanceof Error ? err.message : err);
+    return false;
+  } finally {
+    await recoveryContext.dispose();
+  }
+}
+
 async function performLoginAndSaveState(
   request: APIRequestContext,
   setupRequired: boolean,
@@ -196,7 +236,14 @@ async function performLoginAndSaveState(
 
 setup('authenticate', async ({ request, baseURL }) => {
   // Step 1: Check if setup is required
-  const setupStatusResponse = await request.get('/api/v1/setup');
+  let setupStatusResponse = await request.get('/api/v1/setup');
+
+  if (setupStatusResponse.status() === 403) {
+    const recovered = await recoverFromAclLockout(baseURL);
+    if (recovered) {
+      setupStatusResponse = await request.get('/api/v1/setup');
+    }
+  }
 
   // Accept 200 (normal) or 401 (already initialized/auth required)
   // Provide diagnostic info on unexpected status for actionable failures

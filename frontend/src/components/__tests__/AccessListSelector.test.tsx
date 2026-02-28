@@ -126,4 +126,41 @@ describe('AccessListSelector', () => {
     expect(screen.getByText('This is selected')).toBeInTheDocument();
     expect(screen.getByText(/Countries: US,CA/)).toBeInTheDocument();
   });
+
+  it('should normalize string numeric ACL ids to numeric selection values', async () => {
+    const mockLists = [
+      {
+        id: '7',
+        uuid: 'uuid-7',
+        name: 'String ID ACL',
+        description: 'String-based ID shape from API',
+        type: 'whitelist',
+        ip_rules: '[]',
+        country_codes: '',
+        local_network_only: false,
+        enabled: true,
+        created_at: '2024-01-01',
+        updated_at: '2024-01-01',
+      },
+    ];
+
+    vi.mocked(useAccessListsHook.useAccessLists).mockReturnValue({
+      data: mockLists as unknown as AccessList[],
+    } as unknown as ReturnType<typeof useAccessListsHook.useAccessLists>);
+
+    const mockOnChange = vi.fn();
+    const Wrapper = createWrapper();
+    const user = userEvent.setup();
+
+    render(
+      <Wrapper>
+        <AccessListSelector value={null} onChange={mockOnChange} />
+      </Wrapper>
+    );
+
+    await user.click(screen.getByRole('combobox', { name: /Access Control List/i }));
+    await user.click(await screen.findByRole('option', { name: 'String ID ACL (whitelist)' }));
+
+    expect(mockOnChange).toHaveBeenCalledWith(7);
+  });
 });
