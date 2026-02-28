@@ -123,7 +123,7 @@ function buildInitialFormData(host?: ProxyHost): Partial<ProxyHost> & {
     advanced_config: host?.advanced_config || '',
     enabled: host?.enabled ?? true,
     certificate_id: host?.certificate_id,
-    access_list_id: host?.access_list_id,
+    access_list_id: host?.access_list?.uuid ?? host?.access_list_id,
     security_header_profile_id: host?.security_header_profile_id,
     dns_provider_id: host?.dns_provider_id || null,
   }
