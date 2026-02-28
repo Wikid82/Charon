@@ -197,4 +197,38 @@ describe('AccessListSelector', () => {
 
     expect(screen.getByRole('combobox', { name: /Access Control List/i })).toHaveTextContent('UUID Digit Prefix ACL');
   });
+
+  it('maps UUID form values to ID-backed option tokens when available', () => {
+    const uuid = 'acl-uuid-42';
+    const mockLists = [
+      {
+        id: 42,
+        uuid,
+        name: 'Hybrid ACL',
+        description: 'Includes UUID and numeric ID',
+        type: 'whitelist',
+        ip_rules: '[]',
+        country_codes: '',
+        local_network_only: false,
+        enabled: true,
+        created_at: '2024-01-01',
+        updated_at: '2024-01-01',
+      },
+    ];
+
+    vi.mocked(useAccessListsHook.useAccessLists).mockReturnValue({
+      data: mockLists as unknown as AccessList[],
+    } as unknown as ReturnType<typeof useAccessListsHook.useAccessLists>);
+
+    const mockOnChange = vi.fn();
+    const Wrapper = createWrapper();
+
+    render(
+      <Wrapper>
+        <AccessListSelector value={uuid} onChange={mockOnChange} />
+      </Wrapper>
+    );
+
+    expect(screen.getByRole('combobox', { name: /Access Control List/i })).toHaveTextContent('Hybrid ACL');
+  });
 });
