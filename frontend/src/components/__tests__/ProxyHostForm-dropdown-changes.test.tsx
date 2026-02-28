@@ -614,4 +614,53 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
       expect(mockOnSubmit).toHaveBeenCalled()
     })
   })
+
+  it('submits numeric ACL value when ACL option id is a numeric string', async () => {
+    const user = userEvent.setup()
+    const Wrapper = createWrapper()
+
+    const stringIdAccessLists = [
+      {
+        ...mockAccessLists[0],
+        id: '2',
+        uuid: 'acl-string-id-2',
+        name: 'String ID ACL',
+      },
+    ]
+
+    vi.mocked(useAccessLists).mockReturnValue({
+      data: stringIdAccessLists as unknown as AccessList[],
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useAccessLists>)
+
+    render(
+      <Wrapper>
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      </Wrapper>
+    )
+
+    await user.type(screen.getByLabelText(/^Name/), 'String ID ACL Host')
+    await user.type(screen.getByLabelText(/Domain Names/), 'test.com')
+    await user.type(screen.getByLabelText(/^Host$/), 'localhost')
+    await user.clear(screen.getByLabelText(/^Port$/))
+    await user.type(screen.getByLabelText(/^Port$/), '8080')
+
+    await user.click(screen.getByRole('combobox', { name: /Access Control List/i }))
+    await user.click(await screen.findByRole('option', { name: /String ID ACL/i }))
+
+    await user.click(screen.getByRole('combobox', { name: /Security Headers/i }))
+    await user.click(await screen.findByRole('option', { name: /Basic Security/i }))
+
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          access_list_id: 2,
+          security_header_profile_id: 1,
+        })
+      )
+    })
+  })
 })
