@@ -39,9 +39,19 @@ function resolveAccessListToken(value: number | string | null | undefined): stri
   return `uuid:${trimmed}`;
 }
 
-function getOptionToken(acl: { id?: number; uuid?: string }): string | null {
+function getOptionToken(acl: { id?: number | string; uuid?: string }): string | null {
   if (typeof acl.id === 'number' && Number.isFinite(acl.id)) {
     return `id:${acl.id}`;
+  }
+
+  if (typeof acl.id === 'string') {
+    const trimmed = acl.id.trim();
+    if (trimmed !== '') {
+      const parsed = Number.parseInt(trimmed, 10);
+      if (!Number.isNaN(parsed)) {
+        return `id:${parsed}`;
+      }
+    }
   }
 
   if (acl.uuid) {
