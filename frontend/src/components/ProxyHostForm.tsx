@@ -159,6 +159,20 @@ function normalizeNullableID(value: unknown): number | null | undefined {
   return undefined
 }
 
+function normalizeAccessListReference(value: unknown): number | string | null | undefined {
+  const numericValue = normalizeNullableID(value)
+  if (numericValue !== undefined) {
+    return numericValue
+  }
+
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const trimmed = value.trim()
+  return trimmed === '' ? null : trimmed
+}
+
 function resolveSelectToken(value: number | string | null | undefined): string {
   if (value === null || value === undefined) {
     return 'none'
@@ -531,7 +545,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
       const submitPayload: Partial<ProxyHost> = {
         ...payloadWithoutUptime,
-        access_list_id: normalizeNullableID(payloadWithoutUptime.access_list_id),
+        access_list_id: normalizeAccessListReference(payloadWithoutUptime.access_list_id),
         security_header_profile_id: normalizeNullableID(payloadWithoutUptime.security_header_profile_id),
       }
 
