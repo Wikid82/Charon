@@ -43,6 +43,12 @@ export interface ProxyHost {
   certificate_id?: number | null;
   certificate?: Certificate | null;
   access_list_id?: number | string | null;
+  access_list?: {
+    uuid: string;
+    name: string;
+    description: string;
+    type: string;
+  } | null;
   security_header_profile_id?: number | null;
   dns_provider_id?: number | null;
   security_header_profile?: {
