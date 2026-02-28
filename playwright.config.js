@@ -30,9 +30,9 @@ const resolvedBaseURL = process.env.PLAYWRIGHT_BASE_URL || (enableCoverage ? 'ht
 if (!process.env.PLAYWRIGHT_BASE_URL) {
   process.env.PLAYWRIGHT_BASE_URL = resolvedBaseURL;
 }
-// Skip security-test dependencies by default to avoid running them as a
-// prerequisite for non-security test runs. Set PLAYWRIGHT_SKIP_SECURITY_DEPS=0
-// to restore the legacy dependency behavior when needed.
+// Skip security-test dependencies by default to avoid running the security
+// shard setup/teardown as a prerequisite for non-security test runs.
+// Set PLAYWRIGHT_SKIP_SECURITY_DEPS=0 to restore legacy dependency behavior.
 const skipSecurityDeps = process.env.PLAYWRIGHT_SKIP_SECURITY_DEPS !== '0';
 const browserDependencies = skipSecurityDeps ? ['setup'] : ['setup', 'security-tests'];
 
@@ -227,6 +227,13 @@ export default defineConfig({
       testMatch: /auth\.setup\.ts/,
     },
 
+    // Security Shard Setup - runs only when security-tests are executed
+    {
+      name: 'security-shard-setup',
+      testMatch: /security-shard\.setup\.ts/,
+      dependencies: ['setup'],
+    },
+
     // Security Tests - Run WITH security enabled (SEQUENTIAL, Chromium only)
     {
       name: 'security-tests',
@@ -235,7 +242,7 @@ export default defineConfig({
         /security-enforcement\/.*\.spec\.(ts|js)/,
         /security\/.*\.spec\.(ts|js)/,
       ],
-      dependencies: ['setup'],
+      dependencies: ['setup', 'security-shard-setup'],
       teardown: 'security-teardown',
       fullyParallel: false,
       workers: 1,

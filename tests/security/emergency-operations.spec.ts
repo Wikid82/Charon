@@ -9,9 +9,127 @@ import { test, expect } from '@playwright/test';
  */
 
 test.describe('Emergency & Break-Glass Operations', () => {
+  async function dismissDomainDialog(page: import('@playwright/test').Page): Promise<void> {
+    const noThanksButton = page.getByRole('button', { name: /no, thanks/i });
+    if (await noThanksButton.isVisible({ timeout: 1200 }).catch(() => false)) {
+      await noThanksButton.click();
+    }
+  }
+
+  async function openCreateProxyModal(page: import('@playwright/test').Page): Promise<void> {
+    const addButton = page.getByRole('button', { name: /add.*proxy.*host|create/i }).first();
+    await expect(addButton).toBeEnabled();
+    await addButton.click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+  }
+
+  async function openEditProxyModalForDomain(
+    page: import('@playwright/test').Page,
+    domain: string
+  ): Promise<void> {
+    const row = page.locator('tbody tr').filter({ hasText: domain }).first();
+    await expect(row).toBeVisible({ timeout: 10000 });
+
+    const editButton = row.getByRole('button', { name: /edit proxy host|edit/i }).first();
+    await expect(editButton).toBeVisible();
+    await editButton.click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+  }
+
+  async function saveProxyHost(page: import('@playwright/test').Page): Promise<void> {
+    await dismissDomainDialog(page);
+
+    const saveButton = page
+      .getByTestId('proxy-host-save')
+      .or(page.getByRole('button', { name: /^save$/i }))
+      .first();
+    await expect(saveButton).toBeEnabled();
+    await saveButton.click();
+
+    const confirmSave = page.getByRole('button', { name: /yes.*save/i }).first();
+    if (await confirmSave.isVisible({ timeout: 1200 }).catch(() => false)) {
+      await confirmSave.click();
+    }
+
+    await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: 10000 });
+  }
+
+  async function selectOptionByName(
+    page: import('@playwright/test').Page,
+    trigger: import('@playwright/test').Locator,
+    optionName: RegExp
+  ): Promise<string> {
+    await trigger.click();
+    const listbox = page.getByRole('listbox');
+    await expect(listbox).toBeVisible();
+
+    const option = listbox.getByRole('option', { name: optionName }).first();
+    await expect(option).toBeVisible();
+    const label = ((await option.textContent()) || '').trim();
+    await option.click();
+    return label;
+  }
+
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.waitForSelector('[data-testid="dashboard-container"], [role="main"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="dashboard-container"], main', { timeout: 15000 });
+  });
+
+  test('ACL dropdown parity regression keeps selection stable before emergency token flows', async ({ page }) => {
+    const suffix = Date.now();
+    const aclName = `Emergency-ACL-${suffix}`;
+    const proxyDomain = `emergency-acl-${suffix}.test.local`;
+
+    await test.step('Create ACL prerequisite through API for deterministic dropdown options', async () => {
+      const createAclResponse = await page.request.post('/api/v1/access-lists', {
+        data: {
+          name: aclName,
+          type: 'whitelist',
+          description: 'ACL prerequisite for emergency regression test',
+          enabled: true,
+          ip_rules: JSON.stringify([{ cidr: '10.0.0.0/8' }]),
+        },
+      });
+      expect(createAclResponse.ok()).toBeTruthy();
+    });
+
+    await test.step('Create proxy host and select created ACL in dropdown', async () => {
+      await page.goto('/proxy-hosts');
+      await page.waitForLoadState('networkidle');
+
+      await openCreateProxyModal(page);
+      const dialog = page.getByRole('dialog');
+
+      await dialog.locator('#proxy-name').fill(`Emergency ACL Regression ${suffix}`);
+      await dialog.locator('#domain-names').click();
+      await page.keyboard.type(proxyDomain);
+      await page.keyboard.press('Tab');
+      await dismissDomainDialog(page);
+
+      await dialog.locator('#forward-host').fill('127.0.0.1');
+      await dialog.locator('#forward-port').fill('8080');
+
+      const aclTrigger = dialog.getByRole('combobox', { name: /access control list/i });
+      const selectedAclLabel = await selectOptionByName(
+        page,
+        aclTrigger,
+        new RegExp(aclName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+      );
+      await expect(aclTrigger).toContainText(selectedAclLabel);
+
+      await saveProxyHost(page);
+    });
+
+    await test.step('Edit proxy host and verify ACL selection persisted', async () => {
+      await openEditProxyModalForDomain(page, proxyDomain);
+
+      const dialog = page.getByRole('dialog');
+      const aclTrigger = dialog.getByRole('combobox', { name: /access control list/i });
+      await expect(aclTrigger).toContainText(new RegExp(aclName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+
+      await dialog.getByRole('button', { name: /cancel/i }).click();
+      await expect(dialog).not.toBeVisible({ timeout: 5000 });
+    });
   });
 
   // Use emergency token

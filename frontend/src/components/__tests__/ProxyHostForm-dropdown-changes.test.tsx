@@ -6,6 +6,8 @@ import ProxyHostForm from '../ProxyHostForm'
 import type { ProxyHost } from '../../api/proxyHosts'
 import type { AccessList } from '../../api/accessLists'
 import type { SecurityHeaderProfile } from '../../api/securityHeaders'
+import { useAccessLists } from '../../hooks/useAccessLists'
+import { useSecurityHeaderProfiles } from '../../hooks/useSecurityHeaders'
 
 // Mock all required hooks
 vi.mock('../../hooks/useRemoteServers', () => ({
@@ -179,6 +181,18 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
   beforeEach(() => {
     mockOnSubmit = vi.fn<(data: Partial<ProxyHost>) => Promise<void>>()
     mockOnCancel = vi.fn<() => void>()
+
+    vi.mocked(useAccessLists).mockReturnValue({
+      data: mockAccessLists,
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useAccessLists>)
+
+    vi.mocked(useSecurityHeaderProfiles).mockReturnValue({
+      data: mockSecurityProfiles,
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useSecurityHeaderProfiles>)
   })
 
   it('allows changing ACL selection after initial selection', async () => {
@@ -409,5 +423,387 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
         })
       )
     })
+  })
+
+  it('persists null to value transitions for ACL and security headers in edit flow', async () => {
+    const user = userEvent.setup()
+    const Wrapper = createWrapper()
+
+    const existingHostWithNulls: ProxyHost = {
+      uuid: 'host-uuid-null-fields',
+      name: 'Existing Null Fields',
+      domain_names: 'existing-null.com',
+      forward_scheme: 'http',
+      forward_host: 'localhost',
+      forward_port: 8080,
+      ssl_forced: true,
+      http2_support: true,
+      hsts_enabled: true,
+      hsts_subdomains: true,
+      block_exploits: true,
+      websocket_support: false,
+      enable_standard_headers: true,
+      application: 'none',
+      advanced_config: '',
+      enabled: true,
+      locations: [],
+      certificate_id: null,
+      access_list_id: null,
+      security_header_profile_id: null,
+      dns_provider_id: null,
+      created_at: '2024-01-01',
+      updated_at: '2024-01-01',
+    }
+
+    render(
+      <Wrapper>
+        <ProxyHostForm host={existingHostWithNulls} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      </Wrapper>
+    )
+
+    const aclTrigger = screen.getByRole('combobox', { name: /Access Control List/i })
+    await user.click(aclTrigger)
+    await user.click(await screen.findByRole('option', { name: /Office Network/i }))
+
+    const headersTrigger = screen.getByRole('combobox', { name: /Security Headers/i })
+    await user.click(headersTrigger)
+    await user.click(await screen.findByRole('option', { name: /Strict Security/i }))
+
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          access_list_id: 1,
+          security_header_profile_id: 2,
+        })
+      )
+    })
+  })
+
+  it('resets ACL/security header form state when editing target host changes', async () => {
+    const user = userEvent.setup()
+    const Wrapper = createWrapper()
+
+    const firstHost: ProxyHost = {
+      uuid: 'host-uuid-first',
+      name: 'First Host',
+      domain_names: 'first.example.com',
+      forward_scheme: 'http',
+      forward_host: 'localhost',
+      forward_port: 8080,
+      ssl_forced: true,
+      http2_support: true,
+      hsts_enabled: true,
+      hsts_subdomains: true,
+      block_exploits: true,
+      websocket_support: false,
+      enable_standard_headers: true,
+      application: 'none',
+      advanced_config: '',
+      enabled: true,
+      locations: [],
+      certificate_id: null,
+      access_list_id: 1,
+      security_header_profile_id: 1,
+      dns_provider_id: null,
+      created_at: '2024-01-01',
+      updated_at: '2024-01-01',
+    }
+
+    const secondHost: ProxyHost = {
+      ...firstHost,
+      uuid: 'host-uuid-second',
+      name: 'Second Host',
+      domain_names: 'second.example.com',
+      access_list_id: null,
+      security_header_profile_id: null,
+    }
+
+    const { rerender } = render(
+      <Wrapper>
+        <ProxyHostForm host={firstHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      </Wrapper>
+    )
+
+    // Mutate first host state in the form before switching targets.
+    await user.click(screen.getByRole('combobox', { name: /Access Control List/i }))
+    await user.click(await screen.findByRole('option', { name: /VPN Users/i }))
+
+    await user.click(screen.getByRole('combobox', { name: /Security Headers/i }))
+    await user.click(await screen.findByRole('option', { name: /Strict Security/i }))
+
+    rerender(
+      <Wrapper>
+        <ProxyHostForm host={secondHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      </Wrapper>
+    )
+
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          access_list_id: null,
+          security_header_profile_id: null,
+        })
+      )
+    })
+  })
+
+  it('persists ACL and security header selections with UUID-only option payloads', async () => {
+    const user = userEvent.setup()
+    const Wrapper = createWrapper()
+
+    const uuidOnlyAccessLists = [
+      {
+        ...mockAccessLists[0],
+        id: undefined,
+        uuid: '9f63b8c9-1d26-4b2f-a2c8-001122334455',
+        name: 'UUID Office Network',
+      },
+    ]
+
+    const uuidOnlySecurityProfiles = [
+      {
+        ...mockSecurityProfiles[0],
+        id: undefined,
+        uuid: 'profile-uuid-only',
+        name: 'UUID Basic Security',
+      },
+    ]
+
+    vi.mocked(useAccessLists).mockReturnValue({
+      data: uuidOnlyAccessLists as unknown as AccessList[],
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useAccessLists>)
+
+    vi.mocked(useSecurityHeaderProfiles).mockReturnValue({
+      data: uuidOnlySecurityProfiles as unknown as SecurityHeaderProfile[],
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useSecurityHeaderProfiles>)
+
+    render(
+      <Wrapper>
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      </Wrapper>
+    )
+
+    await user.type(screen.getByLabelText(/^Name/), 'UUID Test Service')
+    await user.type(screen.getByLabelText(/Domain Names/), 'test.com')
+    await user.type(screen.getByLabelText(/^Host$/), 'localhost')
+    await user.clear(screen.getByLabelText(/^Port$/))
+    await user.type(screen.getByLabelText(/^Port$/), '8080')
+
+    const aclTrigger = screen.getByRole('combobox', { name: /Access Control List/i })
+    await user.click(aclTrigger)
+    await user.click(await screen.findByRole('option', { name: /UUID Office Network/i }))
+
+    const headersTrigger = screen.getByRole('combobox', { name: /Security Headers/i })
+    await user.click(headersTrigger)
+    await user.click(await screen.findByRole('option', { name: /UUID Basic Security/i }))
+
+    expect(screen.getByRole('combobox', { name: /Access Control List/i })).toHaveTextContent('UUID Office Network')
+    expect(screen.getByRole('combobox', { name: /Security Headers/i })).toHaveTextContent('UUID Basic Security')
+
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalled()
+    })
+  })
+
+  it('submits numeric ACL value when ACL option id is a numeric string', async () => {
+    const user = userEvent.setup()
+    const Wrapper = createWrapper()
+
+    const stringIdAccessLists = [
+      {
+        ...mockAccessLists[0],
+        id: '2',
+        uuid: 'acl-string-id-2',
+        name: 'String ID ACL',
+      },
+    ]
+
+    vi.mocked(useAccessLists).mockReturnValue({
+      data: stringIdAccessLists as unknown as AccessList[],
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useAccessLists>)
+
+    render(
+      <Wrapper>
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      </Wrapper>
+    )
+
+    await user.type(screen.getByLabelText(/^Name/), 'String ID ACL Host')
+    await user.type(screen.getByLabelText(/Domain Names/), 'test.com')
+    await user.type(screen.getByLabelText(/^Host$/), 'localhost')
+    await user.clear(screen.getByLabelText(/^Port$/))
+    await user.type(screen.getByLabelText(/^Port$/), '8080')
+
+    await user.click(screen.getByRole('combobox', { name: /Access Control List/i }))
+    await user.click(await screen.findByRole('option', { name: /String ID ACL/i }))
+
+    await user.click(screen.getByRole('combobox', { name: /Security Headers/i }))
+    await user.click(await screen.findByRole('option', { name: /Basic Security/i }))
+
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          access_list_id: 2,
+          security_header_profile_id: 1,
+        })
+      )
+    })
+  })
+
+  it('initializes edit mode from nested ACL and security header UUID references', async () => {
+    const user = userEvent.setup()
+    const Wrapper = createWrapper()
+
+    const existingHost = {
+      uuid: 'host-uuid-nested-ref',
+      name: 'Nested Ref Host',
+      domain_names: 'test.com',
+      forward_scheme: 'http',
+      forward_host: 'localhost',
+      forward_port: 8080,
+      ssl_forced: true,
+      http2_support: true,
+      hsts_enabled: true,
+      hsts_subdomains: true,
+      block_exploits: true,
+      websocket_support: false,
+      enable_standard_headers: true,
+      application: 'none',
+      advanced_config: '',
+      enabled: true,
+      locations: [],
+      certificate_id: null,
+      access_list_id: null,
+      security_header_profile_id: null,
+      access_list: { uuid: 'acl-uuid-2' },
+      security_header_profile: { uuid: 'profile-uuid-2' },
+      dns_provider_id: null,
+      created_at: '2024-01-01',
+      updated_at: '2024-01-01',
+    } as unknown as ProxyHost
+
+    render(
+      <Wrapper>
+        <ProxyHostForm host={existingHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      </Wrapper>
+    )
+
+    expect(screen.getByRole('combobox', { name: /Access Control List/i })).toHaveTextContent('VPN Users')
+
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          access_list_id: 'acl-uuid-2',
+          security_header_profile_id: 'profile-uuid-2',
+        })
+      )
+    })
+  })
+
+  it('normalizes empty and numeric-string ACL/security references on submit', async () => {
+    const user = userEvent.setup()
+    const Wrapper = createWrapper()
+
+    const hostWithStringReferences = {
+      uuid: 'host-uuid-string-refs',
+      name: 'String Ref Host',
+      domain_names: 'test.com',
+      forward_scheme: 'http',
+      forward_host: 'localhost',
+      forward_port: 8080,
+      ssl_forced: true,
+      http2_support: true,
+      hsts_enabled: true,
+      hsts_subdomains: true,
+      block_exploits: true,
+      websocket_support: false,
+      enable_standard_headers: true,
+      application: 'none',
+      advanced_config: '',
+      enabled: true,
+      locations: [],
+      certificate_id: null,
+      access_list_id: '2',
+      security_header_profile_id: ' ',
+      dns_provider_id: null,
+      created_at: '2024-01-01',
+      updated_at: '2024-01-01',
+    } as unknown as ProxyHost
+
+    render(
+      <Wrapper>
+        <ProxyHostForm host={hostWithStringReferences} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      </Wrapper>
+    )
+
+    expect(screen.getByRole('combobox', { name: /Access Control List/i })).toHaveTextContent('VPN Users')
+
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          access_list_id: 2,
+          security_header_profile_id: null,
+        })
+      )
+    })
+  })
+
+  it('filters out security profiles missing both id and uuid', async () => {
+    const user = userEvent.setup()
+    const Wrapper = createWrapper()
+
+    vi.mocked(useSecurityHeaderProfiles).mockReturnValue({
+      data: [
+        {
+          ...mockSecurityProfiles[0],
+          id: undefined,
+          uuid: undefined,
+          name: 'Broken Profile',
+        },
+        {
+          ...mockSecurityProfiles[1],
+          id: 2,
+          uuid: 'profile-uuid-2',
+          name: 'Strict Security',
+        },
+      ] as unknown as SecurityHeaderProfile[],
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useSecurityHeaderProfiles>)
+
+    render(
+      <Wrapper>
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      </Wrapper>
+    )
+
+    await user.type(screen.getByLabelText(/^Name/), 'Filter Profile Host')
+    await user.type(screen.getByLabelText(/Domain Names/), 'test.com')
+    await user.type(screen.getByLabelText(/^Host$/), 'localhost')
+    await user.clear(screen.getByLabelText(/^Port$/))
+    await user.type(screen.getByLabelText(/^Port$/), '8080')
+
+    await user.click(screen.getByRole('combobox', { name: /Security Headers/i }))
+
+    expect(screen.queryByRole('option', { name: /Broken Profile/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /Strict Security/i })).toBeInTheDocument()
   })
 })

@@ -9,27 +9,117 @@ import {
 } from './ui/Select';
 
 interface AccessListSelectorProps {
-  value: number | null;
-  onChange: (id: number | null) => void;
+  value: number | string | null;
+  onChange: (id: number | string | null) => void;
+}
+
+function resolveAccessListToken(
+  value: number | string | null | undefined,
+  accessLists?: Array<{ id?: number | string; uuid?: string }>
+): string {
+  if (value === null || value === undefined) {
+    return 'none';
+  }
+
+  if (typeof value === 'number') {
+    return `id:${value}`;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    return 'none';
+  }
+
+  if (trimmed.startsWith('id:')) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith('uuid:')) {
+    const uuid = trimmed.slice(5);
+    const matchingACL = accessLists?.find((acl) => acl.uuid === uuid);
+    const matchingToken = matchingACL ? getOptionToken(matchingACL) : null;
+    return matchingToken ?? trimmed;
+  }
+
+  if (/^\d+$/.test(trimmed)) {
+    const parsed = Number.parseInt(trimmed, 10);
+    return `id:${parsed}`;
+  }
+
+  const matchingACL = accessLists?.find((acl) => acl.uuid === trimmed);
+  const matchingToken = matchingACL ? getOptionToken(matchingACL) : null;
+  return matchingToken ?? `uuid:${trimmed}`;
+}
+
+function getOptionToken(acl: { id?: number | string; uuid?: string }): string | null {
+  if (typeof acl.id === 'number' && Number.isFinite(acl.id)) {
+    return `id:${acl.id}`;
+  }
+
+  if (typeof acl.id === 'string') {
+    const trimmed = acl.id.trim();
+    if (trimmed !== '' && /^\d+$/.test(trimmed)) {
+      const parsed = Number.parseInt(trimmed, 10);
+      if (!Number.isNaN(parsed)) {
+        return `id:${parsed}`;
+      }
+    }
+  }
+
+  if (acl.uuid) {
+    return `uuid:${acl.uuid}`;
+  }
+
+  return null;
 }
 
 export default function AccessListSelector({ value, onChange }: AccessListSelectorProps) {
   const { data: accessLists } = useAccessLists();
 
-  const selectedACL = accessLists?.find((acl) => acl.id === value);
+  const selectedToken = resolveAccessListToken(value, accessLists);
+  const selectedACL = accessLists?.find((acl) => getOptionToken(acl) === selectedToken);
 
-  // Convert between component's string-based value and the prop's number|null
-  const selectValue = value === null || value === undefined ? 'none' : String(value);
+  // Keep select value stable for both numeric-ID and UUID-only payload shapes.
+  const selectValue = selectedToken;
 
   const handleValueChange = (newValue: string) => {
     if (newValue === 'none') {
       onChange(null);
-    } else {
-      const numericId = parseInt(newValue, 10);
-      if (!isNaN(numericId)) {
+      return;
+    }
+
+    if (newValue.startsWith('id:')) {
+      const numericId = Number.parseInt(newValue.slice(3), 10);
+      if (!Number.isNaN(numericId)) {
         onChange(numericId);
       }
+      return;
     }
+
+    if (newValue.startsWith('uuid:')) {
+      const selectedUUID = newValue.slice(5);
+      const matchingACL = accessLists?.find((acl) => acl.uuid === selectedUUID);
+      const matchingToken = matchingACL ? getOptionToken(matchingACL) : null;
+
+      if (matchingToken?.startsWith('id:')) {
+        const numericId = Number.parseInt(matchingToken.slice(3), 10);
+        if (!Number.isNaN(numericId)) {
+          onChange(numericId);
+          return;
+        }
+      }
+
+      onChange(selectedUUID);
+      return;
+    }
+
+    if (/^\d+$/.test(newValue)) {
+      const numericId = Number.parseInt(newValue, 10);
+      onChange(numericId);
+      return;
+    }
+
+    onChange(newValue);
   };
 
   return (
@@ -49,11 +139,18 @@ export default function AccessListSelector({ value, onChange }: AccessListSelect
           <SelectItem value="none">No Access Control (Public)</SelectItem>
           {accessLists
             ?.filter((acl) => acl.enabled)
-            .map((acl) => (
-              <SelectItem key={acl.id} value={String(acl.id)}>
-                {acl.name} ({acl.type.replace('_', ' ')})
-              </SelectItem>
-            ))}
+            .map((acl) => {
+              const optionToken = getOptionToken(acl);
+              if (!optionToken) {
+                return null;
+              }
+
+              return (
+                <SelectItem key={optionToken} value={optionToken}>
+                  {acl.name} ({acl.type.replace('_', ' ')})
+                </SelectItem>
+              );
+            })}
         </SelectContent>
       </Select>
 
