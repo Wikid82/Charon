@@ -13,7 +13,10 @@ interface AccessListSelectorProps {
   onChange: (id: number | string | null) => void;
 }
 
-function resolveAccessListToken(value: number | string | null | undefined): string {
+function resolveAccessListToken(
+  value: number | string | null | undefined,
+  accessLists?: Array<{ id?: number | string; uuid?: string }>
+): string {
   if (value === null || value === undefined) {
     return 'none';
   }
@@ -27,8 +30,15 @@ function resolveAccessListToken(value: number | string | null | undefined): stri
     return 'none';
   }
 
-  if (trimmed.startsWith('id:') || trimmed.startsWith('uuid:')) {
+  if (trimmed.startsWith('id:')) {
     return trimmed;
+  }
+
+  if (trimmed.startsWith('uuid:')) {
+    const uuid = trimmed.slice(5);
+    const matchingACL = accessLists?.find((acl) => acl.uuid === uuid);
+    const matchingToken = matchingACL ? getOptionToken(matchingACL) : null;
+    return matchingToken ?? trimmed;
   }
 
   if (/^\d+$/.test(trimmed)) {
@@ -36,7 +46,9 @@ function resolveAccessListToken(value: number | string | null | undefined): stri
     return `id:${parsed}`;
   }
 
-  return `uuid:${trimmed}`;
+  const matchingACL = accessLists?.find((acl) => acl.uuid === trimmed);
+  const matchingToken = matchingACL ? getOptionToken(matchingACL) : null;
+  return matchingToken ?? `uuid:${trimmed}`;
 }
 
 function getOptionToken(acl: { id?: number | string; uuid?: string }): string | null {
@@ -64,7 +76,7 @@ function getOptionToken(acl: { id?: number | string; uuid?: string }): string | 
 export default function AccessListSelector({ value, onChange }: AccessListSelectorProps) {
   const { data: accessLists } = useAccessLists();
 
-  const selectedToken = resolveAccessListToken(value);
+  const selectedToken = resolveAccessListToken(value, accessLists);
   const selectedACL = accessLists?.find((acl) => getOptionToken(acl) === selectedToken);
 
   // Keep select value stable for both numeric-ID and UUID-only payload shapes.
@@ -85,7 +97,19 @@ export default function AccessListSelector({ value, onChange }: AccessListSelect
     }
 
     if (newValue.startsWith('uuid:')) {
-      onChange(newValue.slice(5));
+      const selectedUUID = newValue.slice(5);
+      const matchingACL = accessLists?.find((acl) => acl.uuid === selectedUUID);
+      const matchingToken = matchingACL ? getOptionToken(matchingACL) : null;
+
+      if (matchingToken?.startsWith('id:')) {
+        const numericId = Number.parseInt(matchingToken.slice(3), 10);
+        if (!Number.isNaN(numericId)) {
+          onChange(numericId);
+          return;
+        }
+      }
+
+      onChange(selectedUUID);
       return;
     }
 
