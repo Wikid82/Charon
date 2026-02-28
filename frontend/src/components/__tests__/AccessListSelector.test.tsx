@@ -163,4 +163,38 @@ describe('AccessListSelector', () => {
 
     expect(mockOnChange).toHaveBeenCalledWith(7);
   });
+
+  it('keeps a UUID-leading-digit selection stable in the trigger', () => {
+    const uuid = '9f63b8c9-1d26-4b2f-a2c8-001122334455';
+    const mockLists = [
+      {
+        id: undefined,
+        uuid,
+        name: 'UUID Digit Prefix ACL',
+        description: 'UUID-only ACL payload',
+        type: 'whitelist',
+        ip_rules: '[]',
+        country_codes: '',
+        local_network_only: false,
+        enabled: true,
+        created_at: '2024-01-01',
+        updated_at: '2024-01-01',
+      },
+    ];
+
+    vi.mocked(useAccessListsHook.useAccessLists).mockReturnValue({
+      data: mockLists as unknown as AccessList[],
+    } as unknown as ReturnType<typeof useAccessListsHook.useAccessLists>);
+
+    const mockOnChange = vi.fn();
+    const Wrapper = createWrapper();
+
+    render(
+      <Wrapper>
+        <AccessListSelector value={uuid} onChange={mockOnChange} />
+      </Wrapper>
+    );
+
+    expect(screen.getByRole('combobox', { name: /Access Control List/i })).toHaveTextContent('UUID Digit Prefix ACL');
+  });
 });
