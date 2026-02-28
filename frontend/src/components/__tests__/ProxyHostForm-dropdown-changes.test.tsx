@@ -559,7 +559,7 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
       {
         ...mockAccessLists[0],
         id: undefined,
-        uuid: 'acl-uuid-only',
+        uuid: '9f63b8c9-1d26-4b2f-a2c8-001122334455',
         name: 'UUID Office Network',
       },
     ]

@@ -31,8 +31,8 @@ function resolveAccessListToken(value: number | string | null | undefined): stri
     return trimmed;
   }
 
-  const parsed = Number.parseInt(trimmed, 10);
-  if (!Number.isNaN(parsed)) {
+  if (/^\d+$/.test(trimmed)) {
+    const parsed = Number.parseInt(trimmed, 10);
     return `id:${parsed}`;
   }
 
@@ -46,7 +46,7 @@ function getOptionToken(acl: { id?: number | string; uuid?: string }): string | 
 
   if (typeof acl.id === 'string') {
     const trimmed = acl.id.trim();
-    if (trimmed !== '') {
+    if (trimmed !== '' && /^\d+$/.test(trimmed)) {
       const parsed = Number.parseInt(trimmed, 10);
       if (!Number.isNaN(parsed)) {
         return `id:${parsed}`;
@@ -89,8 +89,8 @@ export default function AccessListSelector({ value, onChange }: AccessListSelect
       return;
     }
 
-    const numericId = Number.parseInt(newValue, 10);
-    if (!Number.isNaN(numericId)) {
+    if (/^\d+$/.test(newValue)) {
+      const numericId = Number.parseInt(newValue, 10);
       onChange(numericId);
       return;
     }

@@ -148,6 +148,10 @@ function normalizeNullableID(value: unknown): number | null | undefined {
       return null
     }
 
+    if (!/^\d+$/.test(trimmed)) {
+      return undefined
+    }
+
     const parsed = Number.parseInt(trimmed, 10)
     return Number.isNaN(parsed) ? undefined : parsed
   }
@@ -173,8 +177,8 @@ function resolveSelectToken(value: number | string | null | undefined): string {
     return trimmed
   }
 
-  const parsed = Number.parseInt(trimmed, 10)
-  if (!Number.isNaN(parsed)) {
+  if (/^\d+$/.test(trimmed)) {
+    const parsed = Number.parseInt(trimmed, 10)
     return `id:${parsed}`
   }
 
@@ -195,8 +199,12 @@ function resolveTokenToFormValue(value: string): number | string | null {
     return value.slice(5)
   }
 
-  const parsed = Number.parseInt(value, 10)
-  return Number.isNaN(parsed) ? value : parsed
+  if (/^\d+$/.test(value)) {
+    const parsed = Number.parseInt(value, 10)
+    return Number.isNaN(parsed) ? value : parsed
+  }
+
+  return value
 }
 
 function getEntityToken(entity: { id?: number; uuid?: string }): string | null {
