@@ -124,7 +124,7 @@ function buildInitialFormData(host?: ProxyHost): Partial<ProxyHost> & {
     enabled: host?.enabled ?? true,
     certificate_id: host?.certificate_id,
     access_list_id: host?.access_list?.uuid ?? host?.access_list_id,
-    security_header_profile_id: host?.security_header_profile_id,
+    security_header_profile_id: host?.security_header_profile?.uuid ?? host?.security_header_profile_id,
     dns_provider_id: host?.dns_provider_id || null,
   }
 }
@@ -160,6 +160,20 @@ function normalizeNullableID(value: unknown): number | null | undefined {
 }
 
 function normalizeAccessListReference(value: unknown): number | string | null | undefined {
+  const numericValue = normalizeNullableID(value)
+  if (numericValue !== undefined) {
+    return numericValue
+  }
+
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const trimmed = value.trim()
+  return trimmed === '' ? null : trimmed
+}
+
+function normalizeSecurityHeaderReference(value: unknown): number | string | null | undefined {
   const numericValue = normalizeNullableID(value)
   if (numericValue !== undefined) {
     return numericValue
@@ -546,7 +560,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       const submitPayload: Partial<ProxyHost> = {
         ...payloadWithoutUptime,
         access_list_id: normalizeAccessListReference(payloadWithoutUptime.access_list_id),
-        security_header_profile_id: normalizeNullableID(payloadWithoutUptime.security_header_profile_id),
+        security_header_profile_id: normalizeSecurityHeaderReference(payloadWithoutUptime.security_header_profile_id),
       }
 
       const res = await onSubmit(submitPayload)

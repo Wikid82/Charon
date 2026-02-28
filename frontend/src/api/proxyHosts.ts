@@ -49,10 +49,10 @@ export interface ProxyHost {
     description: string;
     type: string;
   } | null;
-  security_header_profile_id?: number | null;
+  security_header_profile_id?: number | string | null;
   dns_provider_id?: number | null;
   security_header_profile?: {
-    id: number;
+    id?: number;
     uuid: string;
     name: string;
     description: string;

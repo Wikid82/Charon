@@ -216,6 +216,38 @@ func (h *ProxyHostHandler) resolveAccessListReference(value any) (*uint, error) 
 	return &id, nil
 }
 
+func (h *ProxyHostHandler) resolveSecurityHeaderProfileReference(value any) (*uint, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	parsedID, _, parseErr := parseNullableUintField(value, "security_header_profile_id")
+	if parseErr == nil {
+		return parsedID, nil
+	}
+
+	uuidValue, isString := value.(string)
+	if !isString {
+		return nil, parseErr
+	}
+
+	trimmed := strings.TrimSpace(uuidValue)
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	var profile models.SecurityHeaderProfile
+	if err := h.db.Select("id").Where("uuid = ?", trimmed).First(&profile).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("security header profile not found")
+		}
+		return nil, fmt.Errorf("failed to resolve security header profile")
+	}
+
+	id := profile.ID
+	return &id, nil
+}
+
 func parseForwardPortField(value any) (int, error) {
 	switch v := value.(type) {
 	case float64:
@@ -299,6 +331,15 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 			return
 		}
 		payload["access_list_id"] = resolvedAccessListID
+	}
+
+	if rawSecurityHeaderRef, ok := payload["security_header_profile_id"]; ok {
+		resolvedSecurityHeaderID, resolveErr := h.resolveSecurityHeaderProfileReference(rawSecurityHeaderRef)
+		if resolveErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
+			return
+		}
+		payload["security_header_profile_id"] = resolvedSecurityHeaderID
 	}
 
 	payloadBytes, marshalErr := json.Marshal(payload)
@@ -508,12 +549,12 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 
 	// Security Header Profile: update only if provided
 	if v, ok := payload["security_header_profile_id"]; ok {
-		parsedID, _, parseErr := parseNullableUintField(v, "security_header_profile_id")
-		if parseErr != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": parseErr.Error()})
+		resolvedSecurityHeaderID, resolveErr := h.resolveSecurityHeaderProfileReference(v)
+		if resolveErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
 			return
 		}
-		host.SecurityHeaderProfileID = parsedID
+		host.SecurityHeaderProfileID = resolvedSecurityHeaderID
 	}
 
 	// Locations: replace only if provided
