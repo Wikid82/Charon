@@ -23,7 +23,7 @@ test.describe('Emergency Token Break Glass Protocol', () => {
    * CRITICAL: Ensure Cerberus AND ACL are enabled before running these tests
    *
    * WHY CERBERUS MUST BE ENABLED FIRST:
-   * - global-setup.ts disables ALL security modules including feature.cerberus.enabled
+    * - security-shard.setup.ts resets security state to a disabled baseline
    * - The Cerberus middleware is the master switch that gates ALL security enforcement
    * - If Cerberus is disabled, the middleware short-circuits and ACL is never checked
    * - Therefore: Cerberus must be enabled BEFORE ACL for security to actually be enforced
