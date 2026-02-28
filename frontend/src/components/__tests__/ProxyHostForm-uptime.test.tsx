@@ -109,4 +109,39 @@ describe('ProxyHostForm Add Uptime flow', () => {
     expect(submittedPayload).not.toHaveProperty('uptimeInterval')
     expect(submittedPayload).not.toHaveProperty('uptimeMaxRetries')
   })
+
+  it('shows uptime sync fallback error toast when monitor request fails with empty string error', async () => {
+    const onSubmit = vi.fn(() => Promise.resolve())
+    const onCancel = vi.fn()
+
+    const uptime = await import('../../api/uptime')
+    const syncMock = uptime.syncMonitors as unknown as import('vitest').Mock
+    syncMock.mockRejectedValueOnce('')
+
+    const toastModule = await import('react-hot-toast')
+    const errorSpy = vi.spyOn(toastModule.toast, 'error')
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProxyHostForm onSubmit={onSubmit} onCancel={onCancel} />
+      </QueryClientProvider>
+    )
+
+    await userEvent.type(screen.getByPlaceholderText('My Service'), 'My Service')
+    await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'example.com')
+    await userEvent.type(screen.getByLabelText(/^Host$/), '127.0.0.1')
+    await userEvent.clear(screen.getByLabelText(/^Port$/))
+    await userEvent.type(screen.getByLabelText(/^Port$/), '8080')
+
+    await userEvent.click(screen.getByLabelText(/Add Uptime monitoring for this host/i))
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalled()
+      expect(syncMock).toHaveBeenCalled()
+      expect(errorSpy).toHaveBeenCalledWith('Failed to request uptime creation')
+    })
+  })
 })

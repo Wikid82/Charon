@@ -151,6 +151,64 @@ func TestProxyHostUpdate_AccessListID_Transitions_NoUnrelatedMutation(t *testing
 	assertUnrelatedFields(t, updated)
 }
 
+func TestProxyHostUpdate_AccessListID_UUIDNotFound_ReturnsBadRequest(t *testing.T) {
+	t.Parallel()
+	router, db := setupUpdateTestRouter(t)
+
+	host := createTestProxyHost(t, db, "acl-uuid-not-found")
+
+	updateBody := map[string]any{
+		"name":           "ACL UUID Not Found",
+		"domain_names":   "acl-uuid-not-found.test.com",
+		"forward_scheme": "http",
+		"forward_host":   "localhost",
+		"forward_port":   8080,
+		"access_list_id": uuid.NewString(),
+	}
+	body, _ := json.Marshal(updateBody)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	assert.Contains(t, result["error"], "access list not found")
+}
+
+func TestProxyHostUpdate_AccessListID_ResolveQueryFailure_ReturnsBadRequest(t *testing.T) {
+	t.Parallel()
+	router, db := setupUpdateTestRouter(t)
+
+	host := createTestProxyHost(t, db, "acl-resolve-query-failure")
+
+	require.NoError(t, db.Migrator().DropTable(&models.AccessList{}))
+
+	updateBody := map[string]any{
+		"name":           "ACL Resolve Query Failure",
+		"domain_names":   "acl-resolve-query-failure.test.com",
+		"forward_scheme": "http",
+		"forward_host":   "localhost",
+		"forward_port":   8080,
+		"access_list_id": uuid.NewString(),
+	}
+	body, _ := json.Marshal(updateBody)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	assert.Contains(t, result["error"], "failed to resolve access list")
+}
+
 func TestProxyHostUpdate_SecurityHeaderProfileID_Transitions_NoUnrelatedMutation(t *testing.T) {
 	t.Parallel()
 	router, db := setupUpdateTestRouter(t)

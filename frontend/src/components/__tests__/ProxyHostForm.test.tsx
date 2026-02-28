@@ -123,6 +123,13 @@ vi.mock('../../api/proxyHosts', () => ({
   testProxyHostConnection: vi.fn(),
 }))
 
+vi.mock('react-hot-toast', () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}))
+
 // Mock global fetch for health API
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -552,6 +559,51 @@ describe('ProxyHostForm', () => {
       })
     })
 
+    it('closes preset overwrite modal when cancel is clicked', async () => {
+      const existingHost = {
+        uuid: 'test-uuid',
+        name: 'CancelOverwrite',
+        domain_names: 'test.example.com',
+        forward_scheme: 'http',
+        forward_host: '192.168.1.2',
+        forward_port: 8080,
+        advanced_config: '{"handler":"headers","request":{"set":{"X-Test":"value"}}}',
+        advanced_config_backup: '',
+        ssl_forced: true,
+        http2_support: true,
+        hsts_enabled: true,
+        hsts_subdomains: false,
+        block_exploits: true,
+        websocket_support: true,
+        application: 'none' as const,
+        locations: [],
+        enabled: true,
+        created_at: '2025-01-01',
+        updated_at: '2025-01-01',
+      }
+
+      renderWithClient(
+        <ProxyHostForm host={existingHost as ProxyHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await selectComboboxOption(/Application Preset/i, 'Plex - Media server with remote access')
+
+      await waitFor(() => {
+        expect(screen.getByText('Confirm Preset Overwrite')).toBeInTheDocument()
+      })
+
+      const modal = screen.getByText('Confirm Preset Overwrite').closest('div')?.parentElement
+      if (!modal) {
+        throw new Error('Preset overwrite modal not found')
+      }
+
+      await userEvent.click(within(modal).getByRole('button', { name: 'Cancel' }))
+
+      await waitFor(() => {
+        expect(screen.queryByText('Confirm Preset Overwrite')).not.toBeInTheDocument()
+      })
+    })
+
     it('restores previous advanced_config from backup when clicking restore', async () => {
       const existingHost = {
         uuid: 'test-uuid',
@@ -698,6 +750,83 @@ describe('ProxyHostForm', () => {
       await waitFor(() => {
         expect(mockWriteText).toHaveBeenCalledWith('https://plex.mydomain.com:443')
         expect(screen.getByText('Copied!')).toBeInTheDocument()
+      })
+    })
+
+    it('copies plex trusted proxy IP helper snippet', async () => {
+      const mockWriteText = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, {
+        clipboard: { writeText: mockWriteText },
+      })
+
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'apps.mydomain.com')
+
+      await selectComboboxOption(/Application Preset/i, 'Plex - Media server with remote access')
+      await userEvent.click(screen.getAllByRole('button', { name: /Copy/i })[1])
+
+      await waitFor(() => {
+        expect(mockWriteText).toHaveBeenCalledWith('192.168.1.50')
+      })
+    })
+
+    it('copies jellyfin trusted proxy IP helper snippet', async () => {
+      const mockWriteText = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, {
+        clipboard: { writeText: mockWriteText },
+      })
+
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'apps.mydomain.com')
+      await selectComboboxOption(/Application Preset/i, 'Jellyfin - Open source media server')
+      await userEvent.click(screen.getByRole('button', { name: /Copy/i }))
+
+      await waitFor(() => {
+        expect(mockWriteText).toHaveBeenCalledWith('192.168.1.50')
+      })
+    })
+
+    it('copies home assistant helper yaml snippet', async () => {
+      const mockWriteText = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, {
+        clipboard: { writeText: mockWriteText },
+      })
+
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'apps.mydomain.com')
+      await selectComboboxOption(/Application Preset/i, 'Home Assistant - Home automation')
+      await userEvent.click(screen.getByRole('button', { name: /Copy/i }))
+
+      await waitFor(() => {
+        expect(mockWriteText).toHaveBeenCalledWith('http:\n  use_x_forwarded_for: true\n  trusted_proxies:\n    - 192.168.1.50')
+      })
+    })
+
+    it('copies nextcloud helper php snippet', async () => {
+      const mockWriteText = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, {
+        clipboard: { writeText: mockWriteText },
+      })
+
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'apps.mydomain.com')
+      await selectComboboxOption(/Application Preset/i, 'Nextcloud - File sync and share')
+      await userEvent.click(screen.getByRole('button', { name: /Copy/i }))
+
+      await waitFor(() => {
+        expect(mockWriteText).toHaveBeenCalledWith("'trusted_proxies' => ['192.168.1.50'],\n'overwriteprotocol' => 'https',")
       })
     })
   })
@@ -943,6 +1072,85 @@ describe('ProxyHostForm', () => {
       await selectComboboxOption(/Security Headers/i, 'Custom Profile (Score: 70/100)')
       expect(screen.getByRole('combobox', { name: /Security Headers/i })).toHaveTextContent('Custom Profile')
     })
+
+    it('resolves prefixed security header id tokens from existing host values', async () => {
+      const existingHost = {
+        uuid: 'security-token-host',
+        name: 'Token Host',
+        domain_names: 'token.example.com',
+        forward_scheme: 'http',
+        forward_host: '127.0.0.1',
+        forward_port: 80,
+        ssl_forced: true,
+        http2_support: true,
+        hsts_enabled: true,
+        hsts_subdomains: true,
+        block_exploits: true,
+        websocket_support: true,
+        application: 'none' as const,
+        locations: [],
+        enabled: true,
+        security_header_profile_id: 'id:100',
+        created_at: '2025-01-01',
+        updated_at: '2025-01-01',
+      }
+
+      renderWithClient(
+        <ProxyHostForm host={existingHost as unknown as ProxyHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      expect(screen.getByRole('combobox', { name: /Security Headers/i })).toHaveTextContent('Strict Profile')
+    })
+
+    it('resolves numeric-string security header ids from existing host values', async () => {
+      const existingHost = {
+        uuid: 'security-numeric-host',
+        name: 'Numeric Host',
+        domain_names: 'numeric.example.com',
+        forward_scheme: 'http',
+        forward_host: '127.0.0.1',
+        forward_port: 80,
+        ssl_forced: true,
+        http2_support: true,
+        hsts_enabled: true,
+        hsts_subdomains: true,
+        block_exploits: true,
+        websocket_support: true,
+        application: 'none' as const,
+        locations: [],
+        enabled: true,
+        security_header_profile_id: '100',
+        created_at: '2025-01-01',
+        updated_at: '2025-01-01',
+      }
+
+      renderWithClient(
+        <ProxyHostForm host={existingHost as unknown as ProxyHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      expect(screen.getByRole('combobox', { name: /Security Headers/i })).toHaveTextContent('Strict Profile')
+    })
+
+    it('skips non-preset profiles that have neither id nor uuid', async () => {
+      const { useSecurityHeaderProfiles } = await import('../../hooks/useSecurityHeaders')
+      vi.mocked(useSecurityHeaderProfiles).mockReturnValue({
+        data: [
+          { id: 100, name: 'Strict Profile', description: 'Very strict', security_score: 90, is_preset: true, preset_type: 'strict' },
+          { name: 'Invalid Custom', description: 'No identity token', security_score: 10, is_preset: false },
+        ],
+        isLoading: false,
+        error: null,
+      } as unknown as ReturnType<typeof useSecurityHeaderProfiles>)
+
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await userEvent.click(screen.getByRole('combobox', { name: /Security Headers/i }))
+
+      expect(screen.queryByRole('option', { name: /Invalid Custom/i })).not.toBeInTheDocument()
+    })
+
   })
 
   describe('Edit Mode vs Create Mode', () => {
@@ -1245,6 +1453,55 @@ describe('ProxyHostForm', () => {
           forward_host: 'localhost',
           forward_port: 18080,
         }))
+      })
+    })
+
+    it('updates domain using selected container when base domain changes', async () => {
+      const { useDocker } = await import('../../hooks/useDocker')
+      vi.mocked(useDocker).mockReturnValue({
+        containers: [
+          {
+            id: 'container-123',
+            names: ['my-app'],
+            image: 'nginx:latest',
+            state: 'running',
+            status: 'Up 2 hours',
+            network: 'bridge',
+            ip: '172.17.0.2',
+            ports: [{ private_port: 80, public_port: 8080, type: 'tcp' }],
+          },
+        ],
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await selectComboboxOption('Source', 'Local (Docker Socket)')
+      await selectComboboxOption('Containers', 'my-app (nginx:latest)')
+      await selectComboboxOption(/Base Domain/i, 'existing.com')
+
+      expect(screen.getByLabelText(/Domain Names/i)).toHaveValue('my-app.existing.com')
+    })
+
+    it('prompts to save a new base domain when user enters a base domain directly', async () => {
+      localStorage.removeItem('charon_dont_ask_domain')
+      localStorage.removeItem('cpmp_dont_ask_domain')
+
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      const domainInput = screen.getByPlaceholderText('example.com, www.example.com')
+      await userEvent.type(domainInput, 'brandnewdomain.com')
+      await userEvent.tab()
+
+      await waitFor(() => {
+        expect(screen.getByText('New Base Domain Detected')).toBeInTheDocument()
+        expect(screen.getByText('brandnewdomain.com')).toBeInTheDocument()
       })
     })
   })

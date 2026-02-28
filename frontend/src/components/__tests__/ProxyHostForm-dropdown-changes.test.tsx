@@ -663,4 +663,147 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
       )
     })
   })
+
+  it('initializes edit mode from nested ACL and security header UUID references', async () => {
+    const user = userEvent.setup()
+    const Wrapper = createWrapper()
+
+    const existingHost = {
+      uuid: 'host-uuid-nested-ref',
+      name: 'Nested Ref Host',
+      domain_names: 'test.com',
+      forward_scheme: 'http',
+      forward_host: 'localhost',
+      forward_port: 8080,
+      ssl_forced: true,
+      http2_support: true,
+      hsts_enabled: true,
+      hsts_subdomains: true,
+      block_exploits: true,
+      websocket_support: false,
+      enable_standard_headers: true,
+      application: 'none',
+      advanced_config: '',
+      enabled: true,
+      locations: [],
+      certificate_id: null,
+      access_list_id: null,
+      security_header_profile_id: null,
+      access_list: { uuid: 'acl-uuid-2' },
+      security_header_profile: { uuid: 'profile-uuid-2' },
+      dns_provider_id: null,
+      created_at: '2024-01-01',
+      updated_at: '2024-01-01',
+    } as unknown as ProxyHost
+
+    render(
+      <Wrapper>
+        <ProxyHostForm host={existingHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      </Wrapper>
+    )
+
+    expect(screen.getByRole('combobox', { name: /Access Control List/i })).toHaveTextContent('VPN Users')
+
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          access_list_id: 'acl-uuid-2',
+          security_header_profile_id: 'profile-uuid-2',
+        })
+      )
+    })
+  })
+
+  it('normalizes empty and numeric-string ACL/security references on submit', async () => {
+    const user = userEvent.setup()
+    const Wrapper = createWrapper()
+
+    const hostWithStringReferences = {
+      uuid: 'host-uuid-string-refs',
+      name: 'String Ref Host',
+      domain_names: 'test.com',
+      forward_scheme: 'http',
+      forward_host: 'localhost',
+      forward_port: 8080,
+      ssl_forced: true,
+      http2_support: true,
+      hsts_enabled: true,
+      hsts_subdomains: true,
+      block_exploits: true,
+      websocket_support: false,
+      enable_standard_headers: true,
+      application: 'none',
+      advanced_config: '',
+      enabled: true,
+      locations: [],
+      certificate_id: null,
+      access_list_id: '2',
+      security_header_profile_id: ' ',
+      dns_provider_id: null,
+      created_at: '2024-01-01',
+      updated_at: '2024-01-01',
+    } as unknown as ProxyHost
+
+    render(
+      <Wrapper>
+        <ProxyHostForm host={hostWithStringReferences} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      </Wrapper>
+    )
+
+    expect(screen.getByRole('combobox', { name: /Access Control List/i })).toHaveTextContent('VPN Users')
+
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          access_list_id: 2,
+          security_header_profile_id: null,
+        })
+      )
+    })
+  })
+
+  it('filters out security profiles missing both id and uuid', async () => {
+    const user = userEvent.setup()
+    const Wrapper = createWrapper()
+
+    vi.mocked(useSecurityHeaderProfiles).mockReturnValue({
+      data: [
+        {
+          ...mockSecurityProfiles[0],
+          id: undefined,
+          uuid: undefined,
+          name: 'Broken Profile',
+        },
+        {
+          ...mockSecurityProfiles[1],
+          id: 2,
+          uuid: 'profile-uuid-2',
+          name: 'Strict Security',
+        },
+      ] as unknown as SecurityHeaderProfile[],
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useSecurityHeaderProfiles>)
+
+    render(
+      <Wrapper>
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      </Wrapper>
+    )
+
+    await user.type(screen.getByLabelText(/^Name/), 'Filter Profile Host')
+    await user.type(screen.getByLabelText(/Domain Names/), 'test.com')
+    await user.type(screen.getByLabelText(/^Host$/), 'localhost')
+    await user.clear(screen.getByLabelText(/^Port$/))
+    await user.type(screen.getByLabelText(/^Port$/), '8080')
+
+    await user.click(screen.getByRole('combobox', { name: /Security Headers/i }))
+
+    expect(screen.queryByRole('option', { name: /Broken Profile/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /Strict Security/i })).toBeInTheDocument()
+  })
 })
