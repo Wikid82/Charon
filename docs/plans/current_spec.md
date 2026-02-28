@@ -59,7 +59,7 @@ Deliver an urgent but correct root-cause fix across frontend binding and backend
 1. Frontend unit regression coverage already exists:
    - `frontend/src/components/__tests__/ProxyHostForm-dropdown-changes.test.tsx`
 2. E2E regression spec exists:
-   - `tests/proxy-host-dropdown-fix.spec.ts`
+   - `tests/security-enforcement/acl-dropdown-regression.spec.ts`
 3. Backend update and security-header tests exist:
    - `backend/internal/api/handlers/proxy_host_handler_update_test.go`
    - `backend/internal/api/handlers/proxy_host_handler_security_headers_test.go`
