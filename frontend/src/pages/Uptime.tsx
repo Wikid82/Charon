@@ -2,7 +2,7 @@ import { useMemo, useState, type FC, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getMonitors, getMonitorHistory, updateMonitor, deleteMonitor, checkMonitor, createMonitor, syncMonitors, UptimeMonitor } from '../api/uptime';
-import { Activity, ArrowUp, ArrowDown, Settings, X, Pause, RefreshCw, Plus } from 'lucide-react';
+import { Activity, ArrowUp, ArrowDown, Settings, X, Pause, RefreshCw, Plus, Loader } from 'lucide-react';
 import { toast } from 'react-hot-toast'
 import { formatDistanceToNow } from 'date-fns';
 
@@ -64,11 +64,12 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
     ? history.reduce((a, b) => new Date(a.created_at) > new Date(b.created_at) ? a : b)
     : null
 
+  const isPending = monitor.status === 'pending' && (!history || history.length === 0);
   const isUp = latestBeat ? latestBeat.status === 'up' : monitor.status === 'up';
   const isPaused = monitor.enabled === false;
 
   return (
-    <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 border-l-4 ${isPaused ? 'border-l-yellow-400' : isUp ? 'border-l-green-500' : 'border-l-red-500'}`} data-testid="monitor-card">
+    <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 border-l-4 ${isPaused ? 'border-l-yellow-400' : isPending ? 'border-l-amber-500' : isUp ? 'border-l-green-500' : 'border-l-red-500'}`} data-testid="monitor-card">
       {/* Top Row: Name (left), Badge (center-right), Settings (right) */}
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold text-lg text-gray-900 dark:text-white flex-1 min-w-0 truncate">{monitor.name}</h3>
@@ -76,12 +77,14 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
           <div className={`flex items-center justify-center px-3 py-1 rounded-full text-sm font-medium min-w-22.5 ${
             isPaused
               ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-              : isUp
-                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-          }`} data-testid="status-badge" data-status={isPaused ? 'paused' : monitor.status}>
-            {isPaused ? <Pause className="w-4 h-4 mr-1" /> : isUp ? <ArrowUp className="w-4 h-4 mr-1" /> : <ArrowDown className="w-4 h-4 mr-1" />}
-            {isPaused ? t('uptime.paused') : monitor.status.toUpperCase()}
+              : isPending
+                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 animate-pulse motion-reduce:animate-none'
+                : isUp
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                  : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+          }`} data-testid="status-badge" data-status={isPaused ? 'paused' : monitor.status} role="status" aria-label={isPaused ? t('uptime.paused') : isPending ? t('uptime.pending') : isUp ? 'UP' : 'DOWN'}>
+            {isPaused ? <Pause className="w-4 h-4 mr-1" /> : isPending ? <Loader className="w-4 h-4 mr-1 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : isUp ? <ArrowUp className="w-4 h-4 mr-1" /> : <ArrowDown className="w-4 h-4 mr-1" />}
+            {isPaused ? t('uptime.paused') : isPending ? t('uptime.pending') : monitor.status.toUpperCase()}
           </div>
           <button
             onClick={async () => {
@@ -200,7 +203,7 @@ Message: ${beat.message}`}
           />
         ))}
         {(!history || history.length === 0) && (
-            <div className="absolute w-full text-center text-xs text-gray-400">{t('uptime.noHistoryAvailable')}</div>
+            <div className="absolute w-full text-center text-xs text-gray-400">{isPending ? t('uptime.pendingFirstCheck') : t('uptime.noHistoryAvailable')}</div>
         )}
       </div>
     </div>

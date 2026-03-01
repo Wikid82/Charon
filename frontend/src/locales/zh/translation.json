@@ -423,7 +423,9 @@
     "triggerCheck": "触发即时健康检查",
     "healthCheckTriggered": "健康检查已触发",
     "monitorDeleted": "监控器已删除",
-    "deleteConfirm": "删除此监控器？此操作无法撤销。"
+    "deleteConfirm": "删除此监控器？此操作无法撤销。",
+    "pending": "检查中...",
+    "pendingFirstCheck": "等待首次检查..."
   },
   "domains": {
     "title": "域名",
