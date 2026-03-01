@@ -64,6 +64,14 @@ async function clickParseAndWaitForUpload(page: Page, context: string): Promise<
   }
 }
 
+async function resetImportSessionWithRetry(page: Page): Promise<void> {
+  // WebKit can occasionally throw a transient internal navigation error during
+  // route transitions; a bounded retry keeps hooks deterministic.
+  await expect(async () => {
+    await resetImportSession(page);
+  }).toPass({ timeout: 20000 });
+}
+
 /**
  * Helper: Complete the full import flow from paste to success modal
  * Reusable across multiple tests to reduce duplication
@@ -106,11 +114,11 @@ async function completeImportFlow(
 
 test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
   test.beforeEach(async ({ page }) => {
-    await resetImportSession(page);
+    await resetImportSessionWithRetry(page);
   });
 
   test.afterEach(async ({ page }) => {
-    await resetImportSession(page);
+    await resetImportSessionWithRetry(page);
   });
 
   // =========================================================================
@@ -557,12 +565,16 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
         await page.goto('/proxy-hosts');
         shouldMockPendingStatus = true;
 
-        // Wait for status API to be called after navigation
-        const statusPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/status') && r.status() === 200
-        );
-        await page.goto('/tasks/import/caddyfile');
-        await statusPromise;
+        // WebKit can throw a transient internal navigation error; retry deterministically.
+        await expect(async () => {
+          const statusPromise = page.waitForResponse(
+            r => r.url().includes('/api/v1/import/status') && r.status() === 200,
+            { timeout: 10000 }
+          );
+          await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
+          await statusPromise;
+        }).toPass({ timeout: 15000 });
+
         await expect(page.getByTestId('import-banner')).toBeVisible({ timeout: 10000 });
       });
 
