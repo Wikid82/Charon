@@ -276,8 +276,6 @@ export default defineConfig({
         '**/backend/**',
         '**/security-enforcement/**',
         '**/security/**',
-        '**/tests/core/caddy-import/caddy-import-firefox.spec.ts',
-        '**/tests/core/caddy-import/caddy-import-webkit.spec.ts',
       ],
     },
 
@@ -295,7 +293,6 @@ export default defineConfig({
         '**/backend/**',
         '**/security-enforcement/**',
         '**/security/**',
-        '**/tests/core/caddy-import/caddy-import-webkit.spec.ts',
       ],
     },
 
@@ -313,7 +310,6 @@ export default defineConfig({
         '**/backend/**',
         '**/security-enforcement/**',
         '**/security/**',
-        '**/tests/core/caddy-import/caddy-import-firefox.spec.ts',
       ],
     },
 
