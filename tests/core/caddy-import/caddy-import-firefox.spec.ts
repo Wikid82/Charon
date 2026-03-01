@@ -20,7 +20,11 @@
 
 import { test, expect } from '../../fixtures/auth-fixtures';
 import { Page } from '@playwright/test';
-import { ensureImportUiPreconditions, resetImportSession, waitForSuccessfulImportResponse } from './import-page-helpers';
+import {
+  ensureImportUiPreconditions,
+  resetImportSession,
+  waitForSuccessfulImportResponse,
+} from './import-page-helpers';
 
 /**
  * Helper to set up import API mocks
@@ -205,10 +209,12 @@ test.describe('Caddy Import - Firefox-Specific @firefox-only', () => {
       await textarea.fill('cors-test.example.com { reverse_proxy localhost:3000 }');
 
       const parseButton = page.getByRole('button', { name: /parse|review/i });
-      await parseButton.click();
-
-      // Wait for response
-      await page.waitForResponse((r) => r.url().includes('/api/v1/import/upload'), { timeout: 5000 });
+      await waitForSuccessfulImportResponse(
+        page,
+        () => parseButton.click(),
+        'firefox-cors-same-origin',
+        /\/api\/v1\/import\/upload/i
+      );
 
       // Verify no CORS issues
       expect(corsIssues).toHaveLength(0);
