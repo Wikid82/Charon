@@ -213,9 +213,10 @@ test.describe('Caddy Import - Firefox-Specific @firefox-only', () => {
       await textarea.fill('cors-test.example.com { reverse_proxy localhost:3000 }');
 
       const parseButton = page.getByRole('button', { name: /parse|review/i });
-      const responsePromise = page.waitForResponse((r) => r.url().includes('/api/v1/import/upload'), { timeout: 5000 });
       await parseButton.click();
-      await responsePromise;
+
+      // Wait for response
+      await page.waitForResponse((r) => r.url().includes('/api/v1/import/upload'), { timeout: 5000 });
 
       // Verify no CORS issues
       expect(corsIssues).toHaveLength(0);
