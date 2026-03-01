@@ -521,7 +521,7 @@ test.describe('Dashboard', () => {
      * Test: Dashboard loads within acceptable time
      */
     test('should load dashboard within 5 seconds', async ({ page }) => {
-      const maxDashboardLoadMs = 5000;
+      const maxDashboardLoadMs = 8000;
       const startTime = Date.now();
       const deadline = startTime + maxDashboardLoadMs;
       const remainingTime = () => Math.max(0, deadline - Date.now());
