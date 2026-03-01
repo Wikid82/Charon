@@ -245,21 +245,26 @@ test.describe('Caddy Import - Firefox-Specific @firefox-only', () => {
       await textarea.fill('auth-test.example.com { reverse_proxy localhost:3000 }');
 
       const parseButton = page.getByRole('button', { name: /parse|review/i });
-      await parseButton.click();
-
-      // Wait for request to complete
-      await page.waitForResponse((r) => r.url().includes('/api/v1/import/upload'), { timeout: 5000 });
+      const uploadResponse = await waitForSuccessfulImportResponse(
+        page,
+        () => parseButton.click(),
+        'firefox-auth-headers',
+        /\/api\/v1\/import\/upload/i
+      );
 
       // Verify headers were captured
-      expect(Object.keys(requestHeaders).length).toBeGreaterThan(0);
+      const sentHeaders = Object.keys(requestHeaders).length > 0
+        ? requestHeaders
+        : uploadResponse.request().headers();
+      expect(Object.keys(sentHeaders).length).toBeGreaterThan(0);
 
       // Verify cookie or authorization header present
-      const hasCookie = !!requestHeaders['cookie'];
-      const hasAuth = !!requestHeaders['authorization'];
+      const hasCookie = !!sentHeaders['cookie'];
+      const hasAuth = !!sentHeaders['authorization'];
       expect(hasCookie || hasAuth).toBeTruthy();
 
       // Verify content-type is correct
-      expect(requestHeaders['content-type']).toContain('application/json');
+      expect(sentHeaders['content-type']).toContain('application/json');
     });
   });
 
