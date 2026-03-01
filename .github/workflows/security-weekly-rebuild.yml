@@ -6,7 +6,7 @@ name: Weekly Security Rebuild
 
 on:
   schedule:
-    - cron: '0 2 * * 0' # Sundays at 02:00 UTC
+    - cron: '0 12 * * 2' # Tuesdays at 12:00 UTC
   workflow_dispatch:
     inputs:
       force_rebuild:
