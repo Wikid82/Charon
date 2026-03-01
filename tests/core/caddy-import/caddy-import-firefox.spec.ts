@@ -22,10 +22,6 @@ import { test, expect } from '../../fixtures/auth-fixtures';
 import { Page } from '@playwright/test';
 import { ensureImportUiPreconditions, resetImportSession, waitForSuccessfulImportResponse } from './import-page-helpers';
 
-function firefoxOnly(browserName: string) {
-  test.skip(browserName !== 'firefox', 'This suite only runs on Firefox');
-}
-
 /**
  * Helper to set up import API mocks
  */
@@ -91,10 +87,6 @@ async function setupImportMocks(page: Page, success: boolean = true) {
 }
 
 test.describe('Caddy Import - Firefox-Specific @firefox-only', () => {
-  test.beforeEach(async ({ browserName }) => {
-    firefoxOnly(browserName);
-  });
-
   /**
    * TEST 1: Event listener attachment verification
    * Ensures the Parse button has proper click handlers in Firefox
