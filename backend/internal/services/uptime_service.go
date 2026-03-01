@@ -1292,14 +1292,5 @@ func (s *UptimeService) CleanupStaleFailureCounts() error {
 		logger.Log().WithField("reset_count", result.RowsAffected).Info("Reset stale monitor failure counts")
 	}
 
-	hostResult := s.DB.Exec(`UPDATE uptime_hosts SET failure_count = 0, status = 'pending' WHERE status = 'down'`)
-	if hostResult.Error != nil {
-		return fmt.Errorf("cleanup stale host failure counts: %w", hostResult.Error)
-	}
-
-	if hostResult.RowsAffected > 0 {
-		logger.Log().WithField("reset_count", hostResult.RowsAffected).Info("Reset stale host failure counts")
-	}
-
 	return nil
 }
