@@ -311,11 +311,11 @@ func TestCleanupStaleFailureCounts_SkipsLowFailureCount(t *testing.T) {
 	assert.Equal(t, "down", m.Status)
 }
 
-func TestCleanupStaleFailureCounts_ResetsStaleHosts(t *testing.T) {
+func TestCleanupStaleFailureCounts_DoesNotResetDownHosts(t *testing.T) {
 	db := setupPR1TestDB(t)
 	svc := NewUptimeService(db, nil)
 
-	// Create a "stuck" host
+	// Create a host that is currently down.
 	host := models.UptimeHost{
 		ID:           uuid.New().String(),
 		Host:         "stuck-host.local",
@@ -330,8 +330,8 @@ func TestCleanupStaleFailureCounts_ResetsStaleHosts(t *testing.T) {
 
 	var h models.UptimeHost
 	require.NoError(t, db.First(&h, "id = ?", host.ID).Error)
-	assert.Equal(t, 0, h.FailureCount)
-	assert.Equal(t, "pending", h.Status)
+	assert.Equal(t, 10, h.FailureCount, "cleanup must not reset host failure_count")
+	assert.Equal(t, "down", h.Status, "cleanup must not reset host status")
 }
 
 // setupPR1ConcurrentDB creates a file-based SQLite database with WAL mode and
