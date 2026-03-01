@@ -498,7 +498,9 @@
     "monitorUrl": "URL",
     "monitorTypeHttp": "HTTP",
     "monitorTypeTcp": "TCP",
-    "urlPlaceholder": "https://example.com or tcp://host:port"
+    "urlPlaceholder": "https://example.com or tcp://host:port",
+    "pending": "CHECKING...",
+    "pendingFirstCheck": "Waiting for first check..."
   },
   "domains": {
     "title": "Domains",
