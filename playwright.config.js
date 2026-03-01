@@ -270,7 +270,15 @@ export default defineConfig({
       },
       dependencies: browserDependencies,
       testMatch: /.*\.spec\.(ts|js)$/,
-      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
+      testIgnore: [
+        '**/frontend/**',
+        '**/node_modules/**',
+        '**/backend/**',
+        '**/security-enforcement/**',
+        '**/security/**',
+        '**/tests/core/caddy-import/caddy-import-firefox.spec.ts',
+        '**/tests/core/caddy-import/caddy-import-webkit.spec.ts',
+      ],
     },
 
     {
@@ -281,7 +289,14 @@ export default defineConfig({
       },
       dependencies: browserDependencies,
       testMatch: /.*\.spec\.(ts|js)$/,
-      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
+      testIgnore: [
+        '**/frontend/**',
+        '**/node_modules/**',
+        '**/backend/**',
+        '**/security-enforcement/**',
+        '**/security/**',
+        '**/tests/core/caddy-import/caddy-import-webkit.spec.ts',
+      ],
     },
 
     {
@@ -292,7 +307,14 @@ export default defineConfig({
       },
       dependencies: browserDependencies,
       testMatch: /.*\.spec\.(ts|js)$/,
-      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
+      testIgnore: [
+        '**/frontend/**',
+        '**/node_modules/**',
+        '**/backend/**',
+        '**/security-enforcement/**',
+        '**/security/**',
+        '**/tests/core/caddy-import/caddy-import-firefox.spec.ts',
+      ],
     },
 
     /* Test against mobile viewports. */
