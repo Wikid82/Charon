@@ -473,23 +473,90 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
     });
 
     test('4.2: should restore review table with previous content when clicking Review Changes', async ({ page, testData }) => {
-      // SKIP: Browser-uploaded import sessions are transient (file-based only) and not persisted
-      // to the database. Session resume only works for Docker-mounted Caddyfiles.
-      // See test 4.1 skip reason for details.
       const domain = generateDomain(testData, 'review-changes-test');
       const caddyfile = `${domain} { reverse_proxy localhost:5000 }`;
+      let resumeSessionId = '';
+      let shouldMockPendingStatus = false;
+
+      await page.route('**/api/v1/import/status', async (route) => {
+        if (!shouldMockPendingStatus || !resumeSessionId) {
+          await route.continue();
+          return;
+        }
+
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            has_pending: true,
+            session: {
+              id: resumeSessionId,
+              state: 'reviewing',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          }),
+        });
+      });
+
+      await page.route('**/api/v1/import/preview**', async (route) => {
+        if (!shouldMockPendingStatus || !resumeSessionId) {
+          await route.continue();
+          return;
+        }
+
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            session: {
+              id: resumeSessionId,
+              state: 'reviewing',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+            preview: {
+              hosts: [
+                {
+                  domain_names: domain,
+                  forward_scheme: 'http',
+                  forward_host: 'localhost',
+                  forward_port: 5000,
+                  name: domain,
+                },
+              ],
+              conflicts: [],
+              warnings: [],
+            },
+            caddyfile_content: caddyfile,
+            conflict_details: {},
+          }),
+        });
+      });
 
       await test.step('Create import session', async () => {
         await page.goto('/tasks/import/caddyfile');
         await fillCaddyfileTextarea(page, caddyfile);
 
-        await clickParseAndWaitForUpload(page, 'session-review-changes');
+        const uploadPromise = page.waitForResponse(
+          r => r.url().includes('/api/v1/import/upload') && r.status() === 200,
+          { timeout: 15000 }
+        );
+        await page.getByRole('button', { name: /parse|review/i }).click();
+        const uploadResponse = await uploadPromise;
+        const uploadBody = (await uploadResponse.json().catch(() => ({}))) as {
+          session?: { id?: string };
+        };
+        resumeSessionId = uploadBody?.session?.id || '';
+        expect(resumeSessionId).toBeTruthy();
 
         await expect(page.getByTestId('import-review-table')).toBeVisible();
       });
 
       await test.step('Navigate away and back', async () => {
         await page.goto('/proxy-hosts');
+        shouldMockPendingStatus = true;
+
         // Wait for status API to be called after navigation
         const statusPromise = page.waitForResponse(r =>
           r.url().includes('/api/v1/import/status') && r.status() === 200
