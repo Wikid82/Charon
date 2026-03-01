@@ -1,85 +1,80 @@
-double check our caddy version# QA Report: Nightly Workflow Fix Audit
+## QA Report - PR #779
 
-- Date: 2026-02-27
-- Scope:
-  - `.github/workflows/nightly-build.yml`
-    1. `pr_number` failure avoidance in nightly dispatch path
-    2. Deterministic Syft SBOM generation with fallback
-  - `.github/workflows/security-pr.yml` contract check (`pr_number` required)
+- Date: 2026-03-01
+- Scope: Post-remediation merge-readiness gates after Caddy Import E2E fix
 
-## Findings (Ordered by Severity)
+## E2E Status
 
-### ✅ No blocking findings in audited scope
+- Command status provided by current PR context:
+   `npx playwright test --project=chromium --project=firefox --project=webkit tests/core/caddy-import`
+- Result: `106 passed, 0 failed, 0 skipped`
+- Gate: PASS
 
-1. `actionlint` validation passed for modified workflow.
-   - Command: `actionlint .github/workflows/nightly-build.yml`
-   - Result: PASS (no diagnostics)
+## Patch Report Status
 
-2. `pr_number` nightly dispatch failure path is avoided by excluding PR-only workflow from nightly fan-out.
-   - `security-pr.yml` removed from dispatch list in `.github/workflows/nightly-build.yml:103`
-   - Explicit log note added at `.github/workflows/nightly-build.yml:110`
+- Command: `bash scripts/local-patch-report.sh`
+- Artifacts:
+   - `test-results/local-patch-report.md` (present)
+   - `test-results/local-patch-report.json` (present)
+- Result: PASS (artifacts generated)
+- Notes:
+   - Warning: overall patch coverage `81.7%` below advisory threshold `90.0%`
+   - Warning: backend patch coverage `81.6%` below advisory threshold `85.0%`
 
-3. SBOM generation is now deterministic with explicit primary pin and verified fallback.
-   - Primary action pins Syft version at `.github/workflows/nightly-build.yml:231`
-   - Fallback installs pinned `v1.42.1` with checksum verification at `.github/workflows/nightly-build.yml:245`
-   - Mandatory artifact verification added at `.github/workflows/nightly-build.yml:268`
+## Backend Coverage
 
-4. No permission broadening in modified sections.
-   - Dispatch job permissions remain `actions: write`, `contents: read` at `.github/workflows/nightly-build.yml:84`
-   - Build job permissions remain `contents: read`, `packages: write`, `id-token: write` at `.github/workflows/nightly-build.yml:145`
-   - Diff review confirms no `permissions` changes in the modified hunk.
+- Command: `.github/skills/scripts/skill-runner.sh test-backend-coverage`
+- Result: PASS
+- Metrics:
+   - Statement coverage: `87.5%`
+   - Line coverage: `87.7%`
+   - Gate threshold observed in run: `87%`
 
-5. Action pinning remains SHA-based in modified sections.
-   - `actions/github-script` pinned SHA at `.github/workflows/nightly-build.yml:89`
-   - `anchore/sbom-action` pinned SHA at `.github/workflows/nightly-build.yml:226`
-   - `actions/upload-artifact` pinned SHA at `.github/workflows/nightly-build.yml:283`
+## Frontend Coverage
 
-6. `security-pr.yml` contract still requires `pr_number`.
-   - `workflow_dispatch.inputs.pr_number.required: true` at `.github/workflows/security-pr.yml:14`
+- Command: `.github/skills/scripts/skill-runner.sh test-frontend-coverage`
+- Result: FAIL
+- Failure root cause:
+   - Test timeout at `frontend/src/components/__tests__/ProxyHostForm.test.tsx:1419`
+   - Failing test: `maps remote docker container to remote host and public port`
+   - Error: `Test timed out in 5000ms`
+- Coverage snapshot produced before failure:
+   - Statements: `88.95%`
+   - Lines: `89.62%`
+   - Functions: `86.05%`
+   - Branches: `81.3%`
 
-## Pass/Fail Decision
+## Typecheck
 
-- QA Status: **PASS with caveats**
-- Reason: All requested static validations pass and the scoped workflow logic changes satisfy the audit requirements.
+- Command: `npm --prefix frontend run type-check`
+- Result: PASS
 
-## Residual Risks
+## Pre-commit
 
-1. Fallback integrity uses checksum file from the same release origin as the tarball.
-   - Impact: If release origin is compromised, checksum verification alone may not detect tampering.
-   - Suggested hardening: verify signed release metadata or verify Syft artifact signature (Cosign/GitHub attestations) in fallback path.
+- Command: `pre-commit run --all-files`
+- Result: PASS
+- Notable hooks: `golangci-lint (Fast Linters - BLOCKING)`, `Frontend TypeScript Check`, `Frontend Lint (Fix)` all passed
 
-2. Runtime behavior is not fully proven by local static checks.
-   - Impact: Dispatch and SBOM behavior still require a real GitHub Actions run to prove end-to-end execution.
+## Security Scans
 
-## Remote Execution Limitation and Manual Verification
+- Trivy filesystem scan:
+   - Command: `.github/skills/scripts/skill-runner.sh security-scan-trivy`
+   - Result: PASS
+   - Critical/High findings: `0/0`
 
-I did not execute remote nightly runs for this exact local diff in this audit. Local `actionlint` and source inspection were performed. To validate end-to-end behavior on GitHub Actions, run:
+- Docker image scan:
+   - Command: `.github/skills/scripts/skill-runner.sh security-scan-docker-image`
+   - Result: PASS
+   - Critical/High findings: `0/0`
+   - Additional findings: `10 medium`, `3 low` (non-blocking)
 
-```bash
-cd /projects/Charon
+## Remediation Required Before Merge
 
-# 1) Syntax/lint (already run locally)
-actionlint .github/workflows/nightly-build.yml
+1. Stabilize the timed-out frontend test at `frontend/src/components/__tests__/ProxyHostForm.test.tsx:1419`.
+2. Re-run `.github/skills/scripts/skill-runner.sh test-frontend-coverage` until the suite is fully green.
+3. Optional quality improvement: raise patch coverage warnings (`81.7%` overall, `81.6%` backend) with targeted tests on uncovered changed lines from `test-results/local-patch-report.md`.
 
-# 2) Trigger nightly workflow (manual)
-gh workflow run nightly-build.yml --ref nightly -f reason="qa-nightly-audit" -f skip_tests=true
+## Final Merge Recommendation
 
-# 3) Inspect latest nightly run
-gh run list --workflow "Nightly Build & Package" --branch nightly --limit 1
-gh run view <run-id> --log
-
-# 4) Confirm no security-pr dispatch error in nightly logs
-# Expectation: no "Missing required input 'pr_number' not provided"
-
-# 5) Confirm security-pr contract still enforced
-gh workflow run security-pr.yml --ref nightly
-# Expectation: dispatch rejected due to required missing input pr_number
-
-# 6) Positive contract check with explicit pr_number
-gh workflow run security-pr.yml --ref nightly -f pr_number=<valid-pr-number>
-```
-
-Expected outcomes:
-- Nightly run completes dispatch phase without `pr_number` input failure.
-- SBOM generation succeeds via primary or fallback path and uploads `sbom-nightly.json`.
-- `security-pr.yml` continues enforcing required `pr_number` for manual dispatch.
+- Recommendation: **NO-GO**
+- Reason: Required frontend coverage gate did not pass due to a deterministic test timeout.
