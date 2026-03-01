@@ -231,10 +231,6 @@ async function loginWithSetupCredentials(page: Page): Promise<void> {
 }
 
 export async function resetImportSession(page: Page): Promise<void> {
-  // Unconditional cancel covers sessions in any state (reviewing, pending, etc.)
-  await page.request.delete('/api/v1/import/cancel').catch(() => null);
-  await page.request.post('/api/v1/import/cancel').catch(() => null);
-
   try {
     if (!page.url().includes(IMPORT_PAGE_PATH)) {
       await page.goto(IMPORT_PAGE_PATH, { waitUntil: 'domcontentloaded' });
@@ -333,11 +329,8 @@ export async function ensureImportFormReady(page: Page): Promise<void> {
   let textareaVisible = await textarea.isVisible().catch(() => false);
   if (!textareaVisible) {
     const pendingSessionVisible = await page.getByText(/pending import session/i).first().isVisible().catch(() => false);
-    const reviewTableVisible = await page.getByTestId('import-review-table').isVisible().catch(() => false);
-    if (pendingSessionVisible || reviewTableVisible) {
-      diagnosticLog(`[Diag:import-ready] stale session detected (pending=${pendingSessionVisible}, review=${reviewTableVisible}), canceling to restore textarea`);
-      await page.request.delete('/api/v1/import/cancel').catch(() => null);
-      await page.request.post('/api/v1/import/cancel').catch(() => null);
+    if (pendingSessionVisible) {
+      diagnosticLog('[Diag:import-ready] pending import session detected, canceling to restore textarea');
       await clearPendingImportSession(page);
       await page.goto(IMPORT_PAGE_PATH, { waitUntil: 'domcontentloaded' });
       await assertNoAuthRedirect(page, 'ensureImportFormReady after pending-session reset');
