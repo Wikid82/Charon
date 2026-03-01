@@ -27,10 +27,6 @@ import {
   waitForSuccessfulImportResponse,
 } from './import-page-helpers';
 
-function webkitOnly(browserName: string) {
-  test.skip(browserName !== 'webkit', 'This suite only runs on WebKit');
-}
-
 const WEBKIT_TEST_EMAIL = process.env.E2E_TEST_EMAIL || 'e2e-test@example.com';
 const WEBKIT_TEST_PASSWORD = process.env.E2E_TEST_PASSWORD || 'TestPassword123!';
 
@@ -151,8 +147,7 @@ async function setupImportMocks(page: Page, success: boolean = true) {
 test.describe('Caddy Import - WebKit-Specific @webkit-only', () => {
   const diagnosticsByPage = new WeakMap<Page, () => void>();
 
-  test.beforeEach(async ({ browserName, page, adminUser }) => {
-    webkitOnly(browserName);
+  test.beforeEach(async ({ page, adminUser }) => {
     diagnosticsByPage.set(page, attachImportDiagnostics(page, 'caddy-import-webkit'));
     await setupImportMocks(page);
     await ensureWebkitAuthSession(page);
