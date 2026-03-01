@@ -118,7 +118,9 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
   });
 
   test.afterEach(async ({ page }) => {
-    await resetImportSessionWithRetry(page);
+    await resetImportSessionWithRetry(page).catch(() => {
+      // Best-effort cleanup only; preserve primary test failure signal.
+    });
   });
 
   // =========================================================================
@@ -399,7 +401,7 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
   // Gap 4: Session Resume via Banner
   // =========================================================================
   test.describe('Session Resume via Banner', () => {
-    test('4.1: should show pending session banner when returning to import page', async ({ page, testData }) => {
+    test('4.1: should show pending session banner when returning to import page', async ({ page, testData, browserName, adminUser }) => {
       const domain = generateDomain(testData, 'session-resume-test');
       const caddyfile = `${domain} { reverse_proxy localhost:4000 }`;
       let resumeSessionId = '';
@@ -427,7 +429,12 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       });
 
       await test.step('Create import session by parsing content', async () => {
-        await page.goto('/tasks/import/caddyfile');
+        await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
+        if (browserName === 'webkit') {
+          await ensureAuthenticatedImportFormReady(page, adminUser);
+        } else {
+          await ensureImportFormReady(page);
+        }
         await fillCaddyfileTextarea(page, caddyfile);
 
         const uploadPromise = page.waitForResponse(
@@ -478,9 +485,13 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
         // Review table should NOT be visible initially (until clicking Review Changes)
         await expect(page.getByTestId('import-review-table')).not.toBeVisible();
       });
+
+      await test.step('Cleanup mocked routes', async () => {
+        await page.unroute('**/api/v1/import/status');
+      });
     });
 
-    test('4.2: should restore review table with previous content when clicking Review Changes', async ({ page, testData }) => {
+    test('4.2: should restore review table with previous content when clicking Review Changes', async ({ page, testData, browserName, adminUser }) => {
       const domain = generateDomain(testData, 'review-changes-test');
       const caddyfile = `${domain} { reverse_proxy localhost:5000 }`;
       let resumeSessionId = '';
@@ -543,7 +554,12 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       });
 
       await test.step('Create import session', async () => {
-        await page.goto('/tasks/import/caddyfile');
+        await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
+        if (browserName === 'webkit') {
+          await ensureAuthenticatedImportFormReady(page, adminUser);
+        } else {
+          await ensureImportFormReady(page);
+        }
         await fillCaddyfileTextarea(page, caddyfile);
 
         const uploadPromise = page.waitForResponse(
@@ -593,6 +609,11 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
         // Banner should no longer be visible (or integrated into review UI)
         // Note: Some implementations keep banner visible but change its content
         // If banner remains, it should show different text
+      });
+
+      await test.step('Cleanup mocked routes', async () => {
+        await page.unroute('**/api/v1/import/status');
+        await page.unroute('**/api/v1/import/preview**');
       });
     });
   });
