@@ -2,8 +2,11 @@ package services
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -71,6 +74,19 @@ func createTestProxyHost(t *testing.T, db *gorm.DB, name, domain, forwardHost st
 	return host
 }
 
+func createAlwaysOKServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func hostPortFromServerURL(serverURL string) string {
+	return strings.TrimPrefix(serverURL, "http://")
+}
+
 // --- Fix 1: Singleton UptimeService ---
 
 func TestSingletonUptimeService_SharedState(t *testing.T) {
@@ -95,8 +111,10 @@ func TestSyncAndCheckForHost_CreatesMonitorAndHeartbeat(t *testing.T) {
 	db := setupPR1TestDB(t)
 	enableUptimeFeature(t, db)
 	svc := NewUptimeService(db, nil)
+	server := createAlwaysOKServer(t)
+	domain := hostPortFromServerURL(server.URL)
 
-	host := createTestProxyHost(t, db, "test-host", "example.com", "192.168.1.100")
+	host := createTestProxyHost(t, db, "test-host", domain, "192.168.1.100")
 
 	// Execute synchronously (normally called as goroutine)
 	svc.SyncAndCheckForHost(host.ID)
@@ -105,7 +123,7 @@ func TestSyncAndCheckForHost_CreatesMonitorAndHeartbeat(t *testing.T) {
 	var monitor models.UptimeMonitor
 	err := db.Where("proxy_host_id = ?", host.ID).First(&monitor).Error
 	require.NoError(t, err, "monitor should be created for the proxy host")
-	assert.Equal(t, "http://example.com", monitor.URL)
+	assert.Equal(t, "http://"+domain, monitor.URL)
 	assert.Equal(t, "192.168.1.100", monitor.UpstreamHost)
 	assert.Contains(t, []string{"up", "down", "pending"}, monitor.Status, "status should be set by checkMonitor")
 
@@ -119,11 +137,13 @@ func TestSyncAndCheckForHost_SSLForcedUsesHTTPS(t *testing.T) {
 	db := setupPR1TestDB(t)
 	enableUptimeFeature(t, db)
 	svc := NewUptimeService(db, nil)
+	server := createAlwaysOKServer(t)
+	domain := hostPortFromServerURL(server.URL)
 
 	host := models.ProxyHost{
 		UUID:          uuid.New().String(),
 		Name:          "ssl-host",
-		DomainNames:   "secure.example.com",
+		DomainNames:   domain,
 		ForwardScheme: "https",
 		ForwardHost:   "192.168.1.200",
 		ForwardPort:   443,
@@ -136,7 +156,7 @@ func TestSyncAndCheckForHost_SSLForcedUsesHTTPS(t *testing.T) {
 
 	var monitor models.UptimeMonitor
 	require.NoError(t, db.Where("proxy_host_id = ?", host.ID).First(&monitor).Error)
-	assert.Equal(t, "https://secure.example.com", monitor.URL)
+	assert.Equal(t, "https://"+domain, monitor.URL)
 }
 
 func TestSyncAndCheckForHost_DeletedHostNoPanic(t *testing.T) {
@@ -159,8 +179,10 @@ func TestSyncAndCheckForHost_ExistingMonitorSkipsCreate(t *testing.T) {
 	db := setupPR1TestDB(t)
 	enableUptimeFeature(t, db)
 	svc := NewUptimeService(db, nil)
+	server := createAlwaysOKServer(t)
+	domain := hostPortFromServerURL(server.URL)
 
-	host := createTestProxyHost(t, db, "existing-mon", "existing.com", "10.0.0.1")
+	host := createTestProxyHost(t, db, "existing-mon", domain, "10.0.0.1")
 
 	// Pre-create a monitor
 	existingMonitor := models.UptimeMonitor{
@@ -168,7 +190,7 @@ func TestSyncAndCheckForHost_ExistingMonitorSkipsCreate(t *testing.T) {
 		ProxyHostID: &host.ID,
 		Name:        "pre-existing",
 		Type:        "http",
-		URL:         "http://existing.com",
+		URL:         "http://" + domain,
 		Interval:    60,
 		Enabled:     true,
 		Status:      "up",
@@ -195,8 +217,10 @@ func TestSyncAndCheckForHost_DisabledFeatureNoop(t *testing.T) {
 		Category: "feature",
 	}).Error)
 	svc := NewUptimeService(db, nil)
+	server := createAlwaysOKServer(t)
+	domain := hostPortFromServerURL(server.URL)
 
-	host := createTestProxyHost(t, db, "disabled-host", "disabled.com", "10.0.0.2")
+	host := createTestProxyHost(t, db, "disabled-host", domain, "10.0.0.2")
 
 	svc.SyncAndCheckForHost(host.ID)
 
@@ -210,8 +234,10 @@ func TestSyncAndCheckForHost_MissingSetting_StillCreates(t *testing.T) {
 	db := setupPR1TestDB(t)
 	// No setting at all — the method should proceed (default: enabled behavior)
 	svc := NewUptimeService(db, nil)
+	server := createAlwaysOKServer(t)
+	domain := hostPortFromServerURL(server.URL)
 
-	host := createTestProxyHost(t, db, "no-setting", "nosetting.com", "10.0.0.3")
+	host := createTestProxyHost(t, db, "no-setting", domain, "10.0.0.3")
 
 	svc.SyncAndCheckForHost(host.ID)
 
@@ -368,13 +394,15 @@ func TestSyncAndCheckForHost_ConcurrentCreates_NoDuplicates(t *testing.T) {
 	db := setupPR1ConcurrentDB(t)
 	enableUptimeFeature(t, db)
 	svc := NewUptimeService(db, nil)
+	server := createAlwaysOKServer(t)
+	domain := hostPortFromServerURL(server.URL)
 
 	// Create multiple proxy hosts with unique domains
 	hosts := make([]models.ProxyHost, 5)
 	for i := range hosts {
 		hosts[i] = createTestProxyHost(t, db,
 			fmt.Sprintf("concurrent-host-%d", i),
-			fmt.Sprintf("concurrent-%d.com", i),
+			domain,
 			fmt.Sprintf("10.0.0.%d", 100+i),
 		)
 	}
@@ -401,8 +429,10 @@ func TestSyncAndCheckForHost_ConcurrentSameHost_NoDuplicates(t *testing.T) {
 	db := setupPR1ConcurrentDB(t)
 	enableUptimeFeature(t, db)
 	svc := NewUptimeService(db, nil)
+	server := createAlwaysOKServer(t)
+	domain := hostPortFromServerURL(server.URL)
 
-	host := createTestProxyHost(t, db, "race-host", "race.com", "10.0.0.200")
+	host := createTestProxyHost(t, db, "race-host", domain, "10.0.0.200")
 
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
