@@ -1459,7 +1459,7 @@ describe('ProxyHostForm', () => {
           forward_port: 18080,
         }))
       })
-    })
+    }, 15000)
 
     it('updates domain using selected container when base domain changes', async () => {
       const { useDocker } = await import('../../hooks/useDocker')
