@@ -328,7 +328,7 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
   // Gap 3: Overwrite Resolution Flow
   // =========================================================================
   test.describe('Overwrite Resolution Flow', () => {
-    test('3.1: should update existing host when selecting Replace with Imported resolution', async ({ page, request, testData }) => {
+    test('3.1: should update existing host when selecting Replace with Imported resolution', async ({ page, request, testData, browserName, adminUser }) => {
       // Create existing host with initial config
       const result = await testData.createProxyHost({
         domain: 'overwrite-test.example.com',
@@ -341,6 +341,11 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
 
       await test.step('Navigate to import page and parse conflicting Caddyfile', async () => {
         await page.goto('/tasks/import/caddyfile');
+        if (browserName === 'webkit') {
+          await ensureAuthenticatedImportFormReady(page, adminUser);
+        } else {
+          await ensureImportFormReady(page);
+        }
         // Import with different config (new-server:9000)
         const caddyfile = `${namespacedDomain} { reverse_proxy new-server:9000 }`;
         await fillCaddyfileTextarea(page, caddyfile);
