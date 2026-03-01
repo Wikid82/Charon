@@ -410,9 +410,10 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		dockerHandler := handlers.NewDockerHandler(dockerService, remoteServerService)
 		dockerHandler.RegisterRoutes(protected)
 
-		// Uptime Service
-		uptimeSvc := services.NewUptimeService(db, notificationService)
-		uptimeHandler := handlers.NewUptimeHandler(uptimeSvc)
+		// Uptime Service — reuse the single uptimeService instance (defined above)
+		// to share in-memory state (mutexes, notification batching) between
+		// background checker, ProxyHostHandler, and API handlers.
+		uptimeHandler := handlers.NewUptimeHandler(uptimeService)
 		protected.GET("/uptime/monitors", uptimeHandler.List)
 		protected.POST("/uptime/monitors", uptimeHandler.Create)
 		protected.GET("/uptime/monitors/:id/history", uptimeHandler.GetHistory)
@@ -464,9 +465,16 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 			}
 
 			if enabled {
+				// Clean up stale failure counts from historical bugs before first sync
+				if err := uptimeService.CleanupStaleFailureCounts(); err != nil {
+					logger.Log().WithError(err).Warn("Failed to cleanup stale failure counts")
+				}
+
 				if err := uptimeService.SyncMonitors(); err != nil {
 					logger.Log().WithError(err).Error("Failed to sync monitors")
 				}
+				// Run initial check immediately after sync to avoid the 90s blind window
+				uptimeService.CheckAll()
 			}
 
 			ticker := time.NewTicker(1 * time.Minute)

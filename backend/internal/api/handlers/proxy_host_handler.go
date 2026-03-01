@@ -413,6 +413,11 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 		)
 	}
 
+	// Trigger immediate uptime monitor creation + health check (non-blocking)
+	if h.uptimeService != nil {
+		go h.uptimeService.SyncAndCheckForHost(host.ID)
+	}
+
 	// Generate advisory warnings for private/Docker IPs
 	warnings := generateForwardHostWarnings(host.ForwardHost)
 
@@ -645,11 +650,10 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// check if we should also delete associated uptime monitors (query param: delete_uptime=true)
-	deleteUptime := c.DefaultQuery("delete_uptime", "false") == "true"
-
-	if deleteUptime && h.uptimeService != nil {
-		// Find all monitors referencing this proxy host and delete each
+	// Always clean up associated uptime monitors when deleting a proxy host.
+	// The query param delete_uptime=true is kept for backward compatibility but
+	// cleanup now runs unconditionally to prevent orphaned monitors.
+	if h.uptimeService != nil {
 		var monitors []models.UptimeMonitor
 		if err := h.uptimeService.DB.Where("proxy_host_id = ?", host.ID).Find(&monitors).Error; err == nil {
 			for _, m := range monitors {
