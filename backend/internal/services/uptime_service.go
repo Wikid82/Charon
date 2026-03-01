@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1217,7 +1218,8 @@ func (s *UptimeService) SyncAndCheckForHost(hostID uint) {
 	// response and this goroutine executing.
 	var host models.ProxyHost
 	if err := s.DB.Where("id = ?", hostID).First(&host).Error; err != nil {
-		logger.Log().WithField("host_id", hostID).Debug("SyncAndCheckForHost: proxy host not found (may have been deleted)")
+		hostIDStr := strconv.FormatUint(uint64(hostID), 10)
+		logger.Log().WithField("host_id", hostIDStr).Debug("SyncAndCheckForHost: proxy host not found (may have been deleted)")
 		return
 	}
 
