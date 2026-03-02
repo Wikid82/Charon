@@ -19,7 +19,11 @@ if [ ! -f ".version" ]; then
 fi
 
 VERSION_FILE=$(cat .version | tr -d '\n' | tr -d '\r')
-GIT_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo "")"
+# Use the globally latest semver tag, not just tags reachable from HEAD.
+# git describe --tags --abbrev=0 only finds tags in the current branch's
+# ancestry, which breaks on feature branches where release tags were applied
+# to main/nightly and haven't been merged back yet.
+GIT_TAG="$(git tag --sort=-v:refname 2>/dev/null | grep -E '^v?[0-9]+\.[0-9]+' | head -1 || echo "")"
 
 if [ -z "$GIT_TAG" ]; then
   echo "No tags in repository; cannot validate .version against tag"
