@@ -83,8 +83,11 @@ export const commitJSONImport = async (
 
 /**
  * Cancels the current JSON import session.
+ * @param sessionUuid - The import session UUID
  * @throws {AxiosError} If cancellation fails
  */
-export const cancelJSONImport = async (): Promise<void> => {
-  await client.post('/import/json/cancel');
+export const cancelJSONImport = async (sessionUuid: string): Promise<void> => {
+  await client.post('/import/json/cancel', {
+    session_uuid: sessionUuid,
+  });
 };

@@ -83,8 +83,11 @@ export const commitNPMImport = async (
 
 /**
  * Cancels the current NPM import session.
+ * @param sessionUuid - The import session UUID
  * @throws {AxiosError} If cancellation fails
  */
-export const cancelNPMImport = async (): Promise<void> => {
-  await client.post('/import/npm/cancel');
+export const cancelNPMImport = async (sessionUuid: string): Promise<void> => {
+  await client.post('/import/npm/cancel', {
+    session_uuid: sessionUuid,
+  });
 };
