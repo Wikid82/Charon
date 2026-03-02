@@ -29,6 +29,29 @@ import (
 	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/custom"
 )
 
+type uptimeBootstrapService interface {
+	CleanupStaleFailureCounts() error
+	SyncMonitors() error
+	CheckAll()
+}
+
+func runInitialUptimeBootstrap(enabled bool, uptimeService uptimeBootstrapService, logWarn func(error, string), logError func(error, string)) {
+	if !enabled {
+		return
+	}
+
+	if err := uptimeService.CleanupStaleFailureCounts(); err != nil && logWarn != nil {
+		logWarn(err, "Failed to cleanup stale failure counts")
+	}
+
+	if err := uptimeService.SyncMonitors(); err != nil && logError != nil {
+		logError(err, "Failed to sync monitors")
+	}
+
+	// Run initial check immediately after sync to avoid the 90s blind window.
+	uptimeService.CheckAll()
+}
+
 // Register wires up API routes and performs automatic migrations.
 func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// Caddy Manager - created early so it can be used by settings handlers for config reload
@@ -410,9 +433,10 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		dockerHandler := handlers.NewDockerHandler(dockerService, remoteServerService)
 		dockerHandler.RegisterRoutes(protected)
 
-		// Uptime Service
-		uptimeSvc := services.NewUptimeService(db, notificationService)
-		uptimeHandler := handlers.NewUptimeHandler(uptimeSvc)
+		// Uptime Service — reuse the single uptimeService instance (defined above)
+		// to share in-memory state (mutexes, notification batching) between
+		// background checker, ProxyHostHandler, and API handlers.
+		uptimeHandler := handlers.NewUptimeHandler(uptimeService)
 		protected.GET("/uptime/monitors", uptimeHandler.List)
 		protected.POST("/uptime/monitors", uptimeHandler.Create)
 		protected.GET("/uptime/monitors/:id/history", uptimeHandler.GetHistory)
@@ -463,11 +487,12 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 				enabled = s.Value == "true"
 			}
 
-			if enabled {
-				if err := uptimeService.SyncMonitors(); err != nil {
-					logger.Log().WithError(err).Error("Failed to sync monitors")
-				}
-			}
+			runInitialUptimeBootstrap(
+				enabled,
+				uptimeService,
+				func(err error, msg string) { logger.Log().WithError(err).Warn(msg) },
+				func(err error, msg string) { logger.Log().WithError(err).Error(msg) },
+			)
 
 			ticker := time.NewTicker(1 * time.Minute)
 			for range ticker.C {

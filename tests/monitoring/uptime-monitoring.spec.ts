@@ -93,11 +93,16 @@ const mockMonitors: UptimeMonitor[] = [
 /**
  * Generate mock heartbeat history
  */
-const generateMockHistory = (monitorId: string, count: number = 60): UptimeHeartbeat[] => {
+const generateMockHistory = (
+  monitorId: string,
+  count: number = 60,
+  latestStatus: 'up' | 'down' = 'up'
+): UptimeHeartbeat[] => {
   return Array.from({ length: count }, (_, i) => ({
     id: i,
     monitor_id: monitorId,
-    status: i % 5 === 0 ? 'down' : 'up',
+    // Keep the newest heartbeat aligned with the monitor's expected current state.
+    status: i === 0 ? latestStatus : i % 5 === 0 ? 'down' : 'up',
     latency: Math.floor(Math.random() * 100),
     message: 'OK',
     created_at: new Date(Date.now() - i * 60000).toISOString(),
@@ -180,7 +185,8 @@ async function setupMonitorsWithHistory(
   await setupMonitorsAPI(page, monitors);
 
   for (const monitor of monitors) {
-    const history = generateMockHistory(monitor.id, 60);
+    const latestStatus = monitor.status === 'down' ? 'down' : 'up';
+    const history = generateMockHistory(monitor.id, 60, latestStatus);
     await setupHistoryAPI(page, monitor.id, history);
   }
 }

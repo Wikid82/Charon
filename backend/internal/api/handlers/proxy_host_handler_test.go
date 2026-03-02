@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -61,6 +62,33 @@ func setupTestRouterWithReferenceTables(t *testing.T) (*gin.Engine, *gorm.DB) {
 
 	ns := services.NewNotificationService(db)
 	h := NewProxyHostHandler(db, nil, ns, nil)
+	r := gin.New()
+	api := r.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	return r, db
+}
+
+func setupTestRouterWithUptime(t *testing.T) (*gin.Engine, *gorm.DB) {
+	t.Helper()
+
+	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.ProxyHost{},
+		&models.Location{},
+		&models.Notification{},
+		&models.NotificationProvider{},
+		&models.UptimeMonitor{},
+		&models.UptimeHeartbeat{},
+		&models.UptimeHost{},
+		&models.Setting{},
+	))
+
+	ns := services.NewNotificationService(db)
+	us := services.NewUptimeService(db, ns)
+	h := NewProxyHostHandler(db, nil, ns, us)
 	r := gin.New()
 	api := r.Group("/api/v1")
 	h.RegisterRoutes(api)
@@ -199,6 +227,35 @@ func TestProxyHostCreate_ReferenceResolution_TargetedBranches(t *testing.T) {
 		router.ServeHTTP(resp, req)
 		require.Equal(t, http.StatusBadRequest, resp.Code)
 	})
+}
+
+func TestProxyHostCreate_TriggersAsyncUptimeSyncWhenServiceConfigured(t *testing.T) {
+	t.Parallel()
+
+	router, db := setupTestRouterWithUptime(t)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(upstream.Close)
+
+	domain := strings.TrimPrefix(upstream.URL, "http://")
+	body := fmt.Sprintf(`{"name":"Uptime Hook","domain_names":"%s","forward_scheme":"http","forward_host":"app-service","forward_port":8080,"enabled":true}`, domain)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusCreated, resp.Code)
+
+	var created models.ProxyHost
+	require.NoError(t, db.Where("domain_names = ?", domain).First(&created).Error)
+
+	var count int64
+	require.Eventually(t, func() bool {
+		db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", created.ID).Count(&count)
+		return count > 0
+	}, 3*time.Second, 50*time.Millisecond)
 }
 
 func TestProxyHostLifecycle(t *testing.T) {

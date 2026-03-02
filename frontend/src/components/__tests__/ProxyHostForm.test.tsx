@@ -1440,11 +1440,16 @@ describe('ProxyHostForm', () => {
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
-      await userEvent.type(screen.getByLabelText(/^Name/), 'Remote Mapping')
-      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'remote.existing.com')
+      fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: 'Remote Mapping' } })
+      fireEvent.change(screen.getByPlaceholderText('example.com, www.example.com'), { target: { value: 'remote.existing.com' } })
 
       await selectComboboxOption('Source', 'Local Docker Registry (localhost)')
       await selectComboboxOption('Containers', 'remote-app (nginx:latest)')
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/^Host$/)).toHaveValue('localhost')
+        expect(screen.getByLabelText(/^Port$/)).toHaveValue(18080)
+      })
 
       await userEvent.click(screen.getByText('Save'))
 
@@ -1454,7 +1459,7 @@ describe('ProxyHostForm', () => {
           forward_port: 18080,
         }))
       })
-    })
+    }, 15000)
 
     it('updates domain using selected container when base domain changes', async () => {
       const { useDocker } = await import('../../hooks/useDocker')

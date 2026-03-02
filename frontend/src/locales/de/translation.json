@@ -423,7 +423,9 @@
     "triggerCheck": "Sofortige Gesundheitsprüfung auslösen",
     "healthCheckTriggered": "Gesundheitsprüfung ausgelöst",
     "monitorDeleted": "Monitor gelöscht",
-    "deleteConfirm": "Diesen Monitor löschen? Dies kann nicht rückgängig gemacht werden."
+    "deleteConfirm": "Diesen Monitor löschen? Dies kann nicht rückgängig gemacht werden.",
+    "pending": "PRÜFUNG...",
+    "pendingFirstCheck": "Warten auf erste Prüfung..."
   },
   "domains": {
     "title": "Domänen",
