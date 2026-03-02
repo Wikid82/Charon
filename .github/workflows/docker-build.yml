@@ -531,7 +531,7 @@ jobs:
 
       - name: Run Trivy scan (table output)
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
-        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # 0.34.1
+        uses: aquasecurity/trivy-action@97e0b3872f55f89b95b2f65b3dbab56962816478 # 0.34.2
         with:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'table'
@@ -542,7 +542,7 @@ jobs:
       - name: Run Trivy vulnerability scanner (SARIF)
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         id: trivy
-        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # 0.34.1
+        uses: aquasecurity/trivy-action@97e0b3872f55f89b95b2f65b3dbab56962816478 # 0.34.2
         with:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'sarif'
@@ -562,7 +562,7 @@ jobs:
 
       - name: Upload Trivy results
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
+        uses: github/codeql-action/upload-sarif@c793b717bc78562f491db7b0e93a3a178b099162 # v4.32.5
         with:
           sarif_file: 'trivy-results.sarif'
           category: '.github/workflows/docker-build.yml:build-and-push'
@@ -689,7 +689,7 @@ jobs:
           echo "✅ Image freshness validated"
 
       - name: Run Trivy scan on PR image (table output)
-        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # 0.34.1
+        uses: aquasecurity/trivy-action@97e0b3872f55f89b95b2f65b3dbab56962816478 # 0.34.2
         with:
           image-ref: ${{ steps.pr-image.outputs.image_ref }}
           format: 'table'
@@ -698,7 +698,7 @@ jobs:
 
       - name: Run Trivy scan on PR image (SARIF - blocking)
         id: trivy-scan
-        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # 0.34.1
+        uses: aquasecurity/trivy-action@97e0b3872f55f89b95b2f65b3dbab56962816478 # 0.34.2
         with:
           image-ref: ${{ steps.pr-image.outputs.image_ref }}
           format: 'sarif'
@@ -719,14 +719,14 @@ jobs:
 
       - name: Upload Trivy scan results
         if: always() && steps.trivy-pr-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
+        uses: github/codeql-action/upload-sarif@c793b717bc78562f491db7b0e93a3a178b099162 # v4.32.5
         with:
           sarif_file: 'trivy-pr-results.sarif'
           category: 'docker-pr-image'
 
       - name: Upload Trivy compatibility results (docker-build category)
         if: always() && steps.trivy-pr-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
+        uses: github/codeql-action/upload-sarif@c793b717bc78562f491db7b0e93a3a178b099162 # v4.32.5
         with:
           sarif_file: 'trivy-pr-results.sarif'
           category: '.github/workflows/docker-build.yml:build-and-push'
@@ -734,7 +734,7 @@ jobs:
 
       - name: Upload Trivy compatibility results (docker-publish alias)
         if: always() && steps.trivy-pr-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
+        uses: github/codeql-action/upload-sarif@c793b717bc78562f491db7b0e93a3a178b099162 # v4.32.5
         with:
           sarif_file: 'trivy-pr-results.sarif'
           category: '.github/workflows/docker-publish.yml:build-and-push'
@@ -742,7 +742,7 @@ jobs:
 
       - name: Upload Trivy compatibility results (nightly alias)
         if: always() && steps.trivy-pr-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
+        uses: github/codeql-action/upload-sarif@c793b717bc78562f491db7b0e93a3a178b099162 # v4.32.5
         with:
           sarif_file: 'trivy-pr-results.sarif'
           category: 'trivy-nightly'

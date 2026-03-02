@@ -340,6 +340,11 @@ func TestCommitAndCancel_InvalidSessionUUID(t *testing.T) {
 	r.ServeHTTP(wCommit, reqCommit)
 	assert.Equal(t, http.StatusBadRequest, wCommit.Code)
 
+	wCancelMissing := httptest.NewRecorder()
+	reqCancelMissing, _ := http.NewRequest(http.MethodDelete, "/api/v1/import/cancel", http.NoBody)
+	r.ServeHTTP(wCancelMissing, reqCancelMissing)
+	assert.Equal(t, http.StatusBadRequest, wCancelMissing.Code)
+
 	wCancel := httptest.NewRecorder()
 	reqCancel, _ := http.NewRequest(http.MethodDelete, "/api/v1/import/cancel?session_uuid=.", http.NoBody)
 	r.ServeHTTP(wCancel, reqCancel)
