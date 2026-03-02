@@ -110,10 +110,15 @@ export const commitImport = async (
 
 /**
  * Cancels the current import session.
+ * @param sessionUUID - The import session UUID
  * @throws {AxiosError} If cancellation fails
  */
-export const cancelImport = async (): Promise<void> => {
-  await client.post('/import/cancel');
+export const cancelImport = async (sessionUUID: string): Promise<void> => {
+  await client.delete('/import/cancel', {
+    params: {
+      session_uuid: sessionUUID,
+    },
+  });
 };
 
 /**

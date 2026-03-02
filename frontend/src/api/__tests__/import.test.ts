@@ -6,12 +6,14 @@ vi.mock('../client', () => ({
   default: {
     get: vi.fn(),
     post: vi.fn(),
+    delete: vi.fn(),
   },
 }));
 
 describe('import API', () => {
   const mockedGet = vi.mocked(client.get);
   const mockedPost = vi.mocked(client.post);
+  const mockedDelete = vi.mocked(client.delete);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -71,11 +73,16 @@ describe('import API', () => {
     expect(result).toEqual(mockResponse);
   });
 
-  it('cancelImport posts cancel', async () => {
-    mockedPost.mockResolvedValue({});
+  it('cancelImport deletes cancel with required session_uuid query', async () => {
+    const sessionUUID = 'uuid-cancel-123';
+    mockedDelete.mockResolvedValue({});
 
-    await cancelImport();
-    expect(client.post).toHaveBeenCalledWith('/import/cancel');
+    await cancelImport(sessionUUID);
+    expect(client.delete).toHaveBeenCalledWith('/import/cancel', {
+      params: {
+        session_uuid: sessionUUID,
+      },
+    });
   });
 
   it('forwards commitImport errors', async () => {
@@ -87,9 +94,9 @@ describe('import API', () => {
 
   it('forwards cancelImport errors', async () => {
     const error = new Error('cancel failed');
-    mockedPost.mockRejectedValue(error);
+    mockedDelete.mockRejectedValue(error);
 
-    await expect(cancelImport()).rejects.toBe(error);
+    await expect(cancelImport('uuid-cancel-123')).rejects.toBe(error);
   });
 
   it('getImportStatus gets status', async () => {
