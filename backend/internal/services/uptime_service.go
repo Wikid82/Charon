@@ -373,12 +373,32 @@ func (s *UptimeService) CheckAll() {
 
 	// Check each host's monitors
 	for hostID, monitors := range hostMonitors {
-		// If host is down, mark all monitors as down without individual checks
+		// If host is down, only short-circuit TCP monitors.
+		// HTTP/HTTPS monitors remain URL-truth authoritative and must still run checkMonitor.
 		if hostID != "" {
 			var uptimeHost models.UptimeHost
 			if err := s.DB.Where("id = ?", hostID).First(&uptimeHost).Error; err == nil {
 				if uptimeHost.Status == "down" {
-					s.markHostMonitorsDown(monitors, &uptimeHost)
+					tcpMonitors := make([]models.UptimeMonitor, 0, len(monitors))
+					nonTCPMonitors := make([]models.UptimeMonitor, 0, len(monitors))
+
+					for _, monitor := range monitors {
+						normalizedType := strings.ToLower(strings.TrimSpace(monitor.Type))
+						if normalizedType == "tcp" {
+							tcpMonitors = append(tcpMonitors, monitor)
+							continue
+						}
+						nonTCPMonitors = append(nonTCPMonitors, monitor)
+					}
+
+					if len(tcpMonitors) > 0 {
+						s.markHostMonitorsDown(tcpMonitors, &uptimeHost)
+					}
+
+					for _, monitor := range nonTCPMonitors {
+						go s.checkMonitor(monitor)
+					}
+
 					continue
 				}
 			}
