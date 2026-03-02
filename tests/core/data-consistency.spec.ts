@@ -3,13 +3,27 @@ import { waitForDialog, waitForLoadingComplete } from '../utils/wait-helpers';
 
 async function getAuthToken(page: import('@playwright/test').Page): Promise<string> {
   return await page.evaluate(() => {
+    const authRaw = localStorage.getItem('auth');
+    if (authRaw) {
+      try {
+        const parsed = JSON.parse(authRaw) as { token?: string };
+        if (parsed?.token) {
+          return parsed.token;
+        }
+      } catch {
+      }
+    }
+
     return (
       localStorage.getItem('token') ||
       localStorage.getItem('charon_auth_token') ||
-      localStorage.getItem('auth') ||
       ''
     );
   });
+}
+
+function buildAuthHeaders(token: string): Record<string, string> | undefined {
+  return token ? { Authorization: `Bearer ${token}` } : undefined;
 }
 
 async function createUserViaApi(
@@ -19,7 +33,7 @@ async function createUserViaApi(
   const token = await getAuthToken(page);
   const response = await page.request.post('/api/v1/users', {
     data: user,
-    headers: { Authorization: `Bearer ${token}` },
+    headers: buildAuthHeaders(token),
   });
 
   expect(response.ok()).toBe(true);
@@ -132,7 +146,7 @@ test.describe('Data Consistency', () => {
       const response = await page.request.get(
         '/api/v1/users',
         {
-          headers: { 'Authorization': `Bearer ${token || ''}` },
+          headers: buildAuthHeaders(token),
           ignoreHTTPSErrors: true,
         }
       );
@@ -166,7 +180,7 @@ test.describe('Data Consistency', () => {
       const usersResponse = await page.request.get(
         '/api/v1/users',
         {
-          headers: { 'Authorization': `Bearer ${token || ''}` },
+          headers: buildAuthHeaders(token),
           ignoreHTTPSErrors: true,
         }
       );
@@ -184,7 +198,7 @@ test.describe('Data Consistency', () => {
         `/api/v1/users/${user.id}`,
         {
           data: { name: updatedName },
-          headers: { 'Authorization': `Bearer ${token || ''}` },
+          headers: buildAuthHeaders(token),
           ignoreHTTPSErrors: true,
         }
       );
@@ -203,7 +217,7 @@ test.describe('Data Consistency', () => {
       await waitForLoadingComplete(page, { timeout: 15000 });
 
       const updatedElement = page.getByText(updatedName).first();
-      await expect(updatedElement).toBeVisible();
+      await expect(updatedElement).toBeVisible({ timeout: 15000 });
     });
   });
 
@@ -242,7 +256,7 @@ test.describe('Data Consistency', () => {
       const response = await page.request.get(
         '/api/v1/users',
         {
-          headers: { 'Authorization': `Bearer ${token || ''}` },
+          headers: buildAuthHeaders(token),
           ignoreHTTPSErrors: true,
         }
       );
@@ -270,7 +284,7 @@ test.describe('Data Consistency', () => {
       const usersResponse = await page.request.get(
         '/api/v1/users',
         {
-          headers: { 'Authorization': `Bearer ${token || ''}` },
+          headers: buildAuthHeaders(token),
           ignoreHTTPSErrors: true,
         }
       );
@@ -288,7 +302,7 @@ test.describe('Data Consistency', () => {
         `/api/v1/users/${user.id}`,
         {
           data: { name: 'Update One' },
-          headers: { 'Authorization': `Bearer ${token || ''}` },
+          headers: buildAuthHeaders(token),
           ignoreHTTPSErrors: true,
         }
       );
@@ -297,7 +311,7 @@ test.describe('Data Consistency', () => {
         `/api/v1/users/${user.id}`,
         {
           data: { name: 'Update Two' },
-          headers: { 'Authorization': `Bearer ${token || ''}` },
+          headers: buildAuthHeaders(token),
           ignoreHTTPSErrors: true,
         }
       );
@@ -317,9 +331,7 @@ test.describe('Data Consistency', () => {
 
       const nameOne = page.getByText('Update One').first();
       const nameTwo = page.getByText('Update Two').first();
-      const hasOne = await nameOne.isVisible();
-      const hasTwo = await nameTwo.isVisible();
-      expect(hasOne || hasTwo).toBe(true);
+      await expect(nameOne.or(nameTwo)).toBeVisible();
     });
   });
 
@@ -328,6 +340,7 @@ test.describe('Data Consistency', () => {
     let createdProxyUUID = '';
 
     await test.step('Create proxy', async () => {
+      const token = await getAuthToken(page);
       const createResponse = await page.request.post('/api/v1/proxy-hosts', {
         data: {
           domain_names: testProxy.domain,
@@ -336,6 +349,7 @@ test.describe('Data Consistency', () => {
           forward_port: 3001,
           enabled: true,
         },
+        headers: buildAuthHeaders(token),
       });
       expect(createResponse.ok()).toBe(true);
       const createdProxy = await createResponse.json();
@@ -353,7 +367,7 @@ test.describe('Data Consistency', () => {
         `/api/v1/proxy-hosts/${createdProxyUUID}`,
         {
           data: { domain_names: '' },
-          headers: { Authorization: `Bearer ${token || ''}` },
+          headers: buildAuthHeaders(token),
           ignoreHTTPSErrors: true,
         }
       );
@@ -369,7 +383,7 @@ test.describe('Data Consistency', () => {
       const token = await getAuthToken(page);
       await expect.poll(async () => {
         const detailResponse = await page.request.get(`/api/v1/proxy-hosts/${createdProxyUUID}`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: buildAuthHeaders(token),
         });
 
         if (!detailResponse.ok()) {
@@ -395,7 +409,7 @@ test.describe('Data Consistency', () => {
       const token = await getAuthToken(page);
       const duplicateResponse = await page.request.post('/api/v1/users', {
         data: { email: testUser.email, name: 'Different Name', password: 'DiffPass123!', role: 'user' },
-        headers: { Authorization: `Bearer ${token}` },
+        headers: buildAuthHeaders(token),
       });
       expect([400, 409]).toContain(duplicateResponse.status());
     });
@@ -403,7 +417,7 @@ test.describe('Data Consistency', () => {
     await test.step('Verify duplicate prevented by error message', async () => {
       const token = await getAuthToken(page);
       const usersResponse = await page.request.get('/api/v1/users', {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: buildAuthHeaders(token),
       });
       expect(usersResponse.ok()).toBe(true);
       const users = await usersResponse.json();

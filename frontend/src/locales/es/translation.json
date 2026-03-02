@@ -423,7 +423,9 @@
     "triggerCheck": "Activar verificación de salud inmediata",
     "healthCheckTriggered": "Verificación de salud activada",
     "monitorDeleted": "Monitor eliminado",
-    "deleteConfirm": "¿Eliminar este monitor? Esto no se puede deshacer."
+    "deleteConfirm": "¿Eliminar este monitor? Esto no se puede deshacer.",
+    "pending": "VERIFICANDO...",
+    "pendingFirstCheck": "Esperando primera verificación..."
   },
   "domains": {
     "title": "Dominios",
@@ -768,6 +770,13 @@
       "newTab": "Nueva Pestaña (Por defecto)",
       "newWindow": "Nueva Ventana",
       "domainLinkBehaviorHelper": "Controla cómo se abren los enlaces de dominio en la lista de Hosts Proxy.",
+      "keepaliveIdle": "Keepalive Idle (Opcional)",
+      "keepaliveIdleHelper": "Duración opcional de Caddy (por ejemplo, 2m, 30s). Déjelo vacío para mantener los valores predeterminados del backend.",
+      "keepaliveIdleError": "Ingrese una duración válida (por ejemplo: 30s, 2m, 1h).",
+      "keepaliveCount": "Keepalive Count (Opcional)",
+      "keepaliveCountHelper": "Número máximo opcional de sondeos keepalive (1-1000). Déjelo vacío para mantener los valores predeterminados del backend.",
+      "keepaliveCountError": "Ingrese un número entero entre 1 y 1000.",
+      "keepaliveValidationFailed": "La configuración de keepalive contiene valores no válidos.",
       "languageHelper": "Selecciona tu idioma preferido. Los cambios surten efecto inmediatamente."
     },    "applicationUrl": {
       "title": "URL de aplicación",

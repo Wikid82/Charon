@@ -50,7 +50,7 @@ describe('users api', () => {
   })
 
   it('invites users and updates permissions', async () => {
-    vi.mocked(client.post).mockResolvedValueOnce({ data: { invite_token: 't', invite_url: 'https://charon.example.com/accept-invite?token=t' } })
+    vi.mocked(client.post).mockResolvedValueOnce({ data: { invite_token_masked: '********', invite_url: '[REDACTED]' } })
     await inviteUser({ email: 'i', permission_mode: 'allow_all' })
     expect(client.post).toHaveBeenCalledWith('/users/invite', { email: 'i', permission_mode: 'allow_all' })
 

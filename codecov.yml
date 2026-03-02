@@ -7,8 +7,8 @@ coverage:
   status:
     project:
       default:
-        target: 85%
-        threshold: 0%
+        target: 87%
+        threshold: 1%
 
 # Fail CI if Codecov upload/report indicates a problem
 require_ci_to_pass: yes
@@ -73,10 +73,6 @@ ignore:
   - "backend/*.out"
   - "backend/*.html"
   - "backend/codeql-db/**"
-
-  # Docker-only code (not testable in CI)
-  - "backend/internal/services/docker_service.go"
-  - "backend/internal/api/handlers/docker_handler.go"
 
   # CodeQL artifacts
   - "codeql-db/**"

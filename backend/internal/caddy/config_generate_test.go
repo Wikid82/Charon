@@ -103,3 +103,43 @@ func TestGenerateConfig_EmergencyRoutesBypassSecurity(t *testing.T) {
 		require.NotEqual(t, "crowdsec", name)
 	}
 }
+
+func TestApplyOptionalServerKeepalive_OmitsWhenUnset(t *testing.T) {
+	cfg := &Config{
+		Apps: Apps{
+			HTTP: &HTTPApp{Servers: map[string]*Server{
+				"charon_server": {
+					Listen: []string{":80", ":443"},
+					Routes: []*Route{},
+				},
+			}},
+		},
+	}
+
+	applyOptionalServerKeepalive(cfg, "", 0)
+
+	server := cfg.Apps.HTTP.Servers["charon_server"]
+	require.Nil(t, server.KeepaliveIdle)
+	require.Nil(t, server.KeepaliveCount)
+}
+
+func TestApplyOptionalServerKeepalive_AppliesValidValues(t *testing.T) {
+	cfg := &Config{
+		Apps: Apps{
+			HTTP: &HTTPApp{Servers: map[string]*Server{
+				"charon_server": {
+					Listen: []string{":80", ":443"},
+					Routes: []*Route{},
+				},
+			}},
+		},
+	}
+
+	applyOptionalServerKeepalive(cfg, "45s", 7)
+
+	server := cfg.Apps.HTTP.Servers["charon_server"]
+	require.NotNil(t, server.KeepaliveIdle)
+	require.Equal(t, "45s", *server.KeepaliveIdle)
+	require.NotNil(t, server.KeepaliveCount)
+	require.Equal(t, 7, *server.KeepaliveCount)
+}

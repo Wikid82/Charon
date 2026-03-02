@@ -103,6 +103,18 @@ type SetupRequest struct {
 	Password string `json:"password" binding:"required,min=8"`
 }
 
+func isSetupConflictError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errText := strings.ToLower(err.Error())
+	return strings.Contains(errText, "unique constraint failed") ||
+		strings.Contains(errText, "duplicate key") ||
+		strings.Contains(errText, "database is locked") ||
+		strings.Contains(errText, "database table is locked")
+}
+
 // Setup creates the initial admin user and configures the ACME email.
 func (h *UserHandler) Setup(c *gin.Context) {
 	// 1. Check if setup is allowed
@@ -160,6 +172,17 @@ func (h *UserHandler) Setup(c *gin.Context) {
 	})
 
 	if err != nil {
+		var postTxCount int64
+		if countErr := h.DB.Model(&models.User{}).Count(&postTxCount).Error; countErr == nil && postTxCount > 0 {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Setup already completed"})
+			return
+		}
+
+		if isSetupConflictError(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "Setup conflict: setup already in progress or completed"})
+			return
+		}
+
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to complete setup: " + err.Error()})
 		return
 	}
@@ -189,7 +212,12 @@ func (h *UserHandler) RegenerateAPIKey(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"api_key": apiKey})
+	c.JSON(http.StatusOK, gin.H{
+		"message":         "API key regenerated successfully",
+		"has_api_key":     true,
+		"api_key_masked":  maskSecretForResponse(apiKey),
+		"api_key_updated": time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 // GetProfile returns the current user's profile including API key.
@@ -207,11 +235,12 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":      user.ID,
-		"email":   user.Email,
-		"name":    user.Name,
-		"role":    user.Role,
-		"api_key": user.APIKey,
+		"id":             user.ID,
+		"email":          user.Email,
+		"name":           user.Name,
+		"role":           user.Role,
+		"has_api_key":    strings.TrimSpace(user.APIKey) != "",
+		"api_key_masked": maskSecretForResponse(user.APIKey),
 	})
 }
 
@@ -548,14 +577,14 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"id":           user.ID,
-		"uuid":         user.UUID,
-		"email":        user.Email,
-		"role":         user.Role,
-		"invite_token": inviteToken, // Return token in case email fails
-		"invite_url":   inviteURL,
-		"email_sent":   emailSent,
-		"expires_at":   inviteExpires,
+		"id":                  user.ID,
+		"uuid":                user.UUID,
+		"email":               user.Email,
+		"role":                user.Role,
+		"invite_token_masked": maskSecretForResponse(inviteToken),
+		"invite_url":          redactInviteURL(inviteURL),
+		"email_sent":          emailSent,
+		"expires_at":          inviteExpires,
 	})
 }
 
@@ -862,14 +891,30 @@ func (h *UserHandler) ResendInvite(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":           user.ID,
-		"uuid":         user.UUID,
-		"email":        user.Email,
-		"role":         user.Role,
-		"invite_token": inviteToken,
-		"email_sent":   emailSent,
-		"expires_at":   inviteExpires,
+		"id":                  user.ID,
+		"uuid":                user.UUID,
+		"email":               user.Email,
+		"role":                user.Role,
+		"invite_token_masked": maskSecretForResponse(inviteToken),
+		"email_sent":          emailSent,
+		"expires_at":          inviteExpires,
 	})
+}
+
+func maskSecretForResponse(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+
+	return "********"
+}
+
+func redactInviteURL(inviteURL string) string {
+	if strings.TrimSpace(inviteURL) == "" {
+		return ""
+	}
+
+	return "[REDACTED]"
 }
 
 // UpdateUserPermissions updates a user's permission mode and host exceptions (admin only).

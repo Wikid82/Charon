@@ -11,7 +11,7 @@ sleep 1
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 COVERAGE_FILE="$BACKEND_DIR/coverage.txt"
-MIN_COVERAGE="${CHARON_MIN_COVERAGE:-${CPM_MIN_COVERAGE:-85}}"
+MIN_COVERAGE="${CHARON_MIN_COVERAGE:-${CPM_MIN_COVERAGE:-87}}"
 
 generate_test_encryption_key() {
     if command -v openssl >/dev/null 2>&1; then

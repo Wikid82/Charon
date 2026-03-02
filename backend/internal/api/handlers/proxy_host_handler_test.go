@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -42,6 +43,219 @@ func setupTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	h.RegisterRoutes(api)
 
 	return r, db
+}
+
+func setupTestRouterWithReferenceTables(t *testing.T) (*gin.Engine, *gorm.DB) {
+	t.Helper()
+
+	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.ProxyHost{},
+		&models.Location{},
+		&models.AccessList{},
+		&models.SecurityHeaderProfile{},
+		&models.Notification{},
+		&models.NotificationProvider{},
+	))
+
+	ns := services.NewNotificationService(db)
+	h := NewProxyHostHandler(db, nil, ns, nil)
+	r := gin.New()
+	api := r.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	return r, db
+}
+
+func setupTestRouterWithUptime(t *testing.T) (*gin.Engine, *gorm.DB) {
+	t.Helper()
+
+	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.ProxyHost{},
+		&models.Location{},
+		&models.Notification{},
+		&models.NotificationProvider{},
+		&models.UptimeMonitor{},
+		&models.UptimeHeartbeat{},
+		&models.UptimeHost{},
+		&models.Setting{},
+	))
+
+	ns := services.NewNotificationService(db)
+	us := services.NewUptimeService(db, ns)
+	h := NewProxyHostHandler(db, nil, ns, us)
+	r := gin.New()
+	api := r.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	return r, db
+}
+
+func TestProxyHostHandler_ResolveAccessListReference_TargetedBranches(t *testing.T) {
+	t.Parallel()
+
+	_, db := setupTestRouterWithReferenceTables(t)
+	h := NewProxyHostHandler(db, nil, services.NewNotificationService(db), nil)
+
+	resolved, err := h.resolveAccessListReference(true)
+	require.Error(t, err)
+	require.Nil(t, resolved)
+	require.Contains(t, err.Error(), "invalid access_list_id")
+
+	resolved, err = h.resolveAccessListReference("   ")
+	require.NoError(t, err)
+	require.Nil(t, resolved)
+
+	acl := models.AccessList{UUID: uuid.NewString(), Name: "resolve-acl", Type: "ip", Enabled: true}
+	require.NoError(t, db.Create(&acl).Error)
+
+	resolved, err = h.resolveAccessListReference(acl.UUID)
+	require.NoError(t, err)
+	require.NotNil(t, resolved)
+	require.Equal(t, acl.ID, *resolved)
+}
+
+func TestProxyHostHandler_ResolveSecurityHeaderReference_TargetedBranches(t *testing.T) {
+	t.Parallel()
+
+	_, db := setupTestRouterWithReferenceTables(t)
+	h := NewProxyHostHandler(db, nil, services.NewNotificationService(db), nil)
+
+	resolved, err := h.resolveSecurityHeaderProfileReference("  ")
+	require.NoError(t, err)
+	require.Nil(t, resolved)
+
+	profile := models.SecurityHeaderProfile{
+		UUID:          uuid.NewString(),
+		Name:          "resolve-security-profile",
+		IsPreset:      false,
+		SecurityScore: 90,
+	}
+	require.NoError(t, db.Create(&profile).Error)
+
+	resolved, err = h.resolveSecurityHeaderProfileReference(profile.UUID)
+	require.NoError(t, err)
+	require.NotNil(t, resolved)
+	require.Equal(t, profile.ID, *resolved)
+
+	resolved, err = h.resolveSecurityHeaderProfileReference(uuid.NewString())
+	require.Error(t, err)
+	require.Nil(t, resolved)
+	require.Contains(t, err.Error(), "security header profile not found")
+
+	require.NoError(t, db.Migrator().DropTable(&models.SecurityHeaderProfile{}))
+	resolved, err = h.resolveSecurityHeaderProfileReference(uuid.NewString())
+	require.Error(t, err)
+	require.Nil(t, resolved)
+	require.Contains(t, err.Error(), "failed to resolve security header profile")
+}
+
+func TestProxyHostCreate_ReferenceResolution_TargetedBranches(t *testing.T) {
+	t.Parallel()
+
+	router, db := setupTestRouterWithReferenceTables(t)
+
+	acl := models.AccessList{UUID: uuid.NewString(), Name: "create-acl", Type: "ip", Enabled: true}
+	require.NoError(t, db.Create(&acl).Error)
+
+	profile := models.SecurityHeaderProfile{
+		UUID:          uuid.NewString(),
+		Name:          "create-security-profile",
+		IsPreset:      false,
+		SecurityScore: 85,
+	}
+	require.NoError(t, db.Create(&profile).Error)
+
+	t.Run("creates host when references are valid UUIDs", func(t *testing.T) {
+		body := map[string]any{
+			"name":                       "Create Ref Success",
+			"domain_names":               "create-ref-success.example.com",
+			"forward_scheme":             "http",
+			"forward_host":               "localhost",
+			"forward_port":               8080,
+			"enabled":                    true,
+			"access_list_id":             acl.UUID,
+			"security_header_profile_id": profile.UUID,
+		}
+		payload, err := json.Marshal(body)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", bytes.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		require.Equal(t, http.StatusCreated, resp.Code)
+
+		var created models.ProxyHost
+		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &created))
+		require.NotNil(t, created.AccessListID)
+		require.Equal(t, acl.ID, *created.AccessListID)
+		require.NotNil(t, created.SecurityHeaderProfileID)
+		require.Equal(t, profile.ID, *created.SecurityHeaderProfileID)
+	})
+
+	t.Run("returns bad request for invalid access list reference type", func(t *testing.T) {
+		body := `{"name":"Create ACL Type Error","domain_names":"create-acl-type-error.example.com","forward_scheme":"http","forward_host":"localhost","forward_port":8080,"enabled":true,"access_list_id":true}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		require.Equal(t, http.StatusBadRequest, resp.Code)
+	})
+
+	t.Run("returns bad request for missing security header profile", func(t *testing.T) {
+		body := map[string]any{
+			"name":                       "Create Security Missing",
+			"domain_names":               "create-security-missing.example.com",
+			"forward_scheme":             "http",
+			"forward_host":               "localhost",
+			"forward_port":               8080,
+			"enabled":                    true,
+			"security_header_profile_id": uuid.NewString(),
+		}
+		payload, err := json.Marshal(body)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", bytes.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		require.Equal(t, http.StatusBadRequest, resp.Code)
+	})
+}
+
+func TestProxyHostCreate_TriggersAsyncUptimeSyncWhenServiceConfigured(t *testing.T) {
+	t.Parallel()
+
+	router, db := setupTestRouterWithUptime(t)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(upstream.Close)
+
+	domain := strings.TrimPrefix(upstream.URL, "http://")
+	body := fmt.Sprintf(`{"name":"Uptime Hook","domain_names":"%s","forward_scheme":"http","forward_host":"app-service","forward_port":8080,"enabled":true}`, domain)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusCreated, resp.Code)
+
+	var created models.ProxyHost
+	require.NoError(t, db.Where("domain_names = ?", domain).First(&created).Error)
+
+	var count int64
+	require.Eventually(t, func() bool {
+		db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", created.ID).Count(&count)
+		return count > 0
+	}, 3*time.Second, 50*time.Millisecond)
 }
 
 func TestProxyHostLifecycle(t *testing.T) {

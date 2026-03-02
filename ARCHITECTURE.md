@@ -126,7 +126,7 @@ graph TB
 | **HTTP Framework** | Gin | Latest | Routing, middleware, HTTP handling |
 | **Database** | SQLite | 3.x | Embedded database |
 | **ORM** | GORM | Latest | Database abstraction layer |
-| **Reverse Proxy** | Caddy Server | 2.11.0-beta.2 | Embedded HTTP/HTTPS proxy |
+| **Reverse Proxy** | Caddy Server | 2.11.1 | Embedded HTTP/HTTPS proxy |
 | **WebSocket** | gorilla/websocket | Latest | Real-time log streaming |
 | **Crypto** | golang.org/x/crypto | Latest | Password hashing, encryption |
 | **Metrics** | Prometheus Client | Latest | Application metrics |
@@ -1259,6 +1259,14 @@ go test ./integration/...
 9. **Release Notes:** Generate changelog from commits
 10. **Notify:** Send release notification (Discord, email)
 
+**Mandatory rollout gates (sign-off block):**
+
+1. Digest freshness and index digest parity across GHCR and Docker Hub
+2. Per-arch digest parity across GHCR and Docker Hub
+3. SBOM and vulnerability scans against immutable refs (`image@sha256:...`)
+4. Artifact freshness timestamps after push
+5. Evidence block with required rollout verification fields
+
 ### Supply Chain Security
 
 **Components:**
@@ -1292,10 +1300,10 @@ cosign verify \
   wikid82/charon:latest
 
 # Inspect SBOM
-syft wikid82/charon:latest -o json
+syft ghcr.io/wikid82/charon@sha256:<index-digest> -o json
 
 # Scan for vulnerabilities
-grype wikid82/charon:latest
+grype ghcr.io/wikid82/charon@sha256:<index-digest>
 ```
 
 ### Rollback Strategy

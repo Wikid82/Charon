@@ -423,7 +423,9 @@
     "triggerCheck": "Sofortige Gesundheitsprüfung auslösen",
     "healthCheckTriggered": "Gesundheitsprüfung ausgelöst",
     "monitorDeleted": "Monitor gelöscht",
-    "deleteConfirm": "Diesen Monitor löschen? Dies kann nicht rückgängig gemacht werden."
+    "deleteConfirm": "Diesen Monitor löschen? Dies kann nicht rückgängig gemacht werden.",
+    "pending": "PRÜFUNG...",
+    "pendingFirstCheck": "Warten auf erste Prüfung..."
   },
   "domains": {
     "title": "Domänen",
@@ -768,6 +770,13 @@
       "newTab": "Neuer Tab (Standard)",
       "newWindow": "Neues Fenster",
       "domainLinkBehaviorHelper": "Steuern Sie, wie Domain-Links in der Proxy-Hosts-Liste geöffnet werden.",
+      "keepaliveIdle": "Keepalive Idle (Optional)",
+      "keepaliveIdleHelper": "Optionale Caddy-Dauer (z. B. 2m, 30s). Leer lassen, um Backend-Standardwerte zu verwenden.",
+      "keepaliveIdleError": "Geben Sie eine gültige Dauer ein (z. B. 30s, 2m, 1h).",
+      "keepaliveCount": "Keepalive Count (Optional)",
+      "keepaliveCountHelper": "Optionale maximale Keepalive-Tests (1-1000). Leer lassen, um Backend-Standardwerte zu verwenden.",
+      "keepaliveCountError": "Geben Sie eine ganze Zahl zwischen 1 und 1000 ein.",
+      "keepaliveValidationFailed": "Keepalive-Einstellungen enthalten ungültige Werte.",
       "languageHelper": "Wählen Sie Ihre bevorzugte Sprache. Änderungen werden sofort wirksam."
     },
     "applicationUrl": {

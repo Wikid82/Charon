@@ -729,8 +729,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
           // Look for delete button in form
           const deleteInForm = page.getByRole('button', { name: /delete/i });
-          const hasDelete = await deleteInForm.isVisible().catch(() => false);
-          expect(hasDelete).toBeTruthy();
+          await expect(deleteInForm).toBeVisible();
 
           // Cancel without deleting
           await getCancelButton(page).click();
@@ -988,8 +987,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         // Check that inputs have associated labels
         const nameLabel = page.locator('label[for="name"]');
-        const hasLabel = await nameLabel.isVisible().catch(() => false);
-        expect(hasLabel).toBeTruthy();
+        await expect(nameLabel).toBeVisible();
 
         await getCancelButton(page).click();
       });

@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestDiscordOnly_CreateRejectsNonDiscord tests that create globally rejects non-Discord providers.
+// TestDiscordOnly_CreateRejectsNonDiscord verifies unsupported provider types are rejected while supported types are accepted.
 func TestDiscordOnly_CreateRejectsNonDiscord(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -30,13 +30,15 @@ func TestDiscordOnly_CreateRejectsNonDiscord(t *testing.T) {
 	testCases := []struct {
 		name         string
 		providerType string
+		wantStatus   int
+		wantCode     string
 	}{
-		{"webhook", "webhook"},
-		{"slack", "slack"},
-		{"gotify", "gotify"},
-		{"telegram", "telegram"},
-		{"generic", "generic"},
-		{"email", "email"},
+		{"webhook", "webhook", http.StatusCreated, ""},
+		{"gotify", "gotify", http.StatusCreated, ""},
+		{"slack", "slack", http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
+		{"telegram", "telegram", http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
+		{"generic", "generic", http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
+		{"email", "email", http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
 	}
 
 	for _, tc := range testCases {
@@ -61,13 +63,14 @@ func TestDiscordOnly_CreateRejectsNonDiscord(t *testing.T) {
 
 			handler.Create(c)
 
-			assert.Equal(t, http.StatusBadRequest, w.Code, "Should reject non-Discord provider")
+			assert.Equal(t, tc.wantStatus, w.Code)
 
 			var response map[string]interface{}
 			err = json.Unmarshal(w.Body.Bytes(), &response)
 			require.NoError(t, err)
-			assert.Equal(t, "PROVIDER_TYPE_DISCORD_ONLY", response["code"])
-			assert.Contains(t, response["error"], "discord")
+			if tc.wantCode != "" {
+				assert.Equal(t, tc.wantCode, response["code"])
+			}
 		})
 	}
 }
@@ -156,8 +159,8 @@ func TestDiscordOnly_UpdateRejectsTypeMutation(t *testing.T) {
 	var response map[string]interface{}
 	err = json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
-	assert.Equal(t, "DEPRECATED_PROVIDER_TYPE_IMMUTABLE", response["code"])
-	assert.Contains(t, response["error"], "cannot change provider type")
+	assert.Equal(t, "PROVIDER_TYPE_IMMUTABLE", response["code"])
+	assert.Contains(t, response["error"], "cannot be changed")
 }
 
 // TestDiscordOnly_UpdateRejectsEnable tests that update blocks enabling deprecated providers.
@@ -205,13 +208,7 @@ func TestDiscordOnly_UpdateRejectsEnable(t *testing.T) {
 
 	handler.Update(c)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code, "Should reject enabling deprecated provider")
-
-	var response map[string]interface{}
-	err = json.Unmarshal(w.Body.Bytes(), &response)
-	require.NoError(t, err)
-	assert.Equal(t, "DEPRECATED_PROVIDER_CANNOT_ENABLE", response["code"])
-	assert.Contains(t, response["error"], "cannot enable deprecated")
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 // TestDiscordOnly_UpdateAllowsDisabledDeprecated tests that update allows updating disabled deprecated providers (except type/enable).
@@ -259,8 +256,7 @@ func TestDiscordOnly_UpdateAllowsDisabledDeprecated(t *testing.T) {
 
 	handler.Update(c)
 
-	// Should still reject because type must be discord
-	assert.Equal(t, http.StatusBadRequest, w.Code, "Should reject non-Discord type even for read-only fields")
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 // TestDiscordOnly_UpdateAcceptsDiscord tests that update accepts Discord provider updates.
@@ -360,21 +356,21 @@ func TestDiscordOnly_ErrorCodes(t *testing.T) {
 		expectedCode string
 	}{
 		{
-			name: "create_non_discord",
+			name: "create_unsupported",
 			setupFunc: func(db *gorm.DB) string {
 				return ""
 			},
 			requestFunc: func(id string) (*http.Request, gin.Params) {
 				payload := map[string]interface{}{
 					"name": "Test",
-					"type": "webhook",
+					"type": "slack",
 					"url":  "https://example.com",
 				}
 				body, _ := json.Marshal(payload)
 				req, _ := http.NewRequest("POST", "/api/v1/notifications/providers", bytes.NewBuffer(body))
 				return req, nil
 			},
-			expectedCode: "PROVIDER_TYPE_DISCORD_ONLY",
+			expectedCode: "UNSUPPORTED_PROVIDER_TYPE",
 		},
 		{
 			name: "update_type_mutation",
@@ -399,34 +395,7 @@ func TestDiscordOnly_ErrorCodes(t *testing.T) {
 				req, _ := http.NewRequest("PUT", "/api/v1/notifications/providers/"+id, bytes.NewBuffer(body))
 				return req, []gin.Param{{Key: "id", Value: id}}
 			},
-			expectedCode: "DEPRECATED_PROVIDER_TYPE_IMMUTABLE",
-		},
-		{
-			name: "update_enable_deprecated",
-			setupFunc: func(db *gorm.DB) string {
-				provider := models.NotificationProvider{
-					ID:             "test-id",
-					Name:           "Test",
-					Type:           "webhook",
-					URL:            "https://example.com",
-					Enabled:        false,
-					MigrationState: "deprecated",
-				}
-				db.Create(&provider)
-				return "test-id"
-			},
-			requestFunc: func(id string) (*http.Request, gin.Params) {
-				payload := map[string]interface{}{
-					"name":    "Test",
-					"type":    "webhook",
-					"url":     "https://example.com",
-					"enabled": true,
-				}
-				body, _ := json.Marshal(payload)
-				req, _ := http.NewRequest("PUT", "/api/v1/notifications/providers/"+id, bytes.NewBuffer(body))
-				return req, []gin.Param{{Key: "id", Value: id}}
-			},
-			expectedCode: "DEPRECATED_PROVIDER_CANNOT_ENABLE",
+			expectedCode: "PROVIDER_TYPE_IMMUTABLE",
 		},
 	}
 

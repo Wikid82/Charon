@@ -16,7 +16,6 @@ import {
   waitForLoadingComplete,
   waitForToast,
   waitForAPIResponse,
-  clickAndWaitForResponse,
 } from '../utils/wait-helpers';
 
 test.describe('SMTP Settings', () => {
@@ -299,6 +298,8 @@ test.describe('SMTP Settings', () => {
   });
 
   test.describe('CRUD Operations', () => {
+    test.describe.configure({ mode: 'serial' });
+
     /**
      * Test: Save SMTP configuration
      * Priority: P0
@@ -342,6 +343,8 @@ test.describe('SMTP Settings', () => {
       // Flaky test - success toast timing issue. SMTP update API works correctly.
 
       const hostInput = page.locator('#smtp-host');
+      const portInput = page.locator('#smtp-port');
+      const fromInput = page.locator('#smtp-from');
       const saveButton = page.getByRole('button', { name: /save/i }).last();
 
       let originalHost: string;
@@ -353,16 +356,21 @@ test.describe('SMTP Settings', () => {
       await test.step('Update host value', async () => {
         await hostInput.clear();
         await hostInput.fill('updated-smtp.test.local');
+        await portInput.clear();
+        await portInput.fill('587');
+        await fromInput.clear();
+        await fromInput.fill('noreply@test.local');
         await expect(hostInput).toHaveValue('updated-smtp.test.local');
       });
 
       await test.step('Save updated configuration', async () => {
-        const saveResponse = await clickAndWaitForResponse(
-          page,
-          saveButton,
-          /\/api\/v1\/settings\/smtp/
-        );
-        expect(saveResponse.ok()).toBeTruthy();
+        const [saveResponse] = await Promise.all([
+          page.waitForResponse(
+            (response) => response.url().includes('/api/v1/settings/smtp') && response.request().method() === 'POST'
+          ),
+          saveButton.click(),
+        ]);
+        expect(saveResponse.status()).toBe(200);
 
         const successToast = page
           .locator('[data-testid="toast-success"]')
@@ -373,7 +381,7 @@ test.describe('SMTP Settings', () => {
       });
 
       await test.step('Reload and verify persistence', async () => {
-        await page.reload();
+        await page.goto('/settings/smtp', { waitUntil: 'domcontentloaded' });
         await waitForLoadingComplete(page);
 
         const newHost = await hostInput.inputValue();
@@ -737,8 +745,7 @@ test.describe('SMTP Settings', () => {
 
         // Verify form is keyboard accessible by checking we can navigate
         const currentFocused = page.locator(':focus');
-        const isVisible = await currentFocused.isVisible().catch(() => false);
-        expect(isVisible).toBeTruthy();
+        await expect(currentFocused).toBeVisible();
       });
 
       await test.step('Fill form field with keyboard', async () => {

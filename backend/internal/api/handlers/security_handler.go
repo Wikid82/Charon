@@ -261,6 +261,10 @@ func (h *SecurityHandler) GetConfig(c *gin.Context) {
 
 // UpdateConfig creates or updates the SecurityConfig in DB
 func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	var payload models.SecurityConfig
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
@@ -290,6 +294,10 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 
 // GenerateBreakGlass generates a break-glass token and returns the plaintext token once
 func (h *SecurityHandler) GenerateBreakGlass(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	token, err := h.svc.GenerateBreakGlassToken("default")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate break-glass token"})
@@ -316,6 +324,10 @@ func (h *SecurityHandler) ListDecisions(c *gin.Context) {
 
 // CreateDecision creates a manual decision (override) - for now no checks besides payload
 func (h *SecurityHandler) CreateDecision(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	var payload models.SecurityDecision
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
@@ -371,6 +383,10 @@ func (h *SecurityHandler) ListRuleSets(c *gin.Context) {
 
 // UpsertRuleSet uploads or updates a ruleset
 func (h *SecurityHandler) UpsertRuleSet(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	var payload models.SecurityRuleSet
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
@@ -401,6 +417,10 @@ func (h *SecurityHandler) UpsertRuleSet(c *gin.Context) {
 
 // DeleteRuleSet removes a ruleset by id
 func (h *SecurityHandler) DeleteRuleSet(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	idParam := c.Param("id")
 	if idParam == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
@@ -610,6 +630,10 @@ func (h *SecurityHandler) GetGeoIPStatus(c *gin.Context) {
 
 // ReloadGeoIP reloads the GeoIP database from disk.
 func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	if h.geoipSvc == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": "GeoIP service not initialized",
@@ -641,6 +665,10 @@ func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
 
 // LookupGeoIP performs a GeoIP lookup for a given IP address.
 func (h *SecurityHandler) LookupGeoIP(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	var req struct {
 		IPAddress string `json:"ip_address" binding:"required"`
 	}
@@ -707,6 +735,10 @@ func (h *SecurityHandler) GetWAFExclusions(c *gin.Context) {
 
 // AddWAFExclusion adds a rule exclusion to the WAF configuration
 func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	var req WAFExclusionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "rule_id is required"})
@@ -786,6 +818,10 @@ func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
 
 // DeleteWAFExclusion removes a rule exclusion by rule_id
 func (h *SecurityHandler) DeleteWAFExclusion(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	ruleIDParam := c.Param("rule_id")
 	if ruleIDParam == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "rule_id is required"})

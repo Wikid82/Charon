@@ -85,6 +85,7 @@ services:
       - playwright_data:/app/data
       - playwright_caddy_data:/data
       - playwright_caddy_config:/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro # For container discovery in tests
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/api/v1/health"]
       interval: 5s
@@ -111,6 +112,7 @@ services:
     volumes:
       - playwright_crowdsec_data:/var/lib/crowdsec/data
       - playwright_crowdsec_config:/etc/crowdsec
+      - /var/run/docker.sock:/var/run/docker.sock:ro # For container discovery in tests
     healthcheck:
       test: ["CMD", "cscli", "version"]
       interval: 10s

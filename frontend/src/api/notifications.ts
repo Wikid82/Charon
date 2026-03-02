@@ -1,6 +1,24 @@
 import client from './client';
 
-const DISCORD_PROVIDER_TYPE = 'discord' as const;
+export const SUPPORTED_NOTIFICATION_PROVIDER_TYPES = ['discord', 'gotify', 'webhook'] as const;
+export type SupportedNotificationProviderType = (typeof SUPPORTED_NOTIFICATION_PROVIDER_TYPES)[number];
+const DEFAULT_PROVIDER_TYPE: SupportedNotificationProviderType = 'discord';
+
+const isSupportedNotificationProviderType = (type: string | undefined): type is SupportedNotificationProviderType =>
+  typeof type === 'string' && SUPPORTED_NOTIFICATION_PROVIDER_TYPES.includes(type.toLowerCase() as SupportedNotificationProviderType);
+
+const resolveProviderTypeOrThrow = (type: string | undefined): SupportedNotificationProviderType => {
+  if (typeof type === 'undefined') {
+    return DEFAULT_PROVIDER_TYPE;
+  }
+
+  const normalizedType = type.toLowerCase();
+  if (isSupportedNotificationProviderType(normalizedType)) {
+    return normalizedType;
+  }
+
+  throw new Error(`Unsupported notification provider type: ${type}`);
+};
 
 /** Notification provider configuration. */
 export interface NotificationProvider {
@@ -10,6 +28,9 @@ export interface NotificationProvider {
   url: string;
   config?: string;
   template?: string;
+  gotify_token?: string;
+  token?: string;
+  has_token?: boolean;
   enabled: boolean;
   notify_proxy_hosts: boolean;
   notify_remote_servers: boolean;
@@ -23,19 +44,39 @@ export interface NotificationProvider {
   created_at: string;
 }
 
-const withDiscordType = (data: Partial<NotificationProvider>): Partial<NotificationProvider> => {
-  const normalizedType = typeof data.type === 'string' ? data.type.toLowerCase() : undefined;
-  if (normalizedType !== DISCORD_PROVIDER_TYPE) {
-    return { ...data, type: DISCORD_PROVIDER_TYPE };
+const sanitizeProviderForWriteAction = (data: Partial<NotificationProvider>): Partial<NotificationProvider> => {
+  const type = resolveProviderTypeOrThrow(data.type);
+  const payload: Partial<NotificationProvider> = {
+    ...data,
+    type,
+  };
+
+  const normalizedToken = typeof payload.gotify_token === 'string' && payload.gotify_token.trim().length > 0
+    ? payload.gotify_token.trim()
+    : typeof payload.token === 'string' && payload.token.trim().length > 0
+      ? payload.token.trim()
+      : undefined;
+
+  delete payload.gotify_token;
+
+  if (type !== 'gotify') {
+    delete payload.token;
+    return payload;
   }
 
-  return { ...data, type: DISCORD_PROVIDER_TYPE };
+  if (normalizedToken) {
+    payload.token = normalizedToken;
+  } else {
+    delete payload.token;
+  }
+
+  return payload;
 };
 
-const assertDiscordOnlyInput = (data: Partial<NotificationProvider>): void => {
-  if (typeof data.type === 'string' && data.type.toLowerCase() !== DISCORD_PROVIDER_TYPE) {
-    throw new Error('Only discord notification providers are supported');
-  }
+const sanitizeProviderForReadLikeAction = (data: Partial<NotificationProvider>): Partial<NotificationProvider> => {
+  const payload = sanitizeProviderForWriteAction(data);
+  delete payload.token;
+  return payload;
 };
 
 /**
@@ -55,8 +96,7 @@ export const getProviders = async () => {
  * @throws {AxiosError} If creation fails
  */
 export const createProvider = async (data: Partial<NotificationProvider>) => {
-  assertDiscordOnlyInput(data);
-  const response = await client.post<NotificationProvider>('/notifications/providers', withDiscordType(data));
+  const response = await client.post<NotificationProvider>('/notifications/providers', sanitizeProviderForWriteAction(data));
   return response.data;
 };
 
@@ -68,8 +108,7 @@ export const createProvider = async (data: Partial<NotificationProvider>) => {
  * @throws {AxiosError} If update fails or provider not found
  */
 export const updateProvider = async (id: string, data: Partial<NotificationProvider>) => {
-  assertDiscordOnlyInput(data);
-  const response = await client.put<NotificationProvider>(`/notifications/providers/${id}`, withDiscordType(data));
+  const response = await client.put<NotificationProvider>(`/notifications/providers/${id}`, sanitizeProviderForWriteAction(data));
   return response.data;
 };
 
@@ -88,8 +127,7 @@ export const deleteProvider = async (id: string) => {
  * @throws {AxiosError} If test fails
  */
 export const testProvider = async (provider: Partial<NotificationProvider>) => {
-  assertDiscordOnlyInput(provider);
-  await client.post('/notifications/providers/test', withDiscordType(provider));
+  await client.post('/notifications/providers/test', sanitizeProviderForReadLikeAction(provider));
 };
 
 /**
@@ -116,8 +154,7 @@ export interface NotificationTemplate {
  * @throws {AxiosError} If preview fails
  */
 export const previewProvider = async (provider: Partial<NotificationProvider>, data?: Record<string, unknown>) => {
-  assertDiscordOnlyInput(provider);
-  const payload: Record<string, unknown> = withDiscordType(provider) as Record<string, unknown>;
+  const payload: Record<string, unknown> = sanitizeProviderForReadLikeAction(provider) as Record<string, unknown>;
   if (data) payload.data = data;
   const response = await client.post('/notifications/providers/preview', payload);
   return response.data;

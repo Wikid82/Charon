@@ -857,6 +857,27 @@ func normalizeHeaderOps(headerOps map[string]any) {
 	}
 }
 
+func applyOptionalServerKeepalive(conf *Config, keepaliveIdle string, keepaliveCount int) {
+	if conf == nil || conf.Apps.HTTP == nil || conf.Apps.HTTP.Servers == nil {
+		return
+	}
+
+	server, ok := conf.Apps.HTTP.Servers["charon_server"]
+	if !ok || server == nil {
+		return
+	}
+
+	idle := strings.TrimSpace(keepaliveIdle)
+	if idle != "" {
+		server.KeepaliveIdle = &idle
+	}
+
+	if keepaliveCount > 0 {
+		count := keepaliveCount
+		server.KeepaliveCount = &count
+	}
+}
+
 // NormalizeAdvancedConfig traverses a parsed JSON advanced config (map or array)
 // and normalizes any headers blocks so that header values are arrays of strings.
 // It returns the modified config object which can be JSON marshaled again.

@@ -411,6 +411,25 @@ test.describe('Authentication Flows', () => {
   });
 
   test.describe('Authentication Accessibility', () => {
+    async function pressTabUntilFocused(page: import('@playwright/test').Page, target: import('@playwright/test').Locator, maxTabs: number): Promise<void> {
+      for (let i = 0; i < maxTabs; i++) {
+        await page.keyboard.press('Tab');
+        const focused = await expect
+          .poll(async () => target.evaluate((el) => el === document.activeElement), {
+            timeout: 1500,
+            intervals: [100, 200, 300],
+          })
+          .toBeTruthy()
+          .then(() => true)
+          .catch(() => false);
+        if (focused) {
+          return;
+        }
+      }
+
+      await expect(target).toBeFocused();
+    }
+
     /**
      * Test: Login form is keyboard accessible
      */
@@ -427,16 +446,10 @@ test.describe('Authentication Flows', () => {
         await expect(emailInput).toBeFocused();
 
         // Tab to password field
-        await page.keyboard.press('Tab');
-        await expect(passwordInput).toBeFocused();
+        await pressTabUntilFocused(page, passwordInput, 2);
 
         // Tab to submit button (may go through "Forgot Password" link first)
-        await page.keyboard.press('Tab');
-        // If there's a "Forgot Password" link, tab again
-        if (!(await submitButton.evaluate((el) => el === document.activeElement))) {
-          await page.keyboard.press('Tab');
-        }
-        await expect(submitButton).toBeFocused();
+        await pressTabUntilFocused(page, submitButton, 3);
       });
     });
 

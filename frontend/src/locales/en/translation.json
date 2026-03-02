@@ -498,7 +498,9 @@
     "monitorUrl": "URL",
     "monitorTypeHttp": "HTTP",
     "monitorTypeTcp": "TCP",
-    "urlPlaceholder": "https://example.com or tcp://host:port"
+    "urlPlaceholder": "https://example.com or tcp://host:port",
+    "pending": "CHECKING...",
+    "pendingFirstCheck": "Waiting for first check..."
   },
   "domains": {
     "title": "Domains",
@@ -542,6 +544,11 @@
     "providerName": "Name",
     "urlWebhook": "URL / Webhook",
     "urlRequired": "URL is required",
+    "gotifyToken": "Gotify Token",
+    "gotifyTokenPlaceholder": "Enter new token",
+    "gotifyTokenWriteOnlyHint": "Token is write-only and only sent on save.",
+    "gotifyTokenStored": "Token saved. Leave blank to keep current token.",
+    "gotifyTokenKeepPlaceholder": "Leave blank to keep current token",
     "invalidUrl": "Please enter a valid URL starting with http:// or https://",
     "genericWebhook": "Generic Webhook",
     "customWebhook": "Custom Webhook (JSON)",
@@ -876,6 +883,13 @@
       "newTab": "New Tab (Default)",
       "newWindow": "New Window",
       "domainLinkBehaviorHelper": "Control how domain links open in the Proxy Hosts list.",
+      "keepaliveIdle": "Keepalive Idle (Optional)",
+      "keepaliveIdleHelper": "Optional Caddy duration (e.g., 2m, 30s). Leave blank to keep backend defaults.",
+      "keepaliveIdleError": "Enter a valid duration (for example: 30s, 2m, 1h).",
+      "keepaliveCount": "Keepalive Count (Optional)",
+      "keepaliveCountHelper": "Optional max keepalive probes (1-1000). Leave blank to keep backend defaults.",
+      "keepaliveCountError": "Enter a whole number between 1 and 1000.",
+      "keepaliveValidationFailed": "Keepalive settings contain invalid values.",
       "languageHelper": "Select your preferred language. Changes take effect immediately."
     },
     "applicationUrl": {

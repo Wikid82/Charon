@@ -32,7 +32,7 @@ cd "${PROJECT_ROOT}"
 validate_project_structure "frontend" "scripts/frontend-test-coverage.sh" || error_exit "Invalid project structure"
 
 # Set default environment variables
-set_default_env "CHARON_MIN_COVERAGE" "85"
+set_default_env "CHARON_MIN_COVERAGE" "87"
 
 # Execute the legacy script
 log_step "EXECUTION" "Running frontend tests with coverage"

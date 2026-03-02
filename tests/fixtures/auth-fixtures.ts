@@ -80,6 +80,58 @@ let tokenCache: TokenCache | null = null;
 let tokenCacheQueue: Promise<void> = Promise.resolve();
 const TOKEN_REFRESH_THRESHOLD = 5 * 60 * 1000; // Refresh 5 min before expiry
 
+function readAuthTokenFromStorageState(storageStatePath: string): string | null {
+  try {
+    const savedState = JSON.parse(readFileSync(storageStatePath, 'utf-8'));
+    const origins = Array.isArray(savedState.origins) ? savedState.origins : [];
+
+    const extractToken = (value: unknown): string | null => {
+      if (typeof value !== 'string' || !value.trim()) {
+        return null;
+      }
+
+      if (value.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(value) as { token?: string };
+          if (typeof parsed?.token === 'string' && parsed.token.trim()) {
+            return parsed.token;
+          }
+        } catch {
+          return null;
+        }
+      }
+
+      return value;
+    };
+
+    for (const originEntry of origins) {
+      const localStorageEntries = Array.isArray(originEntry?.localStorage)
+        ? originEntry.localStorage
+        : [];
+
+      for (const key of ['charon_auth_token', 'token', 'auth']) {
+        const tokenEntry = localStorageEntries.find(
+          (entry: { name?: string; value?: string }) => entry?.name === key
+        );
+        const token = extractToken(tokenEntry?.value);
+        if (token) {
+          return token;
+        }
+      }
+    }
+
+    const cookies = Array.isArray(savedState.cookies) ? savedState.cookies : [];
+    const authCookie = cookies.find((cookie: { name?: string; value?: string }) => cookie?.name === 'auth_token');
+    const cookieToken = extractToken(authCookie?.value);
+    if (cookieToken) {
+      return cookieToken;
+    }
+  } catch {
+  }
+
+  return null;
+}
+
 /**
  * Test-only helper to reset token refresh state between tests
  */
@@ -249,9 +301,11 @@ export const test = base.extend<AuthFixtures>({
       );
     }
 
+    const savedState = JSON.parse(readFileSync(STORAGE_STATE, 'utf-8'));
+    const authToken = readAuthTokenFromStorageState(STORAGE_STATE);
+
     // Validate cookie domain matches baseURL to catch configuration issues early
     try {
-      const savedState = JSON.parse(readFileSync(STORAGE_STATE, 'utf-8'));
       const cookies = savedState.cookies || [];
       const authCookie = cookies.find((c: { name: string }) => c.name === 'auth_token');
 
@@ -281,10 +335,11 @@ export const test = base.extend<AuthFixtures>({
       extraHTTPHeaders: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       },
     });
 
-    const manager = new TestDataManager(authenticatedContext, testInfo.title);
+    const manager = new TestDataManager(authenticatedContext, testInfo.title, authToken ?? undefined);
 
     try {
       await use(manager);
@@ -374,15 +429,41 @@ export async function loginUser(
   page: import('@playwright/test').Page,
   user: TestUser
 ): Promise<void> {
+  const hasVisibleSignInControls = async (): Promise<boolean> => {
+    const signInButtonVisible = await page.getByRole('button', { name: /sign in|login/i }).first().isVisible().catch(() => false);
+    const emailInputVisible = await page.getByRole('textbox', { name: /email/i }).first().isVisible().catch(() => false);
+    return signInButtonVisible || emailInputVisible;
+  };
+
   const loginPayload = { email: user.email, password: TEST_PASSWORD };
+  let apiLoginError: Error | null = null;
   try {
     const response = await page.request.post('/api/v1/auth/login', { data: loginPayload });
     if (response.ok()) {
       const body = await response.json().catch(() => ({})) as { token?: string };
       if (body.token) {
-        await page.addInitScript((token: string) => {
+        // Navigate first, then set token via evaluate to avoid addInitScript race condition
+        await page.goto('/');
+        await page.evaluate((token: string) => {
           localStorage.setItem('charon_auth_token', token);
         }, body.token);
+
+        const storageState = await page.request.storageState();
+        if (storageState.cookies?.length) {
+          await page.context().addCookies(storageState.cookies);
+        }
+
+        // Reload so the app picks up the token from localStorage
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        await page.waitForLoadState('networkidle').catch(() => {});
+
+        // Guard: if app is stuck at loading splash, force reload
+        const loadingVisible = await page.locator('text=Loading application').isVisible().catch(() => false);
+        if (loadingVisible) {
+          await page.reload({ waitUntil: 'domcontentloaded' });
+          await page.waitForLoadState('networkidle').catch(() => {});
+        }
+        return;
       }
 
       const storageState = await page.request.storageState();
@@ -390,16 +471,31 @@ export async function loginUser(
         await page.context().addCookies(storageState.cookies);
       }
     }
-  } catch {
+  } catch (error) {
+    apiLoginError = error instanceof Error ? error : new Error(String(error));
+    console.error(`API login bootstrap failed for ${user.email}: ${apiLoginError.message}`);
   }
 
   await page.goto('/');
-  if (!page.url().includes('/login')) {
+  const loginRouteDetected = page.url().includes('/login');
+  const loginUiDetected = await hasVisibleSignInControls();
+  let authSessionConfirmed = false;
+  if (!loginRouteDetected && !loginUiDetected) {
+    const authProbeResponse = await page.request.get('/api/v1/auth/me').catch(() => null);
+    authSessionConfirmed = authProbeResponse?.ok() ?? false;
+  }
+
+  if (!loginRouteDetected && !loginUiDetected && authSessionConfirmed) {
+    if (apiLoginError) {
+      console.warn(`Continuing with existing authenticated session after API login bootstrap failure for ${user.email}`);
+    }
     await page.waitForLoadState('networkidle').catch(() => {});
     return;
   }
 
-  await page.goto('/login');
+  if (!loginRouteDetected) {
+    await page.goto('/login');
+  }
   await page.locator('input[type="email"]').fill(user.email);
   await page.locator('input[type="password"]').fill(TEST_PASSWORD);
 
@@ -411,7 +507,11 @@ export async function loginUser(
   const loginResponse = await loginResponsePromise;
   if (!loginResponse.ok()) {
     const body = await loginResponse.text();
-    throw new Error(`Login failed: ${loginResponse.status()} - ${body}`);
+    const fallbackMessage = `Login failed: ${loginResponse.status()} - ${body}`;
+    if (apiLoginError) {
+      throw new Error(`${fallbackMessage}; API login bootstrap error: ${apiLoginError.message}`);
+    }
+    throw new Error(fallbackMessage);
   }
 
   await page.waitForURL(/\/(?:$|dashboard)/, { timeout: 15000 });
@@ -431,7 +531,7 @@ export async function logoutUser(page: import('@playwright/test').Page): Promise
   await logoutButton.click();
 
   // Wait for redirect to login page
-  await page.waitForURL(/\/login/, { timeout: 15000 });
+  await page.waitForURL(/\/login/, { timeout: 15000, waitUntil: 'domcontentloaded' });
 }
 
 /**

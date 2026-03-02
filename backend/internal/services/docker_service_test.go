@@ -3,13 +3,17 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDockerService_New(t *testing.T) {
@@ -58,6 +62,10 @@ func TestDockerUnavailableError_ErrorMethods(t *testing.T) {
 	unwrapped := err.Unwrap()
 	assert.Equal(t, baseErr, unwrapped)
 
+	// Test Details()
+	errWithDetails := NewDockerUnavailableError(baseErr, "socket permission mismatch")
+	assert.Equal(t, "socket permission mismatch", errWithDetails.Details())
+
 	// Test nil receiver cases
 	var nilErr *DockerUnavailableError
 	assert.Equal(t, "docker unavailable", nilErr.Error())
@@ -67,6 +75,7 @@ func TestDockerUnavailableError_ErrorMethods(t *testing.T) {
 	nilBaseErr := NewDockerUnavailableError(nil)
 	assert.Equal(t, "docker unavailable", nilBaseErr.Error())
 	assert.Nil(t, nilBaseErr.Unwrap())
+	assert.Equal(t, "", nilBaseErr.Details())
 }
 
 func TestIsDockerConnectivityError(t *testing.T) {
@@ -164,4 +173,185 @@ func TestIsDockerConnectivityError_NetErrorTimeout(t *testing.T) {
 
 	result := isDockerConnectivityError(netErr)
 	assert.True(t, result, "net.Error with Timeout() should return true")
+}
+
+func TestResolveLocalDockerHost_IgnoresRemoteTCPEnv(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "tcp://docker-proxy:2375")
+
+	host := resolveLocalDockerHost()
+
+	assert.Equal(t, "unix:///var/run/docker.sock", host)
+}
+
+func TestResolveLocalDockerHost_UsesExistingUnixSocketFromEnv(t *testing.T) {
+	tmpDir := t.TempDir()
+	socketFile := filepath.Join(tmpDir, "docker.sock")
+	require.NoError(t, os.WriteFile(socketFile, []byte(""), 0o600))
+
+	t.Setenv("DOCKER_HOST", "unix://"+socketFile)
+
+	host := resolveLocalDockerHost()
+
+	assert.Equal(t, "unix://"+socketFile, host)
+}
+
+func TestBuildLocalDockerUnavailableDetails_PermissionDeniedIncludesGroupHint(t *testing.T) {
+	err := &net.OpError{Op: "dial", Net: "unix", Err: syscall.EACCES}
+	details := buildLocalDockerUnavailableDetails(err, "unix:///var/run/docker.sock")
+
+	assert.Contains(t, details, "not accessible")
+	assert.Contains(t, details, "uid=")
+	assert.Contains(t, details, "gid=")
+	assert.NotContains(t, strings.ToLower(details), "token")
+
+	// When docker socket exists with a GID not in process groups, verify both
+	// CLI and compose supplemental-group guidance are present.
+	if strings.Contains(details, "--group-add") {
+		assert.Contains(t, details, "group_add",
+			"when supplemental group hint is present, it should include compose group_add syntax")
+	}
+}
+
+func TestBuildLocalDockerUnavailableDetails_MissingSocket(t *testing.T) {
+	err := &net.OpError{Op: "dial", Net: "unix", Err: syscall.ENOENT}
+	host := "unix:///tmp/nonexistent-docker.sock"
+
+	details := buildLocalDockerUnavailableDetails(err, host)
+
+	assert.Contains(t, details, "not found")
+	assert.Contains(t, details, "/tmp/nonexistent-docker.sock")
+	assert.Contains(t, details, host)
+	assert.Contains(t, details, "Mount", "ENOENT path should include mount guidance")
+}
+
+func TestBuildLocalDockerUnavailableDetails_PermissionDeniedSocketGIDInGroups(t *testing.T) {
+	// Temp file GID = our primary GID (already in process groups) → no group hint
+	tmpDir := t.TempDir()
+	socketFile := filepath.Join(tmpDir, "docker.sock")
+	require.NoError(t, os.WriteFile(socketFile, []byte(""), 0o660))
+
+	host := "unix://" + socketFile
+	err := &net.OpError{Op: "dial", Net: "unix", Err: syscall.EACCES}
+	details := buildLocalDockerUnavailableDetails(err, host)
+
+	assert.Contains(t, details, "not accessible")
+	assert.Contains(t, details, "uid=")
+	assert.NotContains(t, details, "--group-add",
+		"group-add hint should not appear when socket GID is already in process groups")
+}
+
+func TestBuildLocalDockerUnavailableDetails_PermissionDeniedStatFails(t *testing.T) {
+	// EACCES with a socket path that doesn't exist → stat fails
+	err := &net.OpError{Op: "dial", Net: "unix", Err: syscall.EACCES}
+	details := buildLocalDockerUnavailableDetails(err, "unix:///tmp/nonexistent-stat-fail.sock")
+
+	assert.Contains(t, details, "not accessible")
+	assert.Contains(t, details, "could not be stat")
+}
+
+func TestBuildLocalDockerUnavailableDetails_ConnectionRefused(t *testing.T) {
+	err := &net.OpError{Op: "dial", Net: "unix", Err: syscall.ECONNREFUSED}
+	details := buildLocalDockerUnavailableDetails(err, "unix:///var/run/docker.sock")
+
+	assert.Contains(t, details, "not accepting connections")
+}
+
+func TestBuildLocalDockerUnavailableDetails_GenericError(t *testing.T) {
+	err := errors.New("some unknown docker error")
+	details := buildLocalDockerUnavailableDetails(err, "unix:///var/run/docker.sock")
+
+	assert.Contains(t, details, "Cannot connect")
+	assert.Contains(t, details, "uid=")
+	assert.Contains(t, details, "gid=")
+}
+
+// ===== Additional coverage for uncovered paths =====
+
+func TestDockerUnavailableError_NilDetails(t *testing.T) {
+	var nilErr *DockerUnavailableError
+	assert.Equal(t, "", nilErr.Details())
+}
+
+func TestExtractErrno_UrlErrorWrapping(t *testing.T) {
+	urlErr := &url.Error{Op: "dial", URL: "unix:///var/run/docker.sock", Err: syscall.EACCES}
+	errno, ok := extractErrno(urlErr)
+	assert.True(t, ok)
+	assert.Equal(t, syscall.EACCES, errno)
+}
+
+func TestExtractErrno_SyscallError(t *testing.T) {
+	scErr := &os.SyscallError{Syscall: "connect", Err: syscall.ECONNREFUSED}
+	errno, ok := extractErrno(scErr)
+	assert.True(t, ok)
+	assert.Equal(t, syscall.ECONNREFUSED, errno)
+}
+
+func TestExtractErrno_NilError(t *testing.T) {
+	_, ok := extractErrno(nil)
+	assert.False(t, ok)
+}
+
+func TestExtractErrno_NonSyscallError(t *testing.T) {
+	_, ok := extractErrno(errors.New("some generic error"))
+	assert.False(t, ok)
+}
+
+func TestExtractErrno_OpErrorWrapping(t *testing.T) {
+	opErr := &net.OpError{Op: "dial", Net: "unix", Err: syscall.EPERM}
+	errno, ok := extractErrno(opErr)
+	assert.True(t, ok)
+	assert.Equal(t, syscall.EPERM, errno)
+}
+
+func TestExtractErrno_NestedUrlSyscallOpError(t *testing.T) {
+	innerErr := &net.OpError{
+		Op:  "dial",
+		Net: "unix",
+		Err: &os.SyscallError{Syscall: "connect", Err: syscall.EACCES},
+	}
+	urlErr := &url.Error{Op: "Get", URL: "unix:///var/run/docker.sock", Err: innerErr}
+	errno, ok := extractErrno(urlErr)
+	assert.True(t, ok)
+	assert.Equal(t, syscall.EACCES, errno)
+}
+
+func TestSocketPathFromDockerHost(t *testing.T) {
+	tests := []struct {
+		name     string
+		host     string
+		expected string
+	}{
+		{"unix socket", "unix:///var/run/docker.sock", "/var/run/docker.sock"},
+		{"tcp host", "tcp://192.168.1.1:2375", ""},
+		{"empty", "", ""},
+		{"whitespace unix", " unix:///tmp/docker.sock ", "/tmp/docker.sock"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := socketPathFromDockerHost(tt.host)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestBuildLocalDockerUnavailableDetails_OsErrNotExist(t *testing.T) {
+	err := fmt.Errorf("wrapped: %w", os.ErrNotExist)
+	details := buildLocalDockerUnavailableDetails(err, "unix:///var/run/docker.sock")
+	assert.Contains(t, details, "not found")
+	assert.Contains(t, details, "/var/run/docker.sock")
+}
+
+func TestBuildLocalDockerUnavailableDetails_NonUnixHost(t *testing.T) {
+	err := errors.New("cannot connect")
+	details := buildLocalDockerUnavailableDetails(err, "tcp://192.168.1.1:2375")
+	assert.Contains(t, details, "Cannot connect")
+	assert.Contains(t, details, "tcp://192.168.1.1:2375")
+}
+
+func TestBuildLocalDockerUnavailableDetails_EPERMWithStatFail(t *testing.T) {
+	err := &net.OpError{Op: "dial", Net: "unix", Err: syscall.EPERM}
+	details := buildLocalDockerUnavailableDetails(err, "unix:///tmp/nonexistent-eperm.sock")
+	assert.Contains(t, details, "not accessible")
+	assert.Contains(t, details, "could not be stat")
 }

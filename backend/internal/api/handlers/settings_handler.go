@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +38,15 @@ type SettingsHandler struct {
 	DataRoot     string
 }
 
+const (
+	settingCaddyKeepaliveIdle     = "caddy.keepalive_idle"
+	settingCaddyKeepaliveCount    = "caddy.keepalive_count"
+	minCaddyKeepaliveIdleDuration = time.Second
+	maxCaddyKeepaliveIdleDuration = 24 * time.Hour
+	minCaddyKeepaliveCount        = 1
+	maxCaddyKeepaliveCount        = 100
+)
+
 func NewSettingsHandler(db *gorm.DB) *SettingsHandler {
 	return &SettingsHandler{
 		DB:          db,
@@ -65,12 +75,41 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 	}
 
 	// Convert to map for easier frontend consumption
-	settingsMap := make(map[string]string)
+	settingsMap := make(map[string]any)
 	for _, s := range settings {
+		if isSensitiveSettingKey(s.Key) {
+			hasSecret := strings.TrimSpace(s.Value) != ""
+			settingsMap[s.Key] = "********"
+			settingsMap[s.Key+".has_secret"] = hasSecret
+			settingsMap[s.Key+".last_updated"] = s.UpdatedAt.UTC().Format(time.RFC3339)
+			continue
+		}
+
 		settingsMap[s.Key] = s.Value
 	}
 
 	c.JSON(http.StatusOK, settingsMap)
+}
+
+func isSensitiveSettingKey(key string) bool {
+	normalizedKey := strings.ToLower(strings.TrimSpace(key))
+
+	sensitiveFragments := []string{
+		"password",
+		"secret",
+		"token",
+		"api_key",
+		"apikey",
+		"webhook",
+	}
+
+	for _, fragment := range sensitiveFragments {
+		if strings.Contains(normalizedKey, fragment) {
+			return true
+		}
+	}
+
+	return false
 }
 
 type UpdateSettingRequest struct {
@@ -107,6 +146,11 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid admin_whitelist: %v", err)})
 			return
 		}
+	}
+
+	if err := validateOptionalKeepaliveSetting(req.Key, req.Value); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
 	setting := models.Setting{
@@ -247,6 +291,10 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 				}
 			}
 
+			if err := validateOptionalKeepaliveSetting(key, value); err != nil {
+				return err
+			}
+
 			setting := models.Setting{
 				Key:      key,
 				Value:    value,
@@ -282,6 +330,10 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 		}
 		if errors.Is(err, services.ErrInvalidAdminCIDR) || strings.Contains(err.Error(), "invalid admin_whitelist") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid admin_whitelist"})
+			return
+		}
+		if strings.Contains(err.Error(), "invalid caddy.keepalive_idle") || strings.Contains(err.Error(), "invalid caddy.keepalive_count") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
@@ -401,6 +453,53 @@ func validateAdminWhitelist(whitelist string) error {
 	return nil
 }
 
+func validateOptionalKeepaliveSetting(key, value string) error {
+	switch key {
+	case settingCaddyKeepaliveIdle:
+		return validateKeepaliveIdleValue(value)
+	case settingCaddyKeepaliveCount:
+		return validateKeepaliveCountValue(value)
+	default:
+		return nil
+	}
+}
+
+func validateKeepaliveIdleValue(value string) error {
+	idle := strings.TrimSpace(value)
+	if idle == "" {
+		return nil
+	}
+
+	d, err := time.ParseDuration(idle)
+	if err != nil {
+		return fmt.Errorf("invalid caddy.keepalive_idle")
+	}
+
+	if d < minCaddyKeepaliveIdleDuration || d > maxCaddyKeepaliveIdleDuration {
+		return fmt.Errorf("invalid caddy.keepalive_idle")
+	}
+
+	return nil
+}
+
+func validateKeepaliveCountValue(value string) error {
+	raw := strings.TrimSpace(value)
+	if raw == "" {
+		return nil
+	}
+
+	count, err := strconv.Atoi(raw)
+	if err != nil {
+		return fmt.Errorf("invalid caddy.keepalive_count")
+	}
+
+	if count < minCaddyKeepaliveCount || count > maxCaddyKeepaliveCount {
+		return fmt.Errorf("invalid caddy.keepalive_count")
+	}
+
+	return nil
+}
+
 func (h *SettingsHandler) syncAdminWhitelist(whitelist string) error {
 	return h.syncAdminWhitelistWithDB(h.DB, whitelist)
 }
@@ -433,6 +532,10 @@ type SMTPConfigRequest struct {
 
 // GetSMTPConfig returns the current SMTP configuration.
 func (h *SettingsHandler) GetSMTPConfig(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	config, err := h.MailService.GetSMTPConfig()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch SMTP configuration"})

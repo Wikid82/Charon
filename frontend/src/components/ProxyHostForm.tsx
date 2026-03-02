@@ -101,9 +101,12 @@ interface ProxyHostFormProps {
   onCancel: () => void
 }
 
-export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) {
-  type ProxyHostFormState = Partial<ProxyHost> & { addUptime?: boolean; uptimeInterval?: number; uptimeMaxRetries?: number }
-  const [formData, setFormData] = useState<ProxyHostFormState>({
+function buildInitialFormData(host?: ProxyHost): Partial<ProxyHost> & {
+  addUptime?: boolean
+  uptimeInterval?: number
+  uptimeMaxRetries?: number
+} {
+  return {
     name: host?.name || '',
     domain_names: host?.domain_names || '',
     forward_scheme: host?.forward_scheme || 'http',
@@ -120,10 +123,143 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     advanced_config: host?.advanced_config || '',
     enabled: host?.enabled ?? true,
     certificate_id: host?.certificate_id,
-    access_list_id: host?.access_list_id,
-    security_header_profile_id: host?.security_header_profile_id,
+    access_list_id: host?.access_list?.uuid ?? host?.access_list_id,
+    security_header_profile_id: host?.security_header_profile?.uuid ?? host?.security_header_profile_id,
     dns_provider_id: host?.dns_provider_id || null,
-  })
+  }
+}
+
+function normalizeNullableID(value: unknown): number | null | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  if (value === null) {
+    return null
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (trimmed === '') {
+      return null
+    }
+
+    if (!/^\d+$/.test(trimmed)) {
+      return undefined
+    }
+
+    const parsed = Number.parseInt(trimmed, 10)
+    return Number.isNaN(parsed) ? undefined : parsed
+  }
+
+  return undefined
+}
+
+function normalizeAccessListReference(value: unknown): number | string | null | undefined {
+  const numericValue = normalizeNullableID(value)
+  if (numericValue !== undefined) {
+    return numericValue
+  }
+
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const trimmed = value.trim()
+  return trimmed === '' ? null : trimmed
+}
+
+function normalizeSecurityHeaderReference(value: unknown): number | string | null | undefined {
+  const numericValue = normalizeNullableID(value)
+  if (numericValue !== undefined) {
+    return numericValue
+  }
+
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const trimmed = value.trim()
+  return trimmed === '' ? null : trimmed
+}
+
+function resolveSelectToken(value: number | string | null | undefined): string {
+  if (value === null || value === undefined) {
+    return 'none'
+  }
+
+  if (typeof value === 'number') {
+    return `id:${value}`
+  }
+
+  const trimmed = value.trim()
+  if (trimmed === '') {
+    return 'none'
+  }
+
+  if (trimmed.startsWith('id:') || trimmed.startsWith('uuid:')) {
+    return trimmed
+  }
+
+  if (/^\d+$/.test(trimmed)) {
+    const parsed = Number.parseInt(trimmed, 10)
+    return `id:${parsed}`
+  }
+
+  return `uuid:${trimmed}`
+}
+
+function resolveTokenToFormValue(value: string): number | string | null {
+  if (value === 'none') {
+    return null
+  }
+
+  if (value.startsWith('id:')) {
+    const parsed = Number.parseInt(value.slice(3), 10)
+    return Number.isNaN(parsed) ? null : parsed
+  }
+
+  if (value.startsWith('uuid:')) {
+    return value.slice(5)
+  }
+
+  if (/^\d+$/.test(value)) {
+    const parsed = Number.parseInt(value, 10)
+    return Number.isNaN(parsed) ? value : parsed
+  }
+
+  return value
+}
+
+function getEntityToken(entity: { id?: number; uuid?: string }): string | null {
+  if (typeof entity.id === 'number' && Number.isFinite(entity.id)) {
+    return `id:${entity.id}`
+  }
+
+  if (entity.uuid) {
+    return `uuid:${entity.uuid}`
+  }
+
+  return null
+}
+
+export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) {
+  type ProxyHostFormState = Omit<Partial<ProxyHost>, 'access_list_id' | 'security_header_profile_id'> & {
+    access_list_id?: number | string | null
+    security_header_profile_id?: number | string | null
+    addUptime?: boolean
+    uptimeInterval?: number
+    uptimeMaxRetries?: number
+  }
+  const [formData, setFormData] = useState<ProxyHostFormState>(buildInitialFormData(host))
+
+  useEffect(() => {
+    setFormData(buildInitialFormData(host))
+  }, [host?.uuid])
 
   // Charon internal IP for config helpers (previously CPMP internal IP)
   const [charonInternalIP, setCharonInternalIP] = useState<string>('')
@@ -420,7 +556,14 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       // strip temporary uptime-only flags from payload by destructuring
       const { addUptime: _addUptime, uptimeInterval: _uptimeInterval, uptimeMaxRetries: _uptimeMaxRetries, ...payloadWithoutUptime } = payload as ProxyHostFormState
       void _addUptime; void _uptimeInterval; void _uptimeMaxRetries;
-      const res = await onSubmit(payloadWithoutUptime)
+
+      const submitPayload: Partial<ProxyHost> = {
+        ...payloadWithoutUptime,
+        access_list_id: normalizeAccessListReference(payloadWithoutUptime.access_list_id),
+        security_header_profile_id: normalizeSecurityHeaderReference(payloadWithoutUptime.security_header_profile_id),
+      }
+
+      const res = await onSubmit(submitPayload)
 
       // if user asked to add uptime, request server to sync monitors
       if (addUptime) {
@@ -508,15 +651,15 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       // Try to apply the preset logic (auto-populate or prompt)
       tryApplyPreset(detectedPreset)
 
-      setFormData({
-        ...formData,
+      setFormData(prev => ({
+        ...prev,
         forward_host: host,
         forward_port: port,
         forward_scheme: 'http',
         domain_names: newDomainNames,
         application: detectedPreset,
-        websocket_support: needsWebsockets || formData.websocket_support,
-      })
+        websocket_support: needsWebsockets || prev.websocket_support,
+      }))
     }
   }
 
@@ -651,7 +794,11 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                       </p>
                       <p className="text-gray-400">
                         <strong>Troubleshooting:</strong> Ensure Docker is running and the socket is accessible.
-                        If running in a container, mount <code className="text-xs bg-gray-800 px-1 py-0.5 rounded">/var/run/docker.sock</code>.
+                        If running in a container, mount <code className="text-xs bg-gray-800 px-1 py-0.5 rounded">/var/run/docker.sock</code> and
+                        ensure the container has access to the Docker socket group
+                        (e.g., <code className="text-xs bg-gray-800 px-1 py-0.5 rounded">group_add</code> in
+                        Compose or <code className="text-xs bg-gray-800 px-1 py-0.5 rounded">--group-add</code> with
+                        Docker&nbsp;CLI).
                       </p>
                     </div>
                   </div>
@@ -820,7 +967,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
           {/* Access Control List */}
           <AccessListSelector
-            value={formData.access_list_id || null}
+            value={formData.access_list_id ?? null}
             onChange={id => setFormData(prev => ({ ...prev, access_list_id: id }))}
           />
 
@@ -832,41 +979,58 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             </label>
 
             <Select
-              value={String(formData.security_header_profile_id || 0)}
-              onValueChange={e => {
-                const value = e === "0" ? null : parseInt(e) || null
-                setFormData(prev => ({ ...prev, security_header_profile_id: value }))
+              value={resolveSelectToken(formData.security_header_profile_id as number | string | null | undefined)}
+              onValueChange={(value) => {
+                setFormData(prev => ({
+                  ...prev,
+                  security_header_profile_id: resolveTokenToFormValue(value),
+                }))
               }}
             >
               <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Security Headers">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="0">None (No Security Headers)</SelectItem>
+                <SelectItem value="none">None (No Security Headers)</SelectItem>
                 {securityProfiles
                   ?.filter(p => p.is_preset)
                   .sort((a, b) => a.security_score - b.security_score)
-                  .map(profile => (
-                    <SelectItem key={profile.id} value={String(profile.id)}>
-                      {profile.name} (Score: {profile.security_score}/100)
-                    </SelectItem>
-                  ))}
+                  .map(profile => {
+                    const optionToken = getEntityToken(profile)
+                    if (!optionToken) {
+                      return null
+                    }
+
+                    return (
+                      <SelectItem key={optionToken} value={optionToken}>
+                        {profile.name} (Score: {profile.security_score}/100)
+                      </SelectItem>
+                    )
+                  })}
                 {(securityProfiles?.filter(p => !p.is_preset) || []).length > 0 && (
                   <>
                     {(securityProfiles || [])
                       .filter(p => !p.is_preset)
-                      .map(profile => (
-                        <SelectItem key={profile.id} value={String(profile.id)}>
-                          {profile.name} (Score: {profile.security_score}/100)
-                        </SelectItem>
-                      ))}
+                      .map(profile => {
+                        const optionToken = getEntityToken(profile)
+                        if (!optionToken) {
+                          return null
+                        }
+
+                        return (
+                          <SelectItem key={optionToken} value={optionToken}>
+                            {profile.name} (Score: {profile.security_score}/100)
+                          </SelectItem>
+                        )
+                      })}
                   </>
                 )}
               </SelectContent>
             </Select>
 
             {formData.security_header_profile_id && (() => {
-              const selected = securityProfiles?.find(p => p.id === formData.security_header_profile_id)
+              const selectedToken = resolveSelectToken(formData.security_header_profile_id)
+              const selected = securityProfiles?.find(p => getEntityToken(p) === selectedToken)
               if (!selected) return null
 
               return (
@@ -885,7 +1049,8 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
             {/* Mobile App Compatibility Warning for Strict/Paranoid profiles */}
             {formData.security_header_profile_id && (() => {
-              const selected = securityProfiles?.find(p => p.id === formData.security_header_profile_id)
+              const selectedToken = resolveSelectToken(formData.security_header_profile_id)
+              const selected = securityProfiles?.find(p => getEntityToken(p) === selectedToken)
               if (!selected) return null
 
               const isRestrictive = selected.preset_type === 'strict' || selected.preset_type === 'paranoid'

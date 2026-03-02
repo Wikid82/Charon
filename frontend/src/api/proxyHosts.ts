@@ -42,11 +42,17 @@ export interface ProxyHost {
   enabled: boolean;
   certificate_id?: number | null;
   certificate?: Certificate | null;
-  access_list_id?: number | null;
-  security_header_profile_id?: number | null;
+  access_list_id?: number | string | null;
+  access_list?: {
+    uuid: string;
+    name: string;
+    description: string;
+    type: string;
+  } | null;
+  security_header_profile_id?: number | string | null;
   dns_provider_id?: number | null;
   security_header_profile?: {
-    id: number;
+    id?: number;
     uuid: string;
     name: string;
     description: string;

@@ -231,6 +231,7 @@ func TestSendJSONPayload_Gotify(t *testing.T) {
 	provider := models.NotificationProvider{
 		Type:     "gotify",
 		URL:      server.URL,
+		Token:    "test-token",
 		Template: "custom",
 		Config:   `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}}`,
 	}
@@ -262,7 +263,7 @@ func TestSendJSONPayload_TemplateTimeout(t *testing.T) {
 		Type:     "discord",
 		URL:      "http://10.0.0.1:9999",
 		Template: "custom",
-		Config:   `{"data": {{toJSON .}}}`,
+		Config:   `{"content": {{toJSON .Message}}, "data": {{toJSON .}}}`,
 	}
 
 	// Create data that will be processed

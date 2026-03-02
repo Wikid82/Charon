@@ -24,6 +24,17 @@ func requireAdmin(c *gin.Context) bool {
 	return false
 }
 
+func requireAuthenticatedAdmin(c *gin.Context) bool {
+	if _, exists := c.Get("userID"); !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "Authorization header required",
+		})
+		return false
+	}
+
+	return requireAdmin(c)
+}
+
 func isAdmin(c *gin.Context) bool {
 	role, _ := c.Get("role")
 	roleStr, _ := role.(string)

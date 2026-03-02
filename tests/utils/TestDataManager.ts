@@ -31,6 +31,38 @@
 import { APIRequestContext, type APIResponse, request as playwrightRequest } from '@playwright/test';
 import * as crypto from 'crypto';
 
+const SQLITE_FULL_PATTERN = {
+  fullText: 'database or disk is full',
+  sqliteCode: 'sqlite_full',
+  errno13: '(13)',
+} as const;
+
+let sqliteInfraFailureMessage: string | null = null;
+
+function isSqliteFullFailure(message: string): boolean {
+  const normalized = message.toLowerCase();
+  const hasDbFullText = normalized.includes(SQLITE_FULL_PATTERN.fullText);
+  const hasSqliteCode = normalized.includes(SQLITE_FULL_PATTERN.sqliteCode);
+  const hasErrno13InSqliteContext =
+    normalized.includes(SQLITE_FULL_PATTERN.errno13) && normalized.includes('sqlite');
+  return hasDbFullText || hasSqliteCode || hasErrno13InSqliteContext;
+}
+
+function buildSqliteFullInfrastructureError(context: string, details: string): Error {
+  const error = new Error(
+    `[INFRASTRUCTURE][SQLITE_FULL] ${context}\n` +
+    `Detected SQLite storage exhaustion while running Playwright test setup.\n` +
+    `Root cause indicators matched: \"database or disk is full\" | \"SQLITE_FULL\" | \"(13)\" in SQLite context.\n` +
+    `Action required:\n` +
+    `1. Free disk space on the test runner and ensure the SQLite volume is writable.\n` +
+    `2. Rebuild/restart the E2E test container to reset state.\n` +
+    `3. Re-run the failed shard after infrastructure recovery.\n` +
+    `Original error: ${details}`
+  );
+  error.name = 'InfrastructureSQLiteFullError';
+  return error;
+}
+
 /**
  * Represents a managed resource created during tests
  */
@@ -163,18 +195,34 @@ export class TestDataManager {
   private namespace: string;
   private request: APIRequestContext;
   private baseURLPromise: Promise<string> | null = null;
+  private authBearerToken: string | null;
 
   /**
    * Creates a new TestDataManager instance
    * @param request - Playwright API request context
    * @param testName - Optional test name for namespace generation
    */
-  constructor(request: APIRequestContext, testName?: string) {
+  constructor(request: APIRequestContext, testName?: string, authBearerToken?: string) {
     this.request = request;
+    this.authBearerToken = authBearerToken ?? null;
     // Create unique namespace per test to avoid conflicts
     this.namespace = testName
       ? `test-${this.sanitize(testName)}-${Date.now()}`
       : `test-${crypto.randomUUID()}`;
+  }
+
+  private buildRequestHeaders(
+    extra: Record<string, string> = {}
+  ): Record<string, string> | undefined {
+    const headers = {
+      ...extra,
+    };
+
+    if (this.authBearerToken) {
+      headers.Authorization = `Bearer ${this.authBearerToken}`;
+    }
+
+    return Object.keys(headers).length > 0 ? headers : undefined;
   }
 
   private async getBaseURL(): Promise<string> {
@@ -230,7 +278,10 @@ export class TestDataManager {
     const retryStatuses = options.retryStatuses ?? [429];
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      const response = await this.request.post(url, { data });
+      const response = await this.request.post(url, {
+        data,
+        headers: this.buildRequestHeaders(),
+      });
       if (!retryStatuses.includes(response.status()) || attempt === maxAttempts) {
         return response;
       }
@@ -244,7 +295,10 @@ export class TestDataManager {
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
     }
 
-    return this.request.post(url, { data });
+    return this.request.post(url, {
+      data,
+      headers: this.buildRequestHeaders(),
+    });
   }
 
   private async deleteWithRetry(
@@ -260,7 +314,9 @@ export class TestDataManager {
     const retryStatuses = options.retryStatuses ?? [429];
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      const response = await this.request.delete(url);
+      const response = await this.request.delete(url, {
+        headers: this.buildRequestHeaders(),
+      });
       if (!retryStatuses.includes(response.status()) || attempt === maxAttempts) {
         return response;
       }
@@ -274,7 +330,9 @@ export class TestDataManager {
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
     }
 
-    return this.request.delete(url);
+    return this.request.delete(url, {
+      headers: this.buildRequestHeaders(),
+    });
   }
 
   /**
@@ -307,6 +365,7 @@ export class TestDataManager {
       const response = await this.request.post('/api/v1/proxy-hosts', {
         data: payload,
         timeout: 30000, // 30s timeout
+        headers: this.buildRequestHeaders(),
       });
 
       if (!response.ok()) {
@@ -396,6 +455,7 @@ export class TestDataManager {
 
     const response = await this.request.post('/api/v1/certificates', {
       data: namespaced,
+      headers: this.buildRequestHeaders(),
     });
 
     if (!response.ok()) {
@@ -441,6 +501,7 @@ export class TestDataManager {
 
     const response = await this.request.post('/api/v1/dns-providers', {
       data: payload,
+      headers: this.buildRequestHeaders(),
     });
 
     if (!response.ok()) {
@@ -475,6 +536,10 @@ export class TestDataManager {
     data: UserData,
     options: { useNamespace?: boolean } = {}
   ): Promise<UserResult> {
+    if (sqliteInfraFailureMessage) {
+      throw new Error(sqliteInfraFailureMessage);
+    }
+
     const useNamespace = options.useNamespace !== false;
     const namespacedEmail = useNamespace ? `${this.namespace}+${data.email}` : data.email;
     const namespaced = {
@@ -484,14 +549,37 @@ export class TestDataManager {
       role: data.role,
     };
 
-    const response = await this.postWithRetry('/api/v1/users', namespaced, {
-      maxAttempts: 4,
-      baseDelayMs: 300,
-      retryStatuses: [429],
-    });
+    let response: APIResponse;
+    try {
+      response = await this.postWithRetry('/api/v1/users', namespaced, {
+        maxAttempts: 4,
+        baseDelayMs: 300,
+        retryStatuses: [429],
+      });
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      if (isSqliteFullFailure(rawMessage)) {
+        const infraError = buildSqliteFullInfrastructureError(
+          'Failed to create user in TestDataManager.createUser()',
+          rawMessage
+        );
+        sqliteInfraFailureMessage = infraError.message;
+        throw infraError;
+      }
+      throw error;
+    }
 
     if (!response.ok()) {
-      throw new Error(`Failed to create user: ${await response.text()}`);
+      const responseText = await response.text();
+      if (isSqliteFullFailure(responseText)) {
+        const infraError = buildSqliteFullInfrastructureError(
+          'Failed to create user in TestDataManager.createUser()',
+          responseText
+        );
+        sqliteInfraFailureMessage = infraError.message;
+        throw infraError;
+      }
+      throw new Error(`Failed to create user: ${responseText}`);
     }
 
     const result = await response.json();

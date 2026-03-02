@@ -423,7 +423,9 @@
     "triggerCheck": "触发即时健康检查",
     "healthCheckTriggered": "健康检查已触发",
     "monitorDeleted": "监控器已删除",
-    "deleteConfirm": "删除此监控器？此操作无法撤销。"
+    "deleteConfirm": "删除此监控器？此操作无法撤销。",
+    "pending": "检查中...",
+    "pendingFirstCheck": "等待首次检查..."
   },
   "domains": {
     "title": "域名",
@@ -768,6 +770,13 @@
       "newTab": "新标签页（默认）",
       "newWindow": "新窗口",
       "domainLinkBehaviorHelper": "控制代理主机列表中的域名链接如何打开。",
+      "keepaliveIdle": "Keepalive Idle（可选）",
+      "keepaliveIdleHelper": "可选的 Caddy 时长（例如 2m、30s）。留空可使用后端默认值。",
+      "keepaliveIdleError": "请输入有效时长（例如：30s、2m、1h）。",
+      "keepaliveCount": "Keepalive Count（可选）",
+      "keepaliveCountHelper": "可选的 keepalive 最大探测次数（1-1000）。留空可使用后端默认值。",
+      "keepaliveCountError": "请输入 1 到 1000 之间的整数。",
+      "keepaliveValidationFailed": "keepalive 设置包含无效值。",
       "languageHelper": "选择您的首选语言。更改立即生效。"
     },
     "applicationUrl": {

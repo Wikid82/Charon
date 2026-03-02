@@ -60,8 +60,8 @@ func TestDiscordOnly_DispatchToProviderAcceptsDiscord(t *testing.T) {
 
 		// Verify payload structure
 		var payload models.SecurityEvent
-		err := json.NewDecoder(r.Body).Decode(&payload)
-		assert.NoError(t, err)
+		decodeErr := json.NewDecoder(r.Body).Decode(&payload)
+		assert.NoError(t, decodeErr)
 		assert.Equal(t, "waf_block", payload.EventType)
 
 		w.WriteHeader(http.StatusOK)

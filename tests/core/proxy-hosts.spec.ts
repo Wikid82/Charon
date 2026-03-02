@@ -36,6 +36,34 @@ async function dismissDomainDialog(page: Page): Promise<void> {
   }
 }
 
+async function ensureEditableProxyHost(
+  page: Page,
+  testData: {
+    createProxyHost: (data: {
+      domain: string;
+      forwardHost: string;
+      forwardPort: number;
+      name?: string;
+    }) => Promise<unknown>;
+  }
+): Promise<void> {
+  const rows = page.locator('tbody tr');
+  if (await rows.count() === 0) {
+    await testData.createProxyHost({
+      name: `Editable Host ${Date.now()}`,
+      domain: `editable-${Date.now()}.example.test`,
+      forwardHost: '127.0.0.1',
+      forwardPort: 8080,
+    });
+
+    await page.goto('/proxy-hosts');
+    await waitForLoadingComplete(page);
+
+    const skeleton = page.locator('.animate-pulse');
+    await expect(skeleton).toHaveCount(0, { timeout: 10000 });
+  }
+}
+
 test.describe('Proxy Hosts - CRUD Operations', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
@@ -246,10 +274,9 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
       });
 
       await test.step('Enter invalid domain', async () => {
-        const domainInput = page.locator('#domain-names').or(page.getByLabel(/domain/i));
-        await domainInput.first().fill('not a valid domain!');
-
-        // Tab away to trigger validation
+        const domainCombobox = page.locator('#domain-names');
+        await domainCombobox.click();
+        await page.keyboard.type('not a valid domain!');
         await page.keyboard.press('Tab');
       });
 
@@ -305,9 +332,11 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         const nameInput = page.locator('#proxy-name');
         await nameInput.fill(`Test Host ${Date.now()}`);
 
-        // Domain
-        const domainInput = page.locator('#domain-names');
-        await domainInput.fill(hostConfig.domain);
+        // Domain (combobox component)
+        const domainCombobox = page.locator('#domain-names');
+        await domainCombobox.click();
+        await page.keyboard.type(hostConfig.domain);
+        await page.keyboard.press('Tab');
 
         // Dismiss the "New Base Domain Detected" dialog if it appears after domain input
         await dismissDomainDialog(page);
@@ -400,7 +429,9 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
       await test.step('Fill in fields with SSL options', async () => {
         await page.locator('#proxy-name').fill(`SSL Test ${Date.now()}`);
-        await page.locator('#domain-names').fill(hostConfig.domain);
+        await page.locator('#domain-names').click();
+        await page.keyboard.type(hostConfig.domain);
+        await page.keyboard.press('Tab');
         await page.locator('#forward-host').fill(hostConfig.forwardHost);
         await page.locator('#forward-port').clear();
         await page.locator('#forward-port').fill(String(hostConfig.forwardPort));
@@ -448,7 +479,9 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
       await test.step('Fill form with WebSocket enabled', async () => {
         await page.locator('#proxy-name').fill(`WS Test ${Date.now()}`);
-        await page.locator('#domain-names').fill(hostConfig.domain);
+        await page.locator('#domain-names').click();
+        await page.keyboard.type(hostConfig.domain);
+        await page.keyboard.press('Tab');
         await page.locator('#forward-host').fill(hostConfig.forwardHost);
         await page.locator('#forward-port').clear();
         await page.locator('#forward-port').fill(String(hostConfig.forwardPort));
@@ -538,8 +571,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         await expect(testButton).toBeVisible();
 
         // Button should be disabled initially (no host/port entered)
-        const isDisabled = await testButton.isDisabled();
-        expect(isDisabled).toBe(true);
+        await expect(testButton).toBeDisabled();
       });
 
       await test.step('Enter host details and check button becomes enabled', async () => {
@@ -547,8 +579,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         await page.locator('#forward-port').fill('80');
 
         const testButton = page.getByRole('button', { name: /test.*connection/i });
-        const isDisabled = await testButton.isDisabled();
-        expect(isDisabled).toBe(false);
+        await expect(testButton).toBeEnabled();
       });
 
       await test.step('Close form', async () => {
@@ -637,27 +668,30 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
   });
 
   test.describe('Update Proxy Host', () => {
-    test('should open edit modal with existing values', async ({ page }) => {
+    test.describe.configure({ mode: 'serial' });
+
+    test('should open edit modal with existing values', async ({ page, testData }) => {
       await test.step('Find and click Edit button', async () => {
-        const editButtons = page.getByRole('button', { name: /edit/i });
-        const editCount = await editButtons.count();
+        await ensureEditableProxyHost(page, testData);
 
-        if (editCount > 0) {
-          await editButtons.first().click();
-          await expect(page.getByRole('dialog')).toBeVisible(); // Wait for edit modal to open
+        const firstRow = page.locator('tbody tr').first();
+        await expect(firstRow).toBeVisible();
 
-          // Verify form opens with "Edit" title
-          const formTitle = page.getByRole('heading', { name: /edit.*proxy.*host/i });
-          await expect(formTitle).toBeVisible({ timeout: 5000 });
+        const editButton = firstRow
+          .getByRole('button', { name: /edit proxy host|edit/i })
+          .first();
+        await expect(editButton).toBeVisible();
+        await editButton.click();
+        await expect(page.getByRole('dialog')).toBeVisible();
 
-          // Verifyfields are populated
-          const nameInput = page.locator('#proxy-name');
-          const nameValue = await nameInput.inputValue();
-          expect(nameValue.length >= 0).toBeTruthy();
+        const formTitle = page.getByRole('heading', { name: /edit.*proxy.*host/i });
+        await expect(formTitle).toBeVisible({ timeout: 5000 });
 
-          // Close form
-          await page.getByRole('button', { name: /cancel/i }).click();
-        }
+        const nameInput = page.locator('#proxy-name');
+        const nameValue = await nameInput.inputValue();
+        expect(nameValue.length >= 0).toBeTruthy();
+
+        await page.getByRole('button', { name: /cancel/i }).click();
       });
     });
 
@@ -671,15 +705,20 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
           await expect(page.getByRole('dialog')).toBeVisible(); // Wait for edit modal to open
 
           const domainInput = page.locator('#domain-names');
-          const originalDomain = await domainInput.inputValue();
 
-          // Append a test suffix
+          // Clear existing domain and type new one (combobox component)
           const newDomain = `test-${Date.now()}.example.com`;
-          await domainInput.clear();
-          await domainInput.fill(newDomain);
+          await domainInput.click();
+          await page.keyboard.press('Control+a');
+          await page.keyboard.press('Backspace');
+          await page.keyboard.type(newDomain);
+          await page.keyboard.press('Tab');
 
-          // Save
-          await page.getByRole('button', { name: /save/i }).click();
+          // Dismiss the "New Base Domain Detected" dialog if it appears
+          await dismissDomainDialog(page);
+
+          // Save — use specific selector to avoid strict mode violation with domain dialog buttons
+          await page.getByTestId('proxy-host-save').or(page.getByRole('button', { name: /^save$/i })).first().click();
           await waitForLoadingComplete(page);
 
           // Verify update (check for new domain or revert)
@@ -715,32 +754,32 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
       });
     });
 
-    test('should update forward host and port', async ({ page }) => {
+    test('should update forward host and port', async ({ page, testData }) => {
       await test.step('Edit forward settings', async () => {
-        const editButtons = page.getByRole('button', { name: /edit/i });
-        const editCount = await editButtons.count();
+        await ensureEditableProxyHost(page, testData);
 
-        if (editCount > 0) {
-          await editButtons.first().click();
-          await expect(page.getByRole('dialog')).toBeVisible(); // Wait for edit modal to open
+        const firstRow = page.locator('tbody tr').first();
+        await expect(firstRow).toBeVisible();
 
-          // Update forward host
-          const forwardHostInput = page.locator('#forward-host');
-          await forwardHostInput.clear();
-          await forwardHostInput.fill('192.168.1.200');
+        const editButton = firstRow
+          .getByRole('button', { name: /edit proxy host|edit/i })
+          .first();
+        await expect(editButton).toBeVisible();
+        await editButton.click();
+        await expect(page.getByRole('dialog')).toBeVisible();
 
-          // Update forward port
-          const forwardPortInput = page.locator('#forward-port');
-          await forwardPortInput.clear();
-          await forwardPortInput.fill('9000');
+        const forwardHostInput = page.locator('#forward-host');
+        await forwardHostInput.clear();
+        await forwardHostInput.fill('192.168.1.200');
 
-          // Verify values
-          expect(await forwardHostInput.inputValue()).toBe('192.168.1.200');
-          expect(await forwardPortInput.inputValue()).toBe('9000');
+        const forwardPortInput = page.locator('#forward-port');
+        await forwardPortInput.clear();
+        await forwardPortInput.fill('9000');
 
-          // Cancel without saving
-          await page.getByRole('button', { name: /cancel/i }).click();
-        }
+        expect(await forwardHostInput.inputValue()).toBe('192.168.1.200');
+        expect(await forwardPortInput.inputValue()).toBe('9000');
+
+        await page.getByRole('button', { name: /cancel/i }).click();
       });
     });
 
@@ -957,8 +996,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         const nameInput = page.locator('#proxy-name');
         const label = page.locator('label[for="proxy-name"]');
 
-        const hasLabel = await label.isVisible().catch(() => false);
-        expect(hasLabel).toBeTruthy();
+        await expect(label).toBeVisible();
 
         // Close form
         await page.getByRole('button', { name: /cancel/i }).click();
