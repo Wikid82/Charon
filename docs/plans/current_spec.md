@@ -1,270 +1,362 @@
-# ACL + Security Headers Hotfix Plan (Proxy Host Create/Edit)
+# Uptime Monitoring Regression Investigation (Scheduled vs Manual)
 
-## 1. Introduction
+Date: 2026-03-01
+Owner: Planning Agent
+Status: Investigation Complete, Fix Plan Proposed
+Severity: High (false DOWN states on automated monitoring)
 
-### Overview
-Hotfix request: Proxy Host form dropdown selections for Access Control List (ACL) and Security Headers are not being applied/persisted for new or edited hosts.
+## 1. Executive Summary
 
-Reported behavior:
-1. Existing hosts with previously assigned ACL/Security Header profile retain old values.
-2. Users cannot reliably remove or change those values in UI.
-3. Newly created hosts cannot reliably apply ACL/Security Header profile.
+Two services (Wizarr and Charon) can flip to `DOWN` during scheduled cycles while manual checks immediately return `UP` because scheduled checks use a host-level TCP gate that can short-circuit monitor-level HTTP checks.
 
-### Objective
-Deliver an urgent but correct root-cause fix across frontend binding and backend persistence flow, with minimum user interruption and full validation gates.
+The scheduled path is:
+- `ticker -> CheckAll -> checkAllHosts -> (host status down) -> markHostMonitorsDown`
 
-## 2. Research Findings (Current Architecture + Touchpoints)
+The manual path is:
+- `POST /api/v1/uptime/monitors/:id/check -> CheckMonitor -> checkMonitor`
 
-### Frontend Entry Points
-1. `frontend/src/pages/ProxyHosts.tsx`
-   - `handleSubmit(data)` calls `updateHost(editingHost.uuid, data)` or `createHost(data)`.
-   - Renders `ProxyHostForm` modal for create/edit flows.
-2. `frontend/src/components/ProxyHostForm.tsx`
-   - Local form state initializes `access_list_id` and `security_header_profile_id`.
-   - ACL control uses `AccessListSelector`.
-   - Security Headers control uses `Select` with `security_header_profile_id` mapping.
-   - Submission path: `handleSubmit` -> `onSubmit(payloadWithoutUptime)`.
-3. `frontend/src/components/AccessListSelector.tsx`
-   - Converts select values between `string` and `number | null`.
+Only the scheduled path runs host precheck gating. If host precheck fails (TCP to upstream host/port), `CheckAll` skips HTTP checks and forcibly writes monitor status to `down` with heartbeat message `Host unreachable`.
 
-### Frontend API/Hooks
-1. `frontend/src/hooks/useProxyHosts.ts`
-   - `createHost` -> `createProxyHost`.
-   - `updateHost` -> `updateProxyHost`.
-2. `frontend/src/api/proxyHosts.ts`
-   - `createProxyHost(host: Partial<ProxyHost>)` -> `POST /api/v1/proxy-hosts`.
-   - `updateProxyHost(uuid, host)` -> `PUT /api/v1/proxy-hosts/:uuid`.
-   - Contract fields: `access_list_id`, `security_header_profile_id`.
+This is a backend state mutation problem (not only UI rendering).
 
-### Backend Entry/Transformation/Persistence
-1. Route registration
-   - `backend/internal/api/routes/routes.go`: `proxyHostHandler.RegisterRoutes(protected)`.
-2. Handler
-   - `backend/internal/api/handlers/proxy_host_handler.go`
-   - `Create(c)` uses `ShouldBindJSON(&models.ProxyHost{})`.
-   - `Update(c)` uses `map[string]any` partial update parsing.
-   - Target fields:
-     - `payload["access_list_id"]` -> `parseNullableUintField` -> `host.AccessListID`
-     - `payload["security_header_profile_id"]` -> typed conversion -> `host.SecurityHeaderProfileID`
-3. Service
-   - `backend/internal/services/proxyhost_service.go`
-   - `Create(host)` validates + `db.Create(host)`.
-   - `Update(host)` validates + `db.Model(...).Select("*").Updates(host)`.
-4. Model
-   - `backend/internal/models/proxy_host.go`
-   - `AccessListID *uint \`json:"access_list_id"\``
-   - `SecurityHeaderProfileID *uint \`json:"security_header_profile_id"\``
+## 1.1 Monitoring Policy (Authoritative Behavior)
 
-### Existing Tests Relevant to Incident
-1. Frontend unit regression coverage already exists:
-   - `frontend/src/components/__tests__/ProxyHostForm-dropdown-changes.test.tsx`
-2. E2E regression spec exists:
-   - `tests/security-enforcement/acl-dropdown-regression.spec.ts`
-3. Backend update and security-header tests exist:
-   - `backend/internal/api/handlers/proxy_host_handler_update_test.go`
-   - `backend/internal/api/handlers/proxy_host_handler_security_headers_test.go`
+Charon uptime monitoring SHALL follow URL-truth semantics for HTTP/HTTPS monitors,
+matching third-party external monitor behavior (Uptime Kuma style) without requiring
+any additional service.
 
-## 3. Root-Cause-First Trace
+Policy:
+- HTTP/HTTPS monitors are URL-truth based. The monitor result is authoritative based
+  on the configured URL check outcome (status code/timeout/TLS/connectivity from URL
+  perspective).
+- Internal TCP reachability precheck (`ForwardHost:ForwardPort`) is
+  non-authoritative for HTTP/HTTPS monitor status.
+- TCP monitors remain endpoint-socket checks and may rely on direct socket
+  reachability semantics.
+- Host precheck may still be used for optimization, grouping telemetry, and operator
+  diagnostics, but SHALL NOT force HTTP/HTTPS monitors to DOWN.
 
-### Trace Model (Mandatory)
-1. Entry Point:
-   - UI dropdown interactions in `ProxyHostForm` and `AccessListSelector`.
-2. Transformation:
-   - Form state conversion (`string` <-> `number | null`) and payload construction in `ProxyHostForm`.
-   - API serialization via `frontend/src/api/proxyHosts.ts`.
-3. Persistence:
-   - Backend `Update` parser (`proxy_host_handler.go`) and `ProxyHostService.Update` persistence.
-4. Exit Point:
-   - Response body consumed by React Query invalidation/refetch in `useProxyHosts`.
-   - UI reflects updated values in table/form.
+## 2. Research Findings
 
-### Most Likely Failure Zones
-1. Frontend select binding/conversion drift (top candidate)
-   - Shared symptom across ACL and Security Headers points to form/select layer.
-   - Candidate files:
-     - `frontend/src/components/ProxyHostForm.tsx`
-     - `frontend/src/components/AccessListSelector.tsx`
-     - `frontend/src/components/ui/Select.tsx`
-2. Payload mutation or stale form object behavior
-   - Ensure payload carries updated `access_list_id` / `security_header_profile_id` values at submit time.
-3. Backend partial-update parser edge behavior
-   - Ensure `nil`, numeric string, and number conversions are consistent between ACL and security header profile paths.
+### 2.1 Execution Path Comparison (Required)
 
-### Investigation Decision
-Root-cause verification will be instrumented through failing-first Playwright scenario and targeted handler tests before applying code changes.
+### Scheduled path behavior
+- Entry: `backend/internal/api/routes/routes.go` (background ticker, calls `uptimeService.CheckAll()`)
+- `CheckAll()` calls `checkAllHosts()` first.
+  - File: `backend/internal/services/uptime_service.go:354`
+- `checkAllHosts()` updates each `UptimeHost.Status` via TCP checks in `checkHost()`.
+  - File: `backend/internal/services/uptime_service.go:395`
+- `checkHost()` dials `UptimeHost.Host` + monitor port (prefer `ProxyHost.ForwardPort`, fallback to URL port).
+  - File: `backend/internal/services/uptime_service.go:437`
+- Back in `CheckAll()`, monitors are grouped by `UptimeHostID`.
+  - File: `backend/internal/services/uptime_service.go:367`
+- If `UptimeHost.Status == "down"`, `markHostMonitorsDown()` is called and individual monitor checks are skipped.
+  - File: `backend/internal/services/uptime_service.go:381`
+  - File: `backend/internal/services/uptime_service.go:593`
 
-## 4. EARS Requirements
+### Manual path behavior
+- Entry: `POST /api/v1/uptime/monitors/:id/check`.
+  - Handler: `backend/internal/api/handlers/uptime_handler.go:107`
+- Calls `service.CheckMonitor(*monitor)` asynchronously.
+  - File: `backend/internal/services/uptime_service.go:707`
+- `checkMonitor()` performs direct HTTP/TCP monitor check and updates monitor + heartbeat.
+  - File: `backend/internal/services/uptime_service.go:711`
 
-1. WHEN a user selects an ACL in the Proxy Host create/edit form, THE SYSTEM SHALL persist `access_list_id` and return it in API response.
-2. WHEN a user changes ACL from one value to another, THE SYSTEM SHALL replace prior `access_list_id` with the new value.
-3. WHEN a user selects "No Access Control", THE SYSTEM SHALL persist `access_list_id = null`.
-4. WHEN a user selects a Security Headers profile in the Proxy Host create/edit form, THE SYSTEM SHALL persist `security_header_profile_id` and return it in API response.
-5. WHEN a user changes Security Headers profile from one value to another, THE SYSTEM SHALL replace prior `security_header_profile_id` with the new value.
-6. WHEN a user selects "None" for Security Headers, THE SYSTEM SHALL persist `security_header_profile_id = null`.
-7. IF dropdown interaction fails to update internal form state, THEN THE SYSTEM SHALL prevent stale values from being persisted.
-8. WHILE updating Proxy Host settings, THE SYSTEM SHALL maintain existing behavior for unrelated fields and not regress certificate, DNS challenge, or uptime-linked updates.
+### Key divergence
+- Scheduled: host-gated (precheck can override monitor)
+- Manual: direct monitor check (no host gate)
 
-Note: User-visible blocking error behavior is deferred unless required by confirmed root cause.
+## 3. Root Cause With Evidence
 
-## 5. Technical Specification (Hotfix Scope)
+## 3.1 Primary Root Cause: Host Precheck Overrides HTTP Success in Scheduled Cycles
 
-### API Contract (No Breaking Change)
-1. `POST /api/v1/proxy-hosts`
-   - Request fields include `access_list_id`, `security_header_profile_id` as nullable numeric fields.
-2. `PUT /api/v1/proxy-hosts/:uuid`
-   - Partial payload accepts nullable updates for both fields.
-3. Response must echo persisted values in snake_case:
-   - `access_list_id`
-   - `security_header_profile_id`
+When `UptimeHost` is marked `down`, scheduled checks do not run `checkMonitor()` for that host's monitors. Instead they call `markHostMonitorsDown()` which:
+- sets each monitor `Status = "down"`
+- writes `UptimeHeartbeat{Status: "down", Message: "Host unreachable"}`
+- maxes failure count (`FailureCount = MaxRetries`)
 
-### Data Model/DB
-No schema migration expected. Existing nullable FK fields in `backend/internal/models/proxy_host.go` are sufficient.
+Evidence:
+- Short-circuit: `backend/internal/services/uptime_service.go:381`
+- Forced down write: `backend/internal/services/uptime_service.go:610`
+- Forced heartbeat message: `backend/internal/services/uptime_service.go:624`
 
-### Targeted Code Areas for Fix
-1. Frontend
-   - `frontend/src/components/ProxyHostForm.tsx`
-   - `frontend/src/components/AccessListSelector.tsx`
-   - `frontend/src/components/ui/Select.tsx` (only if click/select propagation issue confirmed)
-   - `frontend/src/api/proxyHosts.ts` (only if serialization issue confirmed)
-2. Backend
-   - `backend/internal/api/handlers/proxy_host_handler.go` (only if parsing/persistence mismatch confirmed)
-   - `backend/internal/services/proxyhost_service.go` (only if update write path proves incorrect)
+This exactly matches symptom pattern:
+1. Manual refresh sets monitor `UP` via direct HTTP check.
+2. Next scheduler cycle can force it back to `DOWN` from host precheck path.
 
-## 6. Edge Cases
+## 3.2 Hypothesis Check: TCP precheck can fail while public URL HTTP check succeeds
 
-1. Edit host with existing ACL/profile and switch to another value.
-2. Edit host with existing ACL/profile and clear to null.
-3. Create new host with ACL/profile set before first save.
-4. Submit with stringified numeric values (defensive compatibility).
-5. Submit with null values for both fields simultaneously.
-6. Missing/deleted profile or ACL IDs in backend (validation errors).
-7. Multiple rapid dropdown changes before save (last selection wins).
+Confirmed as plausible by design:
+- `checkHost()` tests upstream reachability (`ForwardHost:ForwardPort`) from Charon runtime.
+- `checkMonitor()` tests monitor URL (public domain URL, often via Caddy/public routing).
 
-## 7. Risk Analysis
+A service can be publicly reachable by monitor URL while upstream TCP precheck fails due to network namespace/routing/DNS/hairpin differences.
 
-### High Risk
-1. Silent stale-state submission from form controls.
-2. Regressing other Proxy Host settings due to broad payload mutation.
+This is especially likely for:
+- self-referential routes (Charon monitoring Charon via public hostname)
+- host/container networking asymmetry
+- services reachable through proxy path but not directly on upstream socket from current runtime context
 
-### Medium Risk
-1. Partial-update parser divergence between ACL and security profile behavior.
-2. UI select portal/z-index interaction causing non-deterministic click handling.
+## 3.3 Recent Change Correlation (Required)
 
-### Mitigations
-1. Reproduce with Playwright first and capture exact failing action path.
-2. Add/strengthen focused frontend tests around create/edit/clear flows.
-3. Add/strengthen backend tests for nullable + conversion paths.
-4. Keep hotfix minimal and avoid unrelated refactors.
+### `SyncAndCheckForHost` (regression amplifier)
+- Introduced in commit `2cd19d89` and called from proxy host create path.
+- Files:
+  - `backend/internal/services/uptime_service.go:1195`
+  - `backend/internal/api/handlers/proxy_host_handler.go:418`
+- Behavior: creates/syncs monitor and immediately runs `checkMonitor()`.
 
-## 8. Implementation Plan (Urgent, Minimal Interruption)
+Impact: makes monitors quickly show `UP` after create/manual, then scheduler can flip to `DOWN` if host precheck fails. This increased visibility of scheduled/manual inconsistency.
 
-### Phase 1: Reproduction + Guardrails (Playwright First)
-1. Execute targeted E2E spec for dropdown flow and create/edit persistence behavior.
-2. Capture exact failure step and confirm whether failure is click binding, payload value, or backend persistence.
-3. Add/adjust failing-first test if current suite does not capture observed production regression.
+### `CleanupStaleFailureCounts`
+- Introduced in `2cd19d89`, refined in `7a12ab79`.
+- File: `backend/internal/services/uptime_service.go:1277`
+- It runs at startup and resets stale monitor states only; not per-cycle override logic.
+- Not root cause of recurring per-cycle flip.
 
-### Phase 2: Frontend Fix
-1. Patch select binding/state mapping for ACL and Security Headers in `ProxyHostForm`/`AccessListSelector`.
-2. If needed, patch `ui/Select` interaction layering.
-3. Ensure payload contains correct final `access_list_id` and `security_header_profile_id` values at submit.
-4. Extend `ProxyHostForm` tests for create/edit/change/remove flows.
+### Frontend effective status changes
+- Latest commit `0241de69` refactors `effectiveStatus` handling.
+- File: `frontend/src/pages/Uptime.tsx`.
+- Backend evidence proves this is not visual-only: scheduler writes `down` heartbeats/messages directly in DB.
 
-### Phase 3: Backend Hardening (Conditional)
-1. Only if frontend payload is correct but persistence is wrong:
-   - Backend fix MUST use field-scoped partial-update semantics for `access_list_id` and `security_header_profile_id` only (unless separately justified).
-   - Ensure write path persists null transitions reliably.
-2. Add/adjust handler/service regression tests proving no unintended mutation of unrelated proxy host fields during these targeted updates.
+## 3.4 Grouping Logic Analysis (`UptimeHost`/`UpstreamHost`)
 
-### Phase 4: Integration + Regression
-1. Run complete targeted Proxy Host UI flow tests.
-2. Validate list refresh and modal reopen reflect persisted values.
-3. Validate no regressions in bulk ACL / bulk security-header operations.
+Monitors are grouped by `UptimeHostID` in `CheckAll()`. `UptimeHost` is derived from `ProxyHost.ForwardHost` in sync flows.
 
-### Phase 5: Documentation + Handoff
-1. Update changelog/release notes only for hotfix behavior.
-2. Keep architecture docs unchanged unless root cause requires architectural note.
-3. Handoff to Supervisor agent for review after plan approval and implementation.
+Relevant code:
+- group map by `UptimeHostID`: `backend/internal/services/uptime_service.go:367`
+- host linkage in sync: `backend/internal/services/uptime_service.go:189`, `backend/internal/services/uptime_service.go:226`
+- sync single-host update path: `backend/internal/services/uptime_service.go:1023`
 
-## 9. Acceptance Criteria
+Risk: one host precheck failure can mark all grouped monitors down without URL-level validation.
 
-1. ACL dropdown selection persists on create and edit.
-2. Security Headers dropdown selection persists on create and edit.
-3. Clearing ACL persists `null` and is reflected after reload.
-4. Clearing Security Headers persists `null` and is reflected after reload.
-5. Existing hosts can change from one ACL/profile to another without stale value retention.
-6. New hosts can apply ACL/profile at creation time.
-7. No regressions in unrelated proxy host fields.
-8. All validation gates in Section 11 pass.
-9. API create response returns persisted `access_list_id` and `security_header_profile_id` matching submitted values (including `null`).
-10. API update response returns persisted `access_list_id` and `security_header_profile_id` after `value->value`, `value->null`, and `null->value` transitions.
-11. Backend persistence verification confirms unrelated proxy host fields remain unchanged for targeted updates.
+## 4. Technical Specification (Fix Plan)
+
+## 4.1 Minimal Proper Fix (First)
+
+Goal: eliminate false DOWN while preserving existing behavior as much as possible.
+
+Change `CheckAll()` host-down branch to avoid hard override for HTTP/HTTPS monitors.
+
+Mandatory hotfix rule:
+- WHEN a host precheck is `down`, THE SYSTEM SHALL partition host monitors by type inside `CheckAll()`.
+- `markHostMonitorsDown` MUST be invoked only for `tcp` monitors.
+- `http`/`https` monitors MUST still run through `checkMonitor()` and MUST NOT be force-written `down` by the host precheck path.
+- Host precheck outcomes MAY be recorded for optimization/telemetry/grouping, but MUST NOT be treated as final status for `http`/`https` monitors.
+
+Proposed rule:
+1. If host is down:
+  - For `http`/`https` monitors: still run `checkMonitor()` (do not force down).
+  - For `tcp` monitors: keep current host-down fast-path (`markHostMonitorsDown`) or direct tcp check.
+2. If host is not down:
+   - Keep existing behavior (run `checkMonitor()` for all monitors).
+
+Rationale:
+- Aligns scheduled behavior with manual for URL-based monitors.
+- Preserves reverse proxy product semantics where public URL availability is the source of truth.
+- Minimal code delta in `CheckAll()` decision branch.
+- Preserves optimization for true TCP-only monitors.
+
+### Exact file/function targets
+- `backend/internal/services/uptime_service.go`
+  - `CheckAll()`
+  - add small helper (optional): `partitionMonitorsByType(...)`
+
+## 4.2 Long-Term Robust Fix (Deferred)
+
+Introduce host precheck as advisory signal, not authoritative override.
+
+Design:
+1. Add `HostReachability` result to run context (not persisted as forced monitor status).
+2. Always execute per-monitor checks, but use host precheck to:
+   - tune retries/backoff
+   - annotate failure reason
+   - optimize notification batching
+3. Optionally add feature flag:
+   - `feature.uptime.strict_host_precheck` (default `false`)
+   - allows legacy strict gating in environments that want it.
+
+Benefits:
+- Removes false DOWN caused by precheck mismatch.
+- Keeps performance and batching controls.
+- More explicit semantics for operators.
+
+## 5. API/Schema Impact
+
+No API contract change required for minimal fix.
+No database migration required for minimal fix.
+
+Long-term fix may add one feature flag setting only.
+
+## 6. EARS Requirements
+
+### Ubiquitous
+- THE SYSTEM SHALL evaluate HTTP/HTTPS monitor availability using URL-level checks as the authoritative signal.
+
+### Event-driven
+- WHEN the scheduled uptime cycle runs, THE SYSTEM SHALL execute HTTP/HTTPS monitor checks regardless of internal host precheck state.
+- WHEN the scheduled uptime cycle runs and host precheck is down, THE SYSTEM SHALL apply host-level forced-down logic only to TCP monitors.
+
+### State-driven
+- WHILE a monitor type is `http` or `https`, THE SYSTEM SHALL NOT force monitor status to `down` solely from internal host precheck failure.
+- WHILE a monitor type is `tcp`, THE SYSTEM SHALL evaluate status using endpoint socket reachability semantics.
+
+### Unwanted behavior
+- IF internal host precheck is unreachable AND URL-level HTTP/HTTPS check returns success, THEN THE SYSTEM SHALL set monitor status to `up`.
+- IF internal host precheck is reachable AND URL-level HTTP/HTTPS check fails, THEN THE SYSTEM SHALL set monitor status to `down`.
+
+### Optional
+- WHERE host precheck telemetry is enabled, THE SYSTEM SHALL record host-level reachability for diagnostics and grouping without overriding HTTP/HTTPS monitor final state.
+
+## 7. Implementation Plan
+
+### Phase 1: Reproduction Lock-In (Tests First)
+- Add backend service test proving current regression:
+  - host precheck fails
+  - monitor URL check would succeed
+  - scheduled `CheckAll()` currently writes down (existing behavior)
+- File: `backend/internal/services/uptime_service_test.go` (new test block)
+
+### Phase 2: Minimal Backend Fix
+- Update `CheckAll()` branch logic to run HTTP/HTTPS monitors even when host is down.
+- Make monitor partitioning explicit and mandatory in `CheckAll()` host-down branch.
+- Add an implementation guard before partitioning: normalize monitor type using
+  `strings.TrimSpace` + `strings.ToLower` to prevent `HTTP`/`HTTPS` case
+  regressions and whitespace-related misclassification.
+- Ensure `markHostMonitorsDown` is called only for TCP monitor partitions.
+- File: `backend/internal/services/uptime_service.go`
+
+### Phase 3: Backend Validation
+- Add/adjust tests:
+  - scheduled path no longer forces down when HTTP succeeds
+  - manual and scheduled reach same final state for HTTP monitors
+  - internal host unreachable + public URL HTTP 200 => monitor is `UP`
+  - internal host reachable + public URL failure => monitor is `DOWN`
+  - TCP monitor behavior unchanged under host-down conditions
+- Files:
+  - `backend/internal/services/uptime_service_test.go`
+  - `backend/internal/services/uptime_service_race_test.go` (if needed for concurrency side-effects)
+
+### Phase 4: Integration/E2E Coverage
+- Add targeted API-level integration test for scheduler vs manual parity.
+- Add Playwright scenario for:
+  - monitor set UP by manual check
+  - remains UP after scheduled cycle when URL is reachable
+- Add parity scenario for:
+  - internal TCP precheck unreachable + URL returns 200 => `UP`
+  - internal TCP precheck reachable + URL failure => `DOWN`
+- Files:
+  - `backend/internal/api/routes/routes_test.go` (or uptime handler integration suite)
+  - `tests/monitoring/uptime-monitoring.spec.ts` (or equivalent uptime spec file)
+
+Scope note:
+- This hotfix plan is intentionally limited to backend behavior correction and
+  regression tests (unit/integration/E2E).
+- Dedicated documentation-phase work is deferred and out of scope for this
+  hotfix PR.
+
+## 8. Test Plan (Unit / Integration / E2E)
+
+Duplicate notification definition (hotfix acceptance/testing):
+- A duplicate notification means the same `(monitor_id, status,
+  scheduler_tick_id)` is emitted more than once within a single scheduler run.
+
+## Unit Tests
+1. `CheckAll_HostDown_DoesNotForceDown_HTTPMonitor_WhenHTTPCheckSucceeds`
+2. `CheckAll_HostDown_StillHandles_TCPMonitor_Conservatively`
+3. `CheckAll_ManualAndScheduledParity_HTTPMonitor`
+4. `CheckAll_InternalHostUnreachable_PublicURL200_HTTPMonitorEndsUp` (blocking)
+5. `CheckAll_InternalHostReachable_PublicURLFail_HTTPMonitorEndsDown` (blocking)
+
+## Integration Tests
+1. Scheduler endpoint (`/api/v1/system/uptime/check`) parity with monitor check endpoint.
+2. Verify DB heartbeat message is real HTTP result (not `Host unreachable`) for HTTP monitors where URL is reachable.
+3. Verify when host precheck is down, HTTP monitor heartbeat/notification output is derived from `checkMonitor()` (not synthetic host-path `Host unreachable`).
+4. Verify no duplicate notifications are emitted from host+monitor paths for the same scheduler run, where duplicate is defined as repeated `(monitor_id, status, scheduler_tick_id)`.
+5. Verify internal host precheck unreachable + public URL 200 still resolves monitor `UP`.
+6. Verify internal host precheck reachable + public URL failure resolves monitor `DOWN`.
+
+## E2E Tests
+1. Create/sync monitor scenario where manual refresh returns `UP`.
+2. Wait one scheduler interval.
+3. Assert monitor remains `UP` and latest heartbeat is not forced `Host unreachable` for reachable URL.
+4. Assert scenario: internal host precheck unreachable + public URL 200 => monitor remains `UP`.
+5. Assert scenario: internal host precheck reachable + public URL failure => monitor is `DOWN`.
+
+## Regression Guardrails
+- Add a test explicitly asserting that host precheck must not unconditionally override HTTP monitor checks.
+- Add explicit assertions that HTTP monitors under host-down precheck emit
+  check-derived heartbeat messages and do not produce duplicate notifications
+  under the `(monitor_id, status, scheduler_tick_id)` rule within a single
+  scheduler run.
+
+## 9. Risks and Rollback
+
+## Risks
+1. More HTTP checks under true host outage may increase check volume.
+2. Notification patterns may shift from single host-level event to monitor-level batched events.
+3. Edge cases for mixed-type monitor groups (HTTP + TCP) need deterministic behavior.
+
+## Mitigations
+1. Preserve batching (`queueDownNotification`) and existing retry thresholds.
+2. Keep TCP strict path unchanged in minimal fix.
+3. Add explicit log fields and targeted tests for mixed groups.
+
+## Rollback Plan
+1. Revert the `CheckAll()` branch change only (single-file rollback).
+2. Keep added tests; mark expected behavior as legacy if temporary rollback needed.
+3. If necessary, introduce temporary feature toggle to switch between strict and tolerant host gating.
 
 ## 10. PR Slicing Strategy
 
-### Decision
-Single PR (hotfix-first), with contingency split only if backend root cause is confirmed late.
+Decision: Single focused PR (hotfix + tests)
 
-### Rationale
-1. Incident impact is immediate user-facing and concentrated in one feature path.
-2. Frontend + targeted backend/test changes are tightly coupled for verification.
-3. Single PR minimizes release coordination and user interruption.
+Trigger reasons:
+- High-severity runtime behavior fix requiring minimal blast radius
+- Fast review/rollback with behavior-only delta plus regression coverage
+- Avoid scope creep into optional hardening/feature-flag work
 
-### Contingency (Only if split becomes necessary)
-1. PR-1: Frontend binding + tests
-   - Scope: `ProxyHostForm`, `AccessListSelector`, `ui/Select` (if required), related tests.
-   - Dependency: none.
-   - Acceptance: UI submit payload verified correct in unit + Playwright.
-2. PR-2: Backend parser/persistence + tests (conditional)
-   - Scope: `proxy_host_handler.go`, `proxyhost_service.go`, handler/service tests.
-   - Dependency: PR-1 merged or rebased for aligned contract.
-   - Acceptance: API update/create persist both nullable IDs correctly.
-3. PR-3: Regression hardening + docs
-   - Scope: extra regression coverage, release-note hotfix entry.
-   - Dependency: PR-1/PR-2.
-   - Acceptance: full DoD validation sequence passes.
+### PR-1 (Hotfix + Tests)
+Scope:
+- `CheckAll()` host-down branch adjustment for HTTP/HTTPS
+- Unit/integration/E2E regression tests for URL-truth semantics
 
-## 11. Validation Plan (Mandatory Sequence)
+Files:
+- `backend/internal/services/uptime_service.go`
+- `backend/internal/services/uptime_service_test.go`
+- `backend/internal/api/routes/routes_test.go` (or equivalent)
+- `tests/monitoring/uptime-monitoring.spec.ts` (or equivalent)
 
-0. E2E environment prerequisite
-   - Determine rebuild necessity per testing policy: if application/runtime or Docker input changes are present, rebuild is required.
-   - If rebuild is required or the container is unhealthy, run `.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`.
-   - Record container health outcome before executing tests.
-1. Playwright first
-   - Run targeted Proxy Host dropdown and create/edit persistence scenarios.
-2. Local patch coverage preflight
-   - Generate `test-results/local-patch-report.md` and `test-results/local-patch-report.json`.
-3. Unit and coverage
-   - Backend coverage run (threshold >= 85%).
-   - Frontend coverage run (threshold >= 85%).
-4. Type checks
-   - Frontend TypeScript check.
-5. Pre-commit
-   - `pre-commit run --all-files` with zero blocking failures.
-6. Security scans
-   - CodeQL Go + JS (security-and-quality).
-   - Findings check gate.
-   - Trivy scan.
-   - Conditional GORM security scan if model/DB-layer changes are made.
-7. Build verification
-   - Backend build + frontend build pass.
+Validation gates:
+- backend unit tests pass
+- targeted uptime integration tests pass
+- targeted uptime E2E tests pass
+- no behavior regression in existing `CheckAll` tests
 
-## 12. File Review: `.gitignore`, `codecov.yml`, `.dockerignore`, `Dockerfile`
+Rollback:
+- single revert of PR-1 commit
 
-Assessment for this hotfix:
-1. `.gitignore`: no required change for ACL/Security Headers hotfix.
-2. `codecov.yml`: no required change; current exclusions/thresholds are compatible.
-3. `.dockerignore`: no required change unless new hotfix-only artifact paths are introduced.
-4. `Dockerfile`: no required change; incident is application logic/UI binding, not image build pipeline.
+## 11. Acceptance Criteria (DoD)
 
-If implementation introduces new persistent test artifacts, update ignore files in the same PR.
+1. Scheduled and manual checks produce consistent status for HTTP/HTTPS monitors.
+2. A reachable monitor URL is not forced to `DOWN` solely by host precheck failure.
+3. New regression tests fail before fix and pass after fix.
+4. No break in TCP monitor behavior expectations.
+5. No new critical/high security findings in touched paths.
+6. Blocking parity case passes: internal host precheck unreachable + public URL 200 => scheduled result is `UP`.
+7. Blocking parity case passes: internal host precheck reachable + public URL failure => scheduled result is `DOWN`.
+8. Under host-down precheck, HTTP monitors produce check-derived heartbeat messages (not synthetic `Host unreachable` from host path).
+9. No duplicate notifications are produced by host+monitor paths within a
+  single scheduler run, where duplicate is defined as repeated
+  `(monitor_id, status, scheduler_tick_id)`.
 
-## 13. Rollback and Contingency
+## 12. Implementation Risks
 
-1. If hotfix causes regression in proxy host save flow, revert hotfix commit and redeploy prior stable build.
-2. If frontend-only fix is insufficient, activate conditional backend phase immediately.
-3. If validation gates fail on security/coverage, hold merge until fixed; no partial exception for this incident.
-4. Post-rollback smoke checks:
-   - Create host with ACL/profile.
-   - Edit to different ACL/profile values.
-   - Clear both values to `null`.
-   - Verify persisted values in API response and after UI reload.
+1. Increased scheduler workload during host-precheck failures because HTTP/HTTPS checks continue to run.
+2. Notification cadence may change due to check-derived monitor outcomes replacing host-forced synthetic downs.
+3. Mixed monitor groups (TCP + HTTP/HTTPS) require strict ordering/partitioning to avoid regression.
+
+Mitigations:
+- Keep change localized to `CheckAll()` host-down branch decisioning.
+- Add explicit regression tests for both parity directions and mixed monitor types.
+- Keep rollback path as single-commit revert.

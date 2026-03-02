@@ -20,11 +20,11 @@
 
 import { test, expect } from '../../fixtures/auth-fixtures';
 import { Page } from '@playwright/test';
-import { ensureImportUiPreconditions, resetImportSession, waitForSuccessfulImportResponse } from './import-page-helpers';
-
-function firefoxOnly(browserName: string) {
-  test.skip(browserName !== 'firefox', 'This suite only runs on Firefox');
-}
+import {
+  ensureImportUiPreconditions,
+  resetImportSession,
+  waitForSuccessfulImportResponse,
+} from './import-page-helpers';
 
 /**
  * Helper to set up import API mocks
@@ -91,10 +91,6 @@ async function setupImportMocks(page: Page, success: boolean = true) {
 }
 
 test.describe('Caddy Import - Firefox-Specific @firefox-only', () => {
-  test.beforeEach(async ({ browserName }) => {
-    firefoxOnly(browserName);
-  });
-
   /**
    * TEST 1: Event listener attachment verification
    * Ensures the Parse button has proper click handlers in Firefox
@@ -213,10 +209,12 @@ test.describe('Caddy Import - Firefox-Specific @firefox-only', () => {
       await textarea.fill('cors-test.example.com { reverse_proxy localhost:3000 }');
 
       const parseButton = page.getByRole('button', { name: /parse|review/i });
-      await parseButton.click();
-
-      // Wait for response
-      await page.waitForResponse((r) => r.url().includes('/api/v1/import/upload'), { timeout: 5000 });
+      await waitForSuccessfulImportResponse(
+        page,
+        () => parseButton.click(),
+        'firefox-cors-same-origin',
+        /\/api\/v1\/import\/upload/i
+      );
 
       // Verify no CORS issues
       expect(corsIssues).toHaveLength(0);
@@ -247,21 +245,26 @@ test.describe('Caddy Import - Firefox-Specific @firefox-only', () => {
       await textarea.fill('auth-test.example.com { reverse_proxy localhost:3000 }');
 
       const parseButton = page.getByRole('button', { name: /parse|review/i });
-      await parseButton.click();
-
-      // Wait for request to complete
-      await page.waitForResponse((r) => r.url().includes('/api/v1/import/upload'), { timeout: 5000 });
+      const uploadResponse = await waitForSuccessfulImportResponse(
+        page,
+        () => parseButton.click(),
+        'firefox-auth-headers',
+        /\/api\/v1\/import\/upload/i
+      );
 
       // Verify headers were captured
-      expect(Object.keys(requestHeaders).length).toBeGreaterThan(0);
+      const sentHeaders = Object.keys(requestHeaders).length > 0
+        ? requestHeaders
+        : uploadResponse.request().headers();
+      expect(Object.keys(sentHeaders).length).toBeGreaterThan(0);
 
       // Verify cookie or authorization header present
-      const hasCookie = !!requestHeaders['cookie'];
-      const hasAuth = !!requestHeaders['authorization'];
+      const hasCookie = !!sentHeaders['cookie'];
+      const hasAuth = !!sentHeaders['authorization'];
       expect(hasCookie || hasAuth).toBeTruthy();
 
       // Verify content-type is correct
-      expect(requestHeaders['content-type']).toContain('application/json');
+      expect(sentHeaders['content-type']).toContain('application/json');
     });
   });
 

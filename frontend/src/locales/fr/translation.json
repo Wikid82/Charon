@@ -423,7 +423,9 @@
     "triggerCheck": "Déclencher une vérification de santé immédiate",
     "healthCheckTriggered": "Vérification de santé déclenchée",
     "monitorDeleted": "Moniteur supprimé",
-    "deleteConfirm": "Supprimer ce moniteur? Cette action est irréversible."
+    "deleteConfirm": "Supprimer ce moniteur? Cette action est irréversible.",
+    "pending": "VÉRIFICATION...",
+    "pendingFirstCheck": "En attente de la première vérification..."
   },
   "domains": {
     "title": "Domaines",

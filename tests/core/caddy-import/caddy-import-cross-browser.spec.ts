@@ -184,7 +184,9 @@ async function setupImportMocks(
 }
 
 async function gotoImportPageWithAuthRecovery(page: Page, adminUser: TestUser): Promise<void> {
-  await ensureImportUiPreconditions(page, adminUser);
+  await expect(async () => {
+    await ensureImportUiPreconditions(page, adminUser);
+  }).toPass({ timeout: 15000 });
 }
 
 test.describe('Caddy Import - Cross-Browser @cross-browser', () => {

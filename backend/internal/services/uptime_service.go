@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -372,12 +373,32 @@ func (s *UptimeService) CheckAll() {
 
 	// Check each host's monitors
 	for hostID, monitors := range hostMonitors {
-		// If host is down, mark all monitors as down without individual checks
+		// If host is down, only short-circuit TCP monitors.
+		// HTTP/HTTPS monitors remain URL-truth authoritative and must still run checkMonitor.
 		if hostID != "" {
 			var uptimeHost models.UptimeHost
 			if err := s.DB.Where("id = ?", hostID).First(&uptimeHost).Error; err == nil {
 				if uptimeHost.Status == "down" {
-					s.markHostMonitorsDown(monitors, &uptimeHost)
+					tcpMonitors := make([]models.UptimeMonitor, 0, len(monitors))
+					nonTCPMonitors := make([]models.UptimeMonitor, 0, len(monitors))
+
+					for _, monitor := range monitors {
+						normalizedType := strings.ToLower(strings.TrimSpace(monitor.Type))
+						if normalizedType == "tcp" {
+							tcpMonitors = append(tcpMonitors, monitor)
+							continue
+						}
+						nonTCPMonitors = append(nonTCPMonitors, monitor)
+					}
+
+					if len(tcpMonitors) > 0 {
+						s.markHostMonitorsDown(tcpMonitors, &uptimeHost)
+					}
+
+					for _, monitor := range nonTCPMonitors {
+						go s.checkMonitor(monitor)
+					}
+
 					continue
 				}
 			}
@@ -1181,6 +1202,115 @@ func (s *UptimeService) DeleteMonitor(id string) error {
 
 	// If no other monitors reference the uptime host, we don't automatically delete the host.
 	// Leave host cleanup to a manual process or separate endpoint.
+
+	return nil
+}
+
+// SyncAndCheckForHost creates a monitor for the given proxy host (if one
+// doesn't already exist) and immediately triggers a health check in a
+// background goroutine. It is safe to call from any goroutine.
+//
+// Designed to be called as `go svc.SyncAndCheckForHost(hostID)` so it
+// does not block the API response.
+func (s *UptimeService) SyncAndCheckForHost(hostID uint) {
+	// Check feature flag — bail if uptime is disabled
+	var setting models.Setting
+	if err := s.DB.Where("key = ?", "feature.uptime.enabled").First(&setting).Error; err == nil {
+		if setting.Value != "true" {
+			return
+		}
+	}
+
+	// Per-host lock prevents duplicate monitors when multiple goroutines
+	// call SyncAndCheckForHost for the same hostID concurrently.
+	hostKey := fmt.Sprintf("proxy-%d", hostID)
+	s.hostMutexLock.Lock()
+	if s.hostMutexes[hostKey] == nil {
+		s.hostMutexes[hostKey] = &sync.Mutex{}
+	}
+	mu := s.hostMutexes[hostKey]
+	s.hostMutexLock.Unlock()
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Look up the proxy host; it may have been deleted between the API
+	// response and this goroutine executing.
+	var host models.ProxyHost
+	if err := s.DB.Where("id = ?", hostID).First(&host).Error; err != nil {
+		hostIDStr := strconv.FormatUint(uint64(hostID), 10)
+		logger.Log().WithField("host_id", hostIDStr).Debug("SyncAndCheckForHost: proxy host not found (may have been deleted)")
+		return
+	}
+
+	// Ensure a monitor exists for this host
+	var monitor models.UptimeMonitor
+	err := s.DB.Where("proxy_host_id = ?", host.ID).First(&monitor).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		domains := strings.Split(host.DomainNames, ",")
+		firstDomain := ""
+		if len(domains) > 0 {
+			firstDomain = strings.TrimSpace(domains[0])
+		}
+
+		scheme := "http"
+		if host.SSLForced {
+			scheme = "https"
+		}
+		publicURL := fmt.Sprintf("%s://%s", scheme, firstDomain)
+		upstreamHost := host.ForwardHost
+
+		name := host.Name
+		if name == "" {
+			name = firstDomain
+		}
+
+		uptimeHostID := s.ensureUptimeHost(upstreamHost, name)
+
+		monitor = models.UptimeMonitor{
+			ProxyHostID:  &host.ID,
+			UptimeHostID: &uptimeHostID,
+			Name:         name,
+			Type:         "http",
+			URL:          publicURL,
+			UpstreamHost: upstreamHost,
+			Interval:     60,
+			Enabled:      true,
+			Status:       "pending",
+		}
+		if createErr := s.DB.Create(&monitor).Error; createErr != nil {
+			logger.Log().WithError(createErr).WithField("host_id", host.ID).Error("SyncAndCheckForHost: failed to create monitor")
+			return
+		}
+	} else if err != nil {
+		logger.Log().WithError(err).WithField("host_id", host.ID).Error("SyncAndCheckForHost: failed to query monitor")
+		return
+	}
+
+	// Run health check immediately
+	s.checkMonitor(monitor)
+}
+
+// CleanupStaleFailureCounts resets monitors that are stuck in "down" status
+// with elevated failure counts from historical bugs (e.g., port mismatch era).
+// Only resets monitors with no recent successful heartbeat in the last 24 hours.
+func (s *UptimeService) CleanupStaleFailureCounts() error {
+	result := s.DB.Exec(`
+		UPDATE uptime_monitors SET failure_count = 0, status = 'pending'
+		WHERE status = 'down'
+		  AND failure_count > 5
+		  AND id NOT IN (
+		    SELECT DISTINCT monitor_id FROM uptime_heartbeats
+		    WHERE status = 'up' AND created_at > datetime('now', '-24 hours')
+		  )
+	`)
+	if result.Error != nil {
+		return fmt.Errorf("cleanup stale failure counts: %w", result.Error)
+	}
+
+	if result.RowsAffected > 0 {
+		logger.Log().WithField("reset_count", result.RowsAffected).Info("Reset stale monitor failure counts")
+	}
 
 	return nil
 }

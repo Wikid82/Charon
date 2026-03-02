@@ -423,7 +423,9 @@
     "triggerCheck": "Activar verificación de salud inmediata",
     "healthCheckTriggered": "Verificación de salud activada",
     "monitorDeleted": "Monitor eliminado",
-    "deleteConfirm": "¿Eliminar este monitor? Esto no se puede deshacer."
+    "deleteConfirm": "¿Eliminar este monitor? Esto no se puede deshacer.",
+    "pending": "VERIFICANDO...",
+    "pendingFirstCheck": "Esperando primera verificación..."
   },
   "domains": {
     "title": "Dominios",

@@ -270,7 +270,13 @@ export default defineConfig({
       },
       dependencies: browserDependencies,
       testMatch: /.*\.spec\.(ts|js)$/,
-      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
+      testIgnore: [
+        '**/frontend/**',
+        '**/node_modules/**',
+        '**/backend/**',
+        '**/security-enforcement/**',
+        '**/security/**',
+      ],
     },
 
     {
@@ -281,7 +287,13 @@ export default defineConfig({
       },
       dependencies: browserDependencies,
       testMatch: /.*\.spec\.(ts|js)$/,
-      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
+      testIgnore: [
+        '**/frontend/**',
+        '**/node_modules/**',
+        '**/backend/**',
+        '**/security-enforcement/**',
+        '**/security/**',
+      ],
     },
 
     {
@@ -292,7 +304,13 @@ export default defineConfig({
       },
       dependencies: browserDependencies,
       testMatch: /.*\.spec\.(ts|js)$/,
-      testIgnore: ['**/frontend/**', '**/node_modules/**', '**/backend/**', '**/security-enforcement/**', '**/security/**'],
+      testIgnore: [
+        '**/frontend/**',
+        '**/node_modules/**',
+        '**/backend/**',
+        '**/security-enforcement/**',
+        '**/security/**',
+      ],
     },
 
     /* Test against mobile viewports. */
