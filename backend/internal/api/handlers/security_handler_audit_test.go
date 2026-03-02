@@ -100,6 +100,10 @@ func TestSecurityHandler_CreateDecision_SQLInjection(t *testing.T) {
 	h := NewSecurityHandler(cfg, db, nil)
 
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/api/v1/security/decisions", h.CreateDecision)
 
 	// Attempt SQL injection via payload fields
@@ -143,6 +147,10 @@ func TestSecurityHandler_UpsertRuleSet_MassivePayload(t *testing.T) {
 	h := NewSecurityHandler(cfg, db, nil)
 
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/api/v1/security/rulesets", h.UpsertRuleSet)
 
 	// Try to submit a 3MB payload (should be rejected by service)
@@ -175,6 +183,10 @@ func TestSecurityHandler_UpsertRuleSet_EmptyName(t *testing.T) {
 	h := NewSecurityHandler(cfg, db, nil)
 
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/api/v1/security/rulesets", h.UpsertRuleSet)
 
 	payload := map[string]any{
@@ -203,6 +215,10 @@ func TestSecurityHandler_CreateDecision_EmptyFields(t *testing.T) {
 	h := NewSecurityHandler(cfg, db, nil)
 
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/api/v1/security/decisions", h.CreateDecision)
 
 	testCases := []struct {
@@ -347,6 +363,10 @@ func TestSecurityAudit_DeleteRuleSet_InvalidID(t *testing.T) {
 	h := NewSecurityHandler(cfg, db, nil)
 
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.DELETE("/api/v1/security/rulesets/:id", h.DeleteRuleSet)
 
 	testCases := []struct {
@@ -388,6 +408,10 @@ func TestSecurityHandler_UpsertRuleSet_XSSInContent(t *testing.T) {
 	h := NewSecurityHandler(cfg, db, nil)
 
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/api/v1/security/rulesets", h.UpsertRuleSet)
 	router.GET("/api/v1/security/rulesets", h.ListRuleSets)
 
@@ -433,6 +457,10 @@ func TestSecurityHandler_UpdateConfig_RateLimitBounds(t *testing.T) {
 	h := NewSecurityHandler(cfg, db, nil)
 
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.PUT("/api/v1/security/config", h.UpdateConfig)
 
 	testCases := []struct {

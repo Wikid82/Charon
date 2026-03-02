@@ -29,6 +29,29 @@ import (
 	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/custom"
 )
 
+type uptimeBootstrapService interface {
+	CleanupStaleFailureCounts() error
+	SyncMonitors() error
+	CheckAll()
+}
+
+func runInitialUptimeBootstrap(enabled bool, uptimeService uptimeBootstrapService, logWarn func(error, string), logError func(error, string)) {
+	if !enabled {
+		return
+	}
+
+	if err := uptimeService.CleanupStaleFailureCounts(); err != nil && logWarn != nil {
+		logWarn(err, "Failed to cleanup stale failure counts")
+	}
+
+	if err := uptimeService.SyncMonitors(); err != nil && logError != nil {
+		logError(err, "Failed to sync monitors")
+	}
+
+	// Run initial check immediately after sync to avoid the 90s blind window.
+	uptimeService.CheckAll()
+}
+
 // Register wires up API routes and performs automatic migrations.
 func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// Caddy Manager - created early so it can be used by settings handlers for config reload
@@ -277,7 +300,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		protected.PATCH("/config", settingsHandler.PatchConfig)     // Bulk configuration update
 
 		// SMTP Configuration
-		protected.GET("/settings/smtp", settingsHandler.GetSMTPConfig)
+		protected.GET("/settings/smtp", middleware.RequireRole("admin"), settingsHandler.GetSMTPConfig)
 		protected.POST("/settings/smtp", settingsHandler.UpdateSMTPConfig)
 		protected.POST("/settings/smtp/test", settingsHandler.TestSMTPConfig)
 		protected.POST("/settings/smtp/test-email", settingsHandler.SendTestEmail)
@@ -410,9 +433,10 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		dockerHandler := handlers.NewDockerHandler(dockerService, remoteServerService)
 		dockerHandler.RegisterRoutes(protected)
 
-		// Uptime Service
-		uptimeSvc := services.NewUptimeService(db, notificationService)
-		uptimeHandler := handlers.NewUptimeHandler(uptimeSvc)
+		// Uptime Service — reuse the single uptimeService instance (defined above)
+		// to share in-memory state (mutexes, notification batching) between
+		// background checker, ProxyHostHandler, and API handlers.
+		uptimeHandler := handlers.NewUptimeHandler(uptimeService)
 		protected.GET("/uptime/monitors", uptimeHandler.List)
 		protected.POST("/uptime/monitors", uptimeHandler.Create)
 		protected.GET("/uptime/monitors/:id/history", uptimeHandler.GetHistory)
@@ -463,11 +487,12 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 				enabled = s.Value == "true"
 			}
 
-			if enabled {
-				if err := uptimeService.SyncMonitors(); err != nil {
-					logger.Log().WithError(err).Error("Failed to sync monitors")
-				}
-			}
+			runInitialUptimeBootstrap(
+				enabled,
+				uptimeService,
+				func(err error, msg string) { logger.Log().WithError(err).Warn(msg) },
+				func(err error, msg string) { logger.Log().WithError(err).Error(msg) },
+			)
 
 			ticker := time.NewTicker(1 * time.Minute)
 			for range ticker.C {
@@ -520,40 +545,43 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		protected.GET("/security/status", securityHandler.GetStatus)
 		// Security Config management
 		protected.GET("/security/config", securityHandler.GetConfig)
-		protected.POST("/security/config", securityHandler.UpdateConfig)
-		protected.POST("/security/enable", securityHandler.Enable)
-		protected.POST("/security/disable", securityHandler.Disable)
-		protected.POST("/security/breakglass/generate", securityHandler.GenerateBreakGlass)
 		protected.GET("/security/decisions", securityHandler.ListDecisions)
-		protected.POST("/security/decisions", securityHandler.CreateDecision)
 		protected.GET("/security/rulesets", securityHandler.ListRuleSets)
-		protected.POST("/security/rulesets", securityHandler.UpsertRuleSet)
-		protected.DELETE("/security/rulesets/:id", securityHandler.DeleteRuleSet)
 		protected.GET("/security/rate-limit/presets", securityHandler.GetRateLimitPresets)
 		// GeoIP endpoints
 		protected.GET("/security/geoip/status", securityHandler.GetGeoIPStatus)
-		protected.POST("/security/geoip/reload", securityHandler.ReloadGeoIP)
-		protected.POST("/security/geoip/lookup", securityHandler.LookupGeoIP)
 		// WAF exclusion endpoints
 		protected.GET("/security/waf/exclusions", securityHandler.GetWAFExclusions)
-		protected.POST("/security/waf/exclusions", securityHandler.AddWAFExclusion)
-		protected.DELETE("/security/waf/exclusions/:rule_id", securityHandler.DeleteWAFExclusion)
+
+		securityAdmin := protected.Group("/security")
+		securityAdmin.Use(middleware.RequireRole("admin"))
+		securityAdmin.POST("/config", securityHandler.UpdateConfig)
+		securityAdmin.POST("/enable", securityHandler.Enable)
+		securityAdmin.POST("/disable", securityHandler.Disable)
+		securityAdmin.POST("/breakglass/generate", securityHandler.GenerateBreakGlass)
+		securityAdmin.POST("/decisions", securityHandler.CreateDecision)
+		securityAdmin.POST("/rulesets", securityHandler.UpsertRuleSet)
+		securityAdmin.DELETE("/rulesets/:id", securityHandler.DeleteRuleSet)
+		securityAdmin.POST("/geoip/reload", securityHandler.ReloadGeoIP)
+		securityAdmin.POST("/geoip/lookup", securityHandler.LookupGeoIP)
+		securityAdmin.POST("/waf/exclusions", securityHandler.AddWAFExclusion)
+		securityAdmin.DELETE("/waf/exclusions/:rule_id", securityHandler.DeleteWAFExclusion)
 
 		// Security module enable/disable endpoints (granular control)
-		protected.POST("/security/acl/enable", securityHandler.EnableACL)
-		protected.POST("/security/acl/disable", securityHandler.DisableACL)
-		protected.PATCH("/security/acl", securityHandler.PatchACL) // E2E tests use PATCH
-		protected.POST("/security/waf/enable", securityHandler.EnableWAF)
-		protected.POST("/security/waf/disable", securityHandler.DisableWAF)
-		protected.PATCH("/security/waf", securityHandler.PatchWAF) // E2E tests use PATCH
-		protected.POST("/security/cerberus/enable", securityHandler.EnableCerberus)
-		protected.POST("/security/cerberus/disable", securityHandler.DisableCerberus)
-		protected.POST("/security/crowdsec/enable", securityHandler.EnableCrowdSec)
-		protected.POST("/security/crowdsec/disable", securityHandler.DisableCrowdSec)
-		protected.PATCH("/security/crowdsec", securityHandler.PatchCrowdSec) // E2E tests use PATCH
-		protected.POST("/security/rate-limit/enable", securityHandler.EnableRateLimit)
-		protected.POST("/security/rate-limit/disable", securityHandler.DisableRateLimit)
-		protected.PATCH("/security/rate-limit", securityHandler.PatchRateLimit) // E2E tests use PATCH
+		securityAdmin.POST("/acl/enable", securityHandler.EnableACL)
+		securityAdmin.POST("/acl/disable", securityHandler.DisableACL)
+		securityAdmin.PATCH("/acl", securityHandler.PatchACL) // E2E tests use PATCH
+		securityAdmin.POST("/waf/enable", securityHandler.EnableWAF)
+		securityAdmin.POST("/waf/disable", securityHandler.DisableWAF)
+		securityAdmin.PATCH("/waf", securityHandler.PatchWAF) // E2E tests use PATCH
+		securityAdmin.POST("/cerberus/enable", securityHandler.EnableCerberus)
+		securityAdmin.POST("/cerberus/disable", securityHandler.DisableCerberus)
+		securityAdmin.POST("/crowdsec/enable", securityHandler.EnableCrowdSec)
+		securityAdmin.POST("/crowdsec/disable", securityHandler.DisableCrowdSec)
+		securityAdmin.PATCH("/crowdsec", securityHandler.PatchCrowdSec) // E2E tests use PATCH
+		securityAdmin.POST("/rate-limit/enable", securityHandler.EnableRateLimit)
+		securityAdmin.POST("/rate-limit/disable", securityHandler.DisableRateLimit)
+		securityAdmin.PATCH("/rate-limit", securityHandler.PatchRateLimit) // E2E tests use PATCH
 
 		// CrowdSec process management and import
 		// Data dir for crowdsec (persisted on host via volumes)
@@ -635,7 +663,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 	proxyHostHandler.RegisterRoutes(protected)
 
 	remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
-	remoteServerHandler.RegisterRoutes(api)
+	remoteServerHandler.RegisterRoutes(protected)
 
 	// Initial Caddy Config Sync
 	go func() {
@@ -674,17 +702,20 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 }
 
 // RegisterImportHandler wires up import routes with config dependencies.
-func RegisterImportHandler(router *gin.Engine, db *gorm.DB, caddyBinary, importDir, mountPath string) {
+func RegisterImportHandler(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyBinary, importDir, mountPath string) {
 	securityService := services.NewSecurityService(db)
 	importHandler := handlers.NewImportHandlerWithDeps(db, caddyBinary, importDir, mountPath, securityService)
 	api := router.Group("/api/v1")
-	importHandler.RegisterRoutes(api)
+	authService := services.NewAuthService(db, cfg)
+	authenticatedAdmin := api.Group("/")
+	authenticatedAdmin.Use(middleware.AuthMiddleware(authService), middleware.RequireRole("admin"))
+	importHandler.RegisterRoutes(authenticatedAdmin)
 
 	// NPM Import Handler - supports Nginx Proxy Manager export format
 	npmImportHandler := handlers.NewNPMImportHandler(db)
-	npmImportHandler.RegisterRoutes(api)
+	npmImportHandler.RegisterRoutes(authenticatedAdmin)
 
 	// JSON Import Handler - supports both Charon and NPM export formats
 	jsonImportHandler := handlers.NewJSONImportHandler(db)
-	jsonImportHandler.RegisterRoutes(api)
+	jsonImportHandler.RegisterRoutes(authenticatedAdmin)
 }

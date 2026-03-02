@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/Wikid82/charon/backend/internal/security"
 )
 
 // Config captures runtime configuration sourced from environment variables.
@@ -105,6 +107,17 @@ func Load() (Config, error) {
 		Emergency:       loadEmergencyConfig(),
 		Debug:           getEnvAny("false", "CHARON_DEBUG", "CPM_DEBUG") == "true",
 	}
+
+	allowedInternalHosts := security.InternalServiceHostAllowlist()
+	normalizedCaddyAdminURL, err := security.ValidateInternalServiceBaseURL(
+		cfg.CaddyAdminAPI,
+		2019,
+		allowedInternalHosts,
+	)
+	if err != nil {
+		return Config{}, fmt.Errorf("validate caddy admin api url: %w", err)
+	}
+	cfg.CaddyAdminAPI = normalizedCaddyAdminURL.String()
 
 	if err := os.MkdirAll(filepath.Dir(cfg.DatabasePath), 0o700); err != nil {
 		return Config{}, fmt.Errorf("ensure data directory: %w", err)

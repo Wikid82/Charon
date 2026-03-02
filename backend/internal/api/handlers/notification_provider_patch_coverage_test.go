@@ -65,7 +65,7 @@ func TestUpdate_BlockTypeMutationForNonDiscord(t *testing.T) {
 	err = json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
 
-	assert.Equal(t, "DEPRECATED_PROVIDER_TYPE_IMMUTABLE", response["code"])
+	assert.Equal(t, "PROVIDER_TYPE_IMMUTABLE", response["code"])
 }
 
 // TestUpdate_AllowTypeMutationForDiscord verifies Discord can be updated

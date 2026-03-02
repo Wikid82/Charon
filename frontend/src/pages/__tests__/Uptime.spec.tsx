@@ -230,4 +230,59 @@ describe('Uptime page', () => {
     expect(screen.getByText('RemoteMon')).toBeInTheDocument()
     expect(screen.getByText('OtherMon')).toBeInTheDocument()
   })
+
+  it('shows CHECKING... state for pending monitor with no history', async () => {
+    const monitor = {
+      id: 'm13', name: 'PendingMonitor', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
+      status: 'pending', last_check: null, latency: 0, max_retries: 3,
+    }
+    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
+    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
+
+    renderWithProviders(<Uptime />)
+    await waitFor(() => expect(screen.getByText('PendingMonitor')).toBeInTheDocument())
+    const badge = screen.getByTestId('status-badge')
+    expect(badge).toHaveAttribute('data-status', 'pending')
+    expect(badge).toHaveAttribute('role', 'status')
+    expect(badge.textContent).toContain('CHECKING...')
+    expect(badge.className).toContain('bg-amber-100')
+    expect(badge.className).toContain('animate-pulse')
+    expect(screen.getByText('Waiting for first check...')).toBeInTheDocument()
+  })
+
+  it('treats pending monitor with heartbeat history as normal (not pending)', async () => {
+    const monitor = {
+      id: 'm14', name: 'PendingWithHistory', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
+      status: 'pending', last_check: new Date().toISOString(), latency: 10, max_retries: 3,
+    }
+    const history = [
+      { id: 1, monitor_id: 'm14', status: 'up', latency: 10, message: 'OK', created_at: new Date().toISOString() },
+    ]
+    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
+    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue(history)
+
+    renderWithProviders(<Uptime />)
+    await waitFor(() => expect(screen.getByText('PendingWithHistory')).toBeInTheDocument())
+    await waitFor(() => {
+      const badge = screen.getByTestId('status-badge')
+      expect(badge.textContent).not.toContain('CHECKING...')
+      expect(badge.className).toContain('bg-green-100')
+    })
+  })
+
+  it('shows DOWN indicator for down monitor (no regression)', async () => {
+    const monitor = {
+      id: 'm15', name: 'DownMonitor', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
+      status: 'down', last_check: new Date().toISOString(), latency: 0, max_retries: 3,
+    }
+    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
+    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
+
+    renderWithProviders(<Uptime />)
+    await waitFor(() => expect(screen.getByText('DownMonitor')).toBeInTheDocument())
+    const badge = screen.getByTestId('status-badge')
+    expect(badge).toHaveAttribute('data-status', 'down')
+    expect(badge.textContent).toContain('DOWN')
+    expect(badge.className).toContain('bg-red-100')
+  })
 })

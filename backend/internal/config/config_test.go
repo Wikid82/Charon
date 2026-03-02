@@ -258,6 +258,32 @@ func TestLoad_EmergencyConfig(t *testing.T) {
 	assert.Equal(t, "testpass", cfg.Emergency.BasicAuthPassword)
 }
 
+func TestLoad_CaddyAdminAPIValidationAndNormalization(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
+	t.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
+	t.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+	t.Setenv("CHARON_SSRF_INTERNAL_HOST_ALLOWLIST", "")
+	t.Setenv("CHARON_CADDY_ADMIN_API", "http://localhost:2019/config/")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, "http://localhost:2019", cfg.CaddyAdminAPI)
+}
+
+func TestLoad_CaddyAdminAPIValidationRejectsNonAllowlistedHost(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
+	t.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
+	t.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+	t.Setenv("CHARON_SSRF_INTERNAL_HOST_ALLOWLIST", "")
+	t.Setenv("CHARON_CADDY_ADMIN_API", "http://example.com:2019")
+
+	_, err := Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "validate caddy admin api url")
+}
+
 // ============================================
 // splitAndTrim Tests
 // ============================================

@@ -394,8 +394,8 @@ func (s *EnhancedSecurityNotificationService) MigrateFromLegacyConfig() error {
 				NotifySecurityRateLimitHits: legacyConfig.NotifyRateLimitHits,
 				URL:                         legacyConfig.WebhookURL,
 			}
-			if err := tx.Create(&provider).Error; err != nil {
-				return fmt.Errorf("create managed provider: %w", err)
+			if createErr := tx.Create(&provider).Error; createErr != nil {
+				return fmt.Errorf("create managed provider: %w", createErr)
 			}
 		} else if err != nil {
 			return fmt.Errorf("query managed provider: %w", err)
@@ -405,8 +405,8 @@ func (s *EnhancedSecurityNotificationService) MigrateFromLegacyConfig() error {
 			provider.NotifySecurityACLDenies = legacyConfig.NotifyACLDenies
 			provider.NotifySecurityRateLimitHits = legacyConfig.NotifyRateLimitHits
 			provider.URL = legacyConfig.WebhookURL
-			if err := tx.Save(&provider).Error; err != nil {
-				return fmt.Errorf("update managed provider: %w", err)
+			if saveErr := tx.Save(&provider).Error; saveErr != nil {
+				return fmt.Errorf("update managed provider: %w", saveErr)
 			}
 		}
 
@@ -430,7 +430,7 @@ func (s *EnhancedSecurityNotificationService) MigrateFromLegacyConfig() error {
 		}
 
 		// Upsert marker
-		if err := tx.Where("key = ?", newMarkerSetting.Key).First(&markerSetting).Error; err == gorm.ErrRecordNotFound {
+		if queryErr := tx.Where("key = ?", newMarkerSetting.Key).First(&markerSetting).Error; queryErr == gorm.ErrRecordNotFound {
 			return tx.Create(&newMarkerSetting).Error
 		}
 		newMarkerSetting.ID = markerSetting.ID

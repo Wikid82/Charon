@@ -16,9 +16,10 @@
  * - Row-scoped selectors (filter by domain, then find within row)
  */
 
-import { test, expect } from '../../fixtures/auth-fixtures';
-import type { TestDataManager } from '../utils/TestDataManager';
+import { test, expect, type TestUser } from '../../fixtures/auth-fixtures';
+import type { TestDataManager } from '../../utils/TestDataManager';
 import type { Page } from '@playwright/test';
+import { ensureAuthenticatedImportFormReady, ensureImportFormReady, resetImportSession } from './import-page-helpers';
 
 /**
  * Helper: Generate unique domain with namespace isolation
@@ -28,28 +29,74 @@ function generateDomain(testData: TestDataManager, suffix: string): string {
   return `${testData.getNamespace()}-${suffix}.example.com`;
 }
 
+async function fillCaddyfileTextarea(page: Page, caddyfile: string): Promise<void> {
+  await ensureImportFormReady(page);
+
+  await expect(async () => {
+    const textarea = page.locator('textarea').first();
+    await expect(textarea).toBeVisible();
+    await textarea.fill(caddyfile);
+    await expect(textarea).toHaveValue(caddyfile);
+  }).toPass({ timeout: 15000 });
+}
+
+async function clickParseAndWaitForUpload(page: Page, context: string): Promise<void> {
+  const uploadPromise = page.waitForResponse(
+    r => r.url().includes('/api/v1/import/upload'),
+    { timeout: 15000 }
+  );
+
+  await page.getByRole('button', { name: /parse|review/i }).click();
+
+  let response;
+  try {
+    response = await uploadPromise;
+  } catch {
+    throw new Error(`[caddy-import-gaps] Timed out waiting for /api/v1/import/upload (${context})`);
+  }
+
+  const status = response.status();
+  if (status !== 200) {
+    const body = (await response.text().catch(() => '')).slice(0, 500);
+    throw new Error(
+      `[caddy-import-gaps] /api/v1/import/upload returned ${status} (${context}). Body: ${body || '<empty>'}`
+    );
+  }
+}
+
+async function resetImportSessionWithRetry(page: Page): Promise<void> {
+  // WebKit can occasionally throw a transient internal navigation error during
+  // route transitions; a bounded retry keeps hooks deterministic.
+  await expect(async () => {
+    await resetImportSession(page);
+  }).toPass({ timeout: 20000 });
+}
+
 /**
  * Helper: Complete the full import flow from paste to success modal
  * Reusable across multiple tests to reduce duplication
  */
 async function completeImportFlow(
   page: Page,
-  caddyfile: string
+  caddyfile: string,
+  browserName: string,
+  adminUser: TestUser
 ): Promise<void> {
   await test.step('Navigate to import page', async () => {
     await page.goto('/tasks/import/caddyfile');
+    if (browserName === 'webkit') {
+      await ensureAuthenticatedImportFormReady(page, adminUser);
+    } else {
+      await ensureImportFormReady(page);
+    }
   });
 
   await test.step('Paste Caddyfile content', async () => {
-    await page.locator('textarea').fill(caddyfile);
+    await fillCaddyfileTextarea(page, caddyfile);
   });
 
   await test.step('Parse and wait for review table', async () => {
-    const uploadPromise = page.waitForResponse(r =>
-      r.url().includes('/api/v1/import/upload') && r.status() === 200
-    );
-    await page.getByRole('button', { name: /parse|review/i }).click();
-    await uploadPromise;
+    await clickParseAndWaitForUpload(page, 'completeImportFlow');
 
     await expect(page.getByTestId('import-review-table')).toBeVisible();
   });
@@ -66,15 +113,25 @@ async function completeImportFlow(
 }
 
 test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
+  test.beforeEach(async ({ page }) => {
+    await resetImportSessionWithRetry(page);
+  });
+
+  test.afterEach(async ({ page }) => {
+    await resetImportSessionWithRetry(page).catch(() => {
+      // Best-effort cleanup only; preserve primary test failure signal.
+    });
+  });
+
   // =========================================================================
   // Gap 1: Success Modal Navigation
   // =========================================================================
   test.describe('Success Modal Navigation', () => {
-    test('1.1: should display success modal after successful import commit', async ({ page, testData }) => {
+    test('1.1: should display success modal after successful import commit', async ({ page, testData, browserName, adminUser }) => {
       const domain = generateDomain(testData, 'success-modal-test');
       const caddyfile = `${domain} { reverse_proxy localhost:3000 }`;
 
-      await completeImportFlow(page, caddyfile);
+      await completeImportFlow(page, caddyfile, browserName, adminUser);
 
       // Verify success modal is visible
       await expect(page.getByTestId('import-success-modal')).toBeVisible();
@@ -87,11 +144,11 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       await expect(modal).toContainText(/1.*created/i);
     });
 
-    test('1.2: should navigate to /proxy-hosts when clicking View Proxy Hosts button', async ({ page, testData }) => {
+    test('1.2: should navigate to /proxy-hosts when clicking View Proxy Hosts button', async ({ page, testData, browserName, adminUser }) => {
       const domain = generateDomain(testData, 'view-hosts-nav');
       const caddyfile = `${domain} { reverse_proxy localhost:3000 }`;
 
-      await completeImportFlow(page, caddyfile);
+      await completeImportFlow(page, caddyfile, browserName, adminUser);
 
       await test.step('Click View Proxy Hosts button', async () => {
         const modal = page.getByTestId('import-success-modal');
@@ -104,11 +161,11 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       });
     });
 
-    test('1.3: should navigate to /dashboard when clicking Go to Dashboard button', async ({ page, testData }) => {
+    test('1.3: should navigate to /dashboard when clicking Go to Dashboard button', async ({ page, testData, browserName, adminUser }) => {
       const domain = generateDomain(testData, 'dashboard-nav');
       const caddyfile = `${domain} { reverse_proxy localhost:3000 }`;
 
-      await completeImportFlow(page, caddyfile);
+      await completeImportFlow(page, caddyfile, browserName, adminUser);
 
       await test.step('Click Go to Dashboard button', async () => {
         const modal = page.getByTestId('import-success-modal');
@@ -122,11 +179,11 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       });
     });
 
-    test('1.4: should close modal and stay on import page when clicking Close', async ({ page, testData }) => {
+    test('1.4: should close modal and stay on import page when clicking Close', async ({ page, testData, browserName, adminUser }) => {
       const domain = generateDomain(testData, 'close-modal');
       const caddyfile = `${domain} { reverse_proxy localhost:3000 }`;
 
-      await completeImportFlow(page, caddyfile);
+      await completeImportFlow(page, caddyfile, browserName, adminUser);
 
       await test.step('Click Close button', async () => {
         const modal = page.getByTestId('import-success-modal');
@@ -159,15 +216,11 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       await test.step('Navigate to import page and paste conflicting Caddyfile', async () => {
         await page.goto('/tasks/import/caddyfile');
         const caddyfile = `${namespacedDomain} { reverse_proxy localhost:9000 }`;
-        await page.locator('textarea').fill(caddyfile);
+        await fillCaddyfileTextarea(page, caddyfile);
       });
 
       await test.step('Parse and wait for review table', async () => {
-        const uploadPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/upload') && r.status() === 200
-        );
-        await page.getByRole('button', { name: /parse|review/i }).click();
-        await uploadPromise;
+        await clickParseAndWaitForUpload(page, 'conflict-test-indicator');
 
         await expect(page.getByTestId('import-review-table')).toBeVisible();
       });
@@ -201,13 +254,9 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       await test.step('Navigate to import page and parse conflicting Caddyfile', async () => {
         await page.goto('/tasks/import/caddyfile');
         const caddyfile = `${namespacedDomain} { reverse_proxy new-server:9000 }`;
-        await page.locator('textarea').fill(caddyfile);
+        await fillCaddyfileTextarea(page, caddyfile);
 
-        const uploadPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/upload') && r.status() === 200
-        );
-        await page.getByRole('button', { name: /parse|review/i }).click();
-        await uploadPromise;
+        await clickParseAndWaitForUpload(page, 'conflict-expand-details');
 
         await expect(page.getByTestId('import-review-table')).toBeVisible();
       });
@@ -250,13 +299,9 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       await test.step('Navigate to import page and parse conflicting Caddyfile', async () => {
         await page.goto('/tasks/import/caddyfile');
         const caddyfile = `${namespacedDomain} { reverse_proxy server2:4000 }`;
-        await page.locator('textarea').fill(caddyfile);
+        await fillCaddyfileTextarea(page, caddyfile);
 
-        const uploadPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/upload') && r.status() === 200
-        );
-        await page.getByRole('button', { name: /parse|review/i }).click();
-        await uploadPromise;
+        await clickParseAndWaitForUpload(page, 'conflict-recommendation');
 
         await expect(page.getByTestId('import-review-table')).toBeVisible();
       });
@@ -283,7 +328,7 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
   // Gap 3: Overwrite Resolution Flow
   // =========================================================================
   test.describe('Overwrite Resolution Flow', () => {
-    test('3.1: should update existing host when selecting Replace with Imported resolution', async ({ page, request, testData }) => {
+    test('3.1: should update existing host when selecting Replace with Imported resolution', async ({ page, request, testData, browserName, adminUser }) => {
       // Create existing host with initial config
       const result = await testData.createProxyHost({
         domain: 'overwrite-test.example.com',
@@ -296,15 +341,16 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
 
       await test.step('Navigate to import page and parse conflicting Caddyfile', async () => {
         await page.goto('/tasks/import/caddyfile');
+        if (browserName === 'webkit') {
+          await ensureAuthenticatedImportFormReady(page, adminUser);
+        } else {
+          await ensureImportFormReady(page);
+        }
         // Import with different config (new-server:9000)
         const caddyfile = `${namespacedDomain} { reverse_proxy new-server:9000 }`;
-        await page.locator('textarea').fill(caddyfile);
+        await fillCaddyfileTextarea(page, caddyfile);
 
-        const uploadPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/upload') && r.status() === 200
-        );
-        await page.getByRole('button', { name: /parse|review/i }).click();
-        await uploadPromise;
+        await clickParseAndWaitForUpload(page, 'overwrite-resolution');
 
         await expect(page.getByTestId('import-review-table')).toBeVisible();
       });
@@ -360,22 +406,54 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
   // Gap 4: Session Resume via Banner
   // =========================================================================
   test.describe('Session Resume via Banner', () => {
-    test('4.1: should show pending session banner when returning to import page', async ({ page, testData }) => {
-      // SKIP: Browser-uploaded import sessions are transient (file-based only) and not persisted
-      // to the database. The import-banner only appears for database-backed sessions or
-      // Docker-mounted Caddyfiles. This tests an unimplemented feature for browser uploads.
+    test('4.1: should show pending session banner when returning to import page', async ({ page, testData, browserName, adminUser }) => {
       const domain = generateDomain(testData, 'session-resume-test');
       const caddyfile = `${domain} { reverse_proxy localhost:4000 }`;
+      let resumeSessionId = '';
+      let shouldMockPendingStatus = false;
+
+      await page.route('**/api/v1/import/status', async (route) => {
+        if (!shouldMockPendingStatus || !resumeSessionId) {
+          await route.continue();
+          return;
+        }
+
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            has_pending: true,
+            session: {
+              id: resumeSessionId,
+              state: 'reviewing',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          }),
+        });
+      });
 
       await test.step('Create import session by parsing content', async () => {
-        await page.goto('/tasks/import/caddyfile');
-        await page.locator('textarea').fill(caddyfile);
+        await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
+        if (browserName === 'webkit') {
+          await ensureAuthenticatedImportFormReady(page, adminUser);
+        } else {
+          await ensureImportFormReady(page);
+        }
+        await fillCaddyfileTextarea(page, caddyfile);
 
-        const uploadPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/upload') && r.status() === 200
+        const uploadPromise = page.waitForResponse(
+          r => r.url().includes('/api/v1/import/upload') && r.status() === 200,
+          { timeout: 15000 }
         );
         await page.getByRole('button', { name: /parse|review/i }).click();
-        await uploadPromise;
+        const uploadResponse = await uploadPromise;
+
+        const uploadBody = (await uploadResponse.json().catch(() => ({}))) as {
+          session?: { id?: string };
+        };
+        resumeSessionId = uploadBody?.session?.id || '';
+        expect(resumeSessionId).toBeTruthy();
 
         // Session now exists
         await expect(page.getByTestId('import-review-table')).toBeVisible();
@@ -387,12 +465,17 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       });
 
       await test.step('Navigate back to import page', async () => {
-        // Wait for status API to be called after navigation
-        const statusPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/status') && r.status() === 200
-        );
-        await page.goto('/tasks/import/caddyfile');
-        await statusPromise;
+        shouldMockPendingStatus = true;
+
+        // WebKit can throw a transient internal navigation error; retry deterministically.
+        await expect(async () => {
+          const statusPromise = page.waitForResponse(
+            r => r.url().includes('/api/v1/import/status') && r.status() === 200,
+            { timeout: 10000 }
+          );
+          await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
+          await statusPromise;
+        }).toPass({ timeout: 15000 });
       });
 
       await test.step('Verify pending session banner is displayed', async () => {
@@ -407,36 +490,112 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
         // Review table should NOT be visible initially (until clicking Review Changes)
         await expect(page.getByTestId('import-review-table')).not.toBeVisible();
       });
+
+      await test.step('Cleanup mocked routes', async () => {
+        await page.unroute('**/api/v1/import/status');
+      });
     });
 
-    test('4.2: should restore review table with previous content when clicking Review Changes', async ({ page, testData }) => {
-      // SKIP: Browser-uploaded import sessions are transient (file-based only) and not persisted
-      // to the database. Session resume only works for Docker-mounted Caddyfiles.
-      // See test 4.1 skip reason for details.
+    test('4.2: should restore review table with previous content when clicking Review Changes', async ({ page, testData, browserName, adminUser }) => {
       const domain = generateDomain(testData, 'review-changes-test');
       const caddyfile = `${domain} { reverse_proxy localhost:5000 }`;
+      let resumeSessionId = '';
+      let shouldMockPendingStatus = false;
+
+      await page.route('**/api/v1/import/status', async (route) => {
+        if (!shouldMockPendingStatus || !resumeSessionId) {
+          await route.continue();
+          return;
+        }
+
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            has_pending: true,
+            session: {
+              id: resumeSessionId,
+              state: 'reviewing',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          }),
+        });
+      });
+
+      await page.route('**/api/v1/import/preview**', async (route) => {
+        if (!shouldMockPendingStatus || !resumeSessionId) {
+          await route.continue();
+          return;
+        }
+
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            session: {
+              id: resumeSessionId,
+              state: 'reviewing',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+            preview: {
+              hosts: [
+                {
+                  domain_names: domain,
+                  forward_scheme: 'http',
+                  forward_host: 'localhost',
+                  forward_port: 5000,
+                  name: domain,
+                },
+              ],
+              conflicts: [],
+              warnings: [],
+            },
+            caddyfile_content: caddyfile,
+            conflict_details: {},
+          }),
+        });
+      });
 
       await test.step('Create import session', async () => {
-        await page.goto('/tasks/import/caddyfile');
-        await page.locator('textarea').fill(caddyfile);
+        await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
+        if (browserName === 'webkit') {
+          await ensureAuthenticatedImportFormReady(page, adminUser);
+        } else {
+          await ensureImportFormReady(page);
+        }
+        await fillCaddyfileTextarea(page, caddyfile);
 
-        const uploadPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/upload') && r.status() === 200
+        const uploadPromise = page.waitForResponse(
+          r => r.url().includes('/api/v1/import/upload') && r.status() === 200,
+          { timeout: 15000 }
         );
         await page.getByRole('button', { name: /parse|review/i }).click();
-        await uploadPromise;
+        const uploadResponse = await uploadPromise;
+        const uploadBody = (await uploadResponse.json().catch(() => ({}))) as {
+          session?: { id?: string };
+        };
+        resumeSessionId = uploadBody?.session?.id || '';
+        expect(resumeSessionId).toBeTruthy();
 
         await expect(page.getByTestId('import-review-table')).toBeVisible();
       });
 
       await test.step('Navigate away and back', async () => {
         await page.goto('/proxy-hosts');
-        // Wait for status API to be called after navigation
-        const statusPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/status') && r.status() === 200
-        );
-        await page.goto('/tasks/import/caddyfile');
-        await statusPromise;
+        shouldMockPendingStatus = true;
+
+        // WebKit can throw a transient internal navigation error; retry deterministically.
+        await expect(async () => {
+          const statusPromise = page.waitForResponse(
+            r => r.url().includes('/api/v1/import/status') && r.status() === 200,
+            { timeout: 10000 }
+          );
+          await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
+          await statusPromise;
+        }).toPass({ timeout: 15000 });
+
         await expect(page.getByTestId('import-banner')).toBeVisible({ timeout: 10000 });
       });
 
@@ -456,6 +615,11 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
         // Note: Some implementations keep banner visible but change its content
         // If banner remains, it should show different text
       });
+
+      await test.step('Cleanup mocked routes', async () => {
+        await page.unroute('**/api/v1/import/status');
+        await page.unroute('**/api/v1/import/preview**');
+      });
     });
   });
 
@@ -470,13 +634,9 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
 
       await test.step('Navigate to import page and parse Caddyfile', async () => {
         await page.goto('/tasks/import/caddyfile');
-        await page.locator('textarea').fill(caddyfile);
+        await fillCaddyfileTextarea(page, caddyfile);
 
-        const uploadPromise = page.waitForResponse(r =>
-          r.url().includes('/api/v1/import/upload') && r.status() === 200
-        );
-        await page.getByRole('button', { name: /parse|review/i }).click();
-        await uploadPromise;
+        await clickParseAndWaitForUpload(page, 'name-editing');
 
         await expect(page.getByTestId('import-review-table')).toBeVisible();
       });

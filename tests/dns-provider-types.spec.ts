@@ -7,6 +7,8 @@ import {
   waitForLoadingComplete,
 } from './utils/wait-helpers';
 import { getFormFieldByLabel } from './utils/ui-helpers';
+import { STORAGE_STATE } from './constants';
+import { readFileSync } from 'fs';
 
 /**
  * DNS Provider Types E2E Tests
@@ -18,14 +20,35 @@ import { getFormFieldByLabel } from './utils/ui-helpers';
  * - Provider selector in UI
  */
 
+function getAuthHeaders(): Record<string, string> {
+  try {
+    const state = JSON.parse(readFileSync(STORAGE_STATE, 'utf-8'));
+    for (const origin of state.origins ?? []) {
+      for (const entry of origin.localStorage ?? []) {
+        if (entry.name === 'charon_auth_token' && entry.value) {
+          return { Authorization: `Bearer ${entry.value}` };
+        }
+      }
+    }
+    for (const cookie of state.cookies ?? []) {
+      if (cookie.name === 'auth_token' && cookie.value) {
+        return { Authorization: `Bearer ${cookie.value}` };
+      }
+    }
+  } catch { /* no-op */ }
+  return {};
+}
+
+
+
 test.describe('DNS Provider Types', () => {
-  test.beforeEach(async ({ request }) => {
-    await waitForAPIHealth(request);
+  test.beforeEach(async ({ page }) => {
+    await waitForAPIHealth(page.request);
   });
 
   test.describe('API: /api/v1/dns-providers/types', () => {
-    test('should return all provider types including built-in and custom', async ({ request }) => {
-      const response = await request.get('/api/v1/dns-providers/types');
+    test('should return all provider types including built-in and custom', async ({ page }) => {
+      const response = await page.request.get('/api/v1/dns-providers/types', { headers: getAuthHeaders() });
       expect(response.ok()).toBeTruthy();
 
       const data = await response.json();
@@ -46,8 +69,8 @@ test.describe('DNS Provider Types', () => {
       expect(typeNames).toContain('script');
     });
 
-    test('each provider type should have required fields', async ({ request }) => {
-      const response = await request.get('/api/v1/dns-providers/types');
+    test('each provider type should have required fields', async ({ page }) => {
+      const response = await page.request.get('/api/v1/dns-providers/types', { headers: getAuthHeaders() });
       expect(response.ok()).toBeTruthy();
       const data = await response.json();
       const types = data.types;
@@ -60,8 +83,8 @@ test.describe('DNS Provider Types', () => {
       }
     });
 
-    test('manual provider type should have correct configuration', async ({ request }) => {
-      const response = await request.get('/api/v1/dns-providers/types');
+    test('manual provider type should have correct configuration', async ({ page }) => {
+      const response = await page.request.get('/api/v1/dns-providers/types', { headers: getAuthHeaders() });
       expect(response.ok()).toBeTruthy();
       const data = await response.json();
       const types = data.types;
@@ -74,8 +97,8 @@ test.describe('DNS Provider Types', () => {
       // since DNS records are created manually by the user
     });
 
-    test('webhook provider type should have url field', async ({ request }) => {
-      const response = await request.get('/api/v1/dns-providers/types');
+    test('webhook provider type should have url field', async ({ page }) => {
+      const response = await page.request.get('/api/v1/dns-providers/types', { headers: getAuthHeaders() });
       expect(response.ok()).toBeTruthy();
       const data = await response.json();
       const types = data.types;
@@ -88,8 +111,8 @@ test.describe('DNS Provider Types', () => {
       expect(fieldNames.some((name: string) => name.toLowerCase().includes('url'))).toBeTruthy();
     });
 
-    test('rfc2136 provider type should have server and key fields', async ({ request }) => {
-      const response = await request.get('/api/v1/dns-providers/types');
+    test('rfc2136 provider type should have server and key fields', async ({ page }) => {
+      const response = await page.request.get('/api/v1/dns-providers/types', { headers: getAuthHeaders() });
       expect(response.ok()).toBeTruthy();
       const data = await response.json();
       const types = data.types;
@@ -102,8 +125,8 @@ test.describe('DNS Provider Types', () => {
       expect(fieldNames.some((name: string) => name.includes('server') || name.includes('nameserver'))).toBeTruthy();
     });
 
-    test('script provider type should have command/path field', async ({ request }) => {
-      const response = await request.get('/api/v1/dns-providers/types');
+    test('script provider type should have command/path field', async ({ page }) => {
+      const response = await page.request.get('/api/v1/dns-providers/types', { headers: getAuthHeaders() });
       expect(response.ok()).toBeTruthy();
       const data = await response.json();
       const types = data.types;

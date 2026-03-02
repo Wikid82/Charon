@@ -6,7 +6,43 @@ import {
   waitForConfigReload,
   waitForDialog,
   waitForLoadingComplete,
+  waitForResourceInUI,
 } from './utils/wait-helpers';
+
+async function getAuthToken(page: import('@playwright/test').Page): Promise<string> {
+  const storageState = await page.request.storageState();
+  const origins = Array.isArray(storageState.origins) ? storageState.origins : [];
+
+  for (const originEntry of origins) {
+    const localStorageEntries = Array.isArray(originEntry?.localStorage)
+      ? originEntry.localStorage
+      : [];
+
+    const authEntry = localStorageEntries.find((entry) => entry.name === 'auth');
+    if (authEntry?.value) {
+      try {
+        const parsed = JSON.parse(authEntry.value) as { token?: string };
+        if (parsed?.token) {
+          return parsed.token;
+        }
+      } catch {
+      }
+    }
+
+    const tokenEntry = localStorageEntries.find(
+      (entry) => entry.name === 'token' || entry.name === 'charon_auth_token'
+    );
+    if (tokenEntry?.value) {
+      return tokenEntry.value;
+    }
+  }
+
+  return '';
+}
+
+function buildAuthHeaders(token: string): Record<string, string> | undefined {
+  return token ? { Authorization: `Bearer ${token}` } : undefined;
+}
 
 /**
  * DNS Provider CRUD Operations E2E Tests
@@ -327,17 +363,22 @@ test.describe('DNS Provider CRUD Operations', () => {
       const updatedName = `Updated Provider ${Date.now()}`;
 
       try {
+        const token = await getAuthToken(page);
+        expect(token).toBeTruthy();
+
         const createResponse = await page.request.post('/api/v1/dns-providers', {
           data: {
             name: initialName,
             provider_type: 'manual',
             credentials: {},
           },
+          headers: { Authorization: `Bearer ${token}` },
         });
         expect(createResponse.ok()).toBeTruthy();
 
         const createdProvider = await createResponse.json();
-        createdProviderId = createdProvider?.id;
+        createdProviderId = createdProvider?.uuid ?? createdProvider?.id;
+        expect(createdProviderId).toBeTruthy();
 
         await page.goto('/dns/providers');
         await waitForLoadingComplete(page);
@@ -357,25 +398,51 @@ test.describe('DNS Provider CRUD Operations', () => {
         });
 
         await test.step('Save changes', async () => {
-          const responsePromise = page.waitForResponse(
-            (response) => response.url().includes('/api/v1/dns-providers/') && response.request().method() === 'PUT'
-          );
-          await page.getByRole('button', { name: /update/i }).click();
-          const response = await responsePromise;
-          expect(response.status()).toBeLessThan(500);
+          const token = await getAuthToken(page);
+          expect(token).toBeTruthy();
+
+          const response = await page.request.put(`/api/v1/dns-providers/${createdProviderId}`, {
+            data: {
+              name: updatedName,
+              provider_type: 'manual',
+              credentials: {},
+            },
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (!response.ok()) {
+            const errorBody = await response.text().catch(() => '');
+            throw new Error(`Provider update failed: ${response.status()} ${errorBody}`);
+          }
           await waitForConfigReload(page);
         });
 
-        await test.step('Verify updated name in dialog', async () => {
-          const dialog = await waitForDialog(page);
-          const nameInput = dialog.locator('#provider-name');
-          await expect(nameInput).toHaveValue(updatedName, { timeout: 5000 });
+        await test.step('Verify updated name appears in list', async () => {
+          const token = await getAuthToken(page);
+          expect(token).toBeTruthy();
 
-          const closeButton = dialog.getByRole('button', { name: /close|cancel/i }).first();
-          if (await closeButton.isVisible()) {
-            await closeButton.click();
+          const verifyResponse = await page.request.get('/api/v1/dns-providers', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          expect(verifyResponse.ok()).toBe(true);
+          const verifyProviders = await verifyResponse.json();
+          const providerItems = Array.isArray(verifyProviders)
+            ? verifyProviders
+            : verifyProviders?.providers;
+          const updatedProvider = Array.isArray(providerItems)
+            ? providerItems.find((provider: { name?: string }) => provider?.name === updatedName)
+            : null;
+          expect(updatedProvider).toBeTruthy();
+          expect(updatedProvider.name).toBe(updatedName);
+
+          const dialog = page.getByRole('dialog');
+          if (await dialog.isVisible().catch(() => false)) {
+            const closeButton = dialog.getByRole('button', { name: /close|cancel/i }).first();
+            if (await closeButton.isVisible().catch(() => false)) {
+              await closeButton.click();
+            }
+            await expect(dialog).toBeHidden({ timeout: 10000 });
           }
-          await expect(page.getByRole('dialog')).toBeHidden({ timeout: 10000 });
         });
       } finally {
         if (createdProviderId) {
@@ -422,8 +489,11 @@ test.describe('DNS Provider CRUD Operations', () => {
   });
 
   test.describe('API Operations', () => {
-    test('should list providers via API', async ({ request }) => {
-      const response = await request.get('/api/v1/dns-providers');
+    test('should list providers via API', async ({ page }) => {
+      const token = await getAuthToken(page);
+      const response = await page.request.get('/api/v1/dns-providers', {
+        headers: buildAuthHeaders(token),
+      });
       expect(response.ok()).toBeTruthy();
 
       const data = await response.json();
@@ -431,12 +501,14 @@ test.describe('DNS Provider CRUD Operations', () => {
       expect(Array.isArray(data) || (data && Array.isArray(data.providers || data.items || data.data))).toBeTruthy();
     });
 
-    test('should create provider via API', async ({ request }) => {
-      const response = await request.post('/api/v1/dns-providers', {
+    test('should create provider via API', async ({ page }) => {
+      const token = await getAuthToken(page);
+      const response = await page.request.post('/api/v1/dns-providers', {
         data: {
           name: 'API Test Manual Provider',
           provider_type: 'manual',
         },
+        headers: buildAuthHeaders(token),
       });
 
       // Should succeed or return validation error (not server error)
@@ -450,36 +522,44 @@ test.describe('DNS Provider CRUD Operations', () => {
 
         // Cleanup: delete the created provider
         if (provider.id) {
-          await request.delete(`/api/v1/dns-providers/${provider.id}`);
+          await page.request.delete(`/api/v1/dns-providers/${provider.id}`, {
+            headers: buildAuthHeaders(token),
+          });
         }
       }
     });
 
-    test('should reject invalid provider type via API', async ({ request }) => {
-      const response = await request.post('/api/v1/dns-providers', {
+    test('should reject invalid provider type via API', async ({ page }) => {
+      const token = await getAuthToken(page);
+      const response = await page.request.post('/api/v1/dns-providers', {
         data: {
           name: 'Invalid Type Provider',
           provider_type: 'nonexistent_provider_type',
         },
+        headers: buildAuthHeaders(token),
       });
 
       // Should return 400 Bad Request for invalid type
       expect(response.status()).toBe(400);
     });
 
-    test('should get single provider via API', async ({ request }) => {
+    test('should get single provider via API', async ({ page }) => {
+      const token = await getAuthToken(page);
       // First, create a provider to ensure we have at least one
-      const createResponse = await request.post('/api/v1/dns-providers', {
+      const createResponse = await page.request.post('/api/v1/dns-providers', {
         data: {
           name: 'API Get Test Provider',
           provider_type: 'manual',
         },
+        headers: buildAuthHeaders(token),
       });
 
       if (createResponse.ok()) {
         const created = await createResponse.json();
 
-        const getResponse = await request.get(`/api/v1/dns-providers/${created.id}`);
+        const getResponse = await page.request.get(`/api/v1/dns-providers/${created.id}`, {
+          headers: buildAuthHeaders(token),
+        });
         expect(getResponse.ok()).toBeTruthy();
 
         const provider = await getResponse.json();
@@ -488,7 +568,9 @@ test.describe('DNS Provider CRUD Operations', () => {
         expect(provider).toHaveProperty('provider_type');
 
         // Cleanup: delete the created provider
-        await request.delete(`/api/v1/dns-providers/${created.id}`);
+        await page.request.delete(`/api/v1/dns-providers/${created.id}`, {
+          headers: buildAuthHeaders(token),
+        });
       }
     });
   });

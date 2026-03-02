@@ -1,0 +1,26 @@
+# Docker Compose override — copy to docker-compose.override.yml to activate.
+#
+# Use case: grant the container access to the host Docker socket so that
+# Charon can discover running containers.
+#
+# 1. cp docker-compose.override.example.yml docker-compose.override.yml
+# 2. Uncomment the service that matches your compose file:
+#      - "charon" for docker-compose.local.yml
+#      - "app"    for docker-compose.dev.yml
+# 3. Replace <GID> with the output of:  stat -c '%g' /var/run/docker.sock
+# 4. docker compose up -d
+
+services:
+  # Uncomment for docker-compose.local.yml
+  charon:
+    group_add:
+      - "<GID>"   # e.g. "988" — run: stat -c '%g' /var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  # Uncomment for docker-compose.dev.yml
+  app:
+    group_add:
+      - "<GID>"   # e.g. "988" — run: stat -c '%g' /var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro

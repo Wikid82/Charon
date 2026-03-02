@@ -1,0 +1,55 @@
+version: 1
+effective_date: 2026-02-25
+scope:
+  - local pre-commit manual security hooks
+  - github actions security workflows
+
+defaults:
+  blocking:
+    - critical
+    - high
+  medium:
+    mode: risk-based
+    default_action: report
+    require_sla: true
+    default_sla_days: 14
+    escalation:
+      trigger: high-signal class or repeated finding
+      action: require issue + owner + due date
+  low:
+    action: report
+
+codeql:
+  severity_mapping:
+    error: high_or_critical
+    warning: medium_or_lower
+    note: informational
+  blocking_levels:
+    - error
+  warning_policy:
+    default_action: report
+    escalation_high_signal_rule_ids:
+      - go/request-forgery
+      - js/missing-rate-limiting
+      - js/insecure-randomness
+
+trivy:
+  blocking_severities:
+    - CRITICAL
+    - HIGH
+  medium_policy:
+    action: report
+    escalation: issue-with-sla
+
+grype:
+  blocking_severities:
+    - Critical
+    - High
+  medium_policy:
+    action: report
+    escalation: issue-with-sla
+
+enforcement_contract:
+  codeql_local_vs_ci: "local and ci block on codeql error-level findings only"
+  supply_chain_medium: "medium vulnerabilities are non-blocking by default and require explicit triage"
+  auth_regression_guard: "state-changing routes must remain protected by auth middleware"

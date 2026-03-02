@@ -110,6 +110,10 @@ func TestSecurityHandler_AddWAFExclusion_Success(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 
 	payload := map[string]any{
@@ -140,6 +144,10 @@ func TestSecurityHandler_AddWAFExclusion_WithTarget(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 
 	payload := map[string]any{
@@ -175,6 +183,10 @@ func TestSecurityHandler_AddWAFExclusion_ToExistingConfig(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 	router.GET("/security/waf/exclusions", handler.GetWAFExclusions)
 
@@ -215,6 +227,10 @@ func TestSecurityHandler_AddWAFExclusion_Duplicate(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 
 	// Try to add duplicate
@@ -244,6 +260,10 @@ func TestSecurityHandler_AddWAFExclusion_DuplicateWithDifferentTarget(t *testing
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 
 	// Add same rule_id with different target - should succeed
@@ -268,6 +288,10 @@ func TestSecurityHandler_AddWAFExclusion_MissingRuleID(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 
 	payload := map[string]any{
@@ -290,6 +314,10 @@ func TestSecurityHandler_AddWAFExclusion_InvalidRuleID(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 
 	// Zero rule_id
@@ -313,6 +341,10 @@ func TestSecurityHandler_AddWAFExclusion_NegativeRuleID(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 
 	payload := map[string]any{
@@ -335,6 +367,10 @@ func TestSecurityHandler_AddWAFExclusion_InvalidPayload(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 
 	w := httptest.NewRecorder()
@@ -358,6 +394,10 @@ func TestSecurityHandler_DeleteWAFExclusion_Success(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.DELETE("/security/waf/exclusions/:rule_id", handler.DeleteWAFExclusion)
 	router.GET("/security/waf/exclusions", handler.GetWAFExclusions)
 
@@ -394,6 +434,10 @@ func TestSecurityHandler_DeleteWAFExclusion_WithTarget(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.DELETE("/security/waf/exclusions/:rule_id", handler.DeleteWAFExclusion)
 	router.GET("/security/waf/exclusions", handler.GetWAFExclusions)
 
@@ -430,6 +474,10 @@ func TestSecurityHandler_DeleteWAFExclusion_NotFound(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.DELETE("/security/waf/exclusions/:rule_id", handler.DeleteWAFExclusion)
 
 	w := httptest.NewRecorder()
@@ -446,6 +494,10 @@ func TestSecurityHandler_DeleteWAFExclusion_NoConfig(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.DELETE("/security/waf/exclusions/:rule_id", handler.DeleteWAFExclusion)
 
 	w := httptest.NewRecorder()
@@ -462,6 +514,10 @@ func TestSecurityHandler_DeleteWAFExclusion_InvalidRuleID(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.DELETE("/security/waf/exclusions/:rule_id", handler.DeleteWAFExclusion)
 
 	w := httptest.NewRecorder()
@@ -478,6 +534,10 @@ func TestSecurityHandler_DeleteWAFExclusion_ZeroRuleID(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.DELETE("/security/waf/exclusions/:rule_id", handler.DeleteWAFExclusion)
 
 	w := httptest.NewRecorder()
@@ -494,6 +554,10 @@ func TestSecurityHandler_DeleteWAFExclusion_NegativeRuleID(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.DELETE("/security/waf/exclusions/:rule_id", handler.DeleteWAFExclusion)
 
 	w := httptest.NewRecorder()
@@ -533,6 +597,10 @@ func TestSecurityHandler_WAFExclusion_FullWorkflow(t *testing.T) {
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	router.GET("/security/waf/exclusions", handler.GetWAFExclusions)
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 	router.DELETE("/security/waf/exclusions/:rule_id", handler.DeleteWAFExclusion)

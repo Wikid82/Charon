@@ -52,9 +52,9 @@ describe('notifications api', () => {
     await testProvider({ id: '2', name: 'test', type: 'discord' })
     expect(client.post).toHaveBeenCalledWith('/notifications/providers/test', { id: '2', name: 'test', type: 'discord' })
 
-    await expect(createProvider({ name: 'x', type: 'slack' })).rejects.toThrow('Only discord notification providers are supported')
-    await expect(updateProvider('2', { name: 'updated', type: 'generic' })).rejects.toThrow('Only discord notification providers are supported')
-    await expect(testProvider({ id: '2', name: 'test', type: 'telegram' })).rejects.toThrow('Only discord notification providers are supported')
+    await expect(createProvider({ name: 'x', type: 'slack' })).rejects.toThrow('Unsupported notification provider type: slack')
+    await expect(updateProvider('2', { name: 'updated', type: 'generic' })).rejects.toThrow('Unsupported notification provider type: generic')
+    await expect(testProvider({ id: '2', name: 'test', type: 'telegram' })).rejects.toThrow('Unsupported notification provider type: telegram')
   })
 
   it('templates and previews use merged payloads', async () => {
@@ -68,7 +68,10 @@ describe('notifications api', () => {
     expect(preview).toEqual({ preview: 'ok' })
     expect(client.post).toHaveBeenCalledWith('/notifications/providers/preview', { name: 'provider', type: 'discord', data: { user: 'alice' } })
 
-    await expect(previewProvider({ name: 'provider', type: 'webhook' }, { user: 'alice' })).rejects.toThrow('Only discord notification providers are supported')
+    vi.mocked(client.post).mockResolvedValueOnce({ data: { preview: 'webhook-ok' } })
+    const webhookPreview = await previewProvider({ name: 'provider', type: 'webhook' }, { user: 'alice' })
+    expect(webhookPreview).toEqual({ preview: 'webhook-ok' })
+    expect(client.post).toHaveBeenCalledWith('/notifications/providers/preview', { name: 'provider', type: 'webhook', data: { user: 'alice' } })
   })
 
   it('external template endpoints shape payloads', async () => {

@@ -820,6 +820,277 @@ func TestUptimeService_CheckAll_Errors(t *testing.T) {
 	})
 }
 
+func TestUptimeService_CheckAll_HostDown_PartitionsByMonitorType(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db)
+	us := newTestUptimeService(t, db, ns)
+
+	us.config.TCPTimeout = 50 * time.Millisecond
+	us.config.MaxRetries = 0
+	us.config.FailureThreshold = 1
+	us.config.CheckTimeout = 2 * time.Second
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.NoError(t, err)
+	addr := listener.Addr().(*net.TCPAddr)
+
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() {
+		_ = server.Close()
+		_ = listener.Close()
+	})
+
+	closedListener, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.NoError(t, err)
+	closedPort := closedListener.Addr().(*net.TCPAddr).Port
+	_ = closedListener.Close()
+
+	uptimeHost := models.UptimeHost{
+		Host:   "127.0.0.2",
+		Name:   "Down Host",
+		Status: "pending",
+	}
+	err = db.Create(&uptimeHost).Error
+	assert.NoError(t, err)
+
+	hostID := uptimeHost.ID
+	httpMonitor := models.UptimeMonitor{
+		ID:           "hostdown-http-monitor",
+		Name:         "HTTP Monitor",
+		Type:         "http",
+		URL:          fmt.Sprintf("http://127.0.0.1:%d", addr.Port),
+		Enabled:      true,
+		Status:       "pending",
+		UptimeHostID: &hostID,
+		MaxRetries:   1,
+	}
+	tcpMonitor := models.UptimeMonitor{
+		ID:           "hostdown-tcp-monitor",
+		Name:         "TCP Monitor",
+		Type:         "tcp",
+		URL:          fmt.Sprintf("127.0.0.2:%d", closedPort),
+		Enabled:      true,
+		Status:       "up",
+		UptimeHostID: &hostID,
+		MaxRetries:   1,
+	}
+	err = db.Create(&httpMonitor).Error
+	assert.NoError(t, err)
+	err = db.Create(&tcpMonitor).Error
+	assert.NoError(t, err)
+
+	us.CheckAll()
+
+	assert.Eventually(t, func() bool {
+		var refreshed models.UptimeHost
+		if db.Where("id = ?", uptimeHost.ID).First(&refreshed).Error != nil {
+			return false
+		}
+		return refreshed.Status == "down"
+	}, 3*time.Second, 25*time.Millisecond)
+
+	assert.Eventually(t, func() bool {
+		var refreshed models.UptimeMonitor
+		if db.Where("id = ?", httpMonitor.ID).First(&refreshed).Error != nil {
+			return false
+		}
+		return refreshed.Status == "up"
+	}, 3*time.Second, 25*time.Millisecond)
+
+	assert.Eventually(t, func() bool {
+		var refreshed models.UptimeMonitor
+		if db.Where("id = ?", tcpMonitor.ID).First(&refreshed).Error != nil {
+			return false
+		}
+		return refreshed.Status == "down"
+	}, 3*time.Second, 25*time.Millisecond)
+
+	var httpHeartbeat models.UptimeHeartbeat
+	err = db.Where("monitor_id = ?", httpMonitor.ID).Order("created_at desc").First(&httpHeartbeat).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "up", httpHeartbeat.Status)
+	assert.Contains(t, httpHeartbeat.Message, "HTTP 200")
+	assert.NotContains(t, httpHeartbeat.Message, "Host unreachable")
+
+	var tcpHeartbeat models.UptimeHeartbeat
+	err = db.Where("monitor_id = ?", tcpMonitor.ID).Order("created_at desc").First(&tcpHeartbeat).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "down", tcpHeartbeat.Status)
+	assert.Equal(t, "Host unreachable", tcpHeartbeat.Message)
+}
+
+func TestUptimeService_CheckAll_ManualScheduledParity_ForHTTPOnHostDown(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db)
+	us := newTestUptimeService(t, db, ns)
+
+	us.config.TCPTimeout = 50 * time.Millisecond
+	us.config.MaxRetries = 0
+	us.config.FailureThreshold = 1
+	us.config.CheckTimeout = 2 * time.Second
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.NoError(t, err)
+	addr := listener.Addr().(*net.TCPAddr)
+
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() {
+		_ = server.Close()
+		_ = listener.Close()
+	})
+
+	uptimeHost := models.UptimeHost{
+		Host:   "127.0.0.2",
+		Name:   "Parity Host",
+		Status: "pending",
+	}
+	err = db.Create(&uptimeHost).Error
+	assert.NoError(t, err)
+
+	hostID := uptimeHost.ID
+	manualMonitor := models.UptimeMonitor{
+		ID:           "manual-http-parity",
+		Name:         "Manual HTTP",
+		Type:         "http",
+		URL:          fmt.Sprintf("http://127.0.0.1:%d", addr.Port),
+		Enabled:      true,
+		Status:       "pending",
+		UptimeHostID: &hostID,
+		MaxRetries:   1,
+	}
+	scheduledMonitor := models.UptimeMonitor{
+		ID:           "scheduled-http-parity",
+		Name:         "Scheduled HTTP",
+		Type:         "http",
+		URL:          fmt.Sprintf("http://127.0.0.1:%d", addr.Port),
+		Enabled:      true,
+		Status:       "pending",
+		UptimeHostID: &hostID,
+		MaxRetries:   1,
+	}
+	err = db.Create(&manualMonitor).Error
+	assert.NoError(t, err)
+	err = db.Create(&scheduledMonitor).Error
+	assert.NoError(t, err)
+
+	us.CheckMonitor(manualMonitor)
+
+	assert.Eventually(t, func() bool {
+		var refreshed models.UptimeMonitor
+		if db.Where("id = ?", manualMonitor.ID).First(&refreshed).Error != nil {
+			return false
+		}
+		return refreshed.Status == "up"
+	}, 2*time.Second, 25*time.Millisecond)
+
+	us.CheckAll()
+
+	assert.Eventually(t, func() bool {
+		var refreshed models.UptimeMonitor
+		if db.Where("id = ?", scheduledMonitor.ID).First(&refreshed).Error != nil {
+			return false
+		}
+		return refreshed.Status == "up"
+	}, 3*time.Second, 25*time.Millisecond)
+
+	var manualResult models.UptimeMonitor
+	err = db.Where("id = ?", manualMonitor.ID).First(&manualResult).Error
+	assert.NoError(t, err)
+
+	var scheduledResult models.UptimeMonitor
+	err = db.Where("id = ?", scheduledMonitor.ID).First(&scheduledResult).Error
+	assert.NoError(t, err)
+
+	assert.Equal(t, "up", manualResult.Status)
+	assert.Equal(t, manualResult.Status, scheduledResult.Status)
+}
+
+func TestUptimeService_CheckAll_ReachableHost_StillUsesHTTPResult(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db)
+	us := newTestUptimeService(t, db, ns)
+
+	us.config.TCPTimeout = 50 * time.Millisecond
+	us.config.MaxRetries = 0
+	us.config.FailureThreshold = 1
+	us.config.CheckTimeout = 2 * time.Second
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.NoError(t, err)
+	addr := listener.Addr().(*net.TCPAddr)
+
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() {
+		_ = server.Close()
+		_ = listener.Close()
+	})
+
+	uptimeHost := models.UptimeHost{
+		Host:   "127.0.0.1",
+		Name:   "Reachable Host",
+		Status: "pending",
+	}
+	err = db.Create(&uptimeHost).Error
+	assert.NoError(t, err)
+
+	hostID := uptimeHost.ID
+	httpMonitor := models.UptimeMonitor{
+		ID:           "reachable-host-http-fail",
+		Name:         "Reachable Host HTTP Failure",
+		Type:         "http",
+		URL:          fmt.Sprintf("http://127.0.0.1:%d", addr.Port),
+		Enabled:      true,
+		Status:       "pending",
+		UptimeHostID: &hostID,
+		MaxRetries:   1,
+	}
+	err = db.Create(&httpMonitor).Error
+	assert.NoError(t, err)
+
+	us.CheckAll()
+
+	assert.Eventually(t, func() bool {
+		var refreshedHost models.UptimeHost
+		if db.Where("id = ?", uptimeHost.ID).First(&refreshedHost).Error != nil {
+			return false
+		}
+		return refreshedHost.Status == "up"
+	}, 3*time.Second, 25*time.Millisecond)
+
+	assert.Eventually(t, func() bool {
+		var refreshed models.UptimeMonitor
+		if db.Where("id = ?", httpMonitor.ID).First(&refreshed).Error != nil {
+			return false
+		}
+		return refreshed.Status == "down"
+	}, 3*time.Second, 25*time.Millisecond)
+
+	var heartbeat models.UptimeHeartbeat
+	err = db.Where("monitor_id = ?", httpMonitor.ID).Order("created_at desc").First(&heartbeat).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "down", heartbeat.Status)
+	assert.Contains(t, heartbeat.Message, "HTTP 500")
+	assert.NotContains(t, heartbeat.Message, "Host unreachable")
+}
+
 func TestUptimeService_CheckMonitor_EdgeCases(t *testing.T) {
 	t.Run("invalid URL format", func(t *testing.T) {
 		db := setupUptimeTestDB(t)

@@ -32,7 +32,7 @@ cd "${PROJECT_ROOT}"
 validate_project_structure "backend" "scripts/go-test-coverage.sh" || error_exit "Invalid project structure"
 
 # Set default environment variables
-set_default_env "CHARON_MIN_COVERAGE" "85"
+set_default_env "CHARON_MIN_COVERAGE" "87"
 set_default_env "PERF_MAX_MS_GETSTATUS_P95" "25ms"
 set_default_env "PERF_MAX_MS_GETSTATUS_P95_PARALLEL" "50ms"
 set_default_env "PERF_MAX_MS_LISTDECISIONS_P95" "75ms"

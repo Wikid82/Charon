@@ -44,8 +44,8 @@ export interface InviteUserResponse {
   uuid: string
   email: string
   role: string
-  invite_token: string
-  invite_url: string
+  invite_token_masked: string
+  invite_url?: string
   email_sent: boolean
   expires_at: string
 }

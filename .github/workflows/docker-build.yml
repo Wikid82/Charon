@@ -23,7 +23,11 @@ name: Docker Build, Publish & Test
 on:
   pull_request:
   push:
+    branches: [main]
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Docker Lint"]
+    types: [completed]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
@@ -38,7 +42,7 @@ env:
   TRIGGER_HEAD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
   TRIGGER_REF: ${{ github.event_name == 'workflow_run' && format('refs/heads/{0}', github.event.workflow_run.head_branch) || github.ref }}
   TRIGGER_HEAD_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.head_ref }}
-  TRIGGER_PR_NUMBER: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }}
+  TRIGGER_PR_NUMBER: ${{ github.event_name == 'workflow_run' && join(github.event.workflow_run.pull_requests.*.number, '') || github.event.pull_request.number }}
   TRIGGER_ACTOR: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.actor.login || github.actor }}
 
 jobs:
@@ -339,7 +343,7 @@ jobs:
 
       - name: Upload Image Artifact
         if: success() && steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: ${{ env.TRIGGER_EVENT == 'pull_request' && format('pr-image-{0}', env.TRIGGER_PR_NUMBER) || 'push-image' }}
           path: /tmp/charon-pr-image.tar
@@ -561,12 +565,13 @@ jobs:
         uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
         with:
           sarif_file: 'trivy-results.sarif'
+          category: '.github/workflows/docker-build.yml:build-and-push'
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # Generate SBOM (Software Bill of Materials) for supply chain security
       # Only for production builds (main/development) - feature branches use downstream supply-chain-pr.yml
       - name: Generate SBOM
-        uses: anchore/sbom-action@28d71544de8eaf1b958d335707167c5f783590ad # v0.22.2
+        uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11 # v0.23.0
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         with:
           image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
@@ -575,7 +580,7 @@ jobs:
 
       # Create verifiable attestation for the SBOM
       - name: Attest SBOM
-        uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3.0.0
+        uses: actions/attest-sbom@07e74fc4e78d1aad915e867f9a094073a9f71527 # v4.0.0
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         with:
           subject-name: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -702,12 +707,46 @@ jobs:
           exit-code: '1'  # Intended to block, but continued on error for now
         continue-on-error: true
 
-      - name: Upload Trivy scan results
+      - name: Check Trivy PR SARIF exists
         if: always()
+        id: trivy-pr-check
+        run: |
+          if [ -f trivy-pr-results.sarif ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload Trivy scan results
+        if: always() && steps.trivy-pr-check.outputs.exists == 'true'
         uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
         with:
           sarif_file: 'trivy-pr-results.sarif'
           category: 'docker-pr-image'
+
+      - name: Upload Trivy compatibility results (docker-build category)
+        if: always() && steps.trivy-pr-check.outputs.exists == 'true'
+        uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
+        with:
+          sarif_file: 'trivy-pr-results.sarif'
+          category: '.github/workflows/docker-build.yml:build-and-push'
+        continue-on-error: true
+
+      - name: Upload Trivy compatibility results (docker-publish alias)
+        if: always() && steps.trivy-pr-check.outputs.exists == 'true'
+        uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
+        with:
+          sarif_file: 'trivy-pr-results.sarif'
+          category: '.github/workflows/docker-publish.yml:build-and-push'
+        continue-on-error: true
+
+      - name: Upload Trivy compatibility results (nightly alias)
+        if: always() && steps.trivy-pr-check.outputs.exists == 'true'
+        uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4.32.4
+        with:
+          sarif_file: 'trivy-pr-results.sarif'
+          category: 'trivy-nightly'
+        continue-on-error: true
 
       - name: Create scan summary
         if: always()

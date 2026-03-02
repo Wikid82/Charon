@@ -58,6 +58,8 @@ describe('SystemSettings', () => {
     vi.mocked(settingsApi.getSettings).mockResolvedValue({
       'caddy.admin_api': 'http://localhost:2019',
       'caddy.ssl_provider': 'auto',
+      'caddy.keepalive_idle': '',
+      'caddy.keepalive_count': '',
       'ui.domain_link_behavior': 'new_tab',
       'security.cerberus.enabled': 'false',
     })
@@ -162,6 +164,34 @@ describe('SystemSettings', () => {
       })
     })
 
+    it('loads keepalive settings when present', async () => {
+      vi.mocked(settingsApi.getSettings).mockResolvedValue({
+        'caddy.admin_api': 'http://localhost:2019',
+        'caddy.ssl_provider': 'auto',
+        'caddy.keepalive_idle': '2m',
+        'caddy.keepalive_count': '5',
+        'ui.domain_link_behavior': 'new_tab',
+      })
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        const keepaliveIdleInput = screen.getByLabelText('Keepalive Idle (Optional)') as HTMLInputElement
+        const keepaliveCountInput = screen.getByLabelText('Keepalive Count (Optional)') as HTMLInputElement
+        expect(keepaliveIdleInput.value).toBe('2m')
+        expect(keepaliveCountInput.value).toBe('5')
+      })
+    })
+
+    it('renders keepalive controls in General settings', async () => {
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Keepalive Idle (Optional)')).toBeInTheDocument()
+        expect(screen.getByLabelText('Keepalive Count (Optional)')).toBeInTheDocument()
+      })
+    })
+
     it('saves all settings when save button is clicked', async () => {
       vi.mocked(settingsApi.updateSetting).mockResolvedValue(undefined)
 
@@ -176,7 +206,7 @@ describe('SystemSettings', () => {
       await user.click(saveButtons[0])
 
       await waitFor(() => {
-        expect(settingsApi.updateSetting).toHaveBeenCalledTimes(4)
+        expect(settingsApi.updateSetting).toHaveBeenCalledTimes(6)
         expect(settingsApi.updateSetting).toHaveBeenCalledWith(
           'caddy.admin_api',
           expect.any(String),
@@ -190,12 +220,80 @@ describe('SystemSettings', () => {
           'string'
         )
         expect(settingsApi.updateSetting).toHaveBeenCalledWith(
+          'caddy.keepalive_idle',
+          '',
+          'caddy',
+          'string'
+        )
+        expect(settingsApi.updateSetting).toHaveBeenCalledWith(
+          'caddy.keepalive_count',
+          '',
+          'caddy',
+          'string'
+        )
+        expect(settingsApi.updateSetting).toHaveBeenCalledWith(
           'ui.domain_link_behavior',
           expect.any(String),
           'ui',
           'string'
         )
       })
+    })
+
+    it('saves keepalive settings when valid values are provided', async () => {
+      vi.mocked(settingsApi.updateSetting).mockResolvedValue(undefined)
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Keepalive Idle (Optional)')).toBeInTheDocument()
+      })
+
+      const user = userEvent.setup()
+      const keepaliveIdleInput = screen.getByLabelText('Keepalive Idle (Optional)')
+      const keepaliveCountInput = screen.getByLabelText('Keepalive Count (Optional)')
+      await user.clear(keepaliveIdleInput)
+      await user.type(keepaliveIdleInput, '30s')
+      await user.clear(keepaliveCountInput)
+      await user.type(keepaliveCountInput, '3')
+
+      const saveButtons = screen.getAllByRole('button', { name: /Save Settings/i })
+      await user.click(saveButtons[0])
+
+      await waitFor(() => {
+        expect(settingsApi.updateSetting).toHaveBeenCalledWith(
+          'caddy.keepalive_idle',
+          '30s',
+          'caddy',
+          'string'
+        )
+        expect(settingsApi.updateSetting).toHaveBeenCalledWith(
+          'caddy.keepalive_count',
+          '3',
+          'caddy',
+          'string'
+        )
+      })
+    })
+
+    it('disables save when keepalive values are invalid', async () => {
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Keepalive Idle (Optional)')).toBeInTheDocument()
+      })
+
+      const user = userEvent.setup()
+      const keepaliveIdleInput = screen.getByLabelText('Keepalive Idle (Optional)')
+      await user.clear(keepaliveIdleInput)
+      await user.type(keepaliveIdleInput, 'invalid-duration')
+
+      await waitFor(() => {
+        expect(screen.getByText('Enter a valid duration (for example: 30s, 2m, 1h).')).toBeInTheDocument()
+      })
+
+      const saveButtons = screen.getAllByRole('button', { name: /Save Settings/i })
+      expect(saveButtons[0]).toBeDisabled()
     })
   })
 

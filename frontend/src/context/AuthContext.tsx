@@ -109,7 +109,7 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, [fetchSessionUser]);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     invalidateAuthRequests();
     localStorage.removeItem('charon_auth_token');
     setAuthToken(null);
@@ -121,7 +121,7 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     } catch (error) {
       console.error("Logout failed", error);
     }
-  };
+  }, [invalidateAuthRequests]);
 
   const changePassword = async (oldPassword: string, newPassword: string) => {
     try {
@@ -174,7 +174,7 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
         window.removeEventListener(event, handleActivity);
       });
     };
-  }, [user]);
+  }, [user, logout]);
 
   return (
     <AuthContext.Provider value={{ user, login, logout, changePassword, isAuthenticated: !!user, isLoading }}>

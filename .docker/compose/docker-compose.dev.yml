@@ -32,6 +32,8 @@ services:
       #- CPM_SECURITY_RATELIMIT_ENABLED=false
       #- CPM_SECURITY_ACL_ENABLED=false
       - FEATURE_CERBERUS_ENABLED=true
+    # Docker socket group access: copy docker-compose.override.example.yml
+    # to docker-compose.override.yml and set your host's docker GID.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
       - crowdsec_data:/app/data/crowdsec

@@ -59,6 +59,10 @@ func TestSecurityHandler_ReloadGeoIP_NotInitialized(t *testing.T) {
 
 	h := NewSecurityHandler(config.SecurityConfig{}, nil, nil)
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	r.POST("/security/geoip/reload", h.ReloadGeoIP)
 
 	w := httptest.NewRecorder()
@@ -75,6 +79,10 @@ func TestSecurityHandler_ReloadGeoIP_LoadError(t *testing.T) {
 	h.SetGeoIPService(&services.GeoIPService{}) // dbPath empty => Load() will error
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	r.POST("/security/geoip/reload", h.ReloadGeoIP)
 
 	w := httptest.NewRecorder()
@@ -90,6 +98,10 @@ func TestSecurityHandler_LookupGeoIP_MissingIPAddress(t *testing.T) {
 
 	h := NewSecurityHandler(config.SecurityConfig{}, nil, nil)
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	r.POST("/security/geoip/lookup", h.LookupGeoIP)
 
 	payload := []byte(`{}`)
@@ -109,6 +121,10 @@ func TestSecurityHandler_LookupGeoIP_ServiceUnavailable(t *testing.T) {
 	h.SetGeoIPService(&services.GeoIPService{}) // present but not loaded
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
 	r.POST("/security/geoip/lookup", h.LookupGeoIP)
 
 	payload, _ := json.Marshal(map[string]string{"ip_address": "8.8.8.8"})

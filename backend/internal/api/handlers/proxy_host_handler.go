@@ -130,6 +130,7 @@ func generateForwardHostWarnings(forwardHost string) []ProxyHostWarning {
 // ProxyHostHandler handles CRUD operations for proxy hosts.
 type ProxyHostHandler struct {
 	service             *services.ProxyHostService
+	db                  *gorm.DB
 	caddyManager        *caddy.Manager
 	notificationService *services.NotificationService
 	uptimeService       *services.UptimeService
@@ -183,6 +184,74 @@ func parseNullableUintField(value any, fieldName string) (*uint, bool, error) {
 	}
 }
 
+func (h *ProxyHostHandler) resolveAccessListReference(value any) (*uint, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	parsedID, _, parseErr := parseNullableUintField(value, "access_list_id")
+	if parseErr == nil {
+		return parsedID, nil
+	}
+
+	uuidValue, isString := value.(string)
+	if !isString {
+		return nil, parseErr
+	}
+
+	trimmed := strings.TrimSpace(uuidValue)
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	var acl models.AccessList
+	if err := h.db.Select("id").Where("uuid = ?", trimmed).First(&acl).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("access list not found")
+		}
+		return nil, fmt.Errorf("failed to resolve access list")
+	}
+
+	id := acl.ID
+	return &id, nil
+}
+
+func (h *ProxyHostHandler) resolveSecurityHeaderProfileReference(value any) (*uint, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	parsedID, _, parseErr := parseNullableUintField(value, "security_header_profile_id")
+	if parseErr == nil {
+		return parsedID, nil
+	}
+
+	uuidValue, isString := value.(string)
+	if !isString {
+		return nil, parseErr
+	}
+
+	trimmed := strings.TrimSpace(uuidValue)
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	if _, err := uuid.Parse(trimmed); err != nil {
+		return nil, parseErr
+	}
+
+	var profile models.SecurityHeaderProfile
+	if err := h.db.Select("id").Where("uuid = ?", trimmed).First(&profile).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("security header profile not found")
+		}
+		return nil, fmt.Errorf("failed to resolve security header profile")
+	}
+
+	id := profile.ID
+	return &id, nil
+}
+
 func parseForwardPortField(value any) (int, error) {
 	switch v := value.(type) {
 	case float64:
@@ -221,6 +290,7 @@ func parseForwardPortField(value any) (int, error) {
 func NewProxyHostHandler(db *gorm.DB, caddyManager *caddy.Manager, ns *services.NotificationService, uptimeService *services.UptimeService) *ProxyHostHandler {
 	return &ProxyHostHandler{
 		service:             services.NewProxyHostService(db),
+		db:                  db,
 		caddyManager:        caddyManager,
 		notificationService: ns,
 		uptimeService:       uptimeService,
@@ -252,8 +322,38 @@ func (h *ProxyHostHandler) List(c *gin.Context) {
 
 // Create creates a new proxy host.
 func (h *ProxyHostHandler) Create(c *gin.Context) {
+	var payload map[string]any
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if rawAccessListRef, ok := payload["access_list_id"]; ok {
+		resolvedAccessListID, resolveErr := h.resolveAccessListReference(rawAccessListRef)
+		if resolveErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
+			return
+		}
+		payload["access_list_id"] = resolvedAccessListID
+	}
+
+	if rawSecurityHeaderRef, ok := payload["security_header_profile_id"]; ok {
+		resolvedSecurityHeaderID, resolveErr := h.resolveSecurityHeaderProfileReference(rawSecurityHeaderRef)
+		if resolveErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
+			return
+		}
+		payload["security_header_profile_id"] = resolvedSecurityHeaderID
+	}
+
+	payloadBytes, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request payload"})
+		return
+	}
+
 	var host models.ProxyHost
-	if err := c.ShouldBindJSON(&host); err != nil {
+	if err := json.Unmarshal(payloadBytes, &host); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -311,6 +411,11 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 				"Action":  "created",
 			},
 		)
+	}
+
+	// Trigger immediate uptime monitor creation + health check (non-blocking)
+	if h.uptimeService != nil {
+		go h.uptimeService.SyncAndCheckForHost(host.ID)
 	}
 
 	// Generate advisory warnings for private/Docker IPs
@@ -430,12 +535,12 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		host.CertificateID = parsedID
 	}
 	if v, ok := payload["access_list_id"]; ok {
-		parsedID, _, parseErr := parseNullableUintField(v, "access_list_id")
-		if parseErr != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": parseErr.Error()})
+		resolvedAccessListID, resolveErr := h.resolveAccessListReference(v)
+		if resolveErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
 			return
 		}
-		host.AccessListID = parsedID
+		host.AccessListID = resolvedAccessListID
 	}
 
 	if v, ok := payload["dns_provider_id"]; ok {
@@ -453,54 +558,12 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 
 	// Security Header Profile: update only if provided
 	if v, ok := payload["security_header_profile_id"]; ok {
-		logger := middleware.GetRequestLogger(c)
-		// Sanitize user-provided values for log injection protection (CWE-117)
-		safeUUID := sanitizeForLog(uuidStr)
-		logger.WithField("host_uuid", safeUUID).WithField("raw_value", sanitizeForLog(fmt.Sprintf("%v", v))).Debug("Processing security_header_profile_id update")
-
-		if v == nil {
-			logger.WithField("host_uuid", safeUUID).Debug("Setting security_header_profile_id to nil")
-			host.SecurityHeaderProfileID = nil
-		} else {
-			conversionSuccess := false
-			switch t := v.(type) {
-			case float64:
-				logger.Debug("Received security_header_profile_id as float64")
-				if id, ok := safeFloat64ToUint(t); ok {
-					host.SecurityHeaderProfileID = &id
-					conversionSuccess = true
-					logger.Info("Successfully converted security_header_profile_id from float64")
-				} else {
-					logger.Warn("Failed to convert security_header_profile_id from float64: value is negative or not a valid uint")
-				}
-			case int:
-				logger.Debug("Received security_header_profile_id as int")
-				if id, ok := safeIntToUint(t); ok {
-					host.SecurityHeaderProfileID = &id
-					conversionSuccess = true
-					logger.Info("Successfully converted security_header_profile_id from int")
-				} else {
-					logger.Warn("Failed to convert security_header_profile_id from int: value is negative")
-				}
-			case string:
-				logger.Debug("Received security_header_profile_id as string")
-				if n, err := strconv.ParseUint(t, 10, 32); err == nil {
-					id := uint(n)
-					host.SecurityHeaderProfileID = &id
-					conversionSuccess = true
-					logger.WithField("host_uuid", safeUUID).WithField("profile_id", id).Info("Successfully converted security_header_profile_id from string")
-				} else {
-					logger.Warn("Failed to parse security_header_profile_id from string")
-				}
-			default:
-				logger.Warn("Unsupported type for security_header_profile_id")
-			}
-
-			if !conversionSuccess {
-				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid security_header_profile_id: unable to convert value %v of type %T to uint", v, v)})
-				return
-			}
+		resolvedSecurityHeaderID, resolveErr := h.resolveSecurityHeaderProfileReference(v)
+		if resolveErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
+			return
 		}
+		host.SecurityHeaderProfileID = resolvedSecurityHeaderID
 	}
 
 	// Locations: replace only if provided
@@ -587,11 +650,10 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// check if we should also delete associated uptime monitors (query param: delete_uptime=true)
-	deleteUptime := c.DefaultQuery("delete_uptime", "false") == "true"
-
-	if deleteUptime && h.uptimeService != nil {
-		// Find all monitors referencing this proxy host and delete each
+	// Always clean up associated uptime monitors when deleting a proxy host.
+	// The query param delete_uptime=true is kept for backward compatibility but
+	// cleanup now runs unconditionally to prevent orphaned monitors.
+	if h.uptimeService != nil {
 		var monitors []models.UptimeMonitor
 		if err := h.uptimeService.DB.Where("proxy_host_id = ?", host.ID).Find(&monitors).Error; err == nil {
 			for _, m := range monitors {

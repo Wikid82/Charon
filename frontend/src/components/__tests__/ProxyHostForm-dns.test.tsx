@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ProxyHostForm from '../ProxyHostForm'
 import type { ProxyHost } from '../../api/proxyHosts'
 import { mockRemoteServers } from '../../test/mockData'
+import { toast } from 'react-hot-toast'
 
 // Mock the hooks
 vi.mock('../../hooks/useRemoteServers', () => ({
@@ -101,6 +102,36 @@ vi.mock('../../hooks/useDNSDetection', () => ({
     data: undefined,
     reset: vi.fn(),
   })),
+}))
+
+vi.mock('../DNSDetectionResult', () => ({
+  DNSDetectionResult: ({ result, onUseSuggested, onSelectManually }: {
+    result?: { suggested_provider?: { id: number; name: string } }
+    isLoading: boolean
+    onUseSuggested: (provider: { id: number; name: string }) => void
+    onSelectManually: () => void
+  }) => (
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          if (result?.suggested_provider) {
+            onUseSuggested(result.suggested_provider)
+          }
+        }}
+      >
+        Use Suggested DNS
+      </button>
+      <button type="button" onClick={onSelectManually}>Select Manually DNS</button>
+    </div>
+  ),
+}))
+
+vi.mock('react-hot-toast', () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
 }))
 
 vi.mock('../../api/dnsDetection', () => ({
@@ -434,6 +465,141 @@ describe('ProxyHostForm - DNS Provider Integration', () => {
           })
         )
       })
+    })
+  })
+
+  describe('DNS Detection Branches', () => {
+    it('skips detection call when wildcard has provider set and no suggestion', async () => {
+      vi.useFakeTimers()
+      const { useDetectDNSProvider } = await import('../../hooks/useDNSDetection')
+      const detectSpy = vi.fn().mockResolvedValue({
+        domain: 'example.com',
+        detected: false,
+        nameservers: [],
+        confidence: 'none',
+      })
+
+      vi.mocked(useDetectDNSProvider).mockReturnValue({
+        mutateAsync: detectSpy,
+        isPending: false,
+        data: undefined,
+        reset: vi.fn(),
+      } as unknown as ReturnType<typeof useDetectDNSProvider>)
+
+      const existingHost: ProxyHost = {
+        uuid: 'test-uuid-skip-detect',
+        name: 'Existing Wildcard Provider',
+        domain_names: '*.example.com',
+        forward_scheme: 'http',
+        forward_host: '192.168.1.100',
+        forward_port: 8080,
+        ssl_forced: true,
+        http2_support: true,
+        hsts_enabled: true,
+        hsts_subdomains: false,
+        block_exploits: true,
+        websocket_support: false,
+        application: 'none',
+        locations: [],
+        enabled: true,
+        dns_provider_id: 1,
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-01T00:00:00Z',
+      }
+
+      renderWithClient(
+        <ProxyHostForm host={existingHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await vi.advanceTimersByTimeAsync(600)
+
+      expect(detectSpy).not.toHaveBeenCalled()
+      vi.useRealTimers()
+    })
+
+    it('logs detection errors when detectProvider rejects', async () => {
+      const { useDetectDNSProvider } = await import('../../hooks/useDNSDetection')
+      const detectSpy = vi.fn().mockRejectedValue(new Error('detect failed'))
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      vi.mocked(useDetectDNSProvider).mockReturnValue({
+        mutateAsync: detectSpy,
+        isPending: false,
+        data: undefined,
+        reset: vi.fn(),
+      } as unknown as ReturnType<typeof useDetectDNSProvider>)
+
+      renderWithClient(<ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+
+      const domainInput = screen.getByPlaceholderText('example.com, www.example.com')
+      await userEvent.type(domainInput, '*.example.com')
+
+      await new Promise((resolve) => setTimeout(resolve, 700))
+
+      await waitFor(() => {
+        expect(errorSpy).toHaveBeenCalledWith('DNS detection failed:', expect.any(Error))
+      })
+
+      errorSpy.mockRestore()
+    })
+
+    it('auto-selects high confidence suggestion and emits success toast', async () => {
+      const { useDetectDNSProvider } = await import('../../hooks/useDNSDetection')
+      vi.mocked(useDetectDNSProvider).mockReturnValue({
+        mutateAsync: vi.fn().mockResolvedValue({}),
+        isPending: false,
+        data: {
+          domain: 'example.com',
+          detected: true,
+          nameservers: ['ns1.cloudflare.com'],
+          confidence: 'high',
+          suggested_provider: { id: 1, name: 'Cloudflare' },
+        },
+        reset: vi.fn(),
+      } as unknown as ReturnType<typeof useDetectDNSProvider>)
+
+      renderWithClient(<ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+
+      await userEvent.type(screen.getByPlaceholderText('My Service'), 'Auto Select')
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), '*.example.com')
+      await userEvent.type(screen.getByLabelText(/^Host$/), '192.168.1.100')
+      await userEvent.clear(screen.getByLabelText(/^Port$/))
+      await userEvent.type(screen.getByLabelText(/^Port$/), '8080')
+      await userEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(toast.success).toHaveBeenCalledWith('Auto-selected: Cloudflare')
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({ dns_provider_id: 1 }))
+      })
+    })
+
+    it('handles suggested and manual selection callbacks from detection result card', async () => {
+      const { useDetectDNSProvider } = await import('../../hooks/useDNSDetection')
+      vi.mocked(useDetectDNSProvider).mockReturnValue({
+        mutateAsync: vi.fn().mockResolvedValue({}),
+        isPending: false,
+        data: {
+          domain: 'example.com',
+          detected: true,
+          nameservers: ['ns1.cloudflare.com'],
+          confidence: 'medium',
+          suggested_provider: { id: 1, name: 'Cloudflare' },
+        },
+        reset: vi.fn(),
+      } as unknown as ReturnType<typeof useDetectDNSProvider>)
+
+      renderWithClient(<ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), '*.example.com')
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Use Suggested DNS' })).toBeInTheDocument()
+      })
+
+      await userEvent.click(screen.getByRole('button', { name: 'Use Suggested DNS' }))
+      expect(toast.success).toHaveBeenCalledWith('Selected: Cloudflare')
+
+      await userEvent.click(screen.getByRole('button', { name: 'Select Manually DNS' }))
     })
   })
 })

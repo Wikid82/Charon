@@ -93,6 +93,10 @@ func (h *ImportHandler) RegisterRoutes(router *gin.RouterGroup) {
 
 // GetStatus returns current import session status.
 func (h *ImportHandler) GetStatus(c *gin.Context) {
+	if !requireAuthenticatedAdmin(c) {
+		return
+	}
+
 	var session models.ImportSession
 	err := h.db.Where("status IN ?", []string{"pending", "reviewing"}).
 		Order("created_at DESC").
@@ -155,6 +159,10 @@ func (h *ImportHandler) GetStatus(c *gin.Context) {
 
 // GetPreview returns parsed hosts and conflicts for review.
 func (h *ImportHandler) GetPreview(c *gin.Context) {
+	if !requireAuthenticatedAdmin(c) {
+		return
+	}
+
 	var session models.ImportSession
 	err := h.db.Where("status IN ?", []string{"pending", "reviewing"}).
 		Order("created_at DESC").

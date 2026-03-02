@@ -725,6 +725,13 @@
             "problemMatcher": []
         },
         {
+            "label": "Security: Caddy PR-1 Compatibility Matrix",
+            "type": "shell",
+            "command": "cd /projects/Charon && bash scripts/caddy-compat-matrix.sh --candidate-version 2.11.1 --patch-scenarios A,B,C --platforms linux/amd64,linux/arm64 --smoke-set boot_caddy,plugin_modules,config_validate,admin_api_health --output-dir test-results/caddy-compat --docs-report docs/reports/caddy-compatibility-matrix.md",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
             "label": "Test: E2E Playwright (Skill)",
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh test-e2e-playwright",
@@ -800,6 +807,162 @@
             "label": "Test: E2E Playwright (FireFox) - Non-Security Shard 4/4",
             "type": "shell",
             "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=4 npx playwright test --project=firefox --shard=4/4 --output=playwright-output/firefox-shard-4 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (Chromium) - Non-Security Shards 1/4-4/4",
+            "type": "shell",
+            "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=1 npx playwright test --project=chromium --shard=1/4 --output=playwright-output/chromium-shard-1 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks && cd /projects/Charon && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=2 npx playwright test --project=chromium --shard=2/4 --output=playwright-output/chromium-shard-2 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks && cd /projects/Charon && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=3 npx playwright test --project=chromium --shard=3/4 --output=playwright-output/chromium-shard-3 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks && cd /projects/Charon && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=4 npx playwright test --project=chromium --shard=4/4 --output=playwright-output/chromium-shard-4 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (Chromium) - Non-Security Shard 1/4",
+            "type": "shell",
+            "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=1 npx playwright test --project=chromium --shard=1/4 --output=playwright-output/chromium-shard-1 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (Chromium) - Non-Security Shard 2/4",
+            "type": "shell",
+            "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=2 npx playwright test --project=chromium --shard=2/4 --output=playwright-output/chromium-shard-2 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (Chromium) - Non-Security Shard 3/4",
+            "type": "shell",
+            "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=3 npx playwright test --project=chromium --shard=3/4 --output=playwright-output/chromium-shard-3 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (Chromium) - Non-Security Shard 4/4",
+            "type": "shell",
+            "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=4 npx playwright test --project=chromium --shard=4/4 --output=playwright-output/chromium-shard-4 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (WebKit) - Non-Security Shards 1/4-4/4",
+            "type": "shell",
+            "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=1 npx playwright test --project=webkit --shard=1/4 --output=playwright-output/webkit-shard-1 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks && cd /projects/Charon && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=2 npx playwright test --project=webkit --shard=2/4 --output=playwright-output/webkit-shard-2 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks && cd /projects/Charon && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=3 npx playwright test --project=webkit --shard=3/4 --output=playwright-output/webkit-shard-3 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks && cd /projects/Charon && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=4 npx playwright test --project=webkit --shard=4/4 --output=playwright-output/webkit-shard-4 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (WebKit) - Non-Security Shard 1/4",
+            "type": "shell",
+            "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=1 npx playwright test --project=webkit --shard=1/4 --output=playwright-output/webkit-shard-1 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (WebKit) - Non-Security Shard 2/4",
+            "type": "shell",
+            "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=2 npx playwright test --project=webkit --shard=2/4 --output=playwright-output/webkit-shard-2 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (WebKit) - Non-Security Shard 3/4",
+            "type": "shell",
+            "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=3 npx playwright test --project=webkit --shard=3/4 --output=playwright-output/webkit-shard-3 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (WebKit) - Non-Security Shard 4/4",
+            "type": "shell",
+            "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=false PLAYWRIGHT_SKIP_SECURITY_DEPS=1 TEST_WORKER_INDEX=4 npx playwright test --project=webkit --shard=4/4 --output=playwright-output/webkit-shard-4 tests/core tests/dns-provider-crud.spec.ts tests/dns-provider-types.spec.ts tests/integration tests/manual-dns-provider.spec.ts tests/monitoring tests/settings tests/tasks",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (Chromium) - Security Suite",
+            "type": "shell",
+            "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=true PLAYWRIGHT_SKIP_SECURITY_DEPS=0 npx playwright test --project=security-tests --output=playwright-output/chromium-security tests/security",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (FireFox) - Security Suite",
+            "type": "shell",
+            "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=true PLAYWRIGHT_SKIP_SECURITY_DEPS=0 npx playwright test --project=firefox --output=playwright-output/firefox-security tests/security",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (WebKit) - Security Suite",
+            "type": "shell",
+            "command": "cd /projects/Charon && if [ -f .env ]; then set -a; . ./.env; set +a; fi && : \"${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (set it in /projects/Charon/.env)}\" && CI=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 CHARON_SECURITY_TESTS_ENABLED=true PLAYWRIGHT_SKIP_SECURITY_DEPS=0 npx playwright test --project=webkit --output=playwright-output/webkit-security tests/security",
             "group": "test",
             "problemMatcher": [],
             "presentation": {

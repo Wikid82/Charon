@@ -100,7 +100,10 @@ func TestInviteToken_MustBeUnguessable(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 
-	token := resp["invite_token"].(string)
+	var invitedUser models.User
+	require.NoError(t, db.Where("email = ?", "user@test.com").First(&invitedUser).Error)
+	token := invitedUser.InviteToken
+	require.NotEmpty(t, token)
 
 	// Token MUST be at least 32 chars (64 hex = 32 bytes = 256 bits)
 	assert.GreaterOrEqual(t, len(token), 64, "Invite token must be at least 64 hex chars (256 bits)")
