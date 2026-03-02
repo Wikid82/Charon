@@ -497,6 +497,62 @@ func TestJSONImportHandler_ConflictDetection(t *testing.T) {
 	assert.Contains(t, conflictDetails, "conflict.com")
 }
 
+func TestJSONImportHandler_Cancel_RequiresValidJSONBody(t *testing.T) {
+	db := setupJSONTestDB(t)
+	handler := NewJSONImportHandler(db)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	api := router.Group("/api/v1")
+	handler.RegisterRoutes(api)
+
+	t.Run("missing body", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/json/cancel", http.NoBody)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("invalid json", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/json/cancel", bytes.NewBufferString("{"))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("empty object payload", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/json/cancel", bytes.NewBufferString("{}"))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+
+		var resp map[string]string
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, "session_uuid required", resp["error"])
+	})
+
+	t.Run("missing session_uuid payload", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/json/cancel", bytes.NewBufferString(`{"foo":"bar"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+
+		var resp map[string]string
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, "session_uuid required", resp["error"])
+	})
+}
+
 func TestJSONImportHandler_IsCharonFormat(t *testing.T) {
 	db := setupJSONTestDB(t)
 	handler := NewJSONImportHandler(db)
