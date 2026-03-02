@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -246,6 +247,63 @@ func TestSyncAndCheckForHost_MissingSetting_StillCreates(t *testing.T) {
 	assert.Greater(t, count, int64(0), "monitor should be created when setting is missing (default: enabled)")
 }
 
+func TestSyncAndCheckForHost_UsesDomainWhenHostNameMissing(t *testing.T) {
+	db := setupPR1TestDB(t)
+	enableUptimeFeature(t, db)
+	svc := NewUptimeService(db, nil)
+	server := createAlwaysOKServer(t)
+	domain := hostPortFromServerURL(server.URL)
+
+	host := createTestProxyHost(t, db, "", domain, "10.10.10.10")
+
+	svc.SyncAndCheckForHost(host.ID)
+
+	var monitor models.UptimeMonitor
+	require.NoError(t, db.Where("proxy_host_id = ?", host.ID).First(&monitor).Error)
+	assert.Equal(t, domain, monitor.Name)
+}
+
+func TestSyncAndCheckForHost_CreateMonitorError_ReturnsWithoutPanic(t *testing.T) {
+	db := setupPR1TestDB(t)
+	enableUptimeFeature(t, db)
+	svc := NewUptimeService(db, nil)
+	server := createAlwaysOKServer(t)
+	domain := hostPortFromServerURL(server.URL)
+
+	host := createTestProxyHost(t, db, "create-error-host", domain, "10.10.10.11")
+
+	callbackName := "test:force_uptime_monitor_create_error"
+	require.NoError(t, db.Callback().Create().Before("gorm:create").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement != nil && tx.Statement.Schema != nil && tx.Statement.Schema.Name == "UptimeMonitor" {
+			_ = tx.AddError(errors.New("forced uptime monitor create error"))
+		}
+	}))
+	t.Cleanup(func() {
+		_ = db.Callback().Create().Remove(callbackName)
+	})
+
+	assert.NotPanics(t, func() {
+		svc.SyncAndCheckForHost(host.ID)
+	})
+
+	var count int64
+	db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", host.ID).Count(&count)
+	assert.Equal(t, int64(0), count)
+}
+
+func TestSyncAndCheckForHost_QueryMonitorError_ReturnsWithoutPanic(t *testing.T) {
+	db := setupPR1TestDB(t)
+	enableUptimeFeature(t, db)
+	svc := NewUptimeService(db, nil)
+	host := createTestProxyHost(t, db, "query-error-host", "query-error.example.com", "10.10.10.12")
+
+	require.NoError(t, db.Migrator().DropTable(&models.UptimeMonitor{}))
+
+	assert.NotPanics(t, func() {
+		svc.SyncAndCheckForHost(host.ID)
+	})
+}
+
 // --- Fix 4: CleanupStaleFailureCounts ---
 
 func TestCleanupStaleFailureCounts_ResetsStuckMonitors(t *testing.T) {
@@ -358,6 +416,19 @@ func TestCleanupStaleFailureCounts_DoesNotResetDownHosts(t *testing.T) {
 	require.NoError(t, db.First(&h, "id = ?", host.ID).Error)
 	assert.Equal(t, 10, h.FailureCount, "cleanup must not reset host failure_count")
 	assert.Equal(t, "down", h.Status, "cleanup must not reset host status")
+}
+
+func TestCleanupStaleFailureCounts_ReturnsErrorWhenDatabaseUnavailable(t *testing.T) {
+	db := setupPR1TestDB(t)
+	svc := NewUptimeService(db, nil)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	err = svc.CleanupStaleFailureCounts()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cleanup stale failure counts")
 }
 
 // setupPR1ConcurrentDB creates a file-based SQLite database with WAL mode and

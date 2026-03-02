@@ -139,6 +139,23 @@ describe('Uptime page', () => {
     expect(screen.getByText('Loading monitors...')).toBeInTheDocument()
   })
 
+  it('falls back to DOWN status when monitor status is unknown', async () => {
+    const { getMonitors, getMonitorHistory } = await import('../../api/uptime')
+    const monitor = {
+      id: 'm-unknown-status', name: 'UnknownStatusMonitor', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
+      status: 'mystery', last_check: new Date().toISOString(), latency: 10, max_retries: 3,
+    }
+    vi.mocked(getMonitors).mockResolvedValue([monitor])
+    vi.mocked(getMonitorHistory).mockResolvedValue([])
+
+    renderWithQueryClient(<Uptime />)
+    await waitFor(() => expect(screen.getByText('UnknownStatusMonitor')).toBeInTheDocument())
+
+    const badge = screen.getByTestId('status-badge')
+    expect(badge).toHaveAttribute('data-status', 'down')
+    expect(badge).toHaveTextContent('DOWN')
+  })
+
   it('renders empty state when no monitors exist', async () => {
     const { getMonitors } = await import('../../api/uptime')
     vi.mocked(getMonitors).mockResolvedValue([])
