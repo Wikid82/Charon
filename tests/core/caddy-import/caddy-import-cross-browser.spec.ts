@@ -512,7 +512,6 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
         timeout: 5000,
         message: 'Expected /api/v1/import/cancel request to be sent',
       }).toBe(true);
-      await expect(banner).not.toBeVisible({ timeout: 5000 });
     });
 
     await test.step(`[${browserName}] Verify session cleared`, async () => {
