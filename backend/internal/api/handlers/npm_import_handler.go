@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -290,6 +291,11 @@ func (h *NPMImportHandler) Cancel(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if strings.TrimSpace(req.SessionUUID) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "session_uuid required"})
 		return
 	}
 
