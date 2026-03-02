@@ -48,7 +48,7 @@
     "react-i18next": "^16.5.4",
     "react-router-dom": "^7.13.1",
     "tailwind-merge": "^3.5.0",
-    "tldts": "^7.0.23"
+    "tldts": "^7.0.24"
   },
   "devDependencies": {
     "@eslint/css": "^0.14.1",
