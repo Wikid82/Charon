@@ -67,7 +67,7 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
             - Execute in PR slices, one slice at a time, in dependency order.
             - Require each slice to pass review + QA gates before starting the next slice.
             - Keep every slice deployable and independently testable.
-        - **MANDATORY**: Implementation agents must perform lintring and type checks locally before declaring their slice "DONE". This is a critical step that must not be skipped to avoid broken commits and security issues.
+        - **MANDATORY**: Implementation agents must perform linting and type checks locally before declaring their slice "DONE". This is a critical step that must not be skipped to avoid broken commits and security issues.
 
 5. **Phase 5: Review**:
     - **Supervisor**: Call `Supervisor` to review the implementation against the plan. Provide feedback and ensure alignment with best practices.
