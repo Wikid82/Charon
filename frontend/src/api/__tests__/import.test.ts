@@ -78,7 +78,16 @@ describe('import API', () => {
     mockedDelete.mockResolvedValue({});
 
     await cancelImport(sessionUUID);
+
+    expect(client.delete).toHaveBeenCalledTimes(1);
     expect(client.delete).toHaveBeenCalledWith('/import/cancel', {
+      params: {
+        session_uuid: sessionUUID,
+      },
+    });
+
+    const [, requestConfig] = mockedDelete.mock.calls[0];
+    expect(requestConfig).toEqual({
       params: {
         session_uuid: sessionUUID,
       },
