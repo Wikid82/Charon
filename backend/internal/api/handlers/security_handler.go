@@ -1075,10 +1075,7 @@ func (h *SecurityHandler) PatchRateLimit(c *gin.Context) {
 // toggleSecurityModule is a helper function that handles enabling/disabling security modules
 // It updates the setting, invalidates cache, and triggers Caddy config reload
 func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string, enabled bool) {
-	// Check admin role
-	role, exists := c.Get("role")
-	if !exists || role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 

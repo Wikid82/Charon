@@ -381,7 +381,7 @@ func (h *AuthHandler) Verify(c *gin.Context) {
 
 	// Set headers for downstream services
 	c.Header("X-Forwarded-User", user.Email)
-	c.Header("X-Forwarded-Groups", user.Role)
+	c.Header("X-Forwarded-Groups", string(user.Role))
 	c.Header("X-Forwarded-Name", user.Name)
 
 	// Return 200 OK - access granted

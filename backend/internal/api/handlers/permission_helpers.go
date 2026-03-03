@@ -36,9 +36,7 @@ func requireAuthenticatedAdmin(c *gin.Context) bool {
 }
 
 func isAdmin(c *gin.Context) bool {
-	role, _ := c.Get("role")
-	roleStr, _ := role.(string)
-	return roleStr == "admin"
+	return c.GetString("role") == string(models.RoleAdmin)
 }
 
 func respondPermissionError(c *gin.Context, securityService *services.SecurityService, action string, err error, path string) bool {

@@ -22,13 +22,15 @@ import (
 
 type UserHandler struct {
 	DB          *gorm.DB
+	AuthService *services.AuthService
 	MailService *services.MailService
 	securitySvc *services.SecurityService
 }
 
-func NewUserHandler(db *gorm.DB) *UserHandler {
+func NewUserHandler(db *gorm.DB, authService *services.AuthService) *UserHandler {
 	return &UserHandler{
 		DB:          db,
+		AuthService: authService,
 		MailService: services.NewMailService(db),
 		securitySvc: services.NewSecurityService(db),
 	}
@@ -141,7 +143,7 @@ func (h *UserHandler) Setup(c *gin.Context) {
 		UUID:    uuid.New().String(),
 		Name:    req.Name,
 		Email:   strings.ToLower(req.Email),
-		Role:    "admin",
+		Role:    models.RoleAdmin,
 		Enabled: true,
 		APIKey:  uuid.New().String(),
 	}
@@ -199,6 +201,10 @@ func (h *UserHandler) Setup(c *gin.Context) {
 
 // RegenerateAPIKey generates a new API key for the authenticated user.
 func (h *UserHandler) RegenerateAPIKey(c *gin.Context) {
+	if c.GetString("role") == string(models.RolePassthrough) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Passthrough users cannot manage API keys"})
+		return
+	}
 	userID, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
@@ -222,6 +228,10 @@ func (h *UserHandler) RegenerateAPIKey(c *gin.Context) {
 
 // GetProfile returns the current user's profile including API key.
 func (h *UserHandler) GetProfile(c *gin.Context) {
+	if c.GetString("role") == string(models.RolePassthrough) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Passthrough users cannot access profile"})
+		return
+	}
 	userID, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
@@ -252,6 +262,10 @@ type UpdateProfileRequest struct {
 
 // UpdateProfile updates the authenticated user's profile.
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
+	if c.GetString("role") == string(models.RolePassthrough) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Passthrough users cannot update profile"})
+		return
+	}
 	userID, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
@@ -309,9 +323,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 
 // ListUsers returns all users (admin only).
 func (h *UserHandler) ListUsers(c *gin.Context) {
-	role, _ := c.Get("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 
@@ -355,9 +367,7 @@ type CreateUserRequest struct {
 
 // CreateUser creates a new user with a password (admin only).
 func (h *UserHandler) CreateUser(c *gin.Context) {
-	role, _ := c.Get("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 
@@ -369,7 +379,12 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 
 	// Default role to "user"
 	if req.Role == "" {
-		req.Role = "user"
+		req.Role = string(models.RoleUser)
+	}
+
+	if !models.UserRole(req.Role).IsValid() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid role"})
+		return
 	}
 
 	// Default permission mode to "allow_all"
@@ -392,7 +407,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		UUID:           uuid.New().String(),
 		Email:          strings.ToLower(req.Email),
 		Name:           req.Name,
-		Role:           req.Role,
+		Role:           models.UserRole(req.Role),
 		Enabled:        true,
 		APIKey:         uuid.New().String(),
 		PermissionMode: models.PermissionMode(req.PermissionMode),
@@ -460,9 +475,7 @@ func generateSecureToken(length int) (string, error) {
 
 // InviteUser creates a new user with an invite token and sends an email (admin only).
 func (h *UserHandler) InviteUser(c *gin.Context) {
-	role, _ := c.Get("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 
@@ -476,7 +489,12 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 
 	// Default role to "user"
 	if req.Role == "" {
-		req.Role = "user"
+		req.Role = string(models.RoleUser)
+	}
+
+	if !models.UserRole(req.Role).IsValid() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid role"})
+		return
 	}
 
 	// Default permission mode to "allow_all"
@@ -506,7 +524,7 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 	user := models.User{
 		UUID:           uuid.New().String(),
 		Email:          strings.ToLower(req.Email),
-		Role:           req.Role,
+		Role:           models.UserRole(req.Role),
 		Enabled:        false, // Disabled until invite is accepted
 		APIKey:         uuid.New().String(),
 		PermissionMode: models.PermissionMode(req.PermissionMode),
@@ -595,9 +613,7 @@ type PreviewInviteURLRequest struct {
 
 // PreviewInviteURL returns what the invite URL would look like with current settings.
 func (h *UserHandler) PreviewInviteURL(c *gin.Context) {
-	role, _ := c.Get("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 
@@ -641,9 +657,7 @@ func getAppName(db *gorm.DB) string {
 
 // GetUser returns a single user by ID (admin only).
 func (h *UserHandler) GetUser(c *gin.Context) {
-	role, _ := c.Get("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 
@@ -692,11 +706,17 @@ type UpdateUserRequest struct {
 	Enabled  *bool   `json:"enabled"`
 }
 
-// UpdateUser updates an existing user (admin only).
+// UpdateUser updates an existing user (admin only for management fields, self-service for name/password).
 func (h *UserHandler) UpdateUser(c *gin.Context) {
-	role, _ := c.Get("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	currentRole := c.GetString("role")
+	currentUserIDRaw, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+	currentUserID, ok := currentUserIDRaw.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid session"})
 		return
 	}
 
@@ -719,6 +739,21 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
+	isSelf := uint(id) == currentUserID
+	isCallerAdmin := currentRole == string(models.RoleAdmin)
+
+	// Non-admin users can only update their own name and password
+	if !isCallerAdmin {
+		if !isSelf {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+			return
+		}
+		if req.Role != "" || req.Enabled != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Cannot modify role or enabled status"})
+			return
+		}
+	}
+
 	updates := make(map[string]any)
 
 	if req.Name != "" {
@@ -727,7 +762,6 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 
 	if req.Email != "" {
 		email := strings.ToLower(req.Email)
-		// Check if email is taken by another user
 		var count int64
 		if err := h.DB.Model(&models.User{}).Where("email = ? AND id != ?", email, id).Count(&count).Error; err == nil && count > 0 {
 			c.JSON(http.StatusConflict, gin.H{"error": "Email already in use"})
@@ -736,8 +770,35 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		updates["email"] = email
 	}
 
+	needsSessionInvalidation := false
+
 	if req.Role != "" {
-		updates["role"] = req.Role
+		newRole := models.UserRole(req.Role)
+		if !newRole.IsValid() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid role"})
+			return
+		}
+
+		if newRole != user.Role {
+			// Self-demotion prevention
+			if isSelf {
+				c.JSON(http.StatusForbidden, gin.H{"error": "Cannot change your own role"})
+				return
+			}
+
+			// Last-admin protection
+			if user.Role == models.RoleAdmin && newRole != models.RoleAdmin {
+				var adminCount int64
+				h.DB.Model(&models.User{}).Where("role = ? AND enabled = ?", models.RoleAdmin, true).Count(&adminCount)
+				if adminCount <= 1 {
+					c.JSON(http.StatusForbidden, gin.H{"error": "Cannot demote the last admin"})
+					return
+				}
+			}
+
+			updates["role"] = string(newRole)
+			needsSessionInvalidation = true
+		}
 	}
 
 	if req.Password != nil {
@@ -750,14 +811,40 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		updates["locked_until"] = nil
 	}
 
-	if req.Enabled != nil {
+	if req.Enabled != nil && *req.Enabled != user.Enabled {
+		// Prevent self-disable
+		if isSelf && !*req.Enabled {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Cannot disable your own account"})
+			return
+		}
+
+		// Last-admin protection for disabling
+		if user.Role == models.RoleAdmin && !*req.Enabled {
+			var adminCount int64
+			h.DB.Model(&models.User{}).Where("role = ? AND enabled = ?", models.RoleAdmin, true).Count(&adminCount)
+			if adminCount <= 1 {
+				c.JSON(http.StatusForbidden, gin.H{"error": "Cannot disable the last admin"})
+				return
+			}
+		}
+
 		updates["enabled"] = *req.Enabled
+		if !*req.Enabled {
+			needsSessionInvalidation = true
+		}
 	}
 
 	if len(updates) > 0 {
 		if err := h.DB.Model(&user).Updates(updates).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
 			return
+		}
+
+		if needsSessionInvalidation && h.AuthService != nil {
+			if invErr := h.AuthService.InvalidateSessions(user.ID); invErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to invalidate sessions"})
+				return
+			}
 		}
 
 		h.logUserAudit(c, "user_update", &user, map[string]any{
@@ -780,13 +867,12 @@ func mapsKeys(values map[string]any) []string {
 
 // DeleteUser deletes a user (admin only).
 func (h *UserHandler) DeleteUser(c *gin.Context) {
-	role, _ := c.Get("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 
-	currentUserID, _ := c.Get("userID")
+	currentUserIDRaw, _ := c.Get("userID")
+	currentUserID, _ := currentUserIDRaw.(uint)
 
 	idParam := c.Param("id")
 	id, err := strconv.ParseUint(idParam, 10, 32)
@@ -796,7 +882,7 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 	}
 
 	// Prevent self-deletion
-	if uint(id) == currentUserID.(uint) {
+	if uint(id) == currentUserID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Cannot delete your own account"})
 		return
 	}
@@ -834,9 +920,7 @@ type UpdateUserPermissionsRequest struct {
 
 // ResendInvite regenerates and resends an invitation to a pending user (admin only).
 func (h *UserHandler) ResendInvite(c *gin.Context) {
-	role, _ := c.Get("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 
@@ -919,9 +1003,7 @@ func redactInviteURL(inviteURL string) string {
 
 // UpdateUserPermissions updates a user's permission mode and host exceptions (admin only).
 func (h *UserHandler) UpdateUserPermissions(c *gin.Context) {
-	role, _ := c.Get("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 

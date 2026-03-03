@@ -23,7 +23,7 @@ func setupUserCoverageDB(t *testing.T) *gorm.DB {
 func TestUserHandler_GetSetupStatus_Error(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
-	h := NewUserHandler(db)
+	h := NewUserHandler(db, nil)
 
 	// Drop table to cause error
 	_ = db.Migrator().DropTable(&models.User{})
@@ -40,7 +40,7 @@ func TestUserHandler_GetSetupStatus_Error(t *testing.T) {
 func TestUserHandler_Setup_CheckStatusError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
-	h := NewUserHandler(db)
+	h := NewUserHandler(db, nil)
 
 	// Drop table to cause error
 	_ = db.Migrator().DropTable(&models.User{})
@@ -57,10 +57,10 @@ func TestUserHandler_Setup_CheckStatusError(t *testing.T) {
 func TestUserHandler_Setup_AlreadyCompleted(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
-	h := NewUserHandler(db)
+	h := NewUserHandler(db, nil)
 
 	// Create a user to mark setup as complete
-	user := &models.User{UUID: "uuid-a", Name: "Admin", Email: "admin@test.com", Role: "admin"}
+	user := &models.User{UUID: "uuid-a", Name: "Admin", Email: "admin@test.com", Role: models.RoleAdmin}
 	_ = user.SetPassword("password123")
 	db.Create(user)
 
@@ -76,7 +76,7 @@ func TestUserHandler_Setup_AlreadyCompleted(t *testing.T) {
 func TestUserHandler_Setup_InvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
-	h := NewUserHandler(db)
+	h := NewUserHandler(db, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -91,7 +91,7 @@ func TestUserHandler_Setup_InvalidJSON(t *testing.T) {
 func TestUserHandler_RegenerateAPIKey_Unauthorized(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
-	h := NewUserHandler(db)
+	h := NewUserHandler(db, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -105,7 +105,7 @@ func TestUserHandler_RegenerateAPIKey_Unauthorized(t *testing.T) {
 func TestUserHandler_RegenerateAPIKey_DBError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
-	h := NewUserHandler(db)
+	h := NewUserHandler(db, nil)
 
 	// Drop table to cause error
 	_ = db.Migrator().DropTable(&models.User{})
@@ -123,7 +123,7 @@ func TestUserHandler_RegenerateAPIKey_DBError(t *testing.T) {
 func TestUserHandler_GetProfile_Unauthorized(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
-	h := NewUserHandler(db)
+	h := NewUserHandler(db, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -137,7 +137,7 @@ func TestUserHandler_GetProfile_Unauthorized(t *testing.T) {
 func TestUserHandler_GetProfile_NotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
-	h := NewUserHandler(db)
+	h := NewUserHandler(db, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -152,7 +152,7 @@ func TestUserHandler_GetProfile_NotFound(t *testing.T) {
 func TestUserHandler_UpdateProfile_Unauthorized(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
-	h := NewUserHandler(db)
+	h := NewUserHandler(db, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -166,7 +166,7 @@ func TestUserHandler_UpdateProfile_Unauthorized(t *testing.T) {
 func TestUserHandler_UpdateProfile_InvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
-	h := NewUserHandler(db)
+	h := NewUserHandler(db, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -182,7 +182,7 @@ func TestUserHandler_UpdateProfile_InvalidJSON(t *testing.T) {
 func TestUserHandler_UpdateProfile_UserNotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
-	h := NewUserHandler(db)
+	h := NewUserHandler(db, nil)
 
 	body, _ := json.Marshal(map[string]string{
 		"name":  "Updated",
@@ -203,14 +203,14 @@ func TestUserHandler_UpdateProfile_UserNotFound(t *testing.T) {
 func TestUserHandler_UpdateProfile_EmailConflict(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
-	h := NewUserHandler(db)
+	h := NewUserHandler(db, nil)
 
 	// Create two users
-	user1 := &models.User{UUID: "uuid-1", Name: "User1", Email: "user1@test.com", Role: "admin", APIKey: "key1"}
+	user1 := &models.User{UUID: "uuid-1", Name: "User1", Email: "user1@test.com", Role: models.RoleAdmin, APIKey: "key1"}
 	_ = user1.SetPassword("password123")
 	db.Create(user1)
 
-	user2 := &models.User{UUID: "uuid-2", Name: "User2", Email: "user2@test.com", Role: "admin", APIKey: "key2"}
+	user2 := &models.User{UUID: "uuid-2", Name: "User2", Email: "user2@test.com", Role: models.RoleAdmin, APIKey: "key2"}
 	_ = user2.SetPassword("password123")
 	db.Create(user2)
 
@@ -236,9 +236,9 @@ func TestUserHandler_UpdateProfile_EmailConflict(t *testing.T) {
 func TestUserHandler_UpdateProfile_EmailChangeNoPassword(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
-	h := NewUserHandler(db)
+	h := NewUserHandler(db, nil)
 
-	user := &models.User{UUID: "uuid-u", Name: "User", Email: "user@test.com", Role: "admin"}
+	user := &models.User{UUID: "uuid-u", Name: "User", Email: "user@test.com", Role: models.RoleAdmin}
 	_ = user.SetPassword("password123")
 	db.Create(user)
 
@@ -263,9 +263,9 @@ func TestUserHandler_UpdateProfile_EmailChangeNoPassword(t *testing.T) {
 func TestUserHandler_UpdateProfile_WrongPassword(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
-	h := NewUserHandler(db)
+	h := NewUserHandler(db, nil)
 
-	user := &models.User{UUID: "uuid-u", Name: "User", Email: "user@test.com", Role: "admin"}
+	user := &models.User{UUID: "uuid-u", Name: "User", Email: "user@test.com", Role: models.RoleAdmin}
 	_ = user.SetPassword("password123")
 	db.Create(user)
 

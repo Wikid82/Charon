@@ -307,7 +307,7 @@ func TestSecurityEventIntakeR6Intact(t *testing.T) {
 		Email:        "admin@example.com",
 		Name:         "Admin User",
 		PasswordHash: "$2a$10$abcdefghijklmnopqrstuvwxyz", // Dummy bcrypt hash
-		Role:         "admin",
+		Role:         models.RoleAdmin,
 		Enabled:      true,
 	}
 	require.NoError(t, db.Create(adminUser).Error)

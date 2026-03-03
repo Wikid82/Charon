@@ -87,7 +87,7 @@ func TestUser_HasPendingInvite(t *testing.T) {
 func TestUser_CanAccessHost_AllowAll(t *testing.T) {
 	// User with allow_all mode (blacklist) - can access everything except listed hosts
 	user := User{
-		Role:           "user",
+		Role:           RoleUser,
 		PermissionMode: PermissionModeAllowAll,
 		PermittedHosts: []ProxyHost{
 			{ID: 1}, // Blocked host
@@ -107,7 +107,7 @@ func TestUser_CanAccessHost_AllowAll(t *testing.T) {
 func TestUser_CanAccessHost_DenyAll(t *testing.T) {
 	// User with deny_all mode (whitelist) - can only access listed hosts
 	user := User{
-		Role:           "user",
+		Role:           RoleUser,
 		PermissionMode: PermissionModeDenyAll,
 		PermittedHosts: []ProxyHost{
 			{ID: 5}, // Allowed host
@@ -127,7 +127,7 @@ func TestUser_CanAccessHost_DenyAll(t *testing.T) {
 func TestUser_CanAccessHost_AdminBypass(t *testing.T) {
 	// Admin users should always have access regardless of permission mode
 	adminUser := User{
-		Role:           "admin",
+		Role:           RoleAdmin,
 		PermissionMode: PermissionModeDenyAll,
 		PermittedHosts: []ProxyHost{}, // No hosts in whitelist
 	}
@@ -140,7 +140,7 @@ func TestUser_CanAccessHost_AdminBypass(t *testing.T) {
 func TestUser_CanAccessHost_DefaultBehavior(t *testing.T) {
 	// User with empty/default permission mode should behave like allow_all
 	user := User{
-		Role:           "user",
+		Role:           RoleUser,
 		PermissionMode: "", // Empty = default
 		PermittedHosts: []ProxyHost{
 			{ID: 1}, // Should be blocked
@@ -175,7 +175,7 @@ func TestUser_CanAccessHost_EmptyPermittedHosts(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			user := User{
-				Role:           "user",
+				Role:           RoleUser,
 				PermissionMode: tt.permissionMode,
 				PermittedHosts: []ProxyHost{},
 			}
