@@ -15,7 +15,7 @@ describe('useAuth hook', () => {
   })
 
   it('returns context inside provider', () => {
-    const fakeCtx = { user: { user_id: 1, role: 'admin', name: 'Test', email: 't@example.com' }, login: async () => {}, logout: () => {}, changePassword: async () => {}, isAuthenticated: true, isLoading: false }
+    const fakeCtx = { user: { user_id: 1, role: 'admin' as const, name: 'Test', email: 't@example.com' }, login: async () => {}, logout: () => {}, changePassword: async () => {}, isAuthenticated: true, isLoading: false }
     render(
       <AuthContext.Provider value={fakeCtx}>
         <TestComponent />

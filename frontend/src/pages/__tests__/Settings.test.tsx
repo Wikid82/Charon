@@ -10,13 +10,17 @@ const translations: Record<string, string> = {
   'settings.system': 'System',
   'navigation.notifications': 'Notifications',
   'settings.smtp': 'Email (SMTP)',
-  'settings.account': 'Account',
+  'navigation.users': 'Users',
 }
 
 const t = (key: string) => translations[key] ?? key
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t }),
+}))
+
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ user: { user_id: 1, role: 'admin', name: 'Admin' } }),
 }))
 
 const renderWithRoute = (route: string) =>
@@ -27,7 +31,7 @@ const renderWithRoute = (route: string) =>
           <Route path="system" element={<div>System Page</div>} />
           <Route path="notifications" element={<div>Notifications Page</div>} />
           <Route path="smtp" element={<div>SMTP Page</div>} />
-          <Route path="account" element={<div>Account Page</div>} />
+          <Route path="users" element={<div>Users Page</div>} />
         </Route>
       </Routes>
     </MemoryRouter>
@@ -46,12 +50,12 @@ describe('Settings page', () => {
     expect(screen.getByText('System Page')).toBeInTheDocument()
   })
 
-  it('keeps navigation order consistent', () => {
+  it('keeps navigation order consistent for admin', () => {
     renderWithRoute('/settings/notifications')
 
     const links = screen.getAllByRole('link')
     const labels = links.map(link => link.textContent)
 
-    expect(labels).toEqual(['System', 'Notifications', 'Email (SMTP)', 'Account'])
+    expect(labels).toEqual(['System', 'Notifications', 'Email (SMTP)', 'Users'])
   })
 })

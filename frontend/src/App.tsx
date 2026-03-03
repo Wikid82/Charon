@@ -7,6 +7,7 @@ import { ToastContainer } from './components/Toast'
 import { SetupGuard } from './components/SetupGuard'
 import { LoadingOverlay } from './components/LoadingStates'
 import RequireAuth from './components/RequireAuth'
+import RequireRole from './components/RequireRole'
 import { AuthProvider } from './context/AuthContext'
 
 // Lazy load pages for code splitting
@@ -23,7 +24,6 @@ const DNSProviders = lazy(() => import('./pages/DNSProviders'))
 const SystemSettings = lazy(() => import('./pages/SystemSettings'))
 const SMTPSettings = lazy(() => import('./pages/SMTPSettings'))
 const CrowdSecConfig = lazy(() => import('./pages/CrowdSecConfig'))
-const Account = lazy(() => import('./pages/Account'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Backups = lazy(() => import('./pages/Backups'))
 const Tasks = lazy(() => import('./pages/Tasks'))
@@ -43,6 +43,7 @@ const Plugins = lazy(() => import('./pages/Plugins'))
 const Login = lazy(() => import('./pages/Login'))
 const Setup = lazy(() => import('./pages/Setup'))
 const AcceptInvite = lazy(() => import('./pages/AcceptInvite'))
+const PassthroughLanding = lazy(() => import('./pages/PassthroughLanding'))
 
 export default function App() {
   return (
@@ -53,6 +54,11 @@ export default function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/setup" element={<Setup />} />
             <Route path="/accept-invite" element={<AcceptInvite />} />
+            <Route path="/passthrough" element={
+              <RequireAuth>
+                <PassthroughLanding />
+              </RequireAuth>
+            } />
             <Route path="/" element={
               <SetupGuard>
                 <RequireAuth>
@@ -88,7 +94,9 @@ export default function App() {
               <Route path="security/encryption" element={<EncryptionManagement />} />
               <Route path="access-lists" element={<AccessLists />} />
               <Route path="uptime" element={<Uptime />} />
-              <Route path="users" element={<UsersPage />} />
+
+              {/* Legacy redirects for old user management paths */}
+              <Route path="users" element={<Navigate to="/settings/users" replace />} />
               <Route path="admin/plugins" element={<Navigate to="/dns/plugins" replace />} />
               <Route path="import" element={<Navigate to="/tasks/import/caddyfile" replace />} />
 
@@ -99,8 +107,10 @@ export default function App() {
                 <Route path="notifications" element={<Notifications />} />
                 <Route path="smtp" element={<SMTPSettings />} />
                 <Route path="crowdsec" element={<Navigate to="/security/crowdsec" replace />} />
-                <Route path="account" element={<Account />} />
-                <Route path="account-management" element={<UsersPage />} />
+                <Route path="users" element={<RequireRole allowed={['admin']}><UsersPage /></RequireRole>} />
+                {/* Legacy redirects */}
+                <Route path="account" element={<Navigate to="/settings/users" replace />} />
+                <Route path="account-management" element={<Navigate to="/settings/users" replace />} />
               </Route>
 
               {/* Tasks Routes */}
