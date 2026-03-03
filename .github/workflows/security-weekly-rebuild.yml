@@ -36,6 +36,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          # Explicitly fetch the current HEAD of the ref at run time, not the
+          # SHA that was frozen when this scheduled job was queued. Without this,
+          # a queued job can run days later with stale code.
+          ref: ${{ github.ref_name }}
 
       - name: Normalize image name
         run: |
