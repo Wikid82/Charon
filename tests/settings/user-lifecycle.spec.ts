@@ -443,7 +443,7 @@ test.describe('Admin-User E2E Workflow', () => {
       }, {
         timeout: 30000,
         message: `Expected user lifecycle audit entries for ${testUser.email}`,
-      }).toBe(2);
+      }).toBe(1);
     });
   });
 

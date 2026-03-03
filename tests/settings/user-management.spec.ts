@@ -42,8 +42,9 @@ test.describe('User Management', () => {
 
       await test.step('Verify page URL and heading', async () => {
         await expect(page).toHaveURL(/\/users/);
-        // Wait for page to fully load - heading may take time to render
-        const heading = page.getByRole('heading', { level: 1 });
+        // Use name-scoped locator to avoid strict mode violation — the settings
+        // layout renders a second h1 ("Settings") alongside the content heading.
+        const heading = page.getByRole('heading', { name: 'User Management' });
         await expect(heading).toBeVisible({ timeout: 10000 });
       });
 
