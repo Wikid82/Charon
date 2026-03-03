@@ -30,14 +30,14 @@ func TestAuthService_Register(t *testing.T) {
 	// Test 1: First user should be admin
 	admin, err := service.Register("admin@example.com", "password123", "Admin User")
 	require.NoError(t, err)
-	assert.Equal(t, "admin", admin.Role)
+	assert.Equal(t, models.RoleAdmin, admin.Role)
 	assert.NotEmpty(t, admin.PasswordHash)
 	assert.NotEqual(t, "password123", admin.PasswordHash)
 
 	// Test 2: Second user should be regular user
 	user, err := service.Register("user@example.com", "password123", "Regular User")
 	require.NoError(t, err)
-	assert.Equal(t, "user", user.Role)
+	assert.Equal(t, models.RoleUser, user.Role)
 }
 
 func TestAuthService_Login(t *testing.T) {
@@ -300,7 +300,7 @@ func TestAuthService_AuthenticateToken_InvalidUserIDInClaims(t *testing.T) {
 
 	claims := Claims{
 		UserID:         user.ID + 9999,
-		Role:           "user",
+		Role:           string(models.RoleUser),
 		SessionVersion: user.SessionVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),

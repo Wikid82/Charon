@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -23,7 +24,7 @@ import (
 func setupUserHandler(t *testing.T) (*UserHandler, *gorm.DB) {
 	db := OpenTestDB(t)
 	_ = db.AutoMigrate(&models.User{}, &models.Setting{}, &models.SecurityAudit{})
-	return NewUserHandler(db), db
+	return NewUserHandler(db, nil), db
 }
 
 func TestMapsKeys(t *testing.T) {
@@ -312,7 +313,7 @@ func TestUserHandler_ListUsers_SecretEchoContract(t *testing.T) {
 		UUID:         uuid.NewString(),
 		Email:        "user@example.com",
 		Name:         "User",
-		Role:         "user",
+		Role:         models.RoleUser,
 		APIKey:       "raw-api-key",
 		InviteToken:  "raw-invite-token",
 		PasswordHash: "raw-password-hash",
@@ -661,7 +662,7 @@ func TestUserHandler_UpdateProfile_Errors(t *testing.T) {
 func setupUserHandlerWithProxyHosts(t *testing.T) (*UserHandler, *gorm.DB) {
 	db := OpenTestDB(t)
 	_ = db.AutoMigrate(&models.User{}, &models.Setting{}, &models.ProxyHost{}, &models.SecurityAudit{})
-	return NewUserHandler(db), db
+	return NewUserHandler(db, nil), db
 }
 
 func TestUserHandler_ListUsers_NonAdmin(t *testing.T) {
@@ -912,18 +913,24 @@ func TestUserHandler_GetUser_Success(t *testing.T) {
 }
 
 func TestUserHandler_UpdateUser_NonAdmin(t *testing.T) {
-	handler, _ := setupUserHandlerWithProxyHosts(t)
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create a target user so it exists in the DB
+	target := &models.User{UUID: uuid.NewString(), Email: "target@example.com", Name: "Target", APIKey: uuid.NewString(), Role: models.RoleUser}
+	db.Create(target)
+
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "user")
+		c.Set("userID", uint(999))
 		c.Next()
 	})
 	r.PUT("/users/:id", handler.UpdateUser)
 
 	body := map[string]any{"name": "Updated"}
 	jsonBody, _ := json.Marshal(body)
-	req := httptest.NewRequest("PUT", "/users/1", bytes.NewBuffer(jsonBody))
+	req := httptest.NewRequest("PUT", fmt.Sprintf("/users/%d", target.ID), bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -937,6 +944,7 @@ func TestUserHandler_UpdateUser_InvalidID(t *testing.T) {
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
+		c.Set("userID", uint(11))
 		c.Next()
 	})
 	r.PUT("/users/:id", handler.UpdateUser)
@@ -962,6 +970,7 @@ func TestUserHandler_UpdateUser_InvalidJSON(t *testing.T) {
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
+		c.Set("userID", uint(11))
 		c.Next()
 	})
 	r.PUT("/users/:id", handler.UpdateUser)
@@ -980,6 +989,7 @@ func TestUserHandler_UpdateUser_NotFound(t *testing.T) {
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
+		c.Set("userID", uint(11))
 		c.Next()
 	})
 	r.PUT("/users/:id", handler.UpdateUser)
@@ -997,7 +1007,7 @@ func TestUserHandler_UpdateUser_NotFound(t *testing.T) {
 func TestUserHandler_UpdateUser_Success(t *testing.T) {
 	handler, db := setupUserHandlerWithProxyHosts(t)
 
-	user := &models.User{UUID: uuid.NewString(), Email: "update@example.com", Name: "Original", Role: "user"}
+	user := &models.User{UUID: uuid.NewString(), Email: "update@example.com", Name: "Original", Role: models.RoleUser}
 	db.Create(user)
 
 	gin.SetMode(gin.TestMode)
@@ -1030,7 +1040,7 @@ func TestUserHandler_UpdateUser_Success(t *testing.T) {
 func TestUserHandler_UpdateUser_PasswordReset(t *testing.T) {
 	handler, db := setupUserHandlerWithProxyHosts(t)
 
-	user := &models.User{UUID: uuid.NewString(), Email: "reset@example.com", Name: "Reset User", Role: "user"}
+	user := &models.User{UUID: uuid.NewString(), Email: "reset@example.com", Name: "Reset User", Role: models.RoleUser}
 	require.NoError(t, user.SetPassword("oldpassword123"))
 	lockUntil := time.Now().Add(10 * time.Minute)
 	user.FailedLoginAttempts = 4
@@ -1041,6 +1051,7 @@ func TestUserHandler_UpdateUser_PasswordReset(t *testing.T) {
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
+		c.Set("userID", uint(11))
 		c.Next()
 	})
 	r.PUT("/users/:id", handler.UpdateUser)
@@ -1214,7 +1225,7 @@ func TestUserHandler_UpdateUserPermissions_InvalidJSON(t *testing.T) {
 		APIKey:  uuid.NewString(),
 		Email:   "perms-invalid@example.com",
 		Name:    "Perms Invalid Test",
-		Role:    "user",
+		Role:    models.RoleUser,
 		Enabled: true,
 	}
 	db.Create(user)
@@ -1562,7 +1573,7 @@ func TestUserHandler_InviteUser_Success(t *testing.T) {
 		UUID:   uuid.NewString(),
 		APIKey: uuid.NewString(),
 		Email:  "admin@example.com",
-		Role:   "admin",
+		Role:   models.RoleAdmin,
 	}
 	db.Create(admin)
 
@@ -1615,7 +1626,7 @@ func TestUserHandler_InviteUser_WithPermittedHosts(t *testing.T) {
 		UUID:   uuid.NewString(),
 		APIKey: uuid.NewString(),
 		Email:  "admin-perm@example.com",
-		Role:   "admin",
+		Role:   models.RoleAdmin,
 	}
 	db.Create(admin)
 
@@ -1664,7 +1675,7 @@ func TestUserHandler_InviteUser_WithSMTPConfigured(t *testing.T) {
 		UUID:   uuid.NewString(),
 		APIKey: uuid.NewString(),
 		Email:  "admin-smtp@example.com",
-		Role:   "admin",
+		Role:   models.RoleAdmin,
 	}
 	db.Create(admin)
 
@@ -1727,7 +1738,7 @@ func TestUserHandler_InviteUser_WithSMTPAndConfiguredPublicURL_IncludesInviteURL
 		UUID:   uuid.NewString(),
 		APIKey: uuid.NewString(),
 		Email:  "admin-publicurl@example.com",
-		Role:   "admin",
+		Role:   models.RoleAdmin,
 	}
 	db.Create(admin)
 
@@ -1780,7 +1791,7 @@ func TestUserHandler_InviteUser_WithSMTPAndMalformedPublicURL_DoesNotExposeInvit
 		UUID:   uuid.NewString(),
 		APIKey: uuid.NewString(),
 		Email:  "admin-malformed-publicurl@example.com",
-		Role:   "admin",
+		Role:   models.RoleAdmin,
 	}
 	db.Create(admin)
 
@@ -1834,7 +1845,7 @@ func TestUserHandler_InviteUser_WithSMTPConfigured_DefaultAppName(t *testing.T) 
 		UUID:   uuid.NewString(),
 		APIKey: uuid.NewString(),
 		Email:  "admin-smtp-default@example.com",
-		Role:   "admin",
+		Role:   models.RoleAdmin,
 	}
 	db.Create(admin)
 
@@ -1976,7 +1987,7 @@ func TestUserHandler_PreviewInviteURL_NonAdmin(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
-	assert.Contains(t, w.Body.String(), "Admin access required")
+	assert.Contains(t, w.Body.String(), "admin privileges required")
 }
 
 func TestUserHandler_PreviewInviteURL_InvalidJSON(t *testing.T) {
@@ -2137,6 +2148,7 @@ func TestUserHandler_UpdateUser_EmailConflict(t *testing.T) {
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
+		c.Set("userID", uint(11))
 		c.Next()
 	})
 	r.PUT("/users/:id", handler.UpdateUser)
@@ -2195,7 +2207,7 @@ func TestUserHandler_InviteUser_EmailNormalization(t *testing.T) {
 		UUID:   uuid.NewString(),
 		APIKey: uuid.NewString(),
 		Email:  "admin@example.com",
-		Role:   "admin",
+		Role:   models.RoleAdmin,
 	}
 	db.Create(admin)
 
@@ -2264,7 +2276,7 @@ func TestUserHandler_InviteUser_DefaultPermissionMode(t *testing.T) {
 		UUID:   uuid.NewString(),
 		APIKey: uuid.NewString(),
 		Email:  "admin@example.com",
-		Role:   "admin",
+		Role:   models.RoleAdmin,
 	}
 	db.Create(admin)
 
@@ -2322,7 +2334,7 @@ func TestUserHandler_CreateUser_DefaultRole(t *testing.T) {
 	// Verify role defaults to "user"
 	var user models.User
 	db.Where("email = ?", "defaultrole@example.com").First(&user)
-	assert.Equal(t, "user", user.Role)
+	assert.Equal(t, models.RoleUser, user.Role)
 }
 
 func TestUserHandler_InviteUser_DefaultRole(t *testing.T) {
@@ -2333,7 +2345,7 @@ func TestUserHandler_InviteUser_DefaultRole(t *testing.T) {
 		UUID:   uuid.NewString(),
 		APIKey: uuid.NewString(),
 		Email:  "admin@example.com",
-		Role:   "admin",
+		Role:   models.RoleAdmin,
 	}
 	db.Create(admin)
 
@@ -2361,7 +2373,7 @@ func TestUserHandler_InviteUser_DefaultRole(t *testing.T) {
 	// Verify role defaults to "user"
 	var user models.User
 	db.Where("email = ?", "defaultroleinvite@example.com").First(&user)
-	assert.Equal(t, "user", user.Role)
+	assert.Equal(t, models.RoleUser, user.Role)
 }
 
 // TestUserHandler_PreviewInviteURL_Unconfigured_DoesNotUseRequestHost verifies that
@@ -2484,7 +2496,7 @@ func TestResendInvite_NonAdmin(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
-	assert.Contains(t, w.Body.String(), "Admin access required")
+	assert.Contains(t, w.Body.String(), "admin privileges required")
 }
 
 func TestResendInvite_InvalidID(t *testing.T) {

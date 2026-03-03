@@ -138,7 +138,7 @@ func TestOptionalAuth_ValidTokenSetsContext(t *testing.T) {
 	t.Parallel()
 
 	authService, db := setupAuthServiceWithDB(t)
-	user := &models.User{Email: "optional-auth@example.com", Name: "Optional Auth", Role: "admin", Enabled: true}
+	user := &models.User{Email: "optional-auth@example.com", Name: "Optional Auth", Role: models.RoleAdmin, Enabled: true}
 	require.NoError(t, user.SetPassword("password123"))
 	require.NoError(t, db.Create(user).Error)
 
