@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
@@ -55,6 +56,7 @@ interface InviteModalProps {
 function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const dialogRef = useRef<HTMLDivElement>(null)
   const [email, setEmail] = useState('')
   const [emailError, setEmailError] = useState<string | null>(null)
   const [role, setRole] = useState<'user' | 'admin' | 'passthrough'>('user')
@@ -92,19 +94,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
     return true
   }
 
-  // Keyboard navigation - close on Escape
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-      }
-    }
-
-    if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown)
-      return () => document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isOpen, onClose])
+  useFocusTrap(dialogRef, isOpen, onClose)
 
   // Fetch preview when email changes
   useEffect(() => {
@@ -204,6 +194,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
 
         {/* Layer 3: Form content (pointer-events-auto) */}
         <div
+          ref={dialogRef}
           className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto pointer-events-auto"
           role="dialog"
           aria-modal="true"
@@ -425,6 +416,7 @@ interface PermissionsModalProps {
 function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModalProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const dialogRef = useRef<HTMLDivElement>(null)
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('allow_all')
   const [selectedHosts, setSelectedHosts] = useState<number[]>([])
 
@@ -436,23 +428,11 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
     }
   }, [user])
 
-  // Keyboard navigation - close on Escape
   const handleClose = useCallback(() => {
     onClose()
   }, [onClose])
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        handleClose()
-      }
-    }
-
-    if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown)
-      return () => document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isOpen, handleClose])
+  useFocusTrap(dialogRef, isOpen, handleClose)
 
   const updatePermissionsMutation = useMutation({
     mutationFn: async () => {
@@ -492,6 +472,7 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
 
         {/* Layer 3: Form content (pointer-events-auto) */}
         <div
+          ref={dialogRef}
           className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto pointer-events-auto"
           role="dialog"
           aria-modal="true"
@@ -624,44 +605,7 @@ function UserDetailModal({ isOpen, onClose, user, isSelf }: UserDetailModalProps
     }
   }, [profile])
 
-  // Focus trap and Escape handling
-  useEffect(() => {
-    if (!isOpen) return
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-        return
-      }
-      // Focus trap
-      if (e.key === 'Tab' && dialogRef.current) {
-        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        )
-        if (focusable.length === 0) return
-        const first = focusable[0]
-        const last = focusable[focusable.length - 1]
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault()
-          last.focus()
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault()
-          first.focus()
-        }
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    // Focus first focusable element on open
-    requestAnimationFrame(() => {
-      const first = dialogRef.current?.querySelector<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      )
-      first?.focus()
-    })
-
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose])
+  useFocusTrap(dialogRef, isOpen, onClose)
 
   const profileMutation = useMutation({
     mutationFn: async () => {
