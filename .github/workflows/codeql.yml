@@ -39,7 +39,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ github.sha }}
+          # For scheduled runs, github.sha is frozen at queue time and can be
+          # days old by the time the job executes. Use ref_name to always scan
+          # current branch HEAD. For push/PR triggers, ref_name == the branch
+          # being pushed/opened, which is the correct behaviour.
+          ref: ${{ github.ref_name }}
 
       - name: Verify CodeQL parity guard
         if: matrix.language == 'go'
