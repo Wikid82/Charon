@@ -39,11 +39,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          # For scheduled runs, github.sha is frozen at queue time and can be
-          # days old by the time the job executes. Use ref_name to always scan
-          # current branch HEAD. For push/PR triggers, ref_name == the branch
-          # being pushed/opened, which is the correct behaviour.
-          ref: ${{ github.ref_name }}
+          # Use github.ref (full ref path) instead of github.ref_name:
+          # - push/schedule: resolves to refs/heads/<branch>, checking out latest HEAD
+          # - pull_request:  resolves to refs/pull/<n>/merge, the correct PR merge ref
+          # github.ref_name fails for PRs because it yields "<n>/merge" which checkout
+          # interprets as a branch name (refs/heads/<n>/merge) that does not exist.
+          ref: ${{ github.ref }}
 
       - name: Verify CodeQL parity guard
         if: matrix.language == 'go'
