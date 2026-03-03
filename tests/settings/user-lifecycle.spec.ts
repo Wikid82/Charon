@@ -708,3 +708,167 @@ test.describe('Admin-User E2E Workflow', () => {
     });
   });
 });
+
+/**
+ * PR-3: Passthrough User — Access Restriction (F4)
+ *
+ * Verifies that a passthrough-role user is redirected to the
+ * PassthroughLanding page when they attempt to access management routes,
+ * and that they cannot reach the admin Users page.
+ */
+test.describe('PR-3: Passthrough User Access Restriction (F4)', () => {
+  let adminEmail = '';
+
+  test.beforeEach(async ({ page, adminUser }) => {
+    await resetSecurityState(page);
+    adminEmail = adminUser.email;
+    await loginUser(page, adminUser);
+    await waitForLoadingComplete(page, { timeout: 15000 });
+  });
+
+  test('passthrough user is redirected to PassthroughLanding when accessing management routes', async ({ page }) => {
+    const suffix = uniqueSuffix();
+    const ptUser = {
+      email: `passthrough-${suffix}@test.local`,
+      name: `Passthrough User ${suffix}`,
+      password: 'PassthroughPass123!',
+      role: 'passthrough' as 'admin' | 'user' | 'passthrough',
+    };
+    let ptUserId: string | number | undefined;
+
+    await test.step('Admin creates a passthrough-role user directly', async () => {
+      const token = await page.evaluate(() => localStorage.getItem('charon_auth_token') || '');
+      const resp = await page.request.post('/api/v1/users', {
+        data: ptUser,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      expect(resp.ok()).toBe(true);
+      const body = await resp.json();
+      ptUserId = body.id;
+    });
+
+    await test.step('Admin logs out', async () => {
+      await logoutUser(page);
+    });
+
+    await test.step('Passthrough user logs in', async () => {
+      await navigateToLogin(page);
+      await loginWithCredentials(page, ptUser.email, ptUser.password);
+      // Wait for the initial post-login navigation to settle before probing routes
+      await page.waitForURL(/^\/?((?!login).)*$/, { timeout: 10000 }).catch(() => {});
+    });
+
+    await test.step('Passthrough user navigating to management route is redirected to /passthrough', async () => {
+      await page.goto('/settings/users', { waitUntil: 'domcontentloaded' }).catch(() => {});
+      await page.waitForURL(/\/passthrough/, { timeout: 15000 });
+      await expect(page).toHaveURL(/\/passthrough/);
+    });
+
+    await test.step('PassthroughLanding displays welcome heading and no-access message', async () => {
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+      await expect(
+        page.getByText(/do not have access to the management interface/i)
+      ).toBeVisible();
+    });
+
+    await test.step('PassthroughLanding shows a logout button', async () => {
+      await expect(page.getByRole('button', { name: /logout/i })).toBeVisible();
+    });
+
+    await test.step('Cleanup: admin logs back in and deletes passthrough user', async () => {
+      // Logout passthrough user
+      await page.getByRole('button', { name: /logout/i }).click();
+      await page.waitForURL(/login/, { timeout: 10000 });
+
+      // Login as admin
+      await loginWithCredentials(page, adminEmail, TEST_PASSWORD);
+      const token = await page.evaluate(() => localStorage.getItem('charon_auth_token') || '');
+      if (ptUserId !== undefined) {
+        await page.request.delete(`/api/v1/users/${ptUserId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+      }
+    });
+  });
+});
+
+/**
+ * PR-3: Regular User — No Admin-Only Nav Items (F9)
+ *
+ * Verifies that a regular (non-admin) user does not see the "Users"
+ * navigation item, which is restricted to admins only.
+ */
+test.describe('PR-3: Regular User Has No Admin Navigation Items (F9)', () => {
+  let adminEmail = '';
+
+  test.beforeEach(async ({ page, adminUser }) => {
+    await resetSecurityState(page);
+    adminEmail = adminUser.email;
+    await loginUser(page, adminUser);
+    await waitForLoadingComplete(page, { timeout: 15000 });
+  });
+
+  test('regular user does not see the Users navigation item', async ({ page }) => {
+    const suffix = uniqueSuffix();
+    const regularUserData = {
+      email: `navtest-user-${suffix}@test.local`,
+      name: `Nav Test User ${suffix}`,
+      password: 'NavTestPass123!',
+      role: 'user' as 'admin' | 'user' | 'passthrough',
+    };
+    let regularUserId: string | number | undefined;
+
+    await test.step('Admin creates a regular user', async () => {
+      const token = await page.evaluate(() => localStorage.getItem('charon_auth_token') || '');
+      const resp = await page.request.post('/api/v1/users', {
+        data: regularUserData,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      expect(resp.ok()).toBe(true);
+      const body = await resp.json();
+      regularUserId = body.id;
+    });
+
+    await test.step('Admin logs out', async () => {
+      await logoutUser(page);
+    });
+
+    await test.step('Regular user logs in', async () => {
+      await navigateToLogin(page);
+      await loginWithCredentials(page, regularUserData.email, regularUserData.password);
+      await waitForLoadingComplete(page, { timeout: 15000 });
+    });
+
+    await test.step('Verify "Users" nav item is NOT visible for regular user', async () => {
+      const nav = page.getByRole('navigation').first();
+      await expect(nav.getByRole('link', { name: 'Users' })).not.toBeVisible();
+    });
+
+    await test.step('Verify other nav items ARE visible (navigation renders for regular users)', async () => {
+      const nav = page.getByRole('navigation').first();
+      await expect(nav.getByRole('link', { name: /dashboard/i })).toBeVisible();
+    });
+
+    await test.step('Cleanup: admin logs back in and deletes regular user', async () => {
+      await logoutUser(page);
+      await navigateToLogin(page);
+      await loginWithCredentials(page, adminEmail, TEST_PASSWORD);
+      const token = await page.evaluate(() => localStorage.getItem('charon_auth_token') || '');
+      if (regularUserId !== undefined) {
+        await page.request.delete(`/api/v1/users/${regularUserId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+      }
+    });
+  });
+
+  test('admin user sees the Users navigation item', async ({ page }) => {
+    await test.step('Navigate to settings to reveal Settings sub-navigation', async () => {
+      await page.goto('/settings/users');
+      await waitForLoadingComplete(page);
+    });
+    await test.step('Verify "Users" nav item is visible for admin in Settings nav', async () => {
+      await expect(page.getByRole('link', { name: 'Users', exact: true })).toBeVisible();
+    });
+  });
+});

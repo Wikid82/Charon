@@ -8,6 +8,7 @@ import * as proxyHostsApi from '../../api/proxyHosts'
 import client from '../../api/client'
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
 import { toast } from '../../utils/toast'
+import { useAuth } from '../../hooks/useAuth'
 
 // Mock APIs
 vi.mock('../../api/users', () => ({
@@ -601,6 +602,266 @@ describe('UsersPage', () => {
       // Verify preview is not displayed after error
       const previewQuery = screen.queryByText(/accept-invite/)
       expect(previewQuery).toBeNull()
+    })
+  })
+
+  describe('InviteModal role reset on close', () => {
+    it('resets role to user when modal is closed', async () => {
+      vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+
+      renderWithQueryClient(<UsersPage />)
+
+      const user = userEvent.setup()
+      await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+
+      // Open invite modal
+      await user.click(screen.getByRole('button', { name: /Invite User/i }))
+      await waitFor(() => expect(screen.getByLabelText(/Role/i)).toBeInTheDocument())
+
+      // Change role to passthrough
+      await user.selectOptions(screen.getByLabelText(/Role/i), 'passthrough')
+      expect((screen.getByLabelText(/Role/i) as HTMLSelectElement).value).toBe('passthrough')
+
+      // Close via Cancel button (calls handleClose which resets role)
+      await user.click(screen.getByRole('button', { name: /^Cancel$/i }))
+
+      // Reopen modal — role should be reset to 'user'
+      await user.click(screen.getByRole('button', { name: /Invite User/i }))
+      await waitFor(() => expect(screen.getByLabelText(/Role/i)).toBeInTheDocument())
+      expect((screen.getByLabelText(/Role/i) as HTMLSelectElement).value).toBe('user')
+    })
+  })
+
+  describe('UserDetailModal', () => {
+    it('shows profile update error via toast', async () => {
+      vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+      vi.mocked(usersApi.updateUser).mockRejectedValue({
+        response: { data: { error: 'Email already in use' } },
+      })
+
+      renderWithQueryClient(<UsersPage />)
+
+      const user = userEvent.setup()
+      await waitFor(() => expect(screen.getByText('Regular User')).toBeInTheDocument())
+
+      // Click Edit User for Regular User (second "Edit User" button in the table)
+      const editButtons = screen.getAllByTitle('Edit User')
+      await user.click(editButtons[1]) // index 1 = Regular User row
+
+      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+      // Click Save
+      await user.click(screen.getByRole('button', { name: /^Save$/i }))
+
+      await waitFor(() => {
+        expect(toast.error).toHaveBeenCalled()
+      })
+    })
+
+    it('toggles the password change section', async () => {
+      vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+      vi.mocked(usersApi.getProfile).mockResolvedValue({ api_key_masked: 'abc-****' } as never)
+
+      renderWithQueryClient(<UsersPage />)
+
+      const user = userEvent.setup()
+      await waitFor(() => expect(screen.getByText('My Profile')).toBeInTheDocument())
+
+      // Click Edit User in My Profile card (opens with isSelf=true) — card button is first
+      await user.click(screen.getAllByRole('button', { name: /Edit User/i })[0])
+
+      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+      // Password fields should not be visible until toggled
+      expect(screen.queryByLabelText(/Current Password/i)).toBeNull()
+
+      // Click the Change Password toggle
+      await user.click(screen.getAllByRole('button', { name: /Change Password/i })[0])
+
+      // Password fields should now be visible
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Current Password/i)).toBeInTheDocument()
+      })
+    })
+
+    it('submits password change successfully', async () => {
+      vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+      vi.mocked(usersApi.getProfile).mockResolvedValue({ api_key_masked: 'abc-****' } as never)
+
+      renderWithQueryClient(<UsersPage />)
+
+      const user = userEvent.setup()
+      await waitFor(() => expect(screen.getByText('My Profile')).toBeInTheDocument())
+
+      await user.click(screen.getAllByRole('button', { name: /Edit User/i })[0])
+      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+      // Expand password section
+      await user.click(screen.getAllByRole('button', { name: /Change Password/i })[0])
+      await waitFor(() => expect(screen.getByLabelText(/Current Password/i)).toBeInTheDocument())
+
+      // Fill matching passwords
+      await user.type(screen.getByLabelText(/Current Password/i), 'oldpass123')
+      await user.type(screen.getByLabelText(/^New Password/i), 'newpass456')
+      await user.type(screen.getByLabelText(/Confirm Password/i), 'newpass456')
+
+      // Submit button (second "Change Password" button — the submit one)
+      const changePasswordButtons = screen.getAllByRole('button', { name: /Change Password/i })
+      const submitButton = changePasswordButtons[changePasswordButtons.length - 1]
+      await user.click(submitButton)
+
+      await waitFor(() => {
+        expect(toast.success).toHaveBeenCalled()
+      })
+    })
+
+    it('shows error toast on password change failure', async () => {
+      vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+      vi.mocked(usersApi.getProfile).mockResolvedValue({ api_key_masked: 'abc-****' } as never)
+      vi.mocked(useAuth).mockReturnValue({
+        user: { user_id: 1, role: 'admin', name: 'Admin User', email: 'admin@example.com' },
+        changePassword: vi.fn().mockRejectedValue(new Error('Invalid current password')),
+        isAuthenticated: true,
+        isLoading: false,
+        login: vi.fn(),
+        logout: vi.fn(),
+      })
+
+      renderWithQueryClient(<UsersPage />)
+
+      const user = userEvent.setup()
+      await waitFor(() => expect(screen.getByText('My Profile')).toBeInTheDocument())
+
+      await user.click(screen.getAllByRole('button', { name: /Edit User/i })[0])
+      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+      await user.click(screen.getAllByRole('button', { name: /Change Password/i })[0])
+      await waitFor(() => expect(screen.getByLabelText(/Current Password/i)).toBeInTheDocument())
+
+      await user.type(screen.getByLabelText(/Current Password/i), 'wrongpass')
+      await user.type(screen.getByLabelText(/^New Password/i), 'newpass456')
+      await user.type(screen.getByLabelText(/Confirm Password/i), 'newpass456')
+
+      const changePasswordButtons = screen.getAllByRole('button', { name: /Change Password/i })
+      const submitButton = changePasswordButtons[changePasswordButtons.length - 1]
+      await user.click(submitButton)
+
+      await waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith('Invalid current password')
+      })
+    })
+
+    it('regenerates API key when user confirms', async () => {
+      vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+      vi.mocked(usersApi.getProfile).mockResolvedValue({ api_key_masked: 'old-****' } as never)
+      vi.mocked(usersApi.regenerateApiKey).mockResolvedValue({ api_key_masked: 'new-****' } as never)
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+      renderWithQueryClient(<UsersPage />)
+
+      const user = userEvent.setup()
+      await waitFor(() => expect(screen.getByText('My Profile')).toBeInTheDocument())
+
+      await user.click(screen.getAllByRole('button', { name: /Edit User/i })[0])
+      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Regenerate API Key/i })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: /Regenerate API Key/i }))
+
+      await waitFor(() => {
+        expect(usersApi.regenerateApiKey).toHaveBeenCalled()
+      })
+    })
+
+    it('updates self profile and shows profile updated toast', async () => {
+      vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+      vi.mocked(usersApi.updateProfile).mockResolvedValue({ message: 'ok' } as never)
+      vi.mocked(usersApi.getProfile).mockResolvedValue({ api_key_masked: 'abc-****' } as never)
+
+      renderWithQueryClient(<UsersPage />)
+
+      const user = userEvent.setup()
+      await waitFor(() => expect(screen.getByText('My Profile')).toBeInTheDocument())
+
+      await user.click(screen.getAllByRole('button', { name: /Edit User/i })[0])
+      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+      const dialog = screen.getByRole('dialog')
+      await user.click(within(dialog).getByRole('button', { name: /^Save$/i }))
+
+      await waitFor(() => {
+        expect(usersApi.updateProfile).toHaveBeenCalled()
+        expect(toast.success).toHaveBeenCalledWith('Profile updated successfully')
+      })
+    })
+
+    it('updates non-self user profile and shows success toast', async () => {
+      vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+      vi.mocked(usersApi.updateUser).mockResolvedValue({ message: 'ok' } as never)
+
+      renderWithQueryClient(<UsersPage />)
+
+      const user = userEvent.setup()
+      await waitFor(() => expect(screen.getByText('Regular User')).toBeInTheDocument())
+
+      const editButtons = screen.getAllByTitle('Edit User')
+      await user.click(editButtons[1])
+      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+      const dialog = screen.getByRole('dialog')
+      await user.click(within(dialog).getByRole('button', { name: /^Save$/i }))
+
+      await waitFor(() => {
+        expect(usersApi.updateUser).toHaveBeenCalledWith(2, expect.objectContaining({
+          email: 'user@example.com',
+        }))
+        expect(toast.success).toHaveBeenCalledWith('Profile updated successfully')
+      })
+    })
+
+    it('displays masked API key text when profile query resolves', async () => {
+      vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+      vi.mocked(usersApi.getProfile).mockResolvedValue({ api_key_masked: 'SK-****-masktest' } as never)
+
+      renderWithQueryClient(<UsersPage />)
+
+      const user = userEvent.setup()
+      await waitFor(() => expect(screen.getByText('My Profile')).toBeInTheDocument())
+
+      await user.click(screen.getAllByRole('button', { name: /Edit User/i })[0])
+      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+      await waitFor(() => {
+        expect(screen.getByText('SK-****-masktest')).toBeInTheDocument()
+      })
+    })
+
+    it('shows password mismatch alert when new and confirm passwords differ', async () => {
+      vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+      vi.mocked(usersApi.getProfile).mockResolvedValue({ api_key_masked: '' } as never)
+
+      renderWithQueryClient(<UsersPage />)
+
+      const user = userEvent.setup()
+      await waitFor(() => expect(screen.getByText('My Profile')).toBeInTheDocument())
+
+      await user.click(screen.getAllByRole('button', { name: /Edit User/i })[0])
+      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+      await user.click(screen.getAllByRole('button', { name: /Change Password/i })[0])
+      await waitFor(() => expect(screen.getByLabelText(/Current Password/i)).toBeInTheDocument())
+
+      await user.type(screen.getByLabelText(/Current Password/i), 'current123')
+      await user.type(screen.getByLabelText(/^New Password/i), 'newpass1')
+      await user.type(screen.getByLabelText(/Confirm Password/i), 'different2')
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toBeInTheDocument()
+        expect(screen.getByText('Passwords do not match')).toBeInTheDocument()
+      })
     })
   })
 })

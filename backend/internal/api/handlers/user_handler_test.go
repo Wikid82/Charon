@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
@@ -2716,4 +2717,395 @@ func TestRedactInviteURL(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+// --- Passthrough rejection tests ---
+
+func setupPassthroughRouter(handler *UserHandler) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", string(models.RolePassthrough))
+		c.Next()
+	})
+	r.POST("/api-key", handler.RegenerateAPIKey)
+	r.GET("/profile", handler.GetProfile)
+	r.PUT("/profile", handler.UpdateProfile)
+	return r
+}
+
+func TestUserHandler_RegenerateAPIKey_PassthroughRejected(t *testing.T) {
+	handler, _ := setupUserHandler(t)
+	r := setupPassthroughRouter(handler)
+
+	req := httptest.NewRequest(http.MethodPost, "/api-key", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "Passthrough users cannot manage API keys")
+}
+
+func TestUserHandler_GetProfile_PassthroughRejected(t *testing.T) {
+	handler, _ := setupUserHandler(t)
+	r := setupPassthroughRouter(handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/profile", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "Passthrough users cannot access profile")
+}
+
+func TestUserHandler_UpdateProfile_PassthroughRejected(t *testing.T) {
+	handler, _ := setupUserHandler(t)
+	r := setupPassthroughRouter(handler)
+
+	body, _ := json.Marshal(map[string]string{"name": "Test"})
+	req := httptest.NewRequest(http.MethodPut, "/profile", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "Passthrough users cannot update profile")
+}
+
+// --- CreateUser / InviteUser invalid role ---
+
+func TestUserHandler_CreateUser_InvalidRole(t *testing.T) {
+	handler, _ := setupUserHandler(t)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users", handler.CreateUser)
+
+	body, _ := json.Marshal(map[string]string{
+		"name":     "Test User",
+		"email":    "new@example.com",
+		"role":     "superadmin",
+		"password": "password123",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "Invalid role")
+}
+
+func TestUserHandler_InviteUser_InvalidRole(t *testing.T) {
+	handler, _ := setupUserHandler(t)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
+	r.POST("/invite", handler.InviteUser)
+
+	body, _ := json.Marshal(map[string]string{
+		"email": "invite@example.com",
+		"role":  "superadmin",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/invite", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "Invalid role")
+}
+
+// --- UpdateUser authentication/session edge cases ---
+
+func TestUserHandler_UpdateUser_MissingUserID(t *testing.T) {
+	handler, db := setupUserHandler(t)
+
+	user := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "target@example.com", Role: models.RoleUser, Enabled: true}
+	require.NoError(t, db.Create(&user).Error)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	// No userID set in context
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	body, _ := json.Marshal(map[string]string{"name": "New Name"})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/users/%d", user.ID), bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	assert.Contains(t, w.Body.String(), "Authentication required")
+}
+
+func TestUserHandler_UpdateUser_InvalidSessionType(t *testing.T) {
+	handler, db := setupUserHandler(t)
+
+	user := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "target2@example.com", Role: models.RoleUser, Enabled: true}
+	require.NoError(t, db.Create(&user).Error)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", "not-a-uint") // wrong type
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	body, _ := json.Marshal(map[string]string{"name": "New Name"})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/users/%d", user.ID), bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "Invalid session")
+}
+
+// --- UpdateUser role/enabled restriction for non-admin self ---
+
+func TestUserHandler_UpdateUser_NonAdminSelfRoleChange(t *testing.T) {
+	handler, db := setupUserHandler(t)
+
+	user := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "self@example.com", Role: models.RoleUser, Enabled: true}
+	require.NoError(t, db.Create(&user).Error)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "user")    // non-admin
+		c.Set("userID", user.ID) // isSelf = true
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	body, _ := json.Marshal(map[string]string{"role": "admin"})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/users/%d", user.ID), bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "Cannot modify role or enabled status")
+}
+
+// --- UpdateUser invalid role string ---
+
+func TestUserHandler_UpdateUser_InvalidRole(t *testing.T) {
+	handler, db := setupUserHandler(t)
+
+	target := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "target3@example.com", Role: models.RoleUser, Enabled: true}
+	require.NoError(t, db.Create(&target).Error)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(9999)) // not the target
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	body, _ := json.Marshal(map[string]string{"role": "superadmin"})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/users/%d", target.ID), bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "Invalid role")
+}
+
+// --- UpdateUser self-demotion and self-disable ---
+
+func TestUserHandler_UpdateUser_SelfDemotion(t *testing.T) {
+	handler, db := setupUserHandler(t)
+
+	admin := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "admin@self.example.com", Role: models.RoleAdmin, Enabled: true}
+	require.NoError(t, db.Create(&admin).Error)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", admin.ID) // isSelf = true
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	body, _ := json.Marshal(map[string]string{"role": "user"})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/users/%d", admin.ID), bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "Cannot change your own role")
+}
+
+func TestUserHandler_UpdateUser_SelfDisable(t *testing.T) {
+	handler, db := setupUserHandler(t)
+
+	admin := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "admin@disable.example.com", Role: models.RoleAdmin, Enabled: true}
+	require.NoError(t, db.Create(&admin).Error)
+
+	disabled := false
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", admin.ID) // isSelf = true
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	body, _ := json.Marshal(map[string]interface{}{"enabled": disabled})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/users/%d", admin.ID), bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "Cannot disable your own account")
+}
+
+// --- UpdateUser last-admin protection ---
+
+func TestUserHandler_UpdateUser_LastAdminDemotion(t *testing.T) {
+	handler, db := setupUserHandler(t)
+
+	// Only one admin in the DB (the target)
+	target := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "last-admin@example.com", Role: models.RoleAdmin, Enabled: true}
+	require.NoError(t, db.Create(&target).Error)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(9999)) // different from target; not in DB but role injected via context
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	body, _ := json.Marshal(map[string]string{"role": "user"})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/users/%d", target.ID), bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "Cannot demote the last admin")
+}
+
+func TestUserHandler_UpdateUser_LastAdminDisable(t *testing.T) {
+	handler, db := setupUserHandler(t)
+
+	target := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "last-admin-disable@example.com", Role: models.RoleAdmin, Enabled: true}
+	require.NoError(t, db.Create(&target).Error)
+
+	disabled := false
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(9999))
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	body, _ := json.Marshal(map[string]interface{}{"enabled": disabled})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/users/%d", target.ID), bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "Cannot disable the last admin")
+}
+
+// --- UpdateUser session invalidation ---
+
+func TestUserHandler_UpdateUser_WithSessionInvalidation(t *testing.T) {
+	db := OpenTestDB(t)
+	_ = db.AutoMigrate(&models.User{}, &models.Setting{}, &models.SecurityAudit{})
+
+	authSvc := services.NewAuthService(db, config.Config{JWTSecret: "test-secret"})
+
+	caller := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "caller-si@example.com", Role: models.RoleAdmin, Enabled: true}
+	target := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "target-si@example.com", Role: models.RoleUser, Enabled: true}
+	require.NoError(t, db.Create(&caller).Error)
+	require.NoError(t, db.Create(&target).Error)
+
+	handler := NewUserHandler(db, authSvc)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", caller.ID)
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	body, _ := json.Marshal(map[string]string{"role": "passthrough"})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/users/%d", target.ID), bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "User updated successfully")
+
+	var updated models.User
+	require.NoError(t, db.First(&updated, target.ID).Error)
+	assert.Greater(t, updated.SessionVersion, uint(0))
+}
+
+func TestUserHandler_UpdateUser_SessionInvalidationError(t *testing.T) {
+	mainDB := OpenTestDB(t)
+	_ = mainDB.AutoMigrate(&models.User{}, &models.Setting{}, &models.SecurityAudit{})
+
+	// Use a separate empty DB so InvalidateSessions cannot find the user
+	authDB := OpenTestDB(t)
+	authSvc := services.NewAuthService(authDB, config.Config{JWTSecret: "test-secret"})
+
+	target := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "target-sie@example.com", Role: models.RoleUser, Enabled: true}
+	require.NoError(t, mainDB.Create(&target).Error)
+
+	handler := NewUserHandler(mainDB, authSvc)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(9999))
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	body, _ := json.Marshal(map[string]string{"role": "passthrough"})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/users/%d", target.ID), bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "Failed to invalidate sessions")
 }
