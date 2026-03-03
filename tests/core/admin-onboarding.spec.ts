@@ -162,8 +162,9 @@ test.describe('Admin Onboarding & Setup', () => {
     });
 
     await test.step('Verify user info displayed', async () => {
-      // Admin name or email should be visible in header/profile area
-      const accountLink = page.locator('a[href*="settings/account"]');
+      // Admin name or email should be visible in header/profile area.
+      // The header profile link points to /settings/users after user management consolidation.
+      const accountLink = page.locator('a[href*="settings/users"]');
       await expect(accountLink).toBeVisible({ timeout: 15000 });
     });
   });
