@@ -38,6 +38,19 @@
   "customManagers": [
     {
       "customType": "regex",
+      "description": "Track caddy-security plugin version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_SECURITY_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/greenpau/caddy-security",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
       "description": "Track Go dependencies patched in Dockerfile for Caddy CVE fixes",
       "managerFilePatterns": [
         "/^Dockerfile$/"
