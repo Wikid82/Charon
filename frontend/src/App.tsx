@@ -101,7 +101,7 @@ export default function App() {
               <Route path="import" element={<Navigate to="/tasks/import/caddyfile" replace />} />
 
               {/* Settings Routes */}
-              <Route path="settings" element={<Settings />}>
+              <Route path="settings" element={<RequireRole allowed={['admin', 'user']}><Settings /></RequireRole>}>
                 <Route index element={<SystemSettings />} />
                 <Route path="system" element={<SystemSettings />} />
                 <Route path="notifications" element={<Notifications />} />

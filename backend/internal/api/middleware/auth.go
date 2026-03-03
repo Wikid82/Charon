@@ -117,7 +117,7 @@ func RequireManagementAccess() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role := c.GetString("role")
 		if role == string(models.RolePassthrough) {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Pass-through users cannot access management features"})
 			return
 		}
 		c.Next()

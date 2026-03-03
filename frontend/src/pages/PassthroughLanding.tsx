@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../hooks/useAuth'
 import { Button } from '../components/ui/Button'
@@ -7,6 +8,11 @@ import { Shield, LogOut } from 'lucide-react'
 export default function PassthroughLanding() {
   const { t } = useTranslation()
   const { user, logout } = useAuth()
+  const headingRef = useRef<HTMLHeadingElement>(null)
+
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [])
 
   return (
     <div className="min-h-screen bg-light-bg dark:bg-dark-bg flex items-center justify-center p-4">
@@ -19,7 +25,12 @@ export default function PassthroughLanding() {
           </div>
 
           <div className="space-y-2">
-            <h1 id="passthrough-heading" className="text-2xl font-bold text-gray-900 dark:text-white">
+            <h1
+              id="passthrough-heading"
+              ref={headingRef}
+              tabIndex={-1}
+              className="text-2xl font-bold text-gray-900 dark:text-white outline-none"
+            >
               {t('passthrough.title')}
             </h1>
             {user?.name && (
@@ -37,16 +48,14 @@ export default function PassthroughLanding() {
             {t('passthrough.noAccessToManagement')}
           </p>
 
-          <nav aria-label={t('passthrough.title')}>
-            <Button
-              onClick={logout}
-              variant="secondary"
-              className="w-full"
-            >
-              <LogOut className="h-4 w-4 mr-2" aria-hidden="true" />
-              {t('auth.logout')}
-            </Button>
-          </nav>
+          <Button
+            onClick={logout}
+            variant="secondary"
+            className="w-full"
+          >
+            <LogOut className="h-4 w-4 mr-2" aria-hidden="true" />
+            {t('auth.logout')}
+          </Button>
         </Card>
       </main>
     </div>

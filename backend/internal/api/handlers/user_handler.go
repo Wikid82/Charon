@@ -199,10 +199,19 @@ func (h *UserHandler) Setup(c *gin.Context) {
 	})
 }
 
+// rejectPassthrough aborts with 403 if the caller is a passthrough user.
+// Returns true if the request was rejected (caller should return).
+func rejectPassthrough(c *gin.Context, action string) bool {
+	if c.GetString("role") == string(models.RolePassthrough) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Passthrough users cannot " + action})
+		return true
+	}
+	return false
+}
+
 // RegenerateAPIKey generates a new API key for the authenticated user.
 func (h *UserHandler) RegenerateAPIKey(c *gin.Context) {
-	if c.GetString("role") == string(models.RolePassthrough) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Passthrough users cannot manage API keys"})
+	if rejectPassthrough(c, "manage API keys") {
 		return
 	}
 	userID, exists := c.Get("userID")
@@ -228,8 +237,7 @@ func (h *UserHandler) RegenerateAPIKey(c *gin.Context) {
 
 // GetProfile returns the current user's profile including API key.
 func (h *UserHandler) GetProfile(c *gin.Context) {
-	if c.GetString("role") == string(models.RolePassthrough) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Passthrough users cannot access profile"})
+	if rejectPassthrough(c, "access profile") {
 		return
 	}
 	userID, exists := c.Get("userID")
@@ -262,8 +270,7 @@ type UpdateProfileRequest struct {
 
 // UpdateProfile updates the authenticated user's profile.
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
-	if c.GetString("role") == string(models.RolePassthrough) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Passthrough users cannot update profile"})
+	if rejectPassthrough(c, "update profile") {
 		return
 	}
 	userID, exists := c.Get("userID")
@@ -734,8 +741,8 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	}
 
 	var req UpdateUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
 
@@ -763,7 +770,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	if req.Email != "" {
 		email := strings.ToLower(req.Email)
 		var count int64
-		if err := h.DB.Model(&models.User{}).Where("email = ? AND id != ?", email, id).Count(&count).Error; err == nil && count > 0 {
+		if dbErr := h.DB.Model(&models.User{}).Where("email = ? AND id != ?", email, id).Count(&count).Error; dbErr == nil && count > 0 {
 			c.JSON(http.StatusConflict, gin.H{"error": "Email already in use"})
 			return
 		}
@@ -786,23 +793,13 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 				return
 			}
 
-			// Last-admin protection
-			if user.Role == models.RoleAdmin && newRole != models.RoleAdmin {
-				var adminCount int64
-				h.DB.Model(&models.User{}).Where("role = ? AND enabled = ?", models.RoleAdmin, true).Count(&adminCount)
-				if adminCount <= 1 {
-					c.JSON(http.StatusForbidden, gin.H{"error": "Cannot demote the last admin"})
-					return
-				}
-			}
-
 			updates["role"] = string(newRole)
 			needsSessionInvalidation = true
 		}
 	}
 
 	if req.Password != nil {
-		if err := user.SetPassword(*req.Password); err != nil {
+		if hashErr := user.SetPassword(*req.Password); hashErr != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 			return
 		}
@@ -818,28 +815,70 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			return
 		}
 
-		// Last-admin protection for disabling
-		if user.Role == models.RoleAdmin && !*req.Enabled {
-			var adminCount int64
-			h.DB.Model(&models.User{}).Where("role = ? AND enabled = ?", models.RoleAdmin, true).Count(&adminCount)
-			if adminCount <= 1 {
-				c.JSON(http.StatusForbidden, gin.H{"error": "Cannot disable the last admin"})
-				return
-			}
-		}
-
 		updates["enabled"] = *req.Enabled
 		if !*req.Enabled {
 			needsSessionInvalidation = true
 		}
 	}
 
-	if len(updates) > 0 {
-		if err := h.DB.Model(&user).Updates(updates).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
-			return
+	// Wrap the last-admin checks and the actual update in a transaction to prevent
+	// race conditions: two concurrent requests could both read adminCount==2
+	// and both proceed, leaving zero admins.
+	err = h.DB.Transaction(func(tx *gorm.DB) error {
+		// Re-fetch user inside transaction for consistent state
+		if txErr := tx.First(&user, id).Error; txErr != nil {
+			return txErr
 		}
 
+		// Last-admin protection for role demotion
+		if newRoleStr, ok := updates["role"]; ok {
+			newRole := models.UserRole(newRoleStr.(string))
+			if user.Role == models.RoleAdmin && newRole != models.RoleAdmin {
+				var adminCount int64
+				// Policy: count only enabled admins. This is stricter than "WHERE role = ?"
+				// because a disabled admin cannot act; treating them as non-existent
+				// prevents leaving the system with only disabled admins.
+				tx.Model(&models.User{}).Where("role = ? AND enabled = ?", models.RoleAdmin, true).Count(&adminCount)
+				if adminCount <= 1 {
+					return fmt.Errorf("cannot demote the last admin")
+				}
+			}
+		}
+
+		// Last-admin protection for disabling
+		if enabledVal, ok := updates["enabled"]; ok {
+			if enabled, isBool := enabledVal.(bool); isBool && !enabled {
+				if user.Role == models.RoleAdmin {
+					var adminCount int64
+					// Policy: count only enabled admins (same rationale as above).
+					tx.Model(&models.User{}).Where("role = ? AND enabled = ?", models.RoleAdmin, true).Count(&adminCount)
+					if adminCount <= 1 {
+						return fmt.Errorf("cannot disable the last admin")
+					}
+				}
+			}
+		}
+
+		if len(updates) > 0 {
+			if txErr := tx.Model(&user).Updates(updates).Error; txErr != nil {
+				return txErr
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		errMsg := err.Error()
+		if errMsg == "cannot demote the last admin" || errMsg == "cannot disable the last admin" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Cannot" + errMsg[len("cannot"):]})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
+		return
+	}
+
+	if len(updates) > 0 {
 		if needsSessionInvalidation && h.AuthService != nil {
 			if invErr := h.AuthService.InvalidateSessions(user.ID); invErr != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to invalidate sessions"})
