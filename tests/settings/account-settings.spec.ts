@@ -146,7 +146,9 @@ test.describe('Account Settings', () => {
     });
   });
 
-  test.describe('Profile Management', () => {
+  // These tests reference the deleted Account.tsx page (removed in PR-2b). Equivalent
+  // functionality is covered by the "PR-3: Self-Service Profile via Users Page (F10)" suite above.
+  test.describe.skip('Profile Management', () => {
     /**
      * Test: Profile displays correctly
      * Verifies that user profile information is displayed on load.
@@ -317,7 +319,9 @@ test.describe('Account Settings', () => {
     });
   });
 
-  test.describe('Certificate Email', () => {
+  // These tests reference Certificate Email UI elements (#useUserEmail, #cert-email) from the deleted
+  // Account.tsx page (removed in PR-2b). Certificate email settings are not present in UsersPage.tsx.
+  test.describe.skip('Certificate Email', () => {
     /**
      * Test: Toggle use account email checkbox
      * Verifies the checkbox toggles custom email field visibility.
@@ -503,7 +507,11 @@ test.describe('Account Settings', () => {
     });
   });
 
-  test.describe('Password Change', () => {
+  // These tests reference password fields (#current-password, #new-password, #confirm-password)
+  // from the deleted Account.tsx page. In UsersPage.tsx these fields are inside the UserDetailModal
+  // (only visible after clicking Edit User → Change Password). Equivalent coverage is provided by
+  // the 'PR-3: Self-Service Profile via Users Page (F10)' suite above.
+  test.describe.skip('Password Change', () => {
     /**
      * Test: Change password with valid inputs
      * Verifies password can be changed successfully.
@@ -682,7 +690,10 @@ test.describe('Account Settings', () => {
     });
   });
 
-  test.describe('API Key Management', () => {
+  // These tests reference API key elements from the deleted Account.tsx page. In UsersPage.tsx
+  // the API key section is inside the UserDetailModal (only visible after clicking Edit User).
+  // Equivalent coverage is provided by the 'PR-3: Self-Service Profile via Users Page (F10)' suite above.
+  test.describe.skip('API Key Management', () => {
     /**
      * Test: API key is displayed
      * Verifies API key section shows the key value.
@@ -808,7 +819,10 @@ test.describe('Account Settings', () => {
     });
   });
 
-  test.describe('Accessibility', () => {
+  // These tests reference form labels and IDs (#profile-name, #profile-email, #useUserEmail)
+  // from the deleted Account.tsx page (removed in PR-2b). Accessibility of the replacement UI
+  // is covered by the 'PR-3: Self-Service Profile via Users Page (F10)' suite above.
+  test.describe.skip('Accessibility', () => {
     /**
      * Test: Keyboard navigation through account settings
      * Uses increased loop counts and waitForTimeout for CI reliability
