@@ -2,7 +2,7 @@ import { createContext } from 'react';
 
 export interface User {
   user_id: number;
-  role: string;
+  role: 'admin' | 'user' | 'passthrough';
   name?: string;
   email?: string;
 }

@@ -70,8 +70,6 @@
     "settings": "Settings",
     "system": "System",
     "email": "Email (SMTP)",
-    "adminAccount": "Admin Account",
-    "accountManagement": "Account Management",
     "import": "Import",
     "caddyfile": "Caddyfile",
     "importNPM": "Import NPM",
@@ -618,6 +616,10 @@
     "role": "Role",
     "roleUser": "User",
     "roleAdmin": "Admin",
+    "rolePassthrough": "Passthrough",
+    "roleUserDescription": "Can access permitted proxy hosts only.",
+    "roleAdminDescription": "Full access to all features and settings.",
+    "rolePassthroughDescription": "Proxy access only — no management interface.",
     "permissionMode": "Permission Mode",
     "allowAllBlacklist": "Allow All (Blacklist)",
     "denyAllWhitelist": "Deny All (Whitelist)",
@@ -651,7 +653,23 @@
     "resendInvite": "Resend Invite",
     "inviteResent": "Invitation resent successfully",
     "inviteCreatedNoEmail": "New invite created. Email could not be sent.",
-    "resendFailed": "Failed to resend invitation"
+    "resendFailed": "Failed to resend invitation",
+    "myProfile": "My Profile",
+    "editUser": "Edit User",
+    "changePassword": "Change Password",
+    "currentPassword": "Current Password",
+    "newPassword": "New Password",
+    "confirmPassword": "Confirm Password",
+    "passwordChanged": "Password changed successfully",
+    "passwordChangeFailed": "Failed to change password",
+    "passwordMismatch": "Passwords do not match",
+    "apiKey": "API Key",
+    "regenerateApiKey": "Regenerate API Key",
+    "apiKeyRegenerated": "API key regenerated",
+    "apiKeyRegenerateFailed": "Failed to regenerate API key",
+    "apiKeyConfirm": "Are you sure? The current API key will be invalidated.",
+    "profileUpdated": "Profile updated successfully",
+    "profileUpdateFailed": "Failed to update profile"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -1360,5 +1378,10 @@
     "validationError": "Key configuration validation failed. Check errors below.",
     "validationFailed": "Validation request failed: {{error}}",
     "failedToLoadStatus": "Failed to load encryption status. Please refresh the page."
+  },
+  "passthrough": {
+    "title": "Welcome",
+    "description": "Your account has passthrough access. You can reach your assigned services directly — no management interface is available.",
+    "noAccessToManagement": "You do not have access to the management interface."
   }
 }

@@ -9,7 +9,7 @@ export interface User {
   uuid: string
   email: string
   name: string
-  role: 'admin' | 'user' | 'viewer'
+  role: 'admin' | 'user' | 'passthrough'
   enabled: boolean
   last_login?: string
   invite_status?: 'pending' | 'accepted' | 'expired'
@@ -210,5 +210,53 @@ export const previewInviteURL = async (email: string): Promise<PreviewInviteURLR
  */
 export const resendInvite = async (id: number): Promise<InviteUserResponse> => {
   const response = await client.post<InviteUserResponse>(`/users/${id}/resend-invite`)
+  return response.data
+}
+
+// --- Self-service profile endpoints (merged from api/user.ts) ---
+
+/** Current user profile information. */
+export interface UserProfile {
+  id: number
+  email: string
+  name: string
+  role: string
+  has_api_key: boolean
+  api_key_masked: string
+}
+
+/** Response from API key regeneration. */
+export interface RegenerateApiKeyResponse {
+  message: string
+  has_api_key: boolean
+  api_key_masked: string
+  api_key_updated: string
+}
+
+/**
+ * Fetches the current user's profile.
+ * @returns Promise resolving to UserProfile
+ */
+export const getProfile = async (): Promise<UserProfile> => {
+  const response = await client.get('/user/profile')
+  return response.data
+}
+
+/**
+ * Updates the current user's profile.
+ * @param data - Object with name, email, and optional current_password for verification
+ * @returns Promise resolving to success message
+ */
+export const updateProfile = async (data: { name: string; email: string; current_password?: string }): Promise<{ message: string }> => {
+  const response = await client.post('/user/profile', data)
+  return response.data
+}
+
+/**
+ * Regenerates the current user's API key.
+ * @returns Promise resolving to object containing the new API key
+ */
+export const regenerateApiKey = async (): Promise<RegenerateApiKeyResponse> => {
+  const response = await client.post<RegenerateApiKeyResponse>('/user/api-key')
   return response.data
 }

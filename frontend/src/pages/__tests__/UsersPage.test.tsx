@@ -22,6 +22,20 @@ vi.mock('../../api/users', () => ({
   acceptInvite: vi.fn(),
   previewInviteURL: vi.fn(),
   resendInvite: vi.fn(),
+  getProfile: vi.fn(),
+  updateProfile: vi.fn(),
+  regenerateApiKey: vi.fn(),
+}))
+
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: vi.fn().mockReturnValue({
+    user: { user_id: 1, role: 'admin', name: 'Admin User', email: 'admin@example.com' },
+    changePassword: vi.fn().mockResolvedValue(undefined),
+    isAuthenticated: true,
+    isLoading: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+  }),
 }))
 
 vi.mock('../../api/proxyHosts', () => ({
@@ -78,6 +92,18 @@ const mockUsers = [
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
   },
+  {
+    id: 4,
+    uuid: '999-000',
+    email: 'passthrough@example.com',
+    name: 'Passthrough User',
+    role: 'passthrough' as const,
+    enabled: true,
+    invite_status: 'accepted' as const,
+    permission_mode: 'allow_all' as const,
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  },
 ]
 
 const mockProxyHosts = [
@@ -127,8 +153,8 @@ describe('UsersPage', () => {
       expect(screen.getByText('User Management')).toBeTruthy()
     })
 
-    expect(screen.getByText('Admin User')).toBeTruthy()
-    expect(screen.getByText('admin@example.com')).toBeTruthy()
+    expect(screen.getAllByText('Admin User').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('admin@example.com').length).toBeGreaterThan(0)
     expect(screen.getByText('Regular User')).toBeTruthy()
     expect(screen.getByText('user@example.com')).toBeTruthy()
   })
@@ -343,6 +369,58 @@ describe('UsersPage', () => {
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /copy invite link/i })).not.toBeInTheDocument()
       expect(screen.queryByDisplayValue('[REDACTED]')).not.toBeInTheDocument()
+    })
+  })
+
+  it('renders passthrough role badge', async () => {
+    vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+
+    renderWithQueryClient(<UsersPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Passthrough')).toBeTruthy()
+    })
+  })
+
+  it('renders My Profile card for current user', async () => {
+    vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+
+    renderWithQueryClient(<UsersPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('My Profile')).toBeTruthy()
+    })
+  })
+
+  it('shows passthrough option in invite role select', async () => {
+    vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+
+    renderWithQueryClient(<UsersPage />)
+
+    const user = userEvent.setup()
+    await waitFor(() => expect(screen.getByText('Invite User')).toBeTruthy())
+    await user.click(screen.getByRole('button', { name: /Invite User/i }))
+
+    await waitFor(() => {
+      const roleSelect = screen.getByLabelText('Role') as HTMLSelectElement
+      const options = Array.from(roleSelect.options).map(o => o.value)
+      expect(options).toContain('passthrough')
+    })
+  })
+
+  it('opens detail modal when edit button is clicked', async () => {
+    vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+
+    renderWithQueryClient(<UsersPage />)
+
+    await waitFor(() => expect(screen.getByText('Regular User')).toBeTruthy())
+
+    const user = userEvent.setup()
+    const editButtons = screen.getAllByTitle('Edit User')
+    await user.click(editButtons[1])
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: /Edit User/i })).toBeTruthy()
     })
   })
 
