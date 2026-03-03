@@ -723,18 +723,21 @@ function UserDetailModal({ isOpen, onClose, user, isSelf }: UserDetailModalProps
                 {showPasswordSection && (
                   <div className="mt-3 space-y-3">
                     <Input
+                      id="current-password"
                       label={t('users.currentPassword')}
                       type="password"
                       value={currentPassword}
                       onChange={(e) => setCurrentPassword(e.target.value)}
                     />
                     <Input
+                      id="new-password"
                       label={t('users.newPassword')}
                       type="password"
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                     />
                     <Input
+                      id="confirm-password"
                       label={t('users.confirmPassword')}
                       type="password"
                       value={confirmPassword}

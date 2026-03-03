@@ -10,7 +10,9 @@ import (
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -1297,4 +1299,26 @@ func TestRegister_CreatesAccessLogFileForLogWatcher(t *testing.T) {
 
 	_, statErr := os.Stat(logFilePath)
 	assert.NoError(t, statErr)
+}
+
+func TestMigrateViewerToPassthrough(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.User{}))
+
+	// Seed a user with the legacy "viewer" role
+	viewer := models.User{
+		UUID:    uuid.NewString(),
+		APIKey:  uuid.NewString(),
+		Email:   "viewer@example.com",
+		Role:    models.UserRole("viewer"),
+		Enabled: true,
+	}
+	require.NoError(t, db.Create(&viewer).Error)
+
+	migrateViewerToPassthrough(db)
+
+	var updated models.User
+	require.NoError(t, db.First(&updated, viewer.ID).Error)
+	assert.Equal(t, models.RolePassthrough, updated.Role)
 }

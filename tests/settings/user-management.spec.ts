@@ -1301,4 +1301,154 @@ test.describe('User Management', () => {
       });
     });
   });
+
+  /**
+   * PR-3: Passthrough Role in Invite Modal (F3)
+   *
+   * Verifies that the invite modal exposes all three role options:
+   * Admin, User, and Passthrough — and that selecting Passthrough
+   * surfaces the appropriate role description.
+   */
+  test.describe('PR-3: Passthrough Role in Invite (F3)', () => {
+    test('should offer passthrough as a role option in the invite modal', async ({ page }) => {
+      await test.step('Open the Invite User modal', async () => {
+        const inviteButton = page.getByRole('button', { name: /invite.*user/i });
+        await expect(inviteButton).toBeVisible();
+        await inviteButton.click();
+        await expect(page.getByRole('dialog')).toBeVisible();
+      });
+
+      await test.step('Verify three role options are present in the role select', async () => {
+        const roleSelect = page.locator('#invite-user-role');
+        await expect(roleSelect).toBeVisible();
+        await expect(roleSelect.locator('option[value="user"]')).toHaveCount(1);
+        await expect(roleSelect.locator('option[value="admin"]')).toHaveCount(1);
+        await expect(roleSelect.locator('option[value="passthrough"]')).toHaveCount(1);
+      });
+
+      await test.step('Select passthrough and verify description is shown', async () => {
+        await page.locator('#invite-user-role').selectOption('passthrough');
+        await expect(
+          page.getByText(/proxy access only|no management interface/i)
+        ).toBeVisible();
+      });
+    });
+
+    test('should show permission mode selector when passthrough role is selected', async ({ page }) => {
+      await test.step('Open invite modal and select passthrough role', async () => {
+        await page.getByRole('button', { name: /invite.*user/i }).click();
+        await expect(page.getByRole('dialog')).toBeVisible();
+        await page.locator('#invite-user-role').selectOption('passthrough');
+      });
+
+      await test.step('Verify permission mode select is visible for passthrough', async () => {
+        const permSelect = page.locator('#invite-permission-mode');
+        await expect(permSelect).toBeVisible();
+      });
+    });
+  });
+
+  /**
+   * PR-3: User Detail Modal — Self vs Other (F2)
+   *
+   * Verifies that UserDetailModal shows different sections depending
+   * on whether the admin is editing their own profile (isSelf=true)
+   * versus another user's profile (isSelf=false).
+   */
+  test.describe('PR-3: User Detail Modal (F2)', () => {
+    test('should open My Profile modal with password and API key sections when editing self', async ({ page }) => {
+      await test.step('Click the Edit User button in the My Profile card (first button in DOM)', async () => {
+        // The My Profile card renders its button before the table rows in the DOM
+        await page.getByRole('button', { name: 'Edit User' }).first().click();
+        await expect(page.getByRole('dialog')).toBeVisible();
+      });
+
+      await test.step('Verify dialog title is "My Profile" (isSelf=true)', async () => {
+        await expect(
+          page.getByRole('dialog').getByRole('heading', { name: 'My Profile' })
+        ).toBeVisible();
+      });
+
+      await test.step('Verify name and email input fields are present', async () => {
+        const dialog = page.getByRole('dialog');
+        // First input in the dialog is the name field (no type attribute)
+        await expect(dialog.locator('input').first()).toBeVisible();
+        // Email field has type="email"
+        await expect(dialog.locator('input[type="email"]')).toBeVisible();
+      });
+
+      await test.step('Verify Change Password toggle is present (self-only section)', async () => {
+        const dialog = page.getByRole('dialog');
+        await expect(dialog.getByRole('button', { name: 'Change Password' })).toBeVisible();
+      });
+
+      await test.step('Verify API Key section is present (self-only section)', async () => {
+        const dialog = page.getByRole('dialog');
+        await expect(dialog.getByText('API Key', { exact: true })).toBeVisible();
+        await expect(dialog.getByRole('button', { name: 'Regenerate API Key' })).toBeVisible();
+      });
+    });
+
+    test('should open Edit User modal without password/API key sections for another user', async ({ page }) => {
+      const suffix = Date.now();
+      const otherUser = {
+        email: `modal-other-${suffix}@test.local`,
+        name: `Modal Other User ${suffix}`,
+        password: 'TestPass123!',
+        role: 'user',
+      };
+      let otherUserId: number | string | undefined;
+
+      await test.step('Create a second user so there is an "other" row in the table', async () => {
+        const token = await page.evaluate(() => localStorage.getItem('charon_auth_token') || '');
+        const resp = await page.request.post('/api/v1/users', {
+          data: otherUser,
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        expect(resp.ok()).toBe(true);
+        const body = await resp.json();
+        otherUserId = body.id;
+        await page.reload();
+        await waitForLoadingComplete(page);
+      });
+
+      await test.step('Click the Edit User button in the row for the other user', async () => {
+        const row = page.getByRole('row').filter({ hasText: otherUser.email });
+        await row.getByRole('button', { name: 'Edit User' }).click();
+        await expect(page.getByRole('dialog')).toBeVisible();
+      });
+
+      await test.step('Verify dialog title is "Edit User" (isSelf=false)', async () => {
+        await expect(
+          page.getByRole('dialog').getByRole('heading', { name: 'Edit User' })
+        ).toBeVisible();
+      });
+
+      await test.step('Verify name and email fields are present', async () => {
+        const dialog = page.getByRole('dialog');
+        await expect(dialog.locator('input').first()).toBeVisible();
+        await expect(dialog.locator('input[type="email"]')).toBeVisible();
+      });
+
+      await test.step('Verify Change Password button is NOT visible (other-user edit)', async () => {
+        const dialog = page.getByRole('dialog');
+        await expect(dialog.getByRole('button', { name: 'Change Password' })).not.toBeVisible();
+      });
+
+      await test.step('Verify API Key section is NOT visible (other-user edit)', async () => {
+        const dialog = page.getByRole('dialog');
+        await expect(dialog.getByText('Regenerate API Key')).not.toBeVisible();
+      });
+
+      await test.step('Cleanup: close modal and delete the test user', async () => {
+        await page.keyboard.press('Escape');
+        if (otherUserId !== undefined) {
+          const token = await page.evaluate(() => localStorage.getItem('charon_auth_token') || '');
+          await page.request.delete(`/api/v1/users/${otherUserId}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+        }
+      });
+    });
+  });
 });

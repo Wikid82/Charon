@@ -190,6 +190,31 @@ func TestPermissionMode_Constants(t *testing.T) {
 	assert.Equal(t, PermissionMode("deny_all"), PermissionModeDenyAll)
 }
 
+func TestUserRole_Constants(t *testing.T) {
+	assert.Equal(t, UserRole("admin"), RoleAdmin)
+	assert.Equal(t, UserRole("user"), RoleUser)
+	assert.Equal(t, UserRole("passthrough"), RolePassthrough)
+}
+
+func TestUserRole_IsValid(t *testing.T) {
+	tests := []struct {
+		role     UserRole
+		expected bool
+	}{
+		{RoleAdmin, true},
+		{RoleUser, true},
+		{RolePassthrough, true},
+		{UserRole("viewer"), false},
+		{UserRole("superadmin"), false},
+		{UserRole(""), false},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.role), func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.role.IsValid())
+		})
+	}
+}
+
 // Helper function to create time pointers
 func timePtr(t time.Time) *time.Time {
 	return &t
