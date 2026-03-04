@@ -66,8 +66,6 @@
     "settings": "Configuración",
     "system": "Sistema",
     "email": "Correo Electrónico (SMTP)",
-    "adminAccount": "Cuenta de Administrador",
-    "accountManagement": "Gestión de Cuentas",
     "import": "Importar",
     "caddyfile": "Caddyfile",
     "backups": "Copias de Seguridad",
@@ -538,6 +536,10 @@
     "role": "Rol",
     "roleUser": "Usuario",
     "roleAdmin": "Administrador",
+    "rolePassthrough": "Passthrough",
+    "roleUserDescription": "Solo puede acceder a los hosts proxy permitidos.",
+    "roleAdminDescription": "Acceso completo a todas las funciones y configuraciones.",
+    "rolePassthroughDescription": "Solo acceso proxy — sin interfaz de gestión.",
     "permissionMode": "Modo de Permisos",
     "allowAllBlacklist": "Permitir Todo (Lista Negra)",
     "denyAllWhitelist": "Denegar Todo (Lista Blanca)",
@@ -571,7 +573,23 @@
     "resendInvite": "Reenviar invitación",
     "inviteResent": "Invitación reenviada exitosamente",
     "inviteCreatedNoEmail": "Nueva invitación creada. No se pudo enviar el correo electrónico.",
-    "resendFailed": "Error al reenviar la invitación"
+    "resendFailed": "Error al reenviar la invitación",
+    "myProfile": "Mi Perfil",
+    "editUser": "Editar Usuario",
+    "changePassword": "Cambiar Contraseña",
+    "currentPassword": "Contraseña Actual",
+    "newPassword": "Nueva Contraseña",
+    "confirmPassword": "Confirmar Contraseña",
+    "passwordChanged": "Contraseña cambiada exitosamente",
+    "passwordChangeFailed": "Error al cambiar la contraseña",
+    "passwordMismatch": "Las contraseñas no coinciden",
+    "apiKey": "Clave API",
+    "regenerateApiKey": "Regenerar Clave API",
+    "apiKeyRegenerated": "Clave API regenerada",
+    "apiKeyRegenerateFailed": "Error al regenerar la clave API",
+    "apiKeyConfirm": "¿Está seguro? La clave API actual será invalidada.",
+    "profileUpdated": "Perfil actualizado exitosamente",
+    "profileUpdateFailed": "Error al actualizar el perfil"
   },
   "dashboard": {
     "title": "Panel de Control",
@@ -1018,5 +1036,10 @@
   "dns": {
     "title": "Gestión DNS",
     "description": "Administrar proveedores DNS y plugins para la automatización de certificados"
+  },
+  "passthrough": {
+    "title": "Bienvenido",
+    "description": "Su cuenta tiene acceso passthrough. Puede acceder a sus servicios asignados directamente — no hay interfaz de gestión disponible.",
+    "noAccessToManagement": "No tiene acceso a la interfaz de gestión."
   }
 }

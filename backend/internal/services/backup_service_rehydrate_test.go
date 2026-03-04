@@ -45,7 +45,7 @@ func TestBackupService_RehydrateLiveDatabase(t *testing.T) {
 		UUID:    uuid.NewString(),
 		Email:   "restore-user@example.com",
 		Name:    "Restore User",
-		Role:    "user",
+		Role:    models.RoleUser,
 		Enabled: true,
 		APIKey:  uuid.NewString(),
 	}
@@ -87,7 +87,7 @@ func TestBackupService_RehydrateLiveDatabase_FromBackupWithWAL(t *testing.T) {
 		UUID:    uuid.NewString(),
 		Email:   "restore-from-wal@example.com",
 		Name:    "Restore From WAL",
-		Role:    "user",
+		Role:    models.RoleUser,
 		Enabled: true,
 		APIKey:  uuid.NewString(),
 	}

@@ -38,7 +38,7 @@ func OptionalAuth(authService *services.AuthService) gin.HandlerFunc {
 		}
 
 		c.Set("userID", user.ID)
-		c.Set("role", user.Role)
+		c.Set("role", string(user.Role))
 		c.Next()
 	}
 }

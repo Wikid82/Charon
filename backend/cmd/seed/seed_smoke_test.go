@@ -72,7 +72,7 @@ func TestSeedMain_ForceAdminUpdatesExistingUserPassword(t *testing.T) {
 		UUID:         "existing-user",
 		Email:        "admin@localhost",
 		Name:         "Old Name",
-		Role:         "viewer",
+		Role:         models.RolePassthrough,
 		Enabled:      false,
 		PasswordHash: "$2a$10$example_hashed_password",
 	}
@@ -134,7 +134,7 @@ func TestSeedMain_ForceAdminWithoutPasswordUpdatesMetadata(t *testing.T) {
 		UUID:         "existing-user-no-pass",
 		Email:        "admin@localhost",
 		Name:         "Old Name",
-		Role:         "viewer",
+		Role:         models.RolePassthrough,
 		Enabled:      false,
 		PasswordHash: "$2a$10$example_hashed_password",
 	}

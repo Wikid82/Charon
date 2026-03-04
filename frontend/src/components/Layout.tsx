@@ -85,8 +85,7 @@ export default function Layout({ children }: LayoutProps) {
         { name: t('navigation.system'), path: '/settings/system', icon: '⚙️' },
         { name: t('navigation.notifications'), path: '/settings/notifications', icon: '🔔' },
         { name: t('navigation.email'), path: '/settings/smtp', icon: '📧' },
-        { name: t('navigation.adminAccount'), path: '/settings/account', icon: '🛡️' },
-        { name: t('navigation.accountManagement'), path: '/settings/account-management', icon: '👥' },
+        ...(user?.role === 'admin' ? [{ name: t('navigation.users'), path: '/settings/users', icon: '👥' }] : []),
       ]
     },
     {
@@ -109,6 +108,8 @@ export default function Layout({ children }: LayoutProps) {
       ]
     },
   ].filter(item => {
+    // Passthrough users see no navigation — they're redirected to /passthrough
+    if (user?.role === 'passthrough') return false
     // Optional Features Logic
     // Default to visible (true) if flags are loading or undefined
     if (item.name === t('navigation.uptime')) return featureFlags?.['feature.uptime.enabled'] !== false
@@ -362,7 +363,7 @@ export default function Layout({ children }: LayoutProps) {
            </div>
            <div className="w-1/3 flex justify-end items-center gap-4">
              {user && (
-               <Link to="/settings/account" className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+               <Link to="/settings/users" className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
                  {user.name}
                </Link>
              )}

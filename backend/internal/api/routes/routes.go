@@ -52,6 +52,14 @@ func runInitialUptimeBootstrap(enabled bool, uptimeService uptimeBootstrapServic
 	uptimeService.CheckAll()
 }
 
+// migrateViewerToPassthrough renames any legacy "viewer" roles to "passthrough".
+func migrateViewerToPassthrough(db *gorm.DB) {
+	result := db.Model(&models.User{}).Where("role = ?", "viewer").Update("role", string(models.RolePassthrough))
+	if result.RowsAffected > 0 {
+		logger.Log().WithField("count", result.RowsAffected).Info("Migrated viewer roles to passthrough")
+	}
+}
+
 // Register wires up API routes and performs automatic migrations.
 func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// Caddy Manager - created early so it can be used by settings handlers for config reload
@@ -118,7 +126,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		return fmt.Errorf("auto migrate: %w", err)
 	}
 
-	// Clean up invalid Let's Encrypt certificate associations
+	migrateViewerToPassthrough(db)
 	// Let's Encrypt certs are auto-managed by Caddy and should not be assigned via certificate_id
 	logger.Log().Info("Cleaning up invalid Let's Encrypt certificate associations...")
 	var hostsWithInvalidCerts []models.ProxyHost
@@ -239,7 +247,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 	api.POST("/security/events", securityNotificationHandler.HandleSecurityEvent)
 
 	// User handler (public endpoints)
-	userHandler := handlers.NewUserHandler(db)
+	userHandler := handlers.NewUserHandler(db, authService)
 	api.GET("/setup", userHandler.GetSetupStatus)
 	api.POST("/setup", userHandler.Setup)
 	api.GET("/invite/validate", userHandler.ValidateInvite)
@@ -251,109 +259,110 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 	protected := api.Group("/")
 	protected.Use(authMiddleware)
 	{
+		// Self-service routes — accessible to all authenticated users including passthrough
 		protected.POST("/auth/logout", authHandler.Logout)
 		protected.POST("/auth/refresh", authHandler.Refresh)
 		protected.GET("/auth/me", authHandler.Me)
 		protected.POST("/auth/change-password", authHandler.ChangePassword)
-
-		// Backups
-		protected.GET("/backups", backupHandler.List)
-		protected.POST("/backups", backupHandler.Create)
-		protected.DELETE("/backups/:filename", backupHandler.Delete)
-		protected.GET("/backups/:filename/download", backupHandler.Download)
-		protected.POST("/backups/:filename/restore", backupHandler.Restore)
-
-		// Logs
-		// WebSocket endpoints
-		logsWSHandler := handlers.NewLogsWSHandler(wsTracker)
-		protected.GET("/logs/live", logsWSHandler.HandleWebSocket)
-		protected.GET("/logs", logsHandler.List)
-		protected.GET("/logs/:filename", logsHandler.Read)
-		protected.GET("/logs/:filename/download", logsHandler.Download)
-
-		// WebSocket status monitoring
-		protected.GET("/websocket/connections", wsStatusHandler.GetConnections)
-		protected.GET("/websocket/stats", wsStatusHandler.GetStats)
-
-		// Security Notification Settings - Use handler created earlier for event intake
-		protected.GET("/security/notifications/settings", securityNotificationHandler.DeprecatedGetSettings)
-		protected.PUT("/security/notifications/settings", securityNotificationHandler.DeprecatedUpdateSettings)
-		protected.GET("/notifications/settings/security", securityNotificationHandler.GetSettings)
-		protected.PUT("/notifications/settings/security", securityNotificationHandler.UpdateSettings)
-
-		// System permissions diagnostics and repair
-		systemPermissionsHandler := handlers.NewSystemPermissionsHandler(cfg, securityService, nil)
-		protected.GET("/system/permissions", systemPermissionsHandler.GetPermissions)
-		protected.POST("/system/permissions/repair", systemPermissionsHandler.RepairPermissions)
-
-		// Audit Logs
-		auditLogHandler := handlers.NewAuditLogHandler(securityService)
-		protected.GET("/audit-logs", auditLogHandler.List)
-		protected.GET("/audit-logs/:uuid", auditLogHandler.Get)
-
-		// Settings - with CaddyManager and Cerberus for security settings reload
-		settingsHandler := handlers.NewSettingsHandlerWithDeps(db, caddyManager, cerb, securityService, dataRoot)
-
-		protected.GET("/settings", settingsHandler.GetSettings)
-		protected.POST("/settings", settingsHandler.UpdateSetting)
-		protected.PATCH("/settings", settingsHandler.UpdateSetting) // E2E tests use PATCH
-		protected.PATCH("/config", settingsHandler.PatchConfig)     // Bulk configuration update
-
-		// SMTP Configuration
-		protected.GET("/settings/smtp", middleware.RequireRole("admin"), settingsHandler.GetSMTPConfig)
-		protected.POST("/settings/smtp", settingsHandler.UpdateSMTPConfig)
-		protected.POST("/settings/smtp/test", settingsHandler.TestSMTPConfig)
-		protected.POST("/settings/smtp/test-email", settingsHandler.SendTestEmail)
-
-		// URL Validation
-		protected.POST("/settings/validate-url", settingsHandler.ValidatePublicURL)
-		protected.POST("/settings/test-url", settingsHandler.TestPublicURL)
-
-		// Auth related protected routes
 		protected.GET("/auth/accessible-hosts", authHandler.GetAccessibleHosts)
 		protected.GET("/auth/check-host/:hostId", authHandler.CheckHostAccess)
-
-		// Feature flags (DB-backed with env fallback)
-		featureFlagsHandler := handlers.NewFeatureFlagsHandler(db)
-		protected.GET("/feature-flags", featureFlagsHandler.GetFlags)
-		protected.PUT("/feature-flags", featureFlagsHandler.UpdateFlags)
-
-		// User Profile & API Key
 		protected.GET("/user/profile", userHandler.GetProfile)
 		protected.POST("/user/profile", userHandler.UpdateProfile)
 		protected.POST("/user/api-key", userHandler.RegenerateAPIKey)
 
+		// Management routes — blocked for passthrough users
+		management := protected.Group("/")
+		management.Use(middleware.RequireManagementAccess())
+
+		// Backups
+		management.GET("/backups", backupHandler.List)
+		management.POST("/backups", backupHandler.Create)
+		management.DELETE("/backups/:filename", backupHandler.Delete)
+		management.GET("/backups/:filename/download", backupHandler.Download)
+		management.POST("/backups/:filename/restore", backupHandler.Restore)
+
+		// Logs
+		// WebSocket endpoints
+		logsWSHandler := handlers.NewLogsWSHandler(wsTracker)
+		management.GET("/logs/live", logsWSHandler.HandleWebSocket)
+		management.GET("/logs", logsHandler.List)
+		management.GET("/logs/:filename", logsHandler.Read)
+		management.GET("/logs/:filename/download", logsHandler.Download)
+
+		// WebSocket status monitoring
+		management.GET("/websocket/connections", wsStatusHandler.GetConnections)
+		management.GET("/websocket/stats", wsStatusHandler.GetStats)
+
+		// Security Notification Settings - Use handler created earlier for event intake
+		management.GET("/security/notifications/settings", securityNotificationHandler.DeprecatedGetSettings)
+		management.PUT("/security/notifications/settings", securityNotificationHandler.DeprecatedUpdateSettings)
+		management.GET("/notifications/settings/security", securityNotificationHandler.GetSettings)
+		management.PUT("/notifications/settings/security", securityNotificationHandler.UpdateSettings)
+
+		// System permissions diagnostics and repair
+		systemPermissionsHandler := handlers.NewSystemPermissionsHandler(cfg, securityService, nil)
+		management.GET("/system/permissions", systemPermissionsHandler.GetPermissions)
+		management.POST("/system/permissions/repair", systemPermissionsHandler.RepairPermissions)
+
+		// Audit Logs
+		auditLogHandler := handlers.NewAuditLogHandler(securityService)
+		management.GET("/audit-logs", auditLogHandler.List)
+		management.GET("/audit-logs/:uuid", auditLogHandler.Get)
+
+		// Settings - with CaddyManager and Cerberus for security settings reload
+		settingsHandler := handlers.NewSettingsHandlerWithDeps(db, caddyManager, cerb, securityService, dataRoot)
+
+		management.GET("/settings", settingsHandler.GetSettings)
+		management.POST("/settings", settingsHandler.UpdateSetting)
+		management.PATCH("/settings", settingsHandler.UpdateSetting) // E2E tests use PATCH
+		management.PATCH("/config", settingsHandler.PatchConfig)     // Bulk configuration update
+
+		// SMTP Configuration
+		management.GET("/settings/smtp", middleware.RequireRole(models.RoleAdmin), settingsHandler.GetSMTPConfig)
+		management.POST("/settings/smtp", settingsHandler.UpdateSMTPConfig)
+		management.POST("/settings/smtp/test", settingsHandler.TestSMTPConfig)
+		management.POST("/settings/smtp/test-email", settingsHandler.SendTestEmail)
+
+		// URL Validation
+		management.POST("/settings/validate-url", settingsHandler.ValidatePublicURL)
+		management.POST("/settings/test-url", settingsHandler.TestPublicURL)
+
+		// Feature flags (DB-backed with env fallback)
+		featureFlagsHandler := handlers.NewFeatureFlagsHandler(db)
+		management.GET("/feature-flags", featureFlagsHandler.GetFlags)
+		management.PUT("/feature-flags", featureFlagsHandler.UpdateFlags)
+
 		// User Management (admin only routes are in RegisterRoutes)
-		protected.GET("/users", userHandler.ListUsers)
-		protected.POST("/users", userHandler.CreateUser)
-		protected.POST("/users/invite", userHandler.InviteUser)
-		protected.POST("/users/preview-invite-url", userHandler.PreviewInviteURL)
-		protected.GET("/users/:id", userHandler.GetUser)
-		protected.PUT("/users/:id", userHandler.UpdateUser)
-		protected.DELETE("/users/:id", userHandler.DeleteUser)
-		protected.PUT("/users/:id/permissions", userHandler.UpdateUserPermissions)
-		protected.POST("/users/:id/resend-invite", userHandler.ResendInvite)
+		management.GET("/users", userHandler.ListUsers)
+		management.POST("/users", userHandler.CreateUser)
+		management.POST("/users/invite", userHandler.InviteUser)
+		management.POST("/users/preview-invite-url", userHandler.PreviewInviteURL)
+		management.GET("/users/:id", userHandler.GetUser)
+		management.PUT("/users/:id", userHandler.UpdateUser)
+		management.DELETE("/users/:id", userHandler.DeleteUser)
+		management.PUT("/users/:id/permissions", userHandler.UpdateUserPermissions)
+		management.POST("/users/:id/resend-invite", userHandler.ResendInvite)
 
 		// Updates
 		updateService := services.NewUpdateService()
 		updateHandler := handlers.NewUpdateHandler(updateService)
-		protected.GET("/system/updates", updateHandler.Check)
+		management.GET("/system/updates", updateHandler.Check)
 
 		// System info
 		systemHandler := handlers.NewSystemHandler()
-		protected.GET("/system/my-ip", systemHandler.GetMyIP)
+		management.GET("/system/my-ip", systemHandler.GetMyIP)
 
 		// Notifications
 		notificationHandler := handlers.NewNotificationHandler(notificationService)
-		protected.GET("/notifications", notificationHandler.List)
-		protected.POST("/notifications/:id/read", notificationHandler.MarkAsRead)
-		protected.POST("/notifications/read-all", notificationHandler.MarkAllAsRead)
+		management.GET("/notifications", notificationHandler.List)
+		management.POST("/notifications/:id/read", notificationHandler.MarkAsRead)
+		management.POST("/notifications/read-all", notificationHandler.MarkAllAsRead)
 
 		// Domains
 		domainHandler := handlers.NewDomainHandler(db, notificationService)
-		protected.GET("/domains", domainHandler.List)
-		protected.POST("/domains", domainHandler.Create)
-		protected.DELETE("/domains/:id", domainHandler.Delete)
+		management.GET("/domains", domainHandler.List)
+		management.POST("/domains", domainHandler.Create)
+		management.DELETE("/domains/:id", domainHandler.Delete)
 
 		// DNS Providers - only available if encryption key is configured
 		if cfg.EncryptionKey != "" {
@@ -363,33 +372,33 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 			} else {
 				dnsProviderService := services.NewDNSProviderService(db, encryptionService)
 				dnsProviderHandler := handlers.NewDNSProviderHandler(dnsProviderService)
-				protected.GET("/dns-providers", dnsProviderHandler.List)
-				protected.POST("/dns-providers", dnsProviderHandler.Create)
-				protected.GET("/dns-providers/types", dnsProviderHandler.GetTypes)
-				protected.GET("/dns-providers/:id", dnsProviderHandler.Get)
-				protected.PUT("/dns-providers/:id", dnsProviderHandler.Update)
-				protected.DELETE("/dns-providers/:id", dnsProviderHandler.Delete)
-				protected.POST("/dns-providers/:id/test", dnsProviderHandler.Test)
-				protected.POST("/dns-providers/test", dnsProviderHandler.TestCredentials)
+				management.GET("/dns-providers", dnsProviderHandler.List)
+				management.POST("/dns-providers", dnsProviderHandler.Create)
+				management.GET("/dns-providers/types", dnsProviderHandler.GetTypes)
+				management.GET("/dns-providers/:id", dnsProviderHandler.Get)
+				management.PUT("/dns-providers/:id", dnsProviderHandler.Update)
+				management.DELETE("/dns-providers/:id", dnsProviderHandler.Delete)
+				management.POST("/dns-providers/:id/test", dnsProviderHandler.Test)
+				management.POST("/dns-providers/test", dnsProviderHandler.TestCredentials)
 				// Audit logs for DNS providers
-				protected.GET("/dns-providers/:id/audit-logs", auditLogHandler.ListByProvider)
+				management.GET("/dns-providers/:id/audit-logs", auditLogHandler.ListByProvider)
 
 				// DNS Provider Auto-Detection (Phase 4)
 				dnsDetectionService := services.NewDNSDetectionService(db)
 				dnsDetectionHandler := handlers.NewDNSDetectionHandler(dnsDetectionService)
-				protected.POST("/dns-providers/detect", dnsDetectionHandler.Detect)
-				protected.GET("/dns-providers/detection-patterns", dnsDetectionHandler.GetPatterns)
+				management.POST("/dns-providers/detect", dnsDetectionHandler.Detect)
+				management.GET("/dns-providers/detection-patterns", dnsDetectionHandler.GetPatterns)
 
 				// Multi-Credential Management (Phase 3)
 				credentialService := services.NewCredentialService(db, encryptionService)
 				credentialHandler := handlers.NewCredentialHandler(credentialService)
-				protected.GET("/dns-providers/:id/credentials", credentialHandler.List)
-				protected.POST("/dns-providers/:id/credentials", credentialHandler.Create)
-				protected.GET("/dns-providers/:id/credentials/:cred_id", credentialHandler.Get)
-				protected.PUT("/dns-providers/:id/credentials/:cred_id", credentialHandler.Update)
-				protected.DELETE("/dns-providers/:id/credentials/:cred_id", credentialHandler.Delete)
-				protected.POST("/dns-providers/:id/credentials/:cred_id/test", credentialHandler.Test)
-				protected.POST("/dns-providers/:id/enable-multi-credentials", credentialHandler.EnableMultiCredentials)
+				management.GET("/dns-providers/:id/credentials", credentialHandler.List)
+				management.POST("/dns-providers/:id/credentials", credentialHandler.Create)
+				management.GET("/dns-providers/:id/credentials/:cred_id", credentialHandler.Get)
+				management.PUT("/dns-providers/:id/credentials/:cred_id", credentialHandler.Update)
+				management.DELETE("/dns-providers/:id/credentials/:cred_id", credentialHandler.Delete)
+				management.POST("/dns-providers/:id/credentials/:cred_id/test", credentialHandler.Test)
+				management.POST("/dns-providers/:id/enable-multi-credentials", credentialHandler.EnableMultiCredentials)
 
 				// Encryption Management - Admin only endpoints
 				rotationService, rotErr := crypto.NewRotationService(db)
@@ -397,7 +406,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 					logger.Log().WithError(rotErr).Warn("Failed to initialize rotation service - key rotation features will be unavailable")
 				} else {
 					encryptionHandler := handlers.NewEncryptionHandler(rotationService, securityService)
-					adminEncryption := protected.Group("/admin/encryption")
+					adminEncryption := management.Group("/admin/encryption")
 					adminEncryption.GET("/status", encryptionHandler.GetStatus)
 					adminEncryption.POST("/rotate", encryptionHandler.Rotate)
 					adminEncryption.GET("/history", encryptionHandler.GetHistory)
@@ -411,7 +420,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 				}
 				pluginLoader := services.NewPluginLoaderService(db, pluginDir, nil)
 				pluginHandler := handlers.NewPluginHandler(db, pluginLoader)
-				adminPlugins := protected.Group("/admin/plugins")
+				adminPlugins := management.Group("/admin/plugins")
 				adminPlugins.GET("", pluginHandler.ListPlugins)
 				adminPlugins.GET("/:id", pluginHandler.GetPlugin)
 				adminPlugins.POST("/:id/enable", pluginHandler.EnablePlugin)
@@ -421,7 +430,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 				// Manual DNS Challenges (Phase 1) - For users without automated DNS API access
 				manualChallengeService := services.NewManualChallengeService(db)
 				manualChallengeHandler := handlers.NewManualChallengeHandler(manualChallengeService, dnsProviderService)
-				manualChallengeHandler.RegisterRoutes(protected)
+				manualChallengeHandler.RegisterRoutes(management)
 			}
 		} else {
 			logger.Log().Warn("CHARON_ENCRYPTION_KEY not set - DNS provider and plugin features will be unavailable")
@@ -431,37 +440,37 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		// The service will return proper error messages when Docker is not accessible
 		dockerService := services.NewDockerService()
 		dockerHandler := handlers.NewDockerHandler(dockerService, remoteServerService)
-		dockerHandler.RegisterRoutes(protected)
+		dockerHandler.RegisterRoutes(management)
 
 		// Uptime Service — reuse the single uptimeService instance (defined above)
 		// to share in-memory state (mutexes, notification batching) between
 		// background checker, ProxyHostHandler, and API handlers.
 		uptimeHandler := handlers.NewUptimeHandler(uptimeService)
-		protected.GET("/uptime/monitors", uptimeHandler.List)
-		protected.POST("/uptime/monitors", uptimeHandler.Create)
-		protected.GET("/uptime/monitors/:id/history", uptimeHandler.GetHistory)
-		protected.PUT("/uptime/monitors/:id", uptimeHandler.Update)
-		protected.DELETE("/uptime/monitors/:id", uptimeHandler.Delete)
-		protected.POST("/uptime/monitors/:id/check", uptimeHandler.CheckMonitor)
-		protected.POST("/uptime/sync", uptimeHandler.Sync)
+		management.GET("/uptime/monitors", uptimeHandler.List)
+		management.POST("/uptime/monitors", uptimeHandler.Create)
+		management.GET("/uptime/monitors/:id/history", uptimeHandler.GetHistory)
+		management.PUT("/uptime/monitors/:id", uptimeHandler.Update)
+		management.DELETE("/uptime/monitors/:id", uptimeHandler.Delete)
+		management.POST("/uptime/monitors/:id/check", uptimeHandler.CheckMonitor)
+		management.POST("/uptime/sync", uptimeHandler.Sync)
 
 		// Notification Providers
 		notificationProviderHandler := handlers.NewNotificationProviderHandlerWithDeps(notificationService, securityService, dataRoot)
-		protected.GET("/notifications/providers", notificationProviderHandler.List)
-		protected.POST("/notifications/providers", notificationProviderHandler.Create)
-		protected.PUT("/notifications/providers/:id", notificationProviderHandler.Update)
-		protected.DELETE("/notifications/providers/:id", notificationProviderHandler.Delete)
-		protected.POST("/notifications/providers/test", notificationProviderHandler.Test)
-		protected.POST("/notifications/providers/preview", notificationProviderHandler.Preview)
-		protected.GET("/notifications/templates", notificationProviderHandler.Templates)
+		management.GET("/notifications/providers", notificationProviderHandler.List)
+		management.POST("/notifications/providers", notificationProviderHandler.Create)
+		management.PUT("/notifications/providers/:id", notificationProviderHandler.Update)
+		management.DELETE("/notifications/providers/:id", notificationProviderHandler.Delete)
+		management.POST("/notifications/providers/test", notificationProviderHandler.Test)
+		management.POST("/notifications/providers/preview", notificationProviderHandler.Preview)
+		management.GET("/notifications/templates", notificationProviderHandler.Templates)
 
 		// External notification templates (saved templates for providers)
 		notificationTemplateHandler := handlers.NewNotificationTemplateHandlerWithDeps(notificationService, securityService, dataRoot)
-		protected.GET("/notifications/external-templates", notificationTemplateHandler.List)
-		protected.POST("/notifications/external-templates", notificationTemplateHandler.Create)
-		protected.PUT("/notifications/external-templates/:id", notificationTemplateHandler.Update)
-		protected.DELETE("/notifications/external-templates/:id", notificationTemplateHandler.Delete)
-		protected.POST("/notifications/external-templates/preview", notificationTemplateHandler.Preview)
+		management.GET("/notifications/external-templates", notificationTemplateHandler.List)
+		management.POST("/notifications/external-templates", notificationTemplateHandler.Create)
+		management.PUT("/notifications/external-templates/:id", notificationTemplateHandler.Update)
+		management.DELETE("/notifications/external-templates/:id", notificationTemplateHandler.Delete)
+		management.POST("/notifications/external-templates/preview", notificationTemplateHandler.Preview)
 
 		// Ensure uptime feature flag exists to avoid record-not-found logs
 		defaultUptime := models.Setting{Key: "feature.uptime.enabled", Value: "true", Type: "bool", Category: "feature"}
@@ -510,7 +519,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 			}
 		}()
 
-		protected.POST("/system/uptime/check", func(c *gin.Context) {
+		management.POST("/system/uptime/check", func(c *gin.Context) {
 			go uptimeService.CheckAll()
 			c.JSON(200, gin.H{"message": "Uptime check started"})
 		})
@@ -542,19 +551,19 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 			securityHandler.SetGeoIPService(geoipSvc)
 		}
 
-		protected.GET("/security/status", securityHandler.GetStatus)
+		management.GET("/security/status", securityHandler.GetStatus)
 		// Security Config management
-		protected.GET("/security/config", securityHandler.GetConfig)
-		protected.GET("/security/decisions", securityHandler.ListDecisions)
-		protected.GET("/security/rulesets", securityHandler.ListRuleSets)
-		protected.GET("/security/rate-limit/presets", securityHandler.GetRateLimitPresets)
+		management.GET("/security/config", securityHandler.GetConfig)
+		management.GET("/security/decisions", securityHandler.ListDecisions)
+		management.GET("/security/rulesets", securityHandler.ListRuleSets)
+		management.GET("/security/rate-limit/presets", securityHandler.GetRateLimitPresets)
 		// GeoIP endpoints
-		protected.GET("/security/geoip/status", securityHandler.GetGeoIPStatus)
+		management.GET("/security/geoip/status", securityHandler.GetGeoIPStatus)
 		// WAF exclusion endpoints
-		protected.GET("/security/waf/exclusions", securityHandler.GetWAFExclusions)
+		management.GET("/security/waf/exclusions", securityHandler.GetWAFExclusions)
 
-		securityAdmin := protected.Group("/security")
-		securityAdmin.Use(middleware.RequireRole("admin"))
+		securityAdmin := management.Group("/security")
+		securityAdmin.Use(middleware.RequireRole(models.RoleAdmin))
 		securityAdmin.POST("/config", securityHandler.UpdateConfig)
 		securityAdmin.POST("/enable", securityHandler.Enable)
 		securityAdmin.POST("/disable", securityHandler.Disable)
@@ -595,7 +604,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 
 		crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
 		crowdsecHandler := handlers.NewCrowdsecHandler(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
-		crowdsecHandler.RegisterRoutes(protected)
+		crowdsecHandler.RegisterRoutes(management)
 
 		// NOTE: CrowdSec reconciliation now happens in main.go BEFORE HTTP server starts
 		// This ensures proper initialization order and prevents race conditions
@@ -626,24 +635,24 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 			logger.Log().WithError(err).Error("Failed to start security log watcher")
 		}
 		cerberusLogsHandler := handlers.NewCerberusLogsHandler(logWatcher, wsTracker)
-		protected.GET("/cerberus/logs/ws", cerberusLogsHandler.LiveLogs)
+		management.GET("/cerberus/logs/ws", cerberusLogsHandler.LiveLogs)
 
 		// Access Lists
 		accessListHandler := handlers.NewAccessListHandler(db)
 		if geoipSvc != nil {
 			accessListHandler.SetGeoIPService(geoipSvc)
 		}
-		protected.GET("/access-lists/templates", accessListHandler.GetTemplates)
-		protected.GET("/access-lists", accessListHandler.List)
-		protected.POST("/access-lists", accessListHandler.Create)
-		protected.GET("/access-lists/:id", accessListHandler.Get)
-		protected.PUT("/access-lists/:id", accessListHandler.Update)
-		protected.DELETE("/access-lists/:id", accessListHandler.Delete)
-		protected.POST("/access-lists/:id/test", accessListHandler.TestIP)
+		management.GET("/access-lists/templates", accessListHandler.GetTemplates)
+		management.GET("/access-lists", accessListHandler.List)
+		management.POST("/access-lists", accessListHandler.Create)
+		management.GET("/access-lists/:id", accessListHandler.Get)
+		management.PUT("/access-lists/:id", accessListHandler.Update)
+		management.DELETE("/access-lists/:id", accessListHandler.Delete)
+		management.POST("/access-lists/:id/test", accessListHandler.TestIP)
 
 		// Security Headers
 		securityHeadersHandler := handlers.NewSecurityHeadersHandler(db, caddyManager)
-		securityHeadersHandler.RegisterRoutes(protected)
+		securityHeadersHandler.RegisterRoutes(management)
 
 		// Certificate routes
 		// Use cfg.CaddyConfigDir + "/data" for cert service so we scan the actual Caddy storage
@@ -652,18 +661,19 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		logger.Log().WithField("caddy_data_dir", caddyDataDir).Info("Using Caddy data directory for certificates scan")
 		certService := services.NewCertificateService(caddyDataDir, db)
 		certHandler := handlers.NewCertificateHandler(certService, backupService, notificationService)
-		protected.GET("/certificates", certHandler.List)
-		protected.POST("/certificates", certHandler.Upload)
-		protected.DELETE("/certificates/:id", certHandler.Delete)
+		management.GET("/certificates", certHandler.List)
+		management.POST("/certificates", certHandler.Upload)
+		management.DELETE("/certificates/:id", certHandler.Delete)
+
+		// Proxy Hosts & Remote Servers
+		proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService, uptimeService)
+		proxyHostHandler.RegisterRoutes(management)
+
+		remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
+		remoteServerHandler.RegisterRoutes(management)
 	}
 
 	// Caddy Manager already created above
-
-	proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService, uptimeService)
-	proxyHostHandler.RegisterRoutes(protected)
-
-	remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
-	remoteServerHandler.RegisterRoutes(protected)
 
 	// Initial Caddy Config Sync
 	go func() {
@@ -708,7 +718,7 @@ func RegisterImportHandler(router *gin.Engine, db *gorm.DB, cfg config.Config, c
 	api := router.Group("/api/v1")
 	authService := services.NewAuthService(db, cfg)
 	authenticatedAdmin := api.Group("/")
-	authenticatedAdmin.Use(middleware.AuthMiddleware(authService), middleware.RequireRole("admin"))
+	authenticatedAdmin.Use(middleware.AuthMiddleware(authService), middleware.RequireRole(models.RoleAdmin))
 	importHandler.RegisterRoutes(authenticatedAdmin)
 
 	// NPM Import Handler - supports Nginx Proxy Manager export format

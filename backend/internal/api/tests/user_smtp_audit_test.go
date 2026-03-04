@@ -3,6 +3,7 @@ package tests
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -45,7 +46,7 @@ func createTestAdminUser(t *testing.T, db *gorm.DB) uint {
 		UUID:    "admin-uuid-1234",
 		Email:   "admin@test.com",
 		Name:    "Test Admin",
-		Role:    "admin",
+		Role:    models.RoleAdmin,
 		Enabled: true,
 		APIKey:  "test-api-key",
 	}
@@ -66,7 +67,7 @@ func setupRouterWithAuth(db *gorm.DB, userID uint, role string) *gin.Engine {
 		c.Next()
 	})
 
-	userHandler := handlers.NewUserHandler(db)
+	userHandler := handlers.NewUserHandler(db, nil)
 	settingsHandler := handlers.NewSettingsHandler(db)
 
 	api := r.Group("/api")
@@ -124,7 +125,7 @@ func TestInviteToken_ExpiredCannotBeUsed(t *testing.T) {
 	user := models.User{
 		UUID:          "invite-uuid-1234",
 		Email:         "expired@test.com",
-		Role:          "user",
+		Role:          models.RoleUser,
 		Enabled:       false,
 		InviteToken:   "expired-token-12345678901234567890123456789012",
 		InviteExpires: &expiredTime,
@@ -153,7 +154,7 @@ func TestInviteToken_CannotBeReused(t *testing.T) {
 		UUID:         "accepted-uuid-1234",
 		Email:        "accepted@test.com",
 		Name:         "Accepted User",
-		Role:         "user",
+		Role:         models.RoleUser,
 		Enabled:      true,
 		InviteToken:  "accepted-token-1234567890123456789012345678901",
 		InvitedAt:    &invitedAt,
@@ -217,7 +218,7 @@ func TestAcceptInvite_PasswordValidation(t *testing.T) {
 	user := models.User{
 		UUID:          "pending-uuid-1234",
 		Email:         "pending@test.com",
-		Role:          "user",
+		Role:          models.RoleUser,
 		Enabled:       false,
 		InviteToken:   "valid-token-12345678901234567890123456789012345",
 		InviteExpires: &expires,
@@ -269,15 +270,29 @@ func TestUserEndpoints_RequireAdmin(t *testing.T) {
 		UUID:    "user-uuid-1234",
 		Email:   "user@test.com",
 		Name:    "Regular User",
-		Role:    "user",
+		Role:    models.RoleUser,
 		Enabled: true,
+		APIKey:  "user-api-key-unique",
 	}
 	require.NoError(t, user.SetPassword("userpassword123"))
 	require.NoError(t, db.Create(&user).Error)
 
+	// Create a second user to test admin-only operations against a non-self target
+	otherUser := models.User{
+		UUID:    "other-uuid-5678",
+		Email:   "other@test.com",
+		Name:    "Other User",
+		Role:    models.RoleUser,
+		Enabled: true,
+		APIKey:  "other-api-key-unique",
+	}
+	require.NoError(t, otherUser.SetPassword("otherpassword123"))
+	require.NoError(t, db.Create(&otherUser).Error)
+
 	// Router with regular user role
 	r := setupRouterWithAuth(db, user.ID, "user")
 
+	otherID := fmt.Sprintf("%d", otherUser.ID)
 	endpoints := []struct {
 		method string
 		path   string
@@ -286,10 +301,10 @@ func TestUserEndpoints_RequireAdmin(t *testing.T) {
 		{"GET", "/api/users", ""},
 		{"POST", "/api/users", `{"email":"new@test.com","name":"New","password":"password123"}`},
 		{"POST", "/api/users/invite", `{"email":"invite@test.com"}`},
-		{"GET", "/api/users/1", ""},
-		{"PUT", "/api/users/1", `{"name":"Updated"}`},
-		{"DELETE", "/api/users/1", ""},
-		{"PUT", "/api/users/1/permissions", `{"permission_mode":"deny_all"}`},
+		{"GET", "/api/users/" + otherID, ""},
+		{"PUT", "/api/users/" + otherID, `{"name":"Updated"}`},
+		{"DELETE", "/api/users/" + otherID, ""},
+		{"PUT", "/api/users/" + otherID + "/permissions", `{"permission_mode":"deny_all"}`},
 	}
 
 	for _, ep := range endpoints {
@@ -316,7 +331,7 @@ func TestSMTPEndpoints_RequireAdmin(t *testing.T) {
 		UUID:    "user-uuid-5678",
 		Email:   "user2@test.com",
 		Name:    "Regular User 2",
-		Role:    "user",
+		Role:    models.RoleUser,
 		Enabled: true,
 	}
 	require.NoError(t, user.SetPassword("userpassword123"))
@@ -462,7 +477,7 @@ func TestInviteUser_DuplicateEmailBlocked(t *testing.T) {
 		UUID:    "existing-uuid-1234",
 		Email:   "existing@test.com",
 		Name:    "Existing User",
-		Role:    "user",
+		Role:    models.RoleUser,
 		Enabled: true,
 	}
 	require.NoError(t, db.Create(&existing).Error)
@@ -488,7 +503,7 @@ func TestInviteUser_EmailCaseInsensitive(t *testing.T) {
 		UUID:    "existing-uuid-5678",
 		Email:   "test@example.com",
 		Name:    "Existing User",
-		Role:    "user",
+		Role:    models.RoleUser,
 		Enabled: true,
 	}
 	require.NoError(t, db.Create(&existing).Error)
@@ -532,7 +547,7 @@ func TestUpdatePermissions_ValidModes(t *testing.T) {
 		UUID:    "perms-user-1234",
 		Email:   "permsuser@test.com",
 		Name:    "Perms User",
-		Role:    "user",
+		Role:    models.RoleUser,
 		Enabled: true,
 	}
 	require.NoError(t, db.Create(&user).Error)
@@ -574,7 +589,7 @@ func TestPublicEndpoints_NoAuthRequired(t *testing.T) {
 	// Router WITHOUT auth middleware
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	userHandler := handlers.NewUserHandler(db)
+	userHandler := handlers.NewUserHandler(db, nil)
 	api := r.Group("/api")
 	userHandler.RegisterRoutes(api)
 
@@ -584,7 +599,7 @@ func TestPublicEndpoints_NoAuthRequired(t *testing.T) {
 	user := models.User{
 		UUID:          "public-test-uuid",
 		Email:         "public@test.com",
-		Role:          "user",
+		Role:          models.RoleUser,
 		Enabled:       false,
 		InviteToken:   "public-test-token-123456789012345678901234567",
 		InviteExpires: &expires,

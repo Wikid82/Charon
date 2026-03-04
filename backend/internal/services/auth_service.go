@@ -33,9 +33,9 @@ func (s *AuthService) Register(email, password, name string) (*models.User, erro
 	var count int64
 	s.db.Model(&models.User{}).Count(&count)
 
-	role := "user"
+	role := models.RoleUser
 	if count == 0 {
-		role = "admin" // First user is admin
+		role = models.RoleAdmin
 	}
 
 	user := &models.User{
@@ -98,7 +98,7 @@ func (s *AuthService) GenerateToken(user *models.User) (string, error) {
 	expirationTime := time.Now().Add(24 * time.Hour)
 	claims := &Claims{
 		UserID:         user.ID,
-		Role:           user.Role,
+		Role:           string(user.Role),
 		SessionVersion: user.SessionVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expirationTime),
