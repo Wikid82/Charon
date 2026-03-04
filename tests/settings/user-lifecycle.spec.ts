@@ -329,10 +329,13 @@ test.describe('Admin-User E2E Workflow', () => {
       expect(duration).toBeLessThan(5000);
     });
 
-    await test.step('STEP 2: Assign User role', async () => {
+    await test.step('STEP 2: Update user record (triggers user_update audit event)', async () => {
+      // Sending { role: 'user' } would be a no-op (user was already created with role:'user')
+      // and the backend only writes the audit log when at least one field actually changes.
+      // Update the name instead to guarantee a real write and a user_update audit entry.
       const token = await getAuthToken(page);
       const updateRoleResponse = await page.request.put(`/api/v1/users/${createdUserId}`, {
-        data: { role: 'user' },
+        data: { name: `${testUser.name} (updated)` },
         headers: buildAuthHeaders(token),
       });
 
