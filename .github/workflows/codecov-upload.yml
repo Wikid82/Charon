@@ -1,0 +1,179 @@
+name: Upload Coverage to Codecov
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      run_backend:
+        description: 'Run backend coverage upload'
+        required: false
+        default: true
+        type: boolean
+      run_frontend:
+        description: 'Run frontend coverage upload'
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: '1.26.0'
+  NODE_VERSION: '24.12.0'
+  GOTOOLCHAIN: auto
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  backend-codecov:
+    name: Backend Codecov Upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_backend }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      # SECURITY: Keep pull_request (not pull_request_target) for secret-bearing backend tests.
+      # Untrusted code (fork PRs and Dependabot PRs) gets ephemeral workflow-only keys.
+      - name: Resolve encryption key for backend coverage
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_FORK: ${{ github.event.pull_request.head.repo.fork }}
+          WORKFLOW_SECRET_KEY: ${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}
+        run: |
+          set -euo pipefail
+
+          is_same_repo_pr=false
+          if [[ "$EVENT_NAME" == "pull_request" && -n "${PR_HEAD_REPO:-}" && "$PR_HEAD_REPO" == "$REPO" ]]; then
+            is_same_repo_pr=true
+          fi
+
+          is_workflow_dispatch=false
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            is_workflow_dispatch=true
+          fi
+
+          is_push_event=false
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            is_push_event=true
+          fi
+
+          is_dependabot_pr=false
+          if [[ "$EVENT_NAME" == "pull_request" && "$ACTOR" == "dependabot[bot]" ]]; then
+            is_dependabot_pr=true
+          fi
+
+          is_fork_pr=false
+          if [[ "$EVENT_NAME" == "pull_request" && "${PR_HEAD_FORK:-false}" == "true" ]]; then
+            is_fork_pr=true
+          fi
+
+          is_untrusted=false
+          if [[ "$is_fork_pr" == "true" || "$is_dependabot_pr" == "true" ]]; then
+            is_untrusted=true
+          fi
+
+          is_trusted=false
+          if [[ "$is_untrusted" == "false" && ( "$is_same_repo_pr" == "true" || "$is_workflow_dispatch" == "true" || "$is_push_event" == "true" ) ]]; then
+            is_trusted=true
+          fi
+
+          resolved_key=""
+          if [[ "$is_trusted" == "true" ]]; then
+            if [[ -z "${WORKFLOW_SECRET_KEY:-}" ]]; then
+              echo "::error title=Missing required secret::Trusted backend CI context requires CHARON_ENCRYPTION_KEY_TEST. Add repository secret CHARON_ENCRYPTION_KEY_TEST."
+              exit 1
+            fi
+            resolved_key="$WORKFLOW_SECRET_KEY"
+          elif [[ "$is_untrusted" == "true" ]]; then
+            resolved_key="$(openssl rand -base64 32)"
+          else
+            echo "::error title=Unsupported event context::Unable to classify trust for backend key resolution (event=${EVENT_NAME})."
+            exit 1
+          fi
+
+          if [[ -z "$resolved_key" ]]; then
+            echo "::error title=Key resolution failure::Resolved encryption key is empty."
+            exit 1
+          fi
+
+          echo "::add-mask::$resolved_key"
+          {
+            echo "CHARON_ENCRYPTION_KEY<<__CHARON_EOF__"
+            echo "$resolved_key"
+            echo "__CHARON_EOF__"
+          } >> "$GITHUB_ENV"
+
+      - name: Run Go tests with coverage
+        working-directory: ${{ github.workspace }}
+        env:
+          CGO_ENABLED: 1
+        run: |
+          bash scripts/go-test-coverage.sh 2>&1 | tee backend/test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Upload backend coverage to Codecov
+        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./backend/coverage.txt
+          flags: backend
+          fail_ci_if_error: true
+
+  frontend-codecov:
+    name: Frontend Codecov Upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_frontend }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend tests and coverage
+        working-directory: ${{ github.workspace }}
+        run: |
+          bash scripts/frontend-test-coverage.sh 2>&1 | tee frontend/test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Upload frontend coverage to Codecov
+        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: ./frontend/coverage
+          flags: frontend
+          fail_ci_if_error: true

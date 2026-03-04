@@ -1,0 +1,629 @@
+name: Weekly Nightly to Main Promotion
+
+# Creates a PR from nightly → main every Monday for scheduled release promotion.
+# Includes safety checks for workflow status and provides manual trigger option.
+
+on:
+  schedule:
+    # Every Monday at 12:00 UTC (7:00am EST / 8:00am EDT)
+    # Offset from nightly sync (09:00 UTC) to avoid schedule race and allow validation completion.
+    - cron: '0 12 * * 1'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why are you running this manually?'
+        required: true
+        default: 'Ad-hoc promotion request'
+      skip_workflow_check:
+        description: 'Skip nightly workflow status check?'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24.12.0'
+  SOURCE_BRANCH: 'nightly'
+  TARGET_BRANCH: 'main'
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: read
+
+jobs:
+  check-nightly-health:
+    name: Verify Nightly Branch Health
+    runs-on: ubuntu-latest
+    outputs:
+      is_healthy: ${{ steps.check.outputs.is_healthy }}
+      latest_run_url: ${{ steps.check.outputs.latest_run_url }}
+      failure_reason: ${{ steps.check.outputs.failure_reason }}
+
+    steps:
+      - name: Check Nightly Workflow Status
+        id: check
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const skipCheck = '${{ inputs.skip_workflow_check }}' === 'true';
+
+            if (skipCheck) {
+              core.info('Skipping workflow health check as requested');
+              core.setOutput('is_healthy', 'true');
+              core.setOutput('latest_run_url', 'N/A - check skipped');
+              core.setOutput('failure_reason', '');
+              return;
+            }
+
+            core.info('Checking nightly branch workflow health...');
+
+            // Resolve current nightly HEAD SHA and evaluate workflow health for that exact commit.
+            // This prevents stale failures from older nightly runs from blocking promotion.
+            const { data: nightlyBranch } = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: 'nightly',
+            });
+            const nightlyHeadSha = nightlyBranch.commit.sha;
+            core.info(`Current nightly HEAD: ${nightlyHeadSha}`);
+
+            // Check critical workflows on the current nightly HEAD only.
+            // Nightly build itself is scheduler-driven and not a reliable per-commit gate.
+            const criticalWorkflows = [
+              {
+                workflowFile: 'quality-checks.yml',
+                fallbackNames: ['Quality Checks'],
+              },
+              {
+                workflowFile: 'e2e-tests-split.yml',
+                fallbackNames: ['E2E Tests'],
+              },
+              {
+                workflowFile: 'codeql.yml',
+                fallbackNames: ['CodeQL - Analyze'],
+              },
+            ];
+
+            // Retry window to avoid race conditions where required checks are not yet materialized.
+            const maxAttempts = 6;
+            const waitMs = 20000;
+
+            let branchRuns = [];
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              const { data: completedRuns } = await github.rest.actions.listWorkflowRunsForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                branch: 'nightly',
+                status: 'completed',
+                per_page: 100,
+              });
+
+              branchRuns = completedRuns.workflow_runs;
+
+              const allWorkflowsPresentForHead = criticalWorkflows.every((workflow) => {
+                const workflowPath = `.github/workflows/${workflow.workflowFile}`;
+                return branchRuns.some(
+                  (r) =>
+                    r.head_sha === nightlyHeadSha &&
+                    (
+                      r.path === workflowPath ||
+                      (typeof r.path === 'string' && r.path.endsWith(`/${workflowPath}`)) ||
+                      workflow.fallbackNames.includes(r.name)
+                    ),
+                );
+              });
+
+              if (allWorkflowsPresentForHead) {
+                core.info(`Required workflow runs found for nightly HEAD on attempt ${attempt}`);
+                break;
+              }
+
+              if (attempt < maxAttempts) {
+                core.info(
+                  `Waiting for required runs to appear for nightly HEAD (attempt ${attempt}/${maxAttempts})`,
+                );
+                await new Promise((resolve) => setTimeout(resolve, waitMs));
+              }
+            }
+
+            if (branchRuns.length === 0) {
+              core.setOutput('is_healthy', 'false');
+              core.setOutput('latest_run_url', 'No completed runs found');
+              core.setOutput('failure_reason', 'No completed workflow runs found on nightly');
+              core.warning('No completed workflow runs found on nightly - blocking promotion');
+              return;
+            }
+
+            let hasFailure = false;
+            let failureReason = '';
+            let latestRunUrl = branchRuns[0]?.html_url || 'N/A';
+
+            for (const workflow of criticalWorkflows) {
+              const workflowPath = `.github/workflows/${workflow.workflowFile}`;
+              core.info(
+                `Evaluating required workflow ${workflow.workflowFile} (path match first, names fallback: ${workflow.fallbackNames.join(', ')})`,
+              );
+
+              const latestRunForHead = branchRuns.find(
+                (r) =>
+                  r.head_sha === nightlyHeadSha &&
+                  (
+                    r.path === workflowPath ||
+                    (typeof r.path === 'string' && r.path.endsWith(`/${workflowPath}`)) ||
+                    workflow.fallbackNames.includes(r.name)
+                  ),
+              );
+
+              if (!latestRunForHead) {
+                hasFailure = true;
+                failureReason = `${workflow.workflowFile} has no completed run for nightly HEAD ${nightlyHeadSha}`;
+                latestRunUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/${workflow.workflowFile}`;
+                core.warning(
+                  `Required workflow ${workflow.workflowFile} has no completed run for current nightly HEAD`,
+                );
+                break;
+              }
+
+              if (latestRunForHead.conclusion !== 'success') {
+                hasFailure = true;
+                failureReason = `${workflow.workflowFile} ${latestRunForHead.conclusion} (${latestRunForHead.html_url})`;
+                latestRunUrl = latestRunForHead.html_url;
+                core.warning(
+                  `Required workflow ${workflow.workflowFile} is ${latestRunForHead.conclusion} on nightly HEAD`,
+                );
+                break;
+              }
+
+              core.info(
+                `Required workflow ${workflow.workflowFile} passed for nightly HEAD via run ${latestRunForHead.id}`,
+              );
+            }
+
+            core.setOutput('is_healthy', hasFailure ? 'false' : 'true');
+            core.setOutput('latest_run_url', latestRunUrl);
+            core.setOutput('failure_reason', failureReason);
+
+            if (hasFailure) {
+              core.warning(`Nightly branch has failing workflows: ${failureReason}`);
+            } else {
+              core.info('Nightly branch is healthy - all critical workflows passing');
+            }
+
+  create-promotion-pr:
+    name: Create Promotion PR
+    needs: check-nightly-health
+    runs-on: ubuntu-latest
+    if: needs.check-nightly-health.outputs.is_healthy == 'true'
+    outputs:
+      pr_number: ${{ steps.create-pr.outputs.pr_number }}
+      pr_url: ${{ steps.create-pr.outputs.pr_url }}
+      skipped: ${{ steps.check-diff.outputs.skipped }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for Differences
+        id: check-diff
+        run: |
+          git fetch origin "${{ env.SOURCE_BRANCH }}"
+
+          # Compare the branches
+          AHEAD_COUNT=$(git rev-list --count "origin/${{ env.TARGET_BRANCH }}..origin/${{ env.SOURCE_BRANCH }}")
+          BEHIND_COUNT=$(git rev-list --count "origin/${{ env.SOURCE_BRANCH }}..origin/${{ env.TARGET_BRANCH }}")
+
+          echo "Nightly is $AHEAD_COUNT commits ahead of main"
+          echo "Nightly is $BEHIND_COUNT commits behind main"
+
+          if [ "$AHEAD_COUNT" -eq 0 ]; then
+            echo "No changes to promote - nightly is up-to-date with main"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=No changes to promote" >> "$GITHUB_OUTPUT"
+          else
+            echo "skipped=false" >> "$GITHUB_OUTPUT"
+            echo "ahead_count=$AHEAD_COUNT" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate Commit Summary
+        id: commits
+        if: steps.check-diff.outputs.skipped != 'true'
+        run: |
+          # Get the date for the PR title
+          DATE=$(date -u +%Y-%m-%d)
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+
+          # Generate commit log
+          COMMIT_LOG=$(git log --oneline "origin/${{ env.TARGET_BRANCH }}..origin/${{ env.SOURCE_BRANCH }}" | head -50)
+          COMMIT_COUNT=$(git rev-list --count "origin/${{ env.TARGET_BRANCH }}..origin/${{ env.SOURCE_BRANCH }}")
+
+          # Store commit log in a file to preserve formatting
+          cat > /tmp/commit_log.md << 'COMMITS_EOF'
+          ## Commits Being Promoted
+
+          COMMITS_EOF
+
+          {
+            if [ "$COMMIT_COUNT" -gt 50 ]; then
+              echo "_Showing first 50 of $COMMIT_COUNT commits:_"
+            fi
+
+            echo '```'
+            echo "$COMMIT_LOG"
+            echo '```'
+
+            if [ "$COMMIT_COUNT" -gt 50 ]; then
+              echo ""
+              echo "_...and $((COMMIT_COUNT - 50)) more commits_"
+            fi
+          } >> /tmp/commit_log.md
+
+          # Get files changed summary
+          FILES_CHANGED=$(git diff --stat "origin/${{ env.TARGET_BRANCH }}..origin/${{ env.SOURCE_BRANCH }}" | tail -1)
+          echo "files_changed=$FILES_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "commit_count=$COMMIT_COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Check for Existing PR
+        id: existing-pr
+        if: steps.check-diff.outputs.skipped != 'true'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const { data: pulls } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              head: `${context.repo.owner}:${{ env.SOURCE_BRANCH }}`,
+              base: '${{ env.TARGET_BRANCH }}',
+            });
+
+            if (pulls.length > 0) {
+              core.info(`Existing PR found: #${pulls[0].number}`);
+              core.setOutput('exists', 'true');
+              core.setOutput('pr_number', pulls[0].number);
+              core.setOutput('pr_url', pulls[0].html_url);
+            } else {
+              core.setOutput('exists', 'false');
+            }
+
+      - name: Create Promotion PR
+        id: create-pr
+        if: steps.check-diff.outputs.skipped != 'true' && steps.existing-pr.outputs.exists != 'true'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const fs = require('fs');
+
+            const date = '${{ steps.commits.outputs.date }}';
+            const commitCount = '${{ steps.commits.outputs.commit_count }}';
+            const filesChanged = '${{ steps.commits.outputs.files_changed }}';
+            const commitLog = fs.readFileSync('/tmp/commit_log.md', 'utf8');
+
+            const triggerReason = '${{ inputs.reason }}' || 'Scheduled weekly promotion';
+
+            const body = `## 🚀 Weekly Nightly to Main Promotion
+
+            **Date:** ${date}
+            **Trigger:** ${triggerReason}
+            **Commits:** ${commitCount} commits to promote
+            **Changes:** ${filesChanged}
+
+            ---
+
+            ${commitLog}
+
+            ---
+
+            ## Pre-Merge Checklist
+
+            - [ ] All status checks pass
+            - [ ] No critical security issues identified
+            - [ ] Changelog is up-to-date (auto-generated via workflow)
+            - [ ] Version bump is appropriate (if applicable)
+
+            ## Merge Instructions
+
+            This PR promotes changes from \`nightly\` to \`main\`. Once all checks pass:
+
+            1. **Review** the commit summary above
+            2. **Approve** if changes look correct
+            3. **Merge** using "Merge commit" to preserve history
+
+            ---
+
+            _This PR was automatically created by the [Weekly Nightly Promotion](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) workflow._
+            `;
+
+            try {
+              const pr = await github.rest.pulls.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `Weekly: Promote nightly to main (${date})`,
+                head: '${{ env.SOURCE_BRANCH }}',
+                base: '${{ env.TARGET_BRANCH }}',
+                body: body,
+                draft: false,
+              });
+
+              core.info(`Created PR #${pr.data.number}: ${pr.data.html_url}`);
+              core.setOutput('pr_number', pr.data.number);
+              core.setOutput('pr_url', pr.data.html_url);
+
+              // Add labels (create if they don't exist)
+              const labels = ['automated', 'weekly-promotion'];
+              for (const label of labels) {
+                try {
+                  await github.rest.issues.getLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: label,
+                  });
+                } catch (e) {
+                  // Label doesn't exist, create it
+                  const colors = {
+                    'automated': '0e8a16',
+                    'weekly-promotion': '5319e7',
+                  };
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: label,
+                    color: colors[label] || 'ededed',
+                    description: label === 'automated'
+                      ? 'Automatically generated by CI/CD'
+                      : 'Weekly promotion from nightly to main',
+                  });
+                }
+              }
+
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.data.number,
+                labels: labels,
+              });
+
+              core.info('Labels added successfully');
+
+            } catch (error) {
+              core.setFailed(`Failed to create PR: ${error.message}`);
+            }
+
+      - name: Update Existing PR
+        if: steps.check-diff.outputs.skipped != 'true' && steps.existing-pr.outputs.exists == 'true'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const prNumber = ${{ steps.existing-pr.outputs.pr_number }};
+            core.info(`PR #${prNumber} already exists - adding comment with update`);
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `🔄 **Weekly check:** This PR is still open. New commits may have been added to \`nightly\` since the original PR was created.\n\n_Triggered by [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})_`,
+            });
+
+            core.setOutput('pr_number', prNumber);
+            core.setOutput('pr_url', '${{ steps.existing-pr.outputs.pr_url }}');
+
+  trigger-required-checks:
+    name: Trigger Missing Required Checks
+    needs: create-promotion-pr
+    if: needs.create-promotion-pr.outputs.skipped != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch missing required workflows on nightly head
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const { data: nightlyBranch } = await github.rest.repos.getBranch({
+              owner,
+              repo,
+              branch: 'nightly',
+            });
+            const nightlyHeadSha = nightlyBranch.commit.sha;
+            core.info(`Current nightly HEAD for dispatch fallback: ${nightlyHeadSha}`);
+
+            const requiredWorkflows = [
+              { id: 'e2e-tests-split.yml' },
+              { id: 'codeql.yml' },
+              { id: 'codecov-upload.yml', inputs: { run_backend: 'true', run_frontend: 'true' } },
+              { id: 'security-pr.yml' },
+              { id: 'supply-chain-verify.yml' },
+            ];
+
+            for (const workflow of requiredWorkflows) {
+              const { data: runs } = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: workflow.id,
+                branch: 'nightly',
+                per_page: 50,
+              });
+
+              const hasRunForHead = runs.workflow_runs.some((run) => run.head_sha === nightlyHeadSha);
+              if (hasRunForHead) {
+                core.info(`Skipping ${workflow.id}; run already exists for nightly HEAD`);
+                continue;
+              }
+
+              await github.rest.actions.createWorkflowDispatch({
+                owner,
+                repo,
+                workflow_id: workflow.id,
+                ref: 'nightly',
+                ...(workflow.inputs ? { inputs: workflow.inputs } : {}),
+              });
+              core.info(`Dispatched ${workflow.id}; missing for nightly HEAD`);
+            }
+
+  notify-on-failure:
+    name: Notify on Failure
+    needs: [check-nightly-health, create-promotion-pr, trigger-required-checks]
+    runs-on: ubuntu-latest
+    if: |
+      always() &&
+      (needs.check-nightly-health.outputs.is_healthy == 'false' ||
+       needs.create-promotion-pr.result == 'failure')
+
+    steps:
+      - name: Create Failure Issue
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const isHealthy = '${{ needs.check-nightly-health.outputs.is_healthy }}';
+            const failureReason = '${{ needs.check-nightly-health.outputs.failure_reason }}';
+            const latestRunUrl = '${{ needs.check-nightly-health.outputs.latest_run_url }}';
+            const prResult = '${{ needs.create-promotion-pr.result }}';
+
+            let title, body;
+
+            if (isHealthy === 'false') {
+              title = '🚨 Weekly Promotion Blocked: Nightly Branch Unhealthy';
+              body = `## Weekly Promotion Failed
+
+            The weekly promotion from \`nightly\` to \`main\` was **blocked** because the nightly branch has failing workflows.
+
+            ### Failure Details
+
+            - **Reason:** ${failureReason}
+            - **Latest Run:** ${latestRunUrl}
+            - **Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            ### Required Actions
+
+            1. Investigate the failing workflow on the nightly branch
+            2. Fix the underlying issue
+            3. Re-run the failed workflow
+            4. Manually trigger the weekly promotion workflow once nightly is healthy
+
+            ---
+
+            _This issue was automatically created by the Weekly Nightly Promotion workflow._
+            `;
+            } else {
+              title = '🚨 Weekly Promotion Failed: PR Creation Error';
+              body = `## Weekly Promotion Failed
+
+            The weekly promotion workflow encountered an error while trying to create the PR.
+
+            ### Details
+
+            - **PR Creation Result:** ${prResult}
+            - **Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            ### Required Actions
+
+            1. Check the workflow logs for detailed error information
+            2. Manually create the promotion PR if needed
+            3. Investigate and fix any configuration issues
+
+            ---
+
+            _This issue was automatically created by the Weekly Nightly Promotion workflow._
+            `;
+            }
+
+            // Check for existing open issues with same title
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'weekly-promotion-failure',
+            });
+
+            const existingIssue = issues.find(i => i.title === title);
+
+            if (existingIssue) {
+              // Add comment to existing issue
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existingIssue.number,
+                body: `🔄 **Update:** This issue occurred again.\n\n${body}`,
+              });
+              core.info(`Updated existing issue #${existingIssue.number}`);
+            } else {
+              // Create label if it doesn't exist
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: 'weekly-promotion-failure',
+                });
+              } catch (e) {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: 'weekly-promotion-failure',
+                  color: 'd73a4a',
+                  description: 'Weekly promotion workflow failure',
+                });
+              }
+
+              // Create new issue
+              const issue = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['weekly-promotion-failure', 'automated'],
+              });
+              core.info(`Created issue #${issue.data.number}`);
+            }
+
+  summary:
+    name: Workflow Summary
+    needs: [check-nightly-health, create-promotion-pr, trigger-required-checks]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Generate Summary
+        run: |
+          {
+            echo "## 📋 Weekly Nightly Promotion Summary"
+            echo ""
+
+            HEALTH="${{ needs.check-nightly-health.outputs.is_healthy }}"
+            SKIPPED="${{ needs.create-promotion-pr.outputs.skipped }}"
+            PR_URL="${{ needs.create-promotion-pr.outputs.pr_url }}"
+            PR_NUMBER="${{ needs.create-promotion-pr.outputs.pr_number }}"
+            FAILURE_REASON="${{ needs.check-nightly-health.outputs.failure_reason }}"
+
+            echo "| Step | Status |"
+            echo "|------|--------|"
+
+            if [ "$HEALTH" = "true" ]; then
+              echo "| Nightly Health Check | ✅ Healthy |"
+            else
+              echo "| Nightly Health Check | ❌ Unhealthy: $FAILURE_REASON |"
+            fi
+
+            if [ "$SKIPPED" = "true" ]; then
+              echo "| PR Creation | ⏭️ Skipped (no changes) |"
+            elif [ -n "$PR_URL" ]; then
+              echo "| PR Creation | ✅ [PR #$PR_NUMBER]($PR_URL) |"
+            else
+              echo "| PR Creation | ❌ Failed |"
+            fi
+
+            echo ""
+            echo "---"
+            echo "_Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}_"
+          } >> "$GITHUB_STEP_SUMMARY"

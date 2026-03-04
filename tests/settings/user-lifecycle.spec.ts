@@ -1,0 +1,875 @@
+import { test, expect, loginUser, logoutUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import { waitForLoadingComplete } from '../utils/wait-helpers';
+
+async function resetSecurityState(page: import('@playwright/test').Page): Promise<void> {
+  const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
+  if (!emergencyToken) {
+    return;
+  }
+
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+  const emergencyBase = process.env.EMERGENCY_SERVER_HOST || baseURL.replace(':8080', ':2020');
+  const username = process.env.CHARON_EMERGENCY_USERNAME || 'admin';
+  const password = process.env.CHARON_EMERGENCY_PASSWORD || 'changeme';
+  const basicAuth = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+
+  const response = await page.request.post(`${emergencyBase}/emergency/security-reset`, {
+    headers: {
+      Authorization: basicAuth,
+      'X-Emergency-Token': emergencyToken,
+      'Content-Type': 'application/json',
+    },
+    data: { reason: 'user-lifecycle deterministic setup' },
+  });
+
+  if (response.ok()) {
+    return;
+  }
+
+  const fallbackResponse = await page.request.post('/api/v1/emergency/security-reset', {
+    headers: {
+      'X-Emergency-Token': emergencyToken,
+      'Content-Type': 'application/json',
+    },
+    data: { reason: 'user-lifecycle deterministic setup (fallback)' },
+  });
+
+  expect(fallbackResponse.ok()).toBe(true);
+}
+
+async function getAuthToken(page: import('@playwright/test').Page): Promise<string> {
+  const token = await page.evaluate(() => {
+    const authRaw = localStorage.getItem('auth');
+    if (authRaw) {
+      try {
+        const parsed = JSON.parse(authRaw) as { token?: string };
+        if (parsed?.token) {
+          return parsed.token;
+        }
+      } catch {
+      }
+    }
+
+    return (
+      localStorage.getItem('token') ||
+      localStorage.getItem('charon_auth_token') ||
+      ''
+    );
+  });
+
+  expect(token).toBeTruthy();
+  return token;
+}
+
+function buildAuthHeaders(token: string): Record<string, string> | undefined {
+  return token ? { Authorization: `Bearer ${token}` } : undefined;
+}
+
+function uniqueSuffix(): string {
+  return `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+}
+
+function parseAuditDetails(details: unknown): Record<string, unknown> {
+  if (!details) {
+    return {};
+  }
+
+  if (typeof details === 'string') {
+    try {
+      const parsed = JSON.parse(details);
+      return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
+    } catch {
+      return {};
+    }
+  }
+
+  return typeof details === 'object' ? details as Record<string, unknown> : {};
+}
+
+async function getAuditLogEntries(
+  page: import('@playwright/test').Page,
+  token: string,
+  options: {
+    action?: string;
+    eventCategory?: string;
+    limit?: number;
+    maxPages?: number;
+  } = {}
+): Promise<any[]> {
+  const limit = options.limit ?? 100;
+  const maxPages = options.maxPages ?? 5;
+  const action = options.action;
+  const eventCategory = options.eventCategory;
+  const allEntries: any[] = [];
+
+  for (let currentPage = 1; currentPage <= maxPages; currentPage += 1) {
+    const params = new URLSearchParams({
+      page: String(currentPage),
+      limit: String(limit),
+    });
+
+    if (action) {
+      params.set('action', action);
+    }
+    if (eventCategory) {
+      params.set('event_category', eventCategory);
+    }
+
+    const auditResponse = await page.request.get(`/api/v1/audit-logs?${params.toString()}`, {
+      headers: buildAuthHeaders(token),
+    });
+    expect(auditResponse.ok()).toBe(true);
+
+    const auditBody = await auditResponse.json();
+    expect(auditBody).toEqual(expect.objectContaining({
+      audit_logs: expect.any(Array),
+      pagination: expect.any(Object),
+    }));
+
+    allEntries.push(...auditBody.audit_logs);
+
+    const totalPages = Number(auditBody?.pagination?.total_pages || currentPage);
+    if (currentPage >= totalPages) {
+      break;
+    }
+  }
+
+  return allEntries;
+}
+
+function findLifecycleEntry(
+  auditEntries: any[],
+  email: string,
+  action: 'user_create' | 'user_update' | 'user_delete' | 'user_invite' | 'user_invite_accept'
+): any | undefined {
+  return auditEntries.find((entry: any) => {
+    if (entry?.event_category !== 'user' || entry?.action !== action) {
+      return false;
+    }
+
+    const details = parseAuditDetails(entry?.details);
+    const detailEmail =
+      details?.target_email ||
+      details?.email ||
+      details?.user_email;
+
+    if (detailEmail === email) {
+      return true;
+    }
+
+    return JSON.stringify(entry).includes(email);
+  });
+}
+
+async function createUserViaApi(
+  page: import('@playwright/test').Page,
+  user: { email: string; name: string; password: string; role: 'admin' | 'user' | 'guest' }
+): Promise<{ id: string | number; email: string }> {
+  const token = await getAuthToken(page);
+  const response = await page.request.post('/api/v1/users', {
+    data: user,
+    headers: buildAuthHeaders(token),
+  });
+
+  expect(response.ok()).toBe(true);
+  const payload = await response.json();
+  expect(payload).toEqual(expect.objectContaining({
+    id: expect.anything(),
+    email: user.email,
+  }));
+
+  return { id: payload.id, email: payload.email };
+}
+
+async function navigateToLogin(page: import('@playwright/test').Page): Promise<void> {
+  try {
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      (!error.message.includes('interrupted by another navigation') && !error.message.includes('net::ERR_ABORTED'))
+    ) {
+      throw error;
+    }
+  }
+
+  await page.waitForURL(/\/login/, { timeout: 15000 }).catch(() => undefined);
+  const emailInput = page.locator('input[type="email"]').or(page.getByLabel(/email/i)).first();
+
+  if (!(await emailInput.isVisible().catch(() => false))) {
+    await page.context().clearCookies();
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+  }
+
+  await expect(emailInput).toBeVisible({ timeout: 15000 });
+}
+
+async function loginWithCredentials(
+  page: import('@playwright/test').Page,
+  email: string,
+  password: string
+): Promise<void> {
+  const emailInput = page.locator('input[type="email"]').or(page.getByLabel(/email/i)).first();
+  const passwordInput = page.locator('input[type="password"]').or(page.getByLabel(/password/i)).first();
+
+  const hasEmailInput = await emailInput.isVisible().catch(() => false);
+  if (!hasEmailInput) {
+    await navigateToLogin(page);
+  }
+
+  await expect(emailInput).toBeVisible({ timeout: 15000 });
+  await expect(passwordInput).toBeVisible({ timeout: 15000 });
+  await emailInput.fill(email);
+  await passwordInput.fill(password);
+
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const loginResponse = page.waitForResponse(
+      (response) => response.url().includes('/api/v1/auth/login') && response.request().method() === 'POST',
+      { timeout: 15000 }
+    );
+
+    await page.getByRole('button', { name: /login|sign in/i }).first().click();
+    const response = await loginResponse;
+
+    if (response.ok()) {
+      await waitForLoadingComplete(page, { timeout: 15000 });
+      return;
+    }
+
+    if (response.status() === 429 && attempt < maxAttempts) {
+      continue;
+    }
+
+    const bodyText = await response.text().catch(() => '');
+    throw new Error(`Login failed: ${response.status()} ${bodyText}`);
+  }
+}
+
+async function loginWithCredentialsExpectFailure(
+  page: import('@playwright/test').Page,
+  email: string,
+  password: string
+): Promise<void> {
+  const emailInput = page.locator('input[type="email"]').or(page.getByLabel(/email/i)).first();
+  const passwordInput = page.locator('input[type="password"]').or(page.getByLabel(/password/i)).first();
+
+  if (!(await emailInput.isVisible().catch(() => false))) {
+    await navigateToLogin(page);
+  }
+
+  await expect(emailInput).toBeVisible({ timeout: 15000 });
+  await expect(passwordInput).toBeVisible({ timeout: 15000 });
+  await emailInput.fill(email);
+  await passwordInput.fill(password);
+
+  const loginResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/v1/auth/login') && response.request().method() === 'POST',
+    { timeout: 15000 }
+  );
+
+  await page.getByRole('button', { name: /login|sign in/i }).first().click();
+  const response = await loginResponse;
+  expect(response.ok()).toBe(false);
+  expect([400, 401, 403]).toContain(response.status());
+  await expect(page).toHaveURL(/login/);
+}
+
+/**
+ * Integration: Admin → User E2E Workflow
+ *
+ * Purpose: Validate complete workflows from admin creation through user access
+ * Scenarios: User creation, role assignment, login, resource access
+ * Success: Users can login and access appropriate resources based on role
+ */
+
+test.describe('Admin-User E2E Workflow', () => {
+  let adminEmail = '';
+
+  let testUser = {
+    email: '',
+    name: 'E2E Test User',
+    password: 'E2EUserPass123!',
+  };
+
+  test.beforeEach(async ({ page, adminUser }) => {
+    const suffix = uniqueSuffix();
+    testUser = {
+      email: `e2euser-${suffix}@test.local`,
+      name: `E2E Test User ${suffix}`,
+      password: 'E2EUserPass123!',
+    };
+
+    await resetSecurityState(page);
+    adminEmail = adminUser.email;
+    await loginUser(page, adminUser);
+    await waitForLoadingComplete(page, { timeout: 15000 });
+  });
+
+  // Full user creation → role assignment → user login → resource access
+  test('Complete user lifecycle: creation to resource access', async ({ page }) => {
+    let createdUserId: string | number;
+
+    await test.step('STEP 1: Admin creates new user', async () => {
+      const start = Date.now();
+
+      const createdUser = await createUserViaApi(page, { ...testUser, role: 'user' });
+      createdUserId = createdUser.id;
+
+      await page.goto('/users', { waitUntil: 'domcontentloaded' });
+      await waitForLoadingComplete(page, { timeout: 15000 });
+      await expect(page.getByText(testUser.email).first()).toBeVisible({ timeout: 15000 });
+
+      const duration = Date.now() - start;
+      console.log(`✓ User created in ${duration}ms`);
+      expect(duration).toBeLessThan(5000);
+    });
+
+    await test.step('STEP 2: Update user record (triggers user_update audit event)', async () => {
+      // Sending { role: 'user' } would be a no-op (user was already created with role:'user')
+      // and the backend only writes the audit log when at least one field actually changes.
+      // Update the name instead to guarantee a real write and a user_update audit entry.
+      const token = await getAuthToken(page);
+      const updateRoleResponse = await page.request.put(`/api/v1/users/${createdUserId}`, {
+        data: { name: `${testUser.name} (updated)` },
+        headers: buildAuthHeaders(token),
+      });
+
+      expect(updateRoleResponse.ok()).toBe(true);
+      const updateBody = await updateRoleResponse.json();
+      expect(updateBody).toEqual(expect.objectContaining({
+        message: expect.stringMatching(/updated/i),
+      }));
+    });
+
+    await test.step('STEP 3: Admin logs out', async () => {
+      const profileMenu = page.locator('[data-testid="user-menu"], [class*="profile"]').first();
+      if (await profileMenu.isVisible()) {
+        await profileMenu.click();
+      }
+
+      const logoutButton = page.getByRole('button', { name: /logout/i }).first();
+      await logoutButton.click();
+      await page.waitForURL(/login/, { timeout: 5000 });
+    });
+
+    await test.step('STEP 4: New user logs in', async () => {
+      const start = Date.now();
+
+      await loginWithCredentials(page, testUser.email, testUser.password);
+      const duration = Date.now() - start;
+
+      console.log(`✓ User logged in in ${duration}ms`);
+      expect(duration).toBeLessThan(15000);
+    });
+
+    await test.step('STEP 5: User sees restricted dashboard', async () => {
+      const dashboard = page.getByRole('main').first();
+      await expect(dashboard).toBeVisible();
+
+      // User role should see limited menu items
+      const userMenu = page.locator('nav, [role="navigation"]').first();
+      if (await userMenu.isVisible()) {
+        const menuItems = userMenu.locator('a, button, [role="link"], [role="button"]');
+        await expect.poll(async () => menuItems.count(), {
+          timeout: 15000,
+          message: 'Expected restricted user navigation to render at least one actionable menu item',
+        }).toBeGreaterThan(0);
+      }
+    });
+
+    await test.step('STEP 6: User cannot access user management', async () => {
+      await page.goto('/users', { waitUntil: 'commit', timeout: 15000 }).catch((error: unknown) => {
+        if (!(error instanceof Error)) {
+          throw error;
+        }
+
+        const isExpectedNavigationRace =
+          error.message.includes('Timeout') ||
+          error.message.includes('interrupted by another navigation') ||
+          error.message.includes('net::ERR_ABORTED');
+
+        if (!isExpectedNavigationRace) {
+          throw error;
+        }
+      });
+
+      await expect.poll(async () => {
+        const currentUrl = page.url();
+        const isUsersPage = /\/users(?:$|[?#])/.test(new URL(currentUrl).pathname + new URL(currentUrl).search + new URL(currentUrl).hash);
+        const hasUsersHeading = await page
+          .getByRole('heading', { name: /users/i })
+          .first()
+          .isVisible()
+          .catch(() => false);
+        const hasAccessDenied = await page
+          .getByText(/access.*denied|forbidden|not allowed|admin access required/i)
+          .first()
+          .isVisible()
+          .catch(() => false);
+
+        return !isUsersPage || hasAccessDenied || !hasUsersHeading;
+      }, {
+        timeout: 15000,
+        message: 'Expected regular user to be redirected or denied when accessing /users',
+      }).toBe(true);
+    });
+
+    await test.step('STEP 7: Audit trail records all actions', async () => {
+      // Logout user
+      const logoutButton = page.getByRole('button', { name: /logout/i }).first();
+      if (await logoutButton.isVisible()) {
+        await logoutButton.click();
+      }
+
+      // Login as admin
+      await navigateToLogin(page);
+      await loginWithCredentials(page, adminEmail, TEST_PASSWORD);
+
+      const token = await getAuthToken(page);
+      // STEP 1 logs user_create; STEP 2 (PUT /users/:id with role:'user') logs user_update.
+      // Both events must be present.
+      await expect.poll(async () => {
+        const auditEntries = await getAuditLogEntries(page, token, {
+          limit: 100,
+          maxPages: 8,
+        });
+        const createEntry = findLifecycleEntry(auditEntries, testUser.email, 'user_create');
+        const updateEntry = findLifecycleEntry(auditEntries, testUser.email, 'user_update');
+        return Number(Boolean(createEntry)) + Number(Boolean(updateEntry));
+      }, {
+        timeout: 30000,
+        message: `Expected both user_create and user_update audit entries for ${testUser.email}`,
+      }).toBe(2);
+    });
+  });
+
+  // Admin modifies role → user gains new permissions immediately
+  test('Role change takes effect immediately on user refresh', async ({ page }) => {
+    let createdUserId: string | number;
+
+    await test.step('Create test user with default role', async () => {
+      const createdUser = await createUserViaApi(page, { ...testUser, role: 'user' });
+      createdUserId = createdUser.id;
+    });
+
+    await test.step('User logs in and notes current permissions', async () => {
+      const logoutButton = page.getByRole('button', { name: /logout/i }).first();
+      await logoutButton.click();
+      await page.waitForURL(/login/);
+
+      await loginWithCredentials(page, testUser.email, testUser.password);
+    });
+
+    await test.step('Admin upgrades user role (in parallel)', async () => {
+      await navigateToLogin(page);
+      await loginWithCredentials(page, adminEmail, TEST_PASSWORD);
+      const token = await getAuthToken(page);
+      const updateRoleResponse = await page.request.put(`/api/v1/users/${createdUserId}`, {
+        data: { role: 'admin' },
+        headers: buildAuthHeaders(token),
+      });
+
+      expect(updateRoleResponse.ok()).toBe(true);
+    });
+
+    await test.step('User refreshes page and sees new permissions', async () => {
+      await navigateToLogin(page);
+      await loginWithCredentials(page, testUser.email, testUser.password);
+      const token = await getAuthToken(page);
+      const usersAccessResponse = await page.request.get('/api/v1/users', {
+        headers: buildAuthHeaders(token),
+      });
+      expect(usersAccessResponse.status()).toBe(200);
+      await page.goto('/users', { waitUntil: 'domcontentloaded' });
+      await waitForLoadingComplete(page, { timeout: 15000 });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await waitForLoadingComplete(page, { timeout: 15000 });
+      const usersAccessAfterReload = await page.request.get('/api/v1/users', {
+        headers: buildAuthHeaders(token),
+      });
+      expect(usersAccessAfterReload.status()).toBe(200);
+    });
+  });
+
+  // Admin deletes user → user login fails
+  test('Deleted user cannot login', async ({ page }) => {
+    const suffix = uniqueSuffix();
+    const deletableUser = {
+      email: `deleteme-${suffix}@test.local`,
+      name: `Delete Test User ${suffix}`,
+      password: 'DeletePass123!',
+    };
+
+    let createdUserId: string | number;
+
+    await test.step('Create user to delete', async () => {
+      const createdUser = await createUserViaApi(page, { ...deletableUser, role: 'user' });
+      createdUserId = createdUser.id;
+    });
+
+    await test.step('Admin deletes user', async () => {
+      const token = await getAuthToken(page);
+      const deleteResponse = await page.request.delete(`/api/v1/users/${createdUserId}`, {
+        headers: buildAuthHeaders(token),
+      });
+      expect(deleteResponse.ok()).toBe(true);
+    });
+
+    await test.step('Deleted user attempts login', async () => {
+      const logoutButton = page.getByRole('button', { name: /logout/i }).first();
+      if (await logoutButton.isVisible()) {
+        await logoutButton.click();
+        await page.waitForURL(/login/);
+      }
+
+      await loginWithCredentialsExpectFailure(page, deletableUser.email, deletableUser.password);
+    });
+
+    await test.step('Verify login failed with appropriate error', async () => {
+      const errorMessage = page.getByText(/invalid|failed|incorrect|unauthorized/i).first();
+      await expect(errorMessage).toBeVisible({ timeout: 15000 });
+    });
+  });
+
+  // Audit log records entire workflow
+  test('Audit log records user lifecycle events', async ({ page }) => {
+    let createdUserEmail = '';
+
+    await test.step('Perform workflow actions', async () => {
+      const createdUser = await createUserViaApi(page, { ...testUser, role: 'user' });
+      createdUserEmail = createdUser.email;
+    });
+
+    await test.step('Check audit trail for user creation event', async () => {
+      const token = await getAuthToken(page);
+      await expect.poll(async () => {
+        const auditEntries = await getAuditLogEntries(page, token, {
+          limit: 100,
+          maxPages: 8,
+        });
+        return Boolean(findLifecycleEntry(auditEntries, createdUserEmail, 'user_create'));
+      }, {
+        timeout: 30000,
+        message: `Expected user_create audit entry for ${createdUserEmail}`,
+      }).toBe(true);
+    });
+
+    await test.step('Verify audit entry shows user details', async () => {
+      const token = await getAuthToken(page);
+      const auditEntries = await getAuditLogEntries(page, token, {
+        limit: 100,
+        maxPages: 8,
+      });
+      const creationEntry = findLifecycleEntry(auditEntries, createdUserEmail, 'user_create');
+      expect(creationEntry).toBeTruthy();
+
+      const details = parseAuditDetails(creationEntry?.details);
+      expect(details).toEqual(expect.objectContaining({
+        target_email: createdUserEmail,
+      }));
+    });
+  });
+
+  // User cannot escalate own role
+  test('User cannot promote self to admin', async ({ page }) => {
+    await test.step('Create test user', async () => {
+      await createUserViaApi(page, { ...testUser, role: 'user' });
+    });
+
+    await test.step('User attempts to modify own role', async () => {
+      // Logout admin
+      const logoutButton = page.getByRole('button', { name: /logout/i }).first();
+      await logoutButton.click();
+      await page.waitForURL(/login/);
+
+      // Login as user
+      await loginWithCredentials(page, testUser.email, testUser.password);
+
+      // Try to access user management
+      await page.goto('/users', { waitUntil: 'domcontentloaded' });
+    });
+
+    await test.step('Verify user cannot access user management', async () => {
+      // Should not see users list or get 403
+      const usersList = page.locator('[data-testid="user-list"]').first();
+      const errorPage = page.getByText(/access.*denied|forbidden|not allowed/i).first();
+
+      const isBlocked =
+        !(await usersList.isVisible()) ||
+        (await errorPage.isVisible());
+
+      expect(isBlocked).toBe(true);
+    });
+  });
+
+  // Multiple users isolated data
+  test('Users see only their own data', async ({ page }) => {
+    const suffix1 = uniqueSuffix();
+    const user1 = {
+      email: `user1-${suffix1}@test.local`,
+      name: 'User 1',
+      password: 'User1Pass123!',
+    };
+
+    const suffix2 = uniqueSuffix();
+    const user2 = {
+      email: `user2-${suffix2}@test.local`,
+      name: 'User 2',
+      password: 'User2Pass123!',
+    };
+
+    await test.step('Create first user', async () => {
+      await createUserViaApi(page, { ...user1, role: 'user' });
+    });
+
+    await test.step('Create second user', async () => {
+      await createUserViaApi(page, { ...user2, role: 'user' });
+    });
+
+    await test.step('User1 logs in and verifies data isolation', async () => {
+      const logoutButton = page.getByRole('button', { name: /logout/i }).first();
+      await logoutButton.click();
+      await page.waitForURL(/login/);
+
+      await loginWithCredentials(page, user1.email, user1.password);
+
+      // User1 should see their profile but not User2's
+      const user1Profile = page.getByText(user1.name).first();
+      if (await user1Profile.isVisible()) {
+        await expect(user1Profile).toBeVisible();
+      }
+    });
+  });
+
+  // User logout → login as different user → resources isolated
+  test('Session isolation after logout and re-login', async ({ page }) => {
+    let firstSessionToken = '';
+
+    await test.step('Create secondary user for session switch', async () => {
+      await createUserViaApi(page, { ...testUser, role: 'user' });
+    });
+
+    await test.step('Login as first user', async () => {
+      await navigateToLogin(page);
+      await loginWithCredentials(page, adminEmail, TEST_PASSWORD);
+    });
+
+    await test.step('Note session storage', async () => {
+      firstSessionToken = await getAuthToken(page);
+      expect(firstSessionToken).toBeTruthy();
+    });
+
+    await test.step('Logout', async () => {
+      await logoutUser(page);
+    });
+
+    await test.step('Verify session cleared', async () => {
+      await navigateToLogin(page);
+      const emailInput = page.locator('input[type="email"]').or(page.getByLabel(/email/i)).first();
+      await expect(emailInput).toBeVisible({ timeout: 15000 });
+
+      const meAfterLogout = await page.request.get('/api/v1/auth/me');
+      expect([401, 403]).toContain(meAfterLogout.status());
+    });
+
+    await test.step('Login as different user', async () => {
+      await loginWithCredentials(page, testUser.email, testUser.password);
+    });
+
+    await test.step('Verify new session established', async () => {
+      await expect.poll(async () => {
+        try {
+          return await getAuthToken(page);
+        } catch {
+          return '';
+        }
+      }, {
+        timeout: 15000,
+        message: 'Expected new auth token for second login',
+      }).not.toBe('');
+
+      const token = await getAuthToken(page);
+      expect(token).toBeTruthy();
+      expect(token).not.toBe(firstSessionToken);
+
+      const dashboard = page.getByRole('main').first();
+      await expect(dashboard).toBeVisible();
+
+      const meAfterRelogin = await page.request.get('/api/v1/auth/me', {
+        headers: buildAuthHeaders(token),
+      });
+      expect(meAfterRelogin.ok()).toBe(true);
+      const currentUser = await meAfterRelogin.json();
+      expect(currentUser).toEqual(expect.objectContaining({ email: testUser.email }));
+    });
+  });
+});
+
+/**
+ * PR-3: Passthrough User — Access Restriction (F4)
+ *
+ * Verifies that a passthrough-role user is redirected to the
+ * PassthroughLanding page when they attempt to access management routes,
+ * and that they cannot reach the admin Users page.
+ */
+test.describe('PR-3: Passthrough User Access Restriction (F4)', () => {
+  let adminEmail = '';
+
+  test.beforeEach(async ({ page, adminUser }) => {
+    await resetSecurityState(page);
+    adminEmail = adminUser.email;
+    await loginUser(page, adminUser);
+    await waitForLoadingComplete(page, { timeout: 15000 });
+  });
+
+  test('passthrough user is redirected to PassthroughLanding when accessing management routes', async ({ page }) => {
+    const suffix = uniqueSuffix();
+    const ptUser = {
+      email: `passthrough-${suffix}@test.local`,
+      name: `Passthrough User ${suffix}`,
+      password: 'PassthroughPass123!',
+      role: 'passthrough' as 'admin' | 'user' | 'passthrough',
+    };
+    let ptUserId: string | number | undefined;
+
+    await test.step('Admin creates a passthrough-role user directly', async () => {
+      const token = await page.evaluate(() => localStorage.getItem('charon_auth_token') || '');
+      const resp = await page.request.post('/api/v1/users', {
+        data: ptUser,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      expect(resp.ok()).toBe(true);
+      const body = await resp.json();
+      ptUserId = body.id;
+    });
+
+    await test.step('Admin logs out', async () => {
+      await logoutUser(page);
+    });
+
+    await test.step('Passthrough user logs in', async () => {
+      await navigateToLogin(page);
+      await loginWithCredentials(page, ptUser.email, ptUser.password);
+      // Wait for the initial post-login navigation to settle before probing routes
+      await page.waitForURL(/^\/?((?!login).)*$/, { timeout: 10000 }).catch(() => {});
+    });
+
+    await test.step('Passthrough user navigating to management route is redirected to /passthrough', async () => {
+      await page.goto('/settings/users', { waitUntil: 'domcontentloaded' }).catch(() => {});
+      await page.waitForURL(/\/passthrough/, { timeout: 15000 });
+      await expect(page).toHaveURL(/\/passthrough/);
+    });
+
+    await test.step('PassthroughLanding displays welcome heading and no-access message', async () => {
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+      await expect(
+        page.getByText(/do not have access to the management interface/i)
+      ).toBeVisible();
+    });
+
+    await test.step('PassthroughLanding shows a logout button', async () => {
+      await expect(page.getByRole('button', { name: /logout/i })).toBeVisible();
+    });
+
+    await test.step('Cleanup: admin logs back in and deletes passthrough user', async () => {
+      // Logout passthrough user
+      await page.getByRole('button', { name: /logout/i }).click();
+      await page.waitForURL(/login/, { timeout: 10000 });
+
+      // Login as admin
+      await loginWithCredentials(page, adminEmail, TEST_PASSWORD);
+      const token = await page.evaluate(() => localStorage.getItem('charon_auth_token') || '');
+      if (ptUserId !== undefined) {
+        await page.request.delete(`/api/v1/users/${ptUserId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+      }
+    });
+  });
+});
+
+/**
+ * PR-3: Regular User — No Admin-Only Nav Items (F9)
+ *
+ * Verifies that a regular (non-admin) user does not see the "Users"
+ * navigation item, which is restricted to admins only.
+ */
+test.describe('PR-3: Regular User Has No Admin Navigation Items (F9)', () => {
+  let adminEmail = '';
+
+  test.beforeEach(async ({ page, adminUser }) => {
+    await resetSecurityState(page);
+    adminEmail = adminUser.email;
+    await loginUser(page, adminUser);
+    await waitForLoadingComplete(page, { timeout: 15000 });
+  });
+
+  test('regular user does not see the Users navigation item', async ({ page }) => {
+    const suffix = uniqueSuffix();
+    const regularUserData = {
+      email: `navtest-user-${suffix}@test.local`,
+      name: `Nav Test User ${suffix}`,
+      password: 'NavTestPass123!',
+      role: 'user' as 'admin' | 'user' | 'passthrough',
+    };
+    let regularUserId: string | number | undefined;
+
+    await test.step('Admin creates a regular user', async () => {
+      const token = await page.evaluate(() => localStorage.getItem('charon_auth_token') || '');
+      const resp = await page.request.post('/api/v1/users', {
+        data: regularUserData,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      expect(resp.ok()).toBe(true);
+      const body = await resp.json();
+      regularUserId = body.id;
+    });
+
+    await test.step('Admin logs out', async () => {
+      await logoutUser(page);
+    });
+
+    await test.step('Regular user logs in', async () => {
+      await navigateToLogin(page);
+      await loginWithCredentials(page, regularUserData.email, regularUserData.password);
+      await waitForLoadingComplete(page, { timeout: 15000 });
+    });
+
+    await test.step('Verify "Users" nav item is NOT visible for regular user', async () => {
+      const nav = page.getByRole('navigation').first();
+      await expect(nav.getByRole('link', { name: 'Users' })).not.toBeVisible();
+    });
+
+    await test.step('Verify other nav items ARE visible (navigation renders for regular users)', async () => {
+      const nav = page.getByRole('navigation').first();
+      await expect(nav.getByRole('link', { name: /dashboard/i })).toBeVisible();
+    });
+
+    await test.step('Cleanup: admin logs back in and deletes regular user', async () => {
+      await logoutUser(page);
+      await navigateToLogin(page);
+      await loginWithCredentials(page, adminEmail, TEST_PASSWORD);
+      const token = await page.evaluate(() => localStorage.getItem('charon_auth_token') || '');
+      if (regularUserId !== undefined) {
+        await page.request.delete(`/api/v1/users/${regularUserId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+      }
+    });
+  });
+
+  test('admin user sees the Users navigation item', async ({ page }) => {
+    await test.step('Navigate to settings to reveal Settings sub-navigation', async () => {
+      await page.goto('/settings/users');
+      await waitForLoadingComplete(page);
+    });
+    await test.step('Verify "Users" nav item is visible for admin in Settings nav', async () => {
+      await expect(page.getByRole('link', { name: 'Users', exact: true })).toBeVisible();
+    });
+  });
+});

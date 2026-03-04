@@ -1,0 +1,159 @@
+# Grype vulnerability suppression configuration
+# Automatically loaded by Grype for vulnerability scanning
+# Review and update when upstream fixes are available
+# Documentation: https://github.com/anchore/grype#specifying-matches-to-ignore
+
+ignore:
+  # CVE-2026-22184: zlib Global Buffer Overflow in untgz utility
+  # Severity: CRITICAL
+  # Package: zlib 1.3.1-r2 (Alpine Linux base image)
+  # Status: No upstream fix available as of 2026-01-16
+  #
+  # Vulnerability Details:
+  # - Global buffer overflow in TGZfname() function
+  # - Unbounded strcpy() allows attacker-controlled archive names
+  # - Can lead to memory corruption, DoS, potential RCE
+  #
+  # Risk Assessment: ACCEPTED (Low exploitability in Charon context)
+  # - Charon does not use untgz utility directly
+  # - No untrusted tar archive processing in application code
+  # - Attack surface limited to OS-level utilities
+  # - Multiple layers of containerization and isolation
+  #
+  # Mitigation:
+  # - Monitor Alpine Linux security feed daily for zlib patches
+  # - Container runs with minimal privileges (no-new-privileges)
+  # - Read-only filesystem where possible
+  # - Network isolation via Docker networks
+  #
+  # Review:
+  # - Daily checks for Alpine security updates
+  # - Automatic re-scan via CI/CD on every commit
+  # - Manual review scheduled for 2026-01-23 (7 days)
+  #
+  # Removal Criteria:
+  # - Alpine releases zlib 1.3.1-r3 or higher with CVE fix
+  # - OR upstream zlib project releases patched version
+  # - Remove this suppression immediately after fix available
+  #
+  # References:
+  # - CVE: https://nvd.nist.gov/vuln/detail/CVE-2026-22184
+  # - Alpine Security: https://security.alpinelinux.org/
+  # - GitHub Issue: https://github.com/Wikid82/Charon/issues/TBD
+  - vulnerability: CVE-2026-22184
+    package:
+      name: zlib
+      version: "1.3.1-r2"
+      type: apk  # Alpine package
+    reason: |
+      CRITICAL buffer overflow in untgz utility. No fix available from Alpine
+      as of 2026-01-16. Risk accepted: Charon does not directly use untgz or
+      process untrusted tar archives. Attack surface limited to base OS utilities.
+      Monitoring Alpine security feed for upstream patch.
+    expiry: "2026-01-23"  # Re-evaluate in 7 days
+
+    # Action items when this suppression expires:
+    # 1. Check Alpine security feed: https://security.alpinelinux.org/
+    # 2. Check zlib releases: https://github.com/madler/zlib/releases
+    # 3. If fix available: Update Dockerfile, rebuild, remove suppression
+    # 4. If no fix: Extend expiry by 7 days, document justification
+    # 5. If extended 3+ times: Escalate to security team for review
+
+  # GHSA-69x3-g4r3-p962 / CVE-2026-25793: Nebula ECDSA Signature Malleability
+  # Severity: HIGH (CVSS 8.1)
+  # Package: github.com/slackhq/nebula v1.9.7 (embedded in /usr/bin/caddy)
+  # Status: Cannot upgrade — smallstep/certificates v0.30.0-rc2 still pins nebula v1.9.x
+  #
+  # Vulnerability Details:
+  # - ECDSA signature malleability allows bypassing certificate blocklists
+  # - Attacker can forge alternate valid P256 ECDSA signatures for revoked
+  #   certificates (CVSSv3: AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:N)
+  # - Only affects configurations using Nebula-based certificate authorities
+  #   (non-default and uncommon in Charon deployments)
+  #
+  # Root Cause (Compile-Time Dependency Lock):
+  # - Caddy is built with caddy-security plugin, which transitively requires
+  #   github.com/smallstep/certificates. That package pins nebula v1.9.x.
+  # - Checked: smallstep/certificates v0.27.5 → v0.30.0-rc2 all require nebula v1.9.4–v1.9.7.
+  #   The nebula v1.10 API removal breaks compilation in the
+  #   authority/provisioner package; xcaddy build fails with upgrade attempted.
+  # - Dockerfile caddy-builder stage pins nebula@v1.9.7 (Renovate tracked) with
+  #   an inline comment explaining the constraint (Dockerfile line 247).
+  # - Fix path: once smallstep/certificates releases a version requiring
+  #   nebula v1.10+, remove the pin and this suppression simultaneously.
+  #
+  # Risk Assessment: ACCEPTED (Low exploitability in Charon context)
+  # - Charon uses standard ACME/Let's Encrypt TLS; Nebula VPN PKI is not
+  #   enabled by default and rarely configured in Charon deployments.
+  # - Exploiting this requires a valid certificate sharing the same issuer as
+  #   a revoked one — an uncommon and targeted attack scenario.
+  # - Container-level isolation reduces the attack surface further.
+  #
+  # Mitigation (active while suppression is in effect):
+  # - Monitor smallstep/certificates releases at https://github.com/smallstep/certificates/releases
+  # - Weekly CI security rebuild flags any new CVEs in the full image.
+  # - Renovate annotation in Dockerfile (datasource=go depName=github.com/slackhq/nebula)
+  #   will surface the pin for review when xcaddy build becomes compatible.
+  #
+  # Review:
+  # - Reviewed 2026-02-19: smallstep/certificates latest stable remains v0.27.5;
+  #   no release requiring nebula v1.10+ has shipped. Suppression extended 14 days.
+  # - Next review: 2026-03-05. Remove suppression immediately once upstream fixes.
+  #
+  # Removal Criteria:
+  # - smallstep/certificates releases a stable version requiring nebula v1.10+
+  # - Update Dockerfile caddy-builder patch to use the new versions
+  # - Rebuild image, run security scan, confirm suppression no longer needed
+  # - Remove both this entry and the corresponding .trivyignore entry
+  #
+  # References:
+  # - GHSA: https://github.com/advisories/GHSA-69x3-g4r3-p962
+  # - CVE-2026-25793: https://nvd.nist.gov/vuln/detail/CVE-2026-25793
+  # - smallstep/certificates: https://github.com/smallstep/certificates/releases
+  # - Dockerfile pin: caddy-builder stage, line ~247 (go get nebula@v1.9.7)
+  - vulnerability: GHSA-69x3-g4r3-p962
+    package:
+      name: github.com/slackhq/nebula
+      version: "v1.9.7"
+      type: go-module
+    reason: |
+      HIGH — ECDSA signature malleability in nebula v1.9.7 embedded in /usr/bin/caddy.
+      Cannot upgrade: smallstep/certificates v0.27.5 (latest stable as of 2026-02-19)
+      still requires nebula v1.9.x (verified across v0.27.5–v0.30.0-rc2). Charon does
+      not use Nebula VPN PKI by default. Risk accepted pending upstream smallstep fix.
+      Reviewed 2026-02-19: no new smallstep release changes this assessment.
+    expiry: "2026-03-05"  # Re-evaluate in 14 days (2026-02-19 + 14 days)
+
+    # Action items when this suppression expires:
+    # 1. Check smallstep/certificates releases: https://github.com/smallstep/certificates/releases
+    # 2. If a stable version requires nebula v1.10+:
+    #    a. Update Dockerfile caddy-builder: remove the `go get nebula@v1.9.7` pin
+    #    b. Optionally bump smallstep/certificates to the new version
+    #    c. Rebuild Docker image and verify no compile failures
+    #    d. Re-run local security-scan-docker-image and confirm clean result
+    #    e. Remove this suppression entry
+    # 3. If no fix yet: Extend expiry by 14 days and document justification
+    # 4. If extended 3+ times: Open upstream issue on smallstep/certificates
+
+# Match exclusions (patterns to ignore during scanning)
+# Use sparingly - prefer specific CVE suppressions above
+match:
+  # Exclude test fixtures and example code from vulnerability scanning
+  exclude:
+    - path: "**/test/**"
+    - path: "**/tests/**"
+    - path: "**/testdata/**"
+    - path: "**/examples/**"
+    - path: "**/*_test.go"
+
+# Output configuration (optional)
+# These settings can be overridden via CLI flags
+output:
+  # Report only HIGH and CRITICAL by default
+  # Medium/Low findings are still logged but don't fail the scan
+  fail-on-severity: high
+
+# Check for configuration updates
+# Grype automatically updates its vulnerability database
+# Run `grype db update` manually to force an update
+check-for-app-update: true
