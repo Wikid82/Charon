@@ -28,7 +28,7 @@ runSubagent({
 - Parallel: run `QA and Security`, `DevOps` and `Doc Writer` in parallel for CI / QA checks and documentation.
 - Return: a JSON summary with `subagent_results`, `overall_status`, and aggregated artifacts.
 
-2.1) Multi-PR Slicing Protocol
+2.1) Multi-Cmmit Slicing Protocol
 
 - If a task is large or high-risk, split into PR slices and execute in order.
 - Each slice must have:
