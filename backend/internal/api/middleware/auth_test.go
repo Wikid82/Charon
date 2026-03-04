@@ -427,3 +427,61 @@ func TestExtractAuthCookieToken_IgnoresNonAuthCookies(t *testing.T) {
 	token := extractAuthCookieToken(ctx)
 	assert.Equal(t, "", token)
 }
+
+func TestRequireManagementAccess_PassthroughBlocked(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", string(models.RolePassthrough))
+		c.Next()
+	})
+	r.Use(RequireManagementAccess())
+	r.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "Pass-through users cannot access management features")
+}
+
+func TestRequireManagementAccess_UserAllowed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", string(models.RoleUser))
+		c.Next()
+	})
+	r.Use(RequireManagementAccess())
+	r.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRequireManagementAccess_AdminAllowed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", string(models.RoleAdmin))
+		c.Next()
+	})
+	r.Use(RequireManagementAccess())
+	r.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}

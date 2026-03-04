@@ -66,8 +66,6 @@
     "settings": "Paramètres",
     "system": "Système",
     "email": "Email (SMTP)",
-    "adminAccount": "Compte Administrateur",
-    "accountManagement": "Gestion des Comptes",
     "import": "Importer",
     "caddyfile": "Caddyfile",
     "backups": "Sauvegardes",
@@ -538,6 +536,10 @@
     "role": "Rôle",
     "roleUser": "Utilisateur",
     "roleAdmin": "Administrateur",
+    "rolePassthrough": "Passthrough",
+    "roleUserDescription": "Peut accéder uniquement aux hôtes proxy autorisés.",
+    "roleAdminDescription": "Accès complet à toutes les fonctionnalités et paramètres.",
+    "rolePassthroughDescription": "Accès proxy uniquement — aucune interface de gestion.",
     "permissionMode": "Mode de Permission",
     "allowAllBlacklist": "Tout Autoriser (Liste Noire)",
     "denyAllWhitelist": "Tout Refuser (Liste Blanche)",
@@ -571,7 +573,23 @@
     "resendInvite": "Renvoyer l'invitation",
     "inviteResent": "Invitation renvoyée avec succès",
     "inviteCreatedNoEmail": "Nouvelle invitation créée. L'e-mail n'a pas pu être envoyé.",
-    "resendFailed": "Échec du renvoi de l'invitation"
+    "resendFailed": "Échec du renvoi de l'invitation",
+    "myProfile": "Mon Profil",
+    "editUser": "Modifier l'utilisateur",
+    "changePassword": "Changer le mot de passe",
+    "currentPassword": "Mot de passe actuel",
+    "newPassword": "Nouveau mot de passe",
+    "confirmPassword": "Confirmer le mot de passe",
+    "passwordChanged": "Mot de passe changé avec succès",
+    "passwordChangeFailed": "Échec du changement de mot de passe",
+    "passwordMismatch": "Les mots de passe ne correspondent pas",
+    "apiKey": "Clé API",
+    "regenerateApiKey": "Régénérer la clé API",
+    "apiKeyRegenerated": "Clé API régénérée",
+    "apiKeyRegenerateFailed": "Échec de la régénération de la clé API",
+    "apiKeyConfirm": "Êtes-vous sûr ? La clé API actuelle sera invalidée.",
+    "profileUpdated": "Profil mis à jour avec succès",
+    "profileUpdateFailed": "Échec de la mise à jour du profil"
   },
   "dashboard": {
     "title": "Tableau de bord",
@@ -1018,5 +1036,10 @@
   "dns": {
     "title": "Gestion DNS",
     "description": "Gérer les fournisseurs DNS et les plugins pour l'automatisation des certificats"
+  },
+  "passthrough": {
+    "title": "Bienvenue",
+    "description": "Votre compte a un accès passthrough. Vous pouvez accéder directement à vos services assignés — aucune interface de gestion n'est disponible.",
+    "noAccessToManagement": "Vous n'avez pas accès à l'interface de gestion."
   }
 }

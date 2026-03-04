@@ -73,7 +73,7 @@ func TestRegisterImportHandler_AuthzGuards(t *testing.T) {
 	router.ServeHTTP(unauthW, unauthReq)
 	assert.Equal(t, http.StatusUnauthorized, unauthW.Code)
 
-	nonAdmin := &models.User{Email: "user@example.com", Role: "user", Enabled: true}
+	nonAdmin := &models.User{Email: "user@example.com", Role: models.RoleUser, Enabled: true}
 	require.NoError(t, db.Create(nonAdmin).Error)
 	authSvc := services.NewAuthService(db, cfg)
 	token, err := authSvc.GenerateToken(nonAdmin)

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
 )
@@ -37,7 +38,7 @@ func AuthMiddleware(authService *services.AuthService) gin.HandlerFunc {
 		}
 
 		c.Set("userID", user.ID)
-		c.Set("role", user.Role)
+		c.Set("role", string(user.Role))
 		c.Next()
 	}
 }
@@ -95,19 +96,30 @@ func extractAuthCookieToken(c *gin.Context) string {
 	return token
 }
 
-func RequireRole(role string) gin.HandlerFunc {
+func RequireRole(role models.UserRole) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userRole, exists := c.Get("role")
-		if !exists {
+		userRole := c.GetString("role")
+		if userRole == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
 
-		if userRole.(string) != role && userRole.(string) != "admin" {
+		if userRole != string(role) && userRole != string(models.RoleAdmin) {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
 			return
 		}
 
+		c.Next()
+	}
+}
+
+func RequireManagementAccess() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role := c.GetString("role")
+		if role == string(models.RolePassthrough) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Pass-through users cannot access management features"})
+			return
+		}
 		c.Next()
 	}
 }

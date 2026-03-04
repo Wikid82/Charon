@@ -384,10 +384,7 @@ func (h *EmergencyHandler) syncSecurityState(ctx context.Context) {
 // POST /api/v1/emergency/token/generate
 // Requires admin authentication
 func (h *EmergencyHandler) GenerateToken(c *gin.Context) {
-	// Check admin role
-	role, exists := c.Get("role")
-	if !exists || role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 
@@ -437,10 +434,7 @@ func (h *EmergencyHandler) GenerateToken(c *gin.Context) {
 // GET /api/v1/emergency/token/status
 // Requires admin authentication
 func (h *EmergencyHandler) GetTokenStatus(c *gin.Context) {
-	// Check admin role
-	role, exists := c.Get("role")
-	if !exists || role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 
@@ -458,10 +452,7 @@ func (h *EmergencyHandler) GetTokenStatus(c *gin.Context) {
 // DELETE /api/v1/emergency/token
 // Requires admin authentication
 func (h *EmergencyHandler) RevokeToken(c *gin.Context) {
-	// Check admin role
-	role, exists := c.Get("role")
-	if !exists || role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 
@@ -485,10 +476,7 @@ func (h *EmergencyHandler) RevokeToken(c *gin.Context) {
 // PATCH /api/v1/emergency/token/expiration
 // Requires admin authentication
 func (h *EmergencyHandler) UpdateTokenExpiration(c *gin.Context) {
-	// Check admin role
-	role, exists := c.Get("role")
-	if !exists || role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if !requireAdmin(c) {
 		return
 	}
 

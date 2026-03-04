@@ -66,8 +66,6 @@
     "settings": "Einstellungen",
     "system": "System",
     "email": "E-Mail (SMTP)",
-    "adminAccount": "Admin-Konto",
-    "accountManagement": "Kontoverwaltung",
     "import": "Importieren",
     "caddyfile": "Caddyfile",
     "backups": "Sicherungen",
@@ -538,6 +536,10 @@
     "role": "Rolle",
     "roleUser": "Benutzer",
     "roleAdmin": "Administrator",
+    "rolePassthrough": "Passthrough",
+    "roleUserDescription": "Kann nur auf erlaubte Proxy-Hosts zugreifen.",
+    "roleAdminDescription": "Vollzugriff auf alle Funktionen und Einstellungen.",
+    "rolePassthroughDescription": "Nur Proxy-Zugriff — keine Verwaltungsoberfläche.",
     "permissionMode": "Berechtigungsmodus",
     "allowAllBlacklist": "Alles erlauben (Blacklist)",
     "denyAllWhitelist": "Alles verweigern (Whitelist)",
@@ -571,7 +573,23 @@
     "resendInvite": "Einladung erneut senden",
     "inviteResent": "Einladung erfolgreich erneut gesendet",
     "inviteCreatedNoEmail": "Neue Einladung erstellt. E-Mail konnte nicht gesendet werden.",
-    "resendFailed": "Einladung konnte nicht erneut gesendet werden"
+    "resendFailed": "Einladung konnte nicht erneut gesendet werden",
+    "myProfile": "Mein Profil",
+    "editUser": "Benutzer bearbeiten",
+    "changePassword": "Passwort ändern",
+    "currentPassword": "Aktuelles Passwort",
+    "newPassword": "Neues Passwort",
+    "confirmPassword": "Passwort bestätigen",
+    "passwordChanged": "Passwort erfolgreich geändert",
+    "passwordChangeFailed": "Passwort konnte nicht geändert werden",
+    "passwordMismatch": "Passwörter stimmen nicht überein",
+    "apiKey": "API-Schlüssel",
+    "regenerateApiKey": "API-Schlüssel neu generieren",
+    "apiKeyRegenerated": "API-Schlüssel neu generiert",
+    "apiKeyRegenerateFailed": "API-Schlüssel konnte nicht neu generiert werden",
+    "apiKeyConfirm": "Sind Sie sicher? Der aktuelle API-Schlüssel wird ungültig.",
+    "profileUpdated": "Profil erfolgreich aktualisiert",
+    "profileUpdateFailed": "Profil konnte nicht aktualisiert werden"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -1018,5 +1036,10 @@
   "dns": {
     "title": "DNS-Verwaltung",
     "description": "DNS-Anbieter und Plugins für die Zertifikatsautomatisierung verwalten"
+  },
+  "passthrough": {
+    "title": "Willkommen",
+    "description": "Ihr Konto hat Passthrough-Zugriff. Sie können Ihre zugewiesenen Dienste direkt erreichen — keine Verwaltungsoberfläche verfügbar.",
+    "noAccessToManagement": "Sie haben keinen Zugriff auf die Verwaltungsoberfläche."
   }
 }

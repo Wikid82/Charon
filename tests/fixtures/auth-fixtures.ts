@@ -403,19 +403,20 @@ export const test = base.extend<AuthFixtures>({
   },
 
   /**
-   * Guest user (read-only) fixture
-   * Use for testing read-only access
+   * Guest user (restricted access) fixture — using 'passthrough' role
+   * (the 'guest' role was removed in PR-3; 'passthrough' is the equivalent
+   * lowest-privilege role in the Admin / User / Passthrough model)
    */
   guestUser: async ({ testData }, use) => {
     const user = await testData.createUser({
       name: `Test Guest ${Date.now()}`,
       email: `guest-${Date.now()}@test.local`,
       password: TEST_PASSWORD,
-      role: 'guest',
+      role: 'passthrough',
     });
     await use({
       ...user,
-      role: 'guest',
+      role: 'passthrough',
     });
   },
 });
