@@ -1,9 +1,0 @@
-{
-  "collections": {
-    "crowdsecurity/demo": {
-      "path": "crowdsecurity/demo.tgz",
-      "version": "1.0",
-      "description": "Demo collection"
-    }
-  }
-}

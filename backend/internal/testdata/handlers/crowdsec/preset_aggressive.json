@@ -1,5 +1,0 @@
-{
-  "name": "aggressive",
-  "scenarios": ["crowdsecurity/http-probing", "crowdsecurity/http-bad-user-agent"],
-  "parsers": ["crowdsecurity/http-logs"]
-}

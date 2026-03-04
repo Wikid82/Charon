@@ -1,9 +1,0 @@
-.cache/
-playwright/.auth/
-
-# GHSA-69x3-g4r3-p962 / CVE-2026-25793: Nebula ECDSA Signature Malleability
-# Severity: HIGH (CVSS 8.1) — Package: github.com/slackhq/nebula v1.9.7 in /usr/bin/caddy
-# Cannot upgrade: smallstep/certificates v0.27.5 (latest stable as of 2026-02-19) still pins nebula v1.9.x.
-# Charon does not use Nebula VPN PKI by default. Review by: 2026-03-05
-# See also: .grype.yaml for full justification
-CVE-2026-25793
