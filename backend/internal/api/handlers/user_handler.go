@@ -749,10 +749,15 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	isSelf := uint(id) == currentUserID
 	isCallerAdmin := currentRole == string(models.RoleAdmin)
 
-	// Non-admin users can only update their own name and password
+	// Non-admin users can only update their own name and password via this endpoint.
+	// Email changes require password verification and must go through PUT /user/profile.
 	if !isCallerAdmin {
 		if !isSelf {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+			return
+		}
+		if req.Email != "" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Email changes must be made via your profile settings"})
 			return
 		}
 		if req.Role != "" || req.Enabled != nil {
