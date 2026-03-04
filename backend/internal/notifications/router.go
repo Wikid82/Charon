@@ -1,0 +1,37 @@
+package notifications
+
+import "strings"
+
+type Router struct{}
+
+func NewRouter() *Router {
+	return &Router{}
+}
+
+func (r *Router) ShouldUseNotify(providerType, providerEngine string, flags map[string]bool) bool {
+	if !flags[FlagNotifyEngineEnabled] {
+		return false
+	}
+
+	if strings.EqualFold(providerEngine, EngineLegacy) {
+		return false
+	}
+
+	switch strings.ToLower(providerType) {
+	case "discord":
+		return flags[FlagDiscordServiceEnabled]
+	case "gotify":
+		return flags[FlagGotifyServiceEnabled]
+	case "webhook":
+		return flags[FlagWebhookServiceEnabled]
+	default:
+		return false
+	}
+}
+
+func (r *Router) ShouldUseLegacyFallback(flags map[string]bool) bool {
+	// Hard-disabled: Legacy fallback has been permanently removed.
+	// This function exists only for interface compatibility and always returns false.
+	_ = flags // Explicitly ignore flags to prevent accidental re-introduction
+	return false
+}

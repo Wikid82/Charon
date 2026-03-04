@@ -1,0 +1,46 @@
+# Development override - use with: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  app:
+    # Override for local testing:
+    # CHARON_DEV_IMAGE=ghcr.io/wikid82/charon:dev
+    image: wikid82/charon:dev
+    # Development: expose Caddy admin API externally for debugging
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+      - "8080:8080"
+      - "2019:2019"  # Caddy admin API (dev only)
+    environment:
+      - CHARON_ENV=development
+      - CPM_ENV=development
+      - CHARON_HTTP_PORT=8080
+      - CPM_HTTP_PORT=80
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
+      - CHARON_DB_PATH=/app/data/charon.db
+      - CHARON_FRONTEND_DIR=/app/frontend/dist
+      - CHARON_CADDY_ADMIN_API=http://localhost:2019
+      - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
+      # Security Services (Optional)
+      # 🚨 DEPRECATED: Use GUI toggle in Security dashboard instead
+      #- CPM_SECURITY_CROWDSEC_MODE=disabled # ⚠️ DEPRECATED
+      #- CPM_SECURITY_CROWDSEC_API_URL= # ⚠️ DEPRECATED
+      #- CPM_SECURITY_CROWDSEC_API_KEY= # ⚠️ DEPRECATED
+      #- CPM_SECURITY_WAF_MODE=disabled
+      #- CPM_SECURITY_RATELIMIT_ENABLED=false
+      #- CPM_SECURITY_ACL_ENABLED=false
+      - FEATURE_CERBERUS_ENABLED=true
+    # Docker socket group access: copy docker-compose.override.example.yml
+    # to docker-compose.override.yml and set your host's docker GID.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
+      - crowdsec_data:/app/data/crowdsec
+      # Mount your existing Caddyfile for automatic import (optional)
+      # - ./my-existing-Caddyfile:/import/Caddyfile:ro
+      # - ./sites:/import/sites:ro # If your Caddyfile imports other files
+
+volumes:
+  crowdsec_data:
+    driver: local

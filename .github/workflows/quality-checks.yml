@@ -1,0 +1,332 @@
+name: Quality Checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - nightly
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+
+env:
+  GO_VERSION: '1.26.0'
+  NODE_VERSION: '24.12.0'
+  GOTOOLCHAIN: auto
+
+jobs:
+  auth-route-protection-contract:
+    name: Auth Route Protection Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      - name: Run auth protection contract tests
+        run: |
+          set -euo pipefail
+          cd backend
+          go test ./internal/api/routes -run 'TestRegister_StateChangingRoutesRequireAuthentication|TestRegister_StateChangingRoutesDenyByDefaultWithExplicitAllowlist|TestRegister_AuthenticatedRoutes' -count=1 -v
+
+  codecov-trigger-parity-guard:
+    name: Codecov Trigger/Comment Parity Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Enforce Codecov trigger and comment parity
+        run: |
+          bash scripts/ci/check-codecov-trigger-parity.sh
+
+  backend-quality:
+    name: Backend (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      # SECURITY: Do not switch this workflow to pull_request_target for backend tests.
+      # Untrusted code paths (fork PRs and Dependabot PRs) must never receive repository secrets.
+      - name: Resolve encryption key for backend tests
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_FORK: ${{ github.event.pull_request.head.repo.fork }}
+          WORKFLOW_SECRET_KEY: ${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}
+        run: |
+          set -euo pipefail
+
+          is_same_repo_pr=false
+          if [[ "$EVENT_NAME" == "pull_request" && -n "${PR_HEAD_REPO:-}" && "$PR_HEAD_REPO" == "$REPO" ]]; then
+            is_same_repo_pr=true
+          fi
+
+          is_workflow_dispatch=false
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            is_workflow_dispatch=true
+          fi
+
+          is_push_event=false
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            is_push_event=true
+          fi
+
+          is_dependabot_pr=false
+          if [[ "$EVENT_NAME" == "pull_request" && "$ACTOR" == "dependabot[bot]" ]]; then
+            is_dependabot_pr=true
+          fi
+
+          is_fork_pr=false
+          if [[ "$EVENT_NAME" == "pull_request" && "${PR_HEAD_FORK:-false}" == "true" ]]; then
+            is_fork_pr=true
+          fi
+
+          is_untrusted=false
+          if [[ "$is_fork_pr" == "true" || "$is_dependabot_pr" == "true" ]]; then
+            is_untrusted=true
+          fi
+
+          is_trusted=false
+          if [[ "$is_untrusted" == "false" && ( "$is_same_repo_pr" == "true" || "$is_workflow_dispatch" == "true" || "$is_push_event" == "true" ) ]]; then
+            is_trusted=true
+          fi
+
+          resolved_key=""
+          if [[ "$is_trusted" == "true" ]]; then
+            if [[ -z "${WORKFLOW_SECRET_KEY:-}" ]]; then
+              echo "::error title=Missing required secret::Trusted backend CI context requires CHARON_ENCRYPTION_KEY_TEST. Add repository secret CHARON_ENCRYPTION_KEY_TEST."
+              exit 1
+            fi
+            resolved_key="$WORKFLOW_SECRET_KEY"
+          elif [[ "$is_untrusted" == "true" ]]; then
+            resolved_key="$(openssl rand -base64 32)"
+          else
+            echo "::error title=Unsupported event context::Unable to classify trust for backend key resolution (event=${EVENT_NAME})."
+            exit 1
+          fi
+
+          if [[ -z "$resolved_key" ]]; then
+            echo "::error title=Key resolution failure::Resolved encryption key is empty."
+            exit 1
+          fi
+
+          echo "::add-mask::$resolved_key"
+          {
+            echo "CHARON_ENCRYPTION_KEY<<__CHARON_EOF__"
+            echo "$resolved_key"
+            echo "__CHARON_EOF__"
+          } >> "$GITHUB_ENV"
+
+      - name: Set up Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      - name: Repo health check
+        run: |
+          bash "scripts/repo_health_check.sh"
+
+      - name: Run Go tests
+        id: go-tests
+        working-directory: ${{ github.workspace }}
+        env:
+          CGO_ENABLED: 1
+        run: |
+          bash "scripts/go-test-coverage.sh" 2>&1 | tee backend/test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Go Test Summary
+        if: always()
+        working-directory: backend
+        run: |
+          {
+            echo "## 🔧 Backend Test Results"
+            if [ "${{ steps.go-tests.outcome }}" == "success" ]; then
+              echo "✅ **All tests passed**"
+              PASS_COUNT=$(grep -c "^--- PASS" test-output.txt || echo "0")
+              echo "- Tests passed: ${PASS_COUNT}"
+            else
+              echo "❌ **Tests failed**"
+              echo ""
+              echo "### Failed Tests:"
+              echo '```'
+              grep -E "^--- FAIL|FAIL\s+github" test-output.txt || echo "See logs for details"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Codecov upload moved to `codecov-upload.yml` (pull_request + workflow_dispatch).
+
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+        with:
+          version: latest
+          working-directory: backend
+          args: --timeout=5m
+        continue-on-error: true
+
+      - name: GORM Security Scanner
+        id: gorm-scan
+        run: |
+          chmod +x scripts/scan-gorm-security.sh
+          ./scripts/scan-gorm-security.sh --check
+        continue-on-error: false
+
+      - name: GORM Security Scan Summary
+        if: always()
+        run: |
+          {
+            echo "## 🔒 GORM Security Scan Results"
+            if [ "${{ steps.gorm-scan.outcome }}" == "success" ]; then
+              echo "✅ **No GORM security issues detected**"
+              echo ""
+              echo "All models follow secure GORM patterns:"
+              echo "- ✅ No exposed internal database IDs"
+              echo "- ✅ No exposed API keys or secrets"
+              echo "- ✅ Response DTOs properly structured"
+            else
+              echo "❌ **GORM security issues found**"
+              echo ""
+              echo "Run locally for details:"
+              echo '```bash'
+              echo "./scripts/scan-gorm-security.sh --report"
+              echo '```'
+              echo ""
+              echo "See [GORM Security Scanner docs](docs/implementation/gorm_security_scanner_complete.md) for remediation guidance."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Annotate GORM Security Issues
+        if: failure() && steps.gorm-scan.outcome == 'failure'
+        run: |
+          echo "::error title=GORM Security Issues Detected::Run './scripts/scan-gorm-security.sh --report' locally for detailed findings. See docs/implementation/gorm_security_scanner_complete.md for remediation guidance."
+
+      - name: Run Perf Asserts
+        working-directory: backend
+        env:
+          # Conservative defaults to avoid flakiness on CI; tune as necessary
+          PERF_MAX_MS_GETSTATUS_P95: 500ms
+          PERF_MAX_MS_GETSTATUS_P95_PARALLEL: 1500ms
+          PERF_MAX_MS_LISTDECISIONS_P95: 2000ms
+        run: |
+          {
+            echo "## 🔍 Running performance assertions (TestPerf)"
+            go test -run TestPerf -v ./internal/api/handlers -count=1 | tee perf-output.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "${PIPESTATUS[0]}"
+
+  frontend-quality:
+    name: Frontend (React)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Repo health check
+        run: |
+          bash "scripts/repo_health_check.sh"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Check if frontend was modified in PR
+        id: check-frontend
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Try to fetch the PR base ref. This may fail for forked PRs or other cases.
+          git fetch origin "${{ github.event.pull_request.base.ref }}" --depth=1 || true
+
+          # Compute changed files against the PR base ref, fallback to origin/main, then fallback to last 10 commits
+          CHANGED=$(git diff --name-only "origin/${{ github.event.pull_request.base.ref }}...HEAD" 2>/dev/null || echo "")
+          printf "Changed files (base ref):\n%s\n" "$CHANGED"
+
+          if [ -z "$CHANGED" ]; then
+            echo "Base ref diff empty or failed; fetching origin/main for fallback..."
+            git fetch origin main --depth=1 || true
+            CHANGED=$(git diff --name-only origin/main...HEAD 2>/dev/null || echo "")
+            printf "Changed files (main fallback):\n%s\n" "$CHANGED"
+          fi
+
+          if [ -z "$CHANGED" ]; then
+            echo "Still empty; falling back to diffing last 10 commits from HEAD..."
+            CHANGED=$(git diff --name-only HEAD~10...HEAD 2>/dev/null || echo "")
+            printf "Changed files (HEAD~10 fallback):\n%s\n" "$CHANGED"
+          fi
+
+          if echo "$CHANGED" | grep -q '^frontend/'; then
+            echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "frontend_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend tests and coverage
+        id: frontend-tests
+        working-directory: ${{ github.workspace }}
+        run: |
+          bash scripts/frontend-test-coverage.sh 2>&1 | tee frontend/test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Frontend Test Summary
+        if: always()
+        working-directory: frontend
+        run: |
+          {
+            echo "## ⚛️ Frontend Test Results"
+            if [ "${{ steps.frontend-tests.outcome }}" == "success" ]; then
+              echo "✅ **All tests passed**"
+              # Extract test counts from vitest output
+              if grep -q "Tests:" test-output.txt; then
+                grep "Tests:" test-output.txt | tail -1
+              fi
+            else
+              echo "❌ **Tests failed**"
+              echo ""
+              echo "### Failed Tests:"
+              echo '```'
+              # Extract failed test info from vitest output
+              grep -E "FAIL|✕|×|AssertionError|Error:" test-output.txt | head -30 || echo "See logs for details"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Codecov upload moved to `codecov-upload.yml` (pull_request + workflow_dispatch).
+
+
+
+      - name: Run frontend lint
+        working-directory: frontend
+        run: npm run lint
+        continue-on-error: true

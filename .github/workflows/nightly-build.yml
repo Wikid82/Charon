@@ -1,0 +1,523 @@
+name: Nightly Build & Package
+on:
+  schedule:
+    # Daily at 09:00 UTC (4am EST / 5am EDT)
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+   inputs:
+    reason:
+      description: "Why are you running this manually?"
+      required: true
+      default: "manual trigger"
+    skip_tests:
+      description: "Skip test-nightly-image job?"
+      required: false
+      default: "false"
+
+env:
+  GO_VERSION: '1.26.0'
+  NODE_VERSION: '24.12.0'
+  GOTOOLCHAIN: auto
+  GHCR_REGISTRY: ghcr.io
+  DOCKERHUB_REGISTRY: docker.io
+  IMAGE_NAME: wikid82/charon
+
+jobs:
+  sync-development-to-nightly:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      has_changes: ${{ steps.sync.outputs.has_changes }}
+
+    steps:
+      - name: Checkout nightly branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: nightly
+          fetch-depth: 0
+          token: ${{ secrets.CHARON_CI_TRIGGER_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync development to nightly
+        id: sync
+        env:
+          HAS_TRIGGER_TOKEN: ${{ secrets.CHARON_CI_TRIGGER_TOKEN != '' }}
+        run: |
+          # Fetch both branches to ensure we have the latest remote state
+          git fetch origin development
+          git fetch origin nightly
+
+          # Sync local nightly with remote nightly to prevent non-fast-forward errors
+          echo "Syncing local nightly with remote nightly..."
+          git reset --hard origin/nightly
+
+          # Check if there are differences between remote branches
+          if git diff --quiet origin/nightly origin/development; then
+            echo "No changes to sync from development to nightly"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Syncing changes from development to nightly"
+            # Fast-forward merge development into nightly
+            git merge origin/development --ff-only -m "chore: sync from development branch [skip ci]" || {
+              # If fast-forward fails, force reset to development
+              echo "Fast-forward not possible, resetting nightly to development"
+              git reset --hard origin/development
+            }
+            if [[ "$HAS_TRIGGER_TOKEN" != "true" ]]; then
+              echo "::warning title=Using GITHUB_TOKEN fallback::Set CHARON_CI_TRIGGER_TOKEN to ensure push-triggered workflows run on nightly."
+            fi
+            # Force push to handle cases where nightly diverged from development
+            git push --force origin nightly
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  trigger-nightly-validation:
+    name: Trigger Nightly Validation Workflows
+    needs: sync-development-to-nightly
+    if: needs.sync-development-to-nightly.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch Missing Nightly Validation Workflows
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const { data: nightlyBranch } = await github.rest.repos.getBranch({
+              owner,
+              repo,
+              branch: 'nightly',
+            });
+            const nightlyHeadSha = nightlyBranch.commit.sha;
+            core.info(`Current nightly HEAD: ${nightlyHeadSha}`);
+
+            const workflows = [
+              { id: 'e2e-tests-split.yml' },
+              { id: 'codecov-upload.yml', inputs: { run_backend: 'true', run_frontend: 'true' } },
+              { id: 'supply-chain-verify.yml' },
+              { id: 'codeql.yml' },
+            ];
+
+            core.info('Skipping security-pr.yml: PR-only workflow intentionally excluded from nightly non-PR dispatch');
+
+            for (const workflow of workflows) {
+              const { data: workflowRuns } = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: workflow.id,
+                branch: 'nightly',
+                per_page: 50,
+              });
+
+              const hasRunForHead = workflowRuns.workflow_runs.some(
+                (run) => run.head_sha === nightlyHeadSha,
+              );
+
+              if (hasRunForHead) {
+                core.info(`Skipping dispatch for ${workflow.id}; run already exists for nightly HEAD`);
+                continue;
+              }
+
+              await github.rest.actions.createWorkflowDispatch({
+                owner,
+                repo,
+                workflow_id: workflow.id,
+                ref: 'nightly',
+                ...(workflow.inputs ? { inputs: workflow.inputs } : {}),
+              });
+              core.info(`Dispatched ${workflow.id} on nightly (missing run for HEAD)`);
+            }
+
+  build-and-push-nightly:
+    needs: sync-development-to-nightly
+    runs-on: ubuntu-latest
+    env:
+      HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tags: ${{ steps.meta.outputs.tags }}
+      digest: ${{ steps.build.outputs.digest }}
+
+    steps:
+      - name: Checkout nightly branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: nightly
+          fetch-depth: 0
+
+      - name: Set lowercase image name
+        run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a  # v4.0.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: env.HAS_DOCKERHUB_TOKEN == 'true'
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5.10.0
+        with:
+          images: |
+            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
+            ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=nightly
+            type=raw,value=nightly-{{date 'YYYY-MM-DD'}}
+            type=sha,prefix=nightly-,format=short
+          labels: |
+            org.opencontainers.image.title=Charon Nightly
+            org.opencontainers.image.description=Nightly build of Charon
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=nightly-${{ github.sha }}
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.pushed_at }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Record nightly image digest
+        run: |
+          echo "## 🧾 Nightly Image Digest" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate SBOM
+        id: sbom_primary
+        continue-on-error: true
+        uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11  # v0.23.0
+        with:
+          image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.build.outputs.digest }}
+          format: cyclonedx-json
+          output-file: sbom-nightly.json
+          syft-version: v1.42.1
+
+      - name: Generate SBOM fallback with pinned Syft
+        if: always()
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ steps.sbom_primary.outcome }}" == "success" ]] && [[ -s sbom-nightly.json ]] && jq -e . sbom-nightly.json >/dev/null 2>&1; then
+            echo "Primary SBOM generation succeeded with valid JSON; skipping fallback"
+            exit 0
+          fi
+
+          echo "Primary SBOM generation failed or produced missing/invalid output; using deterministic Syft fallback"
+
+          SYFT_VERSION="v1.42.1"
+          OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            x86_64) ARCH="amd64" ;;
+            aarch64|arm64) ARCH="arm64" ;;
+            *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+          esac
+
+          TARBALL="syft_${SYFT_VERSION#v}_${OS}_${ARCH}.tar.gz"
+          BASE_URL="https://github.com/anchore/syft/releases/download/${SYFT_VERSION}"
+
+          curl -fsSLo "$TARBALL" "${BASE_URL}/${TARBALL}"
+          curl -fsSLo checksums.txt "${BASE_URL}/syft_${SYFT_VERSION#v}_checksums.txt"
+
+          grep "  ${TARBALL}$" checksums.txt > checksum_line.txt
+          sha256sum -c checksum_line.txt
+
+          tar -xzf "$TARBALL" syft
+          chmod +x syft
+
+          ./syft "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.build.outputs.digest }}" -o cyclonedx-json=sbom-nightly.json
+
+      - name: Verify SBOM artifact
+        if: always()
+        run: |
+          set -euo pipefail
+          test -s sbom-nightly.json
+          jq -e . sbom-nightly.json >/dev/null
+          jq -e '
+            .bomFormat == "CycloneDX"
+            and (.specVersion | type == "string" and length > 0)
+            and has("version")
+            and has("metadata")
+            and (.components | type == "array")
+          ' sbom-nightly.json >/dev/null
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: sbom-nightly
+          path: sbom-nightly.json
+          retention-days: 30
+
+      # Install Cosign for keyless signing
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad  # v4.0.0
+
+      # Sign GHCR image with keyless signing (Sigstore/Fulcio)
+      - name: Sign GHCR Image
+        run: |
+          echo "Signing GHCR nightly image with keyless signing..."
+          cosign sign --yes "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+          echo "✅ GHCR nightly image signed successfully"
+
+      # Sign Docker Hub image with keyless signing (Sigstore/Fulcio)
+      - name: Sign Docker Hub Image
+        if: env.HAS_DOCKERHUB_TOKEN == 'true'
+        run: |
+          echo "Signing Docker Hub nightly image with keyless signing..."
+          cosign sign --yes "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+          echo "✅ Docker Hub nightly image signed successfully"
+
+      # Attach SBOM to Docker Hub image
+      - name: Attach SBOM to Docker Hub
+        if: env.HAS_DOCKERHUB_TOKEN == 'true'
+        run: |
+          echo "Attaching SBOM to Docker Hub nightly image..."
+          cosign attach sbom --sbom sbom-nightly.json "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+          echo "✅ SBOM attached to Docker Hub nightly image"
+
+  test-nightly-image:
+    needs: build-and-push-nightly
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout nightly branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: nightly
+
+      - name: Set lowercase image name
+        run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull nightly image
+        run: docker pull "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}"
+
+      - name: Run container smoke test
+        run: |
+          docker run --name charon-nightly -d \
+            -p 8080:8080 \
+            "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}"
+
+          # Wait for container to start
+          sleep 10
+
+          # Check container is running
+          docker ps | grep charon-nightly
+
+          # Basic health check
+          curl -f http://localhost:8080/health || exit 1
+
+          # Cleanup
+          docker stop charon-nightly
+          docker rm charon-nightly
+
+  # NOTE: Standalone binary builds removed - Charon uses Docker-only deployment
+  # The build-nightly-release job that ran GoReleaser for Windows/macOS/Linux binaries
+  # was removed because:
+  # 1. Charon is distributed exclusively via Docker images
+  # 2. Cross-compilation was failing due to Unix-specific syscalls
+  # 3. No users download standalone binaries (all use Docker)
+  # If standalone binaries are needed in the future, re-add the job with Linux-only targets
+
+  verify-nightly-supply-chain:
+    needs: build-and-push-nightly
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+
+    steps:
+      - name: Checkout nightly branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: nightly
+
+      - name: Set lowercase image name
+        run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
+
+      - name: Download SBOM
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3  # v8.0.0
+        with:
+          name: sbom-nightly
+
+      - name: Scan with Grype
+        uses: anchore/scan-action@7037fa011853d5a11690026fb85feee79f4c946c  # v7.3.2
+        with:
+          sbom: sbom-nightly.json
+          fail-build: false
+          severity-cutoff: high
+
+      - name: Scan with Trivy
+        uses: aquasecurity/trivy-action@97e0b3872f55f89b95b2f65b3dbab56962816478  # 0.34.2
+        with:
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-and-push-nightly.outputs.digest }}
+          format: 'sarif'
+          output: 'trivy-nightly.sarif'
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@c793b717bc78562f491db7b0e93a3a178b099162  # v4.32.5
+        with:
+          sarif_file: 'trivy-nightly.sarif'
+          category: 'trivy-nightly'
+
+      - name: Security severity policy summary
+        run: |
+          {
+            echo "## 🔐 Nightly Supply Chain Severity Policy"
+            echo ""
+            echo "- Blocking: Critical, High"
+            echo "- Medium: non-blocking by default (report + triage SLA)"
+            echo "- Policy file: .github/security-severity-policy.yml"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check for Critical/High CVEs
+        run: |
+          set -euo pipefail
+
+          jq -e . trivy-nightly.sarif >/dev/null
+
+          CRITICAL_COUNT=$(jq -r '
+            [
+              .runs[] as $run
+              | ($run.tool.driver.rules // []) as $rules
+              | $run.results[]?
+              | . as $result
+              | (
+                  (
+                    if (($result.ruleIndex | type) == "number") then
+                      ($rules[$result.ruleIndex].properties["security-severity"] // empty)
+                    else
+                      empty
+                    end
+                  )
+                  // ([
+                      $rules[]?
+                      | select((.id // "") == ($result.ruleId // ""))
+                      | .properties["security-severity"]
+                    ][0] // empty)
+                  // empty
+                ) as $securitySeverity
+              | (try ($securitySeverity | tonumber) catch empty) as $score
+              | select($score != null and $score >= 9.0)
+            ] | length
+          ' trivy-nightly.sarif)
+
+          HIGH_COUNT=$(jq -r '
+            [
+              .runs[] as $run
+              | ($run.tool.driver.rules // []) as $rules
+              | $run.results[]?
+              | . as $result
+              | (
+                  (
+                    if (($result.ruleIndex | type) == "number") then
+                      ($rules[$result.ruleIndex].properties["security-severity"] // empty)
+                    else
+                      empty
+                    end
+                  )
+                  // ([
+                      $rules[]?
+                      | select((.id // "") == ($result.ruleId // ""))
+                      | .properties["security-severity"]
+                    ][0] // empty)
+                  // empty
+                ) as $securitySeverity
+              | (try ($securitySeverity | tonumber) catch empty) as $score
+              | select($score != null and $score >= 7.0 and $score < 9.0)
+            ] | length
+          ' trivy-nightly.sarif)
+
+          MEDIUM_COUNT=$(jq -r '
+            [
+              .runs[] as $run
+              | ($run.tool.driver.rules // []) as $rules
+              | $run.results[]?
+              | . as $result
+              | (
+                  (
+                    if (($result.ruleIndex | type) == "number") then
+                      ($rules[$result.ruleIndex].properties["security-severity"] // empty)
+                    else
+                      empty
+                    end
+                  )
+                  // ([
+                      $rules[]?
+                      | select((.id // "") == ($result.ruleId // ""))
+                      | .properties["security-severity"]
+                    ][0] // empty)
+                  // empty
+                ) as $securitySeverity
+              | (try ($securitySeverity | tonumber) catch empty) as $score
+              | select($score != null and $score >= 4.0 and $score < 7.0)
+            ] | length
+          ' trivy-nightly.sarif)
+
+          {
+            echo "- Structured SARIF counts: CRITICAL=${CRITICAL_COUNT}, HIGH=${HIGH_COUNT}, MEDIUM=${MEDIUM_COUNT}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            echo "❌ Critical vulnerabilities found in nightly build (${CRITICAL_COUNT})"
+            exit 1
+          fi
+
+          if [ "$HIGH_COUNT" -gt 0 ]; then
+            echo "❌ High vulnerabilities found in nightly build (${HIGH_COUNT})"
+            exit 1
+          fi
+
+          if [ "$MEDIUM_COUNT" -gt 0 ]; then
+            echo "::warning::Medium vulnerabilities found in nightly build (${MEDIUM_COUNT}). Non-blocking by policy; triage with SLA per .github/security-severity-policy.yml"
+          fi
+
+          echo "✅ No Critical/High vulnerabilities found"

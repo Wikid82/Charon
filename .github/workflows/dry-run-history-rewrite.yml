@@ -1,0 +1,41 @@
+name: History Rewrite Dry-Run
+
+on:
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types: [completed]
+  schedule:
+    - cron: '0 2 * * *' # daily at 02:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  preview-history:
+    name: Dry-run preview for history rewrite
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Debug git info
+        run: |
+          git --version
+          git rev-parse --is-shallow-repository || true
+          git status --porcelain
+
+      - name: Make CI script executable
+        run: chmod +x scripts/ci/dry_run_history_rewrite.sh
+
+      - name: Run dry-run history check
+        run: |
+          scripts/ci/dry_run_history_rewrite.sh --paths 'backend/codeql-db,codeql-db,codeql-db-js,codeql-db-go' --strip-size 50

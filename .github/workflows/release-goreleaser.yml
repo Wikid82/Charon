@@ -1,0 +1,84 @@
+name: Release (GoReleaser)
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: '1.26.0'
+  NODE_VERSION: '24.12.0'
+  GOTOOLCHAIN: auto
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  goreleaser:
+    if: ${{ !contains(github.ref_name, '-candidate') && !contains(github.ref_name, '-rc') }}
+    runs-on: ubuntu-latest
+    env:
+      # Use the built-in GITHUB_TOKEN by default for GitHub API operations.
+      # If you need to provide a PAT with elevated permissions, add a GITHUB_TOKEN secret
+      # at the repo or organization level and update the env here accordingly.
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Enforce PR-2 release promotion guard
+        env:
+          REPO_VARS_JSON: ${{ toJSON(vars) }}
+        run: |
+          PR2_GATE_STATUS="$(printf '%s' "$REPO_VARS_JSON" | jq -r '.CHARON_PR2_GATES_PASSED // "false"')"
+          if [[ "$PR2_GATE_STATUS" != "true" ]]; then
+            echo "::error::Releasable tag promotion is blocked until PR-2 security/retirement gates pass."
+            echo "::error::Set repository variable CHARON_PR2_GATES_PASSED=true only after PR-2 approval."
+            exit 1
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build Frontend
+        working-directory: frontend
+        run: |
+          # Inject version into frontend build from tag (if present)
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "VITE_APP_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          npm ci
+          npm run build
+
+      - name: Install Cross-Compilation Tools (Zig)
+        # Security: Pinned to full SHA for supply chain security
+        uses: goto-bus-stop/setup-zig@abea47f85e598557f500fa1fd2ab7464fcb39406 # v2
+        with:
+          version: 0.13.0
+
+      # GITHUB_TOKEN is set from GITHUB_TOKEN or CHARON_TOKEN (fallback), defaulting to GITHUB_TOKEN
+
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7
+        with:
+          distribution: goreleaser
+          version: '~> v2.5'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # CGO settings are handled in .goreleaser.yaml via Zig

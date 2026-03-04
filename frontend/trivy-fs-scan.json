@@ -1,0 +1,2587 @@
+{
+  "SchemaVersion": 2,
+  "Trivy": {
+    "Version": "0.69.0"
+  },
+  "ReportID": "019c2135-9509-7f0d-9655-9304d6752d4d",
+  "CreatedAt": "2026-02-03T01:54:45.641990543Z",
+  "ArtifactName": ".",
+  "ArtifactType": "filesystem",
+  "Results": [
+    {
+      "Target": "package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Packages": [
+        {
+          "ID": "@radix-ui/react-checkbox@1.3.3",
+          "Name": "@radix-ui/react-checkbox",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-checkbox@1.3.3",
+            "UID": "8ecbcc0905073838"
+          },
+          "Version": "1.3.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@radix-ui/primitive@1.1.3",
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-context@1.1.2",
+            "@radix-ui/react-presence@1.1.5",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-use-controllable-state@1.2.2",
+            "@radix-ui/react-use-previous@1.1.1",
+            "@radix-ui/react-use-size@1.1.1",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1830,
+              "EndLine": 1859
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-dialog@1.1.15",
+          "Name": "@radix-ui/react-dialog",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-dialog@1.1.15",
+            "UID": "90a7b70bf8981e5a"
+          },
+          "Version": "1.1.15",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@radix-ui/primitive@1.1.3",
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-context@1.1.2",
+            "@radix-ui/react-dismissable-layer@1.1.11",
+            "@radix-ui/react-focus-guards@1.1.3",
+            "@radix-ui/react-focus-scope@1.1.7",
+            "@radix-ui/react-id@1.1.1",
+            "@radix-ui/react-portal@1.1.9",
+            "@radix-ui/react-presence@1.1.5",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-slot@1.2.3",
+            "@radix-ui/react-use-controllable-state@1.2.2",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "aria-hidden@1.2.6",
+            "react-dom@19.2.4",
+            "react-remove-scroll@2.7.2",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1916,
+              "EndLine": 1951
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-progress@1.1.8",
+          "Name": "@radix-ui/react-progress",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-progress@1.1.8",
+            "UID": "bb83c526b22673c"
+          },
+          "Version": "1.1.8",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@radix-ui/react-context@1.1.3",
+            "@radix-ui/react-primitive@2.1.4",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2155,
+              "EndLine": 2178
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-select@2.2.6",
+          "Name": "@radix-ui/react-select",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-select@2.2.6",
+            "UID": "4463cbb056f82d31"
+          },
+          "Version": "2.2.6",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@radix-ui/number@1.1.1",
+            "@radix-ui/primitive@1.1.3",
+            "@radix-ui/react-collection@1.1.7",
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-context@1.1.2",
+            "@radix-ui/react-direction@1.1.1",
+            "@radix-ui/react-dismissable-layer@1.1.11",
+            "@radix-ui/react-focus-guards@1.1.3",
+            "@radix-ui/react-focus-scope@1.1.7",
+            "@radix-ui/react-id@1.1.1",
+            "@radix-ui/react-popper@1.2.8",
+            "@radix-ui/react-portal@1.1.9",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-slot@1.2.3",
+            "@radix-ui/react-use-callback-ref@1.1.1",
+            "@radix-ui/react-use-controllable-state@1.2.2",
+            "@radix-ui/react-use-layout-effect@1.1.1",
+            "@radix-ui/react-use-previous@1.1.1",
+            "@radix-ui/react-visually-hidden@1.2.3",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "aria-hidden@1.2.6",
+            "react-dom@19.2.4",
+            "react-remove-scroll@2.7.2",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2266,
+              "EndLine": 2308
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-tabs@1.1.13",
+          "Name": "@radix-ui/react-tabs",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-tabs@1.1.13",
+            "UID": "278634e807902a6a"
+          },
+          "Version": "1.1.13",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@radix-ui/primitive@1.1.3",
+            "@radix-ui/react-context@1.1.2",
+            "@radix-ui/react-direction@1.1.1",
+            "@radix-ui/react-id@1.1.1",
+            "@radix-ui/react-presence@1.1.5",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-roving-focus@1.1.11",
+            "@radix-ui/react-use-controllable-state@1.2.2",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2327,
+              "EndLine": 2356
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-tooltip@1.2.8",
+          "Name": "@radix-ui/react-tooltip",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-tooltip@1.2.8",
+            "UID": "e8e9aa928c4e36d5"
+          },
+          "Version": "1.2.8",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@radix-ui/primitive@1.1.3",
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-context@1.1.2",
+            "@radix-ui/react-dismissable-layer@1.1.11",
+            "@radix-ui/react-id@1.1.1",
+            "@radix-ui/react-popper@1.2.8",
+            "@radix-ui/react-portal@1.1.9",
+            "@radix-ui/react-presence@1.1.5",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-slot@1.2.3",
+            "@radix-ui/react-use-controllable-state@1.2.2",
+            "@radix-ui/react-visually-hidden@1.2.3",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2357,
+              "EndLine": 2390
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@tanstack/react-query@5.90.20",
+          "Name": "@tanstack/react-query",
+          "Identifier": {
+            "PURL": "pkg:npm/%40tanstack/react-query@5.90.20",
+            "UID": "d1c53ed90a97e402"
+          },
+          "Version": "5.90.20",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@tanstack/query-core@5.90.20",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 3201,
+              "EndLine": 3216
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@types/react@19.2.10",
+          "Name": "@types/react",
+          "Identifier": {
+            "PURL": "pkg:npm/%40types/react@19.2.10",
+            "UID": "80d44990bd87de5"
+          },
+          "Version": "19.2.10",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "csstype@3.2.3"
+          ],
+          "Locations": [
+            {
+              "StartLine": 3413,
+              "EndLine": 3423
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@types/react-dom@19.2.3",
+          "Name": "@types/react-dom",
+          "Identifier": {
+            "PURL": "pkg:npm/%40types/react-dom@19.2.3",
+            "UID": "4a18c20492274b35"
+          },
+          "Version": "19.2.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@types/react@19.2.10"
+          ],
+          "Locations": [
+            {
+              "StartLine": 3424,
+              "EndLine": 3434
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "axios@1.13.4",
+          "Name": "axios",
+          "Identifier": {
+            "PURL": "pkg:npm/axios@1.13.4",
+            "UID": "3b5a38517fbd587b"
+          },
+          "Version": "1.13.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "follow-redirects@1.15.11",
+            "form-data@4.0.5",
+            "proxy-from-env@1.1.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4058,
+              "EndLine": 4068
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "class-variance-authority@0.7.1",
+          "Name": "class-variance-authority",
+          "Identifier": {
+            "PURL": "pkg:npm/class-variance-authority@0.7.1",
+            "UID": "8746ad705dd693ea"
+          },
+          "Version": "0.7.1",
+          "Licenses": [
+            "Apache-2.0"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "clsx@2.1.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4225,
+              "EndLine": 4236
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "clsx@2.1.1",
+          "Name": "clsx",
+          "Identifier": {
+            "PURL": "pkg:npm/clsx@2.1.1",
+            "UID": "72696cb7ee4bded4"
+          },
+          "Version": "2.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "Locations": [
+            {
+              "StartLine": 4237,
+              "EndLine": 4245
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "date-fns@4.1.0",
+          "Name": "date-fns",
+          "Identifier": {
+            "PURL": "pkg:npm/date-fns@4.1.0",
+            "UID": "66ae05a6ab34e05a"
+          },
+          "Version": "4.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "Locations": [
+            {
+              "StartLine": 4388,
+              "EndLine": 4397
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "i18next@25.8.0",
+          "Name": "i18next",
+          "Identifier": {
+            "PURL": "pkg:npm/i18next@25.8.0",
+            "UID": "cf88584baa8e215d"
+          },
+          "Version": "25.8.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@babel/runtime@7.28.6",
+            "typescript@5.9.3"
+          ],
+          "Locations": [
+            {
+              "StartLine": 5385,
+              "EndLine": 5416
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "i18next-browser-languagedetector@8.2.0",
+          "Name": "i18next-browser-languagedetector",
+          "Identifier": {
+            "PURL": "pkg:npm/i18next-browser-languagedetector@8.2.0",
+            "UID": "42f78ae517a78a58"
+          },
+          "Version": "8.2.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@babel/runtime@7.28.6"
+          ],
+          "Locations": [
+            {
+              "StartLine": 5417,
+              "EndLine": 5425
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "lucide-react@0.563.0",
+          "Name": "lucide-react",
+          "Identifier": {
+            "PURL": "pkg:npm/lucide-react@0.563.0",
+            "UID": "5211ef47e26683ad"
+          },
+          "Version": "0.563.0",
+          "Licenses": [
+            "ISC"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6067,
+              "EndLine": 6075
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react@19.2.4",
+          "Name": "react",
+          "Identifier": {
+            "PURL": "pkg:npm/react@19.2.4",
+            "UID": "9f712b6f820b9731"
+          },
+          "Version": "19.2.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "Locations": [
+            {
+              "StartLine": 6594,
+              "EndLine": 6603
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-dom@19.2.4",
+          "Name": "react-dom",
+          "Identifier": {
+            "PURL": "pkg:npm/react-dom@19.2.4",
+            "UID": "bb258f6a7d43d423"
+          },
+          "Version": "19.2.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "react@19.2.4",
+            "scheduler@0.27.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6604,
+              "EndLine": 6616
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-hook-form@7.71.1",
+          "Name": "react-hook-form",
+          "Identifier": {
+            "PURL": "pkg:npm/react-hook-form@7.71.1",
+            "UID": "26657421be5cd95d"
+          },
+          "Version": "7.71.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6617,
+              "EndLine": 6632
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-hot-toast@2.6.0",
+          "Name": "react-hot-toast",
+          "Identifier": {
+            "PURL": "pkg:npm/react-hot-toast@2.6.0",
+            "UID": "1b5f5181759d366b"
+          },
+          "Version": "2.6.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "csstype@3.2.3",
+            "goober@2.1.18",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6633,
+              "EndLine": 6649
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-i18next@16.5.4",
+          "Name": "react-i18next",
+          "Identifier": {
+            "PURL": "pkg:npm/react-i18next@16.5.4",
+            "UID": "1f92d8aa9ce37e3f"
+          },
+          "Version": "16.5.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@babel/runtime@7.28.6",
+            "html-parse-stringify@3.0.1",
+            "i18next@25.8.0",
+            "react@19.2.4",
+            "typescript@5.9.3",
+            "use-sync-external-store@1.6.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6650,
+              "EndLine": 6676
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-router-dom@7.13.0",
+          "Name": "react-router-dom",
+          "Identifier": {
+            "PURL": "pkg:npm/react-router-dom@7.13.0",
+            "UID": "e2bad973cb2674db"
+          },
+          "Version": "7.13.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "react-dom@19.2.4",
+            "react-router@7.13.0",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6763,
+              "EndLine": 6778
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "tailwind-merge@3.4.0",
+          "Name": "tailwind-merge",
+          "Identifier": {
+            "PURL": "pkg:npm/tailwind-merge@3.4.0",
+            "UID": "ac8f66a9704cf799"
+          },
+          "Version": "3.4.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "Locations": [
+            {
+              "StartLine": 7081,
+              "EndLine": 7090
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "tldts@7.0.21",
+          "Name": "tldts",
+          "Identifier": {
+            "PURL": "pkg:npm/tldts@7.0.21",
+            "UID": "7551629308696c9c"
+          },
+          "Version": "7.0.21",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "tldts-core@7.0.21"
+          ],
+          "Locations": [
+            {
+              "StartLine": 7156,
+              "EndLine": 7167
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "typescript@5.9.3",
+          "Name": "typescript",
+          "Identifier": {
+            "PURL": "pkg:npm/typescript@5.9.3",
+            "UID": "4cd37def2f79133"
+          },
+          "Version": "5.9.3",
+          "Licenses": [
+            "Apache-2.0"
+          ],
+          "Relationship": "direct",
+          "Locations": [
+            {
+              "StartLine": 7255,
+              "EndLine": 7269
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@babel/runtime@7.28.6",
+          "Name": "@babel/runtime",
+          "Identifier": {
+            "PURL": "pkg:npm/%40babel/runtime@7.28.6",
+            "UID": "53997b6378c5225e"
+          },
+          "Version": "7.28.6",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 400,
+              "EndLine": 408
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@floating-ui/core@1.7.4",
+          "Name": "@floating-ui/core",
+          "Identifier": {
+            "PURL": "pkg:npm/%40floating-ui/core@1.7.4",
+            "UID": "3f7427c1e9430cb9"
+          },
+          "Version": "1.7.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@floating-ui/utils@0.2.10"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1284,
+              "EndLine": 1292
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@floating-ui/dom@1.7.5",
+          "Name": "@floating-ui/dom",
+          "Identifier": {
+            "PURL": "pkg:npm/%40floating-ui/dom@1.7.5",
+            "UID": "dd6fb39390687304"
+          },
+          "Version": "1.7.5",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@floating-ui/core@1.7.4",
+            "@floating-ui/utils@0.2.10"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1293,
+              "EndLine": 1302
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@floating-ui/react-dom@2.1.7",
+          "Name": "@floating-ui/react-dom",
+          "Identifier": {
+            "PURL": "pkg:npm/%40floating-ui/react-dom@2.1.7",
+            "UID": "52b50b0b0c56d6d4"
+          },
+          "Version": "2.1.7",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@floating-ui/dom@1.7.5",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1303,
+              "EndLine": 1315
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@floating-ui/utils@0.2.10",
+          "Name": "@floating-ui/utils",
+          "Identifier": {
+            "PURL": "pkg:npm/%40floating-ui/utils@0.2.10",
+            "UID": "58e56e55e435a77a"
+          },
+          "Version": "0.2.10",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1316,
+              "EndLine": 1321
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/number@1.1.1",
+          "Name": "@radix-ui/number",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/number@1.1.1",
+            "UID": "40e52839aa73ac14"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1795,
+              "EndLine": 1800
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/primitive@1.1.3",
+          "Name": "@radix-ui/primitive",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/primitive@1.1.3",
+            "UID": "147b2fe495a7b836"
+          },
+          "Version": "1.1.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1801,
+              "EndLine": 1806
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-arrow@1.1.7",
+          "Name": "@radix-ui/react-arrow",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-arrow@1.1.7",
+            "UID": "5a4012aeb0e19189"
+          },
+          "Version": "1.1.7",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-primitive@2.1.3",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1807,
+              "EndLine": 1829
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-collection@1.1.7",
+          "Name": "@radix-ui/react-collection",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-collection@1.1.7",
+            "UID": "4c255d94fb85009b"
+          },
+          "Version": "1.1.7",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-context@1.1.2",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-slot@1.2.3",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1860,
+              "EndLine": 1885
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-compose-refs@1.1.2",
+          "Name": "@radix-ui/react-compose-refs",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-compose-refs@1.1.2",
+            "UID": "ececea41031f6c33"
+          },
+          "Version": "1.1.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.10",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1886,
+              "EndLine": 1900
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-context@1.1.2",
+          "Name": "@radix-ui/react-context",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-context@1.1.2",
+            "UID": "4c8ad56ca11ff99d"
+          },
+          "Version": "1.1.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.10",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1901,
+              "EndLine": 1915
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-context@1.1.3",
+          "Name": "@radix-ui/react-context",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-context@1.1.3",
+            "UID": "1adb1bee16a88465"
+          },
+          "Version": "1.1.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.10",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2179,
+              "EndLine": 2193
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-direction@1.1.1",
+          "Name": "@radix-ui/react-direction",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-direction@1.1.1",
+            "UID": "331b3ab7a3a36012"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.10",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1952,
+              "EndLine": 1966
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-dismissable-layer@1.1.11",
+          "Name": "@radix-ui/react-dismissable-layer",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-dismissable-layer@1.1.11",
+            "UID": "db0d96a42bcd2e73"
+          },
+          "Version": "1.1.11",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/primitive@1.1.3",
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-use-callback-ref@1.1.1",
+            "@radix-ui/react-use-escape-keydown@1.1.1",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1967,
+              "EndLine": 1993
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-focus-guards@1.1.3",
+          "Name": "@radix-ui/react-focus-guards",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-focus-guards@1.1.3",
+            "UID": "9897ecc9d0823e4f"
+          },
+          "Version": "1.1.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.10",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1994,
+              "EndLine": 2008
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-focus-scope@1.1.7",
+          "Name": "@radix-ui/react-focus-scope",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-focus-scope@1.1.7",
+            "UID": "1569c7df203cf69a"
+          },
+          "Version": "1.1.7",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-use-callback-ref@1.1.1",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2009,
+              "EndLine": 2033
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-id@1.1.1",
+          "Name": "@radix-ui/react-id",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-id@1.1.1",
+            "UID": "f2261e21effe65b1"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-use-layout-effect@1.1.1",
+            "@types/react@19.2.10",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2034,
+              "EndLine": 2051
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-popper@1.2.8",
+          "Name": "@radix-ui/react-popper",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-popper@1.2.8",
+            "UID": "4a1c9bab536a3a96"
+          },
+          "Version": "1.2.8",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@floating-ui/react-dom@2.1.7",
+            "@radix-ui/react-arrow@1.1.7",
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-context@1.1.2",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-use-callback-ref@1.1.1",
+            "@radix-ui/react-use-layout-effect@1.1.1",
+            "@radix-ui/react-use-rect@1.1.1",
+            "@radix-ui/react-use-size@1.1.1",
+            "@radix-ui/rect@1.1.1",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2052,
+              "EndLine": 2083
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-portal@1.1.9",
+          "Name": "@radix-ui/react-portal",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-portal@1.1.9",
+            "UID": "4a667c9693732d1d"
+          },
+          "Version": "1.1.9",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-use-layout-effect@1.1.1",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2084,
+              "EndLine": 2107
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-presence@1.1.5",
+          "Name": "@radix-ui/react-presence",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-presence@1.1.5",
+            "UID": "cec212c0c45b801f"
+          },
+          "Version": "1.1.5",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-use-layout-effect@1.1.1",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2108,
+              "EndLine": 2131
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-primitive@2.1.3",
+          "Name": "@radix-ui/react-primitive",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-primitive@2.1.3",
+            "UID": "92915290558e540f"
+          },
+          "Version": "2.1.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-slot@1.2.3",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2132,
+              "EndLine": 2154
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-primitive@2.1.4",
+          "Name": "@radix-ui/react-primitive",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-primitive@2.1.4",
+            "UID": "710f4c264275fc54"
+          },
+          "Version": "2.1.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-slot@1.2.4",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2194,
+              "EndLine": 2216
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-roving-focus@1.1.11",
+          "Name": "@radix-ui/react-roving-focus",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-roving-focus@1.1.11",
+            "UID": "d9dde9522aa793b"
+          },
+          "Version": "1.1.11",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/primitive@1.1.3",
+            "@radix-ui/react-collection@1.1.7",
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@radix-ui/react-context@1.1.2",
+            "@radix-ui/react-direction@1.1.1",
+            "@radix-ui/react-id@1.1.1",
+            "@radix-ui/react-primitive@2.1.3",
+            "@radix-ui/react-use-callback-ref@1.1.1",
+            "@radix-ui/react-use-controllable-state@1.2.2",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2235,
+              "EndLine": 2265
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-slot@1.2.3",
+          "Name": "@radix-ui/react-slot",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-slot@1.2.3",
+            "UID": "df32797efff08e4b"
+          },
+          "Version": "1.2.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@types/react@19.2.10",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2309,
+              "EndLine": 2326
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-slot@1.2.4",
+          "Name": "@radix-ui/react-slot",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-slot@1.2.4",
+            "UID": "7c15b4e4a03daa62"
+          },
+          "Version": "1.2.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-compose-refs@1.1.2",
+            "@types/react@19.2.10",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2217,
+              "EndLine": 2234
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-use-callback-ref@1.1.1",
+          "Name": "@radix-ui/react-use-callback-ref",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-use-callback-ref@1.1.1",
+            "UID": "94fea919a2150844"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.10",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2391,
+              "EndLine": 2405
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-use-controllable-state@1.2.2",
+          "Name": "@radix-ui/react-use-controllable-state",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-use-controllable-state@1.2.2",
+            "UID": "983918a25445b65d"
+          },
+          "Version": "1.2.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-use-effect-event@0.0.2",
+            "@radix-ui/react-use-layout-effect@1.1.1",
+            "@types/react@19.2.10",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2406,
+              "EndLine": 2424
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-use-effect-event@0.0.2",
+          "Name": "@radix-ui/react-use-effect-event",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-use-effect-event@0.0.2",
+            "UID": "ca9afab305866b23"
+          },
+          "Version": "0.0.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-use-layout-effect@1.1.1",
+            "@types/react@19.2.10",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2425,
+              "EndLine": 2442
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-use-escape-keydown@1.1.1",
+          "Name": "@radix-ui/react-use-escape-keydown",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-use-escape-keydown@1.1.1",
+            "UID": "6571b901b3a22269"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-use-callback-ref@1.1.1",
+            "@types/react@19.2.10",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2443,
+              "EndLine": 2460
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-use-layout-effect@1.1.1",
+          "Name": "@radix-ui/react-use-layout-effect",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-use-layout-effect@1.1.1",
+            "UID": "952589f6bf653573"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.10",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2461,
+              "EndLine": 2475
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-use-previous@1.1.1",
+          "Name": "@radix-ui/react-use-previous",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-use-previous@1.1.1",
+            "UID": "2004ade2c6802249"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.10",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2476,
+              "EndLine": 2490
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-use-rect@1.1.1",
+          "Name": "@radix-ui/react-use-rect",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-use-rect@1.1.1",
+            "UID": "ca1b7068e39767fe"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/rect@1.1.1",
+            "@types/react@19.2.10",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2491,
+              "EndLine": 2508
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-use-size@1.1.1",
+          "Name": "@radix-ui/react-use-size",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-use-size@1.1.1",
+            "UID": "28b47746e0d7d5e3"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-use-layout-effect@1.1.1",
+            "@types/react@19.2.10",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2509,
+              "EndLine": 2526
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/react-visually-hidden@1.2.3",
+          "Name": "@radix-ui/react-visually-hidden",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/react-visually-hidden@1.2.3",
+            "UID": "eea91fa6a3453fa5"
+          },
+          "Version": "1.2.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@radix-ui/react-primitive@2.1.3",
+            "@types/react-dom@19.2.3",
+            "@types/react@19.2.10",
+            "react-dom@19.2.4",
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2527,
+              "EndLine": 2549
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@radix-ui/rect@1.1.1",
+          "Name": "@radix-ui/rect",
+          "Identifier": {
+            "PURL": "pkg:npm/%40radix-ui/rect@1.1.1",
+            "UID": "6be67c15aa540354"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2550,
+              "EndLine": 2555
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@tanstack/query-core@5.90.20",
+          "Name": "@tanstack/query-core",
+          "Identifier": {
+            "PURL": "pkg:npm/%40tanstack/query-core@5.90.20",
+            "UID": "a2343f4552078115"
+          },
+          "Version": "5.90.20",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 3191,
+              "EndLine": 3200
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "aria-hidden@1.2.6",
+          "Name": "aria-hidden",
+          "Identifier": {
+            "PURL": "pkg:npm/aria-hidden@1.2.6",
+            "UID": "87100f5a8887b340"
+          },
+          "Version": "1.2.6",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 3964,
+              "EndLine": 3975
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "asynckit@0.4.0",
+          "Name": "asynckit",
+          "Identifier": {
+            "PURL": "pkg:npm/asynckit@0.4.0",
+            "UID": "e9ed5f31d332cd44"
+          },
+          "Version": "0.4.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4015,
+              "EndLine": 4020
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "call-bind-apply-helpers@1.0.2",
+          "Name": "call-bind-apply-helpers",
+          "Identifier": {
+            "PURL": "pkg:npm/call-bind-apply-helpers@1.0.2",
+            "UID": "f88849c440f36880"
+          },
+          "Version": "1.0.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "es-errors@1.3.0",
+            "function-bind@1.1.2"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4154,
+              "EndLine": 4166
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "combined-stream@1.0.8",
+          "Name": "combined-stream",
+          "Identifier": {
+            "PURL": "pkg:npm/combined-stream@1.0.8",
+            "UID": "cc728a3cec711539"
+          },
+          "Version": "1.0.8",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "delayed-stream@1.0.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4266,
+              "EndLine": 4277
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "cookie@1.1.1",
+          "Name": "cookie",
+          "Identifier": {
+            "PURL": "pkg:npm/cookie@1.1.1",
+            "UID": "f666e526df4a37f3"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4292,
+              "EndLine": 4304
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "csstype@3.2.3",
+          "Name": "csstype",
+          "Identifier": {
+            "PURL": "pkg:npm/csstype@3.2.3",
+            "UID": "e3d51006bb4f9da3"
+          },
+          "Version": "3.2.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4367,
+              "EndLine": 4373
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "delayed-stream@1.0.0",
+          "Name": "delayed-stream",
+          "Identifier": {
+            "PURL": "pkg:npm/delayed-stream@1.0.0",
+            "UID": "a9c0600e06eac5bd"
+          },
+          "Version": "1.0.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4430,
+              "EndLine": 4438
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "detect-node-es@1.1.0",
+          "Name": "detect-node-es",
+          "Identifier": {
+            "PURL": "pkg:npm/detect-node-es@1.1.0",
+            "UID": "161a75c4e924b135"
+          },
+          "Version": "1.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4459,
+              "EndLine": 4464
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "dunder-proto@1.0.1",
+          "Name": "dunder-proto",
+          "Identifier": {
+            "PURL": "pkg:npm/dunder-proto@1.0.1",
+            "UID": "ec1fe7783d720190"
+          },
+          "Version": "1.0.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "call-bind-apply-helpers@1.0.2",
+            "es-errors@1.3.0",
+            "gopd@1.2.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4472,
+              "EndLine": 4485
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "es-define-property@1.0.1",
+          "Name": "es-define-property",
+          "Identifier": {
+            "PURL": "pkg:npm/es-define-property@1.0.1",
+            "UID": "eebb7a8d37c24239"
+          },
+          "Version": "1.0.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4520,
+              "EndLine": 4528
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "es-errors@1.3.0",
+          "Name": "es-errors",
+          "Identifier": {
+            "PURL": "pkg:npm/es-errors@1.3.0",
+            "UID": "b285ebd74effc005"
+          },
+          "Version": "1.3.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 4529,
+              "EndLine": 4537
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "es-object-atoms@1.1.1",
+          "Name": "es-object-atoms",
+          "Identifier": {
+            "PURL": "pkg:npm/es-object-atoms@1.1.1",
+            "UID": "5ae51a69d2f5f165"
+          },
+          "Version": "1.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "es-errors@1.3.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4545,
+              "EndLine": 4556
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "es-set-tostringtag@2.1.0",
+          "Name": "es-set-tostringtag",
+          "Identifier": {
+            "PURL": "pkg:npm/es-set-tostringtag@2.1.0",
+            "UID": "9d20dbf97bb73639"
+          },
+          "Version": "2.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "es-errors@1.3.0",
+            "get-intrinsic@1.3.0",
+            "has-tostringtag@1.0.2",
+            "hasown@2.0.2"
+          ],
+          "Locations": [
+            {
+              "StartLine": 4557,
+              "EndLine": 4571
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "follow-redirects@1.15.11",
+          "Name": "follow-redirects",
+          "Identifier": {
+            "PURL": "pkg:npm/follow-redirects@1.15.11",
+            "UID": "aa143347a2eef503"
+          },
+          "Version": "1.15.11",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 5062,
+              "EndLine": 5081
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "form-data@4.0.5",
+          "Name": "form-data",
+          "Identifier": {
+            "PURL": "pkg:npm/form-data@4.0.5",
+            "UID": "1af502aab8e79fbe"
+          },
+          "Version": "4.0.5",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "asynckit@0.4.0",
+            "combined-stream@1.0.8",
+            "es-set-tostringtag@2.1.0",
+            "hasown@2.0.2",
+            "mime-types@2.1.35"
+          ],
+          "Locations": [
+            {
+              "StartLine": 5082,
+              "EndLine": 5097
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "function-bind@1.1.2",
+          "Name": "function-bind",
+          "Identifier": {
+            "PURL": "pkg:npm/function-bind@1.1.2",
+            "UID": "90e8bf9b6f374810"
+          },
+          "Version": "1.1.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 5143,
+              "EndLine": 5151
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "get-intrinsic@1.3.0",
+          "Name": "get-intrinsic",
+          "Identifier": {
+            "PURL": "pkg:npm/get-intrinsic@1.3.0",
+            "UID": "5b14ee4a6e78ae12"
+          },
+          "Version": "1.3.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "call-bind-apply-helpers@1.0.2",
+            "es-define-property@1.0.1",
+            "es-errors@1.3.0",
+            "es-object-atoms@1.1.1",
+            "function-bind@1.1.2",
+            "get-proto@1.0.1",
+            "gopd@1.2.0",
+            "has-symbols@1.1.0",
+            "hasown@2.0.2",
+            "math-intrinsics@1.1.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 5162,
+              "EndLine": 5185
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "get-nonce@1.0.1",
+          "Name": "get-nonce",
+          "Identifier": {
+            "PURL": "pkg:npm/get-nonce@1.0.1",
+            "UID": "8d2aab17371e7d02"
+          },
+          "Version": "1.0.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 5186,
+              "EndLine": 5194
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "get-proto@1.0.1",
+          "Name": "get-proto",
+          "Identifier": {
+            "PURL": "pkg:npm/get-proto@1.0.1",
+            "UID": "149d8b827bc943b9"
+          },
+          "Version": "1.0.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "dunder-proto@1.0.1",
+            "es-object-atoms@1.1.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 5195,
+              "EndLine": 5207
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "goober@2.1.18",
+          "Name": "goober",
+          "Identifier": {
+            "PURL": "pkg:npm/goober@2.1.18",
+            "UID": "e7e271bf5a844429"
+          },
+          "Version": "2.1.18",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "csstype@3.2.3"
+          ],
+          "Locations": [
+            {
+              "StartLine": 5234,
+              "EndLine": 5242
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "gopd@1.2.0",
+          "Name": "gopd",
+          "Identifier": {
+            "PURL": "pkg:npm/gopd@1.2.0",
+            "UID": "e18cd2fbc05d7125"
+          },
+          "Version": "1.2.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 5243,
+              "EndLine": 5254
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "has-symbols@1.1.0",
+          "Name": "has-symbols",
+          "Identifier": {
+            "PURL": "pkg:npm/has-symbols@1.1.0",
+            "UID": "a283c02c49d3f252"
+          },
+          "Version": "1.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 5272,
+              "EndLine": 5283
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "has-tostringtag@1.0.2",
+          "Name": "has-tostringtag",
+          "Identifier": {
+            "PURL": "pkg:npm/has-tostringtag@1.0.2",
+            "UID": "c58b38a8a467e7a0"
+          },
+          "Version": "1.0.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "has-symbols@1.1.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 5284,
+              "EndLine": 5298
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "hasown@2.0.2",
+          "Name": "hasown",
+          "Identifier": {
+            "PURL": "pkg:npm/hasown@2.0.2",
+            "UID": "53141c08f7de74ad"
+          },
+          "Version": "2.0.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "function-bind@1.1.2"
+          ],
+          "Locations": [
+            {
+              "StartLine": 5299,
+              "EndLine": 5310
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "html-parse-stringify@3.0.1",
+          "Name": "html-parse-stringify",
+          "Identifier": {
+            "PURL": "pkg:npm/html-parse-stringify@3.0.1",
+            "UID": "ff269be2c011e325"
+          },
+          "Version": "3.0.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "void-elements@3.1.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 5348,
+              "EndLine": 5356
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "math-intrinsics@1.1.0",
+          "Name": "math-intrinsics",
+          "Identifier": {
+            "PURL": "pkg:npm/math-intrinsics@1.1.0",
+            "UID": "adba356acaabd534"
+          },
+          "Version": "1.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 6124,
+              "EndLine": 6132
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "mime-db@1.52.0",
+          "Name": "mime-db",
+          "Identifier": {
+            "PURL": "pkg:npm/mime-db@1.52.0",
+            "UID": "47929c1afc0da451"
+          },
+          "Version": "1.52.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 6177,
+              "EndLine": 6185
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "mime-types@2.1.35",
+          "Name": "mime-types",
+          "Identifier": {
+            "PURL": "pkg:npm/mime-types@2.1.35",
+            "UID": "7a5ef7b10bc742b7"
+          },
+          "Version": "2.1.35",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "mime-db@1.52.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6186,
+              "EndLine": 6197
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "proxy-from-env@1.1.0",
+          "Name": "proxy-from-env",
+          "Identifier": {
+            "PURL": "pkg:npm/proxy-from-env@1.1.0",
+            "UID": "145e2df05b647264"
+          },
+          "Version": "1.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 6557,
+              "EndLine": 6562
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-remove-scroll@2.7.2",
+          "Name": "react-remove-scroll",
+          "Identifier": {
+            "PURL": "pkg:npm/react-remove-scroll@2.7.2",
+            "UID": "7569416ee7cb249d"
+          },
+          "Version": "2.7.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.10",
+            "react-remove-scroll-bar@2.3.8",
+            "react-style-singleton@2.2.3",
+            "react@19.2.4",
+            "tslib@2.8.1",
+            "use-callback-ref@1.3.3",
+            "use-sidecar@1.1.3"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6694,
+              "EndLine": 6718
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-remove-scroll-bar@2.3.8",
+          "Name": "react-remove-scroll-bar",
+          "Identifier": {
+            "PURL": "pkg:npm/react-remove-scroll-bar@2.3.8",
+            "UID": "1646d25aaaaa204d"
+          },
+          "Version": "2.3.8",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.10",
+            "react-style-singleton@2.2.3",
+            "react@19.2.4",
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6719,
+              "EndLine": 6740
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-router@7.13.0",
+          "Name": "react-router",
+          "Identifier": {
+            "PURL": "pkg:npm/react-router@7.13.0",
+            "UID": "961c09ee47ec433b"
+          },
+          "Version": "7.13.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "cookie@1.1.1",
+            "react-dom@19.2.4",
+            "react@19.2.4",
+            "set-cookie-parser@2.7.2"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6741,
+              "EndLine": 6762
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-style-singleton@2.2.3",
+          "Name": "react-style-singleton",
+          "Identifier": {
+            "PURL": "pkg:npm/react-style-singleton@2.2.3",
+            "UID": "ab151a7dc3eba233"
+          },
+          "Version": "2.2.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.10",
+            "get-nonce@1.0.1",
+            "react@19.2.4",
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 6779,
+              "EndLine": 6800
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "scheduler@0.27.0",
+          "Name": "scheduler",
+          "Identifier": {
+            "PURL": "pkg:npm/scheduler@0.27.0",
+            "UID": "93896fdc142d8487"
+          },
+          "Version": "0.27.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 6928,
+              "EndLine": 6933
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "set-cookie-parser@2.7.2",
+          "Name": "set-cookie-parser",
+          "Identifier": {
+            "PURL": "pkg:npm/set-cookie-parser@2.7.2",
+            "UID": "b98c94ead75f3d5a"
+          },
+          "Version": "2.7.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 6947,
+              "EndLine": 6952
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "tldts-core@7.0.21",
+          "Name": "tldts-core",
+          "Identifier": {
+            "PURL": "pkg:npm/tldts-core@7.0.21",
+            "UID": "4988099281d4455e"
+          },
+          "Version": "7.0.21",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 7168,
+              "EndLine": 7173
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "tslib@2.8.1",
+          "Name": "tslib",
+          "Identifier": {
+            "PURL": "pkg:npm/tslib@2.8.1",
+            "UID": "2f189a9f32443ba2"
+          },
+          "Version": "2.8.1",
+          "Licenses": [
+            "0BSD"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 7236,
+              "EndLine": 7241
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "use-callback-ref@1.3.3",
+          "Name": "use-callback-ref",
+          "Identifier": {
+            "PURL": "pkg:npm/use-callback-ref@1.3.3",
+            "UID": "c6f226a2f87c1332"
+          },
+          "Version": "1.3.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.10",
+            "react@19.2.4",
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 7352,
+              "EndLine": 7372
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "use-sidecar@1.1.3",
+          "Name": "use-sidecar",
+          "Identifier": {
+            "PURL": "pkg:npm/use-sidecar@1.1.3",
+            "UID": "a6e8cb3947c59415"
+          },
+          "Version": "1.1.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/react@19.2.10",
+            "detect-node-es@1.1.0",
+            "react@19.2.4",
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 7373,
+              "EndLine": 7394
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "use-sync-external-store@1.6.0",
+          "Name": "use-sync-external-store",
+          "Identifier": {
+            "PURL": "pkg:npm/use-sync-external-store@1.6.0",
+            "UID": "3dccc2be709964df"
+          },
+          "Version": "1.6.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "react@19.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 7395,
+              "EndLine": 7403
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "void-elements@3.1.0",
+          "Name": "void-elements",
+          "Identifier": {
+            "PURL": "pkg:npm/void-elements@3.1.0",
+            "UID": "aa57c2376c973a48"
+          },
+          "Version": "3.1.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 7574,
+              "EndLine": 7582
+            }
+          ],
+          "AnalyzedBy": "npm"
+        }
+      ]
+    }
+  ]
+}

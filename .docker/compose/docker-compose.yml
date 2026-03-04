@@ -1,0 +1,71 @@
+services:
+  charon:
+    # Override for local testing:
+    # CHARON_IMAGE=ghcr.io/wikid82/charon:latest
+    image: wikid82/charon:latest
+    container_name: charon
+    restart: unless-stopped
+    ports:
+      - "80:80"        # HTTP (Caddy proxy)
+      - "443:443"      # HTTPS (Caddy proxy)
+      - "443:443/udp"  # HTTP/3 (Caddy proxy)
+      - "8080:8080"    # Management UI (Charon)
+      # Emergency server port - ONLY expose via SSH tunnel or VPN for security
+      # Uncomment ONLY if you need localhost access on host machine:
+      # - "127.0.0.1:2020:2020"  # Emergency server Tier-2 (localhost-only, avoids Caddy's 2019)
+    environment:
+      - CHARON_ENV=production # CHARON_ preferred; CPM_ values still supported
+      - TZ=UTC # Set timezone (e.g., America/New_York)
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
+      # Emergency break glass configuration (Tier 1 & Tier 2)
+      # Tier 1: Emergency token for Layer 7 bypass within application
+      # Generate with: openssl rand -hex 32
+      # - CHARON_EMERGENCY_TOKEN=${CHARON_EMERGENCY_TOKEN}  # Store in secrets manager
+      # Tier 2: Emergency server on separate port (bypasses Caddy/CrowdSec entirely)
+      # - CHARON_EMERGENCY_SERVER_ENABLED=false  # Disabled by default
+      # - CHARON_EMERGENCY_BIND=127.0.0.1:2020   # Localhost only (port 2020 avoids Caddy admin API)
+      # - CHARON_EMERGENCY_USERNAME=admin
+      # - CHARON_EMERGENCY_PASSWORD=${EMERGENCY_PASSWORD}  # Store in secrets manager
+      - CHARON_HTTP_PORT=8080
+      - CHARON_DB_PATH=/app/data/charon.db
+      - CHARON_FRONTEND_DIR=/app/frontend/dist
+      - CHARON_CADDY_ADMIN_API=http://localhost:2019
+      - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
+      - CHARON_CADDY_BINARY=caddy
+      - CHARON_IMPORT_CADDYFILE=/import/Caddyfile
+      - CHARON_IMPORT_DIR=/app/data/imports
+      # Paste your CrowdSec API details here to prevent auto reregistration on startup
+      # Obtained from your CrowdSec settings on first setup
+      - CHARON_SECURITY_CROWDSEC_API_URL=http://localhost:8085
+      - CHARON_SECURITY_CROWDSEC_API_KEY=<your-crowdsec-api-key-here>
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - cpm_data:/app/data # existing data (legacy name); charon will also use this path by default for backward compatibility
+      - caddy_data:/data
+      - caddy_config:/config
+      - crowdsec_data:/app/data/crowdsec
+      - plugins_data:/app/plugins:ro # Read-only in production for security
+      - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
+      # Mount your existing Caddyfile for automatic import (optional)
+      # - ./my-existing-Caddyfile:/import/Caddyfile:ro
+      # - ./sites:/import/sites:ro # If your Caddyfile imports other files
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/v1/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  cpm_data:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+  crowdsec_data:
+    driver: local
+  plugins_data:
+    driver: local

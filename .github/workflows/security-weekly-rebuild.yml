@@ -1,0 +1,165 @@
+name: Weekly Security Rebuild
+
+# Note: This workflow filename has remained consistent. The related docker-publish.yml
+# was replaced by docker-build.yml in commit f640524b (Dec 21, 2025).
+# GitHub Advanced Security may show warnings about the old filename until its tracking updates.
+
+on:
+  schedule:
+    - cron: '0 12 * * 2' # Tuesdays at 12:00 UTC
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Force rebuild without cache'
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/charon
+
+jobs:
+  security-rebuild:
+    name: Security Rebuild & Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          # Explicitly fetch the current HEAD of the ref at run time, not the
+          # SHA that was frozen when this scheduled job was queued. Without this,
+          # a queued job can run days later with stale code.
+          ref: ${{ github.ref_name }}
+
+      - name: Normalize image name
+        run: |
+          echo "IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Resolve Debian base image digest
+        id: base-image
+        run: |
+          docker pull debian:trixie-slim
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' debian:trixie-slim)
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "Base image digest: $DIGEST"
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=security-scan-{{date 'YYYYMMDD'}}
+
+      - name: Build Docker image (NO CACHE)
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          no-cache: ${{ github.event_name == 'schedule' || inputs.force_rebuild }}
+          pull: true  # Always pull fresh base images to get latest security patches
+          build-args: |
+            VERSION=security-scan
+            BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+            VCS_REF=${{ github.sha }}
+            BASE_IMAGE=${{ steps.base-image.outputs.digest }}
+
+      - name: Run Trivy vulnerability scanner (CRITICAL+HIGH)
+        uses: aquasecurity/trivy-action@97e0b3872f55f89b95b2f65b3dbab56962816478 # 0.34.2
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1' # Fail workflow if vulnerabilities found
+        continue-on-error: true
+
+      - name: Run Trivy vulnerability scanner (SARIF)
+        id: trivy-sarif
+        uses: aquasecurity/trivy-action@97e0b3872f55f89b95b2f65b3dbab56962816478 # 0.34.2
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: 'sarif'
+          output: 'trivy-weekly-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@c793b717bc78562f491db7b0e93a3a178b099162 # v4.32.5
+        with:
+          sarif_file: 'trivy-weekly-results.sarif'
+
+      - name: Run Trivy vulnerability scanner (JSON for artifact)
+        uses: aquasecurity/trivy-action@97e0b3872f55f89b95b2f65b3dbab56962816478 # 0.34.2
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: 'json'
+          output: 'trivy-weekly-results.json'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+
+      - name: Upload Trivy JSON results
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: trivy-weekly-scan-${{ github.run_number }}
+          path: trivy-weekly-results.json
+          retention-days: 90
+
+      - name: Check Debian package versions
+        run: |
+          {
+            echo "## 📦 Installed Package Versions"
+            echo ""
+            echo "Checking key security packages:"
+            echo '```'
+            docker run --rm --entrypoint "" "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}" \
+              sh -c "dpkg -l | grep -E 'libc-ares|curl|libcurl|openssl|libssl' || echo 'No matching packages found'"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create security scan summary
+        if: always()
+        run: |
+          {
+            echo "## 🔒 Weekly Security Rebuild Complete"
+            echo ""
+            echo "- **Build Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+            echo "- **Image:** ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+            echo "- **Cache Used:** No (forced fresh build)"
+            echo "- **Trivy Scan:** Completed (see Security tab for details)"
+            echo ""
+            echo "### Next Steps:"
+            echo "1. Review Security tab for new vulnerabilities"
+            echo "2. Check Trivy JSON artifact for detailed package info"
+            echo "3. If critical CVEs found, trigger production rebuild"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notify on security issues (optional)
+        if: failure()
+        run: |
+          echo "::warning::Weekly security scan found HIGH or CRITICAL vulnerabilities. Review the Security tab."
