@@ -428,22 +428,20 @@ test.describe('Admin-User E2E Workflow', () => {
       await loginWithCredentials(page, adminEmail, TEST_PASSWORD);
 
       const token = await getAuthToken(page);
+      // STEP 1 logs user_create; STEP 2 (PUT /users/:id with role:'user') logs user_update.
+      // Both events must be present.
       await expect.poll(async () => {
-        const createEntries = await getAuditLogEntries(page, token, {
+        const auditEntries = await getAuditLogEntries(page, token, {
           limit: 100,
           maxPages: 8,
         });
-        const updateEntries = await getAuditLogEntries(page, token, {
-          limit: 100,
-          maxPages: 8,
-        });
-        const createEntry = findLifecycleEntry(createEntries, testUser.email, 'user_create');
-        const updateEntry = findLifecycleEntry(updateEntries, testUser.email, 'user_update');
+        const createEntry = findLifecycleEntry(auditEntries, testUser.email, 'user_create');
+        const updateEntry = findLifecycleEntry(auditEntries, testUser.email, 'user_update');
         return Number(Boolean(createEntry)) + Number(Boolean(updateEntry));
       }, {
         timeout: 30000,
-        message: `Expected user lifecycle audit entries for ${testUser.email}`,
-      }).toBe(1);
+        message: `Expected both user_create and user_update audit entries for ${testUser.email}`,
+      }).toBe(2);
     });
   });
 
