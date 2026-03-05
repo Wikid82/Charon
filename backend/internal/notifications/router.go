@@ -2,18 +2,15 @@ package notifications
 
 import "strings"
 
+// NOTE: used only in tests
 type Router struct{}
 
 func NewRouter() *Router {
 	return &Router{}
 }
 
-func (r *Router) ShouldUseNotify(providerType, providerEngine string, flags map[string]bool) bool {
+func (r *Router) ShouldUseNotify(providerType string, flags map[string]bool) bool {
 	if !flags[FlagNotifyEngineEnabled] {
-		return false
-	}
-
-	if strings.EqualFold(providerEngine, EngineLegacy) {
 		return false
 	}
 
@@ -27,11 +24,4 @@ func (r *Router) ShouldUseNotify(providerType, providerEngine string, flags map[
 	default:
 		return false
 	}
-}
-
-func (r *Router) ShouldUseLegacyFallback(flags map[string]bool) bool {
-	// Hard-disabled: Legacy fallback has been permanently removed.
-	// This function exists only for interface compatibility and always returns false.
-	_ = flags // Explicitly ignore flags to prevent accidental re-introduction
-	return false
 }

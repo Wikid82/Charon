@@ -78,6 +78,11 @@ backend/node_modules/
 backend/package.json
 backend/package-lock.json
 
+# Root-level artifact files (non-documentation)
+FIREFOX_E2E_FIXES_SUMMARY.md
+verify-security-state-for-ui-tests
+categories.txt
+
 # -----------------------------------------------------------------------------
 # Databases
 # -----------------------------------------------------------------------------
@@ -297,6 +302,7 @@ docs/plans/current_spec_notes.md
 tests/etc/passwd
 trivy-image-report.json
 trivy-fs-report.json
+trivy-report.json
 backend/# Tools Configuration.md
 docs/plans/requirements.md
 docs/plans/design.md
