@@ -209,7 +209,7 @@ ARG CADDY_SECURITY_VERSION
 ARG XCADDY_VERSION=0.4.5
 
 # hadolint ignore=DL3018
-RUN apk add --no-cache git
+RUN apk add --no-cache bash git
 # hadolint ignore=DL3062
 RUN --mount=type=cache,target=/go/pkg/mod \
     go install github.com/caddyserver/xcaddy/cmd/xcaddy@v${XCADDY_VERSION}
@@ -221,7 +221,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # hadolint ignore=SC2016
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    sh -c 'set -e; \
+    bash -c 'set -e; \
         CADDY_TARGET_VERSION="${CADDY_VERSION}"; \
         if [ "${CADDY_USE_CANDIDATE}" = "1" ]; then \
             CADDY_TARGET_VERSION="${CADDY_CANDIDATE_VERSION}"; \
@@ -233,7 +233,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Run xcaddy to generate the build directory and go.mod
         GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_TARGET_VERSION} \
             --with github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION} \
-            --with github.com/greenpau/caddy-security@v${} \
+            --with github.com/greenpau/caddy-security@v${CADDY_SECURITY_VERSION} \
             --with github.com/corazawaf/coraza-caddy/v2 \
             --with github.com/hslatman/caddy-crowdsec-bouncer@v0.10.0 \
             --with github.com/zhangjiayin/caddy-geoip2 \
