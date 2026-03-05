@@ -27,7 +27,7 @@ ARG CADDY_SECURITY_VERSION=1.1.38
 ## upstream caddy image tags while still shipping a pinned caddy binary.
 ## Alpine 3.23 base to reduce glibc CVE exposure and image size.
 # renovate: datasource=docker depName=alpine versioning=docker
-ARG CADDY_IMAGE=alpine:3.23.3
+ARG CADDY_IMAGE=alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
 
 # ---- Cross-Compilation Helpers ----
 # renovate: datasource=docker depName=tonistiigi/xx
@@ -39,7 +39,7 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f9
 # CVEs fixed: CVE-2023-24531, CVE-2023-24540, CVE-2023-29402, CVE-2023-29404,
 #             CVE-2023-29405, CVE-2024-24790, CVE-2025-22871, and 15 more
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS gosu-builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:d4c4845f5d60c6a974c6000ce58ae079328d03ab7f721a0734277e69905473e5 AS gosu-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/gosu
@@ -70,7 +70,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.14.0-alpine AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.14.0-alpine@sha256:7fddd9ddeae8196abf4a3ef2de34e11f7b1a722119f91f28ddf1e99dcafdf114 AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -94,7 +94,7 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
 
 # ---- Backend Builder ----
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:d4c4845f5d60c6a974c6000ce58ae079328d03ab7f721a0734277e69905473e5 AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
@@ -197,7 +197,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Build Caddy from source to ensure we use the latest Go version and dependencies
 # This fixes vulnerabilities found in the pre-built Caddy images (e.g. CVE-2025-59530, stdlib issues)
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS caddy-builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:d4c4845f5d60c6a974c6000ce58ae079328d03ab7f721a0734277e69905473e5 AS caddy-builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -291,7 +291,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Build CrowdSec from source to ensure we use Go 1.26.0+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
 # renovate: datasource=docker depName=golang versioning=docker
-FROM --platform=$BUILDPLATFORM golang:1.26.0-alpine AS crowdsec-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.0-alpine@sha256:d4c4845f5d60c6a974c6000ce58ae079328d03ab7f721a0734277e69905473e5 AS crowdsec-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
@@ -351,7 +351,7 @@ RUN mkdir -p /crowdsec-out/config && \
 
 # ---- CrowdSec Fallback (for architectures where build fails) ----
 # renovate: datasource=docker depName=alpine versioning=docker
-FROM alpine:3.23.3 AS crowdsec-fallback
+FROM alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS crowdsec-fallback
 
 SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 
