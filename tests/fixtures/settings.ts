@@ -292,7 +292,7 @@ export const defaultFeatureFlags: FeatureFlags = {
 export const allFeaturesEnabled: FeatureFlags = {
   cerberus_enabled: true,
   crowdsec_console_enrollment: true,
-  "feature.notifications.service.email.enabled": false,
+  "feature.notifications.service.email.enabled": true,
   uptime_monitoring: true,
 };
 
