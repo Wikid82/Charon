@@ -20,7 +20,7 @@ ARG CADDY_CANDIDATE_VERSION=2.11.1
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.1.38
+ARG CADDY_SECURITY_VERSION=1.1.42
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
