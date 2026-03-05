@@ -22,7 +22,7 @@ func TestDiscordOnly_CreateProviderRejectsUnsupported(t *testing.T) {
 
 	service := NewNotificationService(db)
 
-	testCases := []string{"slack", "telegram", "generic", "email"}
+	testCases := []string{"slack", "telegram", "generic"}
 
 	for _, providerType := range testCases {
 		t.Run(providerType, func(t *testing.T) {
@@ -99,6 +99,24 @@ func TestDiscordOnly_CreateProviderAcceptsGotifyWithOrWithoutToken(t *testing.T)
 	provider.Token = "secret"
 	err = service.CreateProvider(provider)
 	assert.NoError(t, err)
+}
+
+// TestDiscordOnly_CreateProviderAcceptsEmail tests that email is accepted as a supported provider type.
+func TestDiscordOnly_CreateProviderAcceptsEmail(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
+
+	service := NewNotificationService(db)
+
+	provider := &models.NotificationProvider{
+		Name: "Test Email",
+		Type: "email",
+		URL:  "smtp://smtp.example.com",
+	}
+
+	err = service.CreateProvider(provider)
+	assert.NoError(t, err, "Should accept email provider")
 }
 
 // TestDiscordOnly_UpdateProviderRejectsTypeMutation tests immutable provider type on update.
