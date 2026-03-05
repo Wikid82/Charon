@@ -272,6 +272,7 @@ export const certificateEmailSettings = {
 export interface FeatureFlags {
   cerberus_enabled: boolean;
   crowdsec_console_enrollment: boolean;
+  "feature.notifications.service.email.enabled": boolean;
   uptime_monitoring: boolean;
 }
 
@@ -281,6 +282,7 @@ export interface FeatureFlags {
 export const defaultFeatureFlags: FeatureFlags = {
   cerberus_enabled: false,
   crowdsec_console_enrollment: false,
+  "feature.notifications.service.email.enabled": false,
   uptime_monitoring: false,
 };
 
@@ -290,6 +292,7 @@ export const defaultFeatureFlags: FeatureFlags = {
 export const allFeaturesEnabled: FeatureFlags = {
   cerberus_enabled: true,
   crowdsec_console_enrollment: true,
+  "feature.notifications.service.email.enabled": false,
   uptime_monitoring: true,
 };
 

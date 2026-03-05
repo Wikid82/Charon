@@ -30,6 +30,7 @@ var defaultFlags = []string{
 	"feature.crowdsec.console_enrollment",
 	"feature.notifications.engine.notify_v1.enabled",
 	"feature.notifications.service.discord.enabled",
+	"feature.notifications.service.email.enabled",
 	"feature.notifications.service.gotify.enabled",
 	"feature.notifications.service.webhook.enabled",
 	"feature.notifications.security_provider_events.enabled", // Blocker 3: Add security_provider_events gate
@@ -41,6 +42,7 @@ var defaultFlagValues = map[string]bool{
 	"feature.crowdsec.console_enrollment":                    false,
 	"feature.notifications.engine.notify_v1.enabled":         false,
 	"feature.notifications.service.discord.enabled":          false,
+	"feature.notifications.service.email.enabled":            false,
 	"feature.notifications.service.gotify.enabled":           false,
 	"feature.notifications.service.webhook.enabled":          false,
 	"feature.notifications.security_provider_events.enabled": false, // Blocker 3: Default disabled for this stage

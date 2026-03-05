@@ -14,10 +14,10 @@ type NotificationConfig struct {
 	MinLogLevel string `json:"min_log_level"` // error, warn, info, debug
 	WebhookURL  string `json:"webhook_url"`
 	// Blocker 2 Fix: API surface uses security_* field names per spec (internal fields remain notify_*)
-	NotifyWAFBlocks         bool   `json:"security_waf_enabled"`
-	NotifyACLDenies         bool   `json:"security_acl_enabled"`
-	NotifyRateLimitHits     bool   `json:"security_rate_limit_enabled"`
-	NotifyCrowdSecDecisions bool   `json:"security_crowdsec_enabled"`
+	NotifyWAFBlocks         bool `json:"security_waf_enabled"`
+	NotifyACLDenies         bool `json:"security_acl_enabled"`
+	NotifyRateLimitHits     bool `json:"security_rate_limit_enabled"`
+	NotifyCrowdSecDecisions bool `json:"security_crowdsec_enabled"`
 
 	// Legacy destination fields (compatibility, not stored in DB)
 	DiscordWebhookURL    string `gorm:"-" json:"discord_webhook_url,omitempty"`

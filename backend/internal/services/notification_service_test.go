@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/notifications"
 	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/trace"
 	"github.com/stretchr/testify/assert"
@@ -2314,6 +2315,30 @@ func TestIsDispatchEnabled_WebhookDefaultTrue(t *testing.T) {
 
 	// No feature flag row exists — should default to true
 	assert.True(t, svc.isDispatchEnabled("webhook"))
+}
+
+func TestFlagEmailServiceEnabled_ConstantValue(t *testing.T) {
+	assert.Equal(t, "feature.notifications.service.email.enabled", notifications.FlagEmailServiceEnabled)
+}
+
+func TestIsSupportedNotificationProviderType_Email(t *testing.T) {
+	assert.True(t, isSupportedNotificationProviderType("email"))
+}
+
+func TestIsDispatchEnabled_EmailDefaultFalse(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	_ = db.AutoMigrate(&models.Setting{})
+	svc := NewNotificationService(db)
+
+	// No feature flag row — email defaults to false
+	assert.False(t, svc.isDispatchEnabled("email"))
+
+	// Explicitly set flag to true — should now return true
+	require.NoError(t, db.Create(&models.Setting{
+		Key:   notifications.FlagEmailServiceEnabled,
+		Value: "true",
+	}).Error)
+	assert.True(t, svc.isDispatchEnabled("email"))
 }
 
 func TestTestProvider_GotifyWorksWithoutFeatureFlag(t *testing.T) {

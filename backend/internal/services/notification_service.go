@@ -105,7 +105,7 @@ func supportsJSONTemplates(providerType string) bool {
 
 func isSupportedNotificationProviderType(providerType string) bool {
 	switch strings.ToLower(strings.TrimSpace(providerType)) {
-	case "discord", "gotify", "webhook":
+	case "discord", "email", "gotify", "webhook":
 		return true
 	default:
 		return false
@@ -116,6 +116,8 @@ func (s *NotificationService) isDispatchEnabled(providerType string) bool {
 	switch strings.ToLower(strings.TrimSpace(providerType)) {
 	case "discord":
 		return true
+	case "email":
+		return s.getFeatureFlagValue(notifications.FlagEmailServiceEnabled, false)
 	case "gotify":
 		return s.getFeatureFlagValue(notifications.FlagGotifyServiceEnabled, true)
 	case "webhook":
