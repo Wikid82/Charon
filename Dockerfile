@@ -20,7 +20,7 @@ ARG CADDY_CANDIDATE_VERSION=2.11.1
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.1.36
+ARG CADDY_SECURITY_VERSION=1.1.38
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
@@ -233,7 +233,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Run xcaddy to generate the build directory and go.mod
         GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_TARGET_VERSION} \
             --with github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION} \
-            --with github.com/greenpau/caddy-security@v${CADDY_SECURITY_VERSION} \
+            --with github.com/greenpau/caddy-security@v${} \
             --with github.com/corazawaf/coraza-caddy/v2 \
             --with github.com/hslatman/caddy-crowdsec-bouncer@v0.10.0 \
             --with github.com/zhangjiayin/caddy-geoip2 \
