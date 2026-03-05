@@ -2341,6 +2341,52 @@ func TestIsDispatchEnabled_EmailDefaultFalse(t *testing.T) {
 	assert.True(t, svc.isDispatchEnabled("email"))
 }
 
+// TestSendExternal_EmailProviderSkipsJSONTemplate covers the goroutine branch where
+// an email provider is dispatch-enabled but not in supportsJSONTemplates — it logs
+// a warning and returns without calling sendJSONPayload.
+func TestSendExternal_EmailProviderSkipsJSONTemplate(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	_ = db.AutoMigrate(&models.Setting{})
+	svc := NewNotificationService(db)
+
+	// Enable the email feature flag so isDispatchEnabled("email") returns true.
+	require.NoError(t, db.Create(&models.Setting{
+		Key:   notifications.FlagEmailServiceEnabled,
+		Value: "true",
+	}).Error)
+
+	provider := models.NotificationProvider{
+		Name:             "Email Provider",
+		Type:             "email",
+		URL:              "recipient@example.com",
+		Enabled:          true,
+		NotifyProxyHosts: true,
+	}
+	require.NoError(t, db.Create(&provider).Error)
+
+	// Must not panic; goroutine hits supportsJSONTemplates("email") == false → Warn → return.
+	svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", nil)
+	time.Sleep(50 * time.Millisecond)
+}
+
+// TestTestProvider_EmailRejectsJSONTemplateStep covers the TestProvider branch where
+// a supported-but-non-JSON-template type (email) returns a clear error rather than
+// attempting an HTTP send.
+func TestTestProvider_EmailRejectsJSONTemplateStep(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	provider := models.NotificationProvider{
+		Type:     "email",
+		URL:      "recipient@example.com",
+		Template: "minimal",
+	}
+
+	err := svc.TestProvider(provider)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not support JSON templates")
+}
+
 func TestTestProvider_GotifyWorksWithoutFeatureFlag(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})

@@ -27,7 +27,10 @@
   "rebaseWhen": "auto",
 
   "vulnerabilityAlerts": {
-    "enabled": true
+    "enabled": true,
+    "dependencyDashboardApproval": false,
+    "automerge": false,
+    "labels": ["security", "vulnerability"]
   },
 
   "rangeStrategy": "bump",
