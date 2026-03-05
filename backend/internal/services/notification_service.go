@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -54,12 +53,6 @@ func normalizeURL(serviceType, rawURL string) string {
 		}
 	}
 	return rawURL
-}
-
-var ErrLegacyFallbackDisabled = errors.New("legacy fallback is retired and disabled")
-
-func legacyFallbackInvocationError(providerType string) error {
-	return fmt.Errorf("%w: provider type %q is not supported by notify-only runtime", ErrLegacyFallbackDisabled, providerType)
 }
 
 func validateDiscordWebhookURL(rawURL string) error {
@@ -232,8 +225,7 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 		}
 		go func(p models.NotificationProvider) {
 			if !supportsJSONTemplates(p.Type) {
-				err := legacyFallbackInvocationError(p.Type)
-				logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Notify-only runtime blocked legacy fallback invocation")
+				logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).WithField("type", p.Type).Warn("Provider type is not supported by notify-only runtime")
 				return
 			}
 
@@ -242,12 +234,6 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 			}
 		}(provider)
 	}
-}
-
-// legacySendFunc is a test hook for outbound sends.
-// In notify-only mode this path is retired and always fails closed.
-var legacySendFunc = func(_ string, _ string) error {
-	return ErrLegacyFallbackDisabled
 }
 
 // webhookDoRequestFunc is a test hook for outbound JSON webhook requests.
@@ -464,7 +450,7 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 	}
 
 	if !supportsJSONTemplates(providerType) {
-		return legacyFallbackInvocationError(providerType)
+		return fmt.Errorf("provider type %q does not support JSON templates", providerType)
 	}
 
 	data := map[string]any{

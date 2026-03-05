@@ -425,35 +425,6 @@ func TestNormalizeURL_DiscordWebhook_ConvertsToDiscordScheme(t *testing.T) {
 	assert.Equal(t, "discord://xyz@456", got2)
 }
 
-func TestSendExternal_SkipsInvalidHTTPDestination(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
-	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
-
-	// Provider with invalid HTTP destination should be skipped before send.
-	require.NoError(t, db.Create(&models.NotificationProvider{
-		Name:    "bad",
-		Type:    "telegram", // unsupported by notify-only runtime
-		URL:     "http://example..com/webhook",
-		Enabled: true,
-	}).Error)
-
-	var called atomic.Bool
-	orig := legacySendFunc
-	defer func() { legacySendFunc = orig }()
-	legacySendFunc = func(_ string, _ string) error {
-		called.Store(true)
-		return nil
-	}
-
-	svc := NewNotificationService(db)
-	svc.SendExternal(context.Background(), "test", "t", "m", nil)
-
-	// Give goroutine a moment; the send should be skipped.
-	time.Sleep(150 * time.Millisecond)
-	assert.False(t, called.Load())
-}
-
 func TestSendExternal_UsesJSONForSupportedServices(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
