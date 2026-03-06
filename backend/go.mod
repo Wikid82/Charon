@@ -1,6 +1,6 @@
 module github.com/Wikid82/charon/backend
 
-go 1.26
+go 1.26.1
 
 require (
 	github.com/docker/docker v28.5.2+incompatible
