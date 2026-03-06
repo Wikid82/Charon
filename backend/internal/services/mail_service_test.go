@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -16,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -384,7 +386,7 @@ func TestMailService_SendEmail_NotConfigured(t *testing.T) {
 	db := setupMailTestDB(t)
 	svc := NewMailService(db)
 
-	err := svc.SendEmail("test@example.com", "Subject", "<p>Body</p>")
+	err := svc.SendEmail(context.Background(), []string{"test@example.com"}, "Subject", "<p>Body</p>")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not configured")
 }
@@ -400,7 +402,7 @@ func TestMailService_SendEmail_RejectsCRLFInSubject(t *testing.T) {
 	}
 	require.NoError(t, svc.SaveSMTPConfig(config))
 
-	err := svc.SendEmail("recipient@example.com", "Hello\r\nBcc: evil@example.com", "Body")
+	err := svc.SendEmail(context.Background(), []string{"recipient@example.com"}, "Hello\r\nBcc: evil@example.com", "Body")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid subject")
 }
@@ -531,7 +533,7 @@ func TestMailService_SendEmail_InvalidRecipient(t *testing.T) {
 	}
 	require.NoError(t, svc.SaveSMTPConfig(config))
 
-	err := svc.SendEmail("invalid\r\nemail", "Subject", "Body")
+	err := svc.SendEmail(context.Background(), []string{"invalid\r\nemail"}, "Subject", "Body")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid recipient")
 }
@@ -547,7 +549,7 @@ func TestMailService_SendEmail_InvalidFromAddress(t *testing.T) {
 	}
 	require.NoError(t, svc.SaveSMTPConfig(config))
 
-	err := svc.SendEmail("test@example.com", "Subject", "Body")
+	err := svc.SendEmail(context.Background(), []string{"test@example.com"}, "Subject", "Body")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid from address")
 }
@@ -578,7 +580,7 @@ func TestMailService_SendEmail_EncryptionModes(t *testing.T) {
 			}
 			require.NoError(t, svc.SaveSMTPConfig(config))
 
-			err := svc.SendEmail("recipient@example.com", "Test", "Body")
+			err := svc.SendEmail(context.Background(), []string{"recipient@example.com"}, "Test", "Body")
 			assert.Error(t, err)
 		})
 	}
@@ -658,7 +660,7 @@ func TestMailService_SendEmail_CRLFInjection_Comprehensive(t *testing.T) {
 				require.NoError(t, svc.SaveSMTPConfig(&testConfig))
 			}
 
-			err := svc.SendEmail(tc.to, tc.subject, "<p>Normal body</p>")
+			err := svc.SendEmail(context.Background(), []string{tc.to}, tc.subject, "<p>Normal body</p>")
 			assert.Error(t, err, tc.description)
 			assert.Contains(t, err.Error(), "invalid", "Error should indicate invalid input")
 		})
@@ -1057,7 +1059,7 @@ func TestMailService_SendEmail_STARTTLSSuccess(t *testing.T) {
 	}))
 
 	// With fixed cert trust, STARTTLS connection and email send succeed
-	err = svc.SendEmail("recipient@example.com", "Subject", "Body")
+	err = svc.SendEmail(context.Background(), []string{"recipient@example.com"}, "Subject", "Body")
 	require.NoError(t, err)
 }
 
@@ -1086,7 +1088,7 @@ func TestMailService_SendEmail_SSLSuccess(t *testing.T) {
 	}))
 
 	// With fixed cert trust, SSL connection and email send succeed
-	err = svc.SendEmail("recipient@example.com", "Subject", "Body")
+	err = svc.SendEmail(context.Background(), []string{"recipient@example.com"}, "Subject", "Body")
 	require.NoError(t, err)
 }
 
@@ -1354,5 +1356,104 @@ func handleSMTPConn(conn net.Conn, tlsConf *tls.Config, supportStartTLS bool, re
 		default:
 			writeLine("250 OK")
 		}
+	}
+}
+
+func TestValidateEmailRecipients_Empty(t *testing.T) {
+	err := validateEmailRecipients([]string{})
+	assert.NoError(t, err)
+}
+
+func TestValidateEmailRecipients_Valid(t *testing.T) {
+	err := validateEmailRecipients([]string{"a@b.com", "c@d.org"})
+	assert.NoError(t, err)
+}
+
+func TestValidateEmailRecipients_TooMany(t *testing.T) {
+	recipients := make([]string, 21)
+	for i := range recipients {
+		recipients[i] = "a@b.com"
+	}
+	err := validateEmailRecipients(recipients)
+	assert.ErrorIs(t, err, ErrTooManyRecipients)
+}
+
+func TestValidateEmailRecipients_CRLFInRecipient(t *testing.T) {
+	err := validateEmailRecipients([]string{"victim@example.com\r\nBcc: evil@bad.com"})
+	assert.ErrorIs(t, err, ErrInvalidRecipient)
+}
+
+func TestValidateEmailRecipients_InvalidFormat(t *testing.T) {
+	err := validateEmailRecipients([]string{"not-an-email"})
+	assert.ErrorIs(t, err, ErrInvalidRecipient)
+}
+
+func TestValidateEmailRecipients_ExactlyTwenty(t *testing.T) {
+	recipients := make([]string, 20)
+	for i := range recipients {
+		recipients[i] = "a@b.com"
+	}
+	err := validateEmailRecipients(recipients)
+	assert.NoError(t, err)
+}
+
+func TestSendEmail_TooManyRecipients(t *testing.T) {
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	cfg := &SMTPConfig{Host: "smtp.example.com", Port: 587, FromAddress: "from@example.com"}
+	require.NoError(t, svc.SaveSMTPConfig(cfg))
+
+	recipients := make([]string, 21)
+	for i := range recipients {
+		recipients[i] = fmt.Sprintf("user%d@example.com", i)
+	}
+	err := svc.SendEmail(context.Background(), recipients, "Subject", "<p>Body</p>")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrTooManyRecipients)
+}
+
+func TestSendEmail_HeaderInjectionInRecipient(t *testing.T) {
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	cfg := &SMTPConfig{Host: "smtp.example.com", Port: 587, FromAddress: "from@example.com"}
+	require.NoError(t, svc.SaveSMTPConfig(cfg))
+
+	err := svc.SendEmail(context.Background(), []string{"bad\r\naddr@test.com"}, "Subject", "<p>Body</p>")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidRecipient)
+}
+
+func TestSendEmail_InvalidRFC5322Recipient(t *testing.T) {
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	cfg := &SMTPConfig{Host: "smtp.example.com", Port: 587, FromAddress: "from@example.com"}
+	require.NoError(t, svc.SaveSMTPConfig(cfg))
+
+	err := svc.SendEmail(context.Background(), []string{"notanemail"}, "Subject", "<p>Body</p>")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidRecipient)
+}
+
+func TestSendEmail_ValidMultipleRecipients(t *testing.T) {
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	// Use a mock SMTP server to capture the connection attempt.
+	// Since we're not running a real SMTP server, the actual send will fail,
+	// but validation (the part being tested) must pass — error must NOT be ErrInvalidRecipient or ErrTooManyRecipients.
+	cfg := &SMTPConfig{Host: "127.0.0.1", Port: 19999, FromAddress: "from@example.com"}
+	require.NoError(t, svc.SaveSMTPConfig(cfg))
+
+	err := svc.SendEmail(context.Background(),
+		[]string{"alice@example.com", "bob@example.com", "carol@example.com"},
+		"Test Subject", "<p>Hello</p>",
+	)
+	// Validation must pass; connection refused error expected (no SMTP server running)
+	if err != nil {
+		assert.NotErrorIs(t, err, ErrInvalidRecipient)
+		assert.NotErrorIs(t, err, ErrTooManyRecipients)
 	}
 }

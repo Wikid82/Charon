@@ -634,7 +634,7 @@ func (h *SettingsHandler) SendTestEmail(c *gin.Context) {
 </html>
 `
 
-	if err := h.MailService.SendEmail(req.To, "Charon - Test Email", htmlBody); err != nil {
+	if err := h.MailService.SendEmail(c.Request.Context(), []string{req.To}, "Charon - Test Email", htmlBody); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error":   err.Error(),

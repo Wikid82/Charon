@@ -20,7 +20,7 @@ func TestDiscordOnly_CreateProviderRejectsUnsupported(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
 
-	service := NewNotificationService(db)
+	service := NewNotificationService(db, nil)
 
 	testCases := []string{"slack", "telegram", "generic"}
 
@@ -45,7 +45,7 @@ func TestDiscordOnly_CreateProviderAcceptsDiscord(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
 
-	service := NewNotificationService(db)
+	service := NewNotificationService(db, nil)
 
 	provider := &models.NotificationProvider{
 		Name: "Test Discord",
@@ -67,7 +67,7 @@ func TestDiscordOnly_CreateProviderAcceptsWebhook(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
 
-	service := NewNotificationService(db)
+	service := NewNotificationService(db, nil)
 
 	provider := &models.NotificationProvider{
 		Name: "Test Webhook",
@@ -84,7 +84,7 @@ func TestDiscordOnly_CreateProviderAcceptsGotifyWithOrWithoutToken(t *testing.T)
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
 
-	service := NewNotificationService(db)
+	service := NewNotificationService(db, nil)
 
 	provider := &models.NotificationProvider{
 		Name: "Test Gotify",
@@ -107,7 +107,7 @@ func TestDiscordOnly_CreateProviderAcceptsEmail(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
 
-	service := NewNotificationService(db)
+	service := NewNotificationService(db, nil)
 
 	provider := &models.NotificationProvider{
 		Name: "Test Email",
@@ -134,7 +134,7 @@ func TestDiscordOnly_UpdateProviderRejectsTypeMutation(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&provider).Error)
 
-	service := NewNotificationService(db)
+	service := NewNotificationService(db, nil)
 
 	updatedProvider := &models.NotificationProvider{
 		ID:   "test-id",
@@ -164,7 +164,7 @@ func TestDiscordOnly_UpdateProviderAllowsWebhookUpdates(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&provider).Error)
 
-	service := NewNotificationService(db)
+	service := NewNotificationService(db, nil)
 
 	updatedProvider := &models.NotificationProvider{
 		ID:      "test-id",
@@ -190,7 +190,7 @@ func TestDiscordOnly_TestProviderAllowsWebhookWithoutFeatureFlag(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	service := NewNotificationService(db)
+	service := NewNotificationService(db, nil)
 
 	provider := models.NotificationProvider{
 		Name:     "Test Webhook",
@@ -219,7 +219,7 @@ func TestDiscordOnly_MigrationDeprecatesNonDiscord(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&webhookProvider).Error)
 
-	service := NewNotificationService(db)
+	service := NewNotificationService(db, nil)
 
 	// Run migration
 	err = service.EnsureNotifyOnlyProviderMigration(context.Background())
@@ -250,7 +250,7 @@ func TestDiscordOnly_MigrationMarksDiscordMigrated(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&discordProvider).Error)
 
-	service := NewNotificationService(db)
+	service := NewNotificationService(db, nil)
 
 	// Run migration
 	err = service.EnsureNotifyOnlyProviderMigration(context.Background())
@@ -293,7 +293,7 @@ func TestDiscordOnly_MigrationIsIdempotent(t *testing.T) {
 		require.NoError(t, db.Create(&p).Error)
 	}
 
-	service := NewNotificationService(db)
+	service := NewNotificationService(db, nil)
 
 	// Run migration first time
 	err = service.EnsureNotifyOnlyProviderMigration(context.Background())
@@ -334,7 +334,7 @@ func TestDiscordOnly_MigrationIsTransactional(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&provider).Error)
 
-	service := NewNotificationService(db)
+	service := NewNotificationService(db, nil)
 
 	// First migration should succeed
 	err = service.EnsureNotifyOnlyProviderMigration(context.Background())
@@ -362,7 +362,7 @@ func TestDiscordOnly_MigrationPreservesLegacyURL(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&provider).Error)
 
-	service := NewNotificationService(db)
+	service := NewNotificationService(db, nil)
 
 	err = service.EnsureNotifyOnlyProviderMigration(context.Background())
 	require.NoError(t, err)
@@ -390,7 +390,7 @@ func TestDiscordOnly_SendExternalSkipsDeprecated(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&deprecatedProvider).Error)
 
-	service := NewNotificationService(db)
+	service := NewNotificationService(db, nil)
 
 	// SendExternal should skip deprecated provider silently
 	service.SendExternal(context.Background(), "proxy_host", "Test", "Test message", nil)

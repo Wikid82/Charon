@@ -721,7 +721,7 @@ func TestDeleteCertificate_NotificationRateLimit(t *testing.T) {
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 
 	mockBackupService := &mockBackupService{
 		createFunc: func() (string, error) {

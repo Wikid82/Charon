@@ -30,7 +30,7 @@ func setupUptimeRaceTestDB(t *testing.T) *gorm.DB {
 
 func TestCheckHost_RetryLogic(t *testing.T) {
 	db := setupUptimeRaceTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	svc := NewUptimeService(db, ns)
 	svc.config.TCPTimeout = 500 * time.Millisecond
 	svc.config.MaxRetries = 2
@@ -72,7 +72,7 @@ func TestCheckHost_RetryLogic(t *testing.T) {
 
 func TestCheckHost_Debouncing(t *testing.T) {
 	db := setupUptimeRaceTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	svc := NewUptimeService(db, ns)
 	svc.config.FailureThreshold = 2         // Require 2 failures
 	svc.config.TCPTimeout = 1 * time.Second // Shorter timeout for test
@@ -110,7 +110,7 @@ func TestCheckHost_Debouncing(t *testing.T) {
 
 func TestCheckHost_FailureCountReset(t *testing.T) {
 	db := setupUptimeRaceTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	svc := NewUptimeService(db, ns)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -156,7 +156,7 @@ func TestCheckHost_FailureCountReset(t *testing.T) {
 
 func TestCheckAllHosts_Synchronization(t *testing.T) {
 	db := setupUptimeRaceTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	svc := NewUptimeService(db, ns)
 	svc.config.TCPTimeout = 500 * time.Millisecond // Shorter timeout for test
 	svc.config.MaxRetries = 0                      // No retries for this test
@@ -202,7 +202,7 @@ func TestCheckAllHosts_Synchronization(t *testing.T) {
 
 func TestCheckHost_ConcurrentChecks(t *testing.T) {
 	db := setupUptimeRaceTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	svc := NewUptimeService(db, ns)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -259,7 +259,7 @@ func TestCheckHost_ConcurrentChecks(t *testing.T) {
 
 func TestCheckHost_ContextCancellation(t *testing.T) {
 	db := setupUptimeRaceTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	svc := NewUptimeService(db, ns)
 	svc.config.TCPTimeout = 5 * time.Second // Normal timeout
 	svc.config.MaxRetries = 0               // No retries for this test
@@ -295,7 +295,7 @@ func TestCheckHost_ContextCancellation(t *testing.T) {
 
 func TestCheckAllHosts_StaggeredStartup(t *testing.T) {
 	db := setupUptimeRaceTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	svc := NewUptimeService(db, ns)
 	svc.config.StaggerDelay = 50 * time.Millisecond
 	svc.config.TCPTimeout = 500 * time.Millisecond // Shorter timeout for test
@@ -332,7 +332,7 @@ func TestCheckAllHosts_StaggeredStartup(t *testing.T) {
 
 func TestUptimeConfig_Defaults(t *testing.T) {
 	db := setupUptimeRaceTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	svc := NewUptimeService(db, ns)
 
 	assert.Equal(t, 10*time.Second, svc.config.TCPTimeout, "TCP timeout should be 10s")
@@ -344,7 +344,7 @@ func TestUptimeConfig_Defaults(t *testing.T) {
 
 func TestCheckHost_HostMutexPreventsRaceCondition(t *testing.T) {
 	db := setupUptimeRaceTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	svc := NewUptimeService(db, ns)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

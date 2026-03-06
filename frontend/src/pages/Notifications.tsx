@@ -139,6 +139,7 @@ const ProviderForm: FC<{
 
   const type = normalizeProviderType(watch('type'));
   const isGotify = type === 'gotify';
+  const isEmail = type === 'email';
   useEffect(() => {
     if (type !== 'gotify') {
       setValue('gotify_token', '', { shouldDirty: false, shouldTouch: false });
@@ -194,29 +195,45 @@ const ProviderForm: FC<{
           <option value="discord">Discord</option>
           <option value="gotify">Gotify</option>
           <option value="webhook">{t('notificationProviders.genericWebhook')}</option>
+          <option value="email">Email</option>
         </select>
       </div>
 
       <div>
-        <label htmlFor="provider-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.urlWebhook')} <span aria-hidden="true">*</span></label>
+        <label htmlFor="provider-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          {isEmail ? t('notificationProviders.recipients') : <>{t('notificationProviders.urlWebhook')} <span aria-hidden="true">*</span></>}
+        </label>
+        {isEmail && (
+          <p id="email-recipients-help" className="text-xs text-gray-500 mt-0.5">
+            {t('notificationProviders.recipientsHelp')}
+          </p>
+        )}
         <input
           id="provider-url"
           {...register('url', {
-            required: t('notificationProviders.urlRequired') as string,
-            validate: validateUrl,
+            required: isEmail ? false : (t('notificationProviders.urlRequired') as string),
+            validate: isEmail ? undefined : validateUrl,
           })}
           data-testid="provider-url"
-          placeholder={type === 'discord' ? 'https://discord.com/api/webhooks/...' : type === 'gotify' ? 'https://gotify.example.com/message' : 'https://example.com/webhook'}
+          placeholder={isEmail ? 'user@example.com, admin@example.com' : type === 'discord' ? 'https://discord.com/api/webhooks/...' : type === 'gotify' ? 'https://gotify.example.com/message' : 'https://example.com/webhook'}
           className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm ${errors.url ? 'border-red-500' : ''}`}
           aria-invalid={errors.url ? 'true' : 'false'}
-          aria-describedby={errors.url ? 'provider-url-error' : undefined}
+          aria-describedby={isEmail ? 'email-recipients-help' : errors.url ? 'provider-url-error' : undefined}
         />
-        {errors.url && (
+        {!isEmail && errors.url && (
           <span id="provider-url-error" data-testid="provider-url-error" className="text-red-500 text-xs">
             {errors.url.message as string}
           </span>
         )}
       </div>
+
+      {isEmail && (
+        <div role="note" className="rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3">
+          <p className="text-sm text-blue-800 dark:text-blue-200">
+            {t('notificationProviders.emailSmtpNotice')}
+          </p>
+        </div>
+      )}
 
       {isGotify && (
         <div>

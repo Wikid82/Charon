@@ -596,7 +596,10 @@
     "webhookUrl": "Webhook URL (Optional)",
     "webhookUrlHelp": "POST requests will be sent to this URL when security events occur.",
     "emailRecipients": "Email Recipients (Optional)",
-    "emailRecipientsHelp": "Comma-separated email addresses."
+    "emailRecipientsHelp": "Comma-separated email addresses.",
+    "recipients": "Recipients",
+    "recipientsHelp": "Comma-separated email addresses (max 20)",
+    "emailSmtpNotice": "Email notifications are sent via the configured SMTP server. Ensure SMTP is configured in Settings \u2192 SMTP."
   },
   "users": {
     "title": "User Management",

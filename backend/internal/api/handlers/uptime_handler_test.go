@@ -23,7 +23,7 @@ func setupUptimeHandlerTest(t *testing.T) (*gin.Engine, *gorm.DB) {
 	db := handlers.OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.UptimeMonitor{}, &models.UptimeHeartbeat{}, &models.UptimeHost{}, &models.RemoteServer{}, &models.NotificationProvider{}, &models.Notification{}, &models.ProxyHost{}))
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	service := services.NewUptimeService(db, ns)
 	handler := handlers.NewUptimeHandler(service)
 
