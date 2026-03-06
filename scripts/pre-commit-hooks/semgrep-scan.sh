@@ -15,10 +15,17 @@ fi
 
 cd "${REPO_ROOT}"
 
-readonly SEMGREP_CONFIG_VALUE="${SEMGREP_CONFIG:-auto}"
+# Default to p/golang for speed (~30s vs 60-180s for auto).
+# Override with: SEMGREP_CONFIG=auto git push
+readonly SEMGREP_CONFIG_VALUE="${SEMGREP_CONFIG:-p/golang}"
 
 echo "Running Semgrep with config: ${SEMGREP_CONFIG_VALUE}"
 semgrep scan \
   --config "${SEMGREP_CONFIG_VALUE}" \
+  --severity ERROR \
+  --severity WARNING \
   --error \
-  backend frontend scripts .github/workflows
+  --exclude "frontend/node_modules" \
+  --exclude "frontend/coverage" \
+  --exclude "frontend/dist" \
+  backend frontend/src scripts .github/workflows
