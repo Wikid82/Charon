@@ -245,13 +245,16 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 	}
 }
 
-// sanitizeForEmail strips CR/LF characters from untrusted strings
-// before they enter the email pipeline. This provides defense-in-depth
-// alongside rejectCRLF() validation in SendEmail/buildEmail.
+// sanitizeForEmail strips ASCII control characters (0x00–0x1F and 0x7F DEL)
+// from untrusted strings before they enter the email pipeline. This provides
+// defense-in-depth alongside rejectCRLF() validation in SendEmail/buildEmail.
 func sanitizeForEmail(s string) string {
-	s = strings.ReplaceAll(s, "\r", "")
-	s = strings.ReplaceAll(s, "\n", "")
-	return s
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7F {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // dispatchEmail sends an email notification for the given provider.

@@ -329,6 +329,8 @@ func (s *MailService) SendEmail(ctx context.Context, to []string, subject, htmlB
 		auth = smtp.PlainAuth("", config.Username, config.Password, config.Host)
 	}
 
+	htmlBody = sanitizeEmailContent(htmlBody)
+
 	for _, recipient := range to {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("context cancelled: %w", err)
@@ -477,6 +479,19 @@ func writeEmailHeader(buf *bytes.Buffer, header emailHeaderName, value string) e
 	buf.WriteString(value)
 	buf.WriteString("\r\n")
 	return nil
+}
+
+// sanitizeEmailContent strips ASCII control characters from an HTML body string
+// before it is passed to buildEmail. This prevents CR/LF injection in the DATA
+// command even if a caller omits sanitization, and removes other control chars
+// that have no valid use in an HTML email body.
+func sanitizeEmailContent(body string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7F {
+			return -1
+		}
+		return r
+	}, body)
 }
 
 // sanitizeEmailBody performs SMTP dot-stuffing to prevent email injection.
