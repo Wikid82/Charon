@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -33,7 +35,7 @@ func setupNotificationTestDB(t *testing.T) *gorm.DB {
 
 func TestNotificationService_Create(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	notif, err := svc.Create(models.NotificationTypeInfo, "Test", "Message")
 	require.NoError(t, err)
@@ -44,7 +46,7 @@ func TestNotificationService_Create(t *testing.T) {
 
 func TestNotificationService_List(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	_, _ = svc.Create(models.NotificationTypeInfo, "N1", "M1")
 	_, _ = svc.Create(models.NotificationTypeInfo, "N2", "M2")
@@ -64,7 +66,7 @@ func TestNotificationService_List(t *testing.T) {
 
 func TestNotificationService_MarkAsRead(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	notif, _ := svc.Create(models.NotificationTypeInfo, "N1", "M1")
 
@@ -78,7 +80,7 @@ func TestNotificationService_MarkAsRead(t *testing.T) {
 
 func TestNotificationService_MarkAllAsRead(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	_, _ = svc.Create(models.NotificationTypeInfo, "N1", "M1")
 	_, _ = svc.Create(models.NotificationTypeInfo, "N2", "M2")
@@ -93,7 +95,7 @@ func TestNotificationService_MarkAllAsRead(t *testing.T) {
 
 func TestNotificationService_Providers(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Create
 	provider := models.NotificationProvider{
@@ -128,7 +130,7 @@ func TestNotificationService_Providers(t *testing.T) {
 
 func TestNotificationService_TestProvider_Webhook(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Mock validation and webhook request for testing
 	origValidateDiscordFunc := validateDiscordProviderURLFunc
@@ -166,7 +168,7 @@ func TestNotificationService_TestProvider_Webhook(t *testing.T) {
 
 func TestNotificationService_SendExternal(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	received := make(chan struct{})
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -203,7 +205,7 @@ func TestNotificationService_SendExternal(t *testing.T) {
 
 func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Mock validation only - allow real HTTP calls to test servers
 	origValidateDiscordFunc := validateDiscordProviderURLFunc
@@ -286,7 +288,7 @@ func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.
 
 func TestNotificationService_SendExternal_Filtered(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	received := make(chan struct{})
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -359,7 +361,7 @@ func TestNormalizeURL(t *testing.T) {
 
 func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	t.Run("invalid URL", func(t *testing.T) {
 		provider := models.NotificationProvider{
@@ -467,7 +469,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 
 func TestNotificationService_SendCustomWebhook_PropagatesRequestID(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	received := make(chan string, 1)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -493,7 +495,7 @@ func TestNotificationService_SendCustomWebhook_PropagatesRequestID(t *testing.T)
 
 func TestNotificationService_TestProvider_Errors(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	t.Run("unsupported provider type", func(t *testing.T) {
 		provider := models.NotificationProvider{
@@ -617,7 +619,7 @@ func TestSSRF_URLValidation_ComprehensiveBlocking(t *testing.T) {
 
 func TestSSRF_WebhookIntegration(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	t.Run("blocks private IP webhook", func(t *testing.T) {
 		provider := models.NotificationProvider{
@@ -660,7 +662,7 @@ func TestSSRF_WebhookIntegration(t *testing.T) {
 func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 	t.Run("no enabled providers", func(t *testing.T) {
 		db := setupNotificationTestDB(t)
-		svc := NewNotificationService(db)
+		svc := NewNotificationService(db, nil)
 
 		provider := models.NotificationProvider{
 			Name:    "Disabled",
@@ -677,7 +679,7 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 
 	t.Run("provider filtered by category", func(t *testing.T) {
 		db := setupNotificationTestDB(t)
-		svc := NewNotificationService(db)
+		svc := NewNotificationService(db, nil)
 
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			t.Fatal("Should not call webhook")
@@ -722,7 +724,7 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 
 	t.Run("custom data passed to webhook", func(t *testing.T) {
 		db := setupNotificationTestDB(t)
-		svc := NewNotificationService(db)
+		svc := NewNotificationService(db, nil)
 
 		// Mock validation only - allow real HTTP calls to test server
 		origValidateDiscordFunc := validateDiscordProviderURLFunc
@@ -764,7 +766,7 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 
 func TestNotificationService_RenderTemplate(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Minimal template
 	provider := models.NotificationProvider{Type: "webhook", Template: "minimal"}
@@ -784,7 +786,7 @@ func TestNotificationService_RenderTemplate(t *testing.T) {
 
 func TestNotificationService_CreateProvider_Validation(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	t.Run("creates provider with defaults", func(t *testing.T) {
 		provider := models.NotificationProvider{
@@ -860,7 +862,7 @@ func TestNotificationService_IsPrivateIP(t *testing.T) {
 
 func TestNotificationService_CreateProvider_InvalidCustomTemplate(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	t.Run("invalid custom template on create", func(t *testing.T) {
 		provider := models.NotificationProvider{
@@ -897,7 +899,7 @@ func TestNotificationService_CreateProvider_InvalidCustomTemplate(t *testing.T) 
 
 func TestRenderTemplate_TemplateParseError(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	provider := models.NotificationProvider{
 		Template: "custom",
@@ -918,7 +920,7 @@ func TestRenderTemplate_TemplateParseError(t *testing.T) {
 
 func TestRenderTemplate_TemplateExecutionError(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	provider := models.NotificationProvider{
 		Template: "custom",
@@ -943,7 +945,7 @@ func TestRenderTemplate_TemplateExecutionError(t *testing.T) {
 
 func TestRenderTemplate_InvalidJSONOutput(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	provider := models.NotificationProvider{
 		Template: "custom",
@@ -966,7 +968,7 @@ func TestRenderTemplate_InvalidJSONOutput(t *testing.T) {
 
 func TestSendCustomWebhook_HTTPStatusCodeErrors(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	errorCodes := []int{400, 404, 500, 502, 503}
 
@@ -1005,7 +1007,7 @@ func TestSendCustomWebhook_HTTPStatusCodeErrors(t *testing.T) {
 
 func TestSendCustomWebhook_TemplateSelection(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	tests := []struct {
 		name           string
@@ -1093,7 +1095,7 @@ func TestSendCustomWebhook_TemplateSelection(t *testing.T) {
 
 func TestSendCustomWebhook_EmptyCustomTemplateDefaultsToMinimal(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	var receivedBody map[string]any
 
@@ -1134,7 +1136,7 @@ func TestSendCustomWebhook_EmptyCustomTemplateDefaultsToMinimal(t *testing.T) {
 
 func TestCreateProvider_EmptyCustomTemplateAllowed(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	provider := &models.NotificationProvider{
 		Name:     "empty-template",
@@ -1151,7 +1153,7 @@ func TestCreateProvider_EmptyCustomTemplateAllowed(t *testing.T) {
 
 func TestUpdateProvider_NonCustomTemplateSkipsValidation(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	provider := &models.NotificationProvider{
 		Name:     "test",
@@ -1206,7 +1208,7 @@ func TestIsPrivateIP_EdgeCases(t *testing.T) {
 
 func TestSendCustomWebhook_ContextCancellation(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Create a server that delays response
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1238,7 +1240,7 @@ func TestSendCustomWebhook_ContextCancellation(t *testing.T) {
 
 func TestSendExternal_UnknownEventTypeSendsToAll(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	var callCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1280,7 +1282,7 @@ func TestSendExternal_UnknownEventTypeSendsToAll(t *testing.T) {
 
 func TestCreateProvider_ValidCustomTemplate(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	provider := &models.NotificationProvider{
 		Name:     "valid-custom",
@@ -1297,7 +1299,7 @@ func TestCreateProvider_ValidCustomTemplate(t *testing.T) {
 
 func TestUpdateProvider_ValidCustomTemplate(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	provider := &models.NotificationProvider{
 		Name:     "test",
@@ -1317,7 +1319,7 @@ func TestUpdateProvider_ValidCustomTemplate(t *testing.T) {
 
 func TestRenderTemplate_MinimalAndDetailedTemplates(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	data := map[string]any{
 		"Title":        "Test Title",
@@ -1369,7 +1371,7 @@ func TestRenderTemplate_MinimalAndDetailedTemplates(t *testing.T) {
 
 func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	t.Run("discord_message_is_normalized_to_content", func(t *testing.T) {
 		originalDo := webhookDoRequestFunc
@@ -1589,7 +1591,7 @@ func TestSendExternal_AllEventTypes(t *testing.T) {
 	for _, et := range eventTypes {
 		t.Run(et.eventType, func(t *testing.T) {
 			db := setupNotificationTestDB(t)
-			svc := NewNotificationService(db)
+			svc := NewNotificationService(db, nil)
 
 			// Mock Discord validation to allow test server URL
 			origValidateDiscordFunc := validateDiscordProviderURLFunc
@@ -1710,7 +1712,7 @@ func TestNotificationService_SendExternal_SecurityEventRouting(t *testing.T) {
 	for _, tc := range eventCases {
 		t.Run(tc.name, func(t *testing.T) {
 			db := setupNotificationTestDB(t)
-			svc := NewNotificationService(db)
+			svc := NewNotificationService(db, nil)
 
 			origValidate := validateDiscordProviderURLFunc
 			defer func() { validateDiscordProviderURLFunc = origValidate }()
@@ -1746,7 +1748,7 @@ func TestNotificationService_SendExternal_SecurityEventRouting(t *testing.T) {
 
 func TestNotificationService_UpdateProvider_ReturnsErrorWhenProviderMissing(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	err := svc.UpdateProvider(&models.NotificationProvider{
 		ID:   "missing-id",
@@ -1758,7 +1760,7 @@ func TestNotificationService_UpdateProvider_ReturnsErrorWhenProviderMissing(t *t
 
 func TestNotificationService_EnsureNotifyOnlyProviderMigration_QueryProvidersError(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
@@ -1791,7 +1793,7 @@ func TestNotificationService_EnsureNotifyOnlyProviderMigration_UpdateError(t *te
 	roDB, err := gorm.Open(sqlite.Open(roDSN), &gorm.Config{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(roDB)
+	svc := NewNotificationService(roDB, nil)
 	err = svc.EnsureNotifyOnlyProviderMigration(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to migrate notification provider")
@@ -1808,7 +1810,7 @@ func TestNotificationService_EnsureNotifyOnlyProviderMigration_WrapsFindError(t 
 	require.NoError(t, err)
 	// Intentionally do not migrate notification_providers table.
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 	err = svc.EnsureNotifyOnlyProviderMigration(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to fetch notification providers for migration")
@@ -1816,7 +1818,7 @@ func TestNotificationService_EnsureNotifyOnlyProviderMigration_WrapsFindError(t 
 
 func TestTestProvider_NotifyOnlyRejectsUnsupportedProvider(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Test truly unsupported providers are rejected
 	tests := []struct {
@@ -1846,7 +1848,7 @@ func TestTestProvider_NotifyOnlyRejectsUnsupportedProvider(t *testing.T) {
 
 func TestTestProvider_DiscordUsesNotifyPathInPR1(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	serverCalled := atomic.Bool{}
 	originalDo := webhookDoRequestFunc
@@ -1871,7 +1873,7 @@ func TestTestProvider_DiscordUsesNotifyPathInPR1(t *testing.T) {
 
 func TestTestProvider_HTTPURLValidation(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	t.Run("blocks private IP", func(t *testing.T) {
 		provider := models.NotificationProvider{
@@ -1918,7 +1920,7 @@ func TestTestProvider_HTTPURLValidation(t *testing.T) {
 
 func TestSendJSONPayload_TemplateExecutionError(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -1947,7 +1949,7 @@ func TestSendJSONPayload_TemplateExecutionError(t *testing.T) {
 
 func TestSendJSONPayload_InvalidJSONFromTemplate(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -1976,7 +1978,7 @@ func TestSendJSONPayload_InvalidJSONFromTemplate(t *testing.T) {
 
 func TestSendJSONPayload_RequestCreationError(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// This test verifies request creation doesn't panic on edge cases
 	provider := models.NotificationProvider{
@@ -2002,7 +2004,7 @@ func TestSendJSONPayload_RequestCreationError(t *testing.T) {
 
 func TestRenderTemplate_CustomTemplateWithWhitespace(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Test template selection with various whitespace
 	tests := []struct {
@@ -2043,7 +2045,7 @@ func TestListTemplates_DBError(t *testing.T) {
 	db, _ := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	_ = db.AutoMigrate(&models.NotificationTemplate{})
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Close the underlying connection to force error
 	sqlDB, _ := db.DB()
@@ -2058,7 +2060,7 @@ func TestSendExternal_DBFetchError(t *testing.T) {
 	db, _ := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	_ = db.AutoMigrate(&models.NotificationProvider{})
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Close the underlying connection to force error
 	sqlDB, _ := db.DB()
@@ -2070,7 +2072,7 @@ func TestSendExternal_DBFetchError(t *testing.T) {
 
 func TestSendExternal_JSONPayloadError(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Create a provider that will fail JSON validation (discord without content/embeds)
 	provider := models.NotificationProvider{
@@ -2091,7 +2093,7 @@ func TestSendExternal_JSONPayloadError(t *testing.T) {
 
 func TestSendJSONPayload_HTTPScheme(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Test both HTTP and HTTPS schemes
 	schemes := []string{"http", "https"}
@@ -2129,7 +2131,7 @@ func TestSendJSONPayload_HTTPScheme(t *testing.T) {
 
 func TestNotificationService_EnsureNotifyOnlyProviderMigration(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 	ctx := context.Background()
 
 	// Create test providers: discord (supported) and others (deprecated in discord-only rollout)
@@ -2198,7 +2200,7 @@ func TestNotificationService_EnsureNotifyOnlyProviderMigration(t *testing.T) {
 
 func TestNotificationService_EnsureNotifyOnlyProviderMigration_PreservesLegacyURL(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 	ctx := context.Background()
 
 	// Create provider with URL but no legacy_url
@@ -2222,7 +2224,7 @@ func TestNotificationService_EnsureNotifyOnlyProviderMigration_PreservesLegacyUR
 
 func TestNotificationService_EnsureNotifyOnlyProviderMigration_SkipsIfLegacyURLExists(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 	ctx := context.Background()
 
 	// Create provider with both URL and legacy_url already set
@@ -2248,7 +2250,7 @@ func TestNotificationService_EnsureNotifyOnlyProviderMigration_SkipsIfLegacyURLE
 func TestNotificationService_EnsureNotifyOnlyProviderMigration_DBError(t *testing.T) {
 	db, _ := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	_ = db.AutoMigrate(&models.NotificationProvider{})
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Close DB to force error
 	sqlDB, _ := db.DB()
@@ -2271,7 +2273,7 @@ func TestNotificationService_EnsureNotifyOnlyProviderMigration_DBError(t *testin
 // Success path is tested by TestNotificationService_EnsureNotifyOnlyProviderMigration
 func TestNotificationService_EnsureNotifyOnlyProviderMigration_FailsClosed(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 	ctx := context.Background()
 
 	// Create a Discord provider (the only type that gets migrated)
@@ -2302,7 +2304,7 @@ func TestNotificationService_EnsureNotifyOnlyProviderMigration_FailsClosed(t *te
 func TestIsDispatchEnabled_GotifyDefaultTrue(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// No feature flag row exists — should default to true
 	assert.True(t, svc.isDispatchEnabled("gotify"))
@@ -2311,7 +2313,7 @@ func TestIsDispatchEnabled_GotifyDefaultTrue(t *testing.T) {
 func TestIsDispatchEnabled_WebhookDefaultTrue(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// No feature flag row exists — should default to true
 	assert.True(t, svc.isDispatchEnabled("webhook"))
@@ -2328,7 +2330,7 @@ func TestIsSupportedNotificationProviderType_Email(t *testing.T) {
 func TestIsDispatchEnabled_EmailDefaultFalse(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// No feature flag row — email defaults to false
 	assert.False(t, svc.isDispatchEnabled("email"))
@@ -2341,13 +2343,14 @@ func TestIsDispatchEnabled_EmailDefaultFalse(t *testing.T) {
 	assert.True(t, svc.isDispatchEnabled("email"))
 }
 
-// TestSendExternal_EmailProviderSkipsJSONTemplate covers the goroutine branch where
-// an email provider is dispatch-enabled but not in supportsJSONTemplates — it logs
-// a warning and returns without calling sendJSONPayload.
-func TestSendExternal_EmailProviderSkipsJSONTemplate(t *testing.T) {
+// TestSendExternal_EmailProvider_NilMailService_DoesNotPanic verifies that when an
+// email provider is enabled but the mail service is nil, SendExternal dispatches
+// the goroutine which early-returns without panicking. The type == "email" branch
+// calls dispatchEmail and continues — it never reaches supportsJSONTemplates.
+func TestSendExternal_EmailProvider_NilMailService_DoesNotPanic(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Enable the email feature flag so isDispatchEnabled("email") returns true.
 	require.NoError(t, db.Create(&models.Setting{
@@ -2374,7 +2377,7 @@ func TestSendExternal_EmailProviderSkipsJSONTemplate(t *testing.T) {
 // attempting an HTTP send.
 func TestTestProvider_EmailRejectsJSONTemplateStep(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	provider := models.NotificationProvider{
 		Type:     "email",
@@ -2390,7 +2393,7 @@ func TestTestProvider_EmailRejectsJSONTemplateStep(t *testing.T) {
 func TestTestProvider_GotifyWorksWithoutFeatureFlag(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -2410,7 +2413,7 @@ func TestTestProvider_GotifyWorksWithoutFeatureFlag(t *testing.T) {
 func TestTestProvider_WebhookWorksWithoutFeatureFlag(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -2430,7 +2433,7 @@ func TestTestProvider_WebhookWorksWithoutFeatureFlag(t *testing.T) {
 func TestTestProvider_GotifyWorksWhenFlagExplicitlyFalse(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Explicitly set feature flag to false
 	db.Create(&models.Setting{Key: "feature.notifications.service.gotify.enabled", Value: "false"})
@@ -2454,7 +2457,7 @@ func TestTestProvider_GotifyWorksWhenFlagExplicitlyFalse(t *testing.T) {
 func TestTestProvider_WebhookWorksWhenFlagExplicitlyFalse(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Explicitly set feature flag to false
 	db.Create(&models.Setting{Key: "feature.notifications.service.webhook.enabled", Value: "false"})
@@ -2477,7 +2480,7 @@ func TestTestProvider_WebhookWorksWhenFlagExplicitlyFalse(t *testing.T) {
 
 func TestUpdateProvider_TypeMutationBlocked(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	existing := models.NotificationProvider{
 		ID:   "prov-type-mut",
@@ -2500,7 +2503,7 @@ func TestUpdateProvider_TypeMutationBlocked(t *testing.T) {
 
 func TestUpdateProvider_GotifyKeepsExistingToken(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	existing := models.NotificationProvider{
 		ID:    "prov-gotify-token",
@@ -2526,7 +2529,7 @@ func TestUpdateProvider_GotifyKeepsExistingToken(t *testing.T) {
 func TestGetFeatureFlagValue_FoundSetting(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	tests := []struct {
 		name     string
@@ -2549,4 +2552,238 @@ func TestGetFeatureFlagValue_FoundSetting(t *testing.T) {
 			assert.Equal(t, tt.expected, result, "value=%q", tt.value)
 		})
 	}
+}
+
+// --- mockMailService for dispatchEmail tests ---
+
+type mockMailService struct {
+	mu           sync.Mutex
+	isConfigured bool
+	sendEmailErr error
+	calls        []mockSendEmailCall
+}
+
+type mockSendEmailCall struct {
+	to      []string
+	subject string
+	body    string
+}
+
+func (m *mockMailService) IsConfigured() bool { return m.isConfigured }
+
+func (m *mockMailService) SendEmail(_ context.Context, to []string, subject, htmlBody string) error {
+	m.mu.Lock()
+	m.calls = append(m.calls, mockSendEmailCall{to: to, subject: subject, body: htmlBody})
+	m.mu.Unlock()
+	return m.sendEmailErr
+}
+
+func (m *mockMailService) callCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.calls)
+}
+
+func (m *mockMailService) firstCall() mockSendEmailCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.calls[0]
+}
+
+func TestDispatchEmail_NilMailService(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com", Type: "email"}
+	// Must not panic
+	svc.dispatchEmail(context.Background(), p, "alert", "Title", "Message")
+}
+
+func TestDispatchEmail_SMTPNotConfigured(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: false}
+	svc := NewNotificationService(db, mock)
+
+	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com", Type: "email"}
+	svc.dispatchEmail(context.Background(), p, "alert", "Title", "Message")
+
+	assert.Empty(t, mock.calls)
+}
+
+func TestDispatchEmail_EmptyRecipients(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: true}
+	svc := NewNotificationService(db, mock)
+
+	p := models.NotificationProvider{Name: "test-email", URL: "   ,  , ", Type: "email"}
+	svc.dispatchEmail(context.Background(), p, "alert", "Title", "Message")
+
+	assert.Empty(t, mock.calls)
+}
+
+func TestDispatchEmail_ValidSend(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: true}
+	svc := NewNotificationService(db, mock)
+
+	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com, c@d.com", Type: "email"}
+	svc.dispatchEmail(context.Background(), p, "alert", "My Title", "My Message")
+
+	require.Len(t, mock.calls, 1)
+	assert.Equal(t, []string{"a@b.com", "c@d.com"}, mock.calls[0].to)
+	assert.Equal(t, "[Charon Alert] My Title", mock.calls[0].subject)
+	assert.Contains(t, mock.calls[0].body, "<strong>My Title</strong>")
+	assert.Contains(t, mock.calls[0].body, "My Message")
+}
+
+func TestDispatchEmail_SendError_Logged(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: true, sendEmailErr: fmt.Errorf("smtp failure")}
+	svc := NewNotificationService(db, mock)
+
+	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com", Type: "email"}
+	// Must not panic even when SendEmail returns error
+	svc.dispatchEmail(context.Background(), p, "alert", "Title", "Message")
+
+	assert.Len(t, mock.calls, 1)
+}
+
+func TestSendExternal_EmailProvider_Dispatches(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}))
+
+	mock := &mockMailService{isConfigured: true}
+	svc := NewNotificationService(db, mock)
+
+	provider := models.NotificationProvider{
+		Name:    "email-provider",
+		Type:    "email",
+		URL:     "notify@example.com",
+		Enabled: true,
+	}
+	require.NoError(t, db.Create(&provider).Error)
+
+	db.Create(&models.Setting{Key: notifications.FlagEmailServiceEnabled, Value: "true"})
+
+	svc.SendExternal(context.Background(), "test", "Title", "Body", nil)
+
+	// Allow goroutine to run
+	require.Eventually(t, func() bool { return mock.callCount() > 0 }, 2*time.Second, 10*time.Millisecond)
+	assert.Equal(t, []string{"notify@example.com"}, mock.firstCall().to)
+}
+
+func TestSendExternal_EmailProvider_FlagDisabled(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}))
+
+	mock := &mockMailService{isConfigured: true}
+	svc := NewNotificationService(db, mock)
+
+	provider := models.NotificationProvider{
+		Name:    "email-off",
+		Type:    "email",
+		URL:     "notify@example.com",
+		Enabled: true,
+	}
+	require.NoError(t, db.Create(&provider).Error)
+
+	db.Create(&models.Setting{Key: notifications.FlagEmailServiceEnabled, Value: "false"})
+
+	svc.SendExternal(context.Background(), "test", "Title", "Body", nil)
+
+	time.Sleep(50 * time.Millisecond)
+	assert.Zero(t, mock.callCount())
+}
+
+func TestDispatchEmail_InvalidRecipient(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: true, sendEmailErr: ErrInvalidRecipient}
+	svc := NewNotificationService(db, mock)
+
+	p := models.NotificationProvider{Name: "test-email", URL: "not-an-email", Type: "email"}
+	// dispatchEmail will call SendEmail; the mock returns ErrInvalidRecipient — must not panic
+	svc.dispatchEmail(context.Background(), p, "alert", "Title", "Message")
+
+	// SendEmail was called once (validation happens inside real SendEmail, mock just returns the error)
+	assert.Len(t, mock.calls, 1)
+}
+
+func TestDispatchEmail_TooManyRecipients(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: true, sendEmailErr: ErrTooManyRecipients}
+	svc := NewNotificationService(db, mock)
+
+	recipients := make([]string, 21)
+	for i := range recipients {
+		recipients[i] = fmt.Sprintf("user%d@example.com", i)
+	}
+	p := models.NotificationProvider{Name: "test-email", URL: strings.Join(recipients, ","), Type: "email"}
+	// dispatchEmail passes all recipients to SendEmail; mock returns ErrTooManyRecipients — must not panic
+	svc.dispatchEmail(context.Background(), p, "alert", "Title", "Message")
+
+	assert.Len(t, mock.calls, 1)
+}
+
+func TestDispatchEmail_HeaderInjectionRecipient(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: true, sendEmailErr: ErrInvalidRecipient}
+	svc := NewNotificationService(db, mock)
+
+	p := models.NotificationProvider{Name: "test-email", URL: "bad\r\naddr@test.com", Type: "email"}
+	// The recipient contains CR/LF; dispatchEmail trims + splits but passes to SendEmail which rejects — must not panic
+	svc.dispatchEmail(context.Background(), p, "alert", "Title", "Message")
+
+	assert.Len(t, mock.calls, 1)
+}
+
+func TestSendExternal_EmailProviderDoesNotCallSendJSONPayload(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}))
+
+	mock := &mockMailService{isConfigured: true}
+	svc := NewNotificationService(db, mock)
+
+	// Track any JSON payload call via the webhook hook
+	jsonPayloadCalled := false
+	origDo := webhookDoRequestFunc
+	defer func() { webhookDoRequestFunc = origDo }()
+	webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
+		jsonPayloadCalled = true
+		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
+	}
+
+	provider := models.NotificationProvider{
+		Name:    "email-no-http",
+		Type:    "email",
+		URL:     "notify@example.com",
+		Enabled: true,
+	}
+	require.NoError(t, db.Create(&provider).Error)
+	db.Create(&models.Setting{Key: notifications.FlagEmailServiceEnabled, Value: "true"})
+
+	svc.SendExternal(context.Background(), "test", "Title", "Body", nil)
+	require.Eventually(t, func() bool { return mock.callCount() > 0 }, 2*time.Second, 10*time.Millisecond)
+
+	assert.False(t, jsonPayloadCalled, "email provider must not trigger HTTP JSON payload path")
+}
+
+func TestDispatchEmail_XSSPayload_BodySanitized(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: true}
+	svc := NewNotificationService(db, mock)
+
+	xssTitle := `<script>alert('xss')</script>`
+	xssMessage := `<img src=x onerror=evil()>`
+
+	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com", Type: "email"}
+	svc.dispatchEmail(context.Background(), p, "alert", xssTitle, xssMessage)
+
+	require.Len(t, mock.calls, 1)
+	body := mock.calls[0].body
+	// Raw script tags must not appear — they must be escaped.
+	assert.NotContains(t, body, "<script>")
+	assert.Contains(t, body, "&lt;script&gt;")
+	// The <img> attack vector tag must be escaped — the literal < must not appear unescaped.
+	assert.NotContains(t, body, "<img ")
+	assert.Contains(t, body, "&lt;img ")
 }

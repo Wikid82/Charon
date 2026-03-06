@@ -205,7 +205,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 	wsStatusHandler := handlers.NewWebSocketStatusHandler(wsTracker)
 
 	// Notification Service (needed for multiple handlers)
-	notificationService := services.NewNotificationService(db)
+	notificationService := services.NewNotificationService(db, services.NewMailService(db))
 
 	// Ensure notify-only provider migration reconciliation at boot
 	if err := notificationService.EnsureNotifyOnlyProviderMigration(context.Background()); err != nil {

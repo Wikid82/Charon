@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"net"
 	"testing"
 
@@ -120,7 +121,7 @@ func TestCoverageBoost_ErrorPaths(t *testing.T) {
 	})
 
 	t.Run("NotificationService_ListTemplates_EmptyDB", func(t *testing.T) {
-		svc := NewNotificationService(db)
+		svc := NewNotificationService(db, nil)
 
 		// Should not error with empty db
 		templates, err := svc.ListTemplates()
@@ -130,7 +131,7 @@ func TestCoverageBoost_ErrorPaths(t *testing.T) {
 	})
 
 	t.Run("NotificationService_GetTemplate_NotFound", func(t *testing.T) {
-		svc := NewNotificationService(db)
+		svc := NewNotificationService(db, nil)
 
 		// Test with non-existent ID
 		_, err := svc.GetTemplate("nonexistent")
@@ -227,7 +228,7 @@ func TestCoverageBoost_MailService_ErrorPaths(t *testing.T) {
 
 	t.Run("SendEmail_NoConfig", func(t *testing.T) {
 		// With empty config, should error
-		err := svc.SendEmail("test@example.com", "Subject", "Body")
+		err := svc.SendEmail(context.Background(), []string{"test@example.com"}, "Subject", "Body")
 		assert.Error(t, err)
 	})
 }
@@ -426,7 +427,7 @@ func TestCoverageBoost_MailService_SendSSL(t *testing.T) {
 		require.NoError(t, err)
 
 		// Try to send - should fail with connection error
-		err = svc.SendEmail("test@example.com", "Test", "Body")
+		err = svc.SendEmail(context.Background(), []string{"test@example.com"}, "Test", "Body")
 		assert.Error(t, err)
 	})
 
@@ -444,7 +445,7 @@ func TestCoverageBoost_MailService_SendSSL(t *testing.T) {
 		require.NoError(t, err)
 
 		// Try to send - should fail with connection error
-		err = svc.SendEmail("test@example.com", "Test", "Body")
+		err = svc.SendEmail(context.Background(), []string{"test@example.com"}, "Test", "Body")
 		assert.Error(t, err)
 	})
 }
@@ -523,7 +524,7 @@ func TestCoverageBoost_NotificationService_Providers(t *testing.T) {
 	err = db.AutoMigrate(&models.NotificationProvider{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	t.Run("ListProviders_EmptyDB", func(t *testing.T) {
 		providers, err := svc.ListProviders()
@@ -591,7 +592,7 @@ func TestCoverageBoost_NotificationService_CRUD(t *testing.T) {
 	err = db.AutoMigrate(&models.Notification{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	t.Run("List_EmptyDB", func(t *testing.T) {
 		notifs, err := svc.List(false)

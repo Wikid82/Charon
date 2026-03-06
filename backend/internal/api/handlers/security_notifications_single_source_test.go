@@ -238,7 +238,7 @@ func TestR6_LegacyWrite410GoneNoMutation(t *testing.T) {
 func TestProviderCRUD_SecurityEventsIncludeCrowdSec(t *testing.T) {
 	db := setupSingleSourceTestDB(t)
 
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	gin.SetMode(gin.TestMode)

@@ -23,7 +23,7 @@ func TestSecurityEventIntakeCompileSuccess(t *testing.T) {
 	db := SetupCompatibilityTestDB(t)
 
 	// This test validates that the handler can be instantiated with all required dependencies
-	notificationService := services.NewNotificationService(db)
+	notificationService := services.NewNotificationService(db, nil)
 	service := services.NewEnhancedSecurityNotificationService(db)
 	securityService := services.NewSecurityService(db)
 	managementCIDRs := []string{"127.0.0.0/8"}
@@ -47,7 +47,7 @@ func TestSecurityEventIntakeCompileSuccess(t *testing.T) {
 func TestSecurityEventIntakeAuthLocalhost(t *testing.T) {
 	db := SetupCompatibilityTestDB(t)
 
-	notificationService := services.NewNotificationService(db)
+	notificationService := services.NewNotificationService(db, nil)
 	service := services.NewEnhancedSecurityNotificationService(db)
 	managementCIDRs := []string{"10.0.0.0/8"}
 
@@ -88,7 +88,7 @@ func TestSecurityEventIntakeAuthLocalhost(t *testing.T) {
 func TestSecurityEventIntakeAuthManagementCIDR(t *testing.T) {
 	db := SetupCompatibilityTestDB(t)
 
-	notificationService := services.NewNotificationService(db)
+	notificationService := services.NewNotificationService(db, nil)
 	service := services.NewEnhancedSecurityNotificationService(db)
 	managementCIDRs := []string{"192.168.1.0/24", "10.0.0.0/8"}
 
@@ -129,7 +129,7 @@ func TestSecurityEventIntakeAuthManagementCIDR(t *testing.T) {
 func TestSecurityEventIntakeAuthUnauthorizedIP(t *testing.T) {
 	db := SetupCompatibilityTestDB(t)
 
-	notificationService := services.NewNotificationService(db)
+	notificationService := services.NewNotificationService(db, nil)
 	service := services.NewEnhancedSecurityNotificationService(db)
 	managementCIDRs := []string{"192.168.1.0/24"}
 
@@ -175,7 +175,7 @@ func TestSecurityEventIntakeAuthUnauthorizedIP(t *testing.T) {
 func TestSecurityEventIntakeAuthInvalidIP(t *testing.T) {
 	db := SetupCompatibilityTestDB(t)
 
-	notificationService := services.NewNotificationService(db)
+	notificationService := services.NewNotificationService(db, nil)
 	service := services.NewEnhancedSecurityNotificationService(db)
 	managementCIDRs := []string{"192.168.1.0/24"}
 
@@ -234,7 +234,7 @@ func TestSecurityEventIntakeDispatchInvoked(t *testing.T) {
 	}
 	require.NoError(t, db.Create(provider).Error)
 
-	notificationService := services.NewNotificationService(db)
+	notificationService := services.NewNotificationService(db, nil)
 	service := services.NewEnhancedSecurityNotificationService(db)
 	managementCIDRs := []string{"127.0.0.0/8"}
 
@@ -374,7 +374,7 @@ func TestSecurityEventIntakeDiscordOnly(t *testing.T) {
 	}
 	require.NoError(t, db.Create(webhookProvider).Error)
 
-	notificationService := services.NewNotificationService(db)
+	notificationService := services.NewNotificationService(db, nil)
 	service := services.NewEnhancedSecurityNotificationService(db)
 	managementCIDRs := []string{"127.0.0.0/8"}
 
@@ -419,7 +419,7 @@ func TestSecurityEventIntakeDiscordOnly(t *testing.T) {
 func TestSecurityEventIntakeMalformedPayload(t *testing.T) {
 	db := SetupCompatibilityTestDB(t)
 
-	notificationService := services.NewNotificationService(db)
+	notificationService := services.NewNotificationService(db, nil)
 	service := services.NewEnhancedSecurityNotificationService(db)
 	managementCIDRs := []string{"127.0.0.0/8"}
 
@@ -454,7 +454,7 @@ func TestSecurityEventIntakeMalformedPayload(t *testing.T) {
 func TestSecurityEventIntakeIPv6Localhost(t *testing.T) {
 	db := SetupCompatibilityTestDB(t)
 
-	notificationService := services.NewNotificationService(db)
+	notificationService := services.NewNotificationService(db, nil)
 	service := services.NewEnhancedSecurityNotificationService(db)
 	managementCIDRs := []string{"10.0.0.0/8"}
 

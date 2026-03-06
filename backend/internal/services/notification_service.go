@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net"
 	"net/http"
 	neturl "net/url"
@@ -27,12 +28,14 @@ import (
 type NotificationService struct {
 	DB          *gorm.DB
 	httpWrapper *notifications.HTTPWrapper
+	mailService MailServiceInterface
 }
 
-func NewNotificationService(db *gorm.DB) *NotificationService {
+func NewNotificationService(db *gorm.DB, mailService MailServiceInterface) *NotificationService {
 	return &NotificationService{
 		DB:          db,
 		httpWrapper: notifications.NewNotifyHTTPWrapper(),
+		mailService: mailService,
 	}
 }
 
@@ -225,6 +228,10 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 				Warn("Skipping dispatch because provider type is disabled for notify dispatch")
 			continue
 		}
+		if strings.ToLower(strings.TrimSpace(provider.Type)) == "email" {
+			go s.dispatchEmail(ctx, provider, eventType, title, message)
+			continue
+		}
 		go func(p models.NotificationProvider) {
 			if !supportsJSONTemplates(p.Type) {
 				logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).WithField("type", p.Type).Warn("Provider type is not supported by notify-only runtime")
@@ -235,6 +242,38 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 				logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send JSON notification")
 			}
 		}(provider)
+	}
+}
+
+// dispatchEmail sends an email notification for the given provider.
+// It runs in a goroutine; all errors are logged rather than returned.
+func (s *NotificationService) dispatchEmail(ctx context.Context, p models.NotificationProvider, _, title, message string) {
+	if s.mailService == nil || !s.mailService.IsConfigured() {
+		logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).Warn("Email provider is not configured, skipping dispatch")
+		return
+	}
+
+	rawRecipients := strings.Split(p.URL, ",")
+	recipients := make([]string, 0, len(rawRecipients))
+	for _, r := range rawRecipients {
+		if trimmed := strings.TrimSpace(r); trimmed != "" {
+			recipients = append(recipients, trimmed)
+		}
+	}
+
+	if len(recipients) == 0 {
+		logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).Warn("Email provider has no recipients configured")
+		return
+	}
+
+	subject := fmt.Sprintf("[Charon Alert] %s", title)
+	htmlBody := "<p><strong>" + html.EscapeString(title) + "</strong></p><p>" + html.EscapeString(message) + "</p>"
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	if err := s.mailService.SendEmail(timeoutCtx, recipients, subject, htmlBody); err != nil {
+		logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send email notification")
 	}
 }
 

@@ -40,7 +40,7 @@ func TestHandleSecurityEvent_TimestampZero(t *testing.T) {
 
 	enhancedService := services.NewEnhancedSecurityNotificationService(db)
 	securityService := services.NewSecurityService(db)
-	notificationService := services.NewNotificationService(db)
+	notificationService := services.NewNotificationService(db, nil)
 	h := NewSecurityNotificationHandlerWithDeps(enhancedService, securityService, "/tmp", notificationService, []string{"127.0.0.0/8"})
 
 	w := httptest.NewRecorder()
@@ -85,7 +85,7 @@ func TestHandleSecurityEvent_SendViaProvidersError(t *testing.T) {
 	assert.NoError(t, err)
 
 	securityService := services.NewSecurityService(db)
-	notificationService := services.NewNotificationService(db)
+	notificationService := services.NewNotificationService(db, nil)
 	mockService := &mockFailingService{}
 	h := NewSecurityNotificationHandlerWithDeps(mockService, securityService, "/tmp", notificationService, []string{"127.0.0.0/8"})
 

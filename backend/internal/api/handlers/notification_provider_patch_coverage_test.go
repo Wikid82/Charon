@@ -33,7 +33,7 @@ func TestUpdate_BlockTypeMutationForNonDiscord(t *testing.T) {
 	}
 	require.NoError(t, db.Create(existing).Error)
 
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	gin.SetMode(gin.TestMode)
@@ -85,7 +85,7 @@ func TestUpdate_AllowTypeMutationForDiscord(t *testing.T) {
 	}
 	require.NoError(t, db.Create(existing).Error)
 
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	gin.SetMode(gin.TestMode)

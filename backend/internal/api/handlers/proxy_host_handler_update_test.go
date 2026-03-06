@@ -36,7 +36,7 @@ func setupUpdateTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.NotificationProvider{},
 	))
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	h := NewProxyHostHandler(db, nil, ns, nil)
 
 	r := gin.New()
@@ -933,7 +933,7 @@ func TestBulkUpdateSecurityHeaders_DBError_NonNotFound(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&host).Error)
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	h := NewProxyHostHandler(db, nil, ns, nil)
 
 	r := gin.New()

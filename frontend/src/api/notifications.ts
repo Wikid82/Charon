@@ -1,6 +1,6 @@
 import client from './client';
 
-export const SUPPORTED_NOTIFICATION_PROVIDER_TYPES = ['discord', 'gotify', 'webhook'] as const;
+export const SUPPORTED_NOTIFICATION_PROVIDER_TYPES = ['discord', 'gotify', 'webhook', 'email'] as const;
 export type SupportedNotificationProviderType = (typeof SUPPORTED_NOTIFICATION_PROVIDER_TYPES)[number];
 const DEFAULT_PROVIDER_TYPE: SupportedNotificationProviderType = 'discord';
 
