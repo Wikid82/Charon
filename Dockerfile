@@ -39,7 +39,7 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f9
 # CVEs fixed: CVE-2023-24531, CVE-2023-24540, CVE-2023-29402, CVE-2023-29404,
 #             CVE-2023-29405, CVE-2024-24790, CVE-2025-22871, and 15 more
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:d4c4845f5d60c6a974c6000ce58ae079328d03ab7f721a0734277e69905473e5 AS gosu-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.1-alpine AS gosu-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/gosu
@@ -197,7 +197,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Build Caddy from source to ensure we use the latest Go version and dependencies
 # This fixes vulnerabilities found in the pre-built Caddy images (e.g. CVE-2025-59530, stdlib issues)
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:d4c4845f5d60c6a974c6000ce58ae079328d03ab7f721a0734277e69905473e5 AS caddy-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.1-alpine AS caddy-builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
