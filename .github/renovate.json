@@ -69,11 +69,44 @@
       "description": "Track Alpine base image digest in Dockerfile for security updates",
       "managerFilePatterns": ["/^Dockerfile$/"],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=docker\\s+depName=alpine.*\\nARG CADDY_IMAGE=alpine:(?<currentValue>[^\\s@]+@sha256:[a-f0-9]+)"
+        "#\\s*renovate:\\s*datasource=docker\\s+depName=alpine.*\\nARG ALPINE_IMAGE=alpine:(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
       ],
       "depNameTemplate": "alpine",
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Go toolchain version ARG in Dockerfile",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=docker\\s+depName=golang.*\\nARG GO_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "golang",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Track expr-lang version ARG in Dockerfile",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=go\\s+depName=github\\.com/expr-lang/expr.*\\nARG EXPR_LANG_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/expr-lang/expr",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track golang.org/x/net version ARG in Dockerfile",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=go\\s+depName=golang\\.org/x/net.*\\nARG XNET_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "golang.org/x/net",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
     },
     {
       "customType": "regex",
