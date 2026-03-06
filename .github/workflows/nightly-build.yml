@@ -167,6 +167,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4.0.0
 
+      - name: Resolve Alpine base image digest
+        id: alpine
+        run: |
+          ALPINE_TAG=$(grep -m1 'ARG ALPINE_IMAGE=' Dockerfile | sed 's/ARG ALPINE_IMAGE=alpine://' | cut -d'@' -f1)
+          docker pull "alpine:${ALPINE_TAG}"
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "alpine:${ALPINE_TAG}")
+          echo "image=$DIGEST" >> "$GITHUB_OUTPUT"
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
         with:
@@ -210,6 +218,7 @@ jobs:
             VERSION=nightly-${{ github.sha }}
             VCS_REF=${{ github.sha }}
             BUILD_DATE=${{ github.event.repository.pushed_at }}
+            ALPINE_IMAGE=${{ steps.alpine.outputs.image }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true

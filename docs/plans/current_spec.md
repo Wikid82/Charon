@@ -1,608 +1,523 @@
-# Email Notifications / SMTP — Specification & Implementation Plan
+# Dockerfile Version Consolidation Plan
 
-> **Status:** Draft
-> **Created:** 2026-02-27
-> **Scope:** Full analysis of the email notification subsystem, feature flag gaps, Shoutrrr migration residue, email templates, and implementation roadmap.
-
----
-
-## 1. Executive Summary
-
-Charon's email/SMTP functionality is split across **two independent subsystems** that have never been unified:
-
-| Subsystem | File | Transport | Purpose | Integrated with Notification Providers? |
-|-----------|------|-----------|---------|----------------------------------------|
-| **MailService** | `backend/internal/services/mail_service.go` | Direct `net/smtp` | User invite emails, test emails | **No** |
-| **NotificationService** | `backend/internal/services/notification_service.go` | Custom `HTTPWrapper` | Discord, Gotify, Webhook dispatch | **No email support** |
-
-**Key findings:**
-
-1. **Shoutrrr is fully removed** — no dependency in `go.mod`, no runtime code. Only test-output artifacts (`backend/test-output.txt`) and one archived test file reference it.
-2. **No email feature flag exists** — the 9 registered feature flags cover cerberus, uptime, crowdsec, and notify engine/services (discord, gotify, webhook, security events, legacy fallback). Email is absent.
-3. **Email is not a notification provider type** — `isSupportedNotificationProviderType()` returns `true` only for `discord`, `gotify`, `webhook`. The frontend `notifications.ts` API client also has no email type.
-4. **`NotificationConfig.EmailRecipients`** field exists in the model but is never used at runtime — it's set to `""` in default config and has an archived handler test (`security_notifications_test.go.archived`).
-5. **The frontend shows only 3 feature toggles** (Cerberus, CrowdSec Console, Uptime) — notification flags exist in the backend but are not surfaced in the UI toggle grid.
-
-**Conclusion:** To enable "Email Notifications" as a first-class feature, email must be integrated into the notification provider system OR exposed as a standalone feature-flagged service. The MailService itself is production-quality with proper security hardening.
+**Status:** Draft
+**Created:** 2026-03-06
+**Scope:** Single PR — consolidate all duplicated version references in `Dockerfile` into top-level ARGs
 
 ---
 
-## 2. Current State Analysis
+## 1. Problem Statement
 
-### 2.1 MailService (`backend/internal/services/mail_service.go`)
+When Go was bumped from 1.26.0 to 1.26.1, the version appeared in 4 separate `FROM golang:X.XX.X-alpine` lines. Renovate's Docker manager updated some but not all, requiring manual fixes. The same class of duplication exists for Alpine base images, CrowdSec version/SHA, and Go dependency patch versions.
 
-**Lines:** ~650 | **Status:** Production-ready | **Test coverage:** Extensive
+**Root cause:** Version values are duplicated across build stages instead of being declared once at the top level and referenced via ARG interpolation.
 
-**Capabilities:**
-- SMTP connection with SSL/TLS, STARTTLS, and plaintext
-- Email header injection protection (CWE-93, CodeQL `go/email-injection`)
-- MIME Q-encoding for subjects (RFC 2047)
-- RFC 5321 dot-stuffing for body sanitization
-- Undisclosed recipients pattern (prevents request-derived addresses in headers)
-- `net/mail.Address` parsing for all address fields
-
-**Public API:**
-
-| Method | Signature | Purpose |
-|--------|-----------|---------|
-| `GetSMTPConfig` | `() (*SMTPConfig, error)` | Read config from `settings` table (category=`smtp`) |
-| `SaveSMTPConfig` | `(config *SMTPConfig) error` | Persist config to DB |
-| `IsConfigured` | `() bool` | Check if host + from_address are set |
-| `TestConnection` | `() error` | Validate SMTP connectivity + auth |
-| `SendEmail` | `(to, subject, htmlBody string) error` | Send a single email |
-| `SendInvite` | `(email, inviteToken, appName, baseURL string) error` | Send invite email with HTML template |
-
-**Config storage:** Uses `models.Setting` with `category = "smtp"` and keys: `smtp_host`, `smtp_port`, `smtp_username`, `smtp_password`, `smtp_from_address`, `smtp_encryption`.
-
-**Consumers:**
-- `UserHandler.InviteUser` — sends invite emails asynchronously via `go func()` when SMTP is configured and public URL is set.
-- `SettingsHandler.SendTestEmail` — sends a hardcoded test email HTML body.
-
-### 2.2 NotificationService (`backend/internal/services/notification_service.go`)
-
-**Lines:** ~500 | **Status:** Active (notify-only runtime) | **Supported types:** discord, gotify, webhook
-
-**Key dispatch functions:**
-- `SendExternal()` — iterates enabled providers, filters by event type preferences, dispatches via `sendJSONPayload()`.
-- `sendJSONPayload()` — renders Go templates, sends HTTP POST via `notifications.HTTPWrapper`.
-- `isDispatchEnabled()` — checks feature flags per provider type. Discord always true; gotify/webhook gated by flags.
-- `isSupportedNotificationProviderType()` — returns `true` for discord, gotify, webhook only.
-
-**Legacy Shoutrrr path:** `legacySendFunc` variable exists but is hardcoded to return `ErrLegacyFallbackDisabled`. All Shoutrrr test names (`TestSendExternal_ShoutrrrPath`, etc.) remain in test files but test the legacy-disabled path.
-
-### 2.3 SecurityNotificationService & EnhancedSecurityNotificationService
-
-- `SecurityNotificationService` — dispatches security events (WAF blocks, ACL denies) to webhook URL from `NotificationConfig`.
-- `EnhancedSecurityNotificationService` — provider-based security notifications with compatibility layer. Aggregates settings from `NotificationProvider` records. Filters by supported types: webhook, discord, slack, gotify.
-- `NotificationConfig.EmailRecipients` — field exists in model, set to `""` in defaults, never consumed by any dispatch logic.
-
-### 2.4 Frontend SMTP UI
-
-**Page:** `frontend/src/pages/SMTPSettings.tsx` (~300 lines)
-- Full CRUD form: host, port, username, password (masked), from_address, encryption (starttls/ssl/none)
-- Status indicator card (configured/not configured)
-- Test email card (visible only when configured)
-- TanStack Query for data fetching, mutations for save/test/send
-- Proper form labels with `htmlFor` attributes, accessible select component
-
-**API Client:** `frontend/src/api/smtp.ts`
-- `getSMTPConfig()`, `updateSMTPConfig()`, `testSMTPConnection()`, `sendTestEmail()`
-
-**Routes (backend):**
-- `GET /api/v1/settings/smtp` → `GetSMTPConfig`
-- `POST /api/v1/settings/smtp` → `UpdateSMTPConfig`
-- `POST /api/v1/settings/smtp/test` → `TestSMTPConfig`
-- `POST /api/v1/settings/smtp/test-email` → `SendTestEmail`
-
-### 2.5 E2E Test Coverage
-
-**File:** `tests/settings/smtp-settings.spec.ts`
-- Page load & display (URL, heading, no error alerts)
-- Form display (all 6 fields + 2 buttons verified)
-- Loading skeleton behavior
-- Form validation (required host, numeric port, from address format)
-- Encryption selector options
-- SMTP save flow (API interception, form fill, toast)
-- Test connection flow
-- Test email flow
-- Status indicator (configured/not-configured)
-- Accessibility (ARIA, keyboard navigation)
-
-**Fixtures:** `tests/fixtures/settings.ts`
-- `SMTPConfig` interface, `validSMTPConfig`, `validSMTPConfigSSL`, `validSMTPConfigNoAuth`
-- `invalidSMTPConfigs` (missingHost, invalidPort, portTooHigh, invalidEmail, etc.)
-- `FeatureFlags` interface — only has `cerberus_enabled`, `crowdsec_console_enrollment`, `uptime_monitoring`
+**EARS Requirement:**
+> WHEN a dependency version is updated (by Renovate or manually),
+> THE SYSTEM SHALL require exactly one edit location per version.
 
 ---
 
-## 3. Feature Flag Analysis
+## 2. Full Inventory of Duplicated Version References
 
-### 3.1 Backend Feature Flags (Complete Inventory)
+### 2.1 Go Toolchain Version (`golang:1.26.1-alpine`)
 
-| Flag Key | Default | Constant | Used By |
-|----------|---------|----------|---------|
-| `feature.cerberus.enabled` | `false` | (inline) | Cerberus middleware |
-| `feature.uptime.enabled` | `true` | (inline) | Uptime monitoring |
-| `feature.crowdsec.console_enrollment` | `false` | (inline) | CrowdSec console |
-| `feature.notifications.engine.notify_v1.enabled` | `false` | `FlagNotifyEngineEnabled` | Notification router |
-| `feature.notifications.service.discord.enabled` | `false` | `FlagDiscordServiceEnabled` | Discord dispatch gate |
-| `feature.notifications.service.gotify.enabled` | `false` | `FlagGotifyServiceEnabled` | Gotify dispatch gate |
-| `feature.notifications.service.webhook.enabled` | `false` | `FlagWebhookServiceEnabled` | Webhook dispatch gate |
-| `feature.notifications.legacy.fallback_enabled` | `false` | (inline) | **Permanently retired** |
-| `feature.notifications.security_provider_events.enabled` | `false` | `FlagSecurityProviderEventsEnabled` | Security event dispatch |
+| # | Line | Stage | Current Code |
+|---|------|-------|-------------|
+| 1 | 47 | `gosu-builder` | `FROM --platform=$BUILDPLATFORM golang:1.26.1-alpine AS gosu-builder` |
+| 2 | 98 | `backend-builder` | `FROM --platform=$BUILDPLATFORM golang:1.26.1-alpine AS backend-builder` |
+| 3 | 200 | `caddy-builder` | `FROM --platform=$BUILDPLATFORM golang:1.26.1-alpine AS caddy-builder` |
+| 4 | 297 | `crowdsec-builder` | `FROM --platform=$BUILDPLATFORM golang:1.26.1-alpine AS crowdsec-builder` |
 
-### 3.2 Missing Email Flag
+**Renovate annotation:** Each line currently has its own `# renovate: datasource=docker depName=golang` comment. With 4 copies, Renovate may match and PR-update only a subset when generating grouped PRs, leaving the others stale.
 
-**No email/SMTP feature flag constant exists** in:
-- `backend/internal/notifications/feature_flags.go` — 5 constants, none for email
-- `feature_flags_handler.go` `defaultFlags` — 9 entries, none for email
-- `defaultFlagValues` — 9 entries, none for email
+### 2.2 Alpine Base Image (`alpine:3.23.3@sha256:...`)
 
-**Required new flag:**
-- Key: `feature.notifications.service.email.enabled`
-- Default: `false`
-- Constant: `FlagEmailServiceEnabled` in `feature_flags.go`
+| # | Line | Stage/Context | Current Code |
+|---|------|--------------|-------------|
+| 1 | 30 | Top-level ARG | `ARG CADDY_IMAGE=alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659` |
+| 2 | 358 | `crowdsec-fallback` | `FROM alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS crowdsec-fallback` |
 
-### 3.3 Frontend Feature Flag Gaps
+**Problem:** The `CADDY_IMAGE` ARG is already top-level with a Renovate annotation (line 29), but the `crowdsec-fallback` stage hardcodes the same version+digest independently with its own Renovate annotation (line 357). Both can drift.
 
-**`SystemSettings.tsx` `featureToggles` array:**
-Only 3 toggles are rendered in the UI:
-1. `feature.cerberus.enabled`
-2. `feature.crowdsec.console_enrollment`
-3. `feature.uptime.enabled`
+### 2.3 CrowdSec Version + SHA256
 
-**Missing from UI:** All 6 notification flags are invisible to users. They can only be toggled via API (`PUT /api/v1/feature-flags`).
+| # | Lines | Stage | Current Code |
+|---|-------|-------|-------------|
+| 1 | 303–305 | `crowdsec-builder` | `ARG CROWDSEC_VERSION=1.7.6` + `ARG CROWDSEC_RELEASE_SHA256=704e37...` |
+| 2 | 367–368 | `crowdsec-fallback` | `ARG CROWDSEC_VERSION=1.7.6` + `ARG CROWDSEC_RELEASE_SHA256=704e37...` |
 
-**`tests/fixtures/settings.ts` `FeatureFlags` interface:**
-Only 3 fields — must be expanded to include notification flags when surfacing them in the UI.
+**Problem:** Both stages independently declare the same version and SHA. The `# renovate:` annotation exists on each, so Renovate may update one and miss the other in a grouped PR.
+
+### 2.4 Go Dependency Patch: `github.com/expr-lang/expr`
+
+| # | Line | Stage | Current Code |
+|---|------|-------|-------------|
+| 1 | 255 | `caddy-builder` | `go get github.com/expr-lang/expr@v1.17.7` |
+| 2 | 325 | `crowdsec-builder` | `go get github.com/expr-lang/expr@v1.17.7` |
+
+### 2.5 Go Dependency Patch: `golang.org/x/net`
+
+| # | Line | Stage | Current Code |
+|---|------|-------|-------------|
+| 1 | 259 | `caddy-builder` | `go get golang.org/x/net@v0.51.0` |
+| 2 | 327 | `crowdsec-builder` | `go get golang.org/x/net@v0.51.0` |
+
+### 2.6 Non-Duplicated References (For Completeness)
+
+These appear only once and need no consolidation but are noted for context:
+
+| Dependency | Line | Stage |
+|-----------|------|-------|
+| `golang.org/x/crypto@v0.46.0` | 326 | `crowdsec-builder` only |
+| `github.com/hslatman/ipstore@v0.4.0` | 257 | `caddy-builder` only |
+| `github.com/slackhq/nebula@v1.9.7` | 268 | `caddy-builder` only (conditional) |
 
 ---
 
-## 4. SMTP / Notify Migration Gap Analysis
+## 3. Proposed Top-Level ARG Consolidation
 
-### 4.1 Shoutrrr Removal Status
+### 3.1 New Top-Level ARGs
 
-| Layer | Status | Evidence |
-|-------|--------|----------|
-| `go.mod` | **Removed** | No `containrrr/shoutrrr` entry |
-| Runtime code | **Removed** | `legacySendFunc` returns `ErrLegacyFallbackDisabled` |
-| Feature flag | **Retired** | `feature.notifications.legacy.fallback_enabled` permanently `false` |
-| Router | **Disabled** | `ShouldUseLegacyFallback()` always returns `false` |
-| Test names | **Residual** | `TestSendExternal_ShoutrrrPath`, `TestSendExternal_ShoutrrrError`, etc. in `notification_service_test.go` |
-| Test output | **Residual** | `backend/test-output.txt` references Shoutrrr test runs |
-| Archived tests | **Residual** | `security_notifications_test.go.archived` has `normalizeEmailRecipients` tests |
+Add these after the existing `ARG BUILD_DEBUG=0` block (around line 9) and before the Caddy-related ARGs:
 
-### 4.2 Email-as-Notification-Provider Gap
+```dockerfile
+# ---- Pinned Toolchain Versions ----
+# renovate: datasource=docker depName=golang versioning=docker
+ARG GO_VERSION=1.26.1
 
-Email is **not** integrated as a notification provider. The architecture gap:
+# renovate: datasource=docker depName=alpine versioning=docker
+ARG ALPINE_IMAGE=alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
 
-```
-Current: NotificationService → HTTPWrapper → Discord/Gotify/Webhook (HTTP POST)
-         MailService → net/smtp → SMTP Server (independent, invite-only)
+# ---- CrowdSec Version ----
+# renovate: datasource=github-releases depName=crowdsecurity/crowdsec
+ARG CROWDSEC_VERSION=1.7.6
+# CrowdSec fallback tarball checksum (v${CROWDSEC_VERSION})
+ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
 
-Desired: NotificationService → [Engine] → Discord/Gotify/Webhook (HTTP)
-                                        → Email/SMTP (via MailService)
+# ---- Shared Go Security Patches ----
+# renovate: datasource=go depName=github.com/expr-lang/expr
+ARG EXPR_LANG_VERSION=1.17.7
+# renovate: datasource=go depName=golang.org/x/net
+ARG XNET_VERSION=0.51.0
 ```
 
-**Integration points needed:**
-1. Add `"email"` to `isSupportedNotificationProviderType()`
-2. Add `"email"` case to `isDispatchEnabled()` with flag check
-3. Add email dispatch path in `SendExternal()` that calls `MailService.SendEmail()`
-4. Add `FlagEmailServiceEnabled` constant
-5. Add flag to `defaultFlags` and `defaultFlagValues`
-6. Update `NotificationProvider` model validation and frontend types
+### 3.2 ARG Naming Conventions
 
-### 4.3 `NotificationConfig.EmailRecipients` — Orphaned Field
+| ARG Name | Value | Tracks |
+|----------|-------|--------|
+| `GO_VERSION` | `1.26.1` | Go toolchain version (bare semver, appended to `golang:` in FROM) |
+| `ALPINE_IMAGE` | `alpine:3.23.3@sha256:...` | Full image reference with digest pin |
+| `CROWDSEC_VERSION` | `1.7.6` | CrowdSec release tag (moved from per-stage) |
+| `CROWDSEC_RELEASE_SHA256` | `704e37...` | Tarball checksum for fallback (moved from per-stage) |
+| `EXPR_LANG_VERSION` | `1.17.7` | `github.com/expr-lang/expr` Go module version |
+| `XNET_VERSION` | `0.51.0` | `golang.org/x/net` Go module version |
 
-- Defined in `notification_config.go` line 21: `EmailRecipients string \`json:"email_recipients"\``
-- Set to `""` in `SecurityNotificationService.GetSettings()` default config
-- `normalizeEmailRecipients()` function existed but is now in `.archived` test file
-- **Not used by any active handler, API endpoint, or dispatch logic**
+### 3.3 Existing ARG Rename
 
----
-
-## 5. Email Templates Assessment
-
-### 5.1 Current Templates
-
-| Template | Location | Format | Used By |
-|----------|----------|--------|---------|
-| **Invite Email** | `mail_service.go:SendInvite()` line 595-620 | Inline Go `html/template` | `UserHandler.InviteUser` |
-| **Test Email** | `settings_handler.go:SendTestEmail()` line 648-660 | Inline HTML string | Admin SMTP test |
-
-**Invite template features:**
-- Gradient header with app name
-- "Accept Invitation" CTA button with invite URL
-- 48-hour expiration notice
-- Fallback plain-text URL link
-- Uses `{{.AppName}}` and `{{.InviteURL}}` variables
-
-**Test template features:**
-- Simple confirmation message
-- Inline CSS styles
-- No template variables (hardcoded content)
-
-### 5.2 No Shared Template System
-
-Email templates are entirely separate from the notification template system (`NotificationTemplate` model). Notification templates are JSON-based for HTTP webhook payloads; email templates are HTML strings. There is no shared abstraction.
-
-### 5.3 Missing Templates
-
-For a full email notification feature, these templates would be needed:
-- **Security alert email** — WAF blocks, ACL denies, rate limit hits
-- **SSL certificate email** — renewal, expiry warnings, failures
-- **Uptime alert email** — host up/down transitions
-- **System event email** — config changes, backup completions
-- **Password reset email** (if user management expands)
+The current `ARG CADDY_IMAGE=alpine:3.23.3@sha256:...` (line 30) should be **replaced** by the new `ALPINE_IMAGE` ARG. All references to `CADDY_IMAGE` downstream must be updated to `ALPINE_IMAGE`.
 
 ---
 
-## 6. Obsolete Code Inventory
+## 4. Line-by-Line Change Specification
 
-### 6.1 Dead / Effectively Dead Code
+### 4.1 New Top-Level ARG Block
 
-| Item | Location | Status | Action |
-|------|----------|--------|--------|
-| `legacySendFunc` variable | `notification_service.go` | Returns `ErrLegacyFallbackDisabled` always | Remove |
-| `legacyFallbackInvocationError()` | `notification_service.go:61` | Only called by dead legacy path | Remove |
-| `ErrLegacyFallbackDisabled` error | `notification_service.go` | Guard for retired path | Remove |
-| `ShouldUseLegacyFallback()` | `router.go` | Always returns `false` | Remove |
-| `EngineLegacy` constant | `engine.go` | Unused | Remove |
-| `feature.notifications.legacy.fallback_enabled` flag | `feature_flags_handler.go:36` | Permanently retired | Remove from `defaultFlags` |
-| `retiredLegacyFallbackEnvAliases` | `feature_flags_handler.go` | Env aliases for retired flag | Remove |
-| Legacy test helpers | `notification_service_test.go` | Tests overriding `legacySendFunc` | Refactor/remove |
-| `security_notifications_test.go.archived` | `handlers/` | Archived test file | Delete |
+**Location:** After line 9 (`ARG BUILD_DEBUG=0`), insert the new ARGs before Caddy version ARGs.
 
-### 6.2 Root-Level Artifacts (Should Be Gitignored)
+```
+Old (lines 9–14):
+  ARG BUILD_DEBUG=0
+  <blank>
+  # Allow pinning Caddy version...
 
-| File | Purpose | Action |
-|------|---------|--------|
-| `FIREFOX_E2E_FIXES_SUMMARY.md` | One-time fix summary | Move to `docs/implementation/` or gitignore |
-| `verify-security-state-for-ui-tests` | Empty file (0 bytes) | Delete or gitignore |
-| `categories.txt` | Unknown (28 bytes) | Investigate, likely deletable |
-| `codeql-results-*.sarif` | Already gitignored pattern but files exist | Delete tracked files |
-| `grype-results.json`, `grype-results.sarif` | Scan artifacts | Already gitignored, delete tracked |
-| `sbom-generated.json`, `sbom.cyclonedx.json` | SBOM artifacts | Already gitignored, delete tracked |
-| `trivy-*.json` | Scan reports | Already gitignored pattern but tracked |
-| `vuln-results.json` | Vulnerability scan | Gitignore and delete |
-| `backend/test-output.txt` | Test run output | Gitignore |
+New (lines 9–28):
+  ARG BUILD_DEBUG=0
 
-### 6.3 Codecov / Dockerignore Gaps
+  # ---- Pinned Toolchain Versions ----
+  # renovate: datasource=docker depName=golang versioning=docker
+  ARG GO_VERSION=1.26.1
 
-**`codecov.yml`:** No SMTP/email/notification-specific exclusions or flags needed currently. Coverage threshold is 87%.
+  # renovate: datasource=docker depName=alpine versioning=docker
+  ARG ALPINE_IMAGE=alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
 
-**`.dockerignore`:** Includes `*.sarif`, `sbom*.json`, `CODEQL_EMAIL_INJECTION_REMEDIATION_COMPLETE.md`. No SMTP-specific additions needed. The existing patterns are sufficient.
+  # ---- CrowdSec Version ----
+  # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
+  ARG CROWDSEC_VERSION=1.7.6
+  ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
 
-**`.gitignore`:** Missing patterns for:
-- `FIREFOX_E2E_FIXES_SUMMARY.md`
-- `verify-security-state-for-ui-tests`
-- `categories.txt`
-- `backend/test-output.txt`
-- `backend/*.out` (partially covered but `backend_full.out` may leak through)
+  # ---- Shared Go Security Patches ----
+  # renovate: datasource=go depName=github.com/expr-lang/expr
+  ARG EXPR_LANG_VERSION=1.17.7
+  # renovate: datasource=go depName=golang.org/x/net
+  ARG XNET_VERSION=0.51.0
 
----
-
-## 7. Implementation Plan
-
-### Phase 1: Cleanup — Dead Code & Artifacts (Low Risk)
-
-**Goal:** Remove Shoutrrr residue, delete obsolete artifacts, fix gitignore gaps.
-
-| Task | File(s) | Complexity |
-|------|---------|------------|
-| 1.1 Remove `legacySendFunc`, `ErrLegacyFallbackDisabled`, `legacyFallbackInvocationError()` | `notification_service.go` | S |
-| 1.2 Remove `ShouldUseLegacyFallback()` | `router.go` | S |
-| 1.3 Remove `EngineLegacy` constant | `engine.go` | S |
-| 1.4 Remove `feature.notifications.legacy.fallback_enabled` from `defaultFlags` and `defaultFlagValues` | `feature_flags_handler.go` | S |
-| 1.5 Remove `retiredLegacyFallbackEnvAliases` | `feature_flags_handler.go` | S |
-| 1.6 Refactor legacy test helpers in `notification_service_test.go` and `notification_service_json_test.go` | Test files | M |
-| 1.7 Delete `security_notifications_test.go.archived` | Handlers dir | S |
-| 1.8 Add missing `.gitignore` patterns and delete tracked artifacts from root | `.gitignore`, root files | S |
-| 1.9 Move `FIREFOX_E2E_FIXES_SUMMARY.md` to `docs/implementation/` | Root → docs/ | S |
-
-### Phase 2: Email Feature Flag (Medium Risk)
-
-**Goal:** Register email as a feature-flagged notification service.
-
-| Task | File(s) | Complexity |
-|------|---------|------------|
-| 2.1 Add `FlagEmailServiceEnabled` constant | `notifications/feature_flags.go` | S |
-| 2.2 Add `feature.notifications.service.email.enabled` to `defaultFlags` + `defaultFlagValues` (default: `false`) | `feature_flags_handler.go` | S |
-| 2.3 Add `"email"` case to `isSupportedNotificationProviderType()` | `notification_service.go` | S |
-| 2.4 Add `"email"` case to `isDispatchEnabled()` with flag check | `notification_service.go` | S |
-| 2.5 Update frontend `FeatureFlags` interface and test fixtures | `tests/fixtures/settings.ts` | S |
-| 2.6 (Optional) Surface notification flags in `SystemSettings.tsx` `featureToggles` array | `SystemSettings.tsx` | M |
-| 2.7 Unit tests for new flag constant, dispatch enable check, provider type check | Test files | M |
-
-### Phase 3: Email Notification Provider Integration (High Risk)
-
-**Goal:** Wire `MailService` as a notification dispatch target alongside HTTP providers.
-
-| Task | File(s) | Complexity |
-|------|---------|------------|
-| 3.1 Add `MailService` dependency to `NotificationService` | `notification_service.go` | M |
-| 3.2 Implement email dispatch branch in `SendExternal()` | `notification_service.go` | L |
-| 3.3 Define email notification template rendering (subject + HTML body from event context) | New or extend `mail_service.go` | L |
-| 3.4 Add email provider type to frontend `notifications.ts` API client | `frontend/src/api/notifications.ts` | S |
-| 3.5 Update notification provider UI to support email configuration (recipients, template selection) | Frontend components | L |
-| 3.6 Update `NotificationConfig.EmailRecipients` usage in `SecurityNotificationService` dispatch | `security_notification_service.go` | M |
-| 3.7 Integration tests for email dispatch path | Test files | L |
-| 3.8 E2E tests for email notification provider CRUD | `tests/settings/` | L |
-
-### Phase 4: Email Templates (Medium Risk)
-
-**Goal:** Create HTML email templates for all notification event types.
-
-| Task | File(s) | Complexity |
-|------|---------|------------|
-| 4.1 Create reusable base email template with Charon branding | `backend/internal/services/` or `templates/` | M |
-| 4.2 Implement security alert email template | Template file | M |
-| 4.3 Implement SSL certificate event email template | Template file | M |
-| 4.4 Implement uptime event email template | Template file | M |
-| 4.5 Unit tests for all templates (variable rendering, sanitization) | Test files | M |
-
-### Phase 5: Documentation & E2E Validation
-
-| Task | File(s) | Complexity |
-|------|---------|------------|
-| 5.1 Update `docs/features/notifications.md` to include Email provider | `docs/features/notifications.md` | S |
-| 5.2 Add Email row to supported services table | `docs/features/notifications.md` | S |
-| 5.3 E2E tests for feature flag toggle affecting email dispatch | `tests/` | M |
-| 5.4 Full regression E2E run across all notification types | Playwright suites | M |
-
----
-
-## 8. Test Plan
-
-### 8.1 Backend Unit Tests
-
-| Area | Test Cases | Priority |
-|------|-----------|----------|
-| `FlagEmailServiceEnabled` constant | Verify string value matches convention | P0 |
-| `isSupportedNotificationProviderType("email")` | Returns `true` | P0 |
-| `isDispatchEnabled("email")` | Returns flag-gated value | P0 |
-| `SendExternal` with email provider | Dispatches to MailService.SendEmail | P0 |
-| `SendExternal` with email flag disabled | Skips email provider | P0 |
-| Email template rendering | All variables rendered, XSS-safe | P1 |
-| `normalizeEmailRecipients` (if resurrected) | Valid/invalid email lists | P1 |
-| Legacy code removal | Verify `legacySendFunc` references removed | P0 |
-
-### 8.2 Frontend Unit Tests
-
-| Area | Test Cases | Priority |
-|------|-----------|----------|
-| Feature flag toggle for email | Renders in SystemSettings when flag exists | P1 |
-| Notification provider types | Includes "email" in supported types | P1 |
-| Email provider form | Renders recipient fields, validates emails | P2 |
-
-### 8.3 E2E Tests (Playwright)
-
-| Test | File | Priority |
-|------|------|----------|
-| SMTP settings CRUD (existing) | `smtp-settings.spec.ts` | P0 (already covered) |
-| Email feature flag toggle | New spec or extend `system-settings.spec.ts` | P1 |
-| Email notification provider CRUD | New spec in `tests/settings/` | P1 |
-| Email notification test send | Extend `notifications.spec.ts` | P2 |
-| Feature flag affects email dispatch | Integration-level E2E | P2 |
-
-### 8.4 Existing Test Coverage Gaps
-
-| Gap | Impact | Priority |
-|-----|--------|----------|
-| SMTP test email E2E doesn't test actual send (mocked) | Low — backend unit tests cover MailService | P2 |
-| No E2E test for invite email flow | Medium — relies on SMTP + public URL | P1 |
-| Notification E2E tests are Discord-only | High — gotify/webhook have no E2E | P1 |
-| Feature flag toggles not E2E-tested for notification flags | Medium — backend flags work, UI doesn't show them | P1 |
-
----
-
-## 9. Implementation Strategy
-
-### Decision: **Single PR, Staged Commits**
-
-The full email notification feature lands in one PR on `feature/beta-release`. Work is organized into discrete commit stages that can be reviewed independently on the branch, cherry-picked if needed, and clearly bisected if a regression is introduced.
-
-**Why single PR:**
-- The feature is self-contained and the flag defaults to `false` — no behavioral change lands until the flag is toggled
-- All four stages are tightly coupled (dead code removal creates the clean baseline the flag registration depends on, which the integration depends on, which templates depend on)
-- A single PR keeps the review diff contiguous and avoids merge-order coordination overhead
-
----
-
-### Commit Stage 1: `chore: remove Shoutrrr residue and dead notification legacy code`
-
-**Goal:** Clean codebase baseline. No behavior changes.
-
-**Files:**
-- `backend/internal/services/notification_service.go` — remove `legacySendFunc`, `ErrLegacyFallbackDisabled`, `legacyFallbackInvocationError()`
-- `backend/internal/notifications/router.go` — remove `ShouldUseLegacyFallback()`, update `ShouldUseNotify()` to remove `EngineLegacy` reference
-- `backend/internal/notifications/engine.go` — remove `EngineLegacy` constant
-- `backend/internal/api/handlers/feature_flags_handler.go` — remove `feature.notifications.legacy.fallback_enabled` from `defaultFlags` + `defaultFlagValues`, remove `retiredLegacyFallbackEnvAliases`
-- `backend/internal/services/notification_service_test.go` — refactor/remove legacy `legacySendFunc` override test helpers
-- `backend/internal/services/notification_service_json_test.go` — remove legacy path overrides
-- `backend/internal/api/handlers/security_notifications_test.go.archived` — delete file
-- `backend/internal/models/notification_config.go` — remove orphaned `EmailRecipients` field
-- `.gitignore` — add missing patterns (root artifacts, `FIREFOX_E2E_FIXES_SUMMARY.md`, `verify-security-state-for-ui-tests`, `categories.txt`, `backend/test-output.txt`, `backend/*.out`)
-- Root-level tracked scan artifacts — delete (`codeql-results-*.sarif`, `grype-results.*`, `sbom-generated.json`, `sbom.cyclonedx.json`, `trivy-*.json`, `vuln-results.json`, `backend/test-output.txt`, `verify-security-state-for-ui-tests`, `categories.txt`)
-- `FIREFOX_E2E_FIXES_SUMMARY.md` → `docs/implementation/FIREFOX_E2E_FIXES_SUMMARY.md`
-- `ARCHITECTURE.instructions.md` tech stack table — update "Notifications" row from `Shoutrrr` to `Notify`
-
-**Validation gate:** `go test ./...` green, no compilation errors, `npx playwright test` regression-clean.
-
----
-
-### Commit Stage 2: `feat: register email as feature-flagged notification service`
-
-**Goal:** Email flag exists in the system; defaults to `false`; no dispatch wiring yet.
-
-**Files:**
-- `backend/internal/notifications/feature_flags.go` — add `FlagEmailServiceEnabled = "feature.notifications.service.email.enabled"`
-- `backend/internal/api/handlers/feature_flags_handler.go` — add flag to `defaultFlags` + `defaultFlagValues` (default: `false`)
-- `backend/internal/services/notification_service.go` — add `"email"` to `isSupportedNotificationProviderType()` and `isDispatchEnabled()` (gated by `FlagEmailServiceEnabled`)
-- `backend/internal/services/notification_service_test.go` — add unit tests for new flag constant, `isSupportedNotificationProviderType("email")` returns `true`, `isDispatchEnabled("email")` respects flag
-- `tests/fixtures/settings.ts` — expand `FeatureFlags` interface to include `feature.notifications.service.email.enabled`
-
-**Validation gate:** `go test ./...` green, feature flag API returns new key with `false` default, E2E fixture types compile.
-
----
-
-### Commit Stage 3: `feat: wire MailService into notification dispatch pipeline`
-
-**Goal:** Email works as a first-class notification provider. `SendEmail()` accepts a context. Dispatch is async, guarded, and timeout-bound.
-
-**Files:**
-- `backend/internal/services/mail_service.go`
-  - Refactor `SendEmail(to, subject, htmlBody string)` → `SendEmail(ctx context.Context, to []string, subject, htmlBody string) error` (multi-recipient, context-aware)
-  - Add recipient validation function: RFC 5322 format, max 20 recipients, `\r\n` header injection rejection
-- `backend/internal/services/notification_service.go`
-  - Add `mailService MailServiceInterface` dependency (interface for testability)
-  - Add `dispatchEmail(ctx context.Context, provider NotificationProvider, eventType, title, message string)` — resolves recipients from provider config, calls `s.mailService.IsConfigured()` guard (warn + return if not), renders HTML, calls `SendEmail()` with 30s timeout context
-  - In `SendExternal()`: before `sendJSONPayload`, add email branch: `if providerType == "email" { go s.dispatchEmail(...); continue }`
-  - `supportsJSONTemplates()` — do NOT include `"email"` (email uses its own rendering path)
-- `backend/internal/models/notification_provider.go` — document how email provider config is stored: `Type = "email"`, `URL` field repurposed as comma-separated recipient list (no schema migration needed; backward-compatible)
-- `frontend/src/api/notifications.ts` — add `"email"` to supported provider type union
-- Frontend notification provider form component — add recipient field (comma-separated emails) when type is `"email"`, hide URL/token fields
-- Backend unit tests:
-  - `dispatchEmail` with SMTP unconfigured → logs warning, no error
-  - `dispatchEmail` with empty recipient list → graceful skip
-  - `dispatchEmail` with invalid recipient `"not-an-email"` → validation rejects
-  - `dispatchEmail` concurrent calls → goroutine-safe
-  - `SendExternal` with email provider → calls `dispatchEmail`, not `sendJSONPayload`
-  - `SendExternal` with email flag disabled → skips email provider
-  - Template rendering with XSS-payload event data → sanitized output
-- E2E tests:
-  - Email provider CRUD (create, edit, delete)
-  - Email provider with email flag disabled — provider exists but dispatch is skipped
-  - Test send triggers correct API call with proper payload
-
-**Validation gate:** `go test ./...` green, GORM security scan clean, email provider can be created and dispatches correctly when flag is enabled and SMTP is configured.
-
----
-
-### Commit Stage 4: `feat: add HTML email templates for notification event types`
-
-**Goal:** Each notification event type produces a properly branded, XSS-safe HTML email.
-
-**Files:**
-- `backend/internal/services/templates/` (new directory using `embed.FS`)
-  - `email_base.html` — Charon-branded base layout (gradient header, footer, responsive)
-  - `email_security_alert.html` — WAF blocks, ACL denies, rate limit hits
-  - `email_ssl_event.html` — certificate renewal, expiry warnings, failures
-  - `email_uptime_event.html` — host up/down transitions
-  - `email_system_event.html` — config changes, backup completions
-- `backend/internal/services/mail_service.go` — add `RenderNotificationEmail(templateName string, data interface{}) (string, error)` using `embed.FS` + `html/template`
-- Backend unit tests:
-  - Each template renders correctly with valid data
-  - Templates with malicious input (XSS) produce sanitized output (html/template auto-escapes)
-  - Missing template name returns descriptive error
-- `docs/features/notifications.md` — add Email provider section with configuration guide
-- E2E tests:
-  - Email notification content verification (intercept API, verify rendered body structure)
-  - Feature flag toggle E2E — enabling/disabling `feature.notifications.service.email.enabled` flag from UI
-
-**Validation gate:** All templates render safely, docs updated, full Playwright suite regression-clean.
-
----
-
-### Cross-Stage Notes
-
-- **Rate limiting for email notifications** is deferred to a follow-up issue. For v1, fire-and-forget with the 30s timeout context is acceptable. A digest/cooldown mechanism will be tracked as a tech debt item.
-- **Per-user recipient preferences** are out of scope. Recipients are configured globally per provider record.
-- **Email queue/retry** is deferred. Transient SMTP failures log a warning and drop the notification (same behavior as webhook failures).
-
----
-
-## 10. Risk Assessment & Recommendations
-
-### 10.1 Risks
-
-| Risk | Severity | Likelihood | Mitigation |
-|------|----------|------------|------------|
-| Email dispatch in hot path blocks event processing | High | Medium | Dispatch async (goroutine), same pattern as `InviteUser` |
-| SMTP credentials exposed in logs | Critical | Low | Already masked (`MaskPassword`), ensure new paths follow same pattern |
-| Email injection via notification event data | High | Low | MailService already has CWE-93 protection; ensure template variables are sanitized |
-| Feature flag toggle enables email before SMTP is configured | Medium | Medium | Check `MailService.IsConfigured()` before dispatch, log warning if not |
-| Legacy Shoutrrr test removal breaks coverage | Low | Low | Replace with notify-path equivalents before removing |
-
-### 10.2 `.gitignore` Recommendations
-
-Add the following patterns:
-```gitignore
-# One-off summary files
-FIREFOX_E2E_FIXES_SUMMARY.md
-
-# Empty marker files
-verify-security-state-for-ui-tests
-
-# Misc artifacts
-categories.txt
-
-# Backend test output
-backend/test-output.txt
-backend/*.out
+  # Allow pinning Caddy version...
 ```
 
-### 10.3 `codecov.yml` Recommendations
+### 4.2 Remove `CADDY_IMAGE` ARG (Old Alpine Reference)
 
-No changes needed. The 87% target is appropriate. Email-related code is in `services/` which is already covered.
+**Line 29-30** — Remove the entire `CADDY_IMAGE` ARG block:
+```
+Old:
+  # renovate: datasource=docker depName=alpine versioning=docker
+  ARG CADDY_IMAGE=alpine:3.23.3@sha256:...
 
-### 10.4 `.dockerignore` Recommendations
+New:
+  (removed — replaced by top-level ALPINE_IMAGE)
+```
 
-No changes needed. Existing patterns cover scan artifacts, SARIF files, and SBOM outputs.
+Find all downstream references to `${CADDY_IMAGE}` and replace with `${ALPINE_IMAGE}`. Search for usage in the runtime stage (likely `FROM ${CADDY_IMAGE}`).
 
-### 10.5 `Dockerfile` Recommendations
+### 4.3 Go FROM Lines (4 Changes)
 
-No SMTP-specific changes needed. The Dockerfile does not need to expose SMTP ports — Charon is an SMTP **client**, not server. The existing single-container architecture with Go backend + React frontend remains appropriate.
+Each `FROM golang:1.26.1-alpine` line changes to `FROM golang:${GO_VERSION}-alpine`. The Renovate comment above each is **removed** (the single top-level annotation handles tracking).
+
+#### 4.3.1 gosu-builder (line ~47)
+```
+Old:
+  # renovate: datasource=docker depName=golang
+  FROM --platform=$BUILDPLATFORM golang:1.26.1-alpine AS gosu-builder
+
+New:
+  FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS gosu-builder
+```
+
+#### 4.3.2 backend-builder (line ~98)
+```
+Old:
+  # renovate: datasource=docker depName=golang
+  FROM --platform=$BUILDPLATFORM golang:1.26.1-alpine AS backend-builder
+
+New:
+  FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS backend-builder
+```
+
+#### 4.3.3 caddy-builder (line ~200)
+```
+Old:
+  # renovate: datasource=docker depName=golang
+  FROM --platform=$BUILDPLATFORM golang:1.26.1-alpine AS caddy-builder
+
+New:
+  FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS caddy-builder
+```
+
+#### 4.3.4 crowdsec-builder (line ~297)
+```
+Old:
+  # renovate: datasource=docker depName=golang versioning=docker
+  FROM --platform=$BUILDPLATFORM golang:1.26.1-alpine AS crowdsec-builder
+
+New:
+  FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS crowdsec-builder
+```
+
+### 4.4 Alpine FROM Line (crowdsec-fallback)
+
+**Line ~357-358:**
+```
+Old:
+  # renovate: datasource=docker depName=alpine versioning=docker
+  FROM alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS crowdsec-fallback
+
+New:
+  FROM ${ALPINE_IMAGE} AS crowdsec-fallback
+```
+
+### 4.5 CrowdSec Version ARGs (Remove Per-Stage Duplicates)
+
+#### 4.5.1 crowdsec-builder stage (lines ~303-305)
+
+```
+Old:
+  # CrowdSec version - Renovate can update this
+  # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
+  ARG CROWDSEC_VERSION=1.7.6
+  # CrowdSec fallback tarball checksum (v${CROWDSEC_VERSION})
+  ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
+
+New:
+  ARG CROWDSEC_VERSION
+  ARG CROWDSEC_RELEASE_SHA256
+```
+
+The bare `ARG` re-declarations (without defaults) inherit the top-level values. Remove the Renovate comments — tracking is on the top-level ARG.
+
+#### 4.5.2 crowdsec-fallback stage (lines ~367-368)
+
+```
+Old:
+  # CrowdSec version - Renovate can update this
+  # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
+  ARG CROWDSEC_VERSION=1.7.6
+  ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
+
+New:
+  ARG CROWDSEC_VERSION
+  ARG CROWDSEC_RELEASE_SHA256
+```
+
+### 4.6 Go Dependency Patches
+
+#### 4.6.1 Caddy builder — expr-lang (line ~254-255)
+
+```
+Old:
+  # renovate: datasource=go depName=github.com/expr-lang/expr
+  go get github.com/expr-lang/expr@v1.17.7; \
+
+New:
+  go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION}; \
+```
+
+Requires adding `ARG EXPR_LANG_VERSION` re-declaration inside the `caddy-builder` stage (after the existing `ARG` block). Remove the per-line Renovate comment.
+
+#### 4.6.2 Caddy builder — golang.org/x/net (line ~258-259)
+
+```
+Old:
+  # renovate: datasource=go depName=golang.org/x/net
+  go get golang.org/x/net@v0.51.0; \
+
+New:
+  go get golang.org/x/net@v${XNET_VERSION}; \
+```
+
+Requires adding `ARG XNET_VERSION` re-declaration inside the `caddy-builder` stage. Remove the per-line Renovate comment.
+
+#### 4.6.3 CrowdSec builder — expr-lang + net (lines ~322-327)
+
+```
+Old:
+  # renovate: datasource=go depName=github.com/expr-lang/expr
+  # renovate: datasource=go depName=golang.org/x/crypto
+  # renovate: datasource=go depName=golang.org/x/net
+  RUN go get github.com/expr-lang/expr@v1.17.7 && \
+      go get golang.org/x/crypto@v0.46.0 && \
+      go get golang.org/x/net@v0.51.0 && \
+      go mod tidy
+
+New:
+  # renovate: datasource=go depName=golang.org/x/crypto
+  RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
+      go get golang.org/x/crypto@v0.46.0 && \
+      go get golang.org/x/net@v${XNET_VERSION} && \
+      go mod tidy
+```
+
+The `golang.org/x/crypto` Renovate comment stays because that dependency only appears here (not duplicated). The `expr-lang` and `x/net` Renovate comments are removed — they're tracked on the top-level ARGs. Requires `ARG EXPR_LANG_VERSION` and `ARG XNET_VERSION` re-declarations in the `crowdsec-builder` stage.
+
+### 4.7 ARG Re-declarations Per Stage
+
+Docker's scoping rules require that top-level ARGs be re-declared (without value) inside each stage that uses them. The following `ARG` lines must be added to each stage:
+
+| Stage | Required ARG Re-declarations |
+|-------|------------------------------|
+| `gosu-builder` | (none — `GO_VERSION` used in FROM, automatically available) |
+| `backend-builder` | (none — same) |
+| `caddy-builder` | `ARG EXPR_LANG_VERSION` and `ARG XNET_VERSION` (used in RUN) |
+| `crowdsec-builder` | `ARG CROWDSEC_VERSION` ¹, `ARG CROWDSEC_RELEASE_SHA256` ¹, `ARG EXPR_LANG_VERSION`, `ARG XNET_VERSION` |
+| `crowdsec-fallback` | `ARG CROWDSEC_VERSION` ¹, `ARG CROWDSEC_RELEASE_SHA256` ¹ |
+
+¹ Already re-declared, just need default values removed and Renovate comments removed.
+
+**Important Docker ARG scoping note:**
+- ARGs used in `FROM` interpolation (`GO_VERSION`, `ALPINE_IMAGE`) are evaluated at the global scope — they do NOT need re-declaration inside the stage.
+- ARGs used in `RUN`, `ENV`, or other instructions inside a stage MUST be re-declared with a bare `ARG NAME` (no default) inside that stage to inherit the top-level value.
 
 ---
 
-## Appendix A: File Reference Map
+## 5. Renovate Annotation Strategy
 
-| File | Lines Read | Key Findings |
-|------|-----------|--------------|
-| `backend/go.mod` | Full | No shoutrrr, no nikoksr/notify |
-| `backend/internal/services/mail_service.go` | 1-650 | Complete MailService with security hardening |
-| `backend/internal/services/notification_service.go` | 1-600 | Custom notify system, no email type |
-| `backend/internal/services/security_notification_service.go` | 1-120 | Webhook-only dispatch, EmailRecipients unused |
-| `backend/internal/services/enhanced_security_notification_service.go` | 1-180 | Provider aggregation, no email support |
-| `backend/internal/notifications/feature_flags.go` | 1-10 | 5 constants, no email |
-| `backend/internal/notifications/engine.go` | Grep | EngineLegacy dead |
-| `backend/internal/notifications/router.go` | Grep | Legacy fallback disabled |
-| `backend/internal/notifications/http_wrapper.go` | 1-100 | SSRF-protected HTTP client |
-| `backend/internal/api/handlers/feature_flags_handler.go` | 1-200 | 9 flags, no email |
-| `backend/internal/api/handlers/settings_handler.go` | 520-700 | SMTP CRUD + test email handlers |
-| `backend/internal/api/handlers/user_handler.go` | 466-650 | Invite email flow |
-| `backend/internal/models/notification_config.go` | 1-50 | EmailRecipients field present but unused |
-| `backend/internal/models/notification_provider.go` | Grep | No email type |
-| `frontend/src/api/smtp.ts` | Full | Complete SMTP API client |
-| `frontend/src/api/featureFlags.ts` | Full | Generic get/update, no email flag |
-| `frontend/src/api/notifications.ts` | 1-100 | Discord/gotify/webhook only |
-| `frontend/src/pages/SMTPSettings.tsx` | Full | Complete SMTP settings UI |
-| `frontend/src/pages/SystemSettings.tsx` | 185-320 | Only 3 feature toggles shown |
-| `tests/fixtures/settings.ts` | Full | FeatureFlags missing notification flags |
-| `tests/settings/smtp-settings.spec.ts` | 1-200 | Comprehensive SMTP E2E tests |
-| `tests/settings/notifications.spec.ts` | 1-50 | Discord-focused E2E tests |
-| `docs/features/notifications.md` | Full | No email provider documented |
-| `codecov.yml` | Full | 87% target, no SMTP exclusions |
-| `.gitignore` | Grep | Missing patterns for root artifacts |
-| `.dockerignore` | Grep | Adequate coverage |
+### 5.1 Annotations to Keep (Top-Level Only)
 
-## Appendix B: Research Questions Answered
+| Location | Annotation | Tracks |
+|----------|------------|--------|
+| Top-level `ARG GO_VERSION` | `# renovate: datasource=docker depName=golang versioning=docker` | Go Docker image tag |
+| Top-level `ARG ALPINE_IMAGE` | `# renovate: datasource=docker depName=alpine versioning=docker` | Alpine Docker image + digest |
+| Top-level `ARG CROWDSEC_VERSION` | `# renovate: datasource=github-releases depName=crowdsecurity/crowdsec` | CrowdSec GitHub releases |
+| Top-level `ARG EXPR_LANG_VERSION` | `# renovate: datasource=go depName=github.com/expr-lang/expr` | expr-lang Go module |
+| Top-level `ARG XNET_VERSION` | `# renovate: datasource=go depName=golang.org/x/net` | x/net Go module |
 
-**Q1: Is Shoutrrr fully removed?**
-Yes. No dependency in `go.mod`, no runtime code path. Only residual test names and one archived test file remain.
+### 5.2 Annotations to Remove
 
-**Q2: Does an email feature flag exist?**
-No. Must be created as `feature.notifications.service.email.enabled`.
+| Location | Reason |
+|----------|--------|
+| Line ~46 `# renovate: datasource=docker depName=golang` (gosu-builder) | Tracked by top-level `GO_VERSION` |
+| Line ~97 `# renovate: datasource=docker depName=golang` (backend-builder) | Same |
+| Line ~199 `# renovate: datasource=docker depName=golang` (caddy-builder) | Same |
+| Line ~296 `# renovate: datasource=docker depName=golang versioning=docker` (crowdsec-builder) | Same |
+| Line ~29 `# renovate: datasource=docker depName=alpine versioning=docker` (CADDY_IMAGE) | Replaced by `ALPINE_IMAGE` |
+| Line ~357 `# renovate: datasource=docker depName=alpine versioning=docker` (crowdsec-fallback FROM) | Tracked by top-level `ALPINE_IMAGE` |
+| Lines ~302-303 `# renovate:` annotations on crowdsec-builder CROWDSEC_VERSION | Tracked by top-level |
+| Lines ~366-367 `# renovate:` annotations on crowdsec-fallback CROWDSEC_VERSION | Tracked by top-level |
+| Line ~254 `# renovate: datasource=go depName=github.com/expr-lang/expr` (caddy-builder) | Tracked by top-level `EXPR_LANG_VERSION` |
+| Line ~258 `# renovate: datasource=go depName=golang.org/x/net` (caddy-builder) | Tracked by top-level `XNET_VERSION` |
+| Lines ~322-324 `# renovate:` for expr-lang and x/net (crowdsec-builder) | Tracked by top-level |
 
-**Q3: Is MailService integrated with NotificationService?**
-No. They are completely independent. MailService is only consumed by UserHandler (invites) and SettingsHandler (test email).
+### 5.3 Renovate Configuration Update
 
-**Q4: What is the state of `NotificationConfig.EmailRecipients`?**
-Orphaned. Defined in model, set to empty string in defaults, never consumed by any dispatch logic. The handler function `normalizeEmailRecipients()` is archived.
+The existing regex custom manager in `.github/renovate.json` for Go dependency patches currently matches the pattern:
 
-**Q5: What frontend gaps exist for email notifications?**
-- `FeatureFlags` interface missing notification flags
-- `SystemSettings.tsx` only shows 3 of 9 feature toggles
-- `notifications.ts` API client has no email provider type
-- No email-specific notification provider UI components
+```
+#\s*renovate:\s*datasource=go\s+depName=(?<depName>[^\s]+)\s*\n\s*go get (?<depName2>[^@]+)@v(?<currentValue>[^\s|]+)
+```
+
+After this change, the `go get` lines will use `${EXPR_LANG_VERSION}` and `${XNET_VERSION}` instead of hardcoded versions. The regex manager will **no longer match** the `go get` lines for these two deps.
+
+**Required renovate.json changes:**
+
+Add new custom manager entries for the new top-level ARGs:
+
+```json
+{
+  "customType": "regex",
+  "description": "Track expr-lang version ARG in Dockerfile",
+  "managerFilePatterns": ["/^Dockerfile$/"],
+  "matchStrings": [
+    "ARG EXPR_LANG_VERSION=(?<currentValue>[^\\s]+)"
+  ],
+  "depNameTemplate": "github.com/expr-lang/expr",
+  "datasourceTemplate": "go",
+  "versioningTemplate": "semver"
+},
+{
+  "customType": "regex",
+  "description": "Track golang.org/x/net version ARG in Dockerfile",
+  "managerFilePatterns": ["/^Dockerfile$/"],
+  "matchStrings": [
+    "ARG XNET_VERSION=(?<currentValue>[^\\s]+)"
+  ],
+  "depNameTemplate": "golang.org/x/net",
+  "datasourceTemplate": "go",
+  "versioningTemplate": "semver"
+}
+```
+
+**Also add for `GO_VERSION`** — Renovate's built-in Docker manager matches `FROM golang:X.X.X-alpine`, but after this change the FROM uses `${GO_VERSION}` interpolation. Renovate's Docker manager cannot parse variable-interpolated FROM lines. A custom regex manager is needed:
+
+```json
+{
+  "customType": "regex",
+  "description": "Track Go toolchain version ARG in Dockerfile",
+  "managerFilePatterns": ["/^Dockerfile$/"],
+  "matchStrings": [
+    "#\\s*renovate:\\s*datasource=docker\\s+depName=golang.*\\nARG GO_VERSION=(?<currentValue>[^\\s]+)"
+  ],
+  "depNameTemplate": "golang",
+  "datasourceTemplate": "docker",
+  "versioningTemplate": "docker"
+}
+```
+
+The existing Alpine regex manager already matches `ARG CADDY_IMAGE=...`. Update the regex to match the new ARG name `ALPINE_IMAGE`:
+
+```
+Old matchString:
+  "ARG CADDY_IMAGE=alpine:(?<currentValue>[^\\s@]+@sha256:[a-f0-9]+)"
+
+New matchString:
+  "ARG ALPINE_IMAGE=alpine:(?<currentValue>[^\\s@]+@sha256:[a-f0-9]+)"
+```
+
+**CrowdSec version:** Already tracked by the existing regex manager pattern that matches `ARG CROWDSEC_VERSION=...`. Since we keep that ARG name unchanged, no renovate.json change is needed for CrowdSec — but verify only one match occurs (the top-level one) after removing the per-stage defaults.
+
+---
+
+## 6. Implementation Plan
+
+### Phase 1: Playwright Tests (N/A)
+
+This change is a build-system refactor with no UI/UX changes. No Playwright tests are needed. The Docker build itself is the validation artifact.
+
+### Phase 2: Dockerfile Changes
+
+| Step | Action | Files |
+|------|--------|-------|
+| 2.1 | Add new top-level ARG block | `Dockerfile` |
+| 2.2 | Remove `CADDY_IMAGE` ARG, replace references with `ALPINE_IMAGE` | `Dockerfile` |
+| 2.3 | Replace 4 `FROM golang:1.26.1-alpine` lines with `FROM golang:${GO_VERSION}-alpine`; remove per-line Renovate comments | `Dockerfile` |
+| 2.4 | Replace `FROM alpine:3.23.3@sha256:...` in crowdsec-fallback with `FROM ${ALPINE_IMAGE}`; remove Renovate comment | `Dockerfile` |
+| 2.5 | Convert per-stage `CROWDSEC_VERSION`/`SHA` to bare `ARG` re-declarations | `Dockerfile` |
+| 2.6 | Add `ARG EXPR_LANG_VERSION` and `ARG XNET_VERSION` re-declarations in `caddy-builder` and `crowdsec-builder` stages | `Dockerfile` |
+| 2.7 | Replace hardcoded `@v1.17.7` and `@v0.51.0` in `go get` with `@v${EXPR_LANG_VERSION}` and `@v${XNET_VERSION}` | `Dockerfile` |
+
+### Phase 3: Renovate Configuration
+
+| Step | Action | Files |
+|------|--------|-------|
+| 3.1 | Add `GO_VERSION` regex custom manager | `.github/renovate.json` |
+| 3.2 | Add `EXPR_LANG_VERSION` regex custom manager | `.github/renovate.json` |
+| 3.3 | Add `XNET_VERSION` regex custom manager | `.github/renovate.json` |
+| 3.4 | Update Alpine regex manager to use `ALPINE_IMAGE` | `.github/renovate.json` |
+| 3.5 | Verify the existing `go get` regex manager no longer double-matches consolidated deps | `.github/renovate.json` |
+
+### Phase 4: Validation
+
+| Step | Verification |
+|------|--------------|
+| 4.1 | `docker build --platform=linux/amd64 -t charon:test .` succeeds |
+| 4.2 | `docker build --platform=linux/arm64 -t charon:test-arm .` succeeds (if cross-build infra available) |
+| 4.3 | `grep -c 'golang:1.26' Dockerfile` returns `0` (no hardcoded Go versions remain in FROM lines) |
+| 4.4 | `grep -c 'alpine:3.23' Dockerfile` returns `1` (only the top-level `ALPINE_IMAGE` ARG) |
+| 4.5 | `grep -c 'CROWDSEC_VERSION=1.7' Dockerfile` returns `1` (only the top-level ARG) |
+| 4.6 | `grep -c 'expr-lang/expr@v' Dockerfile` returns `0` (no hardcoded expr-lang versions in go get) |
+| 4.7 | `grep -c 'x/net@v' Dockerfile` returns `0` (no hardcoded x/net versions in go get) |
+| 4.8 | Renovate dry-run validates all new regex managers match exactly once |
+
+### Phase 5: Documentation
+
+Update `CHANGELOG.md` with a `chore: consolidate Dockerfile version ARGs` entry.
+
+---
+
+## 7. Risk Assessment
+
+| Risk | Severity | Mitigation |
+|------|----------|------------|
+| **Docker ARG scoping**: ARG used in `FROM` requires global-scope declaration; ARG in `RUN` requires per-stage re-declaration | High | Explicitly tested in §4.1. Docker's scoping rules are well-documented. |
+| **Renovate stops tracking**: Switching from inline `FROM` annotation to ARG-based regex manager may cause Renovate to lose tracking until config is deployed | Medium | Add regex managers in the same PR. Test with `renovate --dry-run` or Dependency Dashboard. |
+| **Renovate double-matching**: Old `go get` regex manager might still match non-parameterized `go get` lines (crypto, ipstore) | Low | These deps keep their inline `# renovate:` comments and hardcoded versions. The regex correctly matches them. |
+| **CADDY_IMAGE rename**: Any docker-compose override or CI script referencing `--build-arg CADDY_IMAGE=...` will break | Medium | Search codebase for `CADDY_IMAGE` references outside `Dockerfile`. Update CI workflows if found. |
+| **Build cache invalidation**: Changing ARG values at the top level invalidates all downstream layer caches | Low | This is expected and already happens today when any version changes. No behavioral change. |
+| **Cross-compilation**: `${GO_VERSION}` interpolation in multi-platform builds | Low | Docker resolves global ARGs before platform selection. Verified by BuildKit semantics. |
+
+---
+
+## 8. Commit Slicing Strategy
+
+**Decision:** Single PR.
+
+**Rationale:**
+- All changes are confined to `Dockerfile` and `.github/renovate.json`
+- No cross-domain changes (no backend/frontend code)
+- The changes are logically atomic — partial consolidation would leave a confusing state
+- Total diff is small (~30 lines changed, ~15 lines added, ~20 lines removed)
+- Rollback is trivial: revert the single commit
+
+**PR Slice:**
+
+| Slice | Scope | Files | Validation Gate |
+|-------|-------|-------|----------------|
+| PR-1 (only) | Full consolidation | `Dockerfile`, `.github/renovate.json` | Docker build succeeds on amd64; `grep` checks pass; Renovate dry-run confirms tracking |
+
+**Rollback:** `git revert <sha>` — single commit, no dependencies.
+
+---
+
+## 9. Acceptance Criteria
+
+- [ ] `Dockerfile` has exactly one declaration of Go version (`ARG GO_VERSION=...`)
+- [ ] `Dockerfile` has exactly one declaration of Alpine image+digest (`ARG ALPINE_IMAGE=...`)
+- [ ] `Dockerfile` has exactly one declaration of CrowdSec version and SHA256 (top-level)
+- [ ] `Dockerfile` has exactly one declaration of `expr-lang/expr` version (top-level ARG)
+- [ ] `Dockerfile` has exactly one declaration of `golang.org/x/net` version (top-level ARG)
+- [ ] All 4 Go `FROM` lines use `${GO_VERSION}` interpolation
+- [ ] `crowdsec-fallback` FROM uses `${ALPINE_IMAGE}` interpolation
+- [ ] Per-stage `CROWDSEC_VERSION` re-declarations are bare `ARG` (no default, no Renovate comment)
+- [ ] `go get` lines use `${EXPR_LANG_VERSION}` and `${XNET_VERSION}` interpolation
+- [ ] Renovate `# renovate:` annotations exist only on top-level ARGs (one per tracked dep)
+- [ ] `.github/renovate.json` has regex managers for `GO_VERSION`, `EXPR_LANG_VERSION`, `XNET_VERSION`, and updated `ALPINE_IMAGE`
+- [ ] `docker build` succeeds without errors
+- [ ] No duplicate version values remain (verified by grep checks in §4)
