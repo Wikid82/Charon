@@ -290,7 +290,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         rm -rf /tmp/buildenv_* /tmp/caddy-initial'
 
 # ---- CrowdSec Builder ----
-# Build CrowdSec from source to ensure we use Go 1.26.0+ and avoid stdlib vulnerabilities
+# Build CrowdSec from source to ensure we use Go 1.26.1+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
 # renovate: datasource=docker depName=golang versioning=docker
 FROM --platform=$BUILDPLATFORM golang:1.26.1-alpine AS crowdsec-builder
@@ -454,7 +454,7 @@ COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 # Allow non-root to bind privileged ports (80/443) securely
 RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
 
-# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.0+)
+# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.1+)
 # This ensures we don't have stdlib vulnerabilities from older Go versions
 COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec
 COPY --from=crowdsec-builder /crowdsec-out/cscli /usr/local/bin/cscli
