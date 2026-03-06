@@ -1,4 +1,4 @@
-.PHONY: help install test build run clean docker-build docker-run release go-check gopls-logs lint-fast lint-staticcheck-only
+.PHONY: help install test build run clean docker-build docker-run release go-check gopls-logs lint-fast lint-staticcheck-only security-local
 
 # Default target
 help:
@@ -22,6 +22,7 @@ help:
 	@echo ""
 	@echo "Security targets:"
 	@echo "  security-scan          - Quick security scan (govulncheck on Go deps)"
+	@echo "  security-local         - Run govulncheck + semgrep (p/golang) locally before push"
 	@echo "  security-scan-full     - Full container scan with Trivy"
 	@echo "  security-scan-deps     - Check for outdated Go dependencies"
 
@@ -144,6 +145,12 @@ local-patch-report:
 security-scan:
 	@echo "Running security scan (govulncheck)..."
 	@./scripts/security-scan.sh
+
+security-local: ## Run govulncheck + semgrep (p/golang) before push — fast local gate
+	@echo "[1/2] Running govulncheck..."
+	@./scripts/security-scan.sh
+	@echo "[2/2] Running Semgrep (p/golang, ERROR+WARNING)..."
+	@SEMGREP_CONFIG=p/golang ./scripts/pre-commit-hooks/semgrep-scan.sh
 
 security-scan-full:
 	@echo "Building local Docker image for security scan..."

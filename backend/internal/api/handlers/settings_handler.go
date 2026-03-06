@@ -634,6 +634,9 @@ func (h *SettingsHandler) SendTestEmail(c *gin.Context) {
 </html>
 `
 
+	// req.To is validated as RFC 5321 email via gin binding:"required,email".
+	// SendEmail enforces validateEmailRecipients + net/mail.ParseAddress + rejectCRLF as defence-in-depth.
+	// Suppression annotations are on the SMTP sinks in mail_service.go.
 	if err := h.MailService.SendEmail(c.Request.Context(), []string{req.To}, "Charon - Test Email", htmlBody); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,

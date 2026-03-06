@@ -187,12 +187,12 @@ repos:
         description: "Detects GORM ID leaks and common GORM security mistakes"
 
       - id: semgrep-scan
-        name: Semgrep Security Scan (Manual)
+        name: Semgrep Security Scan (Blocking - pre-push)
         entry: scripts/pre-commit-hooks/semgrep-scan.sh
         language: script
         pass_filenames: false
         verbose: true
-        stages: [manual]  # Manual stage initially (reversible rollout)
+        stages: [pre-push]
 
       - id: gitleaks-tuned-scan
         name: Gitleaks Security Scan (Tuned, Manual)
