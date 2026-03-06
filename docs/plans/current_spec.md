@@ -521,3 +521,289 @@ Update `CHANGELOG.md` with a `chore: consolidate Dockerfile version ARGs` entry.
 - [ ] `.github/renovate.json` has regex managers for `GO_VERSION`, `EXPR_LANG_VERSION`, `XNET_VERSION`, and updated `ALPINE_IMAGE`
 - [ ] `docker build` succeeds without errors
 - [ ] No duplicate version values remain (verified by grep checks in §4)
+
+---
+
+# CodeQL CWE-640 / `go/email-injection` Remediation Plan
+
+**Status:** Draft
+**Created:** 2026-03-06
+**PR:** #800 (Email Notifications feature)
+**Scope:** Single PR — remediate 3 CodeQL `go/email-injection` findings in `mail_service.go`
+
+---
+
+## 1. Problem Statement
+
+PR #800 introduces email notification support. GitHub CodeQL's `go/email-injection` query (mapped to CWE-640) reports **3 findings**, each with **4 untrusted input source paths**, all in `backend/internal/services/mail_service.go`.
+
+CodeQL detects that user-controlled data from HTTP request bodies flows through the notification pipeline into SMTP sending functions without CodeQL-recognized sanitization barriers.
+
+**EARS Requirement:**
+> WHEN user-controlled data is included in email content (subject, body, headers),
+> THE SYSTEM SHALL sanitize all such data to prevent email header injection (CWE-93)
+> and email content spoofing (CWE-640).
+
+---
+
+## 2. Finding Inventory
+
+### 2.1 Sink Locations (3 findings, same root cause)
+
+| # | Line | Function | SMTP Call | Encryption Path |
+|---|------|----------|-----------|-----------------|
+| 1 | 365 | `SendEmail()` | `smtp.SendMail(addr, auth, from, []string{to}, msg)` | `default` (plain/none) |
+| 2 | 539 | `sendSSL()` | `w.Write(msg)` via `smtp.Client.Data()` | SSL/TLS |
+| 3 | 592 | `sendSTARTTLS()` | `w.Write(msg)` via `smtp.Client.Data()` | STARTTLS |
+
+All three sinks receive the same `msg []byte` from `buildEmail()`. The three findings represent the same data flow reaching the same message payload through three different SMTP transport paths.
+
+### 2.2 Source Paths (4 flows per finding, 12 total)
+
+Each finding has 4 untrusted input source paths, all originating from HTTP handler JSON/form binding:
+
+| Flow | Source File | Source Line | Untrusted Data | HTTP Input |
+|------|------------|-------------|----------------|------------|
+| 1 | `certificate_handler.go` | 64 | `c.PostForm("name")` — certificate name | Multipart form |
+| 2 | `domain_handler.go` | 40 | `input.Name` via `ShouldBindJSON` — domain name | JSON body |
+| 3 | `proxy_host_handler.go` | 326 | `payload` via `ShouldBindJSON` — proxy host data | JSON body |
+| 4 | `remote_server_handler.go` | 59 | `server` via `ShouldBindJSON` — server name/host/port | JSON body |
+
+### 2.3 Taint Propagation Chain
+
+Complete flow (using Flow 4 / remote_server as representative):
+
+```
+remote_server_handler.go:59   c.ShouldBindJSON(&server)    ← HTTP request body
+         ↓
+remote_server_handler.go:76   fmt.Sprintf("...%s (%s:%d)...", server.Name, server.Host, server.Port)
+         ↓
+notification_service.go:177   SendExternal(ctx, "remote_server", title, message, data)
+         ↓
+notification_service.go:250   dispatchEmail(ctx, provider, _, title, message)
+         ↓
+notification_service.go:270   html.EscapeString(message)   ← CodeQL does NOT treat as email sanitizer
+         ↓
+notification_service.go:275   mailService.SendEmail(ctx, recipients, subject, htmlBody)
+         ↓
+mail_service.go:296           SendEmail(ctx, to, subject, htmlBody)
+         ↓
+mail_service.go:344           buildEmail(fromAddr, toAddr, nil, encodedSubject, htmlBody)
+         ↓
+mail_service.go:427           sanitizeEmailBody(htmlBody)   ← dot-stuffing only
+         ↓
+mail_service.go:430           msg.Bytes()
+         ↓
+mail_service.go:365           smtp.SendMail(..., msg)       ← SINK
+```
+
+---
+
+## 3. Root Cause Analysis
+
+### 3.1 Why CodeQL Flags These
+
+CodeQL's `go/email-injection` query tracks data from **untrusted sources** (HTTP request parameters) to **SMTP sending functions** (`smtp.SendMail`, `smtp.Client.Data().Write()`). It considers any data that reaches these sinks without passing through a **CodeQL-recognized sanitizer** as tainted.
+
+**CodeQL does NOT recognize these as sanitizers for `go/email-injection`:**
+
+| Existing Mitigation | Location | Why CodeQL Ignores It |
+|---------------------|----------|----------------------|
+| `html.EscapeString()` | `notification_service.go:270` | HTML escaping ≠ SMTP injection prevention. Correctly ignored — it prevents XSS, not SMTP injection. |
+| `sanitizeEmailBody()` (dot-stuffing) | `mail_service.go:480-488` | Custom function; CodeQL can't verify it strips CRLF. Only adds dot-prefix, doesn't remove control chars. |
+| `rejectCRLF()` | `mail_service.go:88-92` | Returns an error but doesn't modify the data. CodeQL tracks data flow, not error-path branching. The tainted string still flows to the sink on the success path. |
+| `encodeSubject()` | `mail_service.go:62-68` | MIME Q-encoding wraps the string; doesn't strip control characters from CodeQL's perspective. |
+| `// codeql[go/email-injection]` comments | Lines 365, 539, 592 | **NOT a valid CodeQL suppression syntax.** These are developer annotations only. |
+
+### 3.2 Is the Code Actually Vulnerable?
+
+**No.** The existing mitigations provide effective defense-in-depth:
+
+1. **Header injection prevented**: `rejectCRLF()` is called on all header values (subject, from, to, reply-to). If CRLF is detected, the function returns an error and `SendEmail` aborts — the tainted data never reaches the SMTP call.
+
+2. **Subject protected**: `encodeSubject()` applies MIME Q-encoding after CRLF rejection. Subject header injection is not possible.
+
+3. **To header protected**: `toHeaderUndisclosedRecipients()` replaces the To: header with a static string. The actual recipient address only appears in the SMTP envelope `RCPT TO` command, not in message headers.
+
+4. **Body content HTML-escaped**: `html.EscapeString()` in `dispatchEmail()` prevents XSS in HTML email bodies. `html/template` auto-escaping is used in `SendInvite()`.
+
+5. **Body SMTP-protected**: `sanitizeEmailBody()` performs RFC 5321 dot-stuffing. Lines starting with `.` are doubled to prevent premature DATA termination.
+
+6. **Address validation**: `parseEmailAddressForHeader()` uses `net/mail.ParseAddress()` for RFC 5322 validation and rejects CRLF.
+
+**Risk Assessment: LOW** — The findings are false positives from an exploitability standpoint, but represent a legitimate gap in CodeQL's ability to verify the sanitization chain.
+
+### 3.3 Why `// codeql[...]` Comments Don't Suppress
+
+The comments `// codeql[go/email-injection]` at lines 365, 539, and 592 are not a recognized CodeQL suppression mechanism. Valid suppression options are:
+
+- **GitHub UI**: Dismiss alerts in the Code Scanning tab with a reason ("False positive", "Won't fix", "Used in tests")
+- **`codeql-config.yml`**: Exclude the query entirely (too broad — would hide real findings)
+- **Code restructuring**: Make sanitization visible to CodeQL's taint model
+
+---
+
+## 4. Recommended Fix Approach
+
+### Strategy: Code Restructuring + Targeted Suppression
+
+**Priority: Make the sanitization visible to CodeQL where feasible. Suppress remaining findings with documented justification.**
+
+### 4.1 Approach A — Sanitize at the Notification Boundary (Primary Fix)
+
+The core issue is that CodeQL can't trace the safety through indirect error-return patterns. The fix is to **strip** (not just reject) dangerous characters at the notification dispatch boundary, before data enters the email pipeline.
+
+Create a dedicated `sanitizeForEmail()` function that:
+1. Strips `\r` and `\n` characters (not just rejects them)
+2. Is applied directly in `dispatchEmail()` before constructing subject and body
+3. Gives CodeQL a clear, in-line sanitization point
+
+```go
+// sanitizeForEmail strips CR/LF characters from untrusted strings
+// before they enter the email pipeline. This provides defense-in-depth
+// alongside rejectCRLF() validation in SendEmail/buildEmail.
+func sanitizeForEmail(s string) string {
+    s = strings.ReplaceAll(s, "\r", "")
+    s = strings.ReplaceAll(s, "\n", "")
+    return s
+}
+```
+
+Apply in `dispatchEmail()`:
+```go
+// Before:
+subject := fmt.Sprintf("[Charon Alert] %s", title)
+htmlBody := "<p><strong>" + html.EscapeString(title) + "</strong></p><p>" + html.EscapeString(message) + "</p>"
+
+// After:
+safeTitle := sanitizeForEmail(title)
+safeMessage := sanitizeForEmail(message)
+subject := fmt.Sprintf("[Charon Alert] %s", safeTitle)
+htmlBody := "<p><strong>" + html.EscapeString(safeTitle) + "</strong></p><p>" + html.EscapeString(safeMessage) + "</p>"
+```
+
+**Why this may help CodeQL**: `strings.ReplaceAll` for `\r` and `\n` is a pattern that CodeQL's taint model recognizes as a sanitizer for email injection.
+
+### 4.2 Approach B — Sanitize at the `SendEmail` Boundary (Defense-in-Depth)
+
+Add a `sanitizeForEmail()` call on the `htmlBody` and `subject` parameters inside `SendEmail()` itself, so all callers benefit:
+
+```go
+func (s *MailService) SendEmail(ctx context.Context, to []string, subject, htmlBody string) error {
+    // Strip CRLF from subject and body as defense-in-depth
+    subject = sanitizeForEmail(subject)
+    htmlBody = sanitizeForEmail(htmlBody)
+    // ... existing validation follows
+}
+```
+
+**Trade-off**: Stripping `\n` from `htmlBody` would break HTML formatting. This approach works for `subject` but NOT for `htmlBody`. For the body, the existing `html.EscapeString()` + dot-stuffing is the correct defense.
+
+**Revised**: Apply `sanitizeForEmail()` to `subject` only in `SendEmail()`. The HTML body should retain newlines for formatting but is protected by `html.EscapeString()` at the call site and dot-stuffing in `buildEmail()`.
+
+### 4.3 Approach C — GitHub UI Alert Dismissal (Fallback)
+
+If CodeQL continues to flag after code restructuring, dismiss the remaining alerts in the GitHub Code Scanning UI with:
+
+- **Reason**: "False positive"
+- **Comment**: "Mitigated by defense-in-depth: CRLF rejection (rejectCRLF), MIME Q-encoding (encodeSubject), html.EscapeString on body content, dot-stuffing (sanitizeEmailBody), undisclosed recipients in To header. See docs/plans/current_spec.md §3.2 for full analysis."
+
+### 4.4 Selected Strategy
+
+**Combine A + C:**
+1. Add `sanitizeForEmail()` at the `dispatchEmail()` boundary (Approach A) — this is the cleanest fix and may satisfy CodeQL
+2. If CodeQL still flags after the restructuring, dismiss via GitHub UI (Approach C)
+3. Do NOT strip newlines from HTML body (Approach B partial) — it would break email formatting
+
+---
+
+## 5. Implementation Plan
+
+### Phase 1: Add Sanitization Function
+
+**File**: `backend/internal/services/notification_service.go`
+
+| Task | Description |
+|------|-------------|
+| 5.1.1 | Add `sanitizeForEmail(s string) string` that strips `\r` and `\n` via `strings.ReplaceAll` |
+| 5.1.2 | In `dispatchEmail()`, apply `sanitizeForEmail()` to `title` and `message` before constructing `subject` and `htmlBody` |
+| 5.1.3 | Add unit test for `sanitizeForEmail()` covering: empty string, clean string, string with `\r\n`, string with embedded `\n` |
+
+### Phase 2: Unit Tests for Email Injection Prevention
+
+**File**: `backend/internal/services/mail_service_test.go` (existing or new)
+
+| Task | Description |
+|------|-------------|
+| 5.2.1 | Add test: notification with CRLF in entity name → email sent without injection |
+| 5.2.2 | Add test: `dispatchEmail` with `title` containing `\r\nBCC: attacker@evil.com` → CRLF stripped before subject |
+| 5.2.3 | Add test: verify `html.EscapeString` prevents `<script>` in email body |
+| 5.2.4 | Add test: verify `sanitizeEmailBody` dot-stuffing for lines starting with `.` |
+
+### Phase 3: Verify CodeQL Resolution
+
+| Task | Description |
+|------|-------------|
+| 5.3.1 | Run CodeQL locally: `codeql database analyze` with `go/email-injection` query |
+| 5.3.2 | If findings persist, check if moving `sanitizeForEmail` inline (not a helper function) resolves the taint |
+| 5.3.3 | If still flagged, dismiss alerts in GitHub Code Scanning UI with documented justification |
+
+### Phase 4: Remove Invalid Suppression Comments
+
+| Task | Description |
+|------|-------------|
+| 5.4.1 | Remove `// codeql[go/email-injection]` comments from lines 365, 539, 592 — they are not valid suppressions |
+| 5.4.2 | Replace with descriptive safety comments documenting the actual mitigations |
+
+---
+
+## 6. Files Modified
+
+| File | Change |
+|------|--------|
+| `backend/internal/services/notification_service.go` | Add `sanitizeForEmail()`, apply in `dispatchEmail()` |
+| `backend/internal/services/mail_service.go` | Replace invalid `// codeql[...]` comments with safety documentation |
+| `backend/internal/services/notification_service_test.go` | Add email injection prevention tests |
+| `backend/internal/services/mail_service_test.go` | Add sanitization unit tests (if not already covered) |
+
+---
+
+## 7. Risk Assessment
+
+| Risk | Severity | Mitigation |
+|------|----------|------------|
+| Stripping CRLF changes notification content | Low | Only affects edge cases where entity names contain control characters; these are already sanitized by `SanitizeForLog` in most callers |
+| CodeQL still flags after fix | Medium | Fallback to GitHub UI alert dismissal with documented justification |
+| Breaking existing email formatting | Low | `sanitizeForEmail` applied to title/message only, NOT to HTML body template |
+| Regression in email delivery | Low | Existing unit tests + new tests verify email construction |
+
+---
+
+## 8. Acceptance Criteria
+
+- [ ] `sanitizeForEmail()` function exists and strips `\r` and `\n` from input strings
+- [ ] `dispatchEmail()` applies `sanitizeForEmail()` to `title` and `message` before email construction
+- [ ] Invalid `// codeql[go/email-injection]` comments replaced with accurate safety documentation
+- [ ] Unit tests cover CRLF injection attempts in notification title/message
+- [ ] Unit tests cover HTML escaping in email body content
+- [ ] CodeQL `go/email-injection` findings resolved (code fix or documented dismissal)
+- [ ] No regression in email delivery (test email, invite email, notification email)
+- [ ] All existing `mail_service_test.go` and `notification_service_test.go` tests pass
+
+---
+
+## 9. Commit Slicing Strategy
+
+**Decision**: Single PR — the change is small, focused, and low-risk.
+
+**Trigger reasons for single PR**:
+- All changes are in the same domain (email/notification services)
+- No cross-domain dependencies
+- ~30 lines of production code + ~50 lines of tests
+- No database schema or API contract changes
+
+**PR-1**: CodeQL `go/email-injection` remediation
+- **Scope**: Add `sanitizeForEmail`, update `dispatchEmail`, replace comments, add tests
+- **Files**: 4 files (2 production, 2 test)
+- **Validation gate**: CodeQL re-scan shows 0 `go/email-injection` findings (or findings dismissed with documented rationale)
+- **Rollback**: Revert single commit; no data migration or schema dependencies

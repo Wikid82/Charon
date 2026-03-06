@@ -119,7 +119,7 @@ describe('notifications api', () => {
 
     await expect(createProvider({ name: 'Bad', type: 'slack' })).rejects.toThrow('Unsupported notification provider type: slack')
     await expect(updateProvider('bad', { type: 'generic' })).rejects.toThrow('Unsupported notification provider type: generic')
-    await expect(testProvider({ id: 'bad', type: 'email' })).rejects.toThrow('Unsupported notification provider type: email')
+    await expect(testProvider({ id: 'bad', type: 'telegram' })).rejects.toThrow('Unsupported notification provider type: telegram')
   })
 
   it('fetches templates and previews provider payloads with data', async () => {

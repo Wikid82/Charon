@@ -2787,3 +2787,59 @@ func TestDispatchEmail_XSSPayload_BodySanitized(t *testing.T) {
 	assert.NotContains(t, body, "<img ")
 	assert.Contains(t, body, "&lt;img ")
 }
+
+// --- sanitizeForEmail unit tests ---
+
+func TestSanitizeForEmail_EmptyString(t *testing.T) {
+	assert.Equal(t, "", sanitizeForEmail(""))
+}
+
+func TestSanitizeForEmail_CleanString(t *testing.T) {
+	assert.Equal(t, "Hello World", sanitizeForEmail("Hello World"))
+}
+
+func TestSanitizeForEmail_StripsCRLF(t *testing.T) {
+	assert.Equal(t, "HelloWorld", sanitizeForEmail("Hello\r\nWorld"))
+}
+
+func TestSanitizeForEmail_StripsEmbeddedLF(t *testing.T) {
+	assert.Equal(t, "line1line2", sanitizeForEmail("line1\nline2"))
+}
+
+func TestSanitizeForEmail_StripsEmbeddedCR(t *testing.T) {
+	assert.Equal(t, "line1line2", sanitizeForEmail("line1\rline2"))
+}
+
+func TestSanitizeForEmail_MultipleCRLF(t *testing.T) {
+	assert.Equal(t, "abc", sanitizeForEmail("\r\na\r\nb\r\nc\r\n"))
+}
+
+func TestDispatchEmail_CRLFInTitle_StrippedBeforeSubject(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: true}
+	svc := NewNotificationService(db, mock)
+
+	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com", Type: "email"}
+	svc.dispatchEmail(context.Background(), p, "alert", "Title\r\nBCC: attacker@evil.com", "msg")
+
+	require.Equal(t, 1, mock.callCount())
+	call := mock.firstCall()
+	assert.Equal(t, "[Charon Alert] TitleBCC: attacker@evil.com", call.subject)
+	assert.NotContains(t, call.subject, "\r")
+	assert.NotContains(t, call.subject, "\n")
+}
+
+func TestDispatchEmail_CRLFInMessage_StrippedBeforeBody(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: true}
+	svc := NewNotificationService(db, mock)
+
+	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com", Type: "email"}
+	svc.dispatchEmail(context.Background(), p, "alert", "Title", "msg\r\n.\r\nMAIL FROM:<attacker>")
+
+	require.Equal(t, 1, mock.callCount())
+	call := mock.firstCall()
+	assert.NotContains(t, call.body, "\r")
+	assert.NotContains(t, call.body, "\n")
+	assert.Contains(t, call.body, "msg.MAIL FROM:&lt;attacker&gt;")
+}
