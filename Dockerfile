@@ -293,7 +293,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Build CrowdSec from source to ensure we use Go 1.26.0+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
 # renovate: datasource=docker depName=golang versioning=docker
-FROM --platform=$BUILDPLATFORM golang:1.26.0-alpine@sha256:d4c4845f5d60c6a974c6000ce58ae079328d03ab7f721a0734277e69905473e5 AS crowdsec-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.1-alpine AS crowdsec-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
