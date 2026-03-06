@@ -361,8 +361,10 @@ func (s *MailService) SendEmail(ctx context.Context, to []string, subject, htmlB
 				return err
 			}
 		default:
-			// Safe: CRLF rejected in header values; address parsed by net/mail; body dot-stuffed; see buildEmail() and rejectCRLF().
-			if err := smtp.SendMail(addr, auth, fromEnvelope, []string{toEnvelope}, msg); err != nil { // codeql[go/email-injection]
+			// Defense-in-depth: CRLF rejected in all header values by rejectCRLF(),
+			// addresses parsed by net/mail, body dot-stuffed by sanitizeEmailBody(),
+			// and inputs pre-sanitized by sanitizeForEmail() at the notification boundary.
+			if err := smtp.SendMail(addr, auth, fromEnvelope, []string{toEnvelope}, msg); err != nil {
 				return err
 			}
 		}
@@ -534,8 +536,9 @@ func (s *MailService) sendSSL(addr string, config *SMTPConfig, auth smtp.Auth, f
 		return fmt.Errorf("DATA failed: %w", err)
 	}
 
-	// Safe: msg is built by buildEmail() which rejects CRLF in headers and sanitizes the body; net/smtp data.Writer dot-stuffs per RFC 5321.
-	if _, writeErr := w.Write(msg); writeErr != nil { // codeql[go/email-injection]
+	// Defense-in-depth: msg built by buildEmail() which rejects CRLF in headers via rejectCRLF(),
+	// sanitizes body via sanitizeEmailBody(), and inputs pre-sanitized by sanitizeForEmail().
+	if _, writeErr := w.Write(msg); writeErr != nil {
 		return fmt.Errorf("failed to write message: %w", writeErr)
 	}
 
@@ -586,8 +589,9 @@ func (s *MailService) sendSTARTTLS(addr string, config *SMTPConfig, auth smtp.Au
 		return fmt.Errorf("DATA failed: %w", err)
 	}
 
-	// Safe: msg is built by buildEmail() which rejects CRLF in headers and sanitizes the body; net/smtp data.Writer dot-stuffs per RFC 5321.
-	if _, err := w.Write(msg); err != nil { // codeql[go/email-injection]
+	// Defense-in-depth: msg built by buildEmail() which rejects CRLF in headers via rejectCRLF(),
+	// sanitizes body via sanitizeEmailBody(), and inputs pre-sanitized by sanitizeForEmail().
+	if _, err := w.Write(msg); err != nil {
 		return fmt.Errorf("failed to write message: %w", err)
 	}
 

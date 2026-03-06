@@ -245,6 +245,15 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 	}
 }
 
+// sanitizeForEmail strips CR/LF characters from untrusted strings
+// before they enter the email pipeline. This provides defense-in-depth
+// alongside rejectCRLF() validation in SendEmail/buildEmail.
+func sanitizeForEmail(s string) string {
+	s = strings.ReplaceAll(s, "\r", "")
+	s = strings.ReplaceAll(s, "\n", "")
+	return s
+}
+
 // dispatchEmail sends an email notification for the given provider.
 // It runs in a goroutine; all errors are logged rather than returned.
 func (s *NotificationService) dispatchEmail(ctx context.Context, p models.NotificationProvider, _, title, message string) {
@@ -266,8 +275,10 @@ func (s *NotificationService) dispatchEmail(ctx context.Context, p models.Notifi
 		return
 	}
 
-	subject := fmt.Sprintf("[Charon Alert] %s", title)
-	htmlBody := "<p><strong>" + html.EscapeString(title) + "</strong></p><p>" + html.EscapeString(message) + "</p>"
+	safeTitle := sanitizeForEmail(title)
+	safeMessage := sanitizeForEmail(message)
+	subject := fmt.Sprintf("[Charon Alert] %s", safeTitle)
+	htmlBody := "<p><strong>" + html.EscapeString(safeTitle) + "</strong></p><p>" + html.EscapeString(safeMessage) + "</p>"
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
