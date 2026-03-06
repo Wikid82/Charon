@@ -255,6 +255,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         go get github.com/expr-lang/expr@v1.17.7; \
         # renovate: datasource=go depName=github.com/hslatman/ipstore
         go get github.com/hslatman/ipstore@v0.4.0; \
+        # renovate: datasource=go depName=golang.org/x/net
+        go get golang.org/x/net@v0.51.0; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
             # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
@@ -319,8 +321,10 @@ RUN git clone --depth 1 --branch "v${CROWDSEC_VERSION}" https://github.com/crowd
 # This follows the same pattern as Caddy's dependency patches
 # renovate: datasource=go depName=github.com/expr-lang/expr
 # renovate: datasource=go depName=golang.org/x/crypto
+# renovate: datasource=go depName=golang.org/x/net
 RUN go get github.com/expr-lang/expr@v1.17.7 && \
     go get golang.org/x/crypto@v0.46.0 && \
+    go get golang.org/x/net@v0.51.0 && \
     go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
