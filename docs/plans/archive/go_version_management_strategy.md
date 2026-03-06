@@ -174,7 +174,8 @@ golangci-lint has version 2.8.1 built with go1.26.0
 ```yaml
 - uses: actions/setup-go@v6
   with:
-    go-version: ${{ env.GO_VERSION }}
+    go-version: "1.26.1"
+
     cache: true  # Caches Go modules and build artifacts
 ```
 
