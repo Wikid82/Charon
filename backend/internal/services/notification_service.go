@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
 	"net"
 	"net/http"
 	neturl "net/url"
@@ -284,12 +283,24 @@ func (s *NotificationService) dispatchEmail(ctx context.Context, p models.Notifi
 	safeTitle := sanitizeForEmail(title)
 	safeMessage := sanitizeForEmail(message)
 	subject := fmt.Sprintf("[Charon Alert] %s", safeTitle)
-	htmlBody := "<p><strong>" + html.EscapeString(safeTitle) + "</strong></p><p>" + html.EscapeString(safeMessage) + "</p>"
+	// Build a plain-text body; MailService will convert this to safe HTML and
+	// perform additional sanitization before sending.
+	var bodyBuilder strings.Builder
+	if safeTitle != "" {
+		bodyBuilder.WriteString(safeTitle)
+	}
+	if safeMessage != "" {
+		if bodyBuilder.Len() > 0 {
+			bodyBuilder.WriteString("\n\n")
+		}
+		bodyBuilder.WriteString(safeMessage)
+	}
+	plainBody := bodyBuilder.String()
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	if err := s.mailService.SendEmail(timeoutCtx, recipients, subject, htmlBody); err != nil {
+	if err := s.mailService.SendEmail(timeoutCtx, recipients, subject, plainBody); err != nil {
 		logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send email notification")
 	}
 }

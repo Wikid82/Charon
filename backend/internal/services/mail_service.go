@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"html"
 	"html/template"
 	"mime"
 	"net/mail"
@@ -329,6 +330,9 @@ func (s *MailService) SendEmail(ctx context.Context, to []string, subject, htmlB
 		auth = smtp.PlainAuth("", config.Username, config.Password, config.Host)
 	}
 
+	// Normalize and sanitize the email body so that any untrusted input is
+	// treated as plain text and cannot break out of the HTML context.
+	htmlBody = sanitizeAndNormalizeHTMLBody(htmlBody)
 	htmlBody = sanitizeEmailContent(htmlBody)
 
 	for _, recipient := range to {
@@ -492,6 +496,31 @@ func sanitizeEmailContent(body string) string {
 		}
 		return r
 	}, body)
+}
+
+// sanitizeAndNormalizeHTMLBody converts an arbitrary string (potentially containing
+// untrusted input) into a safe HTML fragment. It splits on newlines, escapes each
+// line as plain text, and wraps non-empty lines in <p> tags. This ensures that
+// user input cannot inject raw HTML into the email body.
+func sanitizeAndNormalizeHTMLBody(body string) string {
+	if body == "" {
+		return ""
+	}
+	lines := strings.Split(body, "\n")
+	var b strings.Builder
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString("<p>")
+		b.WriteString(html.EscapeString(line))
+		b.WriteString("</p>")
+	}
+	return b.String()
 }
 
 // sanitizeEmailBody performs SMTP dot-stuffing to prevent email injection.
