@@ -26,11 +26,10 @@ codeql database create codeql-db-js \
   --overwrite
 
 echo ""
-echo "📊 Analyzing with security-and-quality + security-experimental suites..."
-# Analyze with CI-aligned suites (mirrors codeql.yml queries: security-and-quality,security-experimental)
+echo "📊 Analyzing with security-and-quality suite..."
+# Analyze with CI-aligned suite (mirrors codeql.yml queries: security-and-quality)
 codeql database analyze codeql-db-js \
   codeql/javascript-queries:codeql-suites/javascript-security-and-quality.qls \
-  codeql/javascript-queries:codeql-suites/javascript-security-experimental.qls \
   --format=sarif-latest \
   --output=codeql-results-js.sarif \
   --sarif-add-baseline-file-info \
