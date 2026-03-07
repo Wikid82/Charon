@@ -274,7 +274,15 @@ jobs:
 
           DIGEST="${{ steps.build.outputs.digest }}"
           if [[ -z "$DIGEST" ]]; then
-            echo "::error::Build digest is empty; cannot construct a valid image reference for Syft SBOM scan"
+            echo "Build digest absent from step output; resolving from registry tag..."
+            DIGEST=$(docker buildx imagetools inspect \
+              "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly" \
+              --format '{{.Manifest.Digest}}' 2>/dev/null || true)
+            [[ -n "$DIGEST" ]] && echo "Resolved digest from registry: ${DIGEST}"
+          fi
+
+          if [[ -z "$DIGEST" ]]; then
+            echo "::error::Unable to determine image digest from step output or registry; cannot run Syft SBOM scan"
             exit 1
           fi
           ./syft "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}" -o cyclonedx-json=sbom-nightly.json
