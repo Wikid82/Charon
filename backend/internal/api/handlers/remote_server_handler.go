@@ -73,7 +73,7 @@ func (h *RemoteServerHandler) Create(c *gin.Context) {
 		h.notificationService.SendExternal(c.Request.Context(),
 			"remote_server",
 			"Remote Server Added",
-			fmt.Sprintf("Remote Server %s (%s:%d) added", util.SanitizeForLog(server.Name), util.SanitizeForLog(server.Host), server.Port),
+			"A new remote server was successfully added.",
 			map[string]any{
 				"Name":   util.SanitizeForLog(server.Name),
 				"Host":   util.SanitizeForLog(server.Host),
@@ -142,7 +142,7 @@ func (h *RemoteServerHandler) Delete(c *gin.Context) {
 		h.notificationService.SendExternal(c.Request.Context(),
 			"remote_server",
 			"Remote Server Deleted",
-			fmt.Sprintf("Remote Server %s deleted", util.SanitizeForLog(server.Name)),
+			"A remote server was successfully deleted.",
 			map[string]any{
 				"Name":   util.SanitizeForLog(server.Name),
 				"Action": "deleted",
