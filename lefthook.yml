@@ -25,12 +25,12 @@ pre-commit:
       exclude: "frontend/(coverage|dist|node_modules|\\.vite)/|.*\\.tsbuildinfo$"
       run: |
         modified=0
-        for file in {staged_files}; do
+        for file in {all_files}; do
           [ -f "$file" ] && [ -s "$file" ] && \
             [ -n "$(tail -c1 "$file")" ] && echo >> "$file" && modified=1
         done
         if [ "$modified" -eq 1 ]; then
-          git add {staged_files}
+          git add {all_files}
           echo "end-of-file-fixer: files modified and re-staged — review changes and commit again."
           exit 1
         fi
@@ -40,20 +40,20 @@ pre-commit:
       exclude: "frontend/(coverage|dist|node_modules|\\.vite)/|.*\\.tsbuildinfo$"
       run: |
         modified=0
-        for file in {staged_files}; do
+        for file in {all_files}; do
           if grep -qP '\s+$' "$file" 2>/dev/null; then
             sed -i 's/[[:space:]]*$//' "$file" && modified=1
           fi
         done
         if [ "$modified" -eq 1 ]; then
-          git add {staged_files}
+          git add {all_files}
           echo "trailing-whitespace: trailing spaces removed and re-staged — review changes and commit again."
           exit 1
         fi
 
     check-yaml:
       glob: "*.{yaml,yml}"
-      run: python3 -c "import sys,yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" {staged_files}
+      run: python3 -c "import sys,yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" {all_files}
 
     # --- Blocking security/commit guards (always run) ---
     check-lfs-large-files:
@@ -69,15 +69,15 @@ pre-commit:
     shellcheck:
       glob: "*.sh"
       exclude: "frontend/(coverage|dist|node_modules|\\.vite)/|test-results|codeql-agent-results"
-      run: shellcheck --severity=error {staged_files}
+      run: shellcheck --severity=error {all_files}
 
     actionlint:
       glob: ".github/workflows/*.{yaml,yml}"
-      run: actionlint {staged_files}
+      run: actionlint {all_files}
 
     dockerfile-check:
       glob: "Dockerfile*"
-      run: tools/dockerfile_check.sh {staged_files}
+      run: tools/dockerfile_check.sh {all_files}
 
     # --- Go ---
     go-vet:
@@ -104,8 +104,8 @@ pre-commit:
       run: |
         cd frontend && npm run lint -- --fix; lint_exit=$?
         cd ..
-        if ! git diff --quiet -- {staged_files}; then
-          git add {staged_files}
+        if ! git diff --quiet -- {all_files}; then
+          git add {all_files}
           echo "ESLint: auto-fixed files and re-staged — review changes and commit again."
           exit 1
         fi
