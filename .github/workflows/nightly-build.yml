@@ -170,10 +170,13 @@ jobs:
       - name: Resolve Alpine base image digest
         id: alpine
         run: |
-          ALPINE_TAG=$(grep -m1 'ARG ALPINE_IMAGE=' Dockerfile | sed 's/ARG ALPINE_IMAGE=alpine://' | cut -d'@' -f1)
-          docker pull "alpine:${ALPINE_TAG}"
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "alpine:${ALPINE_TAG}")
-          echo "image=$DIGEST" >> "$GITHUB_OUTPUT"
+          ALPINE_IMAGE_REF=$(grep -m1 'ARG ALPINE_IMAGE=' Dockerfile | cut -d'=' -f2-)
+          if [[ -z "$ALPINE_IMAGE_REF" ]]; then
+            echo "::error::Failed to parse ALPINE_IMAGE from Dockerfile"
+            exit 1
+          fi
+          echo "Resolved Alpine image: ${ALPINE_IMAGE_REF}"
+          echo "image=${ALPINE_IMAGE_REF}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
