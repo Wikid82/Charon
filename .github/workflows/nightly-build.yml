@@ -155,7 +155,7 @@ jobs:
       - name: Checkout nightly branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
-          ref: nightly
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
           fetch-depth: 0
 
       - name: Set lowercase image name
@@ -370,7 +370,7 @@ jobs:
       - name: Checkout nightly branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
-          ref: nightly
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
 
       - name: Set lowercase image name
         run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
@@ -425,7 +425,7 @@ jobs:
       - name: Checkout nightly branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
-          ref: nightly
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
 
       - name: Set lowercase image name
         run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
