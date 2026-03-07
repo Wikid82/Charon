@@ -68,4 +68,4 @@ echo -e "${GREEN}✅ Extraction parity OK${NC} (compiled baseline=$BASELINE_COUN
 echo -e "${GREEN}✅ CodeQL Go scan complete${NC}"
 echo "Results saved to: codeql-results-go.sarif"
 echo ""
-echo "Run 'pre-commit run codeql-check-findings' to validate findings"
+echo "Run 'lefthook run pre-commit' (or `lefthook run pre-commit` which includes codeql-check-findings) to validate findings"

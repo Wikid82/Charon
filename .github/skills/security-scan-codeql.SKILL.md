@@ -251,7 +251,7 @@ Solution: Verify source-root points to correct directory
 
 - [security-scan-trivy](./security-scan-trivy.SKILL.md) - Container/dependency vulnerabilities
 - [security-scan-go-vuln](./security-scan-go-vuln.SKILL.md) - Go-specific CVE checking
-- [qa-precommit-all](./qa-precommit-all.SKILL.md) - Pre-commit quality checks
+- [qa-lefthook-all](./qa-lefthook-all.SKILL.md) - Lefthook pre-commit-phase quality checks
 
 ## CI Alignment
 

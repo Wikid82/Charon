@@ -67,7 +67,7 @@ Before proposing ANY code change or fix, you must build a mental map of the feat
 
 - **Run**: `cd backend && go run ./cmd/api`.
 - **Test**: `go test ./...`.
-- **Static Analysis (BLOCKING)**: Fast linters run automatically on every commit via pre-commit hooks.
+- **Static Analysis (BLOCKING)**: Fast linters run automatically on every commit via lefthook pre-commit-phase hooks.
   - **Staticcheck errors MUST be fixed** - commits are BLOCKED until resolved
   - Manual run: `make lint-fast` or VS Code task "Lint: Staticcheck (Fast)"
   - Staticcheck-only: `make lint-staticcheck-only`
@@ -79,7 +79,7 @@ Before proposing ANY code change or fix, you must build a mental map of the feat
 - **Security**: Sanitize all file paths using `filepath.Clean`. Use `fmt.Errorf("context: %w", err)` for error wrapping.
 - **Graceful Shutdown**: Long-running work must respect `server.Run(ctx)`.
 
-### Troubleshooting Pre-Commit Staticcheck Failures
+### Troubleshooting Lefthook Staticcheck Failures
 
 **Common Issues:**
 
@@ -175,7 +175,7 @@ Before marking an implementation task as complete, perform the following in orde
     - **Exclusions**: Skip this gate for docs-only (`**/*.md`) or frontend-only (`frontend/**`) changes
     - **Run One Of**:
         - VS Code task: `Lint: GORM Security Scan`
-        - Pre-commit: `pre-commit run --hook-stage manual gorm-security-scan --all-files`
+        - Lefthook: `lefthook run pre-commit` (includes gorm-security-scan)
         - Direct: `./scripts/scan-gorm-security.sh --check`
         - **Gate Enforcement**: DoD is process-blocking until scanner reports zero
             CRITICAL/HIGH findings, even while automation remains in manual stage
@@ -189,15 +189,15 @@ Before marking an implementation task as complete, perform the following in orde
     - **Expected Behavior**: Report may warn (non-blocking rollout), but artifact generation is mandatory.
 
 3. **Security Scans** (MANDATORY - Zero Tolerance):
-    - **CodeQL Go Scan**: Run VS Code task "Security: CodeQL Go Scan (CI-Aligned)" OR `pre-commit run codeql-go-scan --all-files`
+    - **CodeQL Go Scan**: Run VS Code task "Security: CodeQL Go Scan (CI-Aligned)" OR `lefthook run pre-commit`
         - Must use `security-and-quality` suite (CI-aligned)
         - **Zero high/critical (error-level) findings allowed**
         - Medium/low findings should be documented and triaged
-    - **CodeQL JS Scan**: Run VS Code task "Security: CodeQL JS Scan (CI-Aligned)" OR `pre-commit run codeql-js-scan --all-files`
+    - **CodeQL JS Scan**: Run VS Code task "Security: CodeQL JS Scan (CI-Aligned)" OR `lefthook run pre-commit`
         - Must use `security-and-quality` suite (CI-aligned)
         - **Zero high/critical (error-level) findings allowed**
         - Medium/low findings should be documented and triaged
-    - **Validate Findings**: Run `pre-commit run codeql-check-findings --all-files` to check for HIGH/CRITICAL issues
+    - **Validate Findings**: Run `lefthook run pre-commit` to check for HIGH/CRITICAL issues
     - **Trivy Container Scan**: Run VS Code task "Security: Trivy Scan" for container/dependency vulnerabilities
     - **Results Viewing**:
         - Primary: VS Code SARIF Viewer extension (`MS-SarifVSCode.sarif-viewer`)
@@ -210,7 +210,7 @@ Before marking an implementation task as complete, perform the following in orde
         - Database creation: `--threads=0 --overwrite`
         - Analysis: `--sarif-add-baseline-file-info`
 
-4. **Pre-Commit Triage**: Run `pre-commit run --all-files`.
+4. **Lefthook Triage**: Run `lefthook run pre-commit`.
     - If errors occur, **fix them immediately**.
     - If logic errors occur, analyze and propose a fix.
     - Do not output code that violates pre-commit standards.

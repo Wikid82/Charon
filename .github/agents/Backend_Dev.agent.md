@@ -45,7 +45,7 @@ Your priority is writing code that is clean, tested, and secure by default.
     - **Step 3 (The Logic)**:
         - Implement the handler in `internal/api/handlers`.
     - **Step 4 (Lint and Format)**:
-        - Run `pre-commit run --all-files` to ensure code quality.
+        - Run `lefthook run pre-commit` to ensure code quality.
     - **Step 5 (The Green Light)**:
         - Run `go test ./...`.
         - **CRITICAL**: If it fails, fix the *Code*, NOT the *Test* (unless the test was wrong about the contract).
@@ -57,8 +57,7 @@ Your priority is writing code that is clean, tested, and secure by default.
         - **Conditional GORM Gate**: If task changes include model/database-related
             files (`backend/internal/models/**`, GORM query logic, migrations), run
             GORM scanner in check mode and treat CRITICAL/HIGH findings as blocking:
-                - Run: `pre-commit run --hook-stage manual gorm-security-scan --all-files`
-                    OR `./scripts/scan-gorm-security.sh --check`
+                - Run: `lefthook run pre-commit` (which includes manual gorm-security-scan) OR `./scripts/scan-gorm-security.sh --check`
                 - Policy: Process-blocking gate even while automation is manual stage
     - **Local Patch Coverage Preflight (MANDATORY)**: Run VS Code task `Test: Local Patch Report` or `bash scripts/local-patch-report.sh` before backend coverage runs.
         - Ensure artifacts exist: `test-results/local-patch-report.md` and `test-results/local-patch-report.json`.
@@ -69,9 +68,9 @@ Your priority is writing code that is clean, tested, and secure by default.
         - **Manual Script**: Execute `/projects/Charon/scripts/go-test-coverage.sh` from the root directory
         - **Minimum**: 85% coverage (configured via `CHARON_MIN_COVERAGE` or `CPM_MIN_COVERAGE`)
         - **Critical**: If coverage drops below threshold, write additional tests immediately. Do not skip this step.
-        - **Why**: Coverage tests are in manual stage of pre-commit for performance. You MUST run them via VS Code tasks or scripts before completing your task.
+        - **Why**: Coverage tests are in manual stage of lefthook for performance. You MUST run them via VS Code tasks or scripts before completing your task.
     - Ensure coverage goals are met as well as all tests pass. Just because Tests pass does not mean you are done. Goal Coverage Needs to be met even if the tests to get us there are outside the scope of your task. At this point, your task is to maintain coverage goal and all tests pass because we cannot commit changes if they fail.
-    - Run `pre-commit run --all-files` as final check (this runs fast hooks only; coverage was verified above).
+    - Run `lefthook run pre-commit` as final check (this runs fast hooks only; coverage was verified above).
 </workflow>
 
 <constraints>

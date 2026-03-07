@@ -63,7 +63,7 @@ Agent Skills are self-documenting, AI-discoverable task definitions that combine
 
 | Skill Name | Category | Description | Status |
 |------------|----------|-------------|--------|
-| [qa-precommit-all](./qa-precommit-all.SKILL.md) | qa | Run all pre-commit hooks on entire codebase | ✅ Active |
+| [qa-lefthook-all](./qa-lefthook-all.SKILL.md) | qa | Run all lefthook pre-commit‑phase hooks on entire codebase | ✅ Active |
 
 ### Utility Skills
 

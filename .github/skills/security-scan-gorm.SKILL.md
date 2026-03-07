@@ -545,7 +545,7 @@ Solution: Add suppression comment: // gorm-scanner:ignore [reason]
 
 - [security-scan-trivy](./security-scan-trivy.SKILL.md) - Container vulnerability scanning
 - [security-scan-codeql](./security-scan-codeql.SKILL.md) - Static analysis for Go/JS
-- [qa-precommit-all](./qa-precommit-all.SKILL.md) - Pre-commit quality checks
+- [qa-lefthook-all](./qa-lefthook-all.SKILL.md) - Lefthook pre-commit-phase quality checks
 
 ## Best Practices
 
