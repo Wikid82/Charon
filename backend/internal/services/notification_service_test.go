@@ -2561,6 +2561,8 @@ type mockMailService struct {
 	isConfigured bool
 	sendEmailErr error
 	calls        []mockSendEmailCall
+	renderResult string
+	renderErr    error
 }
 
 type mockSendEmailCall struct {
@@ -2576,6 +2578,13 @@ func (m *mockMailService) SendEmail(_ context.Context, to []string, subject, htm
 	m.calls = append(m.calls, mockSendEmailCall{to: to, subject: subject, body: htmlBody})
 	m.mu.Unlock()
 	return m.sendEmailErr
+}
+
+func (m *mockMailService) RenderNotificationEmail(_ string, _ EmailTemplateData) (string, error) {
+	if m.renderResult != "" || m.renderErr != nil {
+		return m.renderResult, m.renderErr
+	}
+	return "", fmt.Errorf("template rendering not configured in mock")
 }
 
 func (m *mockMailService) callCount() int {
@@ -2842,4 +2851,31 @@ func TestDispatchEmail_CRLFInMessage_StrippedBeforeBody(t *testing.T) {
 	assert.NotContains(t, call.body, "\r")
 	assert.NotContains(t, call.body, "\n")
 	assert.Contains(t, call.body, "msg.MAIL FROM:&lt;attacker&gt;")
+}
+
+func TestDispatchEmail_UsesTemplate(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	renderedHTML := "<html><body>Rendered template content</body></html>"
+	mock := &mockMailService{isConfigured: true, renderResult: renderedHTML}
+	svc := NewNotificationService(db, mock)
+
+	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com", Type: "email"}
+	svc.dispatchEmail(context.Background(), p, "security_waf", "WAF Alert", "Blocked request")
+
+	require.Len(t, mock.calls, 1)
+	assert.Equal(t, renderedHTML, mock.calls[0].body)
+	assert.NotContains(t, mock.calls[0].body, "<strong>")
+}
+
+func TestDispatchEmail_TemplateFallback(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: true, renderErr: fmt.Errorf("template parse error")}
+	svc := NewNotificationService(db, mock)
+
+	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com", Type: "email"}
+	svc.dispatchEmail(context.Background(), p, "alert", "Fallback Title", "Fallback Message")
+
+	require.Len(t, mock.calls, 1)
+	assert.Contains(t, mock.calls[0].body, "<strong>Fallback Title</strong>")
+	assert.Contains(t, mock.calls[0].body, "Fallback Message")
 }

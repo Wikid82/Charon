@@ -18,8 +18,25 @@ Notifications can be triggered by various events:
 | **Discord** | ✅ Yes | ✅ Webhooks | ✅ Embeds |
 | **Gotify** | ✅ Yes | ✅ HTTP API | ✅ Priority + Extras |
 | **Custom Webhook** | ✅ Yes | ✅ HTTP API | ✅ Template-Controlled |
+| **Email** | ❌ No | ✅ SMTP | ✅ HTML Branded Templates |
 
 Additional providers are planned for later staged releases.
+
+### Email Notifications
+
+Email notifications send HTML-branded alerts directly to one or more email addresses using your SMTP server.
+
+**Setup:**
+
+1. Navigate to **Settings** → **SMTP** and configure your mail server connection
+2. Go to **Settings** → **Notifications** and click **"Add Provider"**
+3. Select **Email** as the service type
+4. Enter one or more recipient email addresses
+5. Configure notification triggers and save
+
+Email notifications use built-in HTML templates with Charon branding — no JSON template editing is required.
+
+> **Feature Flag:** Email notifications must be enabled via `feature.notifications.service.email.enabled` in **Settings** → **Feature Flags** before the Email provider option appears.
 
 ### Why JSON Templates?
 
@@ -43,7 +60,7 @@ JSON templates give you complete control over notification formatting, allowing 
 
 ### JSON Template Support
 
-For current services (Discord, Gotify, and Custom Webhook), you can choose from three template options.
+For JSON-based services (Discord, Gotify, and Custom Webhook), you can choose from three template options. Email uses its own built-in HTML templates and does not use JSON templates.
 
 #### 1. Minimal Template (Default)
 
@@ -324,6 +341,7 @@ Use separate Discord providers for different event types:
 Be mindful of service limits:
 
 - **Discord**: 5 requests per 2 seconds per webhook
+- **Email**: Subject to your SMTP server's sending limits
 
 ### 6. Keep Templates Maintainable
 
