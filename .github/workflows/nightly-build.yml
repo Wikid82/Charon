@@ -149,7 +149,7 @@ jobs:
     outputs:
       version: ${{ steps.meta.outputs.version }}
       tags: ${{ steps.meta.outputs.tags }}
-      digest: ${{ steps.build.outputs.digest }}
+      digest: ${{ steps.resolve_digest.outputs.digest }}
 
     steps:
       - name: Checkout nightly branch
@@ -224,17 +224,46 @@ jobs:
           provenance: true
           sbom: true
 
+      - name: Resolve and export image digest
+        id: resolve_digest
+        run: |
+          set -euo pipefail
+          DIGEST="${{ steps.build.outputs.digest }}"
+
+          if [[ -z "$DIGEST" ]]; then
+            echo "Build action digest empty; querying GHCR registry API..."
+            GHCR_TOKEN=$(curl -sf \
+              -u "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
+              "https://ghcr.io/token?scope=repository:${{ env.IMAGE_NAME }}:pull&service=ghcr.io" \
+              | jq -r '.token')
+            DIGEST=$(curl -sfI \
+              -H "Authorization: Bearer ${GHCR_TOKEN}" \
+              -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json" \
+              "https://ghcr.io/v2/${{ env.IMAGE_NAME }}/manifests/nightly" \
+              | grep -i '^docker-content-digest:' | awk '{print $2}' | tr -d '\r' || true)
+            [[ -n "$DIGEST" ]] && echo "Resolved from GHCR API: ${DIGEST}"
+          fi
+
+          if [[ -z "$DIGEST" ]]; then
+            echo "::error::Could not determine image digest from step output or GHCR registry API"
+            exit 1
+          fi
+
+          echo "RESOLVED_DIGEST=${DIGEST}" >> "$GITHUB_ENV"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Exported digest: ${DIGEST}"
+
       - name: Record nightly image digest
         run: |
           echo "## 🧾 Nightly Image Digest" >> "$GITHUB_STEP_SUMMARY"
-          echo "- ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ env.RESOLVED_DIGEST }}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Generate SBOM
         id: sbom_primary
         continue-on-error: true
         uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11  # v0.23.0
         with:
-          image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.build.outputs.digest }}
+          image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ env.RESOLVED_DIGEST }}
           format: cyclonedx-json
           output-file: sbom-nightly.json
           syft-version: v1.42.1
@@ -272,17 +301,9 @@ jobs:
           tar -xzf "$TARBALL" syft
           chmod +x syft
 
-          DIGEST="${{ steps.build.outputs.digest }}"
+          DIGEST="${{ env.RESOLVED_DIGEST }}"
           if [[ -z "$DIGEST" ]]; then
-            echo "Build digest absent from step output; resolving from registry tag..."
-            DIGEST=$(docker buildx imagetools inspect \
-              "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly" \
-              --format '{{.Manifest.Digest}}' 2>/dev/null || true)
-            [[ -n "$DIGEST" ]] && echo "Resolved digest from registry: ${DIGEST}"
-          fi
-
-          if [[ -z "$DIGEST" ]]; then
-            echo "::error::Unable to determine image digest from step output or registry; cannot run Syft SBOM scan"
+            echo "::error::RESOLVED_DIGEST is unset; the digest-resolution step did not complete successfully"
             exit 1
           fi
           ./syft "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}" -o cyclonedx-json=sbom-nightly.json
@@ -316,7 +337,7 @@ jobs:
       - name: Sign GHCR Image
         run: |
           echo "Signing GHCR nightly image with keyless signing..."
-          cosign sign --yes "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+          cosign sign --yes "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ env.RESOLVED_DIGEST }}"
           echo "✅ GHCR nightly image signed successfully"
 
       # Sign Docker Hub image with keyless signing (Sigstore/Fulcio)
@@ -324,7 +345,7 @@ jobs:
         if: env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Signing Docker Hub nightly image with keyless signing..."
-          cosign sign --yes "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+          cosign sign --yes "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ env.RESOLVED_DIGEST }}"
           echo "✅ Docker Hub nightly image signed successfully"
 
       # Attach SBOM to Docker Hub image
@@ -332,7 +353,7 @@ jobs:
         if: env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Attaching SBOM to Docker Hub nightly image..."
-          cosign attach sbom --sbom sbom-nightly.json "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+          cosign attach sbom --sbom sbom-nightly.json "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ env.RESOLVED_DIGEST }}"
           echo "✅ SBOM attached to Docker Hub nightly image"
 
   test-nightly-image:
@@ -363,9 +384,10 @@ jobs:
 
       - name: Run container smoke test
         run: |
+          IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}"
           docker run --name charon-nightly -d \
             -p 8080:8080 \
-            "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}"
+            "${IMAGE_REF}"
 
           # Wait for container to start
           sleep 10
@@ -420,7 +442,7 @@ jobs:
       - name: Scan with Trivy
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1  # 0.35.0
         with:
-          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-and-push-nightly.outputs.digest }}
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}
           format: 'sarif'
           output: 'trivy-nightly.sarif'
           version: 'v0.69.3'
