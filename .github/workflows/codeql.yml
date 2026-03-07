@@ -118,7 +118,7 @@ jobs:
             echo "## 🔒 CodeQL Security Analysis Results"
             echo ""
             echo "**Language:** ${{ matrix.language }}"
-            echo "**Query Suite:** security-and-quality + security-experimental"
+            echo "**Query Suite:** security-and-quality"
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
 

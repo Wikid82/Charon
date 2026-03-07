@@ -337,8 +337,6 @@ func (s *MailService) SendEmail(ctx context.Context, to []string, subject, htmlB
 		auth = smtp.PlainAuth("", config.Username, config.Password, config.Host)
 	}
 
-	// Normalize and sanitize the email body so that any untrusted input is
-	// treated as plain text and cannot break out of the HTML context.
 	htmlBody = sanitizeAndNormalizeHTMLBody(htmlBody)
 	htmlBody = sanitizeEmailContent(htmlBody)
 
