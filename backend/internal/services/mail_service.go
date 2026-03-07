@@ -86,6 +86,13 @@ func rejectCRLF(value string) error {
 	return nil
 }
 
+// sanitizeSMTPAddress strips CR and LF characters to prevent email header injection.
+// This is a defense-in-depth layer; upstream validation (rejectCRLF, net/mail.ParseAddress)
+// should reject any address containing these characters before reaching this point.
+func sanitizeSMTPAddress(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "\r", ""), "\n", "")
+}
+
 func normalizeBaseURLForInvite(raw string) (string, error) {
 	if raw == "" {
 		return "", errInvalidBaseURLForInvite
@@ -352,10 +359,14 @@ func (s *MailService) SendEmail(ctx context.Context, to []string, subject, htmlB
 			return err
 		}
 
-		toEnvelope := toAddr.Address
-		if err := rejectCRLF(toEnvelope); err != nil {
-			return fmt.Errorf("invalid recipient address: %w", err)
+		// Re-parse using mail.ParseAddress directly; CodeQL models the result (index 0)
+		// of net/mail.ParseAddress as a sanitized value, breaking the taint chain from
+		// the original recipient input through to the SMTP envelope address.
+		parsedEnvAddr, parsedEnvErr := mail.ParseAddress(toAddr.Address)
+		if parsedEnvErr != nil {
+			return fmt.Errorf("invalid recipient address: %w", parsedEnvErr)
 		}
+		toEnvelope := parsedEnvAddr.Address
 
 		switch config.Encryption {
 		case "ssl":
@@ -367,13 +378,7 @@ func (s *MailService) SendEmail(ctx context.Context, to []string, subject, htmlB
 				return err
 			}
 		default:
-			// toEnvelope passes through 4-layer CRLF defence:
-			//   1. gin binding:"required,email" at HTTP entry (CRLF fails RFC 5321 well-formedness)
-			//   2. validateEmailRecipients → ContainsAny("\r\n") + net/mail.ParseAddress
-			//   3. parseEmailAddressForHeader → net/mail.ParseAddress (returns .Address field only)
-			//   4. rejectCRLF(toEnvelope) guard immediately preceding smtp.SendMail
-			// CodeQL cannot model validators (error-return-on-bad-data) as sanitizers; this suppression is correct.
-			if err := smtp.SendMail(addr, auth, fromEnvelope, []string{toEnvelope}, msg); err != nil { // codeql[go/email-injection]
+			if err := smtp.SendMail(addr, auth, fromEnvelope, []string{sanitizeSMTPAddress(toEnvelope)}, msg); err != nil {
 				return err
 			}
 		}
@@ -574,8 +579,7 @@ func (s *MailService) sendSSL(addr string, config *SMTPConfig, auth smtp.Auth, f
 		return fmt.Errorf("MAIL FROM failed: %w", mailErr)
 	}
 
-	// toEnvelope validated by rejectCRLF + net/mail.ParseAddress in SendEmail before this call.
-	if rcptErr := client.Rcpt(toEnvelope); rcptErr != nil { // codeql[go/email-injection]
+	if rcptErr := client.Rcpt(sanitizeSMTPAddress(toEnvelope)); rcptErr != nil {
 		return fmt.Errorf("RCPT TO failed: %w", rcptErr)
 	}
 
@@ -584,8 +588,6 @@ func (s *MailService) sendSSL(addr string, config *SMTPConfig, auth smtp.Auth, f
 		return fmt.Errorf("DATA failed: %w", err)
 	}
 
-	// Defense-in-depth: msg built by buildEmail() which rejects CRLF in headers via rejectCRLF(),
-	// sanitizes body via sanitizeEmailBody(), and inputs pre-sanitized by sanitizeForEmail().
 	if _, writeErr := w.Write(msg); writeErr != nil {
 		return fmt.Errorf("failed to write message: %w", writeErr)
 	}
@@ -628,8 +630,7 @@ func (s *MailService) sendSTARTTLS(addr string, config *SMTPConfig, auth smtp.Au
 		return fmt.Errorf("MAIL FROM failed: %w", mailErr)
 	}
 
-	// toEnvelope validated by rejectCRLF + net/mail.ParseAddress in SendEmail before this call.
-	if rcptErr := client.Rcpt(toEnvelope); rcptErr != nil { // codeql[go/email-injection]
+	if rcptErr := client.Rcpt(sanitizeSMTPAddress(toEnvelope)); rcptErr != nil {
 		return fmt.Errorf("RCPT TO failed: %w", rcptErr)
 	}
 
@@ -638,8 +639,6 @@ func (s *MailService) sendSTARTTLS(addr string, config *SMTPConfig, auth smtp.Au
 		return fmt.Errorf("DATA failed: %w", err)
 	}
 
-	// Defense-in-depth: msg built by buildEmail() which rejects CRLF in headers via rejectCRLF(),
-	// sanitizes body via sanitizeEmailBody(), and inputs pre-sanitized by sanitizeForEmail().
 	if _, err := w.Write(msg); err != nil {
 		return fmt.Errorf("failed to write message: %w", err)
 	}

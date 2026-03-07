@@ -63,7 +63,10 @@ func (h *AuditLogHandler) List(c *gin.Context) {
 	}
 
 	// Calculate pagination metadata
-	totalPages := (int(total) + limit - 1) / limit
+	var totalPages int
+	if limit > 0 {
+		totalPages = (int(total) + limit - 1) / limit
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"audit_logs": audits,
@@ -127,7 +130,10 @@ func (h *AuditLogHandler) ListByProvider(c *gin.Context) {
 	}
 
 	// Calculate pagination metadata
-	totalPages := (int(total) + limit - 1) / limit
+	var totalPages int
+	if limit > 0 {
+		totalPages = (int(total) + limit - 1) / limit
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"audit_logs": audits,

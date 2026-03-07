@@ -652,12 +652,13 @@ func (s *BackupService) extractDatabaseFromBackup(zipPath string) (string, error
 		}()
 
 		const maxDecompressedSize = 100 * 1024 * 1024 // 100MB
-		limitedReader := io.LimitReader(rc, maxDecompressedSize+1)
-		written, err := io.Copy(outFile, limitedReader)
+		lr := &io.LimitedReader{R: rc, N: maxDecompressedSize}
+		written, err := io.Copy(outFile, lr)
 		if err != nil {
 			return fmt.Errorf("copy archive entry: %w", err)
 		}
-		if written > maxDecompressedSize {
+		_ = written
+		if lr.N == 0 {
 			return fmt.Errorf("archive entry %s exceeded decompression limit (%d bytes), potential decompression bomb", file.Name, maxDecompressedSize)
 		}
 		if err := outFile.Sync(); err != nil {
@@ -751,11 +752,11 @@ func (s *BackupService) unzipWithSkip(src, dest string, skipEntries map[string]s
 
 		// Limit decompressed size to prevent decompression bombs (100MB limit)
 		const maxDecompressedSize = 100 * 1024 * 1024 // 100MB
-		limitedReader := io.LimitReader(rc, maxDecompressedSize)
-		written, err := io.Copy(outFile, limitedReader)
+		lr := &io.LimitedReader{R: rc, N: maxDecompressedSize}
+		_, err = io.Copy(outFile, lr)
 
 		// Verify we didn't hit the limit (potential attack)
-		if err == nil && written >= maxDecompressedSize {
+		if err == nil && lr.N == 0 {
 			err = fmt.Errorf("file %s exceeded decompression limit (%d bytes), potential decompression bomb", f.Name, maxDecompressedSize)
 		}
 
