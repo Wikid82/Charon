@@ -28,11 +28,12 @@ codeql database create codeql-db-go \
   --overwrite
 
 echo ""
-echo "📊 Analyzing with security-and-quality suite..."
+echo "📊 Analyzing with security-and-quality + security-experimental suites..."
 ANALYZE_LOG=$(mktemp)
-# Analyze with CI-aligned suite
+# Analyze with CI-aligned suites (mirrors codeql.yml queries: security-and-quality,security-experimental)
 codeql database analyze codeql-db-go \
   codeql/go-queries:codeql-suites/go-security-and-quality.qls \
+  codeql/go-queries:codeql-suites/go-security-experimental.qls \
   --format=sarif-latest \
   --output=codeql-results-go.sarif \
   --sarif-add-baseline-file-info \
