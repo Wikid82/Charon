@@ -262,7 +262,7 @@ func sanitizeForEmail(s string) string {
 
 // dispatchEmail sends an email notification for the given provider.
 // It runs in a goroutine; all errors are logged rather than returned.
-func (s *NotificationService) dispatchEmail(ctx context.Context, p models.NotificationProvider, _, title, message string) {
+func (s *NotificationService) dispatchEmail(ctx context.Context, p models.NotificationProvider, eventType, title, message string) {
 	if s.mailService == nil || !s.mailService.IsConfigured() {
 		logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).Warn("Email provider is not configured, skipping dispatch")
 		return
@@ -284,25 +284,51 @@ func (s *NotificationService) dispatchEmail(ctx context.Context, p models.Notifi
 	safeTitle := sanitizeForEmail(title)
 	safeMessage := sanitizeForEmail(message)
 	subject := fmt.Sprintf("[Charon Alert] %s", safeTitle)
-	var bodyBuilder strings.Builder
-	if safeTitle != "" {
-		bodyBuilder.WriteString("<strong>")
-		bodyBuilder.WriteString(html.EscapeString(safeTitle))
-		bodyBuilder.WriteString("</strong>")
+
+	templateName := emailTemplateForEventType(eventType)
+	data := EmailTemplateData{
+		EventType: eventType,
+		Title:     safeTitle,
+		Message:   safeMessage,
+		Timestamp: time.Now().Format(time.RFC3339),
 	}
-	if safeMessage != "" {
-		if bodyBuilder.Len() > 0 {
-			bodyBuilder.WriteString("<br>")
+
+	htmlBody, renderErr := s.mailService.RenderNotificationEmail(templateName, data)
+	if renderErr != nil {
+		logger.Log().WithError(renderErr).WithField("template", templateName).Warn("Email template rendering failed, using fallback")
+		var bodyBuilder strings.Builder
+		if safeTitle != "" {
+			bodyBuilder.WriteString("<strong>")
+			bodyBuilder.WriteString(html.EscapeString(safeTitle))
+			bodyBuilder.WriteString("</strong>")
 		}
-		bodyBuilder.WriteString(html.EscapeString(safeMessage))
+		if safeMessage != "" {
+			if bodyBuilder.Len() > 0 {
+				bodyBuilder.WriteString("<br>")
+			}
+			bodyBuilder.WriteString(html.EscapeString(safeMessage))
+		}
+		htmlBody = bodyBuilder.String()
 	}
-	htmlBody := bodyBuilder.String()
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	if err := s.mailService.SendEmail(timeoutCtx, recipients, subject, htmlBody); err != nil {
 		logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send email notification")
+	}
+}
+
+func emailTemplateForEventType(eventType string) string {
+	switch strings.ToLower(strings.TrimSpace(eventType)) {
+	case "security_waf", "security_acl", "security_rate_limit", "security_crowdsec":
+		return "email_security_alert.html"
+	case "cert":
+		return "email_ssl_event.html"
+	case "uptime":
+		return "email_uptime_event.html"
+	default:
+		return "email_system_event.html"
 	}
 }
 

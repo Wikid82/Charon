@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"embed"
 	"errors"
 	"fmt"
 	"html"
@@ -30,10 +31,27 @@ var ErrTooManyRecipients = errors.New("too many recipients: maximum is 20")
 // ErrInvalidRecipient is returned when a recipient address fails RFC 5322 validation.
 var ErrInvalidRecipient = errors.New("invalid recipient address")
 
+//go:embed templates/*
+var emailTemplates embed.FS
+
+type EmailTemplateData struct {
+	EventType  string
+	Title      string
+	Message    string
+	Timestamp  string
+	SourceIP   string
+	Domain     string
+	ExpiryDate string
+	HostName   string
+	StatusCode string
+	Content    template.HTML
+}
+
 // MailServiceInterface allows mocking MailService in tests.
 type MailServiceInterface interface {
 	IsConfigured() bool
 	SendEmail(ctx context.Context, to []string, subject, htmlBody string) error
+	RenderNotificationEmail(templateName string, data EmailTemplateData) (string, error)
 }
 
 // validateEmailRecipients validates a list of email recipients.
@@ -150,6 +168,44 @@ type MailService struct {
 // NewMailService creates a new mail service instance.
 func NewMailService(db *gorm.DB) *MailService {
 	return &MailService{db: db}
+}
+
+func (s *MailService) RenderNotificationEmail(templateName string, data EmailTemplateData) (string, error) {
+	contentBytes, err := emailTemplates.ReadFile("templates/" + templateName)
+	if err != nil {
+		return "", fmt.Errorf("template %q not found: %w", templateName, err)
+	}
+
+	baseBytes, err := emailTemplates.ReadFile("templates/email_base.html")
+	if err != nil {
+		return "", fmt.Errorf("base template not found: %w", err)
+	}
+
+	contentTmpl, err := template.New(templateName).Parse(string(contentBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse template %q: %w", templateName, err)
+	}
+
+	var contentBuf bytes.Buffer
+	err = contentTmpl.Execute(&contentBuf, data)
+	if err != nil {
+		return "", fmt.Errorf("failed to render template %q: %w", templateName, err)
+	}
+
+	data.Content = template.HTML(contentBuf.String())
+
+	baseTmpl, err := template.New("email_base.html").Parse(string(baseBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse base template: %w", err)
+	}
+
+	var baseBuf bytes.Buffer
+	err = baseTmpl.Execute(&baseBuf, data)
+	if err != nil {
+		return "", fmt.Errorf("failed to render base template: %w", err)
+	}
+
+	return baseBuf.String(), nil
 }
 
 // GetSMTPConfig retrieves SMTP settings from the database.
