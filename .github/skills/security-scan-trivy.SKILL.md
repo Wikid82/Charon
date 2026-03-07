@@ -227,7 +227,7 @@ Solution: Review and remediate reported vulnerabilities
 ## Related Skills
 
 - [security-scan-go-vuln](./security-scan-go-vuln.SKILL.md) - Go-specific vulnerability checking
-- [qa-precommit-all](./qa-precommit-all.SKILL.md) - Pre-commit quality checks
+- [qa-lefthook-all](./qa-lefthook-all.SKILL.md) - Lefthook pre-commit-phase quality checks
 
 ## Notes
 

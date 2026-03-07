@@ -371,9 +371,9 @@
             }
         },
         {
-            "label": "Lint: Pre-commit (All Files)",
+            "label": "Lint: Lefthook Pre-commit (All Files)",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh qa-precommit-all",
+            "command": "lefthook run pre-commit",
             "group": "test",
             "problemMatcher": []
         },
@@ -466,9 +466,9 @@
             "problemMatcher": []
         },
         {
-            "label": "Security: Semgrep Scan (Manual Hook)",
+            "label": "Security: Semgrep Scan (Lefthook Pre-push)",
             "type": "shell",
-            "command": "pre-commit run --hook-stage manual semgrep-scan --all-files",
+            "command": "lefthook run pre-push",
             "group": "test",
             "problemMatcher": []
         },
@@ -480,9 +480,9 @@
             "problemMatcher": []
         },
         {
-            "label": "Security: Gitleaks Scan (Tuned Manual Hook)",
+            "label": "Security: Gitleaks Scan (Lefthook Pre-push)",
             "type": "shell",
-            "command": "pre-commit run --hook-stage manual gitleaks-tuned-scan --all-files",
+            "command": "lefthook run pre-push",
             "group": "test",
             "problemMatcher": []
         },
