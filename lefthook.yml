@@ -1,0 +1,181 @@
+# lefthook.yml
+# Migrated from pre-commit
+#
+# INSTALL:  lefthook install
+# MANUAL PIPELINES:
+#   lefthook run security-full
+#   lefthook run codeql          (sequential: go → js → findings → parity)
+#   lefthook run testing
+#   lefthook run lint-full
+#
+# TOOL REQUIREMENTS (no longer managed by pre-commit, must be installed):
+#   shellcheck, actionlint, markdownlint, semgrep, gitleaks, hadolint (docker)
+#   All existing scripts are reused as-is — no changes to scripts/ needed.
+
+# ============================================================
+# PRE-COMMIT  (blocking, runs on every commit)
+# ============================================================
+pre-commit:
+  parallel: true
+  commands:
+
+    # --- File hygiene (replaces pre-commit/pre-commit-hooks) ---
+    end-of-file-fixer:
+      glob: "*.{go,ts,tsx,js,jsx,yaml,yml,sh,md}"
+      exclude: "frontend/(coverage|dist|node_modules|\\.vite)/|.*\\.tsbuildinfo$"
+      run: |
+        for file in {staged_files}; do
+          [ -f "$file" ] && [ -s "$file" ] && \
+            [ -n "$(tail -c1 "$file")" ] && echo >> "$file"
+        done
+        git add {staged_files}
+
+    trailing-whitespace:
+      glob: "*.{go,ts,tsx,js,jsx,yaml,yml,sh,md}"
+      exclude: "frontend/(coverage|dist|node_modules|\\.vite)/|.*\\.tsbuildinfo$"
+      run: |
+        sed -i 's/[[:space:]]*$//' {staged_files}
+        git add {staged_files}
+
+    check-yaml:
+      glob: "*.{yaml,yml}"
+      run: python3 -c "import sys,yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" {staged_files}
+
+    # --- Blocking security/commit guards (always run) ---
+    check-lfs-large-files:
+      run: bash scripts/pre-commit-hooks/check-lfs-for-large-files.sh
+
+    block-codeql-db:
+      run: bash scripts/pre-commit-hooks/block-codeql-db-commits.sh
+
+    block-data-backups:
+      run: bash scripts/pre-commit-hooks/block-data-backups-commit.sh
+
+    # --- Shell / Actions / Docker ---
+    shellcheck:
+      glob: "*.sh"
+      exclude: "frontend/(coverage|dist|node_modules|\\.vite)/|test-results|codeql-agent-results"
+      run: shellcheck --severity=error {staged_files}
+
+    actionlint:
+      glob: ".github/workflows/*.{yaml,yml}"
+      run: actionlint {staged_files}
+
+    dockerfile-check:
+      glob: "Dockerfile*"
+      run: tools/dockerfile_check.sh {staged_files}
+
+    # --- Go ---
+    go-vet:
+      glob: "*.go"
+      run: cd backend && go vet ./...
+
+    golangci-lint-fast:
+      glob: "*.go"
+      run: scripts/pre-commit-hooks/golangci-lint-fast.sh
+
+    check-version-match:
+      glob: ".version"
+      run: bash scripts/check-version-match-tag.sh
+
+    # --- Frontend ---
+    # NOTE: ESLint pinned at v9.x.x — do not upgrade until react-hooks plugin
+    # supports v10. TypeScript check runs first; lint runs after so fixes apply.
+    frontend-type-check:
+      glob: "frontend/**/*.{ts,tsx}"
+      run: cd frontend && npx tsc --noEmit
+
+    frontend-lint:
+      glob: "frontend/**/*.{ts,tsx,js,jsx}"
+      run: cd frontend && npm run lint -- --fix
+
+
+# ============================================================
+# PRE-PUSH  (blocking, runs on push)
+# ============================================================
+pre-push:
+  commands:
+    semgrep:
+      run: scripts/pre-commit-hooks/semgrep-scan.sh
+
+
+# ============================================================
+# MANUAL: security-full
+# Run with: lefthook run security-full
+# ============================================================
+security-full:
+  parallel: true
+  commands:
+    security-scan:
+      glob: "*.go"
+      run: scripts/security-scan.sh
+
+    gorm-scan:
+      glob: "*.go"
+      run: scripts/pre-commit-hooks/gorm-security-check.sh
+
+    gitleaks:
+      run: scripts/pre-commit-hooks/gitleaks-tuned-scan.sh
+
+
+# ============================================================
+# MANUAL: codeql
+# Run with: lefthook run codeql
+# MUST remain sequential — findings check depends on scan output
+# ============================================================
+codeql:
+  parallel: false
+  commands:
+    1-go-scan:
+      glob: "*.go"
+      run: scripts/pre-commit-hooks/codeql-go-scan.sh
+
+    2-js-scan:
+      glob: "frontend/**/*.{ts,tsx,js,jsx}"
+      run: scripts/pre-commit-hooks/codeql-js-scan.sh
+
+    3-check-findings:
+      run: scripts/pre-commit-hooks/codeql-check-findings.sh
+
+    4-parity-check:
+      run: scripts/ci/check-codeql-parity.sh
+
+
+# ============================================================
+# MANUAL: testing
+# Run with: lefthook run testing
+# ============================================================
+testing:
+  parallel: true
+  commands:
+    go-test-coverage:
+      glob: "*.go"
+      run: scripts/go-test-coverage.sh
+
+    go-test-race:
+      glob: "*.go"
+      run: cd backend && go test -race ./...
+
+    frontend-test-coverage:
+      glob: "frontend/**/*.{ts,tsx,js,jsx}"
+      run: scripts/frontend-test-coverage.sh
+
+
+# ============================================================
+# MANUAL: lint-full
+# Run with: lefthook run lint-full
+# ============================================================
+lint-full:
+  parallel: false
+  commands:
+    golangci-lint-full:
+      glob: "*.go"
+      run: scripts/pre-commit-hooks/golangci-lint-full.sh
+
+    hadolint:
+      glob: "Dockerfile*"
+      run: docker run --rm -i hadolint/hadolint < Dockerfile
+
+    markdownlint:
+      run: markdownlint --fix .
+      exclude: "node_modules|\\.venv|test-results|codeql-db|codeql-agent-results"
