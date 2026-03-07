@@ -272,7 +272,12 @@ jobs:
           tar -xzf "$TARBALL" syft
           chmod +x syft
 
-          ./syft "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.build.outputs.digest }}" -o cyclonedx-json=sbom-nightly.json
+          DIGEST="${{ steps.build.outputs.digest }}"
+          if [[ -z "$DIGEST" ]]; then
+            echo "::error::Build digest is empty; cannot construct a valid image reference for Syft SBOM scan"
+            exit 1
+          fi
+          ./syft "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}" -o cyclonedx-json=sbom-nightly.json
 
       - name: Verify SBOM artifact
         if: always()
