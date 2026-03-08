@@ -1092,6 +1092,44 @@ func TestMailService_SendEmail_SSLSuccess(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestMailService_SendEmail_ContextCancelled(t *testing.T) {
+	t.Parallel()
+
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+	require.NoError(t, svc.SaveSMTPConfig(&SMTPConfig{
+		Host:        "127.0.0.1",
+		Port:        2525,
+		FromAddress: "sender@example.com",
+		Encryption:  "none",
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	err := svc.SendEmail(ctx, []string{"recipient@example.com"}, "Test Subject", "<p>Body</p>")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "context cancelled")
+}
+
+func TestSanitizeAndNormalizeHTMLBody_EmptyInput(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "", sanitizeAndNormalizeHTMLBody(""))
+}
+
+func TestSanitizeAndNormalizeHTMLBody_SingleLine(t *testing.T) {
+	t.Parallel()
+	result := sanitizeAndNormalizeHTMLBody("Hello World")
+	assert.Equal(t, "<p>Hello World</p>", result)
+}
+
+func TestSanitizeAndNormalizeHTMLBody_HTMLEscaping(t *testing.T) {
+	t.Parallel()
+	result := sanitizeAndNormalizeHTMLBody("<script>alert('xss')</script>")
+	assert.NotContains(t, result, "<script>")
+	assert.Contains(t, result, "&lt;script&gt;")
+}
+
 func newTestTLSConfig(t *testing.T) (*tls.Config, []byte) {
 	t.Helper()
 
