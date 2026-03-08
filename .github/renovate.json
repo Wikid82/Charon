@@ -8,6 +8,7 @@
   ],
   "baseBranches": [
     "feature/beta-release",
+    "feature/ts-v6",
     "development"
 
   ],
