@@ -2879,3 +2879,112 @@ func TestDispatchEmail_TemplateFallback(t *testing.T) {
 	assert.Contains(t, mock.calls[0].body, "<strong>Fallback Title</strong>")
 	assert.Contains(t, mock.calls[0].body, "Fallback Message")
 }
+
+// --- TestEmailProvider unit tests ---
+
+func TestEmailProvider_MailServiceNil(t *testing.T) {
+db := setupNotificationTestDB(t)
+svc := NewNotificationService(db, nil)
+
+p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
+err := svc.TestEmailProvider(p)
+require.Error(t, err)
+assert.Contains(t, err.Error(), "email service is not configured")
+}
+
+func TestEmailProvider_MailServiceNotConfigured(t *testing.T) {
+db := setupNotificationTestDB(t)
+mock := &mockMailService{isConfigured: false}
+svc := NewNotificationService(db, mock)
+
+p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
+err := svc.TestEmailProvider(p)
+require.Error(t, err)
+assert.Contains(t, err.Error(), "email service is not configured")
+}
+
+func TestEmailProvider_EmptyURL(t *testing.T) {
+db := setupNotificationTestDB(t)
+mock := &mockMailService{isConfigured: true}
+svc := NewNotificationService(db, mock)
+
+p := models.NotificationProvider{Name: "test-email", Type: "email", URL: ""}
+err := svc.TestEmailProvider(p)
+require.Error(t, err)
+assert.Contains(t, err.Error(), "no recipients configured")
+assert.Zero(t, mock.callCount())
+}
+
+func TestEmailProvider_BlankWhitespaceURL(t *testing.T) {
+db := setupNotificationTestDB(t)
+mock := &mockMailService{isConfigured: true}
+svc := NewNotificationService(db, mock)
+
+p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "  ,  ,  "}
+err := svc.TestEmailProvider(p)
+require.Error(t, err)
+assert.Contains(t, err.Error(), "no recipients configured")
+}
+
+func TestEmailProvider_ValidRecipient(t *testing.T) {
+db := setupNotificationTestDB(t)
+mock := &mockMailService{isConfigured: true}
+svc := NewNotificationService(db, mock)
+
+p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "user@example.com"}
+err := svc.TestEmailProvider(p)
+require.NoError(t, err)
+require.Equal(t, 1, mock.callCount())
+call := mock.firstCall()
+assert.Equal(t, []string{"user@example.com"}, call.to)
+assert.Equal(t, "[Charon Test] Test Notification", call.subject)
+}
+
+func TestEmailProvider_MultipleRecipients(t *testing.T) {
+db := setupNotificationTestDB(t)
+mock := &mockMailService{isConfigured: true}
+svc := NewNotificationService(db, mock)
+
+p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com, c@d.com , e@f.com"}
+err := svc.TestEmailProvider(p)
+require.NoError(t, err)
+require.Equal(t, 1, mock.callCount())
+assert.Equal(t, []string{"a@b.com", "c@d.com", "e@f.com"}, mock.firstCall().to)
+}
+
+func TestEmailProvider_SendError(t *testing.T) {
+db := setupNotificationTestDB(t)
+mock := &mockMailService{isConfigured: true, sendEmailErr: fmt.Errorf("smtp: connection refused")}
+svc := NewNotificationService(db, mock)
+
+p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
+err := svc.TestEmailProvider(p)
+require.Error(t, err)
+assert.Contains(t, err.Error(), "smtp")
+assert.Equal(t, 1, mock.callCount())
+}
+
+func TestEmailProvider_TemplateFallback(t *testing.T) {
+db := setupNotificationTestDB(t)
+mock := &mockMailService{isConfigured: true, renderErr: fmt.Errorf("template not found")}
+svc := NewNotificationService(db, mock)
+
+p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
+err := svc.TestEmailProvider(p)
+require.NoError(t, err)
+require.Equal(t, 1, mock.callCount())
+assert.Contains(t, mock.firstCall().body, "<strong>Test Notification</strong>")
+}
+
+func TestEmailProvider_UsesRenderedTemplate(t *testing.T) {
+db := setupNotificationTestDB(t)
+rendered := "<html><body>Rendered test email</body></html>"
+mock := &mockMailService{isConfigured: true, renderResult: rendered}
+svc := NewNotificationService(db, mock)
+
+p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
+err := svc.TestEmailProvider(p)
+require.NoError(t, err)
+require.Equal(t, 1, mock.callCount())
+assert.Equal(t, rendered, mock.firstCall().body)
+}
