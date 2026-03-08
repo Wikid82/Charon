@@ -101,15 +101,7 @@ pre-commit:
 
     frontend-lint:
       glob: "frontend/**/*.{ts,tsx,js,jsx}"
-      run: |
-        cd frontend && npm run lint -- --fix; lint_exit=$?
-        cd ..
-        if ! git diff --quiet -- {all_files}; then
-          git add {all_files}
-          echo "ESLint: auto-fixed files and re-staged — review changes and commit again."
-          exit 1
-        fi
-        exit $lint_exit
+      run: cd frontend && npm run lint
 
 
 # ============================================================
