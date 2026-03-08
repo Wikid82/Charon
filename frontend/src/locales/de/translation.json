@@ -74,23 +74,6 @@
     "expandSidebar": "Seitenleiste erweitern",
     "collapseSidebar": "Seitenleiste einklappen"
   },
-  "dashboard": {
-    "title": "Dashboard",
-    "description": "Übersicht Ihres Charon-Reverse-Proxys",
-    "proxyHosts": "Proxy-Hosts",
-    "remoteServers": "Remote-Server",
-    "certificates": "Zertifikate",
-    "accessLists": "Zugriffslisten",
-    "systemStatus": "Systemstatus",
-    "healthy": "Gesund",
-    "unhealthy": "Ungesund",
-    "pendingCertificates": "Ausstehende Zertifikate",
-    "allCertificatesValid": "Alle Zertifikate gültig",
-    "activeHosts": "{{count}} aktiv",
-    "activeServers": "{{count}} aktiv",
-    "activeLists": "{{count}} aktiv",
-    "validCerts": "{{count}} gültig"
-  },
   "settings": {
     "title": "Einstellungen",
     "description": "Konfigurieren Sie Ihre Charon-Instanz",
