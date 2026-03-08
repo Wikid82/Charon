@@ -91,7 +91,7 @@ export default tseslint.config(
           alphabetize: { order: 'asc', caseInsensitive: true },
         },
       ],
-      'import-x/no-duplicates': ['warn', { 'prefer-inline': true }],
+      'import-x/no-duplicates': ['warn', { 'prefer-inline': false }],
       'import-x/no-cycle': ['warn', { maxDepth: 4 }],
       'import-x/no-self-import': 'error',
 
