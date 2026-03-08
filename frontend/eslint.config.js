@@ -91,6 +91,7 @@ export default tseslint.config(
           alphabetize: { order: 'asc', caseInsensitive: true },
         },
       ],
+      // prefer-inline: false — consistent-type-imports rule owns the inline/separate type import style
       'import-x/no-duplicates': ['warn', { 'prefer-inline': false }],
       'import-x/no-cycle': ['warn', { maxDepth: 4 }],
       'import-x/no-self-import': 'error',

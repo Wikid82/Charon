@@ -5,6 +5,8 @@
     "lib": ["ES2022", "DOM"],
     "module": "ESNext",
     "skipLibCheck": true,
+    /* Required: test setup files reference Node.js `global` (global.ResizeObserver);
+       TS6 changed types default to [], so @types/node must be explicit */
     "types": ["node"],
 
     /* Bundler mode */
