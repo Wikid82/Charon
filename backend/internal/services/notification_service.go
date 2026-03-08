@@ -560,6 +560,37 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 	return s.sendJSONPayload(context.Background(), provider, data)
 }
 
+// TestEmailProvider sends a test email to the recipients configured in provider.URL.
+// It bypasses the JSON-template path used by TestProvider and uses the SMTP mail service directly.
+func (s *NotificationService) TestEmailProvider(provider models.NotificationProvider) error {
+	if s.mailService == nil || !s.mailService.IsConfigured() {
+		return fmt.Errorf("email service is not configured; configure SMTP settings before testing email providers")
+	}
+	rawRecipients := strings.Split(provider.URL, ",")
+	recipients := make([]string, 0, len(rawRecipients))
+	for _, r := range rawRecipients {
+		if trimmed := strings.TrimSpace(r); trimmed != "" {
+			recipients = append(recipients, trimmed)
+		}
+	}
+	if len(recipients) == 0 {
+		return fmt.Errorf("no recipients configured; add at least one recipient email address")
+	}
+	data := EmailTemplateData{
+		EventType: "test",
+		Title:     "Test Notification",
+		Message:   "This is a test notification from Charon. If you received this email, your email notification provider is configured correctly.",
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+	htmlBody, renderErr := s.mailService.RenderNotificationEmail("email_system_event.html", data)
+	if renderErr != nil {
+		htmlBody = "<strong>Test Notification</strong><br>This is a test notification from Charon. If you received this email, your email notification provider is configured correctly."
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.mailService.SendEmail(ctx, recipients, "[Charon Test] Test Notification", htmlBody)
+}
+
 // ListTemplates returns all external notification templates stored in the database.
 func (s *NotificationService) ListTemplates() ([]models.NotificationTemplate, error) {
 	var list []models.NotificationTemplate

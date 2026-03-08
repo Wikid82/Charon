@@ -306,6 +306,23 @@ func (h *NotificationProviderHandler) Test(c *gin.Context) {
 		return
 	}
 
+	// Email providers use global SMTP + recipients from the URL field; they don't require a saved provider ID.
+	if providerType == "email" {
+		provider := models.NotificationProvider{
+			ID:   strings.TrimSpace(req.ID),
+			Name: req.Name,
+			Type: req.Type,
+			URL:  req.URL,
+		}
+		if err := h.service.TestEmailProvider(provider); err != nil {
+			code, category, message := classifyProviderTestFailure(err)
+			respondSanitizedProviderError(c, http.StatusBadRequest, code, category, message)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "Test notification sent"})
+		return
+	}
+
 	providerID := strings.TrimSpace(req.ID)
 	if providerID == "" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "MISSING_PROVIDER_ID", "validation", "Trusted provider ID is required for test dispatch")

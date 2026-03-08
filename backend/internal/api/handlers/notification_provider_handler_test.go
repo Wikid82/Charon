@@ -510,3 +510,74 @@ func TestNotificationProviderHandler_Create_ResponseHasHasToken(t *testing.T) {
 	assert.Equal(t, true, raw["has_token"])
 	assert.NotContains(t, w.Body.String(), "app-token-123")
 }
+
+func TestNotificationProviderHandler_Test_Email_NoMailService_Returns400(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	// mailService is nil in test setup — email test should return 400 (not MISSING_PROVIDER_ID)
+	payload := map[string]interface{}{
+		"type": "email",
+		"url":  "user@example.com",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestNotificationProviderHandler_Test_Email_EmptyURL_Returns400(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	payload := map[string]interface{}{
+		"type": "email",
+		"url":  "",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestNotificationProviderHandler_Test_Email_DoesNotRequireProviderID(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	// No ID field — email path must not return MISSING_PROVIDER_ID
+	payload := map[string]interface{}{
+		"type": "email",
+		"url":  "user@example.com",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NotEqual(t, "MISSING_PROVIDER_ID", resp["code"])
+}
+
+func TestNotificationProviderHandler_Test_NonEmail_StillRequiresProviderID(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	payload := map[string]interface{}{
+		"type": "discord",
+		"url":  "https://discord.com/api/webhooks/123/abc",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, "MISSING_PROVIDER_ID", resp["code"])
+}
