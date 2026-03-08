@@ -1,422 +1,583 @@
-# Spec: Fix Remaining CodeQL Findings + Harden Local Security Scanning
+# TypeScript v6 Migration Plan
 
-**Branch:** `feature/beta-release`
-**PR:** #800 (Email Notifications)
-**Date:** 2026-03-06
-**Status:** Planning
-
----
-
-## 1. Introduction
-
-Two CodeQL findings remain open in CI after the email-injection remediation in the prior commit (`ee224adc`), and local scanning does not block commits that would reproduce them. This spec covers the root-cause analysis, the precise code fixes, and the hardening of the local scanning pipeline so future regressions are caught before push.
-
-### Objectives
-
-1. Silence `go/email-injection` (CWE-640) in CI without weakening the existing multi-layer defence.
-2. Silence `go/cookie-secure-not-set` (CWE-614) in CI for the intentional dev-mode loopback exception.
-3. Ensure local scanning fails (exit-code 1) on Critical/High security findings of the same class before code reaches GitHub.
+**Branch**: `feature/ts-v6`
+**Author**: Planning Agent
+**Created**: 2025-07-27
+**Status**: Draft — Pending Review
 
 ---
 
-## 2. Research Findings
+## 1. Executive Summary
 
-### 2.1 CWE-640 (`go/email-injection`) — Why It Is Still Flagged
+TypeScript 6.0 is a **bridge release** to TypeScript 7 (the native Go-rewrite). It introduces new defaults that enforce modern best practices and deprecates legacy options that will be hard-removed in TS 7. Charon's frontend is already well-positioned: `strict: true`, `module: "ESNext"`, `moduleResolution: "bundler"`, zero enums, zero `any` in source, and consistent `import type` usage. The migration is **low-risk** with a focused set of configuration changes and no source code rewrites expected.
 
-CodeQL's `go/email-injection` rule tracks untrusted input from HTTP sources to `smtp.SendMail` / `(*smtp.Client).Rcpt` sinks. It treats a **validator** (a function that returns an error if bad data is present) differently from a **sanitizer** (a function that transforms and strips the bad data). Only sanitizers break the taint flow; validators do not.
+### Impact Assessment
 
-The previous fix added `sanitizeForEmail()` in `notification_service.go` for `title` and `message`. It did **not** patch two other direct callers of `SendEmail`, both of which pass an HTTP-sourced `to` address without going through `notification_service.go` at all.
-
-#### Confirmed taint sinks (from `codeql-results-go.sarif`)
-
-| SARIF line | Function | Tainted argument |
+| Category | Risk | Effort |
 |---|---|---|
-| 365–367 | `(*MailService).SendEmail` | `[]string{toEnvelope}` in `smtp.SendMail` |
-| ~530 | `(*MailService).sendSSL` | `toEnvelope` in `client.Rcpt(toEnvelope)` |
-| ~583 | `(*MailService).sendSTARTTLS` | `toEnvelope` in `client.Rcpt(toEnvelope)` |
+| tsconfig changes | Low | Small (3 files) |
+| Source code changes | Minimal | Near-zero |
+| Dependency compatibility | Low | Verification only |
+| Build pipeline | Low | Verify-and-go |
+| Test suite | Low | Run-and-confirm |
 
-CodeQL reports 4 untrusted taint paths converging on each sink. These correspond to:
+**Estimated total effort**: 1–2 hours of focused work, delivered as a single PR.
 
-| Path # | Source file | Source expression | Route to sink |
+---
+
+## 2. Current State Audit
+
+### 2.1 Runtime and Tooling Versions
+
+| Tool | Current Version | Spec Range |
+|---|---|---|
+| TypeScript | 5.9.3 | `^5.9.3` |
+| Node.js | 20.20.0 | — |
+| Vite | 7.3.1 | `^7.3.1` |
+| Vitest | 4.0.18 | `^4.0.18` |
+| ESLint | 9.39.3 | `^9.39.3 <10.0.0` |
+| typescript-eslint | 8.56.1 | `^8.56.1` |
+| React | 19.2.4 | `^19.2.4` |
+| @types/react | 19.2.14 | `^19.2.14` |
+| @types/react-dom | 19.2.3 | `^19.2.3` |
+| @types/node | 25.3.5 | `^25.3.5` |
+| Playwright | 1.58.2 | `^1.58.2` |
+
+### 2.2 tsconfig Topology
+
+Three config files form a reference chain:
+
+```
+tsconfig.json (main)
+├── tsconfig.node.json (vite.config.ts — composite)
+└── tsconfig.build.json (extends tsconfig.json, excludes tests)
+```
+
+### 2.3 Key Compiler Options (tsconfig.json)
+
+| Option | Current Value | TS6 Default | Impact |
 |---|---|---|---|
-| 1 | `backend/internal/api/handlers/settings_handler.go:637` | `req.To` (ShouldBindJSON, `binding:"required,email"`) | Direct `h.MailService.SendEmail(ctx, []string{req.To}, ...)` — bypasses `notification_service.go` entirely |
-| 2 | `backend/internal/api/handlers/user_handler.go:597` | `userEmail` (HTTP request field) | `h.MailService.SendInvite(userEmail, ...)` → `mail_service.go:679` → `s.SendEmail(ctx, []string{email}, ...)` |
-| 3 | `backend/internal/api/handlers/user_handler.go:1015` | `user.Email` (DB row, set from HTTP during registration) | Same `SendInvite` → `SendEmail` chain |
-| 4 | `backend/internal/services/notification_service.go` | `rawRecipients` from `p.URL` (DB, admin-set) | `s.mailService.SendEmail(ctx, recipients, ...)` — CodeQL may trace DB values as tainted from prior HTTP writes |
+| `target` | `"ES2022"` | `"es2025"` | None — explicit value preserved |
+| `module` | `"ESNext"` | `"esnext"` | None — already set |
+| `moduleResolution` | `"bundler"` | unchanged | None |
+| `strict` | `true` | `true` | None — already set |
+| `isolatedModules` | `true` | unchanged | None |
+| `noEmit` | `true` | unchanged | None |
+| `lib` | `["ES2022", "DOM", "DOM.Iterable"]` | — | Cleanup: `DOM.Iterable` folded into `DOM` in TS6 |
+| `types` | *(not set — inherits default)* | `[]` | **ACTION REQUIRED**: must set explicitly |
+| `rootDir` | *(not set)* | `.` | Review needed for build config |
+| `skipLibCheck` | `true` | unchanged | None |
+| `esModuleInterop` | *(not set — TS5 default: `false`)* | `true` | None — `noEmit: true` + bundler mode; see §3.1 |
+| `noUncheckedSideEffectImports` | *(not set)* | `true` | Low risk — 7 side-effect imports, all legitimate |
 
-#### Why CodeQL does not recognise the existing safeguards as sanitisers
+### 2.4 tsconfig.node.json Key Options
 
-```
-validateEmailRecipients()  → ContainsAny check + mail.ParseAddress → error return (validator, not sanitizer)
-parseEmailAddressForHeader → net/mail.ParseAddress                  → validator
-rejectCRLF(toEnvelope)     → ContainsAny("\r\n") → error           → validator
-```
+| Option | Current Value | TS6 Default | Impact |
+|---|---|---|---|
+| `module` | `"ESNext"` | `"esnext"` | None |
+| `moduleResolution` | `"bundler"` | unchanged | None |
+| `strict` | `true` | `true` | None |
+| `allowSyntheticDefaultImports` | `true` | unchanged | None |
+| `types` | *(not set)* | `[]` | **ACTION REQUIRED**: must set explicitly |
 
-CodeQL's taint model for Go requires the taint to be **transformed** (characters stripped or value replaced) before it considers the path neutralised. None of the helpers above strips CRLF — they gate on error returns. From CodeQL's perspective the original tainted bytes still flow into `smtp.SendMail`.
+> **Note**: `vitest.config.ts` uses `process.env` but is **not** covered by any project tsconfig. This is fine — Vitest handles its own TypeScript compilation internally and does not rely on the project's `tsc` for config files.
 
-#### Why adding `sanitizeForEmail()` to `settings_handler.go` alone is insufficient
+### 2.5 Codebase Pattern Analysis
 
-Even if added, `sanitizeForEmail()` calls `strings.ReplaceAll(s, "\r", "")` — stripping characters from an email address that contains `\r` would corrupt it. For recipient addresses, the correct model is to validate (which is already done) and suppress the residual finding with an annotated justification.
-
-### 2.2 CWE-614 (`go/cookie-secure-not-set`) — Why It Appeared as "New"
-
-**Only one `c.SetCookie` call exists** in production Go code:
-
-```
-backend/internal/api/handlers/auth_handler.go:152
-```
-
-The finding is "new" because it was introduced when `setSecureCookie()` was refactored to support the loopback dev-mode exception (`secure = false` for local HTTP requests). Prior to that refactor, `secure` was always `true`.
-
-The `// codeql[go/cookie-secure-not-set]` suppression comment **is** present on `auth_handler.go:152`. However, the SARIF stored in the repository (`codeql-results-go.sarif`) shows the finding at **line 151** — a 1-line discrepancy caused by a subsequent commit that inserted the `// secure is intentionally false...` explanation comment, shifting the `c.SetCookie(` line from 151 → 152.
-
-The inline suppression **should** work now that it is on the correct line (152). However, inline suppressions are fragile under line-number churn. The robust fix is a `query-filter` in `.github/codeql/codeql-config.yml`, which targets the rule ID independent of line number.
-
-The `query-filters` section does not yet exist in the CodeQL config — only `paths-ignore` is used. This must be added for the first time.
-
-### 2.3 Local Scanning Gap
-
-The table below maps which security tools catch which findings locally.
-
-| Tool | Stage | Fails on High/Critical? | Catches CWE-640? | Catches CWE-614? |
-|---|---|---|---|---|
-| `golangci-lint-fast` (gosec G101,G110,G305,G401,G501-503) | commit (blocking) | ✅ | ❌ no rule | ❌ gosec has no Gin cookie rule |
-| `go-vet` | commit (blocking) | ✅ | ❌ | ❌ |
-| `security-scan.sh` (govulncheck) | manual | Warn only | ❌ (CVEs only) | ❌ |
-| `semgrep-scan.sh` (auto config, `--error`) | **manual only** | ✅ if run | ✅ `p/golang` | ✅ `p/golang` |
-| `codeql-go-scan` + `codeql-check-findings` | **manual only** | ✅ if run | ✅ | ✅ |
-| `golangci-lint-full` | manual | ✅ if run | ❌ | ❌ |
-
-**The gap:** `semgrep-scan` already has `--error` (blocking) and covers both issue classes via `p/golang` and `p/owasp-top-ten`, but it runs as `stages: [manual]` only. Moving it to `pre-push` is the highest-leverage single change.
-
-gosec rule audit for missing coverage:
-
-| CWE | gosec rule | Covered by fast config? |
-|---|---|---|
-| CWE-614 cookie security | No standard gosec rule for Gin's `c.SetCookie` | ❌ |
-| CWE-640 email injection | No gosec rule exists for SMTP injection | ❌ |
-| CWE-89 SQL injection | G201, G202 — NOT in fast config | ❌ |
-| CWE-22 path traversal | G305 — in fast config | ✅ |
-
-`semgrep` fills the gap for CWE-614 and CWE-640 where gosec has no rules.
+| Pattern | Count | Location | Risk |
+|---|---|---|---|
+| `enum` declarations | 0 | — | None |
+| `any` type in source | 0 | — | None |
+| `@ts-expect-error` | 2 | Test files only | None |
+| `import type` (standalone) | 30+ | Throughout | None — already correct |
+| `import type` (inline) | 2 | — | None |
+| Side-effect imports | 7 | Test setup + `main.tsx` CSS | Low — all legitimate |
+| `import * as` | 20+ | Tests (vi.spyOn mocking) | None |
+| `/// <reference>` directives | 4 | `.d.ts` + test setup | None |
+| Path aliases (`paths`/`baseUrl`) | 0 | — | None — `baseUrl` deprecation irrelevant |
+| Namespace/module declarations | 0 | — | None |
+| Import assertions (`assert`) | 0 | — | None |
+| `no-default-lib` directives | 0 | — | None |
 
 ---
 
-## 3. Technical Specifications
+## 3. TypeScript 6 Breaking Changes Analysis
 
-### 3.1 Phase 1 — Harden Local Scanning
+### 3.1 New Defaults (Applies to Charon)
 
-#### 3.1.1 Move `semgrep-scan` to `pre-push` stage
+#### `types` defaults to `[]`
 
-**File:** `/projects/Charon/.pre-commit-config.yaml`
+**Before (TS5)**: When `types` is omitted, TypeScript auto-includes all `@types/*` packages from `node_modules/@types/`.
 
-Locate the `semgrep-scan` hook entry (currently has `stages: [manual]`). Change the stage and name:
+**After (TS6)**: When `types` is omitted, TypeScript includes **no** `@types/*` packages. Only packages explicitly referenced via `import`, `/// <reference types="...">`, or listed in `types` are available.
 
-```yaml
-      - id: semgrep-scan
-        name: Semgrep Security Scan (Blocking - pre-push)
-        entry: scripts/pre-commit-hooks/semgrep-scan.sh
-        language: script
-        pass_filenames: false
-        verbose: true
-        stages: [pre-push]
+**Charon Impact**: **Medium — requires explicit configuration**.
+- `@types/node` globals (e.g., `process.env`) will no longer be available unless configured.
+- `@types/react` and `@types/react-dom` are referenced via imports and JSX transforms, so they are likely fine.
+- Vitest globals are already handled via `/// <reference types="vitest/globals">` in test setup.
+
+**Required Action**: Add `"types": ["node"]` to `tsconfig.json` and `tsconfig.node.json`.
+
+#### `noUncheckedSideEffectImports` defaults to `true`
+
+**Before (TS5)**: Side-effect imports (`import "module"`) are not type-checked.
+
+**After (TS6)**: Side-effect imports are type-checked — TS verifies the module resolves.
+
+**Charon Impact**: **Low**. All 7 side-effect imports are legitimate:
+- 5× `import '@testing-library/jest-dom/vitest'` (test files)
+- 1× `import '@testing-library/jest-dom'` (setupTests.ts)
+- 1× `import './index.css'` (main.tsx — CSS, handled by Vite)
+
+CSS imports resolve fine because Vite provides type declarations via `vite/client`. Testing-library imports are proper npm packages with type declarations.
+
+**Required Action**: None — verify by running `tsc` after upgrade.
+
+#### `DOM.Iterable` folded into `DOM`
+
+**Before (TS5)**: `DOM.Iterable` is a separate lib target.
+
+**After (TS6)**: `DOM.Iterable` types are included in `DOM`. Specifying `DOM.Iterable` still works (no error) but is redundant.
+
+**Charon Impact**: **Cosmetic cleanup only**.
+
+**Required Action**: Remove `"DOM.Iterable"` from the `lib` array in `tsconfig.json`.
+
+#### `rootDir` defaults to `.`
+
+**Before (TS5)**: When `rootDir` is omitted, TypeScript infers it as the common parent of all input files.
+
+**After (TS6)**: When `rootDir` is omitted, it defaults to `.` (the directory of the tsconfig).
+
+**Charon Impact**: **None for main tsconfig** (`noEmit: true` means `rootDir` has no effect on output structure). **Low risk for tsconfig.build.json** which extends main tsconfig but inherits `noEmit: true` — however the build command is `tsc -p tsconfig.build.json && vite build`, so if `tsc` emits (contradicting `noEmit`), this matters. Since `noEmit: true` is inherited, the build tsconfig also does not emit. Vite handles the actual bundling.
+
+**Required Action**: None — `noEmit: true` makes this irrelevant. Add a comment for documentation clarity.
+
+#### `strict` defaults to `true`
+
+**Charon Impact**: **None** — already explicitly set to `true`.
+
+#### `module` defaults to `esnext` (when target ≥ es2025)
+
+**Charon Impact**: **None** — already explicitly set to `"ESNext"`.
+
+#### `esModuleInterop` defaults to `true`
+
+**Before (TS5)**: When `esModuleInterop` is omitted, it defaults to `false`. CJS default imports require `import * as` syntax.
+
+**After (TS6)**: When `esModuleInterop` is omitted, it defaults to `true`. CJS modules can use `import foo from 'bar'` syntax.
+
+**Charon Impact**: **None**. The main `tsconfig.json` does not set `esModuleInterop`, so the effective value flips from `false` to `true`. However, this is safe because:
+1. Charon uses `noEmit: true` — TypeScript never emits CJS interop helpers, so the runtime behaviour is unchanged.
+2. Charon uses `moduleResolution: "bundler"` — Vite handles all module resolution and interop at build time.
+3. No source files use `import * as` for CJS default imports; all such usage is in tests for `vi.spyOn` mocking (which is unrelated to CJS interop).
+
+**Required Action**: None.
+
+### 3.2 Deprecations (Not Affecting Charon)
+
+The following TS6 deprecations do **not** apply because Charon does not use these features:
+
+| Deprecated Feature | Charon Status |
+|---|---|
+| `target: "es5"` / `target: "es3"` | Uses `"ES2022"` |
+| `moduleResolution: "node10"` / `"classic"` | Uses `"bundler"` |
+| `baseUrl` (for module resolution) | Not configured |
+| `outFile` | Not configured |
+| `esModuleInterop: false` | Not configured — default flip analyzed in §3.1; safe |
+| `allowSyntheticDefaultImports: false` | Explicitly `true` in `tsconfig.node.json` |
+| `module: "amd"` / `"umd"` / `"system"` | Uses `"ESNext"` |
+| `--downlevelIteration` | Not configured |
+| Legacy `module` namespace syntax | Not used |
+| `asserts` import keyword | Not used |
+| `no-default-lib` directives | Not used |
+
+### 3.3 New Features Available After Upgrade
+
+| Feature | Description | Relevance |
+|---|---|---|
+| `es2025` target/lib | Iterator helpers, `Promise.try`, `Set` methods | Available if `target` is bumped |
+| `Temporal` types | Modern date/time API types | Available via `"lib": ["esnext"]` |
+| `RegExp.escape` | Safe regex escaping | Available |
+| `--stableTypeOrdering` | Deterministic declaration emit | Useful for library authors (not Charon) |
+| `#/` subpath imports | Package-internal imports | Available for future refactoring |
+
+---
+
+## 4. Dependency Compatibility Matrix
+
+### 4.1 Critical Dependencies
+
+| Package | Current | TS6 Support | Notes |
+|---|---|---|---|
+| `typescript` | 5.9.3 | — | Upgrading to 6.x |
+| `vite` | 7.3.1 | ✅ Expected | Vite 7 ships with TS6 awareness; `moduleResolution: "bundler"` is the recommended path |
+| `@vitejs/plugin-react` | 5.1.4 | ✅ Expected | Follows Vite compatibility |
+| `vitest` | 4.0.18 | ✅ Expected | Vitest 4 tracks latest TS; verify with `npx vitest typecheck` |
+| `typescript-eslint` | 8.56.1 | ⚠️ Verify | Major TS releases sometimes need typescript-eslint patch updates. Check release notes. May need bump to 8.57+ |
+| `eslint` | 9.39.3 | ✅ Unaffected | ESLint itself is TS-agnostic; parsing is handled by typescript-eslint |
+
+### 4.2 Type Definitions
+
+| Package | Current | TS6 Support | Notes |
+|---|---|---|---|
+| `@types/node` | 25.3.5 | ✅ Expected | Tracks Node.js API, TS-version-independent |
+| `@types/react` | 19.2.14 | ✅ Expected | Published by DefinitelyTyped, TS-version-independent |
+| `@types/react-dom` | 19.2.3 | ✅ Expected | Same as above |
+
+### 4.3 Build and Test Tooling
+
+| Package | Current | TS6 Support | Notes |
+|---|---|---|---|
+| `@playwright/test` | 1.58.2 | ✅ Unaffected | JS config file, no TS compilation dependency |
+| `postcss` | 8.5.8 | ✅ Unaffected | CSS tooling, no TS dependency |
+| `tailwindcss` | 4.2.1 | ✅ Unaffected | CSS tooling, no TS dependency |
+| `jsdom` | 28.1.0 | ✅ Unaffected | Runtime dependency, no TS dependency |
+| `knip` | 5.86.0 | ⚠️ Verify | Uses TS compiler API internally; may need update |
+
+### 4.4 UI Libraries (No TS6 Risk)
+
+All of the following ship their own types or use standard TS features. No compatibility risk:
+- `@radix-ui/*` (v1.x–v2.x)
+- `@tanstack/react-query` (v5.90.21)
+- `react-hook-form` (v7.71.2)
+- `react-router-dom` (v7.13.1)
+- `i18next` / `react-i18next`
+- `axios`, `clsx`, `date-fns`, `lucide-react`
+
+---
+
+## 5. Required Changes
+
+### 5.1 Configuration Changes
+
+#### 5.1.1 `frontend/tsconfig.json`
+
+```diff
+ {
+   "compilerOptions": {
+     "target": "ES2022",
+     "useDefineForClassFields": true,
+-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
++    "lib": ["ES2022", "DOM"],
+     "module": "ESNext",
+     "skipLibCheck": true,
++    "types": ["node"],
+
+     /* Bundler mode */
+     "moduleResolution": "bundler",
 ```
 
-Rationale: `p/golang` includes:
-- `go.cookie.security.insecure-cookie.insecure-cookie` → CWE-614 equivalent
-- `go.lang.security.injection.tainted-smtp-email.tainted-smtp-email` → CWE-640 equivalent
+Changes:
+1. **Add `"types": ["node"]`** — Restores `@types/node` globals that TS6 no longer auto-includes.
+2. **Remove `"DOM.Iterable"`** — Folded into `"DOM"` in TS6; redundant.
 
-#### 3.1.2 Restrict semgrep to WARNING+ and use targeted config
+#### 5.1.2 `frontend/tsconfig.node.json`
 
-**File:** `/projects/Charon/scripts/pre-commit-hooks/semgrep-scan.sh`
+```diff
+ {
+   "compilerOptions": {
+     "composite": true,
+     "skipLibCheck": true,
+     "module": "ESNext",
+     "moduleResolution": "bundler",
+     "allowSyntheticDefaultImports": true,
+-    "strict": true
++    "strict": true,
++    "types": ["node"]
+   },
+   "include": ["vite.config.ts"]
+ }
+```
 
-The current invocation uses `--config auto --error`. Two changes:
-1. Change default config from `auto` → `p/golang`. `auto` fetches 1,000-3,000+ rules and takes 60-180s — too slow for a blocking pre-push hook. `p/golang` covers all Go-specific OWASP/CWE rules and completes in ~10-30s.
-2. Add `--severity ERROR --severity WARNING` to filter out INFO-level noise (these are OR logic, both required for WARNING+):
+Changes:
+1. **Add `"types": ["node"]`** — Vite's types reference Node.js globals (e.g., `NodeJS.Timeout`), and `types: ["node"]` ensures these resolve correctly during build-time type-checking.
+
+#### 5.1.3 `frontend/tsconfig.build.json`
+
+No changes required. It extends `tsconfig.json` and inherits the updated `types` and `lib` fields.
+
+#### 5.1.4 `frontend/package.json`
+
+```diff
+-    "typescript": "^5.9.3",
++    "typescript": "~6.0.0",
+```
+
+Use `~6.0.0` (tilde) to pin to 6.0.x patch releases, avoiding accidental 6.1+ breakage during initial adoption. Broaden to `^6.0.0` once the ecosystem stabilises.
+
+### 5.2 Source Code Changes
+
+**None expected.** The codebase is clean:
+- Zero enums, zero `any`, zero namespace declarations
+- All imports use proper `import type` syntax
+- No deprecated patterns (no `baseUrl`, no legacy module resolution)
+- Side-effect imports resolve to real modules
+
+### 5.3 Test Configuration Changes
+
+**None expected.** Vitest configuration uses `/// <reference>` directives for type augmentation, which remain fully supported in TS6.
+
+---
+
+## 6. Migration Steps (Ordered)
+
+### Step 1: Pre-Flight Check and Update TypeScript Package
+
+**Pre-flight**: Before installing, check the [typescript-eslint release notes](https://github.com/typescript-eslint/typescript-eslint/releases) for TS6 compatibility. If a bump is required (e.g., to 8.57+), include it in the same install step.
 
 ```bash
-semgrep scan \
-  --config "${SEMGREP_CONFIG_VALUE:-p/golang}" \
-  --severity ERROR \
-  --severity WARNING \
-  --error \
-  --exclude "frontend/node_modules" \
-  --exclude "frontend/coverage" \
-  --exclude "frontend/dist" \
-  backend frontend/src .github/workflows
+cd frontend
+# If typescript-eslint needs a bump, combine:
+npm install --save-dev typescript@~6.0.0 typescript-eslint@latest
+# Otherwise:
+npm install --save-dev typescript@~6.0.0
+npx tsc --version  # Verify 6.0.x
 ```
 
-The `SEMGREP_CONFIG` env var can be overridden to `auto` or `p/golang p/owasp-top-ten` for a broader audit: `SEMGREP_CONFIG=auto git push`.
+### Step 2: Apply tsconfig Changes
 
-#### 3.1.3 Add `make security-local` target
+Edit the three files per Section 5.1:
+1. `tsconfig.json` — add `types`, remove `DOM.Iterable`
+2. `tsconfig.node.json` — add `types`
+3. `tsconfig.build.json` — no changes (verify inheritance)
 
-**File:** `/projects/Charon/Makefile`
-
-Add after the `security-scan-deps` target:
-
-```make
-security-local: ## Run local security scan (govulncheck + semgrep)
-@echo "Running govulncheck..."
-@./scripts/security-scan.sh
-@echo "Running semgrep..."
-@SEMGREP_CONFIG=p/golang ./scripts/pre-commit-hooks/semgrep-scan.sh
-```
-
-#### 3.1.4 Expand golangci-lint-fast gosec ruleset (Deferred)
-
-**Status: DEFERRED** — G201/G202 (SQL injection via format string / string concat) are candidates for the fast config but must be pre-validated against the existing codebase first. GORM's raw query DSL can produce false positives. Run the following before adding:
+### Step 3: Verify Type-Check
 
 ```bash
-cd backend && golangci-lint run --enable=gosec --disable-all --config .golangci-fast.yml ./...
+cd frontend
+npx tsc --noEmit          # Main project type-check
+npx tsc -p tsconfig.node.json --noEmit  # Vite config type-check
+npx tsc -p tsconfig.build.json --noEmit # Build config type-check
 ```
 
-…with G201/G202 temporarily uncommented. If zero false positives, add in a separate hardening commit. This is out of scope for this PR to avoid blocking PR #800.
+All three must exit 0 with no errors.
 
-Note: CWE-614 and CWE-640 remain CodeQL/Semgrep territory — gosec has no rules for these.
+### Step 4: Verify Build
 
-### 3.2 Phase 2 — Fix CWE-640 (`go/email-injection`)
-
-#### Strategy
-
-Add `// codeql[go/email-injection]` inline suppression annotations at all three sink sites in `mail_service.go`, with a structured justification comment immediately above each. This is the correct approach because:
-
-1. The actual runtime defence is already correct and comprehensive (4-layer defence).
-2. The taint is a CodeQL false-positive caused by the tool not modelling validators as sanitisers.
-3. Restructuring to call `strings.ReplaceAll` on email addresses would corrupt valid addresses.
-
-**The 4-layer defence that justifies these suppressions:**
-
-```
-Layer 1: HTTP boundary       — gin binding:"required,email" validates RFC 5321 format; CRLF fails well-formedness
-Layer 2: Service boundary    — validateEmailRecipients() → ContainsAny("\r\n") error + net/mail.ParseAddress
-Layer 3: Mail layer parse    — parseEmailAddressForHeader() → net/mail.ParseAddress returns only .Address field
-Layer 4: Pre-sink validation — rejectCRLF(toEnvelope) immediately before smtp.SendMail / client.Rcpt calls
+```bash
+cd frontend
+npm run build   # Runs tsc -p tsconfig.build.json && vite build
 ```
 
-#### 3.2.1 Suppress at `smtp.SendMail` sink
+Must produce `dist/` output without errors.
 
-**File:** `backend/internal/services/mail_service.go` (around line 367)
+### Step 5: Run Unit Tests
 
-Locate the default-encryption branch in `SendEmail`. Replace the `smtp.SendMail` call line:
-
-```go
-default:
-// toEnvelope passes through 4-layer CRLF defence:
-//   1. gin binding:"required,email" at HTTP entry (CRLF invalid per RFC 5321)
-//   2. validateEmailRecipients → ContainsAny("\r\n") + net/mail.ParseAddress
-//   3. parseEmailAddressForHeader → net/mail.ParseAddress (returns .Address only)
-//   4. rejectCRLF(toEnvelope) guard earlier in this function
-// CodeQL does not model validators as sanitisers; suppression is correct here.
-if err := smtp.SendMail(addr, auth, fromEnvelope, []string{toEnvelope}, msg); err != nil { // codeql[go/email-injection]
+```bash
+cd frontend
+npm test        # Vitest
 ```
 
-#### 3.2.2 Suppress at `client.Rcpt` in `sendSSL`
+All tests must pass. Watch for:
+- Type errors in test files (unlikely but possible from `types` change)
+- Side-effect import resolution issues (unlikely)
 
-**File:** `backend/internal/services/mail_service.go` (around line 530)
+### Step 6: Verify Vitest Type-Check
 
-Locate in `sendSSL`. Replace the `client.Rcpt` call line:
-
-```go
-// toEnvelope validated by rejectCRLF + net/mail.ParseAddress before this call (see SendEmail).
-if rcptErr := client.Rcpt(toEnvelope); rcptErr != nil { // codeql[go/email-injection]
-return fmt.Errorf("RCPT TO failed: %w", rcptErr)
-}
+```bash
+cd frontend
+npx vitest typecheck --run
 ```
 
-#### 3.2.3 Suppress at `client.Rcpt` in `sendSTARTTLS`
+Verifies that Vitest's built-in type-checking (which uses its own TS compilation) works with TS6.
 
-**File:** `backend/internal/services/mail_service.go` (around line 583)
+### Step 7: Run Lint
 
-Same pattern as sendSSL:
-
-```go
-// toEnvelope validated by rejectCRLF + net/mail.ParseAddress before this call (see SendEmail).
-if rcptErr := client.Rcpt(toEnvelope); rcptErr != nil { // codeql[go/email-injection]
-return fmt.Errorf("RCPT TO failed: %w", rcptErr)
-}
+```bash
+cd frontend
+npx eslint .
 ```
 
-#### 3.2.4 Document safe call in `settings_handler.go`
+Watch for typescript-eslint compatibility issues. If errors appear, check for a newer `typescript-eslint` release with TS6 support.
 
-**File:** `backend/internal/api/handlers/settings_handler.go` (around line 637)
+### Step 8: Verify Knip
 
-Add a comment immediately above the `SendEmail` call — the sinks in mail_service.go are already annotated, so this is documentation only:
-
-```go
-// req.To is validated as RFC 5321 email via gin binding:"required,email".
-// SendEmail applies validateEmailRecipients + net/mail.ParseAddress + rejectCRLF as defence-in-depth.
-// Suppression annotations are on the sinks in mail_service.go.
-if err := h.MailService.SendEmail(c.Request.Context(), []string{req.To}, "Charon - Test Email", htmlBody); err != nil {
+```bash
+cd frontend
+npx knip
 ```
 
-#### 3.2.5 Document safe calls in `user_handler.go`
+Knip uses the TS compiler API. Verify it still works.
 
-**File:** `backend/internal/api/handlers/user_handler.go` (lines ~597 and ~1015)
+### Step 9: Run E2E Tests
 
-Add the same explanatory comment above both `SendInvite` call sites:
-
-```go
-// userEmail validated as RFC 5321 email format; suppression on mail_service.go sinks covers this path.
-if err := h.MailService.SendInvite(userEmail, userToken, appName, baseURL); err != nil {
+```bash
+cd /projects/Charon
+npx playwright test --project=firefox
 ```
 
-### 3.3 Phase 3 — Fix CWE-614 (`go/cookie-secure-not-set`)
+E2E tests use compiled/bundled output and should be unaffected, but this validates the full pipeline.
 
-#### Strategy
+### Step 10: Update typescript-eslint (If Needed)
 
-Two complementary changes: (1) add a `query-filters` exclusion in `.github/codeql/codeql-config.yml` which is robust to line-number churn, and (2) verify the inline `// codeql[go/cookie-secure-not-set]` annotation is correctly positioned.
+If Step 7 fails or emits warnings about TS6:
 
-**Justification for exclusion:**
-
-The `secure` parameter in `setSecureCookie()` is `true` for **all** external production requests. It is `false` only when `isLocalRequest()` returns `true` — i.e., when the request comes from `127.x.x.x`, `::1`, or `localhost` over HTTP. In that scenario, browsers reject `Secure` cookies over non-TLS connections anyway, so setting `Secure: true` would silently break auth for local development. The conditional is tested and documented.
-
-#### 3.3.1 Skip `query-filters` approach — inline annotation is sufficient
-
-**Status: NOT IMPLEMENTING** — `query-filters` is a CodeQL query suite (`.qls`) concept, NOT a valid top-level key in GitHub's `codeql-config.yml`. Adding it risks silent failure or breaking the entire CodeQL analysis. The inline annotation at `auth_handler.go:152` is the documented mechanism and is already correct. No changes to `.github/codeql/codeql-config.yml` are needed for CWE-614.
-
-**Why inline annotation is sufficient and preferred:** It is scoped to the single intentional instance. Any future `c.SetCookie(...)` call without `Secure:true` anywhere else in the codebase will correctly flag. Global exclusion via config would silently hide future regressions.
-
-#### 3.3.1 (REFERENCE ONLY) Current valid `codeql-config.yml` structure
-
-```yaml
-name: "Charon CodeQL Config"
-
-# Paths to ignore from all analysis (use sparingly - prefer query-filters for rule-level exclusions)
-paths-ignore:
-  - "frontend/coverage/**"
-  - "frontend/dist/**"
-  - "playwright-report/**"
-  - "test-results/**"
-  - "coverage/**"
+```bash
+cd frontend
+npm install --save-dev typescript-eslint@latest @typescript-eslint/eslint-plugin@latest @typescript-eslint/parser@latest
 ```
 
-DO NOT add `query-filters:` — it is not supported.
-  - exclude:
-      id: go/cookie-secure-not-set
-      # Justified: setSecureCookie() in auth_handler.go intentionally sets Secure=false
-      # ONLY for local loopback (127.x.x.x / ::1 / localhost) HTTP requests.
-      # Browsers reject Secure cookies over HTTP regardless, so Secure=true would silently
-      # break local development auth. All external HTTPS flows always set Secure=true.
-      # Code: backend/internal/api/handlers/auth_handler.go → setSecureCookie()
-      # Tests: TestSetSecureCookie_HTTPS_Strict, TestSetSecureCookie_HTTP_Loopback_Insecure
+### Step 11: Update knip (If Needed)
+
+If Step 8 fails:
+
+```bash
+cd frontend
+npm install --save-dev knip@latest
 ```
-
-#### 3.3.2 Verify inline suppression placement in `auth_handler.go`
-
-**File:** `backend/internal/api/handlers/auth_handler.go` (around line 152)
-
-Confirm the `// codeql[go/cookie-secure-not-set]` annotation is on the same line as `c.SetCookie(`. The code should read:
-
-```go
-c.SetSameSite(sameSite)
-// secure is intentionally false for local non-HTTPS loopback (development only).
-c.SetCookie( // codeql[go/cookie-secure-not-set]
-name,
-value,
-maxAge,
-"/",
-domain,
-secure,
-true,
-)
-```
-
-The `query-filters` in §3.3.1 provides the primary fix. The inline annotation provides belt-and-suspenders coverage that survives if the config is ever reset.
 
 ---
 
-## 4. Implementation Plan
+## 7. Risk Assessment
 
-### Phase 1 — Local Scanning (implement first to gate subsequent work)
-
-| Task | File | Change | Effort |
+| Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| P1-1 | `.pre-commit-config.yaml` | Change semgrep-scan stage from `[manual]` → `[pre-push]`, update name | XS |
-| P1-2 | `scripts/pre-commit-hooks/semgrep-scan.sh` | Add `--severity ERROR --severity WARNING` flags, exclude generated dirs | XS |
-| P1-3 | `Makefile` | Add `security-local` target | XS |
-| P1-4 | `backend/.golangci-fast.yml` | Add G201, G202 to gosec includes | XS |
+| `typescript-eslint` incompatibility | Medium | Medium (lint failures) | Pre-flight check in Step 1; pin typescript-eslint to latest; check release notes before install |
+| `knip` incompatibility | Low | Low (dev tool only) | Update or temporarily disable |
+| Side-effect import resolution failure | Very Low | Medium (type errors) | All imports verified as legitimate; CSS handled by Vite types |
+| `@types/node` not resolving after `types: ["node"]` | Very Low | High (build failure) | Explicit `types` array is the documented fix |
+| Vitest or Vite internal TS version mismatch | Very Low | Low | Both tools use their own TS internally for compilation |
+| Hidden dependency on auto-included `@types/*` | Low | Medium (type errors in unexpected places) | Full `tsc --noEmit` check catches this immediately |
 
-### Phase 2 — CWE-640 Fix
+### Rollback Plan
 
-| Task | File | Change | Effort |
-|---|---|---|---|
-| P2-1 | `backend/internal/services/mail_service.go` | Add `// codeql[go/email-injection]` on smtp.SendMail line + 4-layer defence comment | XS |
-| P2-2 | `backend/internal/services/mail_service.go` | Add `// codeql[go/email-injection]` on sendSSL client.Rcpt line | XS |
-| P2-3 | `backend/internal/services/mail_service.go` | Add `// codeql[go/email-injection]` on sendSTARTTLS client.Rcpt line | XS |
-| P2-4 | `backend/internal/api/handlers/settings_handler.go` | Add explanatory comment above SendEmail call | XS |
-| P2-5 | `backend/internal/api/handlers/user_handler.go` | Add explanatory comment above both SendInvite calls (~line 597, ~line 1015) | XS |
+If the migration encounters **blocking** issues:
 
-### Phase 3 — CWE-614 Fix
+1. Revert `package.json` typescript version to `^5.9.3`
+2. Revert tsconfig changes (restore `"DOM.Iterable"`, remove `"types"` field)
+3. Run `npm install` to restore TS 5.9.3
+4. Verify with `npx tsc --noEmit && npm run build && npm test`
 
-| Task | File | Change | Effort |
-|---|---|---|---|
-| P3-1 | `backend/internal/api/handlers/auth_handler.go` | Verify `// codeql[go/cookie-secure-not-set]` is on `c.SetCookie(` line (no codeql-config.yml changes needed) | XS |
-
-**Total estimated file changes: 6 files, all comment/config additions — no logic changes.**
+Total rollback time: < 5 minutes. All changes are localised to `frontend/` configuration files.
 
 ---
 
-## 5. Acceptance Criteria
+## 8. Testing Strategy
 
-### CI (CodeQL must pass with zero error-level findings)
+### 8.1 Type-Check Validation
 
-- [ ] `codeql.yml` CodeQL analysis (Go) passes with **0 blocking findings**
-- [ ] `go/email-injection` is absent from the Go SARIF output
-- [ ] `go/cookie-secure-not-set` is absent from the Go SARIF output
+WHEN typescript is upgraded to v6, THE SYSTEM SHALL pass `tsc --noEmit` on all three tsconfig files with zero errors.
 
-### Local scanning
+### 8.2 Build Validation
 
-- [ ] A `git push` with any `.go` file touched **blocks** if semgrep finds WARNING+ severity issues
-- [ ] `pre-commit run semgrep-scan` on the current codebase exits 0 (no new findings)
-- [ ] `make security-local` runs and exits 0
+WHEN the frontend build command executes, THE SYSTEM SHALL produce `dist/` output identical in structure to pre-migration output.
 
-### Regression safety
+### 8.3 Unit Test Validation
 
-- [ ] `go test ./...` in `backend/` passes (all changes are comments/config — no test updates required)
-- [ ] `golangci-lint run --config .golangci-fast.yml ./...` passes in `backend/`
-- [ ] The existing runtime defence (rejectCRLF, validateEmailRecipients) is **unchanged** — confirmed by diff
+WHEN the vitest suite runs, THE SYSTEM SHALL pass all existing tests with no regressions.
 
----
+### 8.4 Lint Validation
 
-## 6. Commit Slicing Strategy
+WHEN eslint runs with typescript-eslint, THE SYSTEM SHALL report no new errors attributable to the TS version change.
 
-### Decision: Single commit on `feature/beta-release`
+### 8.5 E2E Validation
 
-**Rationale:** All three phases are tightly related (one CI failure, two root findings, one local gap). All changes are additive (comments, config, no logic mutations). Splitting into multiple PRs would create an intermediate state where CI still fails and the local gap remains open. A single well-scoped commit keeps PR #800 atomic and reviewable.
+WHEN Playwright tests execute against the built application, THE SYSTEM SHALL pass all existing tests with no regressions.
 
-**Suggested commit message:**
-```
-fix(security): suppress CodeQL false-positives for email-injection and cookie-secure
+### 8.6 Acceptance Criteria
 
-CWE-640 (go/email-injection): Add // codeql[go/email-injection] annotations at all 3
-smtp sink sites in mail_service.go (smtp.SendMail, sendSSL client.Rcpt, sendSTARTTLS
-client.Rcpt). The 4-layer defence (gin binding:"required,email", validateEmailRecipients,
-net/mail.ParseAddress, rejectCRLF) is comprehensive; CodeQL's taint model does not
-model validators as sanitisers, producing false-positive paths from
-settings_handler.go:637 and user_handler.go invite flows that bypass
-notification_service.go.
-
-CWE-614 (go/cookie-secure-not-set): Add query-filter to codeql-config.yml excluding
-this rule with documented justification. setSecureCookie() correctly sets Secure=false
-only for local loopback HTTP requests where the Secure attribute is browser-rejected.
-All external HTTPS flows set Secure=true.
-
-Local scanning: Promote semgrep-scan from manual to pre-push stage so WARNING+
-severity findings block push. Addresses gap where CWE-614 and CWE-640 equivalents
-are not covered by any blocking local scan tool.
-```
-
-**PR:** All changes target PR #800 directly.
+- [ ] `npx tsc --noEmit` exits 0
+- [ ] `npx tsc -p tsconfig.node.json --noEmit` exits 0
+- [ ] `npx tsc -p tsconfig.build.json --noEmit` exits 0
+- [ ] `npm run build` exits 0 and produces `dist/`
+- [ ] `npm test` — all tests pass
+- [ ] `npm run type-check` — exits 0
+- [ ] `npx vitest typecheck --run` — exits 0
+- [ ] `npx eslint .` — no new errors
+- [ ] `npx playwright test --project=firefox` — all tests pass
+- [ ] `npx knip` — no new findings from TS upgrade
 
 ---
 
-## 7. Risk and Rollback
+## 9. Commit Slicing Strategy
 
-| Risk | Likelihood | Mitigation |
+### Decision: Single PR
+
+**Rationale**: This migration touches only configuration files in `frontend/`. There are zero source code changes, zero API changes, and zero database changes. The scope is small, the risk is low, and all changes are atomically related. A single PR provides the simplest review surface and avoids unnecessary coordination overhead.
+
+**Trigger reasons evaluated**:
+- Cross-domain changes? **No** — frontend only
+- Risk zones? **No** — no source code changes
+- Review size? **Small** — 3 config files + package.json
+- Rollback complexity? **Trivial** — revert package version + 2 config fields
+
+### PR-1: TypeScript v6 Migration
+
+**Scope**: All changes described in Section 5.
+
+**Files Modified**:
+1. `frontend/package.json` — TypeScript version bump
+2. `frontend/tsconfig.json` — `types` and `lib` changes
+3. `frontend/tsconfig.node.json` — `types` addition
+4. `frontend/package-lock.json` — auto-updated by npm install
+
+**Dependencies**: None — self-contained.
+
+**Validation Gates**:
+1. Type-check (3 tsconfigs)
+2. Build (`npm run build`)
+3. Unit tests (`npm test`)
+4. Lint (`npx eslint .`)
+5. E2E (`npx playwright test --project=firefox`)
+6. Lefthook pre-commit
+
+**Rollback**: Revert the 3 modified files + `npm install`.
+
+---
+
+## 10. Post-Migration Considerations
+
+### 10.1 Future-Proofing for TypeScript 7
+
+TS6 is explicitly a bridge to TS7 (native Go port). Deprecations in TS6 become hard removals in TS7. Charon is **already compliant** with all known TS7 requirements:
+- No deprecated options in use
+- Modern module resolution (`bundler`)
+- Modern module system (`ESNext`)
+- Modern target (`ES2022`)
+- Explicit `types` array (after this migration)
+
+### 10.2 Optional Improvements (Not In Scope)
+
+These are not required for the migration but could be considered in follow-up work:
+
+| Improvement | Benefit | Effort |
 |---|---|---|
-| Inline suppression ends up on wrong line after future rebase | Medium | `query-filters` in codeql-config.yml provides independent suppression independent of line numbers |
-| `semgrep-scan` at `pre-push` produces false-positive blocking | Low | `--severity WARNING --error` limits to genuine findings; use `SEMGREP_CONFIG=p/golang` for targeted override |
-| G201/G202 gosec rules trigger on existing legitimate code | Low | Run `golangci-lint run --config .golangci-fast.yml` locally before committing; suppress specific instances if needed |
-| CodeQL `query-filters` YAML syntax changes in future GitHub CodeQL versions | Low | Inline `// codeql[...]` annotations serve as independent fallback |
+| Bump `target` to `"ES2025"` | Access to Iterator helpers, Set methods, `Promise.try` | Low — verify browser support matrix |
+| Add `verbatimModuleSyntax: true` | Stricter import/export type checking | Low — already using `import type` consistently |
+| Add `isolatedDeclarations: true` | Faster declaration emit, parallelizable builds | Low — no declaration emit currently |
+| Remove `useDefineForClassFields` | TS6 defaults align with modern class semantics | Trivial — verify no class field usage relying on legacy |
+| Add `noUncheckedSideEffectImports: true` explicitly | Self-documenting; already the TS6 default | Trivial |
 
-**Rollback:** All changes are additive config and comments. Reverting the commit restores the prior state exactly. No schema, API, or behaviour changes are made.
+---
+
+## Appendix A: Side-Effect Imports Inventory
+
+| File | Import | Type | Risk |
+|---|---|---|---|
+| `src/main.tsx` | `import './index.css'` | CSS | None — Vite `vite/client` types handle CSS modules |
+| `src/test/setup.ts` | `import '@testing-library/jest-dom'` | Test augmentation | None — has type declarations |
+| `src/test/setup.ts` | `import '@testing-library/jest-dom/vitest'` | Test augmentation | None — has type declarations |
+| Multiple test files | `import '@testing-library/jest-dom/vitest'` | Test augmentation | None — same as above |
+
+## Appendix B: `/// <reference>` Directives Inventory
+
+| File | Directive | Purpose |
+|---|---|---|
+| `src/vite-env.d.ts` | `/// <reference types="vite/client" />` | Vite client types (CSS modules, env vars) |
+| `src/test-shims.d.ts` | `/// <reference types="@testing-library/jest-dom/vitest" />` | Jest-DOM matchers for Vitest |
+| `src/test/setup.ts` | `/// <reference types="vitest/globals" />` | Vitest global test functions |
+| `src/test/setup.ts` | `/// <reference types="@testing-library/jest-dom/vitest" />` | Jest-DOM matchers for Vitest |
+
+## Appendix C: ts5to6 Migration Tool
+
+The `@andrewbranch/ts5to6` tool automates two specific migrations:
+- `--fixBaseUrl` — rewrites `baseUrl`-relative imports to explicit relative paths
+- `--fixRootDir` — adds explicit `rootDir` when inference changes would affect output
+
+**Charon applicability**: Neither fix is needed. Charon does not use `baseUrl` and uses `noEmit: true` (making `rootDir` irrelevant for output structure).
+
+Command (for reference only):
+```bash
+npx @andrewbranch/ts5to6 --fixBaseUrl . && npx @andrewbranch/ts5to6 --fixRootDir .
+```
