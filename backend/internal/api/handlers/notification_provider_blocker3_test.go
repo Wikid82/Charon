@@ -40,7 +40,7 @@ func TestBlocker3_CreateProviderRejectsNonDiscordWithSecurityEvents(t *testing.T
 		{"webhook", "webhook", http.StatusCreated},
 		{"gotify", "gotify", http.StatusCreated},
 		{"slack", "slack", http.StatusBadRequest},
-		{"email", "email", http.StatusBadRequest},
+		{"email", "email", http.StatusCreated},
 	}
 
 	for _, tc := range testCases {

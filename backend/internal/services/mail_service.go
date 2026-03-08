@@ -393,7 +393,6 @@ func (s *MailService) SendEmail(ctx context.Context, to []string, subject, htmlB
 		auth = smtp.PlainAuth("", config.Username, config.Password, config.Host)
 	}
 
-	htmlBody = sanitizeAndNormalizeHTMLBody(htmlBody)
 	htmlBody = sanitizeEmailContent(htmlBody)
 
 	for _, recipient := range to {
