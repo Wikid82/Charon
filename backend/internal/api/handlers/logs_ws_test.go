@@ -33,6 +33,43 @@ func waitFor(t *testing.T, timeout time.Duration, condition func() bool) {
 	t.Fatalf("condition not met within %s", timeout)
 }
 
+func TestUpgraderCheckOrigin(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		origin         string
+		host           string
+		xForwardedHost string
+		want           bool
+	}{
+		{"empty origin allows request", "", "example.com", "", true},
+		{"invalid URL origin rejects", "://bad-url", "example.com", "", false},
+		{"matching host allows", "http://example.com", "example.com", "", true},
+		{"non-matching host rejects", "http://evil.com", "example.com", "", false},
+		{"X-Forwarded-Host matching allows", "http://proxy.example.com", "backend.internal", "proxy.example.com", true},
+		{"X-Forwarded-Host non-matching rejects", "http://evil.com", "backend.internal", "proxy.example.com", false},
+		{"origin with port matching", "http://example.com:8080", "example.com:8080", "", true},
+		{"origin with port non-matching", "http://example.com:9090", "example.com:8080", "", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(http.MethodGet, "/ws", http.NoBody)
+			if tc.origin != "" {
+				req.Header.Set("Origin", tc.origin)
+			}
+			req.Host = tc.host
+			if tc.xForwardedHost != "" {
+				req.Header.Set("X-Forwarded-Host", tc.xForwardedHost)
+			}
+			got := upgrader.CheckOrigin(req)
+			assert.Equal(t, tc.want, got, "origin=%q host=%q xfh=%q", tc.origin, tc.host, tc.xForwardedHost)
+		})
+	}
+}
+
 func TestLogsWebSocketHandler_DeprecatedWrapperUpgradeFailure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	charonlogger.Init(false, io.Discard)

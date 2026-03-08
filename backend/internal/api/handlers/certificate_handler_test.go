@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
@@ -515,6 +517,42 @@ func generateSelfSignedCertPEM() (certPEM, keyPEM string, err error) {
 }
 
 // Note: mockCertificateService removed — helper tests now use real service instances or testify mocks inlined where required.
+
+// TestCertificateHandler_Upload_WithNotificationService verifies that the notification
+// path is exercised when a non-nil NotificationService is provided.
+func TestCertificateHandler_Upload_WithNotificationService(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.Setting{}, &models.NotificationProvider{}))
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+
+	tmpDir := t.TempDir()
+	svc := services.NewCertificateService(tmpDir, db)
+	ns := services.NewNotificationService(db, nil)
+	h := NewCertificateHandler(svc, nil, ns)
+	r.POST("/api/certificates", h.Upload)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("name", "cert-with-ns")
+	certPEM, keyPEM, err := generateSelfSignedCertPEM()
+	require.NoError(t, err)
+	part, _ := writer.CreateFormFile("certificate_file", "cert.pem")
+	_, _ = part.Write([]byte(certPEM))
+	part2, _ := writer.CreateFormFile("key_file", "key.pem")
+	_, _ = part2.Write([]byte(keyPEM))
+	_ = writer.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/certificates", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+}
 
 // Test Delete with invalid ID format
 func TestDeleteCertificate_InvalidID(t *testing.T) {
