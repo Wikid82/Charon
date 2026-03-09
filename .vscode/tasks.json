@@ -727,7 +727,7 @@
         {
             "label": "Security: Caddy PR-1 Compatibility Matrix",
             "type": "shell",
-            "command": "cd /projects/Charon && bash scripts/caddy-compat-matrix.sh --candidate-version 2.11.1 --patch-scenarios A,B,C --platforms linux/amd64,linux/arm64 --smoke-set boot_caddy,plugin_modules,config_validate,admin_api_health --output-dir test-results/caddy-compat --docs-report docs/reports/caddy-compatibility-matrix.md",
+            "command": "cd /projects/Charon && bash scripts/caddy-compat-matrix.sh --candidate-version 2.11.2 --patch-scenarios A,B,C --platforms linux/amd64,linux/arm64 --smoke-set boot_caddy,plugin_modules,config_validate,admin_api_health --output-dir test-results/caddy-compat --docs-report docs/reports/caddy-compatibility-matrix.md",
             "group": "test",
             "problemMatcher": []
         },
