@@ -38,6 +38,19 @@
   "customManagers": [
     {
       "customType": "regex",
+      "description": "Track caddy-security plugin version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_SECURITY_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/greenpau/caddy-security",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
       "description": "Track Go dependencies patched in Dockerfile for Caddy CVE fixes",
       "managerFilePatterns": [
         "/^Dockerfile$/"
@@ -117,13 +130,45 @@
     {
       "customType": "regex",
       "description": "Track GO_VERSION in Actions workflows",
-      "fileMatch": ["^\\.github/workflows/.*\\.yml$"],
+      "managerFilePatterns": ["/^\\.github/workflows/.*\\.yml$/"],
       "matchStrings": [
         "GO_VERSION: ['\"]?(?<currentValue>[\\d\\.]+)['\"]?"
       ],
       "depNameTemplate": "golang/go",
       "datasourceTemplate": "golang-version",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Syft version in workflows and scripts",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/nightly-build\\.yml$/",
+        "/^\\.github/skills/security-scan-docker-image-scripts/run\\.sh$/"
+      ],
+      "matchStrings": [
+        "SYFT_VERSION=\\\"v(?<currentValue>[^\\\"\\s]+)\\\"",
+        "set_default_env \\\"SYFT_VERSION\\\" \\\"v(?<currentValue>[^\\\"]+)\\\""
+      ],
+      "depNameTemplate": "anchore/syft",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Grype version in workflows and scripts",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/supply-chain-pr\\.yml$/",
+        "/^\\.github/skills/security-scan-docker-image-scripts/run\\.sh$/"
+      ],
+      "matchStrings": [
+        "anchore/grype/main/install\\.sh \\| sh -s -- -b /usr/local/bin v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)",
+        "set_default_env \\\"GRYPE_VERSION\\\" \\\"v(?<currentValue>[^\\\"]+)\\\""
+      ],
+      "depNameTemplate": "anchore/grype",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>.*)$"
     }
   ],
 

@@ -208,7 +208,7 @@ describe('useImport', () => {
         await result.current.cancel()
       })
 
-      expect(api.cancelImport).toHaveBeenCalled()
+      expect(api.cancelImport).toHaveBeenCalledWith('session-3')
       await waitFor(() => {
         expect(result.current.session).toBeNull()
       })

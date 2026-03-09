@@ -19,6 +19,8 @@ ARG CADDY_VERSION=2.11.1
 ARG CADDY_CANDIDATE_VERSION=2.11.1
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
+# renovate: datasource=go depName=github.com/greenpau/caddy-security
+ARG CADDY_SECURITY_VERSION=1.1.36
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
@@ -134,7 +136,7 @@ RUN set -eux; \
 # Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
 # We find it and move it to /go/bin/dlv so it's in a consistent location for the next stage.
 # renovate: datasource=go depName=github.com/go-delve/delve
-ARG DLV_VERSION=1.26.0
+ARG DLV_VERSION=1.26.1
 # hadolint ignore=DL3059,DL4006
 RUN CGO_ENABLED=0 xx-go install github.com/go-delve/delve/cmd/dlv@v${DLV_VERSION} && \
     DLV_PATH=$(find /go/bin -name dlv -type f | head -n 1) && \
@@ -202,6 +204,7 @@ ARG CADDY_VERSION
 ARG CADDY_CANDIDATE_VERSION
 ARG CADDY_USE_CANDIDATE
 ARG CADDY_PATCH_SCENARIO
+ARG CADDY_SECURITY_VERSION
 # renovate: datasource=go depName=github.com/caddyserver/xcaddy
 ARG XCADDY_VERSION=0.4.5
 
@@ -229,7 +232,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         echo "Stage 1: Generate go.mod with xcaddy..."; \
         # Run xcaddy to generate the build directory and go.mod
         GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_TARGET_VERSION} \
-            --with github.com/greenpau/caddy-security \
+            --with github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION} \
+            --with github.com/greenpau/caddy-security@v${CADDY_SECURITY_VERSION} \
             --with github.com/corazawaf/coraza-caddy/v2 \
             --with github.com/hslatman/caddy-crowdsec-bouncer@v0.10.0 \
             --with github.com/zhangjiayin/caddy-geoip2 \

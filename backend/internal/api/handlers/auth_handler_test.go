@@ -430,7 +430,7 @@ func TestAuthHandler_Me(t *testing.T) {
 		UUID:  uuid.NewString(),
 		Email: "me@example.com",
 		Name:  "Me User",
-		Role:  "admin",
+		Role:  models.RoleAdmin,
 	}
 	db.Create(user)
 
@@ -630,7 +630,7 @@ func TestAuthHandler_Verify_ValidToken(t *testing.T) {
 		UUID:    uuid.NewString(),
 		Email:   "test@example.com",
 		Name:    "Test User",
-		Role:    "user",
+		Role:    models.RoleUser,
 		Enabled: true,
 	}
 	_ = user.SetPassword("password123")
@@ -661,7 +661,7 @@ func TestAuthHandler_Verify_BearerToken(t *testing.T) {
 		UUID:    uuid.NewString(),
 		Email:   "bearer@example.com",
 		Name:    "Bearer User",
-		Role:    "admin",
+		Role:    models.RoleAdmin,
 		Enabled: true,
 	}
 	_ = user.SetPassword("password123")
@@ -690,7 +690,7 @@ func TestAuthHandler_Verify_DisabledUser(t *testing.T) {
 		UUID:  uuid.NewString(),
 		Email: "disabled@example.com",
 		Name:  "Disabled User",
-		Role:  "user",
+		Role:  models.RoleUser,
 	}
 	_ = user.SetPassword("password123")
 	db.Create(user)
@@ -730,7 +730,7 @@ func TestAuthHandler_Verify_ForwardAuthDenied(t *testing.T) {
 		UUID:           uuid.NewString(),
 		Email:          "denied@example.com",
 		Name:           "Denied User",
-		Role:           "user",
+		Role:           models.RoleUser,
 		Enabled:        true,
 		PermissionMode: models.PermissionModeDenyAll,
 	}
@@ -795,7 +795,7 @@ func TestAuthHandler_VerifyStatus_Authenticated(t *testing.T) {
 		UUID:    uuid.NewString(),
 		Email:   "status@example.com",
 		Name:    "Status User",
-		Role:    "user",
+		Role:    models.RoleUser,
 		Enabled: true,
 	}
 	_ = user.SetPassword("password123")
@@ -828,7 +828,7 @@ func TestAuthHandler_VerifyStatus_DisabledUser(t *testing.T) {
 		UUID:  uuid.NewString(),
 		Email: "disabled2@example.com",
 		Name:  "Disabled User 2",
-		Role:  "user",
+		Role:  models.RoleUser,
 	}
 	_ = user.SetPassword("password123")
 	db.Create(user)
@@ -880,7 +880,7 @@ func TestAuthHandler_GetAccessibleHosts_AllowAll(t *testing.T) {
 		UUID:           uuid.NewString(),
 		Email:          "allowall@example.com",
 		Name:           "Allow All User",
-		Role:           "user",
+		Role:           models.RoleUser,
 		Enabled:        true,
 		PermissionMode: models.PermissionModeAllowAll,
 	}
@@ -917,7 +917,7 @@ func TestAuthHandler_GetAccessibleHosts_DenyAll(t *testing.T) {
 		UUID:           uuid.NewString(),
 		Email:          "denyall@example.com",
 		Name:           "Deny All User",
-		Role:           "user",
+		Role:           models.RoleUser,
 		Enabled:        true,
 		PermissionMode: models.PermissionModeDenyAll,
 	}
@@ -956,7 +956,7 @@ func TestAuthHandler_GetAccessibleHosts_PermittedHosts(t *testing.T) {
 		UUID:           uuid.NewString(),
 		Email:          "permitted@example.com",
 		Name:           "Permitted User",
-		Role:           "user",
+		Role:           models.RoleUser,
 		Enabled:        true,
 		PermissionMode: models.PermissionModeDenyAll,
 		PermittedHosts: []models.ProxyHost{*host1}, // Only host1
@@ -1111,7 +1111,7 @@ func TestAuthHandler_Logout_InvalidatesBearerSession(t *testing.T) {
 		UUID:    uuid.NewString(),
 		Email:   "logout-session@example.com",
 		Name:    "Logout Session",
-		Role:    "admin",
+		Role:    models.RoleAdmin,
 		Enabled: true,
 	}
 	_ = user.SetPassword("password123")
@@ -1242,7 +1242,7 @@ func TestAuthHandler_Refresh(t *testing.T) {
 
 	handler, db := setupAuthHandler(t)
 
-	user := &models.User{UUID: uuid.NewString(), Email: "refresh@example.com", Name: "Refresh User", Role: "user", Enabled: true}
+	user := &models.User{UUID: uuid.NewString(), Email: "refresh@example.com", Name: "Refresh User", Role: models.RoleUser, Enabled: true}
 	require.NoError(t, user.SetPassword("password123"))
 	require.NoError(t, db.Create(user).Error)
 
@@ -1332,7 +1332,7 @@ func TestAuthHandler_Verify_UsesOriginalHostFallback(t *testing.T) {
 		UUID:           uuid.NewString(),
 		Email:          "originalhost@example.com",
 		Name:           "Original Host User",
-		Role:           "user",
+		Role:           models.RoleUser,
 		Enabled:        true,
 		PermissionMode: models.PermissionModeAllowAll,
 	}

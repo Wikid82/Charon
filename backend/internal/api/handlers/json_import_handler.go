@@ -310,6 +310,11 @@ func (h *JSONImportHandler) Cancel(c *gin.Context) {
 		return
 	}
 
+	if strings.TrimSpace(req.SessionUUID) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "session_uuid required"})
+		return
+	}
+
 	// Clean up session if it exists
 	jsonImportSessionsMu.Lock()
 	delete(jsonImportSessions, req.SessionUUID)

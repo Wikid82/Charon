@@ -160,8 +160,8 @@ async function setupImportMocks(
     }
   });
 
-  // Mock cancel endpoint
-  await page.route('**/api/v1/import/cancel', async (route) => {
+  // Mock cancel endpoint — pattern ends with * to match DELETE ?session_uuid=... query param
+  await page.route('**/api/v1/import/cancel*', async (route) => {
     hasSession = false;
     await route.fulfill({ status: 204 });
   });

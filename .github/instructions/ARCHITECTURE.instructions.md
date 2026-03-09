@@ -126,7 +126,7 @@ graph TB
 | **HTTP Framework** | Gin | Latest | Routing, middleware, HTTP handling |
 | **Database** | SQLite | 3.x | Embedded database |
 | **ORM** | GORM | Latest | Database abstraction layer |
-| **Reverse Proxy** | Caddy Server | 2.11.0-beta.2 | Embedded HTTP/HTTPS proxy |
+| **Reverse Proxy** | Caddy Server | 2.11.1 | Embedded HTTP/HTTPS proxy |
 | **WebSocket** | gorilla/websocket | Latest | Real-time log streaming |
 | **Crypto** | golang.org/x/crypto | Latest | Password hashing, encryption |
 | **Metrics** | Prometheus Client | Latest | Application metrics |

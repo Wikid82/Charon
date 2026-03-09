@@ -7,6 +7,27 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// UserRole represents an authenticated user's privilege tier.
+type UserRole string
+
+const (
+	// RoleAdmin has full access to all Charon features and management.
+	RoleAdmin UserRole = "admin"
+	// RoleUser can access the Charon management UI with restricted permissions.
+	RoleUser UserRole = "user"
+	// RolePassthrough can only authenticate for forward-auth proxy access.
+	RolePassthrough UserRole = "passthrough"
+)
+
+// IsValid returns true when the role is one of the recognised privilege tiers.
+func (r UserRole) IsValid() bool {
+	switch r {
+	case RoleAdmin, RoleUser, RolePassthrough:
+		return true
+	}
+	return false
+}
+
 // PermissionMode determines how user access to proxy hosts is evaluated.
 type PermissionMode string
 
@@ -26,7 +47,7 @@ type User struct {
 	APIKey              string     `json:"-" gorm:"uniqueIndex"` // For external API access, never exposed in JSON
 	PasswordHash        string     `json:"-"`                    // Never serialize password hash
 	Name                string     `json:"name"`
-	Role                string     `json:"role" gorm:"default:'user'"` // "admin", "user", "viewer"
+	Role                UserRole   `json:"role" gorm:"default:'user'"`
 	Enabled             bool       `json:"enabled" gorm:"default:true"`
 	FailedLoginAttempts int        `json:"-" gorm:"default:0"`
 	LockedUntil         *time.Time `json:"-"`
@@ -77,7 +98,7 @@ func (u *User) HasPendingInvite() bool {
 // - deny_all mode: User can ONLY access hosts in PermittedHosts (whitelist)
 func (u *User) CanAccessHost(hostID uint) bool {
 	// Admins always have access
-	if u.Role == "admin" {
+	if u.Role == RoleAdmin {
 		return true
 	}
 

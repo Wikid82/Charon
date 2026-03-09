@@ -39,14 +39,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ github.sha }}
+          # Use github.ref (full ref path) instead of github.ref_name:
+          # - push/schedule: resolves to refs/heads/<branch>, checking out latest HEAD
+          # - pull_request:  resolves to refs/pull/<n>/merge, the correct PR merge ref
+          # github.ref_name fails for PRs because it yields "<n>/merge" which checkout
+          # interprets as a branch name (refs/heads/<n>/merge) that does not exist.
+          ref: ${{ github.ref }}
 
       - name: Verify CodeQL parity guard
         if: matrix.language == 'go'
         run: bash scripts/ci/check-codeql-parity.sh
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4
+        uses: github/codeql-action/init@c793b717bc78562f491db7b0e93a3a178b099162 # v4
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
@@ -86,10 +91,10 @@ jobs:
         run: mkdir -p sarif-results
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4
+        uses: github/codeql-action/autobuild@c793b717bc78562f491db7b0e93a3a178b099162 # v4
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4
+        uses: github/codeql-action/analyze@c793b717bc78562f491db7b0e93a3a178b099162 # v4
         with:
           category: "/language:${{ matrix.language }}"
           output: sarif-results/${{ matrix.language }}
