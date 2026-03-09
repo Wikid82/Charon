@@ -24,7 +24,7 @@ func TestDiscordOnly_CreateRejectsNonDiscord(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}, &models.Notification{}))
 
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	testCases := []struct {
@@ -38,7 +38,7 @@ func TestDiscordOnly_CreateRejectsNonDiscord(t *testing.T) {
 		{"slack", "slack", http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
 		{"telegram", "telegram", http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
 		{"generic", "generic", http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
-		{"email", "email", http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
+		{"email", "email", http.StatusCreated, ""},
 	}
 
 	for _, tc := range testCases {
@@ -83,7 +83,7 @@ func TestDiscordOnly_CreateAcceptsDiscord(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}, &models.Notification{}))
 
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	payload := map[string]interface{}{
@@ -129,7 +129,7 @@ func TestDiscordOnly_UpdateRejectsTypeMutation(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&deprecatedProvider).Error)
 
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	// Try to change type to discord
@@ -183,7 +183,7 @@ func TestDiscordOnly_UpdateRejectsEnable(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&deprecatedProvider).Error)
 
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	// Try to enable the deprecated provider
@@ -231,7 +231,7 @@ func TestDiscordOnly_UpdateAllowsDisabledDeprecated(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&deprecatedProvider).Error)
 
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	// Update name (keeping type and enabled unchanged)
@@ -279,7 +279,7 @@ func TestDiscordOnly_UpdateAcceptsDiscord(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&discordProvider).Error)
 
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	// Update to enable security notifications
@@ -327,7 +327,7 @@ func TestDiscordOnly_DeleteAllowsDeprecated(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&deprecatedProvider).Error)
 
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	w := httptest.NewRecorder()
@@ -409,7 +409,7 @@ func TestDiscordOnly_ErrorCodes(t *testing.T) {
 
 			id := tc.setupFunc(db)
 
-			service := services.NewNotificationService(db)
+			service := services.NewNotificationService(db, nil)
 			handler := NewNotificationProviderHandler(service)
 
 			req, params := tc.requestFunc(id)

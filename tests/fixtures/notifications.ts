@@ -20,7 +20,8 @@ export type NotificationProviderType =
   | 'gotify'
   | 'telegram'
   | 'generic'
-  | 'webhook';
+  | 'webhook'
+  | 'email';
 
 /**
  * Notification provider configuration interface
@@ -229,6 +230,36 @@ export const customWebhookProvider: NotificationProviderConfig = {
       timestamp: '{{.Timestamp}}',
     },
   }),
+  enabled: true,
+  notify_proxy_hosts: true,
+  notify_certs: true,
+  notify_uptime: true,
+};
+
+// ============================================================================
+// Email Provider Fixtures
+// ============================================================================
+
+/**
+ * Valid email notification provider configuration
+ */
+export const emailProvider: NotificationProviderConfig = {
+  name: generateProviderName('email'),
+  type: 'email',
+  url: 'admin@example.com, alerts@example.com',
+  enabled: true,
+  notify_proxy_hosts: true,
+  notify_certs: true,
+  notify_uptime: false,
+};
+
+/**
+ * Email provider with single recipient
+ */
+export const emailProviderSingleRecipient: NotificationProviderConfig = {
+  name: generateProviderName('email-single'),
+  type: 'email',
+  url: 'ops@example.com',
   enabled: true,
   notify_proxy_hosts: true,
   notify_certs: true,

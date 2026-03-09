@@ -110,7 +110,7 @@ Phase 5 of the Agent Skills migration has been successfully completed. All docum
 
 - `test-backend-unit` and `test-frontend-unit` (created from inline tasks, no legacy script)
 - `security-scan-go-vuln` (created from inline command, no legacy script)
-- `qa-precommit-all` (wraps pre-commit run, no legacy script)
+- `qa-lefthook-all` (wraps lefthook pre-commit run, no legacy script)
 - `docker-start-dev`, `docker-stop-dev`, `docker-prune` (wraps docker commands, no legacy scripts)
 
 **Result**: ✅ Complete - All legacy scripts now show deprecation warnings

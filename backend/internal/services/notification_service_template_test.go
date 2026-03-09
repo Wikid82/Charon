@@ -18,7 +18,7 @@ func TestNotificationService_TemplateCRUD(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	tmpl := &models.NotificationTemplate{
 		Name:        "Custom",

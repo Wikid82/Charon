@@ -126,11 +126,11 @@ graph TB
 | **HTTP Framework** | Gin | Latest | Routing, middleware, HTTP handling |
 | **Database** | SQLite | 3.x | Embedded database |
 | **ORM** | GORM | Latest | Database abstraction layer |
-| **Reverse Proxy** | Caddy Server | 2.11.1 | Embedded HTTP/HTTPS proxy |
+| **Reverse Proxy** | Caddy Server | 2.11.2 | Embedded HTTP/HTTPS proxy |
 | **WebSocket** | gorilla/websocket | Latest | Real-time log streaming |
 | **Crypto** | golang.org/x/crypto | Latest | Password hashing, encryption |
 | **Metrics** | Prometheus Client | Latest | Application metrics |
-| **Notifications** | Shoutrrr | Latest | Multi-platform alerts |
+| **Notifications** | Notify | Latest | Multi-platform alerts |
 | **Docker Client** | Docker SDK | Latest | Container discovery |
 | **Logging** | Logrus + Lumberjack | Latest | Structured logging with rotation |
 
@@ -1263,8 +1263,8 @@ docker exec charon /app/scripts/restore-backup.sh \
    - Future: Dynamic plugin loading for custom providers
 
 2. **Notification Channels:**
-   - Shoutrrr provides 40+ channels (Discord, Slack, Email, etc.)
-   - Custom channels via Shoutrrr service URLs
+   - Notify provides multi-platform channels (Discord, Slack, Gotify, etc.)
+   - Provider-based configuration with per-channel feature flags
 
 3. **Authentication Providers:**
    - Current: Local database authentication

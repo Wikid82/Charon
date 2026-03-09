@@ -28,7 +28,7 @@ func TestBlocker3_CreateProviderRejectsNonDiscordWithSecurityEvents(t *testing.T
 	assert.NoError(t, err)
 
 	// Create handler
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	// Test cases: provider types with security events enabled
@@ -40,7 +40,7 @@ func TestBlocker3_CreateProviderRejectsNonDiscordWithSecurityEvents(t *testing.T
 		{"webhook", "webhook", http.StatusCreated},
 		{"gotify", "gotify", http.StatusCreated},
 		{"slack", "slack", http.StatusBadRequest},
-		{"email", "email", http.StatusBadRequest},
+		{"email", "email", http.StatusCreated},
 	}
 
 	for _, tc := range testCases {
@@ -96,7 +96,7 @@ func TestBlocker3_CreateProviderAcceptsDiscordWithSecurityEvents(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Create handler
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	// Create request payload with Discord provider and security events
@@ -144,7 +144,7 @@ func TestBlocker3_CreateProviderAcceptsNonDiscordWithoutSecurityEvents(t *testin
 	assert.NoError(t, err)
 
 	// Create handler
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	// Create request payload with webhook provider but no security events
@@ -200,7 +200,7 @@ func TestBlocker3_UpdateProviderRejectsNonDiscordWithSecurityEvents(t *testing.T
 	assert.NoError(t, db.Create(&existingProvider).Error)
 
 	// Create handler
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	// Try to update to enable security events (should be rejected)
@@ -256,7 +256,7 @@ func TestBlocker3_UpdateProviderAcceptsDiscordWithSecurityEvents(t *testing.T) {
 	assert.NoError(t, db.Create(&existingProvider).Error)
 
 	// Create handler
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	// Update to enable security events
@@ -302,7 +302,7 @@ func TestBlocker3_MultipleSecurityEventsEnforcesDiscordOnly(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Create handler
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	// Test each security event field individually
@@ -359,7 +359,7 @@ func TestBlocker3_UpdateProvider_DatabaseError(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Create handler
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
 	// Update payload

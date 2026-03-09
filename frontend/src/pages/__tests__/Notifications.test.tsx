@@ -14,7 +14,7 @@ vi.mock('react-i18next', () => ({
 }))
 
 vi.mock('../../api/notifications', () => ({
-  SUPPORTED_NOTIFICATION_PROVIDER_TYPES: ['discord', 'gotify', 'webhook'],
+  SUPPORTED_NOTIFICATION_PROVIDER_TYPES: ['discord', 'gotify', 'webhook', 'email'],
   getProviders: vi.fn(),
   createProvider: vi.fn(),
   updateProvider: vi.fn(),
@@ -146,8 +146,8 @@ describe('Notifications', () => {
     const typeSelect = screen.getByTestId('provider-type') as HTMLSelectElement
     const options = Array.from(typeSelect.options)
 
-    expect(options).toHaveLength(3)
-    expect(options.map((option) => option.value)).toEqual(['discord', 'gotify', 'webhook'])
+    expect(options).toHaveLength(4)
+    expect(options.map((option) => option.value)).toEqual(['discord', 'gotify', 'webhook', 'email'])
     expect(typeSelect.disabled).toBe(false)
   })
 

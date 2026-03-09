@@ -18,7 +18,7 @@ func TestUptimeService_sendRecoveryNotification(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.Notification{}, &models.NotificationProvider{}))
 
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	svc := NewUptimeService(db, ns)
 
 	monitor := models.UptimeMonitor{Name: "API Server", URL: "https://api.example.com"}

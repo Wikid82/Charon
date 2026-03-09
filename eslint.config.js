@@ -11,20 +11,20 @@ export default [
       '.venv/**/*',
       'node_modules/**/*',
       'dist/**/*',
-      '*.md',
       '*.yml',
       '*.yaml',
-      '*.json',
       '*.toml',
       '*.sh',
       'Dockerfile*',
       '.git/**/*',
-      '.github/**/*'
-    ]
+      '.github/**/*',
+    ],
   },
   // Apply frontend config to frontend files only
-  ...frontendConfig.map(config => ({
+  ...frontendConfig.map((config) => ({
     ...config,
-    files: config.files ? config.files.map(pattern => `frontend/${pattern}`) : ['frontend/**/*.{ts,tsx,js,jsx}']
-  }))
+    files: config.files
+      ? config.files.map((pattern) => `frontend/${pattern}`)
+      : ['frontend/**/*.{ts,tsx,js,jsx}'],
+  })),
 ];

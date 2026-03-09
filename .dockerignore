@@ -9,13 +9,12 @@
 .git/
 .gitignore
 .github/
-.pre-commit-config.yaml
 codecov.yml
 .goreleaser.yaml
 .sourcery.yml
 
 # -----------------------------------------------------------------------------
-# Python (pre-commit, tooling)
+# Python (tooling)
 # -----------------------------------------------------------------------------
 __pycache__/
 *.py[cod]

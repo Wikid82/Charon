@@ -148,13 +148,14 @@ func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
 	domain := ""
 
 	c.SetSameSite(sameSite)
-	c.SetCookie(
+	// secure is intentionally false for local non-HTTPS loopback (development only); always true for external HTTPS requests.
+	c.SetCookie( // codeql[go/cookie-secure-not-set]
 		name,   // name
 		value,  // value
 		maxAge, // maxAge in seconds
 		"/",    // path
 		domain, // domain (empty = current host)
-		secure, // secure (always true)
+		secure, // secure
 		true,   // httpOnly (no JS access)
 	)
 }

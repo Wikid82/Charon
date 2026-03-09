@@ -67,7 +67,7 @@ func newTestUptimeService(t *testing.T, db *gorm.DB, ns *NotificationService) *U
 
 func TestUptimeService_CheckAll(t *testing.T) {
 	db := setupUptimeTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	us := newTestUptimeService(t, db, ns)
 
 	// Create a dummy HTTP server for a "UP" host
@@ -195,7 +195,7 @@ func TestUptimeService_CheckAll(t *testing.T) {
 
 func TestUptimeService_ListMonitors(t *testing.T) {
 	db := setupUptimeTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	us := newTestUptimeService(t, db, ns)
 
 	db.Create(&models.UptimeMonitor{
@@ -212,7 +212,7 @@ func TestUptimeService_ListMonitors(t *testing.T) {
 
 func TestUptimeService_GetMonitorByID(t *testing.T) {
 	db := setupUptimeTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	us := newTestUptimeService(t, db, ns)
 
 	monitor := models.UptimeMonitor{
@@ -245,7 +245,7 @@ func TestUptimeService_GetMonitorByID(t *testing.T) {
 
 func TestUptimeService_GetMonitorHistory(t *testing.T) {
 	db := setupUptimeTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	us := newTestUptimeService(t, db, ns)
 
 	monitor := models.UptimeMonitor{
@@ -276,7 +276,7 @@ func TestUptimeService_GetMonitorHistory(t *testing.T) {
 func TestUptimeService_SyncMonitors_Errors(t *testing.T) {
 	t.Run("database error during proxy host fetch", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Close the database to force errors
@@ -289,7 +289,7 @@ func TestUptimeService_SyncMonitors_Errors(t *testing.T) {
 
 	t.Run("creates monitors for new hosts", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Create proxy hosts
@@ -308,7 +308,7 @@ func TestUptimeService_SyncMonitors_Errors(t *testing.T) {
 
 	t.Run("orphaned monitors persist after host deletion", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		host := models.ProxyHost{UUID: "test-1", DomainNames: "test1.com", Enabled: true}
@@ -336,7 +336,7 @@ func TestUptimeService_SyncMonitors_Errors(t *testing.T) {
 func TestUptimeService_SyncMonitors_NameSync(t *testing.T) {
 	t.Run("syncs name from proxy host when changed", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		host := models.ProxyHost{UUID: "test-1", Name: "Original Name", DomainNames: "test1.com", Enabled: true}
@@ -362,7 +362,7 @@ func TestUptimeService_SyncMonitors_NameSync(t *testing.T) {
 
 	t.Run("uses domain name when proxy host name is empty", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		host := models.ProxyHost{UUID: "test-2", Name: "", DomainNames: "fallback.com, secondary.com", Enabled: true}
@@ -378,7 +378,7 @@ func TestUptimeService_SyncMonitors_NameSync(t *testing.T) {
 
 	t.Run("updates monitor name when host name becomes empty", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		host := models.ProxyHost{UUID: "test-3", Name: "Named Host", DomainNames: "domain.com", Enabled: true}
@@ -406,7 +406,7 @@ func TestUptimeService_SyncMonitors_NameSync(t *testing.T) {
 func TestUptimeService_SyncMonitors_TCPMigration(t *testing.T) {
 	t.Run("migrates TCP monitor to HTTP for public URL", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		host := models.ProxyHost{
@@ -442,7 +442,7 @@ func TestUptimeService_SyncMonitors_TCPMigration(t *testing.T) {
 
 	t.Run("does not migrate TCP monitor with custom URL", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		host := models.ProxyHost{
@@ -481,7 +481,7 @@ func TestUptimeService_SyncMonitors_TCPMigration(t *testing.T) {
 func TestUptimeService_SyncMonitors_HTTPSUpgrade(t *testing.T) {
 	t.Run("upgrades HTTP to HTTPS when SSL forced", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		host := models.ProxyHost{
@@ -526,7 +526,7 @@ func TestUptimeService_SyncMonitors_HTTPSUpgrade(t *testing.T) {
 
 	t.Run("does not downgrade HTTPS when SSL not forced", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		host := models.ProxyHost{
@@ -563,7 +563,7 @@ func TestUptimeService_SyncMonitors_HTTPSUpgrade(t *testing.T) {
 func TestUptimeService_SyncMonitors_RemoteServers(t *testing.T) {
 	t.Run("creates monitor for new remote server", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		server := models.RemoteServer{
@@ -588,7 +588,7 @@ func TestUptimeService_SyncMonitors_RemoteServers(t *testing.T) {
 
 	t.Run("creates TCP monitor for remote server without scheme", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		server := models.RemoteServer{
@@ -611,7 +611,7 @@ func TestUptimeService_SyncMonitors_RemoteServers(t *testing.T) {
 
 	t.Run("syncs remote server name changes", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		server := models.RemoteServer{
@@ -643,7 +643,7 @@ func TestUptimeService_SyncMonitors_RemoteServers(t *testing.T) {
 
 	t.Run("syncs remote server URL changes", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		server := models.RemoteServer{
@@ -676,7 +676,7 @@ func TestUptimeService_SyncMonitors_RemoteServers(t *testing.T) {
 
 	t.Run("syncs remote server enabled status", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		server := models.RemoteServer{
@@ -708,7 +708,7 @@ func TestUptimeService_SyncMonitors_RemoteServers(t *testing.T) {
 
 	t.Run("syncs scheme change from TCP to HTTPS", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		server := models.RemoteServer{
@@ -744,7 +744,7 @@ func TestUptimeService_SyncMonitors_RemoteServers(t *testing.T) {
 func TestUptimeService_CheckAll_Errors(t *testing.T) {
 	t.Run("handles empty monitor list", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Call CheckAll with no monitors - should not panic
@@ -758,7 +758,7 @@ func TestUptimeService_CheckAll_Errors(t *testing.T) {
 
 	t.Run("orphan monitors don't prevent check execution", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Create a monitor without a proxy host
@@ -789,7 +789,7 @@ func TestUptimeService_CheckAll_Errors(t *testing.T) {
 		t.Skip("Blocks on real network call to 192.0.2.1:9999 - needs mock")
 
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Use even faster timeouts for this specific test
@@ -822,7 +822,7 @@ func TestUptimeService_CheckAll_Errors(t *testing.T) {
 
 func TestUptimeService_CheckAll_HostDown_PartitionsByMonitorType(t *testing.T) {
 	db := setupUptimeTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	us := newTestUptimeService(t, db, ns)
 
 	us.config.TCPTimeout = 50 * time.Millisecond
@@ -927,7 +927,7 @@ func TestUptimeService_CheckAll_HostDown_PartitionsByMonitorType(t *testing.T) {
 
 func TestUptimeService_CheckAll_ManualScheduledParity_ForHTTPOnHostDown(t *testing.T) {
 	db := setupUptimeTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	us := newTestUptimeService(t, db, ns)
 
 	us.config.TCPTimeout = 50 * time.Millisecond
@@ -1019,7 +1019,7 @@ func TestUptimeService_CheckAll_ManualScheduledParity_ForHTTPOnHostDown(t *testi
 
 func TestUptimeService_CheckAll_ReachableHost_StillUsesHTTPResult(t *testing.T) {
 	db := setupUptimeTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	us := newTestUptimeService(t, db, ns)
 
 	us.config.TCPTimeout = 50 * time.Millisecond
@@ -1094,7 +1094,7 @@ func TestUptimeService_CheckAll_ReachableHost_StillUsesHTTPResult(t *testing.T) 
 func TestUptimeService_CheckMonitor_EdgeCases(t *testing.T) {
 	t.Run("invalid URL format", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		monitor := models.UptimeMonitor{
@@ -1116,7 +1116,7 @@ func TestUptimeService_CheckMonitor_EdgeCases(t *testing.T) {
 
 	t.Run("http 404 response treated as down", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Start HTTP server returning 404
@@ -1159,7 +1159,7 @@ func TestUptimeService_CheckMonitor_EdgeCases(t *testing.T) {
 
 	t.Run("https URL without valid certificate", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		monitor := models.UptimeMonitor{
@@ -1184,7 +1184,7 @@ func TestUptimeService_CheckMonitor_EdgeCases(t *testing.T) {
 func TestUptimeService_GetMonitorHistory_EdgeCases(t *testing.T) {
 	t.Run("non-existent monitor", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		history, err := us.GetMonitorHistory("non-existent", 100)
@@ -1194,7 +1194,7 @@ func TestUptimeService_GetMonitorHistory_EdgeCases(t *testing.T) {
 
 	t.Run("limit parameter respected", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		monitor := models.UptimeMonitor{ID: "monitor-limit", Name: "Limit Test"}
@@ -1219,7 +1219,7 @@ func TestUptimeService_GetMonitorHistory_EdgeCases(t *testing.T) {
 func TestUptimeService_ListMonitors_EdgeCases(t *testing.T) {
 	t.Run("empty database", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		monitors, err := us.ListMonitors()
@@ -1229,7 +1229,7 @@ func TestUptimeService_ListMonitors_EdgeCases(t *testing.T) {
 
 	t.Run("monitors with associated proxy hosts", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		host := models.ProxyHost{UUID: "test-host", DomainNames: "test.com", Enabled: true}
@@ -1254,7 +1254,7 @@ func TestUptimeService_ListMonitors_EdgeCases(t *testing.T) {
 func TestUptimeService_UpdateMonitor(t *testing.T) {
 	t.Run("update max_retries", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		monitor := models.UptimeMonitor{
@@ -1278,7 +1278,7 @@ func TestUptimeService_UpdateMonitor(t *testing.T) {
 
 	t.Run("update interval", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		monitor := models.UptimeMonitor{
@@ -1299,7 +1299,7 @@ func TestUptimeService_UpdateMonitor(t *testing.T) {
 
 	t.Run("update non-existent monitor", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		updates := map[string]any{
@@ -1312,7 +1312,7 @@ func TestUptimeService_UpdateMonitor(t *testing.T) {
 
 	t.Run("update multiple fields", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		monitor := models.UptimeMonitor{
@@ -1338,7 +1338,7 @@ func TestUptimeService_UpdateMonitor(t *testing.T) {
 func TestUptimeService_NotificationBatching(t *testing.T) {
 	t.Run("batches multiple service failures on same host", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Create an UptimeHost
@@ -1391,7 +1391,7 @@ func TestUptimeService_NotificationBatching(t *testing.T) {
 
 	t.Run("single service down gets individual notification", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Create an UptimeHost
@@ -1433,7 +1433,7 @@ func TestUptimeService_NotificationBatching(t *testing.T) {
 func TestUptimeService_HostLevelCheck(t *testing.T) {
 	t.Run("creates uptime host during sync", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Create a proxy host
@@ -1465,7 +1465,7 @@ func TestUptimeService_HostLevelCheck(t *testing.T) {
 
 	t.Run("groups multiple services on same host", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Create multiple proxy hosts pointing to the same forward host
@@ -1520,7 +1520,7 @@ func TestFormatDuration(t *testing.T) {
 func TestUptimeService_SyncMonitorForHost(t *testing.T) {
 	t.Run("updates monitor when proxy host is edited", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Create a proxy host
@@ -1568,7 +1568,7 @@ func TestUptimeService_SyncMonitorForHost(t *testing.T) {
 
 	t.Run("returns nil when no monitor exists", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Create a proxy host without creating a monitor
@@ -1594,7 +1594,7 @@ func TestUptimeService_SyncMonitorForHost(t *testing.T) {
 
 	t.Run("returns error when host does not exist", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Call SyncMonitorForHost with non-existent host ID
@@ -1604,7 +1604,7 @@ func TestUptimeService_SyncMonitorForHost(t *testing.T) {
 
 	t.Run("uses domain name when proxy host name is empty", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Create a proxy host with a name
@@ -1639,7 +1639,7 @@ func TestUptimeService_SyncMonitorForHost(t *testing.T) {
 
 	t.Run("handles multiple domains correctly", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Create a proxy host with multiple domains
@@ -1673,7 +1673,7 @@ func TestUptimeService_SyncMonitorForHost(t *testing.T) {
 func TestUptimeService_DeleteMonitor(t *testing.T) {
 	t.Run("deletes monitor and heartbeats", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Create monitor
@@ -1720,7 +1720,7 @@ func TestUptimeService_DeleteMonitor(t *testing.T) {
 
 	t.Run("returns error for non-existent monitor", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		err := us.DeleteMonitor("non-existent-id")
@@ -1729,7 +1729,7 @@ func TestUptimeService_DeleteMonitor(t *testing.T) {
 
 	t.Run("deletes monitor without heartbeats", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
-		ns := NewNotificationService(db)
+		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
 		// Create monitor without heartbeats
@@ -1757,7 +1757,7 @@ func TestUptimeService_DeleteMonitor(t *testing.T) {
 
 func TestUptimeService_UpdateMonitor_EnabledField(t *testing.T) {
 	db := setupUptimeTestDB(t)
-	ns := NewNotificationService(db)
+	ns := NewNotificationService(db, nil)
 	us := newTestUptimeService(t, db, ns)
 
 	monitor := models.UptimeMonitor{

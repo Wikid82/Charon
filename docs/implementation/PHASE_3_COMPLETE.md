@@ -53,7 +53,7 @@ Phase 3 successfully implements all security scanning and QA validation skills. 
 
 ### 3. qa-precommit-all ✅
 
-**Location**: `.github/skills/qa-precommit-all.SKILL.md`
+**Location**: `.github/skills/qa-lefthook-all.SKILL.md`
 **Execution Script**: `.github/skills/qa-precommit-all-scripts/run.sh`
 **Purpose**: Run all pre-commit hooks for comprehensive code quality validation
 
@@ -107,7 +107,7 @@ All skills validated with **0 errors**:
 ```bash
 ✓ security-scan-trivy.SKILL.md is valid
 ✓ security-scan-go-vuln.SKILL.md is valid
-✓ qa-precommit-all.SKILL.md is valid
+✓ qa-lefthook-all.SKILL.md is valid
 ```
 
 **Validation Checks Passed**:

@@ -168,7 +168,7 @@ func (h *NotificationProviderHandler) Create(c *gin.Context) {
 	}
 
 	providerType := strings.ToLower(strings.TrimSpace(req.Type))
-	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" {
+	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE", "validation", "Unsupported notification provider type")
 		return
 	}
@@ -228,7 +228,7 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 	}
 
 	providerType := strings.ToLower(strings.TrimSpace(existing.Type))
-	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" {
+	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE", "validation", "Unsupported notification provider type")
 		return
 	}
@@ -303,6 +303,23 @@ func (h *NotificationProviderHandler) Test(c *gin.Context) {
 	providerType := strings.ToLower(strings.TrimSpace(req.Type))
 	if providerType == "gotify" && strings.TrimSpace(req.Token) != "" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "TOKEN_WRITE_ONLY", "validation", "Gotify token is accepted only on provider create/update")
+		return
+	}
+
+	// Email providers use global SMTP + recipients from the URL field; they don't require a saved provider ID.
+	if providerType == "email" {
+		provider := models.NotificationProvider{
+			ID:   strings.TrimSpace(req.ID),
+			Name: req.Name,
+			Type: req.Type,
+			URL:  req.URL,
+		}
+		if err := h.service.TestEmailProvider(provider); err != nil {
+			code, category, message := classifyProviderTestFailure(err)
+			respondSanitizedProviderError(c, http.StatusBadRequest, code, category, message)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "Test notification sent"})
 		return
 	}
 

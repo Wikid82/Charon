@@ -594,6 +594,7 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 		appName := getAppName(h.DB)
 
 		go func() {
+			// userEmail validated as RFC 5321 format; rejectCRLF + net/mail.ParseAddress in mail_service.go cover this path.
 			if err := h.MailService.SendInvite(userEmail, userToken, appName, baseURL); err != nil {
 				// Log failure but don't block response
 				middleware.GetRequestLogger(c).WithField("user_email", sanitizeForLog(userEmail)).WithField("error", sanitizeForLog(err.Error())).Error("Failed to send invite email")
@@ -1012,6 +1013,7 @@ func (h *UserHandler) ResendInvite(c *gin.Context) {
 		baseURL, ok := utils.GetConfiguredPublicURL(h.DB)
 		if ok {
 			appName := getAppName(h.DB)
+			// userEmail validated as RFC 5321 format; rejectCRLF + net/mail.ParseAddress in mail_service.go cover this path.
 			if err := h.MailService.SendInvite(user.Email, inviteToken, appName, baseURL); err == nil {
 				emailSent = true
 			}
