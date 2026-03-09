@@ -66,8 +66,6 @@
     "settings": "设置",
     "system": "系统",
     "email": "电子邮件 (SMTP)",
-    "adminAccount": "管理员账户",
-    "accountManagement": "账户管理",
     "import": "导入",
     "caddyfile": "Caddyfile",
     "backups": "备份",
@@ -538,6 +536,10 @@
     "role": "角色",
     "roleUser": "用户",
     "roleAdmin": "管理员",
+    "rolePassthrough": "Passthrough",
+    "roleUserDescription": "只能访问允许的代理主机。",
+    "roleAdminDescription": "完全访问所有功能和设置。",
+    "rolePassthroughDescription": "仅代理访问 — 无管理界面。",
     "permissionMode": "权限模式",
     "allowAllBlacklist": "允许所有（黑名单）",
     "denyAllWhitelist": "拒绝所有（白名单）",
@@ -571,7 +573,23 @@
     "resendInvite": "重新发送邀请",
     "inviteResent": "邀请重新发送成功",
     "inviteCreatedNoEmail": "新邀请已创建。无法发送电子邮件。",
-    "resendFailed": "重新发送邀请失败"
+    "resendFailed": "重新发送邀请失败",
+    "myProfile": "我的资料",
+    "editUser": "编辑用户",
+    "changePassword": "修改密码",
+    "currentPassword": "当前密码",
+    "newPassword": "新密码",
+    "confirmPassword": "确认密码",
+    "passwordChanged": "密码修改成功",
+    "passwordChangeFailed": "密码修改失败",
+    "passwordMismatch": "密码不匹配",
+    "apiKey": "API密钥",
+    "regenerateApiKey": "重新生成API密钥",
+    "apiKeyRegenerated": "API密钥已重新生成",
+    "apiKeyRegenerateFailed": "重新生成API密钥失败",
+    "apiKeyConfirm": "确定吗？当前的API密钥将失效。",
+    "profileUpdated": "资料更新成功",
+    "profileUpdateFailed": "资料更新失败"
   },
   "dashboard": {
     "title": "仪表板",
@@ -1020,5 +1038,10 @@
   "dns": {
     "title": "DNS 管理",
     "description": "管理 DNS 提供商和插件以实现证书自动化"
+  },
+  "passthrough": {
+    "title": "欢迎",
+    "description": "您的账户拥有 Passthrough 访问权限。您可以直接访问分配给您的服务 — 无管理界面可用。",
+    "noAccessToManagement": "您无权访问管理界面。"
   }
 }

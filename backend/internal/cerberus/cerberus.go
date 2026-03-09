@@ -272,7 +272,7 @@ func (c *Cerberus) isAuthenticatedAdmin(ctx *gin.Context) bool {
 		return false
 	}
 	roleStr, ok := role.(string)
-	if !ok || roleStr != "admin" {
+	if !ok || roleStr != string(models.RoleAdmin) {
 		return false
 	}
 	userID, exists := ctx.Get("userID")

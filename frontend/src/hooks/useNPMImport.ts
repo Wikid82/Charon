@@ -46,7 +46,10 @@ export function useNPMImport() {
   });
 
   const cancelMutation = useMutation({
-    mutationFn: cancelNPMImport,
+    mutationFn: () => {
+      if (!sessionId) throw new Error('No active session');
+      return cancelNPMImport(sessionId);
+    },
     onSuccess: () => {
       setPreview(null);
       setSessionId(null);

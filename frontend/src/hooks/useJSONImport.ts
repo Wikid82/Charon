@@ -46,7 +46,10 @@ export function useJSONImport() {
   });
 
   const cancelMutation = useMutation({
-    mutationFn: cancelJSONImport,
+    mutationFn: () => {
+      if (!sessionId) throw new Error('No active session');
+      return cancelJSONImport(sessionId);
+    },
     onSuccess: () => {
       setPreview(null);
       setSessionId(null);

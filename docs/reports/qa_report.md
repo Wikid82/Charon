@@ -1,7 +1,9 @@
-## QA Report - PR #779
+## QA Report — Import/Save Route Regression Test Suite
 
-- Date: 2026-03-01
-- Scope: Post-remediation merge-readiness gates after Caddy Import E2E fix
+- Date: 2026-03-02
+- Branch: `feature/beta-release` (HEAD `2f90d936`)
+- Scope: Regression test coverage for import and save function routes
+- Full report: [docs/reports/qa_report_import_save_regression.md](qa_report_import_save_regression.md)
 
 ## E2E Status
 

@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
@@ -17,10 +18,14 @@ import {
   updateUser,
   updateUserPermissions,
   resendInvite,
+  getProfile,
+  updateProfile,
+  regenerateApiKey,
 } from '../api/users'
 import type { User, InviteUserRequest, PermissionMode, UpdateUserPermissionsRequest } from '../api/users'
 import { getProxyHosts } from '../api/proxyHosts'
 import type { ProxyHost } from '../api/proxyHosts'
+import { useAuth } from '../hooks/useAuth'
 import {
   Users,
   UserPlus,
@@ -36,6 +41,10 @@ import {
   Loader2,
   ExternalLink,
   AlertTriangle,
+  Pencil,
+  Key,
+  Lock,
+  UserCircle,
 } from 'lucide-react'
 
 interface InviteModalProps {
@@ -47,9 +56,10 @@ interface InviteModalProps {
 function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const dialogRef = useRef<HTMLDivElement>(null)
   const [email, setEmail] = useState('')
   const [emailError, setEmailError] = useState<string | null>(null)
-  const [role, setRole] = useState<'user' | 'admin'>('user')
+  const [role, setRole] = useState<'user' | 'admin' | 'passthrough'>('user')
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('allow_all')
   const [selectedHosts, setSelectedHosts] = useState<number[]>([])
   const [inviteResult, setInviteResult] = useState<{
@@ -84,19 +94,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
     return true
   }
 
-  // Keyboard navigation - close on Escape
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-      }
-    }
-
-    if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown)
-      return () => document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isOpen, onClose])
+  useFocusTrap(dialogRef, isOpen, onClose)
 
   // Fetch preview when email changes
   useEffect(() => {
@@ -170,7 +168,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
   const handleClose = () => {
     setEmail('')
     setEmailError(null)
-    setRole('user')
+    setRole('user' as 'user' | 'admin' | 'passthrough')
     setPermissionMode('allow_all')
     setSelectedHosts([])
     setInviteResult(null)
@@ -196,6 +194,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
 
         {/* Layer 3: Form content (pointer-events-auto) */}
         <div
+          ref={dialogRef}
           className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto pointer-events-auto"
           role="dialog"
           aria-modal="true"
@@ -287,15 +286,21 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
                 <select
                   id="invite-user-role"
                   value={role}
-                  onChange={(e) => setRole(e.target.value as 'user' | 'admin')}
+                  onChange={(e) => setRole(e.target.value as 'user' | 'admin' | 'passthrough')}
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="user">{t('users.roleUser')}</option>
                   <option value="admin">{t('users.roleAdmin')}</option>
+                  <option value="passthrough">{t('users.rolePassthrough')}</option>
                 </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  {role === 'admin' && t('users.roleAdminDescription')}
+                  {role === 'user' && t('users.roleUserDescription')}
+                  {role === 'passthrough' && t('users.rolePassthroughDescription')}
+                </p>
               </div>
 
-              {role === 'user' && (
+              {(role === 'user' || role === 'passthrough') && (
                 <>
                   <div className="w-full">
                     <label htmlFor="invite-permission-mode" className="block text-sm font-medium text-gray-300 mb-1.5">
@@ -411,6 +416,7 @@ interface PermissionsModalProps {
 function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModalProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const dialogRef = useRef<HTMLDivElement>(null)
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('allow_all')
   const [selectedHosts, setSelectedHosts] = useState<number[]>([])
 
@@ -422,23 +428,11 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
     }
   }, [user])
 
-  // Keyboard navigation - close on Escape
   const handleClose = useCallback(() => {
     onClose()
   }, [onClose])
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        handleClose()
-      }
-    }
-
-    if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown)
-      return () => document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isOpen, handleClose])
+  useFocusTrap(dialogRef, isOpen, handleClose)
 
   const updatePermissionsMutation = useMutation({
     mutationFn: async () => {
@@ -478,6 +472,7 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
 
         {/* Layer 3: Form content (pointer-events-auto) */}
         <div
+          ref={dialogRef}
           className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto pointer-events-auto"
           role="dialog"
           aria-modal="true"
@@ -566,12 +561,244 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
   )
 }
 
+interface UserDetailModalProps {
+  isOpen: boolean
+  onClose: () => void
+  user: User | null
+  isSelf: boolean
+}
+
+function UserDetailModal({ isOpen, onClose, user, isSelf }: UserDetailModalProps) {
+  const { t } = useTranslation()
+  const { changePassword } = useAuth()
+  const queryClient = useQueryClient()
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPasswordSection, setShowPasswordSection] = useState(false)
+  const [apiKeyMasked, setApiKeyMasked] = useState('')
+
+  useEffect(() => {
+    if (user) {
+      setName(user.name || '')
+      setEmail(user.email || '')
+      setShowPasswordSection(false)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+    }
+  }, [user])
+
+  // Fetch profile for API key info when editing self
+  const { data: profile } = useQuery({
+    queryKey: ['profile'],
+    queryFn: getProfile,
+    enabled: isOpen && isSelf,
+  })
+
+  useEffect(() => {
+    if (profile) {
+      setApiKeyMasked(profile.api_key_masked || '')
+    }
+  }, [profile])
+
+  useFocusTrap(dialogRef, isOpen, onClose)
+
+  const profileMutation = useMutation({
+    mutationFn: async () => {
+      if (isSelf) {
+        return updateProfile({ name, email })
+      }
+      return updateUser(user!.id, { name, email })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      if (isSelf) queryClient.invalidateQueries({ queryKey: ['profile'] })
+      toast.success(t('users.profileUpdated'))
+      onClose()
+    },
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { error?: string } } }
+      toast.error(err.response?.data?.error || t('users.profileUpdateFailed'))
+    },
+  })
+
+  const passwordMutation = useMutation({
+    mutationFn: async () => {
+      if (newPassword !== confirmPassword) {
+        throw new Error(t('users.passwordMismatch'))
+      }
+      return changePassword(currentPassword, newPassword)
+    },
+    onSuccess: () => {
+      toast.success(t('users.passwordChanged'))
+      setShowPasswordSection(false)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+    },
+    onError: (error: unknown) => {
+      const err = error as { message?: string }
+      toast.error(err.message || t('users.passwordChangeFailed'))
+    },
+  })
+
+  const regenApiKeyMutation = useMutation({
+    mutationFn: regenerateApiKey,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
+      setApiKeyMasked(data.api_key_masked)
+      toast.success(t('users.apiKeyRegenerated'))
+    },
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { error?: string } } }
+      toast.error(err.response?.data?.error || t('users.apiKeyRegenerateFailed'))
+    },
+  })
+
+  if (!isOpen || !user) return null
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+      <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
+        <div
+          ref={dialogRef}
+          className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto pointer-events-auto"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="user-detail-modal-title"
+        >
+          <div className="flex items-center justify-between p-4 border-b border-gray-800">
+            <h3 id="user-detail-modal-title" className="text-lg font-semibold text-white flex items-center gap-2">
+              <Pencil className="h-5 w-5" />
+              {isSelf ? t('users.myProfile') : t('users.editUser')}
+            </h3>
+            <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label={t('common.close')}>
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="p-4 space-y-4">
+            {/* Name & Email */}
+            <div>
+              <Input
+                label={t('common.name')}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <div>
+              <Input
+                label={t('users.emailAddress')}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button
+                onClick={() => profileMutation.mutate()}
+                isLoading={profileMutation.isPending}
+                className="flex-1"
+              >
+                {t('common.save')}
+              </Button>
+            </div>
+
+            {/* Password Section — self only */}
+            {isSelf && (
+              <div className="border-t border-gray-700 pt-4">
+                <button
+                  onClick={() => setShowPasswordSection(!showPasswordSection)}
+                  className="flex items-center gap-2 text-sm font-medium text-gray-300 hover:text-white"
+                >
+                  <Lock className="h-4 w-4" />
+                  {t('users.changePassword')}
+                </button>
+                {showPasswordSection && (
+                  <div className="mt-3 space-y-3">
+                    <Input
+                      id="current-password"
+                      label={t('users.currentPassword')}
+                      type="password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                    />
+                    <Input
+                      id="new-password"
+                      label={t('users.newPassword')}
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                    />
+                    <Input
+                      id="confirm-password"
+                      label={t('users.confirmPassword')}
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                    />
+                    {newPassword && confirmPassword && newPassword !== confirmPassword && (
+                      <p className="text-xs text-red-400" role="alert">{t('users.passwordMismatch')}</p>
+                    )}
+                    <Button
+                      onClick={() => passwordMutation.mutate()}
+                      isLoading={passwordMutation.isPending}
+                      disabled={!currentPassword || !newPassword || newPassword !== confirmPassword}
+                      variant="secondary"
+                    >
+                      {t('users.changePassword')}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* API Key Section — self only */}
+            {isSelf && (
+              <div className="border-t border-gray-700 pt-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Key className="h-4 w-4 text-gray-400" />
+                  <span className="text-sm font-medium text-gray-300">{t('users.apiKey')}</span>
+                </div>
+                {apiKeyMasked && (
+                  <p className="text-sm font-mono text-gray-500 mb-2">{apiKeyMasked}</p>
+                )}
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    if (confirm(t('users.apiKeyConfirm'))) {
+                      regenApiKeyMutation.mutate()
+                    }
+                  }}
+                  isLoading={regenApiKeyMutation.isPending}
+                >
+                  {t('users.regenerateApiKey')}
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
 export default function UsersPage() {
   const { t } = useTranslation()
+  const { user: authUser } = useAuth()
   const queryClient = useQueryClient()
   const [inviteModalOpen, setInviteModalOpen] = useState(false)
   const [permissionsModalOpen, setPermissionsModalOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
+  const [detailModalOpen, setDetailModalOpen] = useState(false)
+  const [detailUser, setDetailUser] = useState<User | null>(null)
+  const [isSelfEdit, setIsSelfEdit] = useState(false)
 
   const { data: users, isLoading } = useQuery({
     queryKey: ['users'],
@@ -630,6 +857,14 @@ export default function UsersPage() {
     setPermissionsModalOpen(true)
   }
 
+  const openDetail = (user: User, self: boolean) => {
+    setDetailUser(user)
+    setIsSelfEdit(self)
+    setDetailModalOpen(true)
+  }
+
+  const currentUser = users?.find((u) => u.id === authUser?.user_id)
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -650,6 +885,26 @@ export default function UsersPage() {
           {t('users.inviteUser')}
         </Button>
       </div>
+
+      {/* My Profile Card */}
+      {currentUser && (
+        <Card>
+          <div className="flex items-center justify-between p-4">
+            <div className="flex items-center gap-3">
+              <UserCircle className="h-10 w-10 text-blue-500" />
+              <div>
+                <h2 className="text-sm font-semibold text-white">{t('users.myProfile')}</h2>
+                <p className="text-sm text-white">{currentUser.name || t('users.noName')}</p>
+                <p className="text-xs text-gray-500">{currentUser.email}</p>
+              </div>
+            </div>
+            <Button variant="secondary" onClick={() => openDetail(currentUser, true)}>
+              <Pencil className="h-4 w-4 mr-2" />
+              {t('users.editUser')}
+            </Button>
+          </div>
+        </Card>
+      )}
 
       <Card>
         <div className="overflow-x-auto">
@@ -678,10 +933,14 @@ export default function UsersPage() {
                       className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                         user.role === 'admin'
                           ? 'bg-purple-900/30 text-purple-400'
-                          : 'bg-blue-900/30 text-blue-400'
+                          : user.role === 'passthrough'
+                            ? 'bg-gray-900/30 text-gray-400'
+                            : 'bg-blue-900/30 text-blue-400'
                       }`}
                     >
-                      {user.role}
+                      {user.role === 'admin' && t('users.roleAdmin')}
+                      {user.role === 'user' && t('users.roleUser')}
+                      {user.role === 'passthrough' && t('users.rolePassthrough')}
                     </span>
                   </td>
                   <td className="py-3 px-4">
@@ -721,6 +980,14 @@ export default function UsersPage() {
                   </td>
                   <td className="py-3 px-4">
                     <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => openDetail(user, user.id === authUser?.user_id)}
+                        className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded"
+                        title={t('users.editUser')}
+                        aria-label={t('users.editUser')}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
                       {user.invite_status === 'pending' && (
                         <button
                           onClick={() => resendInviteMutation.mutate(user.id)}
@@ -778,6 +1045,16 @@ export default function UsersPage() {
         }}
         user={selectedUser}
         proxyHosts={proxyHosts}
+      />
+
+      <UserDetailModal
+        isOpen={detailModalOpen}
+        onClose={() => {
+          setDetailModalOpen(false)
+          setDetailUser(null)
+        }}
+        user={detailUser}
+        isSelf={isSelfEdit}
       />
     </div>
   )

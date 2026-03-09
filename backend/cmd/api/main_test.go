@@ -40,7 +40,7 @@ func TestResetPasswordCommand_Succeeds(t *testing.T) {
 	}
 
 	email := "user@example.com"
-	user := models.User{UUID: "u-1", Email: email, Name: "User", Role: "admin", Enabled: true}
+	user := models.User{UUID: "u-1", Email: email, Name: "User", Role: models.RoleAdmin, Enabled: true}
 	user.PasswordHash = "$2a$10$example_hashed_password"
 	if err = db.Create(&user).Error; err != nil {
 		t.Fatalf("seed user: %v", err)
@@ -257,7 +257,7 @@ func TestMain_ResetPasswordCommand_InProcess(t *testing.T) {
 	}
 
 	email := "user@example.com"
-	user := models.User{UUID: "u-1", Email: email, Name: "User", Role: "admin", Enabled: true}
+	user := models.User{UUID: "u-1", Email: email, Name: "User", Role: models.RoleAdmin, Enabled: true}
 	user.PasswordHash = "$2a$10$example_hashed_password"
 	user.FailedLoginAttempts = 3
 	if err = db.Create(&user).Error; err != nil {

@@ -77,7 +77,11 @@ export function useImport() {
   });
 
   const cancelMutation = useMutation({
-    mutationFn: () => cancelImport(),
+    mutationFn: () => {
+      const sessionId = uploadPreview?.session?.id || statusQuery.data?.session?.id;
+      if (!sessionId) throw new Error('No active session');
+      return cancelImport(sessionId);
+    },
     onSuccess: () => {
       // Clear upload preview and remove query cache
       setUploadPreview(null);
