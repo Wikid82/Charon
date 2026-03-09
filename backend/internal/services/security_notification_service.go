@@ -38,7 +38,6 @@ func (s *SecurityNotificationService) GetSettings() (*models.NotificationConfig,
 			NotifyWAFBlocks:     true,
 			NotifyACLDenies:     true,
 			NotifyRateLimitHits: true,
-			EmailRecipients:     "",
 		}, nil
 	}
 	return &config, err

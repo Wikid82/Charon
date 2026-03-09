@@ -2,6 +2,8 @@
 package config
 
 import (
+	crand "crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -96,7 +98,6 @@ func Load() (Config, error) {
 		CaddyBinary:     getEnvAny("caddy", "CHARON_CADDY_BINARY", "CPM_CADDY_BINARY"),
 		ImportCaddyfile: getEnvAny("/import/Caddyfile", "CHARON_IMPORT_CADDYFILE", "CPM_IMPORT_CADDYFILE"),
 		ImportDir:       getEnvAny(filepath.Join("data", "imports"), "CHARON_IMPORT_DIR", "CPM_IMPORT_DIR"),
-		JWTSecret:       getEnvAny("change-me-in-production", "CHARON_JWT_SECRET", "CPM_JWT_SECRET"),
 		EncryptionKey:   getEnvAny("", "CHARON_ENCRYPTION_KEY"),
 		ACMEStaging:     getEnvAny("", "CHARON_ACME_STAGING", "CPM_ACME_STAGING") == "true",
 		SingleContainer: strings.EqualFold(getEnvAny("true", "CHARON_SINGLE_CONTAINER_MODE"), "true"),
@@ -106,6 +107,13 @@ func Load() (Config, error) {
 		Security:        loadSecurityConfig(),
 		Emergency:       loadEmergencyConfig(),
 		Debug:           getEnvAny("false", "CHARON_DEBUG", "CPM_DEBUG") == "true",
+	}
+
+	// Set JWTSecret using os.Getenv directly so no string literal flows into the
+	// field — prevents CodeQL go/parse-jwt-with-hardcoded-key taint from any fallback.
+	cfg.JWTSecret = os.Getenv("CHARON_JWT_SECRET")
+	if cfg.JWTSecret == "" {
+		cfg.JWTSecret = os.Getenv("CPM_JWT_SECRET")
 	}
 
 	allowedInternalHosts := security.InternalServiceHostAllowlist()
@@ -129,6 +137,14 @@ func Load() (Config, error) {
 
 	if err := os.MkdirAll(cfg.ImportDir, 0o700); err != nil {
 		return Config{}, fmt.Errorf("ensure import directory: %w", err)
+	}
+
+	if cfg.JWTSecret == "" {
+		b := make([]byte, 32)
+		if _, err := crand.Read(b); err != nil {
+			return Config{}, fmt.Errorf("generate fallback jwt secret: %w", err)
+		}
+		cfg.JWTSecret = hex.EncodeToString(b)
 	}
 
 	return cfg, nil

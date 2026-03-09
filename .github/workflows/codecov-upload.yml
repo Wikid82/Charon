@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.26.0'
+  GO_VERSION: '1.26.1'
   NODE_VERSION: '24.12.0'
   GOTOOLCHAIN: auto
 
@@ -48,6 +48,7 @@ jobs:
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
+
           cache-dependency-path: backend/go.sum
 
       # SECURITY: Keep pull_request (not pull_request_target) for secret-bearing backend tests.

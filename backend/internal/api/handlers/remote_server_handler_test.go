@@ -22,7 +22,7 @@ func setupRemoteServerTest_New(t *testing.T) (*gin.Engine, *handlers.RemoteServe
 	// Ensure RemoteServer table exists
 	_ = db.AutoMigrate(&models.RemoteServer{})
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 
 	r := gin.Default()

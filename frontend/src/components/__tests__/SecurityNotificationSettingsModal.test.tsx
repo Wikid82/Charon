@@ -85,7 +85,7 @@ describe('Security Notification Settings on Notifications page', () => {
     await user.click(await screen.findByTestId('add-provider-btn'));
 
     const typeSelect = screen.getByTestId('provider-type') as HTMLSelectElement;
-    expect(Array.from(typeSelect.options).map((option) => option.value)).toEqual(['discord', 'gotify', 'webhook']);
+    expect(Array.from(typeSelect.options).map((option) => option.value)).toEqual(['discord', 'gotify', 'webhook', 'email']);
     expect(typeSelect.value).toBe('discord');
 
     const webhookInput = screen.getByTestId('provider-url') as HTMLInputElement;

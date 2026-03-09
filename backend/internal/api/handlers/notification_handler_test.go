@@ -36,7 +36,7 @@ func TestNotificationHandler_List(t *testing.T) {
 	db.Create(&models.Notification{Title: "Test 1", Message: "Msg 1", Read: false})
 	db.Create(&models.Notification{Title: "Test 2", Message: "Msg 2", Read: true})
 
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := handlers.NewNotificationHandler(service)
 	router := gin.New()
 	router.GET("/notifications", handler.List)
@@ -72,7 +72,7 @@ func TestNotificationHandler_MarkAsRead(t *testing.T) {
 	notif := &models.Notification{Title: "Test 1", Message: "Msg 1", Read: false}
 	db.Create(notif)
 
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := handlers.NewNotificationHandler(service)
 	router := gin.New()
 	router.POST("/notifications/:id/read", handler.MarkAsRead)
@@ -96,7 +96,7 @@ func TestNotificationHandler_MarkAllAsRead(t *testing.T) {
 	db.Create(&models.Notification{Title: "Test 1", Message: "Msg 1", Read: false})
 	db.Create(&models.Notification{Title: "Test 2", Message: "Msg 2", Read: false})
 
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := handlers.NewNotificationHandler(service)
 	router := gin.New()
 	router.POST("/notifications/read-all", handler.MarkAllAsRead)
@@ -115,7 +115,7 @@ func TestNotificationHandler_MarkAllAsRead(t *testing.T) {
 func TestNotificationHandler_MarkAllAsRead_Error(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupNotificationTestDB(t)
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := handlers.NewNotificationHandler(service)
 
 	r := gin.New()
@@ -134,7 +134,7 @@ func TestNotificationHandler_MarkAllAsRead_Error(t *testing.T) {
 func TestNotificationHandler_DBError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupNotificationTestDB(t)
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := handlers.NewNotificationHandler(service)
 
 	r := gin.New()

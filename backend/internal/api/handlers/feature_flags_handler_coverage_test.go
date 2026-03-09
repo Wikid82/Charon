@@ -460,3 +460,24 @@ func TestFeatureFlagsHandler_NewFeatureFlagsHandler(t *testing.T) {
 	assert.NotNil(t, h.DB)
 	assert.Equal(t, db, h.DB)
 }
+
+func TestFeatureFlagsHandler_GetFlags_EmailFlagDefaultFalse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupFlagsDB(t)
+
+	h := NewFeatureFlagsHandler(db)
+	r := gin.New()
+	r.GET("/api/v1/feature-flags", h.GetFlags)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var flags map[string]bool
+	err := json.Unmarshal(w.Body.Bytes(), &flags)
+	require.NoError(t, err)
+
+	assert.False(t, flags["feature.notifications.service.email.enabled"])
+}

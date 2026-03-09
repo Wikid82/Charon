@@ -15,7 +15,7 @@ check_sarif() {
 
     if [ ! -f "$sarif_file" ]; then
         echo -e "${RED}❌ No SARIF file found: $sarif_file${NC}"
-        echo "Run CodeQL scan first: pre-commit run --hook-stage manual codeql-$lang-scan --all-files"
+        echo "Run CodeQL scan first: lefthook run pre-commit (which includes codeql-$lang-scan) or run `lefthook run codeql`"
         FAILED=1
         return 1
     fi
@@ -96,7 +96,7 @@ check_sarif() {
         fi
     else
                         echo -e "${RED}❌ jq is required for semantic CodeQL severity evaluation (${lang})${NC}"
-                        echo "Install jq and re-run: pre-commit run --hook-stage manual codeql-check-findings --all-files"
+                        echo "Install jq and re-run: lefthook run pre-commit"
                         FAILED=1
     fi
 }
@@ -106,7 +106,7 @@ echo ""
 
                 if ! command -v jq &> /dev/null; then
                     echo -e "${RED}❌ jq is required for CodeQL finding checks${NC}"
-                    echo "Install jq and re-run: pre-commit run --hook-stage manual codeql-check-findings --all-files"
+                    echo "Install jq and re-run: lefthook run pre-commit"
                     exit 1
                 fi
 

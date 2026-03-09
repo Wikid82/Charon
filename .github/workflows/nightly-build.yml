@@ -15,7 +15,7 @@ on:
       default: "false"
 
 env:
-  GO_VERSION: '1.26.0'
+  GO_VERSION: '1.26.1'
   NODE_VERSION: '24.12.0'
   GOTOOLCHAIN: auto
   GHCR_REGISTRY: ghcr.io
@@ -148,14 +148,13 @@ jobs:
       id-token: write
     outputs:
       version: ${{ steps.meta.outputs.version }}
-      tags: ${{ steps.meta.outputs.tags }}
-      digest: ${{ steps.build.outputs.digest }}
+      digest: ${{ steps.resolve_digest.outputs.digest }}
 
     steps:
       - name: Checkout nightly branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
-          ref: nightly
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
           fetch-depth: 0
 
       - name: Set lowercase image name
@@ -165,7 +164,18 @@ jobs:
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a  # v4.0.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4.0.0
+
+      - name: Resolve Alpine base image digest
+        id: alpine
+        run: |
+          ALPINE_IMAGE_REF=$(grep -m1 'ARG ALPINE_IMAGE=' Dockerfile | cut -d'=' -f2-)
+          if [[ -z "$ALPINE_IMAGE_REF" ]]; then
+            echo "::error::Failed to parse ALPINE_IMAGE from Dockerfile"
+            exit 1
+          fi
+          echo "Resolved Alpine image: ${ALPINE_IMAGE_REF}"
+          echo "image=${ALPINE_IMAGE_REF}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
@@ -184,7 +194,7 @@ jobs:
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5.10.0
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf  # v6.0.0
         with:
           images: |
             ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -199,7 +209,7 @@ jobs:
 
       - name: Build and push Docker image
         id: build
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294  # v7.0.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -210,22 +220,52 @@ jobs:
             VERSION=nightly-${{ github.sha }}
             VCS_REF=${{ github.sha }}
             BUILD_DATE=${{ github.event.repository.pushed_at }}
+            ALPINE_IMAGE=${{ steps.alpine.outputs.image }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true
           sbom: true
 
+      - name: Resolve and export image digest
+        id: resolve_digest
+        run: |
+          set -euo pipefail
+          DIGEST="${{ steps.build.outputs.digest }}"
+
+          if [[ -z "$DIGEST" ]]; then
+            echo "Build action digest empty; querying GHCR registry API..."
+            GHCR_TOKEN=$(curl -sf \
+              -u "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
+              "https://ghcr.io/token?scope=repository:${{ env.IMAGE_NAME }}:pull&service=ghcr.io" \
+              | jq -r '.token')
+            DIGEST=$(curl -sfI \
+              -H "Authorization: Bearer ${GHCR_TOKEN}" \
+              -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json" \
+              "https://ghcr.io/v2/${{ env.IMAGE_NAME }}/manifests/nightly" \
+              | grep -i '^docker-content-digest:' | awk '{print $2}' | tr -d '\r' || true)
+            [[ -n "$DIGEST" ]] && echo "Resolved from GHCR API: ${DIGEST}"
+          fi
+
+          if [[ -z "$DIGEST" ]]; then
+            echo "::error::Could not determine image digest from step output or GHCR registry API"
+            exit 1
+          fi
+
+          echo "RESOLVED_DIGEST=${DIGEST}" >> "$GITHUB_ENV"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Exported digest: ${DIGEST}"
+
       - name: Record nightly image digest
         run: |
           echo "## 🧾 Nightly Image Digest" >> "$GITHUB_STEP_SUMMARY"
-          echo "- ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.resolve_digest.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Generate SBOM
         id: sbom_primary
         continue-on-error: true
         uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11  # v0.23.0
         with:
-          image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.build.outputs.digest }}
+          image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom-nightly.json
           syft-version: v1.42.1
@@ -263,7 +303,12 @@ jobs:
           tar -xzf "$TARBALL" syft
           chmod +x syft
 
-          ./syft "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.build.outputs.digest }}" -o cyclonedx-json=sbom-nightly.json
+          DIGEST="${{ steps.resolve_digest.outputs.digest }}"
+          if [[ -z "$DIGEST" ]]; then
+            echo "::error::Digest from resolve_digest step is empty; the digest-resolution step did not complete successfully"
+            exit 1
+          fi
+          ./syft "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}" -o cyclonedx-json=sbom-nightly.json
 
       - name: Verify SBOM artifact
         if: always()
@@ -294,7 +339,7 @@ jobs:
       - name: Sign GHCR Image
         run: |
           echo "Signing GHCR nightly image with keyless signing..."
-          cosign sign --yes "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+          cosign sign --yes "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}"
           echo "✅ GHCR nightly image signed successfully"
 
       # Sign Docker Hub image with keyless signing (Sigstore/Fulcio)
@@ -302,7 +347,7 @@ jobs:
         if: env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Signing Docker Hub nightly image with keyless signing..."
-          cosign sign --yes "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+          cosign sign --yes "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}"
           echo "✅ Docker Hub nightly image signed successfully"
 
       # Attach SBOM to Docker Hub image
@@ -310,7 +355,7 @@ jobs:
         if: env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Attaching SBOM to Docker Hub nightly image..."
-          cosign attach sbom --sbom sbom-nightly.json "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+          cosign attach sbom --sbom sbom-nightly.json "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}"
           echo "✅ SBOM attached to Docker Hub nightly image"
 
   test-nightly-image:
@@ -324,7 +369,7 @@ jobs:
       - name: Checkout nightly branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
-          ref: nightly
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
 
       - name: Set lowercase image name
         run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
@@ -341,9 +386,10 @@ jobs:
 
       - name: Run container smoke test
         run: |
+          IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}"
           docker run --name charon-nightly -d \
             -p 8080:8080 \
-            "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}"
+            "${IMAGE_REF}"
 
           # Wait for container to start
           sleep 10
@@ -378,7 +424,7 @@ jobs:
       - name: Checkout nightly branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
-          ref: nightly
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
 
       - name: Set lowercase image name
         run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
@@ -396,14 +442,16 @@ jobs:
           severity-cutoff: high
 
       - name: Scan with Trivy
-        uses: aquasecurity/trivy-action@97e0b3872f55f89b95b2f65b3dbab56962816478  # 0.34.2
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1  # 0.35.0
         with:
-          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-and-push-nightly.outputs.digest }}
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}
           format: 'sarif'
           output: 'trivy-nightly.sarif'
+          version: 'v0.69.3'
+          trivyignores: '.trivyignore'
 
       - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@c793b717bc78562f491db7b0e93a3a178b099162  # v4.32.5
+        uses: github/codeql-action/upload-sarif@0d579ffd059c29b07949a3cce3983f0780820c98  # v4.32.6
         with:
           sarif_file: 'trivy-nightly.sarif'
           category: 'trivy-nightly'
@@ -506,18 +554,81 @@ jobs:
             echo "- Structured SARIF counts: CRITICAL=${CRITICAL_COUNT}, HIGH=${HIGH_COUNT}, MEDIUM=${MEDIUM_COUNT}"
           } >> "$GITHUB_STEP_SUMMARY"
 
+          # List all Critical/High/Medium findings with details for triage
+          # shellcheck disable=SC2016
+          LIST_FINDINGS='
+            .runs[] as $run
+            | ($run.tool.driver.rules // []) as $rules
+            | $run.results[]?
+            | . as $result
+            | (
+                (
+                  if (($result.ruleIndex | type) == "number") then
+                    ($rules[$result.ruleIndex] // {})
+                  else
+                    {}
+                  end
+                ) as $ruleByIndex
+                | (
+                    [$rules[]? | select((.id // "") == ($result.ruleId // ""))][0] // {}
+                  ) as $ruleById
+                | ($ruleByIndex // $ruleById) as $rule
+                | ($rule.properties["security-severity"] // null) as $sev
+                | (try ($sev | tonumber) catch null) as $score
+                | select($score != null and $score >= 4.0)
+                | {
+                    id: ($result.ruleId // "unknown"),
+                    score: $score,
+                    severity: (
+                      if $score >= 9.0 then "CRITICAL"
+                      elif $score >= 7.0 then "HIGH"
+                      else "MEDIUM"
+                      end
+                    ),
+                    message: ($result.message.text // $rule.shortDescription.text // "no description")[0:120]
+                  }
+              )
+          '
+
+          echo ""
+          echo "=== Vulnerability Details ==="
+          jq -r "[ ${LIST_FINDINGS} ] | sort_by(-.score) | .[] | \"\\(.severity) (\\(.score)): \\(.id) — \\(.message)\"" trivy-nightly.sarif || true
+          echo "============================="
+          echo ""
+
           if [ "$CRITICAL_COUNT" -gt 0 ]; then
             echo "❌ Critical vulnerabilities found in nightly build (${CRITICAL_COUNT})"
+            {
+              echo ""
+              echo "### ❌ Critical CVEs blocking nightly"
+              echo '```'
+              jq -r "[ ${LIST_FINDINGS} | select(.severity == \"CRITICAL\") ] | sort_by(-.score) | .[] | \"\\(.id) (score: \\(.score)): \\(.message)\"" trivy-nightly.sarif || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
           if [ "$HIGH_COUNT" -gt 0 ]; then
             echo "❌ High vulnerabilities found in nightly build (${HIGH_COUNT})"
+            {
+              echo ""
+              echo "### ❌ High CVEs blocking nightly"
+              echo '```'
+              jq -r "[ ${LIST_FINDINGS} | select(.severity == \"HIGH\") ] | sort_by(-.score) | .[] | \"\\(.id) (score: \\(.score)): \\(.message)\"" trivy-nightly.sarif || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
           if [ "$MEDIUM_COUNT" -gt 0 ]; then
             echo "::warning::Medium vulnerabilities found in nightly build (${MEDIUM_COUNT}). Non-blocking by policy; triage with SLA per .github/security-severity-policy.yml"
+            {
+              echo ""
+              echo "### ⚠️ Medium CVEs (non-blocking)"
+              echo '```'
+              jq -r "[ ${LIST_FINDINGS} | select(.severity == \"MEDIUM\") ] | sort_by(-.score) | .[] | \"\\(.id) (score: \\(.score)): \\(.message)\"" trivy-nightly.sarif || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
           echo "✅ No Critical/High vulnerabilities found"

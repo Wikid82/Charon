@@ -353,7 +353,7 @@ Follow idiomatic Go practices and community standards when writing Go code. Thes
 ### Development Practices
 
 - Run tests before committing
-- Use pre-commit hooks for formatting and linting
+- Use lefthook pre-commit-phase hooks for formatting and linting
 - Keep commits focused and atomic
 - Write meaningful commit messages
 - Review diffs before committing

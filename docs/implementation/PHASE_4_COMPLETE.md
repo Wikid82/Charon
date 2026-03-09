@@ -113,7 +113,7 @@ Validating 19 skill(s)...
 ✓ integration-test-crowdsec-decisions.SKILL.md
 ✓ integration-test-crowdsec-startup.SKILL.md
 ✓ integration-test-crowdsec.SKILL.md
-✓ qa-precommit-all.SKILL.md
+✓ qa-lefthook-all.SKILL.md
 ✓ security-scan-go-vuln.SKILL.md
 ✓ security-scan-trivy.SKILL.md
 ✓ test-backend-coverage.SKILL.md

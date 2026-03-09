@@ -172,7 +172,9 @@ func TestApplyRepullsOnCacheMissAfterCSCLIFailure(t *testing.T) {
 func TestApplyRepullsOnCacheExpired(t *testing.T) {
 	cacheDir := t.TempDir()
 	dataDir := filepath.Join(t.TempDir(), "data")
-	cache, err := NewHubCache(cacheDir, 5*time.Millisecond)
+	// Use a long TTL; expiry is simulated via nowFn injection to avoid wall-clock races on
+	// loaded CI runners where 5ms can elapse between Store and Load, causing a second expiry.
+	cache, err := NewHubCache(cacheDir, time.Hour)
 	require.NoError(t, err)
 
 	archive := makeTestArchive(t, map[string]string{"config.yaml": "test: expired"})
@@ -180,8 +182,9 @@ func TestApplyRepullsOnCacheExpired(t *testing.T) {
 	_, err = cache.Store(ctx, "expired/preset", "etag-old", "hub", "old", archive)
 	require.NoError(t, err)
 
-	// wait for expiration
-	time.Sleep(10 * time.Millisecond)
+	// Advance the cache clock 2 hours past TTL so Apply sees the entry as expired,
+	// while the freshly re-stored entry (retrieved_at ≈ now+2h, TTL=1h) remains valid.
+	cache.nowFn = func() time.Time { return time.Now().Add(2 * time.Hour) }
 
 	hub := NewHubService(nil, cache, dataDir)
 	hub.HubBaseURL = "http://test.example.com"

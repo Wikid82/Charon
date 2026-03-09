@@ -3,7 +3,6 @@ package notifications
 import "context"
 
 const (
-	EngineLegacy   = "legacy"
 	EngineNotifyV1 = "notify_v1"
 )
 

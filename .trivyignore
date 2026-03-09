@@ -7,3 +7,10 @@ playwright/.auth/
 # Charon does not use Nebula VPN PKI by default. Review by: 2026-03-05
 # See also: .grype.yaml for full justification
 CVE-2026-25793
+
+# CVE-2026-22184: zlib Global Buffer Overflow in untgz utility
+# Severity: CRITICAL (CVSS 9.8) — Package: zlib 1.3.1-r2 in Alpine base image
+# No upstream fix available: Alpine 3.23 (including edge) still ships zlib 1.3.1-r2.
+# Charon does not use untgz or process untrusted tar archives. Review by: 2026-03-14
+# See also: .grype.yaml for full justification
+CVE-2026-22184

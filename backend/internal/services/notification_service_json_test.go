@@ -48,7 +48,7 @@ func TestSendJSONPayload_DiscordIPHostRejected(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	provider := models.NotificationProvider{
 		Type:     "discord",
@@ -88,7 +88,7 @@ func TestSendJSONPayload_UsesStoredHostnameURLWithoutHostMutation(t *testing.T) 
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Mock Discord validation to allow test server URLs
 	origValidateDiscordFunc := validateDiscordProviderURLFunc
@@ -158,7 +158,7 @@ func TestSendJSONPayload_Discord(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	provider := models.NotificationProvider{
 		Type:     "discord",
@@ -193,7 +193,7 @@ func TestSendJSONPayload_Slack(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	provider := models.NotificationProvider{
 		Type:     "slack",
@@ -226,7 +226,7 @@ func TestSendJSONPayload_Gotify(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	provider := models.NotificationProvider{
 		Type:     "gotify",
@@ -249,7 +249,7 @@ func TestSendJSONPayload_TemplateTimeout(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Mock Discord validation to allow private IP check to run
 	origValidateDiscordFunc := validateDiscordProviderURLFunc
@@ -286,7 +286,7 @@ func TestSendJSONPayload_TemplateSizeLimit(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Create a template larger than 10KB
 	largeTemplate := strings.Repeat("x", 11*1024)
@@ -311,7 +311,7 @@ func TestSendJSONPayload_DiscordValidation(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	provider := models.NotificationProvider{
 		Type:     "discord",
@@ -334,7 +334,7 @@ func TestSendJSONPayload_DiscordValidation_MissingMessage(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	provider := models.NotificationProvider{
 		Type:     "discord",
@@ -354,7 +354,7 @@ func TestSendJSONPayload_SlackValidation(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Slack payload without text or blocks should fail
 	provider := models.NotificationProvider{
@@ -377,7 +377,7 @@ func TestSendJSONPayload_GotifyValidation(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	// Gotify payload without message should fail
 	provider := models.NotificationProvider{
@@ -400,7 +400,7 @@ func TestSendJSONPayload_InvalidJSON(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	provider := models.NotificationProvider{
 		Type:     "discord",
@@ -423,35 +423,6 @@ func TestNormalizeURL_DiscordWebhook_ConvertsToDiscordScheme(t *testing.T) {
 
 	got2 := normalizeURL("discord", "https://discordapp.com/api/webhooks/456/xyz")
 	assert.Equal(t, "discord://xyz@456", got2)
-}
-
-func TestSendExternal_SkipsInvalidHTTPDestination(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
-	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
-
-	// Provider with invalid HTTP destination should be skipped before send.
-	require.NoError(t, db.Create(&models.NotificationProvider{
-		Name:    "bad",
-		Type:    "telegram", // unsupported by notify-only runtime
-		URL:     "http://example..com/webhook",
-		Enabled: true,
-	}).Error)
-
-	var called atomic.Bool
-	orig := legacySendFunc
-	defer func() { legacySendFunc = orig }()
-	legacySendFunc = func(_ string, _ string) error {
-		called.Store(true)
-		return nil
-	}
-
-	svc := NewNotificationService(db)
-	svc.SendExternal(context.Background(), "test", "t", "m", nil)
-
-	// Give goroutine a moment; the send should be skipped.
-	time.Sleep(150 * time.Millisecond)
-	assert.False(t, called.Load())
 }
 
 func TestSendExternal_UsesJSONForSupportedServices(t *testing.T) {
@@ -484,7 +455,7 @@ func TestSendExternal_UsesJSONForSupportedServices(t *testing.T) {
 	}
 	db.Create(&provider)
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 	svc.SendExternal(context.Background(), "proxy_host", "Test", "Message", nil)
 
 	// Give goroutine time to execute
@@ -517,7 +488,7 @@ func TestTestProvider_UsesJSONForSupportedServices(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(db)
+	svc := NewNotificationService(db, nil)
 
 	provider := models.NotificationProvider{
 		Type:     "discord",
