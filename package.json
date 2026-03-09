@@ -10,6 +10,7 @@
     "lint:md:fix": "markdownlint-cli2 '**/*.md' --fix --ignore node_modules --ignore .venv --ignore test-results --ignore codeql-db --ignore codeql-agent-results"
   },
   "dependencies": {
+    "@types/eslint-plugin-jsx-a11y": "^6.10.1",
     "@typescript/analyze-trace": "^0.10.1",
     "tldts": "^7.0.25",
     "type-check": "^0.4.0",
