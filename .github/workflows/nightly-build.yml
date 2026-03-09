@@ -148,7 +148,6 @@ jobs:
       id-token: write
     outputs:
       version: ${{ steps.meta.outputs.version }}
-      tags: ${{ steps.meta.outputs.tags }}
       digest: ${{ steps.resolve_digest.outputs.digest }}
 
     steps:
