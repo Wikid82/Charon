@@ -258,14 +258,14 @@ jobs:
       - name: Record nightly image digest
         run: |
           echo "## 🧾 Nightly Image Digest" >> "$GITHUB_STEP_SUMMARY"
-          echo "- ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ env.RESOLVED_DIGEST }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.resolve_digest.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Generate SBOM
         id: sbom_primary
         continue-on-error: true
         uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11  # v0.23.0
         with:
-          image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ env.RESOLVED_DIGEST }}
+          image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom-nightly.json
           syft-version: v1.42.1
@@ -303,9 +303,9 @@ jobs:
           tar -xzf "$TARBALL" syft
           chmod +x syft
 
-          DIGEST="${{ env.RESOLVED_DIGEST }}"
+          DIGEST="${{ steps.resolve_digest.outputs.digest }}"
           if [[ -z "$DIGEST" ]]; then
-            echo "::error::RESOLVED_DIGEST is unset; the digest-resolution step did not complete successfully"
+            echo "::error::Digest from resolve_digest step is empty; the digest-resolution step did not complete successfully"
             exit 1
           fi
           ./syft "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}" -o cyclonedx-json=sbom-nightly.json
@@ -339,7 +339,7 @@ jobs:
       - name: Sign GHCR Image
         run: |
           echo "Signing GHCR nightly image with keyless signing..."
-          cosign sign --yes "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ env.RESOLVED_DIGEST }}"
+          cosign sign --yes "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}"
           echo "✅ GHCR nightly image signed successfully"
 
       # Sign Docker Hub image with keyless signing (Sigstore/Fulcio)
@@ -347,7 +347,7 @@ jobs:
         if: env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Signing Docker Hub nightly image with keyless signing..."
-          cosign sign --yes "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ env.RESOLVED_DIGEST }}"
+          cosign sign --yes "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}"
           echo "✅ Docker Hub nightly image signed successfully"
 
       # Attach SBOM to Docker Hub image
@@ -355,7 +355,7 @@ jobs:
         if: env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Attaching SBOM to Docker Hub nightly image..."
-          cosign attach sbom --sbom sbom-nightly.json "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ env.RESOLVED_DIGEST }}"
+          cosign attach sbom --sbom sbom-nightly.json "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}"
           echo "✅ SBOM attached to Docker Hub nightly image"
 
   test-nightly-image:
