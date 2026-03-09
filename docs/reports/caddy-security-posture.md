@@ -2,7 +2,7 @@
 
 - Date: 2026-02-23
 - Scope: PR-2 only (security patch posture + xcaddy patch retirement decision)
-- Upstream target: Caddy 2.11.x line (`2.11.1` candidate in this repository)
+- Upstream target: Caddy 2.11.x line (`2.11.2` candidate in this repository)
 - Inputs:
   - PR-1 compatibility matrix: `docs/reports/caddy-compatibility-matrix.md`
   - Plan authority: `docs/plans/current_spec.md`

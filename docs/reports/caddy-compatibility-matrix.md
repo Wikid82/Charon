@@ -1,7 +1,7 @@
 # PR-1 Caddy Compatibility Matrix Report
 
 - Generated at: 2026-02-23T13:52:26Z
-- Candidate Caddy version: 2.11.1
+- Candidate Caddy version: 2.11.2
 - Plugin set: caddy-security,coraza-caddy,caddy-crowdsec-bouncer,caddy-geoip2,caddy-ratelimit
 - Smoke set: boot_caddy,plugin_modules,config_validate,admin_api_health
 - Matrix dimensions: patch scenario × platform/arch × checked plugin modules
