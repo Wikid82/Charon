@@ -44,7 +44,7 @@ You are a PRINCIPAL ARCHITECT responsible for technical planning and system desi
    - Include acceptance criteria
    - Break down into implementable tasks using examples, diagrams, and tables
    - Estimate complexity for each component
-    - Add a **Cmmit Slicing Strategy** section with:
+    - Add a **Commit Slicing Strategy** section with:
        - Decision: single PR or multiple PRs
        - Trigger reasons (scope, risk, cross-domain changes, review size)
        - Ordered PR slices (`PR-1`, `PR-2`, ...), each with scope, files, dependencies, and validation gates
