@@ -87,7 +87,7 @@ export function SecurityScoreDisplay({
     <Card className="p-4">
       <div className="flex items-start gap-4">
         {/* Circular Score Display */}
-        <div className="flex-shrink-0">
+        <div className="shrink-0">
           <div
             className={`${sizeClasses[size]} rounded-full ${getScoreBgColor()} flex flex-col items-center justify-center font-bold ${getScoreColor()}`}
           >
@@ -177,7 +177,7 @@ export function SecurityScoreDisplay({
                     <ul className="mt-3 space-y-2 pl-6">
                       {suggestions.map((suggestion, index) => (
                         <li key={index} className="flex items-start gap-2 text-sm text-gray-600 dark:text-gray-400">
-                          <AlertCircle className="w-4 h-4 text-yellow-500 flex-shrink-0 mt-0.5" />
+                          <AlertCircle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
                           <span>{suggestion}</span>
                         </li>
                       ))}

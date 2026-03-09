@@ -90,7 +90,7 @@ export default function RateLimiting() {
         {/* Info Banner */}
         <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-4">
           <div className="flex items-start gap-3">
-            <Info className="h-5 w-5 text-blue-400 flex-shrink-0 mt-0.5" />
+            <Info className="h-5 w-5 text-blue-400 shrink-0 mt-0.5" />
             <div>
               <h3 className="text-sm font-semibold text-blue-300 mb-1">
                 {t('rateLimiting.aboutTitle')}
