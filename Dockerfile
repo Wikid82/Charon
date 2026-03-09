@@ -14,9 +14,9 @@ ARG BUILD_DEBUG=0
 # avoid accidentally pulling a v3 major release. Renovate can still update
 # this ARG to a specific v2.x tag when desired.
 ## Try to build the requested Caddy v2.x tag (Renovate can update this ARG).
-## If the requested tag isn't available, fall back to a known-good v2.11.1 build.
+## If the requested tag isn't available, fall back to a known-good v2.11.2 build.
 ARG CADDY_VERSION=2.11.2
-ARG CADDY_CANDIDATE_VERSION=2.11.1
+ARG CADDY_CANDIDATE_VERSION=2.11.2
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
