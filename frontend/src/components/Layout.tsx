@@ -151,7 +151,7 @@ export default function Layout({ children }: LayoutProps) {
            {isCollapsed ? (
              <img src="/logo.png" alt="Charon" className="h-12 w-auto" />
            ) : (
-             <img src="/banner.png" alt="Charon" className="h-14 w-auto max-w-[200px] object-contain" />
+             <img src="/banner.png" alt="Charon" className="h-14 w-auto max-max-w-50 object-contain" />
            )}
         </div>
 

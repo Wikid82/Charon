@@ -1225,7 +1225,7 @@ export default function CrowdSecConfig() {
 
           {/* Layer 3: Form content (pointer-events-auto) */}
           <div
-            className="relative bg-dark-card rounded-lg p-6 w-[480px] max-w-full shadow-xl"
+            className="relative bg-dark-card rounded-lg p-6 w-120 max-w-full shadow-xl"
             onKeyDown={(e) => {
               if (e.key === 'Escape') setShowBanModal(false)
               if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) banMutation.mutate()
@@ -1319,7 +1319,7 @@ export default function CrowdSecConfig() {
             aria-label={t('common.close')}
           />
           <div
-            className="relative bg-dark-card rounded-lg p-6 w-[400px] max-w-full shadow-xl"
+            className="relative bg-dark-card rounded-lg p-6 w-100 max-w-full shadow-xl"
             onKeyDown={(e) => {
               if (e.key === 'Escape') setConfirmUnban(null)
               if (e.key === 'Enter') unbanMutation.mutate(confirmUnban.ip)
