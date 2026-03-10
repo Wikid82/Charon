@@ -92,7 +92,7 @@ func respondSanitizedProviderError(c *gin.Context, status int, code, category, m
 	c.JSON(status, response)
 }
 
-var providerStatusCodePattern = regexp.MustCompile(`provider returned status\s+(\d{3})`)
+var providerStatusCodePattern = regexp.MustCompile(`provider returned status\s+(\d{3})(?::\s*(.+))?`)
 
 func classifyProviderTestFailure(err error) (code string, category string, message string) {
 	if err == nil {
@@ -107,14 +107,18 @@ func classifyProviderTestFailure(err error) (code string, category string, messa
 		return "PROVIDER_TEST_URL_INVALID", "validation", "Provider URL is invalid or blocked. Verify the URL and try again"
 	}
 
-	if statusMatch := providerStatusCodePattern.FindStringSubmatch(errText); len(statusMatch) == 2 {
+	if statusMatch := providerStatusCodePattern.FindStringSubmatch(errText); len(statusMatch) >= 2 {
+		hint := ""
+		if len(statusMatch) >= 3 && strings.TrimSpace(statusMatch[2]) != "" {
+			hint = ": " + strings.TrimSpace(statusMatch[2])
+		}
 		switch statusMatch[1] {
 		case "401", "403":
 			return "PROVIDER_TEST_AUTH_REJECTED", "dispatch", "Provider rejected authentication. Verify your credentials"
 		case "404":
 			return "PROVIDER_TEST_ENDPOINT_NOT_FOUND", "dispatch", "Provider endpoint was not found. Verify the provider URL path"
 		default:
-			return "PROVIDER_TEST_REMOTE_REJECTED", "dispatch", fmt.Sprintf("Provider rejected the test request (HTTP %s)", statusMatch[1])
+			return "PROVIDER_TEST_REMOTE_REJECTED", "dispatch", fmt.Sprintf("Provider rejected the test request (HTTP %s)%s", statusMatch[1], hint)
 		}
 	}
 
