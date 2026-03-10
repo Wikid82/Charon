@@ -32,6 +32,7 @@ export interface NotificationProviderConfig {
   url: string;
   config?: string;
   template?: string;
+  token?: string;
   enabled: boolean;
   notify_proxy_hosts: boolean;
   notify_certs: boolean;
@@ -162,7 +163,8 @@ export const gotifyProvider: NotificationProviderConfig = {
 export const telegramProvider: NotificationProviderConfig = {
   name: generateProviderName('telegram'),
   type: 'telegram',
-  url: 'https://api.telegram.org/bot123456789:ABCdefGHIjklMNOpqrSTUvwxYZ/sendMessage?chat_id=987654321',
+  url: '987654321',
+  token: 'bot123456789:ABCdefGHIjklMNOpqrSTUvwxYZ',
   enabled: true,
   notify_proxy_hosts: true,
   notify_certs: true,

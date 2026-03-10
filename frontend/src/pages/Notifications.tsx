@@ -22,7 +22,7 @@ const isSupportedProviderType = (providerType: string | undefined): providerType
 const supportsJSONTemplates = (providerType: string | undefined): boolean => {
   if (!providerType) return false;
   const t = providerType.toLowerCase();
-  return t === 'discord' || t === 'gotify' || t === 'webhook';
+  return t === 'discord' || t === 'gotify' || t === 'webhook' || t === 'telegram';
 };
 
 const isUnsupportedProviderType = (providerType: string | undefined): boolean => !isSupportedProviderType(providerType);
@@ -42,7 +42,7 @@ const normalizeProviderPayloadForSubmit = (data: Partial<NotificationProvider>):
     type,
   };
 
-  if (type === 'gotify') {
+  if (type === 'gotify' || type === 'telegram') {
     const normalizedToken = typeof payload.gotify_token === 'string' ? payload.gotify_token.trim() : '';
 
     if (normalizedToken.length > 0) {
@@ -139,9 +139,10 @@ const ProviderForm: FC<{
 
   const type = normalizeProviderType(watch('type'));
   const isGotify = type === 'gotify';
+  const isTelegram = type === 'telegram';
   const isEmail = type === 'email';
   useEffect(() => {
-    if (type !== 'gotify') {
+    if (type !== 'gotify' && type !== 'telegram') {
       setValue('gotify_token', '', { shouldDirty: false, shouldTouch: false });
     }
   }, [type, setValue]);
@@ -196,12 +197,13 @@ const ProviderForm: FC<{
           <option value="gotify">Gotify</option>
           <option value="webhook">{t('notificationProviders.genericWebhook')}</option>
           <option value="email">Email</option>
+          <option value="telegram">{t('notificationProviders.telegram')}</option>
         </select>
       </div>
 
       <div>
         <label htmlFor="provider-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-          {isEmail ? t('notificationProviders.recipients') : <>{t('notificationProviders.urlWebhook')} <span aria-hidden="true">*</span></>}
+          {isEmail ? t('notificationProviders.recipients') : isTelegram ? t('notificationProviders.telegramChatId') : <>{t('notificationProviders.urlWebhook')} <span aria-hidden="true">*</span></>}
         </label>
         {isEmail && (
           <p id="email-recipients-help" className="text-xs text-gray-500 mt-0.5">
@@ -212,10 +214,10 @@ const ProviderForm: FC<{
           id="provider-url"
           {...register('url', {
             required: isEmail ? false : (t('notificationProviders.urlRequired') as string),
-            validate: isEmail ? undefined : validateUrl,
+            validate: (isEmail || isTelegram) ? undefined : validateUrl,
           })}
           data-testid="provider-url"
-          placeholder={isEmail ? 'user@example.com, admin@example.com' : type === 'discord' ? 'https://discord.com/api/webhooks/...' : type === 'gotify' ? 'https://gotify.example.com/message' : 'https://example.com/webhook'}
+          placeholder={isEmail ? 'user@example.com, admin@example.com' : isTelegram ? '987654321' : type === 'discord' ? 'https://discord.com/api/webhooks/...' : type === 'gotify' ? 'https://gotify.example.com/message' : 'https://example.com/webhook'}
           className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm ${errors.url ? 'border-red-500' : ''}`}
           aria-invalid={errors.url ? 'true' : 'false'}
           aria-describedby={isEmail ? 'email-recipients-help' : errors.url ? 'provider-url-error' : undefined}
@@ -235,10 +237,10 @@ const ProviderForm: FC<{
         </div>
       )}
 
-      {isGotify && (
+      {(isGotify || isTelegram) && (
         <div>
           <label htmlFor="provider-gotify-token" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            {t('notificationProviders.gotifyToken')}
+            {isTelegram ? t('notificationProviders.telegramBotToken') : t('notificationProviders.gotifyToken')}
           </label>
           <input
             id="provider-gotify-token"
@@ -246,7 +248,7 @@ const ProviderForm: FC<{
             autoComplete="new-password"
             {...register('gotify_token')}
             data-testid="provider-gotify-token"
-            placeholder={initialData?.has_token ? t('notificationProviders.gotifyTokenKeepPlaceholder') : t('notificationProviders.gotifyTokenPlaceholder')}
+            placeholder={initialData?.has_token ? t('notificationProviders.gotifyTokenKeepPlaceholder') : isTelegram ? t('notificationProviders.telegramBotTokenPlaceholder') : t('notificationProviders.gotifyTokenPlaceholder')}
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
             aria-describedby={initialData?.has_token ? 'gotify-token-stored-hint' : undefined}
           />
