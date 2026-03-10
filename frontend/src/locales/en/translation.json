@@ -566,6 +566,7 @@
     "sendTest": "Send Test Notification",
     "testSent": "Test notification sent!",
     "testFailed": "Failed to send test",
+    "saveBeforeTesting": "Save the provider first before testing",
     "deleteConfirm": "Are you sure?",
     "noProviders": "No notification providers configured.",
     "deprecatedReadOnly": "Deprecated (Read-only)",

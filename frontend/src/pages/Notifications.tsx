@@ -115,7 +115,12 @@ const ProviderForm: FC<{
 
   const handleTest = () => {
     const formData = watch();
-    testMutation.mutate({ ...formData, type: normalizeProviderType(formData.type) } as Partial<NotificationProvider>);
+    const currentType = normalizeProviderType(formData.type);
+    if (!formData.id && currentType !== 'email') {
+      toast.error(t('notificationProviders.saveBeforeTesting'));
+      return;
+    }
+    testMutation.mutate({ ...formData, type: currentType } as Partial<NotificationProvider>);
   };
 
   const handlePreview = async () => {
@@ -141,6 +146,7 @@ const ProviderForm: FC<{
   const isGotify = type === 'gotify';
   const isTelegram = type === 'telegram';
   const isEmail = type === 'email';
+  const isNew = !watch('id');
   useEffect(() => {
     if (type !== 'gotify' && type !== 'telegram') {
       setValue('gotify_token', '', { shouldDirty: false, shouldTouch: false });
@@ -372,7 +378,7 @@ const ProviderForm: FC<{
           type="button"
           variant="secondary"
           onClick={handleTest}
-          disabled={testMutation.isPending}
+          disabled={testMutation.isPending || (isNew && !isEmail)}
           data-testid="provider-test-btn"
           className="min-w-20"
         >
