@@ -224,7 +224,7 @@ func TestFinalBlocker3_SupportedProviderTypes_UnsupportedTypesIgnored(t *testing
 	db := SetupCompatibilityTestDB(t)
 
 	// Create ONLY unsupported providers
-	unsupportedTypes := []string{"telegram", "generic"}
+	unsupportedTypes := []string{"pushover", "generic"}
 
 	for _, providerType := range unsupportedTypes {
 		provider := &models.NotificationProvider{

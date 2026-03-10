@@ -99,7 +99,7 @@ func validateDiscordProviderURL(providerType, rawURL string) error {
 // supportsJSONTemplates returns true if the provider type can use JSON templates
 func supportsJSONTemplates(providerType string) bool {
 	switch strings.ToLower(providerType) {
-	case "webhook", "discord", "gotify", "slack", "generic":
+	case "webhook", "discord", "gotify", "slack", "generic", "telegram":
 		return true
 	default:
 		return false
@@ -108,7 +108,7 @@ func supportsJSONTemplates(providerType string) bool {
 
 func isSupportedNotificationProviderType(providerType string) bool {
 	switch strings.ToLower(strings.TrimSpace(providerType)) {
-	case "discord", "email", "gotify", "webhook":
+	case "discord", "email", "gotify", "webhook", "telegram":
 		return true
 	default:
 		return false
@@ -125,6 +125,8 @@ func (s *NotificationService) isDispatchEnabled(providerType string) bool {
 		return s.getFeatureFlagValue(notifications.FlagGotifyServiceEnabled, true)
 	case "webhook":
 		return s.getFeatureFlagValue(notifications.FlagWebhookServiceEnabled, true)
+	case "telegram":
+		return s.getFeatureFlagValue(notifications.FlagTelegramServiceEnabled, true)
 	default:
 		return false
 	}
@@ -447,9 +449,26 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 		if _, hasMessage := jsonPayload["message"]; !hasMessage {
 			return fmt.Errorf("gotify payload requires 'message' field")
 		}
+	case "telegram":
+		// Telegram requires 'text' field for the message body
+		if _, hasText := jsonPayload["text"]; !hasText {
+			if messageValue, hasMessage := jsonPayload["message"]; hasMessage {
+				jsonPayload["text"] = messageValue
+				normalizedBody, marshalErr := json.Marshal(jsonPayload)
+				if marshalErr != nil {
+					return fmt.Errorf("failed to normalize telegram payload: %w", marshalErr)
+				}
+				body.Reset()
+				if _, writeErr := body.Write(normalizedBody); writeErr != nil {
+					return fmt.Errorf("failed to write normalized telegram payload: %w", writeErr)
+				}
+			} else {
+				return fmt.Errorf("telegram payload requires 'text' field")
+			}
+		}
 	}
 
-	if providerType == "gotify" || providerType == "webhook" {
+	if providerType == "gotify" || providerType == "webhook" || providerType == "telegram" {
 		headers := map[string]string{
 			"Content-Type": "application/json",
 			"User-Agent":   "Charon-Notify/1.0",
@@ -459,14 +478,35 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 				headers["X-Request-ID"] = ridStr
 			}
 		}
+
+		dispatchURL := p.URL
+
 		if providerType == "gotify" {
 			if strings.TrimSpace(p.Token) != "" {
 				headers["X-Gotify-Key"] = strings.TrimSpace(p.Token)
 			}
 		}
 
+		if providerType == "telegram" {
+			decryptedToken := p.Token
+			dispatchURL = "https://api.telegram.org/bot" + decryptedToken + "/sendMessage"
+
+			parsedURL, parseErr := neturl.Parse(dispatchURL)
+			if parseErr != nil || parsedURL.Hostname() != "api.telegram.org" {
+				return fmt.Errorf("telegram dispatch URL validation failed: invalid hostname")
+			}
+
+			jsonPayload["chat_id"] = p.URL
+			updatedBody, marshalErr := json.Marshal(jsonPayload)
+			if marshalErr != nil {
+				return fmt.Errorf("failed to marshal telegram payload with chat_id: %w", marshalErr)
+			}
+			body.Reset()
+			body.Write(updatedBody)
+		}
+
 		if _, sendErr := s.httpWrapper.Send(ctx, notifications.HTTPWrapperRequest{
-			URL:     p.URL,
+			URL:     dispatchURL,
 			Headers: headers,
 			Body:    body.Bytes(),
 		}); sendErr != nil {
@@ -688,7 +728,7 @@ func (s *NotificationService) CreateProvider(provider *models.NotificationProvid
 		return err
 	}
 
-	if provider.Type != "gotify" {
+	if provider.Type != "gotify" && provider.Type != "telegram" {
 		provider.Token = ""
 	}
 
@@ -724,7 +764,7 @@ func (s *NotificationService) UpdateProvider(provider *models.NotificationProvid
 		return err
 	}
 
-	if provider.Type == "gotify" {
+	if provider.Type == "gotify" || provider.Type == "telegram" {
 		if strings.TrimSpace(provider.Token) == "" {
 			provider.Token = existing.Token
 		}

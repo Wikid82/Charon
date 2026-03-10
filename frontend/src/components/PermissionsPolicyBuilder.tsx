@@ -225,7 +225,7 @@ export function PermissionsPolicyBuilder({ value, onChange }: PermissionsPolicyB
         ) : (
           policies.map((policy) => (
             <div key={policy.feature} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-              <span className="font-mono text-sm font-semibold text-gray-900 dark:text-white flex-shrink-0">
+              <span className="font-mono text-sm font-semibold text-gray-900 dark:text-white shrink-0">
                 {policy.feature}
               </span>
               <div className="flex-1">

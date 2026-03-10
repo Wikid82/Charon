@@ -29,10 +29,10 @@ export default function ImportSuccessModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" data-testid="import-success-modal">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-dark-card rounded-lg p-6 w-[500px] max-w-full mx-4 border border-gray-800">
+      <div className="relative bg-dark-card rounded-lg p-6 w-125 max-w-full mx-4 border border-gray-800">
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
-          <div className="flex-shrink-0 w-12 h-12 rounded-full bg-green-900/30 flex items-center justify-center">
+          <div className="shrink-0 w-12 h-12 rounded-full bg-green-900/30 flex items-center justify-center">
             <CheckCircle className="h-6 w-6 text-green-400" />
           </div>
           <div>
@@ -101,7 +101,7 @@ export default function ImportSuccessModal({
         {created > 0 && (
           <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-4 mb-6">
             <div className="flex items-start gap-3">
-              <Info className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" />
+              <Info className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm font-medium text-blue-300">Certificate Provisioning</p>
                 <p className="text-xs text-gray-400 mt-1">

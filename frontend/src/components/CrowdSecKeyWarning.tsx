@@ -91,7 +91,7 @@ export function CrowdSecKeyWarning() {
       <div className="flex flex-col gap-3">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-warning flex-shrink-0" />
+            <AlertTriangle className="h-5 w-5 text-warning shrink-0" />
             <h4 className="font-semibold text-content-primary">
               {t('security.crowdsec.keyWarning.title')}
             </h4>
@@ -122,7 +122,7 @@ export function CrowdSecKeyWarning() {
               variant="ghost"
               size="sm"
               onClick={() => setShowKey(!showKey)}
-              className="flex-shrink-0"
+              className="shrink-0"
               title={showKey ? 'Hide key' : 'Show key'}
             >
               {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -132,7 +132,7 @@ export function CrowdSecKeyWarning() {
               size="sm"
               onClick={handleCopy}
               disabled={copied}
-              className="flex-shrink-0"
+              className="shrink-0"
             >
               {copied ? (
                 <>

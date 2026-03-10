@@ -136,7 +136,7 @@ func TestGetProviderAggregatedConfig_FiltersSupportedTypes(t *testing.T) {
 		{ID: "webhook", Type: "webhook", Enabled: true, NotifySecurityWAFBlocks: true},
 		{ID: "slack", Type: "slack", Enabled: true, NotifySecurityACLDenies: true},
 		{ID: "gotify", Type: "gotify", Enabled: true, NotifySecurityRateLimitHits: true},
-		{ID: "unsupported", Type: "telegram", Enabled: true, NotifySecurityWAFBlocks: true}, // Should be filtered
+		{ID: "telegram", Type: "telegram", Enabled: true, NotifySecurityWAFBlocks: true}, // Telegram is now supported
 	}
 
 	for _, p := range providers {
@@ -146,8 +146,8 @@ func TestGetProviderAggregatedConfig_FiltersSupportedTypes(t *testing.T) {
 	// Test
 	config, err := service.getProviderAggregatedConfig()
 	require.NoError(t, err)
-	// Telegram is unsupported, so it shouldn't contribute to aggregation
-	assert.True(t, config.NotifyWAFBlocks, "Discord and webhook have WAF=true")
+	// All provider types including telegram contribute to aggregation
+	assert.True(t, config.NotifyWAFBlocks, "Discord, webhook, and telegram have WAF=true")
 	assert.True(t, config.NotifyACLDenies, "Slack has ACL=true")
 	assert.True(t, config.NotifyRateLimitHits, "Gotify has RateLimit=true")
 }

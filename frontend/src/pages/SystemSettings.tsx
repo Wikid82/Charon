@@ -452,9 +452,9 @@ export default function SystemSettings() {
                 />
                 {publicURLValid !== null && (
                   publicURLValid ? (
-                    <CheckCircle2 className="h-5 w-5 text-green-500 self-center flex-shrink-0" />
+                    <CheckCircle2 className="h-5 w-5 text-green-500 self-center shrink-0" />
                   ) : (
-                    <XCircle className="h-5 w-5 text-red-500 self-center flex-shrink-0" />
+                    <XCircle className="h-5 w-5 text-red-500 self-center shrink-0" />
                   )
                 )}
               </div>

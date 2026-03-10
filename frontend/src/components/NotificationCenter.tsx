@@ -90,7 +90,7 @@ const NotificationCenter: FC = () => {
               {/* Update Notification */}
               {updateInfo?.available && (
                 <div className="flex items-start px-4 py-3 border-b dark:border-gray-700 bg-yellow-50 dark:bg-yellow-900/10 hover:bg-yellow-100 dark:hover:bg-yellow-900/20">
-                  <div className="flex-shrink-0 mt-0.5">
+                  <div className="shrink-0 mt-0.5">
                     <AlertCircle className="w-5 h-5 text-yellow-500" />
                   </div>
                   <div className="ml-3 w-0 flex-1">
@@ -119,7 +119,7 @@ const NotificationCenter: FC = () => {
                     key={notification.id}
                     className="flex items-start px-4 py-3 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
                   >
-                    <div className="flex-shrink-0 mt-0.5">
+                    <div className="shrink-0 mt-0.5">
                       {getIcon(notification.type)}
                     </div>
                     <div className="ml-3 w-0 flex-1">
@@ -133,7 +133,7 @@ const NotificationCenter: FC = () => {
                         {new Date(notification.created_at).toLocaleString()}
                       </p>
                     </div>
-                    <div className="ml-4 flex-shrink-0 flex">
+                    <div className="ml-4 shrink-0 flex">
                       <button
                         onClick={() => markReadMutation.mutate(notification.id)}
                         className="bg-white dark:bg-gray-800 rounded-md inline-flex text-gray-400 hover:text-gray-500 focus:outline-none"

@@ -36,7 +36,7 @@ func TestDiscordOnly_CreateRejectsNonDiscord(t *testing.T) {
 		{"webhook", "webhook", http.StatusCreated, ""},
 		{"gotify", "gotify", http.StatusCreated, ""},
 		{"slack", "slack", http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
-		{"telegram", "telegram", http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
+		{"telegram", "telegram", http.StatusCreated, ""},
 		{"generic", "generic", http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
 		{"email", "email", http.StatusCreated, ""},
 	}
