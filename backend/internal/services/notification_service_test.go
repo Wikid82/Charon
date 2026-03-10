@@ -1826,7 +1826,6 @@ func TestTestProvider_NotifyOnlyRejectsUnsupportedProvider(t *testing.T) {
 		providerType string
 		url          string
 	}{
-		{"telegram", "telegram", "telegram://token@telegram?chats=123"},
 		{"slack", "slack", "https://hooks.slack.com/services/T/B/X"},
 		{"pushover", "pushover", "pushover://token@user"},
 	}

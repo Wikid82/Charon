@@ -33,6 +33,7 @@ var defaultFlags = []string{
 	"feature.notifications.service.email.enabled",
 	"feature.notifications.service.gotify.enabled",
 	"feature.notifications.service.webhook.enabled",
+	"feature.notifications.service.telegram.enabled",
 	"feature.notifications.security_provider_events.enabled", // Blocker 3: Add security_provider_events gate
 }
 
@@ -45,6 +46,7 @@ var defaultFlagValues = map[string]bool{
 	"feature.notifications.service.email.enabled":            false,
 	"feature.notifications.service.gotify.enabled":           false,
 	"feature.notifications.service.webhook.enabled":          false,
+	"feature.notifications.service.telegram.enabled":         false,
 	"feature.notifications.security_provider_events.enabled": false, // Blocker 3: Default disabled for this stage
 }
 

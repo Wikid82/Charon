@@ -54,7 +54,8 @@ describe('notifications api', () => {
 
     await expect(createProvider({ name: 'x', type: 'slack' })).rejects.toThrow('Unsupported notification provider type: slack')
     await expect(updateProvider('2', { name: 'updated', type: 'generic' })).rejects.toThrow('Unsupported notification provider type: generic')
-    await expect(testProvider({ id: '2', name: 'test', type: 'telegram' })).rejects.toThrow('Unsupported notification provider type: telegram')
+    await testProvider({ id: '2', name: 'test', type: 'telegram' })
+    expect(client.post).toHaveBeenCalledWith('/notifications/providers/test', { id: '2', name: 'test', type: 'telegram' })
   })
 
   it('templates and previews use merged payloads', async () => {

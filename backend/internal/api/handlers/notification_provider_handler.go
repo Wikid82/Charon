@@ -110,7 +110,7 @@ func classifyProviderTestFailure(err error) (code string, category string, messa
 	if statusMatch := providerStatusCodePattern.FindStringSubmatch(errText); len(statusMatch) == 2 {
 		switch statusMatch[1] {
 		case "401", "403":
-			return "PROVIDER_TEST_AUTH_REJECTED", "dispatch", "Provider rejected authentication. Verify your Gotify token"
+			return "PROVIDER_TEST_AUTH_REJECTED", "dispatch", "Provider rejected authentication. Verify your credentials"
 		case "404":
 			return "PROVIDER_TEST_ENDPOINT_NOT_FOUND", "dispatch", "Provider endpoint was not found. Verify the provider URL path"
 		default:
@@ -168,7 +168,7 @@ func (h *NotificationProviderHandler) Create(c *gin.Context) {
 	}
 
 	providerType := strings.ToLower(strings.TrimSpace(req.Type))
-	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" {
+	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" && providerType != "telegram" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE", "validation", "Unsupported notification provider type")
 		return
 	}
@@ -228,12 +228,12 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 	}
 
 	providerType := strings.ToLower(strings.TrimSpace(existing.Type))
-	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" {
+	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" && providerType != "telegram" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE", "validation", "Unsupported notification provider type")
 		return
 	}
 
-	if providerType == "gotify" && strings.TrimSpace(req.Token) == "" {
+	if (providerType == "gotify" || providerType == "telegram") && strings.TrimSpace(req.Token) == "" {
 		// Keep existing token if update payload omits token
 		req.Token = existing.Token
 	}

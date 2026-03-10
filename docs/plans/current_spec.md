@@ -1,422 +1,686 @@
-# Spec: Fix Remaining CodeQL Findings + Harden Local Security Scanning
+# Telegram Notification Provider — Implementation Plan
 
-**Branch:** `feature/beta-release`
-**PR:** #800 (Email Notifications)
-**Date:** 2026-03-06
-**Status:** Planning
+**Date:** 2026-07-10
+**Author:** Planning Agent
+**Confidence Score:** 92% (High — existing patterns well-established, Telegram Bot API straightforward)
 
 ---
 
 ## 1. Introduction
 
-Two CodeQL findings remain open in CI after the email-injection remediation in the prior commit (`ee224adc`), and local scanning does not block commits that would reproduce them. This spec covers the root-cause analysis, the precise code fixes, and the hardening of the local scanning pipeline so future regressions are caught before push.
+### Objective
 
-### Objectives
+Add Telegram as a first-class notification provider in Charon, following the established architecture used by Discord, Gotify, Email, and generic Webhook providers.
 
-1. Silence `go/email-injection` (CWE-640) in CI without weakening the existing multi-layer defence.
-2. Silence `go/cookie-secure-not-set` (CWE-614) in CI for the intentional dev-mode loopback exception.
-3. Ensure local scanning fails (exit-code 1) on Critical/High security findings of the same class before code reaches GitHub.
+### Goals
+
+- Users can configure a Telegram bot token and chat ID to receive notifications via Telegram
+- All existing notification event types (proxy hosts, certs, uptime, security events) work with Telegram
+- JSON template engine (minimal/detailed/custom) works with Telegram
+- Feature flag allows enabling/disabling Telegram dispatch independently
+- Token is treated as a secret (write-only, never exposed in API responses)
+- Full test coverage: Go unit tests, Vitest frontend tests, Playwright E2E tests
+
+### Telegram Bot API Overview
+
+Telegram bots send messages via:
+
+```
+POST https://api.telegram.org/bot<BOT_TOKEN>/sendMessage
+Content-Type: application/json
+
+{
+  "chat_id": "<CHAT_ID>",
+  "text": "Hello world",
+  "parse_mode": "HTML"    // optional: "HTML" or "MarkdownV2"
+}
+```
+
+**Key design decisions:**
+- **Token storage:** The bot token is stored in `NotificationProvider.Token` (`json:"-"`, encrypted at rest) — never in the URL field. This mirrors the Gotify pattern where secrets are separated from endpoints.
+- **URL field:** Stores only the `chat_id` (e.g., `987654321`). At dispatch time, the full API URL is constructed dynamically: `https://api.telegram.org/bot` + decryptedToken + `/sendMessage`. The `chat_id` is passed in the POST body alongside the message text. This prevents token leakage via API responses since URL is `json:"url"`.
+- **SSRF mitigation:** Before dispatching, validate that the constructed URL hostname is exactly `api.telegram.org`. This prevents SSRF if stored data is tampered with.
+- **Dispatch path:** Uses `sendJSONPayload` → `httpWrapper.Send()` (same as Gotify), since both are token-based JSON POST providers
+- **No schema migration needed:** The existing `NotificationProvider` model accommodates Telegram without changes
+
+> **Supervisor Review Note:** The original design embedded the bot token in the URL field (`https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=<CHAT_ID>`). This was rejected because the URL field is `json:"url"` — exposed in every API response. The token MUST only reside in the `Token` field (`json:"-"`).
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 CWE-640 (`go/email-injection`) — Why It Is Still Flagged
+### Existing Architecture
 
-CodeQL's `go/email-injection` rule tracks untrusted input from HTTP sources to `smtp.SendMail` / `(*smtp.Client).Rcpt` sinks. It treats a **validator** (a function that returns an error if bad data is present) differently from a **sanitizer** (a function that transforms and strips the bad data). Only sanitizers break the taint flow; validators do not.
+The notification system follows a provider-based architecture:
 
-The previous fix added `sanitizeForEmail()` in `notification_service.go` for `title` and `message`. It did **not** patch two other direct callers of `SendEmail`, both of which pass an HTTP-sourced `to` address without going through `notification_service.go` at all.
+| Layer | File | Role |
+|-------|------|------|
+| Feature flags | `backend/internal/notifications/feature_flags.go` | Flag constants (`FlagXxxServiceEnabled`) |
+| Feature flag handler | `backend/internal/api/handlers/feature_flags_handler.go` | DB-backed flags with defaults |
+| Router | `backend/internal/notifications/router.go` | `ShouldUseNotify()` per-type dispatch |
+| Service | `backend/internal/services/notification_service.go` | Core dispatch: `isSupportedNotificationProviderType()`, `isDispatchEnabled()`, `supportsJSONTemplates()`, `sendJSONPayload()`, `TestProvider()` |
+| Handlers | `backend/internal/api/handlers/notification_provider_handler.go` | CRUD + type validation + token preservation |
+| Model | `backend/internal/models/notification_provider.go` | GORM model with Token (json:"-"), HasToken |
+| Frontend API | `frontend/src/api/notifications.ts` | `SUPPORTED_NOTIFICATION_PROVIDER_TYPES`, sanitization |
+| Frontend UI | `frontend/src/pages/Notifications.tsx` | Provider form with conditional fields per type |
+| i18n | `frontend/src/locales/en/translation.json` | Label strings |
+| E2E fixtures | `tests/fixtures/notifications.ts` | `telegramProvider` **already defined** |
 
-#### Confirmed taint sinks (from `codeql-results-go.sarif`)
+### Existing Provider Addition Points (Switch Statements / Type Checks)
 
-| SARIF line | Function | Tainted argument |
-|---|---|---|
-| 365–367 | `(*MailService).SendEmail` | `[]string{toEnvelope}` in `smtp.SendMail` |
-| ~530 | `(*MailService).sendSSL` | `toEnvelope` in `client.Rcpt(toEnvelope)` |
-| ~583 | `(*MailService).sendSTARTTLS` | `toEnvelope` in `client.Rcpt(toEnvelope)` |
+Every location that checks provider types is listed below — all require a `"telegram"` case:
 
-CodeQL reports 4 untrusted taint paths converging on each sink. These correspond to:
+| # | File | Function/Line | Current Logic |
+|---|------|---------------|---------------|
+| 1 | `feature_flags.go` | Constants | Missing `FlagTelegramServiceEnabled` |
+| 2 | `feature_flags_handler.go` | `defaultFlags` + `defaultFlagValues` | Missing telegram entry |
+| 3 | `router.go` | `ShouldUseNotify()` switch | Missing `case "telegram"` |
+| 4 | `notification_service.go` | `isSupportedNotificationProviderType()` | `case "discord", "email", "gotify", "webhook"` |
+| 5 | `notification_service.go` | `isDispatchEnabled()` | switch with per-type flag checks |
+| 6 | `notification_service.go` | `supportsJSONTemplates()` | `case "webhook", "discord", "gotify", "slack", "generic"` |
+| 7 | `notification_service.go` | `sendJSONPayload()` — service-specific validation | Missing `case "telegram"` for payload validation |
+| 8 | `notification_service.go` | `sendJSONPayload()` — dispatch branch | Gotify/webhook use `httpWrapper.Send()`; others use `ValidateExternalURL` + `SafeHTTPClient` |
+| 9 | `notification_provider_handler.go` | `Create()` type guard | `providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email"` |
+| 10 | `notification_provider_handler.go` | `Update()` type guard | Same pattern as Create |
+| 11 | `notification_provider_handler.go` | `Update()` token preservation | `if providerType == "gotify" && strings.TrimSpace(req.Token) == ""` |
+| 12 | `notifications.ts` | `SUPPORTED_NOTIFICATION_PROVIDER_TYPES` | `['discord', 'gotify', 'webhook', 'email']` |
+| 13 | `notifications.ts` | `sanitizeProviderForWriteAction()` | Token handling only for `type !== 'gotify'` |
+| 14 | `Notifications.tsx` | Type `<select>` options | discord/gotify/webhook/email |
+| 15 | `Notifications.tsx` | `normalizeProviderPayloadForSubmit()` | Token mapping only for `type === 'gotify'` |
+| 16 | `Notifications.tsx` | Conditional form fields | `isGotify` shows token input |
 
-| Path # | Source file | Source expression | Route to sink |
-|---|---|---|---|
-| 1 | `backend/internal/api/handlers/settings_handler.go:637` | `req.To` (ShouldBindJSON, `binding:"required,email"`) | Direct `h.MailService.SendEmail(ctx, []string{req.To}, ...)` — bypasses `notification_service.go` entirely |
-| 2 | `backend/internal/api/handlers/user_handler.go:597` | `userEmail` (HTTP request field) | `h.MailService.SendInvite(userEmail, ...)` → `mail_service.go:679` → `s.SendEmail(ctx, []string{email}, ...)` |
-| 3 | `backend/internal/api/handlers/user_handler.go:1015` | `user.Email` (DB row, set from HTTP during registration) | Same `SendInvite` → `SendEmail` chain |
-| 4 | `backend/internal/services/notification_service.go` | `rawRecipients` from `p.URL` (DB, admin-set) | `s.mailService.SendEmail(ctx, recipients, ...)` — CodeQL may trace DB values as tainted from prior HTTP writes |
+### Test Files Requiring Updates
 
-#### Why CodeQL does not recognise the existing safeguards as sanitisers
+| File | Current Behavior | Required Change |
+|------|-----------------|-----------------|
+| `notification_service_test.go` (~L1819) | `TestTestProvider_NotifyOnlyRejectsUnsupportedProvider` tests `"telegram"` as **unsupported** | Change: telegram is now supported |
+| `notification_service_json_test.go` | Discord/Slack/Gotify/Webhook JSON tests | Add telegram payload validation tests |
+| `notification_provider_handler_test.go` | CRUD tests with supported types | Add telegram to supported type lists |
+| `enhanced_security_notification_service_test.go` (~L139) | `Type: "telegram"` marked `// Should be filtered` | Change: telegram is now valid |
+| `frontend/src/api/notifications.test.ts` | Rejects `"telegram"` as unsupported | Accept telegram, add CRUD tests |
+| `frontend/src/api/__tests__/notifications.test.ts` | Same rejection | Same fix |
+| `tests/settings/notifications.spec.ts` | CRUD E2E for discord/gotify/webhook/email | Add telegram scenarios |
 
+### E2E Fixture Already Defined
+
+```typescript
+// tests/fixtures/notifications.ts
+// NOTE: Fixture must be updated — URL should contain only the chat_id, token goes in the token field
+export const telegramProvider: NotificationProviderConfig = {
+  name: generateProviderName('telegram'),
+  type: 'telegram',
+  url: '987654321',  // chat_id only — bot token is stored in the Token field
+  token: 'bot123456789:ABCdefGHIjklMNOpqrSTUvwxYZ',  // stored encrypted, never in API responses
+  enabled: true,
+  notify_proxy_hosts: true,
+  notify_certs: true,
+  notify_uptime: true,
+};
 ```
-validateEmailRecipients()  → ContainsAny check + mail.ParseAddress → error return (validator, not sanitizer)
-parseEmailAddressForHeader → net/mail.ParseAddress                  → validator
-rejectCRLF(toEnvelope)     → ContainsAny("\r\n") → error           → validator
-```
-
-CodeQL's taint model for Go requires the taint to be **transformed** (characters stripped or value replaced) before it considers the path neutralised. None of the helpers above strips CRLF — they gate on error returns. From CodeQL's perspective the original tainted bytes still flow into `smtp.SendMail`.
-
-#### Why adding `sanitizeForEmail()` to `settings_handler.go` alone is insufficient
-
-Even if added, `sanitizeForEmail()` calls `strings.ReplaceAll(s, "\r", "")` — stripping characters from an email address that contains `\r` would corrupt it. For recipient addresses, the correct model is to validate (which is already done) and suppress the residual finding with an annotated justification.
-
-### 2.2 CWE-614 (`go/cookie-secure-not-set`) — Why It Appeared as "New"
-
-**Only one `c.SetCookie` call exists** in production Go code:
-
-```
-backend/internal/api/handlers/auth_handler.go:152
-```
-
-The finding is "new" because it was introduced when `setSecureCookie()` was refactored to support the loopback dev-mode exception (`secure = false` for local HTTP requests). Prior to that refactor, `secure` was always `true`.
-
-The `// codeql[go/cookie-secure-not-set]` suppression comment **is** present on `auth_handler.go:152`. However, the SARIF stored in the repository (`codeql-results-go.sarif`) shows the finding at **line 151** — a 1-line discrepancy caused by a subsequent commit that inserted the `// secure is intentionally false...` explanation comment, shifting the `c.SetCookie(` line from 151 → 152.
-
-The inline suppression **should** work now that it is on the correct line (152). However, inline suppressions are fragile under line-number churn. The robust fix is a `query-filter` in `.github/codeql/codeql-config.yml`, which targets the rule ID independent of line number.
-
-The `query-filters` section does not yet exist in the CodeQL config — only `paths-ignore` is used. This must be added for the first time.
-
-### 2.3 Local Scanning Gap
-
-The table below maps which security tools catch which findings locally.
-
-| Tool | Stage | Fails on High/Critical? | Catches CWE-640? | Catches CWE-614? |
-|---|---|---|---|---|
-| `golangci-lint-fast` (gosec G101,G110,G305,G401,G501-503) | commit (blocking) | ✅ | ❌ no rule | ❌ gosec has no Gin cookie rule |
-| `go-vet` | commit (blocking) | ✅ | ❌ | ❌ |
-| `security-scan.sh` (govulncheck) | manual | Warn only | ❌ (CVEs only) | ❌ |
-| `semgrep-scan.sh` (auto config, `--error`) | **manual only** | ✅ if run | ✅ `p/golang` | ✅ `p/golang` |
-| `codeql-go-scan` + `codeql-check-findings` | **manual only** | ✅ if run | ✅ | ✅ |
-| `golangci-lint-full` | manual | ✅ if run | ❌ | ❌ |
-
-**The gap:** `semgrep-scan` already has `--error` (blocking) and covers both issue classes via `p/golang` and `p/owasp-top-ten`, but it runs as `stages: [manual]` only. Moving it to `pre-push` is the highest-leverage single change.
-
-gosec rule audit for missing coverage:
-
-| CWE | gosec rule | Covered by fast config? |
-|---|---|---|
-| CWE-614 cookie security | No standard gosec rule for Gin's `c.SetCookie` | ❌ |
-| CWE-640 email injection | No gosec rule exists for SMTP injection | ❌ |
-| CWE-89 SQL injection | G201, G202 — NOT in fast config | ❌ |
-| CWE-22 path traversal | G305 — in fast config | ✅ |
-
-`semgrep` fills the gap for CWE-614 and CWE-640 where gosec has no rules.
 
 ---
 
 ## 3. Technical Specifications
 
-### 3.1 Phase 1 — Harden Local Scanning
+### 3.1 Backend — Feature Flags
 
-#### 3.1.1 Move `semgrep-scan` to `pre-push` stage
+**File:** `backend/internal/notifications/feature_flags.go`
 
-**File:** `/projects/Charon/.pre-commit-config.yaml`
-
-Locate the `semgrep-scan` hook entry (currently has `stages: [manual]`). Change the stage and name:
-
-```yaml
-      - id: semgrep-scan
-        name: Semgrep Security Scan (Blocking - pre-push)
-        entry: scripts/pre-commit-hooks/semgrep-scan.sh
-        language: script
-        pass_filenames: false
-        verbose: true
-        stages: [pre-push]
-```
-
-Rationale: `p/golang` includes:
-- `go.cookie.security.insecure-cookie.insecure-cookie` → CWE-614 equivalent
-- `go.lang.security.injection.tainted-smtp-email.tainted-smtp-email` → CWE-640 equivalent
-
-#### 3.1.2 Restrict semgrep to WARNING+ and use targeted config
-
-**File:** `/projects/Charon/scripts/pre-commit-hooks/semgrep-scan.sh`
-
-The current invocation uses `--config auto --error`. Two changes:
-1. Change default config from `auto` → `p/golang`. `auto` fetches 1,000-3,000+ rules and takes 60-180s — too slow for a blocking pre-push hook. `p/golang` covers all Go-specific OWASP/CWE rules and completes in ~10-30s.
-2. Add `--severity ERROR --severity WARNING` to filter out INFO-level noise (these are OR logic, both required for WARNING+):
-
-```bash
-semgrep scan \
-  --config "${SEMGREP_CONFIG_VALUE:-p/golang}" \
-  --severity ERROR \
-  --severity WARNING \
-  --error \
-  --exclude "frontend/node_modules" \
-  --exclude "frontend/coverage" \
-  --exclude "frontend/dist" \
-  backend frontend/src .github/workflows
-```
-
-The `SEMGREP_CONFIG` env var can be overridden to `auto` or `p/golang p/owasp-top-ten` for a broader audit: `SEMGREP_CONFIG=auto git push`.
-
-#### 3.1.3 Add `make security-local` target
-
-**File:** `/projects/Charon/Makefile`
-
-Add after the `security-scan-deps` target:
-
-```make
-security-local: ## Run local security scan (govulncheck + semgrep)
-@echo "Running govulncheck..."
-@./scripts/security-scan.sh
-@echo "Running semgrep..."
-@SEMGREP_CONFIG=p/golang ./scripts/pre-commit-hooks/semgrep-scan.sh
-```
-
-#### 3.1.4 Expand golangci-lint-fast gosec ruleset (Deferred)
-
-**Status: DEFERRED** — G201/G202 (SQL injection via format string / string concat) are candidates for the fast config but must be pre-validated against the existing codebase first. GORM's raw query DSL can produce false positives. Run the following before adding:
-
-```bash
-cd backend && golangci-lint run --enable=gosec --disable-all --config .golangci-fast.yml ./...
-```
-
-…with G201/G202 temporarily uncommented. If zero false positives, add in a separate hardening commit. This is out of scope for this PR to avoid blocking PR #800.
-
-Note: CWE-614 and CWE-640 remain CodeQL/Semgrep territory — gosec has no rules for these.
-
-### 3.2 Phase 2 — Fix CWE-640 (`go/email-injection`)
-
-#### Strategy
-
-Add `// codeql[go/email-injection]` inline suppression annotations at all three sink sites in `mail_service.go`, with a structured justification comment immediately above each. This is the correct approach because:
-
-1. The actual runtime defence is already correct and comprehensive (4-layer defence).
-2. The taint is a CodeQL false-positive caused by the tool not modelling validators as sanitisers.
-3. Restructuring to call `strings.ReplaceAll` on email addresses would corrupt valid addresses.
-
-**The 4-layer defence that justifies these suppressions:**
-
-```
-Layer 1: HTTP boundary       — gin binding:"required,email" validates RFC 5321 format; CRLF fails well-formedness
-Layer 2: Service boundary    — validateEmailRecipients() → ContainsAny("\r\n") error + net/mail.ParseAddress
-Layer 3: Mail layer parse    — parseEmailAddressForHeader() → net/mail.ParseAddress returns only .Address field
-Layer 4: Pre-sink validation — rejectCRLF(toEnvelope) immediately before smtp.SendMail / client.Rcpt calls
-```
-
-#### 3.2.1 Suppress at `smtp.SendMail` sink
-
-**File:** `backend/internal/services/mail_service.go` (around line 367)
-
-Locate the default-encryption branch in `SendEmail`. Replace the `smtp.SendMail` call line:
+Add constant:
 
 ```go
-default:
-// toEnvelope passes through 4-layer CRLF defence:
-//   1. gin binding:"required,email" at HTTP entry (CRLF invalid per RFC 5321)
-//   2. validateEmailRecipients → ContainsAny("\r\n") + net/mail.ParseAddress
-//   3. parseEmailAddressForHeader → net/mail.ParseAddress (returns .Address only)
-//   4. rejectCRLF(toEnvelope) guard earlier in this function
-// CodeQL does not model validators as sanitisers; suppression is correct here.
-if err := smtp.SendMail(addr, auth, fromEnvelope, []string{toEnvelope}, msg); err != nil { // codeql[go/email-injection]
+FlagTelegramServiceEnabled = "feature.notifications.service.telegram.enabled"
 ```
 
-#### 3.2.2 Suppress at `client.Rcpt` in `sendSSL`
+**File:** `backend/internal/api/handlers/feature_flags_handler.go`
 
-**File:** `backend/internal/services/mail_service.go` (around line 530)
-
-Locate in `sendSSL`. Replace the `client.Rcpt` call line:
+Add to `defaultFlags` slice:
 
 ```go
-// toEnvelope validated by rejectCRLF + net/mail.ParseAddress before this call (see SendEmail).
-if rcptErr := client.Rcpt(toEnvelope); rcptErr != nil { // codeql[go/email-injection]
-return fmt.Errorf("RCPT TO failed: %w", rcptErr)
+notifications.FlagTelegramServiceEnabled,
+```
+
+Add to `defaultFlagValues` map:
+
+```go
+notifications.FlagTelegramServiceEnabled: true,
+```
+
+> **Note:** Telegram is **enabled by default** once the provider is toggled on in the UI, matching Gotify/Webhook behavior. The feature flag exists as an admin-level kill switch, not a setup gate.
+
+### 3.2 Backend — Router
+
+**File:** `backend/internal/notifications/router.go`
+
+Add to `ShouldUseNotify()` switch:
+
+```go
+case "telegram":
+    return flags[FlagTelegramServiceEnabled]
+```
+
+### 3.3 Backend — Notification Service
+
+**File:** `backend/internal/services/notification_service.go`
+
+#### `isSupportedNotificationProviderType()`
+
+```go
+case "discord", "email", "gotify", "webhook", "telegram":
+    return true
+```
+
+#### `isDispatchEnabled()`
+
+```go
+case "telegram":
+    return s.getFeatureFlagValue(notifications.FlagTelegramServiceEnabled, true)
+```
+
+Both `defaultFlagValues` (initial DB seed) and the `isDispatchEnabled()` fallback are `true` — Telegram is enabled by default once the provider is created in the UI. This matches Gotify/Webhook behavior (enabled-by-default, admin kill-switch via feature flag).
+
+#### `supportsJSONTemplates()`
+
+```go
+case "webhook", "discord", "gotify", "slack", "generic", "telegram":
+    return true
+```
+
+#### `sendJSONPayload()` — Service-Specific Validation
+
+Add after the `case "gotify":` block:
+
+```go
+case "telegram":
+    // Telegram requires 'text' field for the message body
+    if _, hasText := jsonPayload["text"]; !hasText {
+        // Auto-map 'message' to 'text' if present (template compatibility)
+        if messageValue, hasMessage := jsonPayload["message"]; hasMessage {
+            jsonPayload["text"] = messageValue
+            normalizedBody, marshalErr := json.Marshal(jsonPayload)
+            if marshalErr != nil {
+                return fmt.Errorf("failed to normalize telegram payload: %w", marshalErr)
+            }
+            body.Reset()
+            if _, writeErr := body.Write(normalizedBody); writeErr != nil {
+                return fmt.Errorf("failed to write normalized telegram payload: %w", writeErr)
+            }
+        } else {
+            return fmt.Errorf("telegram payload requires 'text' field")
+        }
+    }
+```
+
+This auto-mapping mirrors the Discord pattern (`message` → `content`) so that the built-in `minimal` and `detailed` templates (which use `"message"` as a field) work out of the box with Telegram.
+
+#### `sendJSONPayload()` — Dispatch Branch
+
+Add `"telegram"` to the `httpWrapper.Send()` dispatch branch alongside gotify/webhook:
+
+```go
+if providerType == "gotify" || providerType == "webhook" || providerType == "telegram" {
+```
+
+For telegram, the dispatch URL must be **constructed at send time** from the stored token and chat_id:
+
+```go
+case "telegram":
+    // Construct the API URL dynamically — token is NEVER stored in the URL field
+    decryptedToken := provider.Token // already decrypted by service layer
+    dispatchURL = "https://api.telegram.org/bot" + decryptedToken + "/sendMessage"
+
+    // SSRF mitigation: validate hostname before dispatch
+    parsedURL, err := url.Parse(dispatchURL)
+    if err != nil || parsedURL.Hostname() != "api.telegram.org" {
+        return fmt.Errorf("telegram dispatch URL validation failed: invalid hostname")
+    }
+
+    // Inject chat_id into the JSON payload body (URL field stores the chat_id)
+    jsonPayload["chat_id"] = provider.URL
+    // Re-marshal the payload with chat_id included
+    updatedBody, marshalErr := json.Marshal(jsonPayload)
+    if marshalErr != nil {
+        return fmt.Errorf("failed to marshal telegram payload with chat_id: %w", marshalErr)
+    }
+    body.Reset()
+    body.Write(updatedBody)
+```
+
+The `X-Gotify-Key` header is only set when `providerType == "gotify"` — no header changes needed for telegram.
+
+#### `TestProvider()` — Telegram-Specific Error Message
+
+When testing a Telegram provider and the API returns HTTP 401 or 403, return a specific error message:
+
+```go
+case "telegram":
+    if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+        return fmt.Errorf("provider rejected authentication. Verify your Telegram Bot Token")
+    }
+```
+
+This gives users actionable guidance instead of a generic HTTP status error.
+
+### 3.4 Backend — Handler Layer
+
+**File:** `backend/internal/api/handlers/notification_provider_handler.go`
+
+#### `Create()` Type Guard
+
+```go
+if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" && providerType != "telegram" {
+```
+
+#### `Update()` Type Guard
+
+Same change as Create:
+
+```go
+if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" && providerType != "telegram" {
+```
+
+#### `Update()` Token Preservation
+
+Telegram bot tokens should be preserved on update when the user omits them (same UX as Gotify):
+
+```go
+if (providerType == "gotify" || providerType == "telegram") && strings.TrimSpace(req.Token) == "" {
+    req.Token = existing.Token
 }
 ```
 
-#### 3.2.3 Suppress at `client.Rcpt` in `sendSTARTTLS`
+### 3.5 Backend — Model (No Changes)
 
-**File:** `backend/internal/services/mail_service.go` (around line 583)
+The `NotificationProvider` model already has:
 
-Same pattern as sendSSL:
+- `Token string` with `json:"-"` (write-only, never exposed)
+- `HasToken bool` with `gorm:"-"` (computed field for frontend)
+- `URL string` for the endpoint
+- `ServiceConfig string` for extra JSON config (available for `parse_mode` if needed)
 
-```go
-// toEnvelope validated by rejectCRLF + net/mail.ParseAddress before this call (see SendEmail).
-if rcptErr := client.Rcpt(toEnvelope); rcptErr != nil { // codeql[go/email-injection]
-return fmt.Errorf("RCPT TO failed: %w", rcptErr)
+No schema migration is required.
+
+### 3.6 Frontend — API Client
+
+**File:** `frontend/src/api/notifications.ts`
+
+#### Supported Types Array
+
+```typescript
+export const SUPPORTED_NOTIFICATION_PROVIDER_TYPES = ['discord', 'gotify', 'webhook', 'email', 'telegram'] as const;
+```
+
+#### `sanitizeProviderForWriteAction()`
+
+**Minimal diff only.** Change only the type guard condition from:
+
+```typescript
+if (type !== 'gotify') {
+```
+
+to:
+
+```typescript
+if (type !== 'gotify' && type !== 'telegram') {
+```
+
+The surrounding normalization logic (token stripping, payload return) MUST remain untouched. No other lines in this function change.
+
+#### `sanitizeProviderForReadLikeAction()`
+
+No changes — already calls `sanitizeProviderForWriteAction()` then strips token.
+
+### 3.7 Frontend — Notifications Page
+
+**File:** `frontend/src/pages/Notifications.tsx`
+
+#### Type Select Options
+
+Add after the email option:
+
+```tsx
+<option value="telegram">Telegram</option>
+```
+
+#### Computed Flags
+
+```typescript
+const isTelegram = type === 'telegram';
+```
+
+#### `normalizeProviderPayloadForSubmit()`
+
+Add telegram branch alongside gotify:
+
+```typescript
+if (type === 'gotify' || type === 'telegram') {
+    const normalizedToken = typeof payload.gotify_token === 'string' ? payload.gotify_token.trim() : '';
+    if (normalizedToken.length > 0) {
+        payload.token = normalizedToken;
+    } else {
+        delete payload.token;
+    }
+} else {
+    delete payload.token;
 }
 ```
 
-#### 3.2.4 Document safe call in `settings_handler.go`
+Note: Reuses the `gotify_token` form field for both Gotify and Telegram since both need a token input. This minimizes UI changes. The field label changes based on provider type.
 
-**File:** `backend/internal/api/handlers/settings_handler.go` (around line 637)
+#### Token Input Field
 
-Add a comment immediately above the `SendEmail` call — the sinks in mail_service.go are already annotated, so this is documentation only:
+Expand the conditional from `{isGotify && (` to `{(isGotify || isTelegram) && (`:
 
-```go
-// req.To is validated as RFC 5321 email via gin binding:"required,email".
-// SendEmail applies validateEmailRecipients + net/mail.ParseAddress + rejectCRLF as defence-in-depth.
-// Suppression annotations are on the sinks in mail_service.go.
-if err := h.MailService.SendEmail(c.Request.Context(), []string{req.To}, "Charon - Test Email", htmlBody); err != nil {
+```tsx
+{(isGotify || isTelegram) && (
+    <div>
+        <label htmlFor="provider-gotify-token" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            {isTelegram ? t('notificationProviders.telegramBotToken') : t('notificationProviders.gotifyToken')}
+        </label>
+        <input
+            id="provider-gotify-token"
+            type="password"
+            autoComplete="new-password"
+            {...register('gotify_token')}
+            data-testid="provider-gotify-token"
+            placeholder={initialData?.has_token
+                ? t('notificationProviders.gotifyTokenKeepPlaceholder')
+                : isTelegram
+                    ? t('notificationProviders.telegramBotTokenPlaceholder')
+                    : t('notificationProviders.gotifyTokenPlaceholder')}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
+            aria-describedby={initialData?.has_token ? 'gotify-token-stored-hint' : undefined}
+        />
+        {initialData?.has_token && (
+            <p id="gotify-token-stored-hint" data-testid="gotify-token-stored-indicator" className="text-xs text-green-600 dark:text-green-400 mt-1">
+                {t('notificationProviders.gotifyTokenStored')}
+            </p>
+        )}
+        <p className="text-xs text-gray-500 mt-1">{t('notificationProviders.gotifyTokenWriteOnlyHint')}</p>
+    </div>
+)}
 ```
 
-#### 3.2.5 Document safe calls in `user_handler.go`
+#### URL Field Placeholder
 
-**File:** `backend/internal/api/handlers/user_handler.go` (lines ~597 and ~1015)
+For Telegram, the URL field stores the chat_id (not a full URL). Update the placeholder and label accordingly:
 
-Add the same explanatory comment above both `SendInvite` call sites:
-
-```go
-// userEmail validated as RFC 5321 email format; suppression on mail_service.go sinks covers this path.
-if err := h.MailService.SendInvite(userEmail, userToken, appName, baseURL); err != nil {
+```typescript
+placeholder={
+    isEmail ? 'user@example.com, admin@example.com'
+    : type === 'discord' ? 'https://discord.com/api/webhooks/...'
+    : type === 'gotify' ? 'https://gotify.example.com/message'
+    : isTelegram ? '987654321'
+    : 'https://example.com/webhook'
+}
 ```
 
-### 3.3 Phase 3 — Fix CWE-614 (`go/cookie-secure-not-set`)
+Update the label for the URL field when type is telegram:
 
-#### Strategy
-
-Two complementary changes: (1) add a `query-filters` exclusion in `.github/codeql/codeql-config.yml` which is robust to line-number churn, and (2) verify the inline `// codeql[go/cookie-secure-not-set]` annotation is correctly positioned.
-
-**Justification for exclusion:**
-
-The `secure` parameter in `setSecureCookie()` is `true` for **all** external production requests. It is `false` only when `isLocalRequest()` returns `true` — i.e., when the request comes from `127.x.x.x`, `::1`, or `localhost` over HTTP. In that scenario, browsers reject `Secure` cookies over non-TLS connections anyway, so setting `Secure: true` would silently break auth for local development. The conditional is tested and documented.
-
-#### 3.3.1 Skip `query-filters` approach — inline annotation is sufficient
-
-**Status: NOT IMPLEMENTING** — `query-filters` is a CodeQL query suite (`.qls`) concept, NOT a valid top-level key in GitHub's `codeql-config.yml`. Adding it risks silent failure or breaking the entire CodeQL analysis. The inline annotation at `auth_handler.go:152` is the documented mechanism and is already correct. No changes to `.github/codeql/codeql-config.yml` are needed for CWE-614.
-
-**Why inline annotation is sufficient and preferred:** It is scoped to the single intentional instance. Any future `c.SetCookie(...)` call without `Secure:true` anywhere else in the codebase will correctly flag. Global exclusion via config would silently hide future regressions.
-
-#### 3.3.1 (REFERENCE ONLY) Current valid `codeql-config.yml` structure
-
-```yaml
-name: "Charon CodeQL Config"
-
-# Paths to ignore from all analysis (use sparingly - prefer query-filters for rule-level exclusions)
-paths-ignore:
-  - "frontend/coverage/**"
-  - "frontend/dist/**"
-  - "playwright-report/**"
-  - "test-results/**"
-  - "coverage/**"
+```typescript
+label={isTelegram ? t('notificationProviders.telegramChatId') : t('notificationProviders.url')}
 ```
 
-DO NOT add `query-filters:` — it is not supported.
-  - exclude:
-      id: go/cookie-secure-not-set
-      # Justified: setSecureCookie() in auth_handler.go intentionally sets Secure=false
-      # ONLY for local loopback (127.x.x.x / ::1 / localhost) HTTP requests.
-      # Browsers reject Secure cookies over HTTP regardless, so Secure=true would silently
-      # break local development auth. All external HTTPS flows always set Secure=true.
-      # Code: backend/internal/api/handlers/auth_handler.go → setSecureCookie()
-      # Tests: TestSetSecureCookie_HTTPS_Strict, TestSetSecureCookie_HTTP_Loopback_Insecure
+#### Clear Token on Type Change
+
+Update the existing `useEffect` that clears `gotify_token`:
+
+```typescript
+useEffect(() => {
+    if (type !== 'gotify' && type !== 'telegram') {
+        setValue('gotify_token', '', { shouldDirty: false, shouldTouch: false });
+    }
+}, [type, setValue]);
 ```
 
-#### 3.3.2 Verify inline suppression placement in `auth_handler.go`
+### 3.8 Frontend — i18n Strings
 
-**File:** `backend/internal/api/handlers/auth_handler.go` (around line 152)
+**File:** `frontend/src/locales/en/translation.json`
 
-Confirm the `// codeql[go/cookie-secure-not-set]` annotation is on the same line as `c.SetCookie(`. The code should read:
+Add to the `notificationProviders` section:
 
-```go
-c.SetSameSite(sameSite)
-// secure is intentionally false for local non-HTTPS loopback (development only).
-c.SetCookie( // codeql[go/cookie-secure-not-set]
-name,
-value,
-maxAge,
-"/",
-domain,
-secure,
-true,
-)
+```json
+"telegram": "Telegram",
+"telegramBotToken": "Bot Token",
+"telegramBotTokenPlaceholder": "Enter your Telegram Bot Token",
+"telegramChatId": "Chat ID",
+"telegramChatIdPlaceholder": "987654321",
+"telegramChatIdHelp": "Your Telegram chat, group, or channel ID. The bot token is stored securely and separately."
 ```
 
-The `query-filters` in §3.3.1 provides the primary fix. The inline annotation provides belt-and-suspenders coverage that survives if the config is ever reset.
+### 3.9 API Contract (No Changes)
+
+The existing REST endpoints remain unchanged:
+
+| Method | Endpoint | Notes |
+|--------|----------|-------|
+| `GET` | `/api/notification-providers` | Returns all providers (token stripped) |
+| `POST` | `/api/notification-providers` | Create — now accepts `type: "telegram"` |
+| `PUT` | `/api/notification-providers/:id` | Update — token preserved if omitted |
+| `DELETE` | `/api/notification-providers/:id` | Delete — no type-specific logic |
+| `POST` | `/api/notification-providers/test` | Test — routes through `sendJSONPayload` |
+
+Request/response schemas are unchanged. The `type` field now accepts `"telegram"` in addition to existing values.
 
 ---
 
 ## 4. Implementation Plan
 
-### Phase 1 — Local Scanning (implement first to gate subsequent work)
+### Phase 1: Playwright E2E Tests (Test-First)
 
-| Task | File | Change | Effort |
-|---|---|---|---|
-| P1-1 | `.pre-commit-config.yaml` | Change semgrep-scan stage from `[manual]` → `[pre-push]`, update name | XS |
-| P1-2 | `scripts/pre-commit-hooks/semgrep-scan.sh` | Add `--severity ERROR --severity WARNING` flags, exclude generated dirs | XS |
-| P1-3 | `Makefile` | Add `security-local` target | XS |
-| P1-4 | `backend/.golangci-fast.yml` | Add G201, G202 to gosec includes | XS |
+**Rationale:** Per project conventions — write feature behaviour tests first.
 
-### Phase 2 — CWE-640 Fix
+**New file:** `tests/settings/telegram-notification-provider.spec.ts`
 
-| Task | File | Change | Effort |
-|---|---|---|---|
-| P2-1 | `backend/internal/services/mail_service.go` | Add `// codeql[go/email-injection]` on smtp.SendMail line + 4-layer defence comment | XS |
-| P2-2 | `backend/internal/services/mail_service.go` | Add `// codeql[go/email-injection]` on sendSSL client.Rcpt line | XS |
-| P2-3 | `backend/internal/services/mail_service.go` | Add `// codeql[go/email-injection]` on sendSTARTTLS client.Rcpt line | XS |
-| P2-4 | `backend/internal/api/handlers/settings_handler.go` | Add explanatory comment above SendEmail call | XS |
-| P2-5 | `backend/internal/api/handlers/user_handler.go` | Add explanatory comment above both SendInvite calls (~line 597, ~line 1015) | XS |
+Modeled after `tests/settings/email-notification-provider.spec.ts`.
 
-### Phase 3 — CWE-614 Fix
+Test scenarios:
+1. Create a Telegram provider (name, chat_id in URL field, bot token in token field, enable events)
+2. Verify provider appears in the list
+3. Edit the Telegram provider (change name, verify token preservation)
+4. Test the Telegram provider (mock API returns 200)
+5. Delete the Telegram provider
+6. **Negative security test:** Verify `GET /api/notification-providers` does NOT expose the bot token in any response field
+7. **Negative security test:** Verify bot token is NOT present in the URL field of the API response
 
-| Task | File | Change | Effort |
-|---|---|---|---|
-| P3-1 | `backend/internal/api/handlers/auth_handler.go` | Verify `// codeql[go/cookie-secure-not-set]` is on `c.SetCookie(` line (no codeql-config.yml changes needed) | XS |
+**Update file:** `tests/settings/notifications-payload.spec.ts`
 
-**Total estimated file changes: 6 files, all comment/config additions — no logic changes.**
+Add telegram to the payload matrix test scenarios.
+
+**E2E fixtures:** Update `telegramProvider` in `tests/fixtures/notifications.ts` — URL must contain only `chat_id`, token goes in the `token` field (see Research Findings section for updated fixture).
+
+### Phase 2: Backend Implementation
+
+**2A — Feature Flags (3 files)**
+
+| File | Change |
+|------|--------|
+| `backend/internal/notifications/feature_flags.go` | Add `FlagTelegramServiceEnabled` constant |
+| `backend/internal/api/handlers/feature_flags_handler.go` | Add to `defaultFlags` + `defaultFlagValues` |
+| `backend/internal/notifications/router.go` | Add `case "telegram"` to `ShouldUseNotify()` |
+
+**2B — Service Layer (1 file, 4 function changes)**
+
+| File | Function | Change |
+|------|----------|--------|
+| `notification_service.go` | `isSupportedNotificationProviderType()` | Add `"telegram"` to case |
+| `notification_service.go` | `isDispatchEnabled()` | Add `case "telegram"` with flag check |
+| `notification_service.go` | `supportsJSONTemplates()` | Add `"telegram"` to case |
+| `notification_service.go` | `sendJSONPayload()` | Add telegram validation + dispatch branch |
+
+**2C — Handler Layer (1 file, 3 locations)**
+
+| File | Location | Change |
+|------|----------|--------|
+| `notification_provider_handler.go` | `Create()` type guard | Add `&& providerType != "telegram"` |
+| `notification_provider_handler.go` | `Update()` type guard | Same |
+| `notification_provider_handler.go` | `Update()` token preservation | Add `|| providerType == "telegram"` |
+
+### Phase 3: Frontend Implementation
+
+**3A — API Client (1 file)**
+
+| File | Change |
+|------|--------|
+| `frontend/src/api/notifications.ts` | Add `'telegram'` to `SUPPORTED_NOTIFICATION_PROVIDER_TYPES`, update token sanitization logic |
+
+**3B — Notifications Page (1 file)**
+
+| File | Change |
+|------|--------|
+| `frontend/src/pages/Notifications.tsx` | Add telegram to type select, token field conditional, URL placeholder, `normalizeProviderPayloadForSubmit()`, type-change useEffect |
+
+**3C — Localization (1 file)**
+
+| File | Change |
+|------|--------|
+| `frontend/src/locales/en/translation.json` | Add telegram-specific label strings |
+
+### Phase 4: Backend Tests
+
+| Test File | Changes |
+|-----------|---------|
+| `notification_service_test.go` | Update "rejects unsupported provider" test (remove telegram from unsupported list). Add telegram dispatch/integration tests. |
+| `notification_service_json_test.go` | Add `TestSendJSONPayload_Telegram_*` tests: valid payload, missing text with message auto-map, missing both text and message, dispatch via httpWrapper, **SSRF hostname validation**, **401/403 error message** |
+| `notification_provider_handler_test.go` | Add telegram to Create/Update happy path tests, token preservation test. **Add negative test: verify GET response does not contain bot token in URL field or response body** |
+| `enhanced_security_notification_service_test.go` | Change telegram from "filtered" to "valid provider" in security dispatch tests |
+| Router test (if exists) | Add telegram to `ShouldUseNotify()` tests |
+
+### Phase 5: Frontend Tests
+
+| Test File | Changes |
+|-----------|---------|
+| `frontend/src/api/notifications.test.ts` | Remove telegram rejection test, add telegram CRUD sanitization tests |
+| `frontend/src/api/__tests__/notifications.test.ts` | Same changes (duplicate test location) |
+| `frontend/src/pages/Notifications.test.tsx` | Add telegram form rendering tests (token field visibility, placeholder text) |
+
+### Phase 6: Integration, Documentation & Deployment
+
+- Verify E2E tests pass with Docker container
+- Update `docs/features.md` with Telegram provider mention
+- No `ARCHITECTURE.md` changes needed (same provider pattern)
+- No database migration needed
 
 ---
 
 ## 5. Acceptance Criteria
 
-### CI (CodeQL must pass with zero error-level findings)
+### EARS Requirements
 
-- [ ] `codeql.yml` CodeQL analysis (Go) passes with **0 blocking findings**
-- [ ] `go/email-injection` is absent from the Go SARIF output
-- [ ] `go/cookie-secure-not-set` is absent from the Go SARIF output
+| ID | Requirement |
+|----|-------------|
+| T-01 | WHEN a user creates a notification provider with type "telegram", THE SYSTEM SHALL accept the provider and store it in the database |
+| T-02 | WHEN a user provides a bot token for a Telegram provider, THE SYSTEM SHALL store it securely and never expose it in API responses |
+| T-03 | WHEN a Telegram provider is enabled and a notification event fires, THE SYSTEM SHALL construct the Telegram API URL dynamically from the stored token (`https://api.telegram.org/bot` + token + `/sendMessage`), inject `chat_id` from the URL field into the POST body, and send the rendered template payload |
+| T-04 | WHEN the rendered JSON payload contains a "message" field but not a "text" field, THE SYSTEM SHALL auto-map "message" to "text" for Telegram compatibility |
+| T-05 | WHEN the Telegram feature flag is disabled, THE SYSTEM SHALL skip dispatch for all Telegram providers |
+| T-06 | WHEN a user updates a Telegram provider without providing a token, THE SYSTEM SHALL preserve the existing stored token |
+| T-07 | WHEN a user tests a Telegram provider, THE SYSTEM SHALL send a test notification through the standard sendJSONPayload path |
+| T-08 | WHEN the frontend renders the provider form with type "telegram", THE SYSTEM SHALL display a bot token input field and a chat_id input field (with appropriate placeholder) |
+| T-09 | WHEN dispatching a Telegram notification, THE SYSTEM SHALL validate that the constructed URL hostname is exactly `api.telegram.org` before sending (SSRF mitigation) |
+| T-10 | WHEN a Telegram test request receives HTTP 401 or 403, THE SYSTEM SHALL return the error message "Provider rejected authentication. Verify your Telegram Bot Token" |
+| T-11 | WHEN the API returns notification providers via GET, THE SYSTEM SHALL NOT include the bot token in the URL field or any other exposed response field |
 
-### Local scanning
+### Definition of Done
 
-- [ ] A `git push` with any `.go` file touched **blocks** if semgrep finds WARNING+ severity issues
-- [ ] `pre-commit run semgrep-scan` on the current codebase exits 0 (no new findings)
-- [ ] `make security-local` runs and exits 0
-
-### Regression safety
-
-- [ ] `go test ./...` in `backend/` passes (all changes are comments/config — no test updates required)
-- [ ] `golangci-lint run --config .golangci-fast.yml ./...` passes in `backend/`
-- [ ] The existing runtime defence (rejectCRLF, validateEmailRecipients) is **unchanged** — confirmed by diff
+- [ ] All 16 code touchpoints updated (see section 2 table)
+- [ ] E2E Playwright tests pass for Telegram CRUD + test send
+- [ ] Backend unit tests cover: type registration, dispatch routing, payload validation (text field), token preservation, feature flag gating
+- [ ] Frontend unit tests cover: type array acceptance, sanitization, form rendering
+- [ ] `go test ./...` passes
+- [ ] `npm test` passes
+- [ ] `npx playwright test --project=firefox` passes
+- [ ] `make lint-fast` passes (staticcheck)
+- [ ] Coverage threshold maintained (85%+)
+- [ ] GORM security scan passes (no model changes, but verify)
+- [ ] Token never appears in API responses, logs, or frontend state
+- [ ] Negative security tests pass (bot token not in GET response body or URL field)
+- [ ] SSRF hostname validation test passes (only `api.telegram.org` allowed)
+- [ ] Telegram 401/403 returns specific auth error message
 
 ---
 
 ## 6. Commit Slicing Strategy
 
-### Decision: Single commit on `feature/beta-release`
+### Decision: 2 PRs
 
-**Rationale:** All three phases are tightly related (one CI failure, two root findings, one local gap). All changes are additive (comments, config, no logic mutations). Splitting into multiple PRs would create an intermediate state where CI still fails and the local gap remains open. A single well-scoped commit keeps PR #800 atomic and reviewable.
+**Trigger reasons:** Changes span backend + frontend + E2E tests with independent functionality per layer. Splitting improves review quality and rollback safety.
 
-**Suggested commit message:**
-```
-fix(security): suppress CodeQL false-positives for email-injection and cookie-secure
+### PR-1: Backend — Telegram Provider Support
 
-CWE-640 (go/email-injection): Add // codeql[go/email-injection] annotations at all 3
-smtp sink sites in mail_service.go (smtp.SendMail, sendSSL client.Rcpt, sendSTARTTLS
-client.Rcpt). The 4-layer defence (gin binding:"required,email", validateEmailRecipients,
-net/mail.ParseAddress, rejectCRLF) is comprehensive; CodeQL's taint model does not
-model validators as sanitisers, producing false-positive paths from
-settings_handler.go:637 and user_handler.go invite flows that bypass
-notification_service.go.
+**Scope:** Feature flags, service layer, handler layer, all Go unit tests
 
-CWE-614 (go/cookie-secure-not-set): Add query-filter to codeql-config.yml excluding
-this rule with documented justification. setSecureCookie() correctly sets Secure=false
-only for local loopback HTTP requests where the Secure attribute is browser-rejected.
-All external HTTPS flows set Secure=true.
+**Files changed:**
+- `backend/internal/notifications/feature_flags.go`
+- `backend/internal/api/handlers/feature_flags_handler.go`
+- `backend/internal/notifications/router.go`
+- `backend/internal/services/notification_service.go`
+- `backend/internal/api/handlers/notification_provider_handler.go`
+- `backend/internal/services/notification_service_test.go`
+- `backend/internal/services/notification_service_json_test.go`
+- `backend/internal/api/handlers/notification_provider_handler_test.go`
+- `backend/internal/services/enhanced_security_notification_service_test.go`
 
-Local scanning: Promote semgrep-scan from manual to pre-push stage so WARNING+
-severity findings block push. Addresses gap where CWE-614 and CWE-640 equivalents
-are not covered by any blocking local scan tool.
-```
+**Dependencies:** None (self-contained backend change)
 
-**PR:** All changes target PR #800 directly.
+**Validation gates:**
+- `go test ./...` passes
+- `make lint-fast` passes
+- Coverage ≥ 85%
+- GORM security scan passes
+
+**Rollback:** Revert PR — no DB migration to undo.
+
+### PR-2: Frontend + E2E — Telegram Provider UI
+
+**Scope:** Frontend API client, Notifications page, i18n strings, frontend unit tests, Playwright E2E tests
+
+**Files changed:**
+- `frontend/src/api/notifications.ts`
+- `frontend/src/pages/Notifications.tsx`
+- `frontend/src/locales/en/translation.json`
+- `frontend/src/api/notifications.test.ts`
+- `frontend/src/api/__tests__/notifications.test.ts`
+- `frontend/src/pages/Notifications.test.tsx`
+- `tests/settings/telegram-notification-provider.spec.ts` (new)
+- `tests/settings/notifications-payload.spec.ts`
+
+**Dependencies:** PR-1 must be merged first (backend must accept `type: "telegram"`)
+
+**Validation gates:**
+- `npm test` passes
+- `npm run type-check` passes
+- `npx playwright test --project=firefox` passes
+- Coverage ≥ 85%
+
+**Rollback:** Revert PR — frontend-only, no cascading effects.
 
 ---
 
-## 7. Risk and Rollback
+## 7. Risk Assessment
 
-| Risk | Likelihood | Mitigation |
-|---|---|---|
-| Inline suppression ends up on wrong line after future rebase | Medium | `query-filters` in codeql-config.yml provides independent suppression independent of line numbers |
-| `semgrep-scan` at `pre-push` produces false-positive blocking | Low | `--severity WARNING --error` limits to genuine findings; use `SEMGREP_CONFIG=p/golang` for targeted override |
-| G201/G202 gosec rules trigger on existing legitimate code | Low | Run `golangci-lint run --config .golangci-fast.yml` locally before committing; suppress specific instances if needed |
-| CodeQL `query-filters` YAML syntax changes in future GitHub CodeQL versions | Low | Inline `// codeql[...]` annotations serve as independent fallback |
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Telegram API rate limiting | Low | Medium | Use existing retry/timeout patterns from httpWrapper |
+| Bot token exposure in responses/logs | Low | Critical | Token stored ONLY in `Token` field (`json:"-"`), never in URL field. URL field contains only `chat_id`. Negative security tests verify this invariant. |
+| Template auto-mapping edge cases | Low | Low | Test with all three template types (minimal, detailed, custom) |
+| URL validation rejects chat_id format | Low | Low | URL field now stores a chat_id string (not a full URL). Validation may need adjustment to accept non-URL values for telegram type. |
+| SSRF via tampered stored data | Low | High | Dispatch-time validation ensures hostname is exactly `api.telegram.org`. Dedicated test covers this. |
+| E2E test flakiness with mocked API | Low | Low | Existing route-mocking patterns are stable |
 
-**Rollback:** All changes are additive config and comments. Reverting the commit restores the prior state exactly. No schema, API, or behaviour changes are made.
+---
+
+## 8. Complexity Estimates
+
+| Component | Estimate | Notes |
+|-----------|----------|-------|
+| Backend feature flags | S | 3 files, ~5 lines each |
+| Backend service layer | M | 4 function changes + telegram validation block |
+| Backend handler layer | S | 3 string-level changes |
+| Frontend API client | S | 2 lines + sanitization tweak |
+| Frontend UI | M | Template conditional, placeholder, useEffect updates |
+| Frontend i18n | S | 4 strings |
+| Backend tests | L | Multiple test files, new test functions, update existing assertions |
+| Frontend tests | M | Update rejection tests, add rendering tests |
+| E2E tests | M | New spec file modeled on existing email spec |
+| **Total** | **M-L** | ~2-3 days of focused implementation |
