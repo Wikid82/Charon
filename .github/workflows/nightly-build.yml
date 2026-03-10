@@ -263,7 +263,7 @@ jobs:
       - name: Generate SBOM
         id: sbom_primary
         continue-on-error: true
-        uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11  # v0.23.0
+        uses: anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d  # v0.23.1
         with:
           image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}
           format: cyclonedx-json
@@ -282,7 +282,7 @@ jobs:
 
           echo "Primary SBOM generation failed or produced missing/invalid output; using deterministic Syft fallback"
 
-          SYFT_VERSION="v1.42.1"
+          SYFT_VERSION="v1.42.2"
           OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
           ARCH="$(uname -m)"
           case "$ARCH" in
