@@ -10,7 +10,6 @@
     "lint:md:fix": "markdownlint-cli2 '**/*.md' --fix --ignore node_modules --ignore .venv --ignore test-results --ignore codeql-db --ignore codeql-agent-results"
   },
   "dependencies": {
-    "@types/eslint-plugin-jsx-a11y": "^6.10.1",
     "@typescript/analyze-trace": "^0.10.1",
     "tldts": "^7.0.25",
     "type-check": "^0.4.0",
@@ -18,6 +17,7 @@
     "vite": "^7.3.1"
   },
   "devDependencies": {
+    "@types/eslint-plugin-jsx-a11y": "^6.10.1",
     "@bgotink/playwright-coverage": "^0.3.2",
     "@playwright/test": "^1.58.2",
     "@types/node": "^25.4.0",
