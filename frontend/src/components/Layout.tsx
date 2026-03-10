@@ -151,7 +151,7 @@ export default function Layout({ children }: LayoutProps) {
            {isCollapsed ? (
              <img src="/logo.png" alt="Charon" className="h-12 w-auto" />
            ) : (
-             <img src="/banner.png" alt="Charon" className="h-14 w-auto max-w-[200px] object-contain" />
+             <img src="/banner.png" alt="Charon" className="h-14 w-auto max-max-w-50 object-contain" />
            )}
         </div>
 
@@ -296,7 +296,7 @@ export default function Layout({ children }: LayoutProps) {
             })}
           </nav>
 
-          <div className={`mt-2 border-t border-gray-200 dark:border-gray-800 pt-4 flex-shrink-0 ${isCollapsed ? 'hidden' : ''}`}>
+          <div className={`mt-2 border-t border-gray-200 dark:border-gray-800 pt-4 shrink-0 ${isCollapsed ? 'hidden' : ''}`}>
             <div className="text-xs text-gray-500 dark:text-gray-500 text-center mb-2 flex flex-col gap-0.5">
               <span>Version {health?.version || 'dev'}</span>
               {health?.git_commit && health.git_commit !== 'unknown' && (
@@ -319,7 +319,7 @@ export default function Layout({ children }: LayoutProps) {
 
           {/* Collapsed Logout */}
           {isCollapsed && (
-             <div className="mt-2 border-t border-gray-200 dark:border-gray-800 pt-4 pb-4 flex-shrink-0">
+             <div className="mt-2 border-t border-gray-200 dark:border-gray-800 pt-4 pb-4 shrink-0">
                 <button
                   onClick={() => {
                     setMobileSidebarOpen(false)

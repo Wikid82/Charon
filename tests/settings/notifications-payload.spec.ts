@@ -102,6 +102,11 @@ test.describe('Notifications Payload Matrix', () => {
         name: `webhook-matrix-${Date.now()}`,
         url: 'https://example.com/notify',
       },
+      {
+        type: 'telegram',
+        name: `telegram-matrix-${Date.now()}`,
+        url: '987654321',
+      },
     ] as const;
 
     for (const scenario of scenarios) {
@@ -116,12 +121,16 @@ test.describe('Notifications Payload Matrix', () => {
           await page.getByTestId('provider-gotify-token').fill('  gotify-secret-token  ');
         }
 
+        if (scenario.type === 'telegram') {
+          await page.getByTestId('provider-gotify-token').fill('bot123456789:ABCdefGHI');
+        }
+
         await page.getByTestId('provider-save-btn').click();
       });
     }
 
     await test.step('Verify payload contract per provider type', async () => {
-      expect(capturedCreatePayloads).toHaveLength(3);
+      expect(capturedCreatePayloads).toHaveLength(4);
 
       const discordPayload = capturedCreatePayloads.find((payload) => payload.type === 'discord');
       expect(discordPayload).toBeTruthy();
@@ -137,6 +146,12 @@ test.describe('Notifications Payload Matrix', () => {
       expect(webhookPayload).toBeTruthy();
       expect(webhookPayload?.token).toBeUndefined();
       expect(typeof webhookPayload?.config).toBe('string');
+
+      const telegramPayload = capturedCreatePayloads.find((payload) => payload.type === 'telegram');
+      expect(telegramPayload).toBeTruthy();
+      expect(telegramPayload?.token).toBe('bot123456789:ABCdefGHI');
+      expect(telegramPayload?.gotify_token).toBeUndefined();
+      expect(telegramPayload?.url).toBe('987654321');
     });
   });
 

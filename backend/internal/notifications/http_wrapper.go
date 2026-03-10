@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	crand "crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -157,6 +158,9 @@ func (w *HTTPWrapper) Send(ctx context.Context, request HTTPWrapperRequest) (*HT
 		}
 
 		if resp.StatusCode >= http.StatusBadRequest {
+			if hint := extractProviderErrorHint(body); hint != "" {
+				return nil, fmt.Errorf("provider returned status %d: %s", resp.StatusCode, hint)
+			}
 			return nil, fmt.Errorf("provider returned status %d", resp.StatusCode)
 		}
 
@@ -408,6 +412,34 @@ func shouldRetry(resp *http.Response, err error) bool {
 	}
 
 	return resp.StatusCode >= http.StatusInternalServerError
+}
+
+// extractProviderErrorHint attempts to extract a short, human-readable error description
+// from a JSON error response body. Only well-known fields are extracted to avoid
+// accidentally surfacing sensitive or overlong content from arbitrary providers.
+func extractProviderErrorHint(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var errResp map[string]any
+	if err := json.Unmarshal(body, &errResp); err != nil {
+		return ""
+	}
+	for _, key := range []string{"description", "message", "error", "error_description"} {
+		v, ok := errResp[key]
+		if !ok {
+			continue
+		}
+		s, ok := v.(string)
+		if !ok || strings.TrimSpace(s) == "" {
+			continue
+		}
+		if len(s) > 100 {
+			s = s[:100] + "..."
+		}
+		return strings.TrimSpace(s)
+	}
+	return ""
 }
 
 func readCappedResponseBody(body io.Reader) ([]byte, error) {
