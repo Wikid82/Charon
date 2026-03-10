@@ -34,7 +34,7 @@ const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
             'bg-surface-muted',
             'peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface-base',
             'peer-checked:bg-brand-500',
-            "after:content-[''] after:absolute after:top-[2px] after:start-[2px]",
+            "after:content-[''] after:absolute after:top-0.5 after:start-[2px]",
             'after:bg-white after:border after:border-border after:rounded-full',
             'after:h-5 after:w-5 after:transition-all after:duration-fast',
             'peer-checked:after:translate-x-full peer-checked:after:border-white',

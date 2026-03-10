@@ -29,7 +29,7 @@ export function ToastContainer() {
           role={toast.type === 'error' || toast.type === 'warning' ? 'alert' : 'status'}
           aria-live={toast.type === 'error' || toast.type === 'warning' ? 'assertive' : 'polite'}
           data-testid={`toast-${toast.type}`}
-          className={`pointer-events-auto px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 min-w-[300px] max-w-[500px] animate-slide-in ${
+          className={`pointer-events-auto px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 min-w-75 max-w-125 animate-slide-in ${
             toast.type === 'success'
               ? 'bg-green-600 text-white'
               : toast.type === 'error'

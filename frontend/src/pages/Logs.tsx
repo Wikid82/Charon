@@ -94,7 +94,7 @@ const Logs: FC = () => {
                         : 'hover:bg-surface-muted text-content-secondary'
                     }`}
                   >
-                    <FileText className="w-4 h-4 mr-2 flex-shrink-0" />
+                    <FileText className="w-4 h-4 mr-2 shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">{log.name}</div>
                       <div className="text-xs text-content-muted">{(log.size / 1024 / 1024).toFixed(2)} MB</div>

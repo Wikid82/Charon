@@ -33,7 +33,7 @@ export default function CertificateCleanupDialog({
       >
         <form onSubmit={handleSubmit}>
           <div className="flex items-start gap-3 mb-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-orange-900/30 flex items-center justify-center">
+            <div className="shrink-0 w-10 h-10 rounded-full bg-orange-900/30 flex items-center justify-center">
               <AlertTriangle className="h-5 w-5 text-orange-400" />
             </div>
             <div className="flex-1">

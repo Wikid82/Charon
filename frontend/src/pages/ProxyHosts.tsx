@@ -438,7 +438,7 @@ export default function ProxyHosts() {
                   style={{ maxWidth: '100%' }}
                 >
                   <span className="truncate max-w-[30ch]">{d}</span>
-                  <ExternalLink size={12} className="opacity-50 flex-shrink-0" />
+                  <ExternalLink size={12} className="opacity-50 shrink-0" />
                 </a>
               </div>
             )
@@ -1101,7 +1101,7 @@ export default function ProxyHosts() {
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <div className="flex items-start gap-3">
-                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-error/10 flex items-center justify-center">
+                <div className="shrink-0 w-10 h-10 rounded-full bg-error/10 flex items-center justify-center">
                   <AlertTriangle className="h-5 w-5 text-error" />
                 </div>
                 <div>

@@ -580,7 +580,7 @@ export default function CrowdSecConfig() {
             {/* Yellow warning: Process running but LAPI initializing */}
             {lapiStatusQuery.data && lapiStatusQuery.data.running && !lapiStatusQuery.data.lapi_ready && initialCheckComplete && (
               <div className="flex items-start gap-3 p-4 bg-yellow-900/20 border border-yellow-700/50 rounded-lg" data-testid="lapi-warning">
-                <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                <AlertTriangle className="w-5 h-5 text-yellow-400 shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <p className="text-sm text-yellow-200 font-medium mb-2">
                     {t('crowdsecConfig.lapiInitializing')}
@@ -606,7 +606,7 @@ export default function CrowdSecConfig() {
             {/* Red warning: Process not running at all */}
             {lapiStatusQuery.data && !lapiStatusQuery.data.running && initialCheckComplete && (
               <div className="flex items-start gap-3 p-4 bg-red-900/20 border border-red-700/50 rounded-lg" data-testid="lapi-not-running-warning">
-                <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <p className="text-sm text-red-200 font-medium mb-2">
                     {t('crowdsecConfig.notRunning')}
@@ -1225,7 +1225,7 @@ export default function CrowdSecConfig() {
 
           {/* Layer 3: Form content (pointer-events-auto) */}
           <div
-            className="relative bg-dark-card rounded-lg p-6 w-[480px] max-w-full shadow-xl"
+            className="relative bg-dark-card rounded-lg p-6 w-120 max-w-full shadow-xl"
             onKeyDown={(e) => {
               if (e.key === 'Escape') setShowBanModal(false)
               if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) banMutation.mutate()
@@ -1319,7 +1319,7 @@ export default function CrowdSecConfig() {
             aria-label={t('common.close')}
           />
           <div
-            className="relative bg-dark-card rounded-lg p-6 w-[400px] max-w-full shadow-xl"
+            className="relative bg-dark-card rounded-lg p-6 w-100 max-w-full shadow-xl"
             onKeyDown={(e) => {
               if (e.key === 'Escape') setConfirmUnban(null)
               if (e.key === 'Enter') unbanMutation.mutate(confirmUnban.ip)
