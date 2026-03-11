@@ -1,8 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import DNSProviderSelector from '../DNSProviderSelector'
+import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import { useDNSProviders } from '../../hooks/useDNSProviders'
+import DNSProviderSelector from '../DNSProviderSelector'
+
 import type { DNSProvider } from '../../api/dnsProviders'
 
 vi.mock('../../hooks/useDNSProviders')

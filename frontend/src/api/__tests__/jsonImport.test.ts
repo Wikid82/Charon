@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { uploadJSONExport, commitJSONImport, cancelJSONImport } from '../jsonImport';
+
 import client from '../client';
+import { uploadJSONExport, commitJSONImport, cancelJSONImport } from '../jsonImport';
 
 vi.mock('../client', () => ({
   default: {

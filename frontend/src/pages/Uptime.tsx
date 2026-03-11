@@ -1,10 +1,12 @@
-import { useMemo, useState, type FC, type FormEvent } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getMonitors, getMonitorHistory, updateMonitor, deleteMonitor, checkMonitor, createMonitor, syncMonitors, UptimeMonitor } from '../api/uptime';
-import { Activity, ArrowUp, ArrowDown, Settings, X, Pause, RefreshCw, Plus, Loader } from 'lucide-react';
-import { toast } from 'react-hot-toast'
 import { formatDistanceToNow } from 'date-fns';
+import { Activity, ArrowUp, ArrowDown, Settings, X, Pause, RefreshCw, Plus, Loader } from 'lucide-react';
+import { useMemo, useState, type FC, type FormEvent } from 'react';
+import { toast } from 'react-hot-toast'
+import { useTranslation } from 'react-i18next';
+
+import { getMonitors, getMonitorHistory, updateMonitor, deleteMonitor, checkMonitor, createMonitor, syncMonitors, type UptimeMonitor } from '../api/uptime';
+
 
 type BaseMonitorStatus = 'up' | 'down' | 'pending';
 type EffectiveMonitorStatus = BaseMonitorStatus | 'paused';
@@ -92,7 +94,7 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold text-lg text-gray-900 dark:text-white flex-1 min-w-0 truncate">{monitor.name}</h3>
         <div className="flex items-center gap-2 shrink-0">
-          <div className={`flex items-center justify-center px-3 py-1 rounded-full text-sm font-medium min-w-22.5 ${
+          <div className={`flex items-center justify-center px-3 py-1 rounded-full text-sm font-medium min-w-[90px] ${
             effectiveStatus === 'paused'
               ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
               : effectiveStatus === 'pending'

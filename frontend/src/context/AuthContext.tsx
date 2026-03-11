@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode, type FC } from 'react';
+
+import { AuthContext, type User } from './AuthContextValue';
 import client, { setAuthToken, setAuthErrorHandler } from '../api/client';
-import { AuthContext, User } from './AuthContextValue';
 
 export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -164,15 +165,15 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     const events = ['mousedown', 'keydown', 'scroll', 'touchstart'];
     const handleActivity = () => resetTimer();
 
-    events.forEach(event => {
+    for (const event of events) {
       window.addEventListener(event, handleActivity);
-    });
+    }
 
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
-      events.forEach(event => {
+      for (const event of events) {
         window.removeEventListener(event, handleActivity);
-      });
+      }
     };
   }, [user, logout]);
 

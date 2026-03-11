@@ -1,11 +1,12 @@
-import { useEffect, useState, type FC } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, NotificationProvider, getExternalTemplates, previewExternalTemplate, ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate, NotificationTemplate, SUPPORTED_NOTIFICATION_PROVIDER_TYPES, type SupportedNotificationProviderType } from '../api/notifications';
-import { Card } from '../components/ui/Card';
-import { Button } from '../components/ui/Button';
 import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react';
+import { useEffect, useState, type FC } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
+
+import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, type NotificationProvider, getExternalTemplates, previewExternalTemplate, type ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate, type NotificationTemplate, SUPPORTED_NOTIFICATION_PROVIDER_TYPES, type SupportedNotificationProviderType } from '../api/notifications';
+import { Button } from '../components/ui/Button';
+import { Card } from '../components/ui/Card';
 import { toast } from '../utils/toast';
 
 const DISCORD_PROVIDER_TYPE: SupportedNotificationProviderType = 'discord';
@@ -130,7 +131,7 @@ const ProviderForm: FC<{
     try {
       // If using an external saved template (id), call previewExternalTemplate with template_id
       if (formData.template && typeof formData.template === 'string' && formData.template.length === 36) {
-        const res = await previewExternalTemplate(formData.template, undefined, undefined);
+        const res = await previewExternalTemplate(formData.template);
         if (res.parsed) setPreviewContent(JSON.stringify(res.parsed, null, 2)); else setPreviewContent(res.rendered);
       } else {
         const res = await previewProvider({ ...formData, type: normalizeProviderType(formData.type) } as Partial<NotificationProvider>);

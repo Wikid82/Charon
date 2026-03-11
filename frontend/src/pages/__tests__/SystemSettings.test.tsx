@@ -1,13 +1,14 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
-import SystemSettings from '../SystemSettings'
-import * as settingsApi from '../../api/settings'
-import * as featureFlagsApi from '../../api/featureFlags'
+
 import client from '../../api/client'
+import * as featureFlagsApi from '../../api/featureFlags'
+import * as settingsApi from '../../api/settings'
 import { LanguageProvider } from '../../context/LanguageContext'
+import SystemSettings from '../SystemSettings'
 
 // Note: react-i18next mock is provided globally by src/test/setup.ts
 
@@ -119,7 +120,7 @@ describe('SystemSettings', () => {
     })
 
     it('saves SSL provider setting when save button is clicked', async () => {
-      vi.mocked(settingsApi.updateSetting).mockResolvedValue(undefined)
+      vi.mocked(settingsApi.updateSetting).mockResolvedValue()
 
       renderWithProviders(<SystemSettings />)
 
@@ -193,7 +194,7 @@ describe('SystemSettings', () => {
     })
 
     it('saves all settings when save button is clicked', async () => {
-      vi.mocked(settingsApi.updateSetting).mockResolvedValue(undefined)
+      vi.mocked(settingsApi.updateSetting).mockResolvedValue()
 
       renderWithProviders(<SystemSettings />)
 
@@ -207,41 +208,41 @@ describe('SystemSettings', () => {
 
       await waitFor(() => {
         expect(settingsApi.updateSetting).toHaveBeenCalledTimes(6)
-        expect(settingsApi.updateSetting).toHaveBeenCalledWith(
-          'caddy.admin_api',
-          expect.any(String),
-          'caddy',
-          'string'
-        )
-        expect(settingsApi.updateSetting).toHaveBeenCalledWith(
-          'caddy.ssl_provider',
-          expect.any(String),
-          'caddy',
-          'string'
-        )
-        expect(settingsApi.updateSetting).toHaveBeenCalledWith(
-          'caddy.keepalive_idle',
-          '',
-          'caddy',
-          'string'
-        )
-        expect(settingsApi.updateSetting).toHaveBeenCalledWith(
-          'caddy.keepalive_count',
-          '',
-          'caddy',
-          'string'
-        )
-        expect(settingsApi.updateSetting).toHaveBeenCalledWith(
+      })
+      expect(settingsApi.updateSetting).toHaveBeenCalledWith(
           'ui.domain_link_behavior',
           expect.any(String),
           'ui',
           'string'
         )
-      })
+      expect(settingsApi.updateSetting).toHaveBeenCalledWith(
+          'caddy.keepalive_count',
+          '',
+          'caddy',
+          'string'
+        )
+      expect(settingsApi.updateSetting).toHaveBeenCalledWith(
+          'caddy.keepalive_idle',
+          '',
+          'caddy',
+          'string'
+        )
+      expect(settingsApi.updateSetting).toHaveBeenCalledWith(
+          'caddy.ssl_provider',
+          expect.any(String),
+          'caddy',
+          'string'
+        )
+      expect(settingsApi.updateSetting).toHaveBeenCalledWith(
+          'caddy.admin_api',
+          expect.any(String),
+          'caddy',
+          'string'
+        )
     })
 
     it('saves keepalive settings when valid values are provided', async () => {
-      vi.mocked(settingsApi.updateSetting).mockResolvedValue(undefined)
+      vi.mocked(settingsApi.updateSetting).mockResolvedValue()
 
       renderWithProviders(<SystemSettings />)
 
@@ -267,13 +268,13 @@ describe('SystemSettings', () => {
           'caddy',
           'string'
         )
-        expect(settingsApi.updateSetting).toHaveBeenCalledWith(
+      })
+      expect(settingsApi.updateSetting).toHaveBeenCalledWith(
           'caddy.keepalive_count',
           '3',
           'caddy',
           'string'
         )
-      })
     })
 
     it('disables save when keepalive values are invalid', async () => {

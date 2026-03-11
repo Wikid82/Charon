@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
+
 import compareHosts from '../compareHosts'
+
 import type { ProxyHost } from '../../api/proxyHosts'
 
 const hostA: ProxyHost = {

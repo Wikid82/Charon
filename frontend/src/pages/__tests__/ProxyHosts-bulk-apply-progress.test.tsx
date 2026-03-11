@@ -1,16 +1,18 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
-import ProxyHosts from '../ProxyHosts'
-import * as proxyHostsApi from '../../api/proxyHosts'
-import * as certificatesApi from '../../api/certificates'
+
 import * as accessListsApi from '../../api/accessLists'
+import * as certificatesApi from '../../api/certificates'
+import * as proxyHostsApi from '../../api/proxyHosts'
 import * as settingsApi from '../../api/settings'
-import type { Certificate } from '../../api/certificates'
-import type { AccessList } from '../../api/accessLists'
 import { createMockProxyHost } from '../../testUtils/createMockProxyHost'
+import ProxyHosts from '../ProxyHosts'
+
+import type { AccessList } from '../../api/accessLists'
+import type { Certificate } from '../../api/certificates'
 import type { ProxyHost } from '../../api/proxyHosts'
 
 vi.mock('react-hot-toast', () => ({ toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() } }))
@@ -52,7 +54,7 @@ describe('ProxyHosts - Bulk Apply progress UI', () => {
         const resolvers: Array<(v: ProxyHost) => void> = []
         updateMock.mockImplementation(() => new Promise((res: (v: ProxyHost) => void) => { resolvers.push(res) }))
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('Progress 1')).toBeTruthy())
+    expect(await screen.findByText('Progress 1')).toBeTruthy()
 
     // Select all
     const selectAll = screen.getByLabelText('Select all rows')
@@ -60,7 +62,7 @@ describe('ProxyHosts - Bulk Apply progress UI', () => {
 
     // Open Bulk Apply
     await userEvent.click(screen.getByText('Bulk Apply'))
-    await waitFor(() => expect(screen.getByText('Bulk Apply Settings')).toBeTruthy())
+    expect(await screen.findByText('Bulk Apply Settings')).toBeTruthy()
 
     // Enable one setting (Force SSL) - use Radix Checkbox (role="checkbox") in the row
     const forceLabel = screen.getByText(/Force SSL/i) as HTMLElement
@@ -78,7 +80,7 @@ describe('ProxyHosts - Bulk Apply progress UI', () => {
     await waitFor(() => expect(screen.getAllByText(/Applying settings/i).length).toBeGreaterThan(0))
 
     // Resolve both pending update promises to finish the operation
-    resolvers.forEach(r => r(hosts[0]))
+    for (const r of resolvers) r(hosts[0])
     // Ensure subsequent tests aren't blocked by the special mock: make updateProxyHost resolve normally
     updateMock.mockImplementation(() => Promise.resolve(hosts[0] as ProxyHost))
 

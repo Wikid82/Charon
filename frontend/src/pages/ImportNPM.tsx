@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
+
 import { createBackup } from '../api/backups'
-import { useNPMImport } from '../hooks/useNPMImport'
 import ImportSuccessModal from '../components/dialogs/ImportSuccessModal'
+import { useNPMImport } from '../hooks/useNPMImport'
 
 export default function ImportNPM() {
   const { t } = useTranslation()

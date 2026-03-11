@@ -1,4 +1,5 @@
 import * as React from 'react'
+
 import { cn } from '../../utils/cn'
 
 interface SwitchProps extends React.InputHTMLAttributes<HTMLInputElement> {

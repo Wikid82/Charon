@@ -1,25 +1,26 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Server, RefreshCw, Save, Activity, Info, ExternalLink, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../components/ui/Card'
-import { Button } from '../components/ui/Button'
-import { Input } from '../components/ui/Input'
-import { Switch } from '../components/ui/Switch'
-import { Label } from '../components/ui/Label'
+
+import client from '../api/client'
+import { getFeatureFlags, updateFeatureFlags } from '../api/featureFlags'
+import { getSettings, updateSetting, testPublicURL } from '../api/settings'
+import { LanguageSelector } from '../components/LanguageSelector'
+import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { Alert, AlertDescription } from '../components/ui/Alert'
 import { Badge } from '../components/ui/Badge'
-import { Skeleton } from '../components/ui/Skeleton'
+import { Button } from '../components/ui/Button'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../components/ui/Card'
+import { Input } from '../components/ui/Input'
+import { Label } from '../components/ui/Label'
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '../components/ui/Select'
+import { Skeleton } from '../components/ui/Skeleton'
+import { Switch } from '../components/ui/Switch'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../components/ui/Tooltip'
-import { toast } from '../utils/toast'
-import { getSettings, updateSetting, testPublicURL } from '../api/settings'
-import { getFeatureFlags, updateFeatureFlags } from '../api/featureFlags'
-import client from '../api/client'
-import { Server, RefreshCw, Save, Activity, Info, ExternalLink, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
-import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { WebSocketStatusCard } from '../components/WebSocketStatusCard'
-import { LanguageSelector } from '../components/LanguageSelector'
 import { cn } from '../utils/cn'
+import { toast } from '../utils/toast'
 
 interface HealthResponse {
   status: string
@@ -57,13 +58,13 @@ export default function SystemSettings() {
       : undefined
   const keepaliveCountError = (() => {
     if (!keepaliveCountTrimmed) {
-      return undefined
+      return
     }
     const parsed = Number.parseInt(keepaliveCountTrimmed, 10)
     if (!Number.isInteger(parsed) || parsed < 1 || parsed > 1000) {
       return t('systemSettings.general.keepaliveCountError')
     }
-    return undefined
+    return
   })()
   const hasKeepaliveValidationError = Boolean(keepaliveIdleError || keepaliveCountError)
 

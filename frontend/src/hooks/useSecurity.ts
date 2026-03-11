@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
+
 import {
   getSecurityStatus,
   getSecurityConfig,
@@ -15,7 +17,6 @@ import {
   type SecurityConfigPayload,
   type CreateDecisionPayload,
 } from '../api/security'
-import toast from 'react-hot-toast'
 
 export function useSecurityStatus() {
   return useQuery({ queryKey: ['securityStatus'], queryFn: getSecurityStatus })

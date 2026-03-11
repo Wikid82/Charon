@@ -1,6 +1,7 @@
-import { useState, type FC } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Bell, X, Info, AlertTriangle, AlertCircle, CheckCircle, ExternalLink } from 'lucide-react';
+import { useState, type FC } from 'react';
+
 import { getNotifications, markNotificationRead, markAllNotificationsRead, checkUpdates } from '../api/system';
 
 const NotificationCenter: FC = () => {

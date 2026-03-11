@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import client from './client'
+
 import {
   getAuditLogs,
   getAuditLog,
@@ -8,6 +8,7 @@ import {
   type AuditLog,
   type AuditLogFilters,
 } from './auditLogs'
+import client from './client'
 
 vi.mock('./client', () => ({
   default: {

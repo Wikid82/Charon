@@ -1,23 +1,22 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
 import { CircleHelp, AlertCircle, Check, X, Loader2, Copy, Info, AlertTriangle } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { toast } from 'react-hot-toast'
-import type { ProxyHost, ApplicationPreset } from '../api/proxyHosts'
-import { testProxyHostConnection } from '../api/proxyHosts'
-import { syncMonitors } from '../api/uptime'
-import { useRemoteServers } from '../hooks/useRemoteServers'
-import { useDomains } from '../hooks/useDomains'
-import { useCertificates } from '../hooks/useCertificates'
-import { useDocker } from '../hooks/useDocker'
-import AccessListSelector from './AccessListSelector'
-import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
-import { SecurityScoreDisplay } from './SecurityScoreDisplay'
 import { parse } from 'tldts'
+
+import AccessListSelector from './AccessListSelector'
+import { DNSDetectionResult } from './DNSDetectionResult'
+import DNSProviderSelector from './DNSProviderSelector'
+import { SecurityScoreDisplay } from './SecurityScoreDisplay'
+import { testProxyHostConnection, type ProxyHost, type ApplicationPreset  } from '../api/proxyHosts'
+import { syncMonitors } from '../api/uptime'
+import { useCertificates } from '../hooks/useCertificates'
+import { useDetectDNSProvider } from '../hooks/useDNSDetection'
+import { useDocker } from '../hooks/useDocker'
+import { useDomains } from '../hooks/useDomains'
+import { useRemoteServers } from '../hooks/useRemoteServers'
+import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
 import { Alert } from './ui/Alert'
 import { isLikelyDockerContainerIP, isPrivateOrDockerIP } from '../utils/validation'
-import DNSProviderSelector from './DNSProviderSelector'
-import { useDetectDNSProvider } from '../hooks/useDNSDetection'
-import { DNSDetectionResult } from './DNSDetectionResult'
-import type { DNSProvider } from '../api/dnsProviders'
 import {
   Select,
   SelectContent,
@@ -25,6 +24,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/Select'
+
+import type { DNSProvider } from '../api/dnsProviders'
 
 // Application preset configurations
 const APPLICATION_PRESETS: { value: ApplicationPreset; label: string; description: string }[] = [

@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { QueryClient, QueryClientProvider, type UseMutationResult } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider, type UseMutationResult } from '@tanstack/react-query'
-import CredentialManager from '../CredentialManager'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import {
   useCredentials,
   useCreateCredential,
@@ -10,6 +10,7 @@ import {
   useDeleteCredential,
   useTestCredential,
 } from '../../hooks/useCredentials'
+import CredentialManager from '../CredentialManager'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -19,8 +20,8 @@ vi.mock('react-i18next', () => ({
     },
   }),
 }))
-import type { DNSProvider, DNSProviderTypeInfo } from '../../api/dnsProviders'
 import type { CredentialRequest, CredentialTestResult, DNSProviderCredential } from '../../api/credentials'
+import type { DNSProvider, DNSProviderTypeInfo } from '../../api/dnsProviders'
 
 vi.mock('../../hooks/useCredentials')
 vi.mock('../../utils/toast', () => ({

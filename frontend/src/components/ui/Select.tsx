@@ -1,6 +1,7 @@
-import * as React from 'react'
 import * as SelectPrimitive from '@radix-ui/react-select'
 import { Check, ChevronDown, ChevronUp } from 'lucide-react'
+import * as React from 'react'
+
 import { cn } from '../../utils/cn'
 
 const Select = SelectPrimitive.Root
@@ -83,7 +84,7 @@ const SelectContent = React.forwardRef<
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        'relative z-70 max-h-96 min-w-32 overflow-hidden pointer-events-auto',
+        'relative z-[70] max-h-96 min-w-32 overflow-hidden pointer-events-auto',
         'rounded-lg border border-border',
         'bg-surface-elevated text-content-primary shadow-lg',
         'data-[state=open]:animate-in data-[state=closed]:animate-out',
@@ -105,7 +106,7 @@ const SelectContent = React.forwardRef<
         className={cn(
           'p-1',
           position === 'popper' &&
-            'h-(--radix-select-trigger-height) w-full min-w-(--radix-select-trigger-width)'
+            'h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]'
         )}
       >
         {children}
@@ -139,7 +140,7 @@ const SelectItem = React.forwardRef<
       'rounded-md py-2 pl-8 pr-2 text-sm',
       'outline-none',
       'focus:bg-surface-muted focus:text-content-primary',
-      'data-disabled:pointer-events-none data-disabled:opacity-50',
+      'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
       className
     )}
     {...props}

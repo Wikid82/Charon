@@ -1,21 +1,21 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { act } from 'react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
-import type { ProxyHost } from '../../api/proxyHosts'
-import ProxyHosts from '../ProxyHosts'
-import { formatSettingLabel, settingHelpText, settingKeyToField, applyBulkSettingsToHosts } from '../../utils/proxyHostsHelpers'
-import * as proxyHostsApi from '../../api/proxyHosts'
-import * as certificatesApi from '../../api/certificates'
+
 import * as accessListsApi from '../../api/accessLists'
-import type { AccessList } from '../../api/accessLists'
+import * as certificatesApi from '../../api/certificates'
+import * as proxyHostsApi from '../../api/proxyHosts'
 import * as settingsApi from '../../api/settings'
 import * as uptimeApi from '../../api/uptime'
-// Certificate type not required in this spec
-import type { UptimeMonitor } from '../../api/uptime'
-// toast is mocked in other tests; not used here
+import { createMockProxyHost } from '../../testUtils/createMockProxyHost'
+import { formatSettingLabel, settingHelpText, settingKeyToField, applyBulkSettingsToHosts } from '../../utils/proxyHostsHelpers'
+import ProxyHosts from '../ProxyHosts'
+
+import type { AccessList } from '../../api/accessLists'
+import type { ProxyHost } from '../../api/proxyHosts'
 
 vi.mock('react-hot-toast', () => ({ toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() } }))
 
@@ -48,8 +48,6 @@ const renderWithProviders = (ui: React.ReactNode) => {
   )
 }
 
-import { createMockProxyHost } from '../../testUtils/createMockProxyHost'
-
 const baseHost = (overrides: Partial<ProxyHost> = {}) => createMockProxyHost(overrides)
 
 describe('ProxyHosts - Coverage enhancements', () => {
@@ -63,7 +61,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
 
     renderWithProviders(<ProxyHosts />)
 
-    await waitFor(() => expect(screen.getByText(/Create your first proxy host/)).toBeTruthy())
+    expect(await screen.findByText(/Create your first proxy host/)).toBeTruthy()
   })
 
     it('creates a proxy host via Add Host form submit', async () => {
@@ -93,11 +91,11 @@ describe('ProxyHosts - Coverage enhancements', () => {
       vi.mocked(settingsApi.getSettings).mockResolvedValue({})
 
       renderWithProviders(<ProxyHosts />)
-      await waitFor(() => expect(screen.getByText(/Create your first proxy host/)).toBeTruthy())
+      expect(await screen.findByText(/Create your first proxy host/)).toBeTruthy()
       const user = userEvent.setup()
       // Click the first Add Proxy Host button (in empty state)
       await user.click(screen.getAllByRole('button', { name: 'Add Proxy Host' })[0])
-      await waitFor(() => expect(screen.getByRole('heading', { name: 'Add Proxy Host' })).toBeTruthy())
+      expect(await screen.findByRole('heading', { name: 'Add Proxy Host' })).toBeTruthy()
       // Fill name
       const nameInput = screen.getByLabelText('Name *') as HTMLInputElement
       await user.clear(nameInput)
@@ -143,13 +141,13 @@ describe('ProxyHosts - Coverage enhancements', () => {
       vi.mocked(settingsApi.getSettings).mockResolvedValue({})
 
       renderWithProviders(<ProxyHosts />)
-      await waitFor(() => expect(screen.getByText('S1')).toBeTruthy())
+      expect(await screen.findByText('S1')).toBeTruthy()
       // Click select all header checkbox (has aria-label="Select all rows")
       const user = userEvent.setup()
       const selectAllBtn = screen.getByLabelText('Select all rows')
       await user.click(selectAllBtn)
       // Wait for selection UI to appear - text format includes "<strong>2</strong> host(s) selected (all)"
-      await waitFor(() => expect(screen.getByText(/host\(s\) selected/)).toBeTruthy())
+      expect(await screen.findByText(/host\(s\) selected/)).toBeTruthy()
       // Also check for "(all)" indicator
       expect(screen.getByText(/\(all\)/)).toBeTruthy()
       // Click again to deselect
@@ -168,12 +166,12 @@ describe('ProxyHosts - Coverage enhancements', () => {
       vi.mocked(proxyHostsApi.bulkUpdateACL).mockRejectedValue(new Error('Bad things'))
 
       renderWithProviders(<ProxyHosts />)
-      await waitFor(() => expect(screen.getByText('BHost')).toBeTruthy())
+      expect(await screen.findByText('BHost')).toBeTruthy()
       const chk = screen.getAllByRole('checkbox')[0]
       const user = userEvent.setup()
       await user.click(chk)
       await user.click(screen.getByText('Manage ACL'))
-      await waitFor(() => expect(screen.getByText('List1')).toBeTruthy())
+      expect(await screen.findByText('List1')).toBeTruthy()
       const label = screen.getByText('List1').closest('label') as HTMLElement
       // Radix Checkbox - query by role, not native input
       const checkbox = within(label).getByRole('checkbox')
@@ -195,7 +193,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
       vi.mocked(proxyHostsApi.updateProxyHost).mockResolvedValue({ ...host, enabled: true })
 
       renderWithProviders(<ProxyHosts />)
-      await waitFor(() => expect(screen.getByText('SwitchHost')).toBeTruthy())
+      expect(await screen.findByText('SwitchHost')).toBeTruthy()
       const row = screen.getByText('SwitchHost').closest('tr') as HTMLTableRowElement
       // Switch component uses a label wrapping a hidden checkbox - find the label and click it
       const switchLabel = row.querySelector('label.cursor-pointer') as HTMLElement
@@ -214,7 +212,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
 
     renderWithProviders(<ProxyHosts />)
 
-    await waitFor(() => expect(screen.getByText('aaa')).toBeTruthy())
+    expect(await screen.findByText('aaa')).toBeTruthy()
 
     // Check both hosts are rendered
     expect(screen.getByText('aaa')).toBeTruthy()
@@ -248,7 +246,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('S1')).toBeTruthy())
+    expect(await screen.findByText('S1')).toBeTruthy()
 
     const row = screen.getByText('S1').closest('tr') as HTMLTableRowElement
     const selectBtn = within(row).getAllByRole('checkbox')[0]
@@ -272,12 +270,12 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('S1')).toBeTruthy())
+    expect(await screen.findByText('S1')).toBeTruthy()
     const headerCheckbox = screen.getAllByRole('checkbox')[0]
     const user = userEvent.setup()
     await user.click(headerCheckbox)
     await user.click(screen.getByText('Manage ACL'))
-    await waitFor(() => expect(screen.getByText('Apply Access List')).toBeTruthy())
+    expect(await screen.findByText('Apply Access List')).toBeTruthy()
 
     // click backdrop (outer overlay) to close
     const overlay = document.querySelector('.fixed.inset-0')
@@ -296,12 +294,12 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('S1')).toBeTruthy())
+    expect(await screen.findByText('S1')).toBeTruthy()
     const headerCheckbox = screen.getAllByRole('checkbox')[0]
     const user = userEvent.setup()
     await user.click(headerCheckbox)
     await user.click(screen.getByText('Manage ACL'))
-    await waitFor(() => expect(screen.getByText('List1')).toBeTruthy())
+    expect(await screen.findByText('List1')).toBeTruthy()
     const label = screen.getByText('List1').closest('label') as HTMLLabelElement
     // Radix Checkbox - query by role, not native input
     const checkbox = within(label).getByRole('checkbox')
@@ -326,12 +324,12 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(proxyHostsApi.bulkUpdateACL).mockResolvedValue({ updated: 2, errors: [] })
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('S1')).toBeTruthy())
+    expect(await screen.findByText('S1')).toBeTruthy()
     const chk = screen.getAllByRole('checkbox')[0]
     const user = userEvent.setup()
     await user.click(chk)
     await user.click(screen.getByText('Manage ACL'))
-    await waitFor(() => expect(screen.getByText('List1')).toBeTruthy())
+    expect(await screen.findByText('List1')).toBeTruthy()
     // Toggle to Remove ACL
     await user.click(screen.getByText('Remove ACL'))
     // Click the action button (Remove ACL) - it's the primary action (bg-red)
@@ -353,12 +351,12 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('S1')).toBeTruthy())
+    expect(await screen.findByText('S1')).toBeTruthy()
     const chk = screen.getAllByRole('checkbox')[0]
     const user = userEvent.setup()
     await user.click(chk)
     await user.click(screen.getByText('Manage ACL'))
-    await waitFor(() => expect(screen.getByText('Apply ACL')).toBeTruthy())
+    expect(await screen.findByText('Apply ACL')).toBeTruthy()
     // Click Remove, then Apply to hit setBulkACLAction('apply')
     // Toggle Remove (header toggle) and back to Apply (header toggle)
     const headerToggles = screen.getAllByRole('button')
@@ -383,12 +381,12 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(proxyHostsApi.bulkUpdateACL).mockResolvedValue({ updated: 1, errors: [{ uuid: 's2', error: 'Bad' }] })
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('S1')).toBeTruthy())
+    expect(await screen.findByText('S1')).toBeTruthy()
     const chk = screen.getAllByRole('checkbox')[0]
     const user = userEvent.setup()
     await user.click(chk)
     await user.click(screen.getByText('Manage ACL'))
-    await waitFor(() => expect(screen.getByText('List1')).toBeTruthy())
+    expect(await screen.findByText('List1')).toBeTruthy()
     await userEvent.click(screen.getByText('Remove ACL'))
     const actionBtn = screen.getAllByRole('button', { name: 'Remove ACL' }).pop()
     if (actionBtn) await userEvent.click(actionBtn)
@@ -409,11 +407,11 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(proxyHostsApi.bulkUpdateACL).mockRejectedValue(new Error('Bulk fail'))
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('S1')).toBeTruthy())
+    expect(await screen.findByText('S1')).toBeTruthy()
     const chk = screen.getAllByRole('checkbox')[0]
     await userEvent.click(chk)
     await userEvent.click(screen.getByText('Manage ACL'))
-    await waitFor(() => expect(screen.getByText('List1')).toBeTruthy())
+    expect(await screen.findByText('List1')).toBeTruthy()
     // Toggle Remove mode
     await userEvent.click(screen.getByText('Remove ACL'))
     const actionBtn = screen.getAllByRole('button', { name: 'Remove ACL' }).pop()
@@ -432,17 +430,17 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('S1')).toBeTruthy())
+    expect(await screen.findByText('S1')).toBeTruthy()
     const headerCheckbox = screen.getByLabelText('Select all rows')
     await userEvent.click(headerCheckbox)
     // Wait for selection bar to appear and find the delete button - text format is "host(s) selected"
-    await waitFor(() => expect(screen.getByText(/host\(s\) selected/)).toBeTruthy())
+    expect(await screen.findByText(/host\(s\) selected/)).toBeTruthy()
     // Click the bulk Delete button (with bg-error class) - there are multiple Delete buttons, get the one in selection bar
     const deleteButtons = screen.getAllByRole('button', { name: /Delete/ })
     // The bulk delete button has bg-error class
     const bulkDeleteBtn = deleteButtons.find(btn => btn.classList.contains('bg-error'))
     await userEvent.click(bulkDeleteBtn!)
-    await waitFor(() => expect(screen.getByText(/Delete 2 Proxy Hosts?/i)).toBeTruthy())
+    expect(await screen.findByText(/Delete 2 Proxy Hosts?/i)).toBeTruthy()
     const overlay = document.querySelector('.fixed.inset-0')
     if (overlay) await userEvent.click(overlay)
     await waitFor(() => expect(screen.queryByText(/Delete 2 Proxy Hosts?/i)).toBeNull())
@@ -458,7 +456,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
 
     renderWithProviders(<ProxyHosts />)
 
-    await waitFor(() => expect(screen.getByText('One')).toBeTruthy())
+    expect(await screen.findByText('One')).toBeTruthy()
     const anchor = screen.getByRole('link', { name: /(test1\.example\.com|example\.com|One)/i })
     await userEvent.click(anchor)
     expect(openSpy).toHaveBeenCalled()
@@ -473,7 +471,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
 
     renderWithProviders(<ProxyHosts />)
 
-    await waitFor(() => expect(screen.getByText('One')).toBeTruthy())
+    expect(await screen.findByText('One')).toBeTruthy()
     const anchor = screen.getByRole('link', { name: /(example\.com|One)/i })
     // Anchor should render with target _self when same_tab
     expect(anchor.getAttribute('target')).toBe('_self')
@@ -495,7 +493,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
 
     renderWithProviders(<ProxyHosts />)
 
-    await waitFor(() => expect(screen.getByText('CustomHost')).toBeTruthy())
+    expect(await screen.findByText('CustomHost')).toBeTruthy()
 
     // Custom Cert - just verify the host renders
     expect(screen.getByText('CustomHost')).toBeTruthy()
@@ -520,7 +518,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
 
     renderWithProviders(<ProxyHosts />)
 
-    await waitFor(() => expect(screen.getByText('Multi')).toBeTruthy())
+    expect(await screen.findByText('Multi')).toBeTruthy()
     // Check multiple domain anchors; parse anchor hrefs instead of substring checks
     const anchors = screen.getAllByRole('link')
     const anchorHasHost = (el: Element | null, host: string) => {
@@ -551,14 +549,14 @@ describe('ProxyHosts - Coverage enhancements', () => {
 
     const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true)
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('Del')).toBeTruthy())
+    expect(await screen.findByText('Del')).toBeTruthy()
     // Click Delete button in the row
     const editButton = screen.getByText('Edit')
     const row = editButton.closest('tr') as HTMLTableRowElement
     const delButton = within(row).getByText('Delete')
     await userEvent.click(delButton)
     // Confirm in dialog
-    await waitFor(() => expect(screen.getByRole('heading', { name: /Delete Proxy Host/i })).toBeTruthy())
+    expect(await screen.findByRole('heading', { name: /Delete Proxy Host/i })).toBeTruthy()
     const confirmBtn = screen.getAllByRole('button', { name: 'Delete' }).pop()!
     await userEvent.click(confirmBtn)
     await waitFor(() => expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('del1'))
@@ -573,16 +571,16 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([])
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
     // uptime monitors associated with host
-    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([{ id: 'm1', name: 'm1', url: 'http://example', type: 'http', interval: 60, enabled: true, status: 'up', last_check: new Date().toISOString(), latency: 10, max_retries: 3, upstream_host: '127.0.0.5' } as UptimeMonitor])
+    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([{ id: 'm1', name: 'm1', url: 'http://example', type: 'http', interval: 60, enabled: true, status: 'up', last_check: new Date().toISOString(), latency: 10, max_retries: 3, upstream_host: '127.0.0.5' } as uptimeApi.UptimeMonitor])
 
     const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true)
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('Del2')).toBeTruthy())
+    expect(await screen.findByText('Del2')).toBeTruthy()
     const row = screen.getByText('Del2').closest('tr') as HTMLTableRowElement
     const delButton = within(row).getByText('Delete')
     await userEvent.click(delButton)
     // Confirm in dialog
-    await waitFor(() => expect(screen.getByRole('heading', { name: /Delete Proxy Host/i })).toBeTruthy())
+    expect(await screen.findByRole('heading', { name: /Delete Proxy Host/i })).toBeTruthy()
     const confirmBtn = screen.getAllByRole('button', { name: 'Delete' }).pop()!
     await userEvent.click(confirmBtn)
     // Should call delete with deleteUptime true
@@ -602,12 +600,12 @@ describe('ProxyHosts - Coverage enhancements', () => {
 
     const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true)
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('Del3')).toBeTruthy())
+    expect(await screen.findByText('Del3')).toBeTruthy()
     const row = screen.getByText('Del3').closest('tr') as HTMLTableRowElement
     const delButton = within(row).getByText('Delete')
     await userEvent.click(delButton)
     // Confirm in dialog
-    await waitFor(() => expect(screen.getByRole('heading', { name: /Delete Proxy Host/i })).toBeTruthy())
+    expect(await screen.findByRole('heading', { name: /Delete Proxy Host/i })).toBeTruthy()
     const confirmBtn = screen.getAllByRole('button', { name: 'Delete' }).pop()!
     await userEvent.click(confirmBtn)
     // Should call delete without second param
@@ -626,7 +624,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(proxyHostsApi.updateProxyHost).mockResolvedValue({} as ProxyHost)
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('H1')).toBeTruthy())
+    expect(await screen.findByText('H1')).toBeTruthy()
 
     // Select both hosts
     const headerCheckbox = screen.getAllByRole('checkbox')[0]
@@ -634,7 +632,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
 
     // Open Bulk Apply modal
     await userEvent.click(screen.getByText('Bulk Apply'))
-    await waitFor(() => expect(screen.getByText('Bulk Apply Settings')).toBeTruthy())
+    expect(await screen.findByText('Bulk Apply Settings')).toBeTruthy()
 
     // In the modal, find Force SSL row and enable apply and set value true
     const forceLabel = screen.getByText('Force SSL')
@@ -665,7 +663,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
 
     renderWithProviders(<ProxyHosts />)
 
-    await waitFor(() => expect(screen.getByText('Unnamed')).toBeTruthy())
+    expect(await screen.findByText('Unnamed')).toBeTruthy()
   })
 
   it('toggles host enable state via Switch', async () => {
@@ -677,7 +675,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(proxyHostsApi.updateProxyHost).mockResolvedValue(baseHost({ uuid: 't1', name: 'Toggle', enabled: true }))
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('Toggle')).toBeTruthy())
+    expect(await screen.findByText('Toggle')).toBeTruthy()
     // Locate the row and toggle the enabled switch - it's inside a label with cursor-pointer class
     const row = screen.getByText('Toggle').closest('tr') as HTMLTableRowElement
     // Switch component uses a label wrapping a hidden checkbox
@@ -695,11 +693,11 @@ describe('ProxyHosts - Coverage enhancements', () => {
 
     renderWithProviders(<ProxyHosts />)
 
-    await waitFor(() => expect(screen.getByText(/Create your first proxy host/)).toBeTruthy())
+    expect(await screen.findByText(/Create your first proxy host/)).toBeTruthy()
     // Click the first Add Proxy Host button (in empty state)
     await userEvent.click(screen.getAllByRole('button', { name: 'Add Proxy Host' })[0])
     // Form should open with Add Proxy Host header
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Add Proxy Host' })).toBeTruthy())
+    expect(await screen.findByRole('heading', { name: 'Add Proxy Host' })).toBeTruthy()
     // Click Cancel should close the form
     const cancelButton = screen.getByText('Cancel')
     await userEvent.click(cancelButton)
@@ -716,12 +714,12 @@ describe('ProxyHosts - Coverage enhancements', () => {
 
     renderWithProviders(<ProxyHosts />)
 
-    await waitFor(() => expect(screen.getByText('EditMe')).toBeTruthy())
+    expect(await screen.findByText('EditMe')).toBeTruthy()
     const editBtn = screen.getByText('Edit')
     await userEvent.click(editBtn)
 
     // Form header should show Edit Proxy Host
-    await waitFor(() => expect(screen.getByText('Edit Proxy Host')).toBeTruthy())
+    expect(await screen.findByText('Edit Proxy Host')).toBeTruthy()
     // Change name and click Save
     const nameInput = screen.getByLabelText('Name *') as HTMLInputElement
     await userEvent.clear(nameInput)
@@ -742,12 +740,12 @@ describe('ProxyHosts - Coverage enhancements', () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true)
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('DelErr')).toBeTruthy())
+    expect(await screen.findByText('DelErr')).toBeTruthy()
     const row = screen.getByText('DelErr').closest('tr') as HTMLTableRowElement
     const delButton = within(row).getByText('Delete')
     await userEvent.click(delButton)
     // Confirm in dialog
-    await waitFor(() => expect(screen.getByRole('heading', { name: /Delete Proxy Host/i })).toBeTruthy())
+    expect(await screen.findByRole('heading', { name: /Delete Proxy Host/i })).toBeTruthy()
     const confirmBtn = screen.getAllByRole('button', { name: 'Delete' }).pop()!
     await userEvent.click(confirmBtn)
 
@@ -766,15 +764,15 @@ describe('ProxyHosts - Coverage enhancements', () => {
 
     renderWithProviders(<ProxyHosts />)
 
-    await waitFor(() => expect(screen.getByText('A')).toBeTruthy())
+    expect(await screen.findByText('A')).toBeTruthy()
 
     // Domain sort
     await userEvent.click(screen.getByText('Domain'))
-    await waitFor(() => expect(screen.getByText('B')).toBeTruthy()) // domain 'a.com' should appear first
+    expect(await screen.findByText('B')).toBeTruthy() // domain 'a.com' should appear first
 
     // Forward sort: toggle to change order
     await userEvent.click(screen.getByText('Forward To'))
-    await waitFor(() => expect(screen.getByText('A')).toBeTruthy())
+    expect(await screen.findByText('A')).toBeTruthy()
   })
 
   it('applies multiple ACLs sequentially with progress', async () => {
@@ -791,7 +789,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(proxyHostsApi.bulkUpdateACL).mockResolvedValue({ updated: 2, errors: [] })
     renderWithProviders(<ProxyHosts />)
 
-    await waitFor(() => expect(screen.getByText('H1')).toBeTruthy())
+    expect(await screen.findByText('H1')).toBeTruthy()
 
     // Select all hosts
     const checkboxes = screen.getAllByRole('checkbox')
@@ -799,7 +797,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
 
     // Open Manage ACL
     await userEvent.click(screen.getByText('Manage ACL'))
-    await waitFor(() => expect(screen.getByText('A1')).toBeTruthy())
+    expect(await screen.findByText('A1')).toBeTruthy()
 
     // Select both ACLs
     const aclCheckboxes = screen.getAllByRole('checkbox')
@@ -829,11 +827,11 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('S1')).toBeTruthy())
+    expect(await screen.findByText('S1')).toBeTruthy()
 
     const checkboxes = screen.getAllByRole('checkbox')
     await userEvent.click(checkboxes[0])
-    await waitFor(() => expect(screen.getByText('Manage ACL')).toBeTruthy())
+    expect(await screen.findByText('Manage ACL')).toBeTruthy()
     await userEvent.click(screen.getByText('Manage ACL'))
 
     // Click Select All in modal
@@ -866,15 +864,15 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('S1')).toBeTruthy())
+    expect(await screen.findByText('S1')).toBeTruthy()
 
     const checkboxes = screen.getAllByRole('checkbox')
     await userEvent.click(checkboxes[0])
-    await waitFor(() => expect(screen.getByText('Manage ACL')).toBeTruthy())
+    expect(await screen.findByText('Manage ACL')).toBeTruthy()
     await userEvent.click(screen.getByText('Manage ACL'))
 
     // Should show the 'No enabled access lists available' message
-    await waitFor(() => expect(screen.getByText('No enabled access lists available')).toBeTruthy())
+    expect(await screen.findByText('No enabled access lists available')).toBeTruthy()
   })
 
   it('formatSettingLabel, settingHelpText and settingKeyToField return expected values and defaults', () => {
@@ -912,12 +910,12 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('S1')).toBeTruthy())
+    expect(await screen.findByText('S1')).toBeTruthy()
     const headerCheckbox = screen.getAllByRole('checkbox')[0]
     const user = userEvent.setup()
     await user.click(headerCheckbox)
     await user.click(screen.getByText('Bulk Apply'))
-    await waitFor(() => expect(screen.getByText('Bulk Apply Settings')).toBeTruthy())
+    expect(await screen.findByText('Bulk Apply Settings')).toBeTruthy()
     // click backdrop
     const overlay = document.querySelector('.fixed.inset-0')
     if (overlay) await user.click(overlay)
@@ -934,19 +932,18 @@ describe('ProxyHosts - Coverage enhancements', () => {
     // mock updateProxyHost to fail for host-2
     vi.mocked(proxyHostsApi.updateProxyHost).mockImplementation(async (uuid: string) => {
       if (uuid === 'host-2') throw new Error('update fail')
-      const result = baseHost({ uuid })
-      return result
+      return baseHost({ uuid })
     })
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('H1')).toBeTruthy())
+    expect(await screen.findByText('H1')).toBeTruthy()
     // select both
     const headerCheckbox = screen.getAllByRole('checkbox')[0]
     const user = userEvent.setup()
     await user.click(headerCheckbox)
     // Open Bulk Apply
     await user.click(screen.getByText('Bulk Apply'))
-    await waitFor(() => expect(screen.getByText('Bulk Apply Settings')).toBeTruthy())
+    expect(await screen.findByText('Bulk Apply Settings')).toBeTruthy()
     // enable Force SSL apply + set switch
     const forceLabel = screen.getByText('Force SSL')
     // The row has class p-3 not p-2, and we need to get the parent flex container

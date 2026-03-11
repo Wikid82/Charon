@@ -29,7 +29,7 @@ export default function ImportSuccessModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" data-testid="import-success-modal">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-dark-card rounded-lg p-6 w-125 max-w-full mx-4 border border-gray-800">
+      <div className="relative bg-dark-card rounded-lg p-6 w-[500px] max-w-full mx-4 border border-gray-800">
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
           <div className="shrink-0 w-12 h-12 rounded-full bg-green-900/30 flex items-center justify-center">

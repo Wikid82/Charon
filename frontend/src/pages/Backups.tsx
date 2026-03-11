@@ -1,11 +1,10 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Download, RotateCcw, Plus, Archive, Trash2, Save } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { toast } from '../utils/toast'
-import { getBackups, createBackup, restoreBackup, deleteBackup, BackupFile } from '../api/backups'
+
+import { getBackups, createBackup, restoreBackup, deleteBackup, type BackupFile } from '../api/backups'
 import { getSettings, updateSetting } from '../api/settings'
-import { Download, RotateCcw, Plus, Archive, Trash2, Save } from 'lucide-react'
-import { useAuth } from '../hooks/useAuth'
 import { PageShell } from '../components/layout/PageShell'
 import {
   Button,
@@ -25,6 +24,8 @@ import {
   DialogFooter,
   type Column,
 } from '../components/ui'
+import { useAuth } from '../hooks/useAuth'
+import { toast } from '../utils/toast'
 
 const formatSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`

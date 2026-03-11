@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { renderHook, waitFor, act } from '@testing-library/react'
 import React from 'react'
-import { useImport, QUERY_KEY } from '../useImport'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
 import * as api from '../../api/import'
+import { useImport, QUERY_KEY } from '../useImport'
 
 // Mock the API
 vi.mock('../../api/import', () => ({
@@ -718,7 +719,7 @@ describe('useImport', () => {
       vi.mocked(api.uploadCaddyfile).mockResolvedValue(mockResponse)
       vi.mocked(api.getImportStatus).mockResolvedValue({ has_pending: true, session: mockSession })
       vi.mocked(api.getImportPreview).mockResolvedValue(mockResponse)
-      vi.mocked(api.cancelImport).mockResolvedValue(undefined)
+      vi.mocked(api.cancelImport).mockResolvedValue()
 
       const { queryClient, wrapper } = createWrapper()
       const removeSpy = vi.spyOn(queryClient, 'removeQueries')

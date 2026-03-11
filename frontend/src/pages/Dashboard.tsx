@@ -1,15 +1,16 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Globe, Server, FileKey, Activity, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useProxyHosts } from '../hooks/useProxyHosts'
-import { useRemoteServers } from '../hooks/useRemoteServers'
-import { useCertificates } from '../hooks/useCertificates'
-import { useAccessLists } from '../hooks/useAccessLists'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+
 import { checkHealth } from '../api/health'
-import { Globe, Server, FileKey, Activity, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { PageShell } from '../components/layout/PageShell'
 import { StatsCard, Skeleton } from '../components/ui'
 import UptimeWidget from '../components/UptimeWidget'
+import { useAccessLists } from '../hooks/useAccessLists'
+import { useCertificates } from '../hooks/useCertificates'
+import { useProxyHosts } from '../hooks/useProxyHosts'
+import { useRemoteServers } from '../hooks/useRemoteServers'
 
 function StatsCardSkeleton() {
   return (
@@ -41,14 +42,14 @@ export default function Dashboard() {
   // so we match by domain name instead
   const hasPendingCerts = useMemo(() => {
     const certifiedDomains = new Set<string>()
-    certificates.forEach(cert => {
+    for (const cert of certificates) {
       // Handle missing or undefined domain field
-      if (!cert.domain) return
-      cert.domain.split(',').forEach(d => {
+      if (!cert.domain) continue
+      for (const d of cert.domain.split(',')) {
         const trimmed = d.trim().toLowerCase()
         if (trimmed) certifiedDomains.add(trimmed)
-      })
-    })
+      }
+    }
 
     // Check if any SSL host lacks a certificate
     const sslHosts = hosts.filter(h => h.ssl_forced && h.enabled)

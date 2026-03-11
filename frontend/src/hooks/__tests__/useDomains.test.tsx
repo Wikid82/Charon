@@ -1,9 +1,10 @@
-import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { useDomains } from '../useDomains';
-import * as api from '../../api/domains';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import React from 'react';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
+
+import * as api from '../../api/domains';
+import { useDomains } from '../useDomains';
 
 vi.mock('../../api/domains', () => ({
   getDomains: vi.fn(),
@@ -93,7 +94,7 @@ describe('useDomains', () => {
 
   it('deletes a domain', async () => {
     vi.mocked(api.getDomains).mockResolvedValue(mockDomains);
-    vi.mocked(api.deleteDomain).mockResolvedValue(undefined);
+    vi.mocked(api.deleteDomain).mockResolvedValue();
 
     const { result } = renderHook(() => useDomains(), {
       wrapper: createWrapper(),

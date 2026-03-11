@@ -1,5 +1,3 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { useTranslation } from 'react-i18next'
 import {
   Copy,
   Check,
@@ -11,10 +9,15 @@ import {
   Loader2,
   Info,
 } from 'lucide-react'
-import { Button, Card, CardHeader, CardContent, Progress, Alert } from '../ui'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
+
 import { useChallengePoll, useManualChallengeMutations } from '../../hooks/useManualChallenge'
-import type { ManualChallenge, ChallengeStatus } from '../../api/manualChallenge'
 import { toast } from '../../utils/toast'
+import { Button, Card, CardHeader, CardContent, Progress, Alert } from '../ui'
+
+import type { ManualChallenge, ChallengeStatus } from '../../api/manualChallenge'
+
 
 interface ManualDNSChallengeProps {
   /** The DNS provider ID */

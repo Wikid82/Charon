@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Copy, Check, AlertTriangle, X, Eye, EyeOff } from 'lucide-react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+
 import { Alert } from './ui/Alert'
 import { Button } from './ui/Button'
-import { toast } from '../utils/toast'
 import { getCrowdsecKeyStatus, type CrowdSecKeyStatus } from '../api/crowdsec'
+import { toast } from '../utils/toast'
 
 const DISMISSAL_STORAGE_KEY = 'crowdsec-key-warning-dismissed'
 

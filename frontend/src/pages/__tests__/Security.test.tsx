@@ -1,18 +1,21 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
-import Security from '../Security'
-import * as securityApi from '../../api/security'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import * as crowdsecApi from '../../api/crowdsec'
+import * as securityApi from '../../api/security'
 import * as settingsApi from '../../api/settings'
+import Security from '../Security'
+
+import type * as useSecurity from '../../hooks/useSecurity'
 
 vi.mock('../../api/security')
 vi.mock('../../api/crowdsec')
 vi.mock('../../api/settings')
 vi.mock('../../hooks/useSecurity', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../hooks/useSecurity')>()
+  const actual = await importOriginal<typeof useSecurity>()
   return {
     ...actual,
     useSecurityConfig: vi.fn(() => ({ data: { config: { admin_whitelist: '10.0.0.0/8' } } })),
@@ -83,19 +86,19 @@ describe.skip('Security', () => {
     it('should show error if security status fails to load', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockRejectedValue(new Error('Failed'))
       await renderSecurityPage()
-      await waitFor(() => expect(screen.getByText(/Failed to load security configuration/i)).toBeInTheDocument())
+      expect(await screen.findByText(/Failed to load security configuration/i)).toBeInTheDocument()
     })
 
     it('should render Cerberus Dashboard when status loads', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
       await renderSecurityPage()
-      await waitFor(() => expect(screen.getByText(/Cerberus Dashboard/i)).toBeInTheDocument())
+      expect(await screen.findByText(/Cerberus Dashboard/i)).toBeInTheDocument()
     })
 
     it('should show banner when Cerberus is disabled', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue({ ...mockSecurityStatus, cerberus: { enabled: false } })
       await renderSecurityPage()
-      await waitFor(() => expect(screen.getByText(/Security Features Unavailable/i)).toBeInTheDocument())
+      expect(await screen.findByText(/Security Features Unavailable/i)).toBeInTheDocument()
     })
   })
 
@@ -293,7 +296,7 @@ describe.skip('Security', () => {
       const toggle = screen.getByTestId('toggle-waf')
       await user.click(toggle)
 
-      await waitFor(() => expect(screen.getByText(/Three heads turn/i)).toBeInTheDocument())
+      expect(await screen.findByText(/Three heads turn/i)).toBeInTheDocument()
     })
 
     it('should show overlay when starting CrowdSec', async () => {
@@ -311,7 +314,7 @@ describe.skip('Security', () => {
       const toggle = screen.getByTestId('toggle-crowdsec')
       await user.click(toggle)
 
-      await waitFor(() => expect(screen.getByText(/Summoning the guardian/i)).toBeInTheDocument())
+      expect(await screen.findByText(/Summoning the guardian/i)).toBeInTheDocument()
     })
 
     it('should show overlay when stopping CrowdSec', async () => {
@@ -326,7 +329,7 @@ describe.skip('Security', () => {
       const toggle = screen.getByTestId('toggle-crowdsec')
       await user.click(toggle)
 
-      await waitFor(() => expect(screen.getByText(/Guardian rests/i)).toBeInTheDocument())
+      expect(await screen.findByText(/Guardian rests/i)).toBeInTheDocument()
     })
   })
 

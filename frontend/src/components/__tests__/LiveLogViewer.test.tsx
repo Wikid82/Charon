@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { LiveLogViewer } from '../LiveLogViewer';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
 import * as logsApi from '../../api/logs';
+import { LiveLogViewer } from '../LiveLogViewer';
 
 // Mock the connectLiveLogs and connectSecurityLogs functions
 vi.mock('../../api/logs', async () => {
@@ -320,7 +321,7 @@ describe('LiveLogViewer', () => {
       mockOnMessage({ level: 'error', timestamp: '2025-12-09T10:30:01Z', message: 'Hidden' });
     }
 
-    await waitFor(() => expect(screen.getByText('Visible')).toBeTruthy());
+    expect(await screen.findByText('Visible')).toBeTruthy();
 
     await user.type(screen.getByPlaceholderText('Filter by text...'), 'nomatch');
 
@@ -332,13 +333,13 @@ describe('LiveLogViewer', () => {
   it('marks connection as disconnected when WebSocket closes', async () => {
     render(<LiveLogViewer />);
 
-    await waitFor(() => expect(screen.getByText('Connected')).toBeTruthy());
+    expect(await screen.findByText('Connected')).toBeTruthy();
 
     act(() => {
       mockOnClose?.();
     });
 
-    await waitFor(() => expect(screen.getByText('Disconnected')).toBeTruthy());
+    expect(await screen.findByText('Disconnected')).toBeTruthy();
   });
 
   // ============================================================
@@ -357,7 +358,7 @@ describe('LiveLogViewer', () => {
       render(<LiveLogViewer mode="security" />);
 
       // Wait for connection to establish
-      await waitFor(() => expect(screen.getByText('Connected')).toBeTruthy());
+      expect(await screen.findByText('Connected')).toBeTruthy();
 
       const securityLog: logsApi.SecurityLogEntry = {
         timestamp: '2025-12-12T10:30:00Z',
@@ -390,7 +391,7 @@ describe('LiveLogViewer', () => {
       render(<LiveLogViewer mode="security" />);
 
       // Wait for connection to establish
-      await waitFor(() => expect(screen.getByText('Connected')).toBeTruthy());
+      expect(await screen.findByText('Connected')).toBeTruthy();
 
       const blockedLog: logsApi.SecurityLogEntry = {
         timestamp: '2025-12-12T10:30:00Z',
@@ -446,7 +447,7 @@ describe('LiveLogViewer', () => {
       render(<LiveLogViewer mode="security" />);
 
       // Wait for connection
-      await waitFor(() => expect(screen.getByText('Connected')).toBeTruthy());
+      expect(await screen.findByText('Connected')).toBeTruthy();
 
       // Add logs from different sources
       if (mockOnSecurityMessage) {
@@ -523,7 +524,7 @@ describe('LiveLogViewer', () => {
       render(<LiveLogViewer mode="security" />);
 
       // Wait for connection to establish
-      await waitFor(() => expect(screen.getByText('Connected')).toBeTruthy());
+      expect(await screen.findByText('Connected')).toBeTruthy();
 
       const securityLog: logsApi.SecurityLogEntry = {
         timestamp: '2025-12-12T10:30:00Z',
@@ -554,7 +555,7 @@ describe('LiveLogViewer', () => {
       render(<LiveLogViewer mode="security" />);
 
       // Wait for connection to establish
-      await waitFor(() => expect(screen.getByText('Connected')).toBeTruthy());
+      expect(await screen.findByText('Connected')).toBeTruthy();
 
       if (mockOnSecurityMessage) {
         mockOnSecurityMessage({

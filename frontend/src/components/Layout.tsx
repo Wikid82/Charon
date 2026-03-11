@@ -1,15 +1,17 @@
-import { ReactNode, useState, useEffect } from 'react'
-import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { Menu, ChevronDown, ChevronRight } from 'lucide-react'
+import { type ReactNode, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ThemeToggle } from './ThemeToggle'
-import { Button } from './ui/Button'
-import { useAuth } from '../hooks/useAuth'
-import { checkHealth } from '../api/health'
-import { getFeatureFlags } from '../api/featureFlags'
+import { Link, useLocation } from 'react-router-dom'
+
 import NotificationCenter from './NotificationCenter'
 import SystemStatus from './SystemStatus'
-import { Menu, ChevronDown, ChevronRight } from 'lucide-react'
+import { ThemeToggle } from './ThemeToggle'
+import { Button } from './ui/Button'
+import { getFeatureFlags } from '../api/featureFlags'
+import { checkHealth } from '../api/health'
+import { useAuth } from '../hooks/useAuth'
+
 
 interface LayoutProps {
   children: ReactNode
@@ -151,7 +153,7 @@ export default function Layout({ children }: LayoutProps) {
            {isCollapsed ? (
              <img src="/logo.png" alt="Charon" className="h-12 w-auto" />
            ) : (
-             <img src="/banner.png" alt="Charon" className="h-14 w-auto max-max-w-50 object-contain" />
+             <img src="/banner.png" alt="Charon" className="h-14 w-auto max-w-[200px] object-contain" />
            )}
         </div>
 
