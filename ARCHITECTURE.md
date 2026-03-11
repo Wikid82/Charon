@@ -139,7 +139,7 @@ graph TB
 | Component | Technology | Version | Purpose |
 |-----------|-----------|---------|---------|
 | **Framework** | React | 19.2.3 | UI framework |
-| **Language** | TypeScript | 5.x | Type-safe JavaScript |
+| **Language** | TypeScript | 6.x | Type-safe JavaScript |
 | **Build Tool** | Vite | 6.1.9 | Fast bundler and dev server |
 | **CSS Framework** | Tailwind CSS | 3.x | Utility-first CSS |
 | **Routing** | React Router | 7.x | Client-side routing |
