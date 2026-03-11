@@ -1,19 +1,22 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import ProxyHosts from '../ProxyHosts';
-import * as proxyHostsApi from '../../api/proxyHosts';
+
+import * as accessListsApi from '../../api/accessLists';
 import * as certificatesApi from '../../api/certificates';
+import * as proxyHostsApi from '../../api/proxyHosts';
+import * as securityHeadersApi from '../../api/securityHeaders';
+import * as settingsApi from '../../api/settings';
+import { createMockProxyHost } from '../../testUtils/createMockProxyHost';
+import ProxyHosts from '../ProxyHosts';
+
+import type { AccessList } from '../../api/accessLists';
 import type { Certificate } from '../../api/certificates';
 import type { ProxyHost } from '../../api/proxyHosts';
-import * as accessListsApi from '../../api/accessLists';
-import type { AccessList } from '../../api/accessLists';
-import * as settingsApi from '../../api/settings';
-import * as securityHeadersApi from '../../api/securityHeaders';
 import type { SecurityHeaderProfile } from '../../api/securityHeaders';
-import { createMockProxyHost } from '../../testUtils/createMockProxyHost';
+
 
 // Mock toast
 vi.mock('react-hot-toast', () => ({
@@ -170,7 +173,7 @@ describe('ProxyHosts - Bulk Apply Security Headers', () => {
   it('shows security header profile option in bulk apply modal', async () => {
     renderWithProviders(<ProxyHosts />);
 
-    await waitFor(() => expect(screen.getByText('Test Host 1')).toBeTruthy());
+    expect(await screen.findByText('Test Host 1')).toBeTruthy();
 
     // Select hosts
     const selectAll = screen.getByLabelText('Select all rows');
@@ -192,14 +195,14 @@ describe('ProxyHosts - Bulk Apply Security Headers', () => {
   it('enables profile selection when checkbox is checked', async () => {
     renderWithProviders(<ProxyHosts />);
 
-    await waitFor(() => expect(screen.getByText('Test Host 1')).toBeTruthy());
+    expect(await screen.findByText('Test Host 1')).toBeTruthy();
 
     // Select hosts and open modal
     const selectAll = screen.getByLabelText('Select all rows');
     await userEvent.click(selectAll);
     await userEvent.click(screen.getByText('Bulk Apply'));
 
-    await waitFor(() => expect(screen.getByText('Bulk Apply Settings')).toBeTruthy());
+    expect(await screen.findByText('Bulk Apply Settings')).toBeTruthy();
 
     // Find security header checkbox
     const securityHeaderLabel = screen.getByText('Security Header Profile');
@@ -221,7 +224,7 @@ describe('ProxyHosts - Bulk Apply Security Headers', () => {
   it('lists all available profiles in dropdown grouped correctly', async () => {
     renderWithProviders(<ProxyHosts />);
 
-    await waitFor(() => expect(screen.getByText('Test Host 1')).toBeTruthy());
+    expect(await screen.findByText('Test Host 1')).toBeTruthy();
 
     // Select hosts and open modal
     const selectAll = screen.getByLabelText('Select all rows');
@@ -258,7 +261,7 @@ describe('ProxyHosts - Bulk Apply Security Headers', () => {
 
     renderWithProviders(<ProxyHosts />);
 
-    await waitFor(() => expect(screen.getByText('Test Host 1')).toBeTruthy());
+    expect(await screen.findByText('Test Host 1')).toBeTruthy();
 
     // Select hosts and open modal
     const selectAll = screen.getByLabelText('Select all rows');
@@ -272,7 +275,7 @@ describe('ProxyHosts - Bulk Apply Security Headers', () => {
     await userEvent.click(securityHeaderCheckbox);
 
     // Select a profile
-    await waitFor(() => expect(screen.getByRole('combobox')).toBeTruthy());
+    expect(await screen.findByRole('combobox')).toBeTruthy();
     const dropdown = screen.getByRole('combobox') as HTMLSelectElement;
     await userEvent.selectOptions(dropdown, '1'); // Select profile ID 1
 
@@ -293,7 +296,7 @@ describe('ProxyHosts - Bulk Apply Security Headers', () => {
 
     renderWithProviders(<ProxyHosts />);
 
-    await waitFor(() => expect(screen.getByText('Test Host 1')).toBeTruthy());
+    expect(await screen.findByText('Test Host 1')).toBeTruthy();
 
     // Select hosts and open modal
     const selectAll = screen.getByLabelText('Select all rows');
@@ -307,7 +310,7 @@ describe('ProxyHosts - Bulk Apply Security Headers', () => {
     await userEvent.click(securityHeaderCheckbox);
 
     // Select "None" (value 0)
-    await waitFor(() => expect(screen.getByRole('combobox')).toBeTruthy());
+    expect(await screen.findByRole('combobox')).toBeTruthy();
     const dropdown = screen.getByRole('combobox') as HTMLSelectElement;
     await userEvent.selectOptions(dropdown, '0');
 
@@ -334,14 +337,14 @@ describe('ProxyHosts - Bulk Apply Security Headers', () => {
   it('disables Apply button when no options selected', async () => {
     renderWithProviders(<ProxyHosts />);
 
-    await waitFor(() => expect(screen.getByText('Test Host 1')).toBeTruthy());
+    expect(await screen.findByText('Test Host 1')).toBeTruthy();
 
     // Select hosts and open modal
     const selectAll = screen.getByLabelText('Select all rows');
     await userEvent.click(selectAll);
     await userEvent.click(screen.getByText('Bulk Apply'));
 
-    await waitFor(() => expect(screen.getByText('Bulk Apply Settings')).toBeTruthy());
+    expect(await screen.findByText('Bulk Apply Settings')).toBeTruthy();
 
     // Apply button should be disabled when nothing is selected
     const dialog = screen.getByRole('dialog');
@@ -360,7 +363,7 @@ describe('ProxyHosts - Bulk Apply Security Headers', () => {
 
     renderWithProviders(<ProxyHosts />);
 
-    await waitFor(() => expect(screen.getByText('Test Host 1')).toBeTruthy());
+    expect(await screen.findByText('Test Host 1')).toBeTruthy();
 
     // Select hosts and open modal
     const selectAll = screen.getByLabelText('Select all rows');
@@ -373,7 +376,7 @@ describe('ProxyHosts - Bulk Apply Security Headers', () => {
     const securityHeaderCheckbox = within(securityHeaderRow).getByRole('checkbox');
     await userEvent.click(securityHeaderCheckbox);
 
-    await waitFor(() => expect(screen.getByRole('combobox')).toBeTruthy());
+    expect(await screen.findByRole('combobox')).toBeTruthy();
     const dropdown = screen.getByRole('combobox') as HTMLSelectElement;
     await userEvent.selectOptions(dropdown, '1');
 
@@ -391,7 +394,7 @@ describe('ProxyHosts - Bulk Apply Security Headers', () => {
   it('resets state on modal close', async () => {
     renderWithProviders(<ProxyHosts />);
 
-    await waitFor(() => expect(screen.getByText('Test Host 1')).toBeTruthy());
+    expect(await screen.findByText('Test Host 1')).toBeTruthy();
 
     // Select hosts and open modal
     const selectAll = screen.getByLabelText('Select all rows');
@@ -404,7 +407,7 @@ describe('ProxyHosts - Bulk Apply Security Headers', () => {
     const securityHeaderCheckbox = within(securityHeaderRow).getByRole('checkbox');
     await userEvent.click(securityHeaderCheckbox);
 
-    await waitFor(() => expect(screen.getByRole('combobox')).toBeTruthy());
+    expect(await screen.findByRole('combobox')).toBeTruthy();
     const dropdown = screen.getByRole('combobox') as HTMLSelectElement;
     await userEvent.selectOptions(dropdown, '1');
 
@@ -429,7 +432,7 @@ describe('ProxyHosts - Bulk Apply Security Headers', () => {
   it('shows profile description when profile is selected', async () => {
     renderWithProviders(<ProxyHosts />);
 
-    await waitFor(() => expect(screen.getByText('Test Host 1')).toBeTruthy());
+    expect(await screen.findByText('Test Host 1')).toBeTruthy();
 
     // Select hosts and open modal
     const selectAll = screen.getByLabelText('Select all rows');
@@ -443,7 +446,7 @@ describe('ProxyHosts - Bulk Apply Security Headers', () => {
     await userEvent.click(securityHeaderCheckbox);
 
     // Select a profile
-    await waitFor(() => expect(screen.getByRole('combobox')).toBeTruthy());
+    expect(await screen.findByRole('combobox')).toBeTruthy();
     const dropdown = screen.getByRole('combobox') as HTMLSelectElement;
     await userEvent.selectOptions(dropdown, '1'); // Strict Security
 

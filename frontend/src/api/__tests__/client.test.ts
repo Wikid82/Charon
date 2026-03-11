@@ -1,4 +1,7 @@
+import axios from 'axios'
 import { beforeEach, describe, it, expect, vi, afterEach } from 'vitest'
+
+import { setAuthErrorHandler, setAuthToken } from '../client'
 
 type ResponseHandler = (value: unknown) => unknown
 type ErrorHandler = (error: ResponseError) => Promise<never>
@@ -44,10 +47,6 @@ vi.mock('axios', () => {
     },
   }
 })
-
-// Must import AFTER mock definition
-import { setAuthErrorHandler, setAuthToken } from '../client'
-import axios from 'axios'
 
 // Get mock client instance for header assertions
 const getMockClient = () => {

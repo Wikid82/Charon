@@ -1,19 +1,20 @@
-import { AxiosError } from 'axios'
+import { type QueryClient } from '@tanstack/react-query'
 import { screen, waitFor, act, cleanup, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient } from '@tanstack/react-query'
+import { AxiosError } from 'axios'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import CrowdSecConfig from '../CrowdSecConfig'
-import * as securityApi from '../../api/security'
-import * as crowdsecApi from '../../api/crowdsec'
-import * as presetsApi from '../../api/presets'
+
 import * as backupsApi from '../../api/backups'
-import * as settingsApi from '../../api/settings'
+import * as crowdsecApi from '../../api/crowdsec'
 import * as featureFlagsApi from '../../api/featureFlags'
+import * as presetsApi from '../../api/presets'
+import * as securityApi from '../../api/security'
+import * as settingsApi from '../../api/settings'
 import { CROWDSEC_PRESETS } from '../../data/crowdsecPresets'
 import { renderWithQueryClient, createTestQueryClient } from '../../test-utils/renderWithQueryClient'
-import { toast } from '../../utils/toast'
 import * as exportUtils from '../../utils/crowdsecExport'
+import { toast } from '../../utils/toast'
+import CrowdSecConfig from '../CrowdSecConfig'
 
 vi.mock('../../api/security')
 vi.mock('../../api/crowdsec')
@@ -244,7 +245,7 @@ describe('CrowdSecConfig coverage', () => {
 
     vi.mocked(presetsApi.pullCrowdsecPreset).mockRejectedValueOnce(axiosError(503, 'hub down', { error: 'hub down' }))
     await userEvent.click(screen.getByText('Pull Preview'))
-    await waitFor(() => expect(screen.getByTestId('preset-hub-unavailable')).toBeInTheDocument())
+    expect(await screen.findByTestId('preset-hub-unavailable')).toBeInTheDocument()
 
     vi.mocked(presetsApi.pullCrowdsecPreset).mockRejectedValueOnce(axiosError(500, 'boom', { error: 'boom' }))
     await userEvent.click(screen.getByText('Pull Preview'))
@@ -342,7 +343,7 @@ describe('CrowdSecConfig coverage', () => {
 
     vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(503, 'hub'))
     await userEvent.click(applyBtn)
-    await waitFor(() => expect(screen.getByTestId('preset-hub-unavailable')).toBeInTheDocument())
+    expect(await screen.findByTestId('preset-hub-unavailable')).toBeInTheDocument()
 
     vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(500, 'not cached', { error: 'Pull the preset first' }))
     await userEvent.click(applyBtn)
@@ -381,7 +382,7 @@ describe('CrowdSecConfig coverage', () => {
     })
     vi.mocked(presetsApi.pullCrowdsecPreset).mockRejectedValueOnce(axiosError(503, 'hub'))
     await renderPage()
-    await waitFor(() => expect(screen.getByTestId('preset-hub-unavailable')).toBeInTheDocument())
+    expect(await screen.findByTestId('preset-hub-unavailable')).toBeInTheDocument()
     expect((screen.getByTestId('apply-preset-btn') as HTMLButtonElement).disabled).toBe(true)
   })
 
@@ -661,7 +662,7 @@ describe('CrowdSecConfig coverage', () => {
         }),
     )
     const { queryClient } = await renderPage(createTestQueryClient())
-    await waitFor(() => expect(screen.getByTestId('preset-preview')).toBeInTheDocument())
+    expect(await screen.findByTestId('preset-preview')).toBeInTheDocument()
     const fileInput = screen.getByTestId('import-file') as HTMLInputElement
     await userEvent.upload(fileInput, new File(['data'], 'cfg.tar.gz'))
     await userEvent.click(screen.getByTestId('import-btn'))
@@ -680,7 +681,7 @@ describe('CrowdSecConfig coverage', () => {
         }),
     )
     await renderPage()
-    await waitFor(() => expect(screen.getByTestId('preset-preview')).toBeInTheDocument())
+    expect(await screen.findByTestId('preset-preview')).toBeInTheDocument()
     await userEvent.selectOptions(screen.getByTestId('crowdsec-file-select'), 'acquis.yaml')
     // Use getAllByRole and filter for textarea (not the search input)
     const textareas = screen.getAllByRole('textbox')

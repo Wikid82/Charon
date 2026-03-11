@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { renderHook, act, waitFor } from '@testing-library/react'
 import React from 'react'
-import { useNPMImport } from '../useNPMImport'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import * as api from '../../api/npmImport'
+import { useNPMImport } from '../useNPMImport'
 
 vi.mock('../../api/npmImport', () => ({
   uploadNPMExport: vi.fn(),
@@ -124,7 +125,7 @@ describe('useNPMImport', () => {
       },
       conflict_details: {},
     })
-    vi.mocked(api.cancelNPMImport).mockResolvedValue(undefined)
+    vi.mocked(api.cancelNPMImport).mockResolvedValue()
 
     const { result } = renderHook(() => useNPMImport(), { wrapper: createWrapper() })
 

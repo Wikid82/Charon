@@ -1,7 +1,8 @@
+import { Trash2, Plus, Globe, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+
 import { useDomains } from '../hooks/useDomains'
-import { Trash2, Plus, Globe, Loader2 } from 'lucide-react'
 
 export default function Domains() {
   const { t } = useTranslation()

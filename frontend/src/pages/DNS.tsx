@@ -1,8 +1,10 @@
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { Cloud, Puzzle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { Link, Outlet, useLocation } from 'react-router-dom'
+
 import { PageShell } from '../components/layout/PageShell'
 import { cn } from '../utils/cn'
-import { Cloud, Puzzle } from 'lucide-react'
+
 
 export default function DNS() {
   const { t } = useTranslation()

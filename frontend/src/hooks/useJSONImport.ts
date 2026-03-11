@@ -1,11 +1,12 @@
-import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+
 import {
   uploadJSONExport,
   commitJSONImport,
   cancelJSONImport,
-  JSONImportPreview,
-  JSONImportCommitResult,
+  type JSONImportPreview,
+  type JSONImportCommitResult,
 } from '../api/jsonImport';
 
 /**

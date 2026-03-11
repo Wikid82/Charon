@@ -1,9 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import AccessListSelector from '../AccessListSelector';
+import { describe, it, expect, vi } from 'vitest';
+
 import * as useAccessListsHook from '../../hooks/useAccessLists';
+import AccessListSelector from '../AccessListSelector';
+
 import type { AccessList } from '../../api/accessLists';
 
 // Mock the hooks

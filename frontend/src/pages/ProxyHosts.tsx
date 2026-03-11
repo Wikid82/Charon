@@ -1,20 +1,17 @@
-import { useState, useMemo } from 'react'
-import { useTranslation } from 'react-i18next'
-import { Loader2, ExternalLink, AlertTriangle, Trash2, Globe, Settings } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { useProxyHosts } from '../hooks/useProxyHosts'
-import { getMonitors, type UptimeMonitor } from '../api/uptime'
-import { useCertificates } from '../hooks/useCertificates'
-import { useAccessLists } from '../hooks/useAccessLists'
-import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
-import { getSettings } from '../api/settings'
+import { Loader2, ExternalLink, AlertTriangle, Trash2, Globe, Settings } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { toast } from 'react-hot-toast'
+import { useTranslation } from 'react-i18next'
+
 import { createBackup } from '../api/backups'
 import { deleteCertificate } from '../api/certificates'
-import type { ProxyHost } from '../api/proxyHosts'
-import compareHosts from '../utils/compareHosts'
-import type { AccessList } from '../api/accessLists'
-import ProxyHostForm from '../components/ProxyHostForm'
+import { getSettings } from '../api/settings'
+import { getMonitors, type UptimeMonitor } from '../api/uptime'
+import CertificateCleanupDialog from '../components/dialogs/CertificateCleanupDialog'
 import { PageShell } from '../components/layout/PageShell'
+import { ConfigReloadOverlay } from '../components/LoadingStates'
+import ProxyHostForm from '../components/ProxyHostForm'
 import {
   Badge,
   Alert,
@@ -32,10 +29,16 @@ import {
   DialogDescription,
   type Column,
 } from '../components/ui'
-import { toast } from 'react-hot-toast'
+import { useAccessLists } from '../hooks/useAccessLists'
+import { useCertificates } from '../hooks/useCertificates'
+import { useProxyHosts } from '../hooks/useProxyHosts'
+import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
+import compareHosts from '../utils/compareHosts'
 import { formatSettingLabel, settingHelpText, applyBulkSettingsToHosts } from '../utils/proxyHostsHelpers'
-import { ConfigReloadOverlay } from '../components/LoadingStates'
-import CertificateCleanupDialog from '../components/dialogs/CertificateCleanupDialog'
+
+import type { AccessList } from '../api/accessLists'
+import type { ProxyHost } from '../api/proxyHosts'
+
 
 export default function ProxyHosts() {
   const { t } = useTranslation()
@@ -99,14 +102,14 @@ export default function ProxyHosts() {
   // Create a map of domain -> certificate status for quick lookup
   const certStatusByDomain = useMemo(() => {
     const map: Record<string, { status: string; provider: string }> = {}
-    certificates.forEach(cert => {
+    for (const cert of certificates) {
       const domains = cert.domain.split(',').map(d => d.trim().toLowerCase())
-      domains.forEach(domain => {
+      for (const domain of domains) {
         if (!map[domain]) {
           map[domain] = { status: cert.status, provider: cert.provider }
         }
-      })
-    })
+      }
+    }
     return map
   }, [certificates])
 
@@ -131,11 +134,7 @@ export default function ProxyHosts() {
   }
 
   const handleSubmit = async (data: Partial<ProxyHost>) => {
-    if (editingHost) {
-      await updateHost(editingHost.uuid, data)
-    } else {
-      await createHost(data)
-    }
+    await (editingHost ? updateHost(editingHost.uuid, data) : createHost(data));
     setShowForm(false)
     setEditingHost(undefined)
   }
@@ -332,7 +331,7 @@ export default function ProxyHosts() {
       // Collect certificates to potentially delete
       const certsToConsider: Map<number, { id: number; name: string; domain: string }> = new Map()
 
-      hostUUIDs.forEach(uuid => {
+      for (const uuid of hostUUIDs) {
         const host = hosts.find(h => h.uuid === uuid)
         if (host?.certificate_id && host.certificate) {
           const cert = host.certificate
@@ -353,7 +352,7 @@ export default function ProxyHosts() {
             }
           }
         }
-      })
+      }
 
       // If there are orphaned certificates, show cleanup dialog
       if (certsToConsider.size > 0) {
@@ -438,7 +437,7 @@ export default function ProxyHosts() {
                   style={{ maxWidth: '100%' }}
                 >
                   <span className="truncate max-w-[30ch]">{d}</span>
-                  <ExternalLink size={12} className="opacity-50 flex-shrink-0" />
+                  <ExternalLink size={12} className="opacity-50 shrink-0" />
                 </a>
               </div>
             )
@@ -757,7 +756,7 @@ export default function ProxyHosts() {
                       className="w-full bg-surface-muted border border-border rounded-lg px-4 py-2 text-content-primary focus:outline-none focus:ring-2 focus:ring-brand-500"
                     >
                       <option value={0}>{t('proxyHosts.noSecurityProfile')}</option>
-                      {securityProfiles && securityProfiles.filter(p => p.is_preset).length > 0 && (
+                      {securityProfiles && securityProfiles.some(p => p.is_preset) && (
                         <optgroup label={t('securityHeaders.systemProfiles')}>
                           {securityProfiles
                             .filter(p => p.is_preset)
@@ -769,7 +768,7 @@ export default function ProxyHosts() {
                             ))}
                         </optgroup>
                       )}
-                      {securityProfiles && securityProfiles.filter(p => !p.is_preset).length > 0 && (
+                      {securityProfiles && securityProfiles.some(p => !p.is_preset) && (
                         <optgroup label={t('securityHeaders.customProfiles')}>
                           {securityProfiles
                             .filter(p => !p.is_preset)
@@ -1101,7 +1100,7 @@ export default function ProxyHosts() {
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <div className="flex items-start gap-3">
-                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-error/10 flex items-center justify-center">
+                <div className="shrink-0 w-10 h-10 rounded-full bg-error/10 flex items-center justify-center">
                   <AlertTriangle className="h-5 w-5 text-error" />
                 </div>
                 <div>

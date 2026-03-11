@@ -1,11 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+
 import {
   getRemoteServers,
   createRemoteServer,
   updateRemoteServer,
   deleteRemoteServer,
   testRemoteServerConnection,
-  RemoteServer
+  type RemoteServer
 } from '../api/remoteServers';
 
 export const QUERY_KEY = ['remote-servers'];

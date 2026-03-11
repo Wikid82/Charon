@@ -1,17 +1,19 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
-import type { ProxyHost, Certificate } from '../../api/proxyHosts'
-import ProxyHosts from '../ProxyHosts'
-import * as proxyHostsApi from '../../api/proxyHosts'
-import * as certificatesApi from '../../api/certificates'
+
 import * as accessListsApi from '../../api/accessLists'
+import * as backupsApi from '../../api/backups'
+import * as certificatesApi from '../../api/certificates'
+import * as proxyHostsApi from '../../api/proxyHosts'
 import * as settingsApi from '../../api/settings'
 import * as uptimeApi from '../../api/uptime'
-import * as backupsApi from '../../api/backups'
 import { createMockProxyHost } from '../../testUtils/createMockProxyHost'
+import ProxyHosts from '../ProxyHosts'
+
+import type { ProxyHost, Certificate } from '../../api/proxyHosts'
 
 vi.mock('react-hot-toast', () => ({
   toast: {
@@ -92,7 +94,7 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     vi.mocked(certificatesApi.deleteCertificate).mockResolvedValue()
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('Host1')).toBeTruthy())
+    expect(await screen.findByText('Host1')).toBeTruthy()
 
     // Click row delete button
     const deleteBtn = screen.getByRole('button', { name: /delete/i })
@@ -148,7 +150,7 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     vi.mocked(proxyHostsApi.deleteProxyHost).mockResolvedValue()
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('Host1')).toBeTruthy())
+    expect(await screen.findByText('Host1')).toBeTruthy()
 
     const deleteButtons = screen.getAllByRole('button', { name: /delete/i })
     await userEvent.click(deleteButtons[0])
@@ -187,7 +189,7 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     vi.mocked(proxyHostsApi.deleteProxyHost).mockResolvedValue()
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('Host1')).toBeTruthy())
+    expect(await screen.findByText('Host1')).toBeTruthy()
 
     const deleteBtn = screen.getByRole('button', { name: /delete/i })
     await userEvent.click(deleteBtn)
@@ -226,7 +228,7 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     vi.mocked(proxyHostsApi.deleteProxyHost).mockResolvedValue()
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('Host1')).toBeTruthy())
+    expect(await screen.findByText('Host1')).toBeTruthy()
 
     // Click row delete button
     const deleteBtn = screen.getByRole('button', { name: /delete/i })
@@ -275,21 +277,21 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     )
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('Host1')).toBeTruthy())
+    expect(await screen.findByText('Host1')).toBeTruthy()
 
     // Click row delete button
     const deleteBtn = screen.getByRole('button', { name: /delete/i })
     await userEvent.click(deleteBtn)
 
     // First dialog appears
-    await waitFor(() => expect(screen.getByText('Delete Proxy Host?')).toBeTruthy())
+    expect(await screen.findByText('Delete Proxy Host?')).toBeTruthy()
 
     // Click "Delete" in the confirmation dialog
     const confirmDelete = screen.getAllByRole('button', { name: 'Delete' })
     await userEvent.click(confirmDelete[confirmDelete.length - 1])
 
     // Certificate cleanup dialog should appear
-    await waitFor(() => expect(screen.getByText(/orphaned certificate/i)).toBeTruthy())
+    expect(await screen.findByText(/orphaned certificate/i)).toBeTruthy()
 
     // Check the certificate deletion checkbox
     const checkbox = document.getElementById('delete_certs') as HTMLInputElement
@@ -331,20 +333,20 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     vi.mocked(certificatesApi.deleteCertificate).mockResolvedValue()
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('Host1')).toBeTruthy())
+    expect(await screen.findByText('Host1')).toBeTruthy()
 
     // Select all hosts
     const selectAllCheckbox = screen.getByLabelText('Select all rows')
     await userEvent.click(selectAllCheckbox)
 
     // Click bulk delete button (the delete button in the toolbar, after Manage ACL)
-    await waitFor(() => expect(screen.getByText('Manage ACL')).toBeTruthy())
+    expect(await screen.findByText('Manage ACL')).toBeTruthy()
     const manageACLButton = screen.getByText('Manage ACL')
     const bulkDeleteButton = manageACLButton.parentElement?.querySelector('button:last-child') as HTMLButtonElement
     await userEvent.click(bulkDeleteButton)
 
     // Confirm in bulk delete modal - text uses pluralized form "Proxy Host(s)"
-    await waitFor(() => expect(screen.getByText(/Delete 2 Proxy Host/)).toBeTruthy())
+    expect(await screen.findByText(/Delete 2 Proxy Host/)).toBeTruthy()
     const deletePermBtn = screen.getByRole('button', { name: /Delete Permanently/i })
     await userEvent.click(deletePermBtn)
 
@@ -364,9 +366,9 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
 
     await waitFor(() => {
       expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('h1')
-      expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('h2')
       expect(certificatesApi.deleteCertificate).toHaveBeenCalledWith(1)
     })
+    expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('h2')
   })
 
   it('bulk delete does NOT prompt when certificate is still used by other hosts', async () => {
@@ -387,7 +389,7 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     vi.mocked(proxyHostsApi.deleteProxyHost).mockResolvedValue()
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('Host1')).toBeTruthy())
+    expect(await screen.findByText('Host1')).toBeTruthy()
 
     // Select only host1 and host2 (host3 still uses the cert)
     const host1Row = screen.getByText('Host1').closest('tr') as HTMLTableRowElement
@@ -400,7 +402,7 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     await userEvent.click(host2Checkbox)
 
     // Wait for bulk operations to be available
-    await waitFor(() => expect(screen.getByText('Bulk Apply')).toBeTruthy())
+    expect(await screen.findByText('Bulk Apply')).toBeTruthy()
 
     // Click bulk delete - find the delete button in the toolbar (after Manage ACL)
     const manageACLButton = screen.getByText('Manage ACL')
@@ -408,7 +410,7 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     await userEvent.click(bulkDeleteButton)
 
     // Confirm in modal - text uses pluralized form "Proxy Host(s)"
-    await waitFor(() => expect(screen.getByText(/Delete 2 Proxy Host/)).toBeTruthy())
+    expect(await screen.findByText(/Delete 2 Proxy Host/)).toBeTruthy()
     const deletePermBtn = screen.getByRole('button', { name: /Delete Permanently/i })
     await userEvent.click(deletePermBtn)
 
@@ -416,9 +418,9 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     // It will directly delete without showing the orphaned cert dialog
     await waitFor(() => {
       expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('h1')
-      expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('h2')
       expect(certificatesApi.deleteCertificate).not.toHaveBeenCalled()
     })
+    expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('h2')
   })
 
   it('allows cancelling certificate cleanup dialog', async () => {
@@ -436,13 +438,13 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('Host1')).toBeTruthy())
+    expect(await screen.findByText('Host1')).toBeTruthy()
 
     const deleteBtn = screen.getByRole('button', { name: /delete/i })
     await userEvent.click(deleteBtn)
 
     // Certificate cleanup dialog appears
-    await waitFor(() => expect(screen.getByText('Delete Proxy Host?')).toBeTruthy())
+    expect(await screen.findByText('Delete Proxy Host?')).toBeTruthy()
 
     // Click Cancel
     const cancelBtn = screen.getByRole('button', { name: 'Cancel' })
@@ -472,21 +474,21 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     vi.mocked(proxyHostsApi.deleteProxyHost).mockResolvedValue()
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('Host1')).toBeTruthy())
+    expect(await screen.findByText('Host1')).toBeTruthy()
 
     // Click row delete button
     const deleteBtn = screen.getByRole('button', { name: /delete/i })
     await userEvent.click(deleteBtn)
 
     // First dialog appears
-    await waitFor(() => expect(screen.getByText('Delete Proxy Host?')).toBeTruthy())
+    expect(await screen.findByText('Delete Proxy Host?')).toBeTruthy()
 
     // Click "Delete" in the confirmation dialog
     const confirmDelete = screen.getAllByRole('button', { name: 'Delete' })
     await userEvent.click(confirmDelete[confirmDelete.length - 1])
 
     // Certificate cleanup dialog should appear
-    await waitFor(() => expect(screen.getByText(/orphaned certificate/i)).toBeTruthy())
+    expect(await screen.findByText(/orphaned certificate/i)).toBeTruthy()
 
     // Checkbox should be unchecked by default
     const checkbox = document.getElementById('delete_certs') as HTMLInputElement

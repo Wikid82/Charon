@@ -41,9 +41,9 @@ vi.mock('react-i18next', async () => {
         let result = getTranslation(key)
         // Handle interpolation: replace {{variable}} with the value from options
         if (options && typeof result === 'string') {
-          Object.entries(options).forEach(([k, v]) => {
+          for (const [k, v] of Object.entries(options)) {
             result = result.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), String(v))
-          })
+          }
         }
         return result
       },
@@ -115,7 +115,7 @@ if (!anchorPrototype.__testNoNavClick) {
   HTMLAnchorElement.prototype.click = function() {
     const event = new MouseEvent('click', { bubbles: true, cancelable: true })
     this.dispatchEvent(event)
-    return undefined
+    return
   }
   anchorPrototype.__originalClick = originalClick
 }
@@ -125,16 +125,14 @@ const _origConsoleError = console.error
 console.error = (...args: unknown[]) => {
   try {
     const msg = args[0]
-    if (typeof msg === 'string') {
-      if (
+    if (typeof msg === 'string' && (
         msg.includes("The current testing environment is not configured to support act(") ||
         msg.includes('not wrapped in act(') ||
         msg.includes('Test connection failed') ||
         msg.includes('Connection failed')
-      ) {
+      )) {
         return
       }
-    }
   } catch {
     // fallthrough to original
   }

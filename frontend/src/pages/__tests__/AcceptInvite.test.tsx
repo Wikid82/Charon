@@ -1,10 +1,11 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
-import AcceptInvite from '../AcceptInvite'
+
 import * as usersApi from '../../api/users'
+import AcceptInvite from '../AcceptInvite'
 
 // Mock APIs
 vi.mock('../../api/users', () => ({

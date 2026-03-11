@@ -1,9 +1,10 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { AccessListForm } from '../AccessListForm';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import * as systemApi from '../../api/system';
 import toast from 'react-hot-toast';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
+
+import * as systemApi from '../../api/system';
+import { AccessListForm } from '../AccessListForm';
 
 vi.mock('../../api/system', () => ({
   getMyIP: vi.fn(),
@@ -100,12 +101,9 @@ describe('AccessListForm', () => {
     // We use querySelector because the icon is inside the button
     const removeButton = screen.getAllByRole('button').find(b => b.querySelector('.lucide-x'));
 
-    if (removeButton) {
-        await user.click(removeButton);
-        expect(screen.queryByText('1.2.3.4')).not.toBeInTheDocument();
-    } else {
-        throw new Error('Remove button not found');
-    }
+    expect(removeButton).toBeDefined();
+    await user.click(removeButton!);
+    expect(screen.queryByText('1.2.3.4')).not.toBeInTheDocument();
   });
 
   it('fetches and populates My IP', async () => {
@@ -416,10 +414,9 @@ describe('AccessListForm', () => {
 
     // Look for Apply buttons in presets
     const applyButtons = screen.getAllByRole('button', { name: /Apply/i });
-    if (applyButtons.length > 0) {
-      await user.click(applyButtons[0]);
-      expect(toast.success).toHaveBeenCalled();
-    }
+    expect(applyButtons.length).toBeGreaterThan(0);
+    await user.click(applyButtons[0]);
+    expect(toast.success).toHaveBeenCalled();
   });
 
   it('applies geo preset correctly', async () => {
@@ -434,10 +431,9 @@ describe('AccessListForm', () => {
     await user.click(showBtn);
 
     const applyButtons = screen.getAllByRole('button', { name: /Apply/i });
-    if (applyButtons.length > 0) {
-      await user.click(applyButtons[0]);
-      expect(toast.success).toHaveBeenCalled();
-    }
+    expect(applyButtons.length).toBeGreaterThan(0);
+    await user.click(applyButtons[0]);
+    expect(toast.success).toHaveBeenCalled();
   });
 
   it('toggles enabled switch', async () => {

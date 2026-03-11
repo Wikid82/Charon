@@ -5,16 +5,19 @@
  * Tests error messages on API failures, toast notifications on mutation errors,
  * and optimistic update rollback.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
-import Security from '../Security'
-import * as securityApi from '../../api/security'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
 import * as crowdsecApi from '../../api/crowdsec'
+import * as securityApi from '../../api/security'
 import * as settingsApi from '../../api/settings'
 import { toast } from '../../utils/toast'
+import Security from '../Security'
+
+import type * as useSecurity from '../../hooks/useSecurity'
 
 vi.mock('../../api/security')
 vi.mock('../../api/crowdsec')
@@ -28,7 +31,7 @@ vi.mock('../../utils/toast', () => ({
   },
 }))
 vi.mock('../../hooks/useSecurity', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../hooks/useSecurity')>()
+  const actual = await importOriginal<typeof useSecurity>()
   return {
     ...actual,
     useSecurityConfig: vi.fn(() => ({ data: { config: { admin_whitelist: '10.0.0.0/8' } } })),
@@ -140,8 +143,8 @@ describe.skip('Security Error Handling Tests', () => {
 
       await waitFor(() => {
         expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Failed to start CrowdSec'))
-        expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Service unavailable'))
       })
+      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Service unavailable'))
     })
   })
 
@@ -160,8 +163,8 @@ describe.skip('Security Error Handling Tests', () => {
 
       await waitFor(() => {
         expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Failed to stop CrowdSec'))
-        expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Process locked'))
       })
+      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Process locked'))
     })
   })
 
@@ -244,8 +247,8 @@ describe.skip('Security Error Handling Tests', () => {
 
       await waitFor(() => {
         expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Failed to update setting'))
-        expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('ACL update failed'))
       })
+      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('ACL update failed'))
     })
   })
 

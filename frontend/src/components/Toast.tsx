@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { toastCallbacks, Toast } from '../utils/toast'
+
+import { toastCallbacks, type Toast } from '../utils/toast'
 
 export function ToastContainer() {
   const [toasts, setToasts] = useState<Toast[]>([])

@@ -1,12 +1,13 @@
+import { useQuery } from '@tanstack/react-query';
+import { FileText, ChevronLeft, ChevronRight, ScrollText } from 'lucide-react';
 import { useState, useEffect, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { getLogs, getLogContent, downloadLog, LogFilter } from '../api/logs';
-import { FileText, ChevronLeft, ChevronRight, ScrollText } from 'lucide-react';
-import { LogTable } from '../components/LogTable';
-import { LogFilters } from '../components/LogFilters';
+
+import { getLogs, getLogContent, downloadLog, type LogFilter } from '../api/logs';
 import { PageShell } from '../components/layout/PageShell';
+import { LogFilters } from '../components/LogFilters';
+import { LogTable } from '../components/LogTable';
 import {
   Button,
   Card,
@@ -94,7 +95,7 @@ const Logs: FC = () => {
                         : 'hover:bg-surface-muted text-content-secondary'
                     }`}
                   >
-                    <FileText className="w-4 h-4 mr-2 flex-shrink-0" />
+                    <FileText className="w-4 h-4 mr-2 shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">{log.name}</div>
                       <div className="text-xs text-content-muted">{(log.size / 1024 / 1024).toFixed(2)} MB</div>

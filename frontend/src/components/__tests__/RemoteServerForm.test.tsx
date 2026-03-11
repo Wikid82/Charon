@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import RemoteServerForm from '../RemoteServerForm'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+
 import * as remoteServersApi from '../../api/remoteServers'
+import RemoteServerForm from '../RemoteServerForm'
 
 // Mock the API
 vi.mock('../../api/remoteServers', () => ({

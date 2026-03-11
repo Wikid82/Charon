@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
 import client from '../client';
 import {
   getProxyHosts,
@@ -7,7 +8,7 @@ import {
   updateProxyHost,
   deleteProxyHost,
   testProxyHostConnection,
-  ProxyHost
+  type ProxyHost
 } from '../proxyHosts';
 
 vi.mock('../client', () => ({

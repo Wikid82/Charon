@@ -12,7 +12,7 @@ import security from 'eslint-plugin-security';
 import noUnsanitized from 'eslint-plugin-no-unsanitized';
 import reactCompiler from 'eslint-plugin-react-compiler';
 import testingLibrary from 'eslint-plugin-testing-library';
-import vitest from 'eslint-plugin-vitest';
+import vitest from '@vitest/eslint-plugin';
 import css from '@eslint/css';
 import json from '@eslint/json';
 import markdown from '@eslint/markdown';

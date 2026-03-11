@@ -2,9 +2,11 @@
  * CrowdSecBouncerKeyDisplay Component Tests
  * Tests the bouncer API key display functionality for CrowdSec integration
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+import client from '../../api/client'
 import { CrowdSecBouncerKeyDisplay } from '../CrowdSecBouncerKeyDisplay'
 
 // Create mock axios instance
@@ -47,9 +49,6 @@ vi.mock('react-i18next', () => ({
     ready: true,
   }),
 }))
-
-// Re-import client after mocking axios
-import client from '../../api/client'
 
 const mockBouncerInfo = {
   name: 'caddy-bouncer',

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+
 import { CROWDSEC_PRESETS, findCrowdsecPreset, type CrowdsecPreset } from '../crowdsecPresets'
 
 describe('crowdsecPresets', () => {
@@ -13,35 +14,35 @@ describe('crowdsecPresets', () => {
     })
 
     it('should have valid YAML content for each preset', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         expect(preset.content).toContain('configs:')
         expect(preset.content).toMatch(/collections:|parsers:|scenarios:|postoverflows:/)
-      })
+      }
     })
 
     it('should have required metadata fields', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         expect(preset).toHaveProperty('slug')
         expect(preset).toHaveProperty('title')
         expect(preset).toHaveProperty('description')
         expect(preset).toHaveProperty('content')
         expect(preset.slug).toMatch(/^[a-z0-9-]+$/) // Slug format validation
-      })
+      }
     })
 
     it('should have descriptive titles and descriptions', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         expect(preset.title.length).toBeGreaterThan(5)
         expect(preset.description.length).toBeGreaterThan(10)
-      })
+      }
     })
 
     it('should have tags for each preset', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         expect(preset.tags).toBeDefined()
         expect(Array.isArray(preset.tags)).toBe(true)
         expect(preset.tags!.length).toBeGreaterThan(0)
-      })
+      }
     })
 
     it('should have warnings for production-critical presets', () => {
@@ -61,32 +62,32 @@ describe('crowdsecPresets', () => {
 
   describe('preset content integrity', () => {
     it('should have valid CrowdSec YAML structure', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         const lines = preset.content.split('\n')
         expect(lines[0]).toMatch(/^configs:/)
-      })
+      }
     })
 
     it('should reference valid CrowdSec hub items', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         // Extract collection references
         const collections = preset.content.match(/- crowdsecurity\/[\w-]+/g) || []
-        collections.forEach((item) => {
+        for (const item of collections) {
           // Hub items can contain underscores (e.g., http-crawl-non_statics)
           expect(item).toMatch(/^- crowdsecurity\/[a-z0-9-_]+$/)
-        })
-      })
+        }
+      }
     })
 
     it('should have proper YAML indentation', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         const lines = preset.content.split('\n')
         // Check that collection/parser/scenario items are indented with spaces
         const itemLines = lines.filter((line) => line.trim().startsWith('- crowdsecurity/'))
-        itemLines.forEach((line) => {
+        for (const line of itemLines) {
           expect(line).toMatch(/^\s{4,}- crowdsecurity\//)
-        })
-      })
+        }
+      }
     })
 
     it('should reference known CrowdSec collections', () => {
@@ -191,11 +192,11 @@ describe('crowdsecPresets', () => {
 
   describe('preset tag consistency', () => {
     it('should have consistent tag naming (lowercase, hyphenated)', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
-        preset.tags?.forEach((tag) => {
+      for (const preset of CROWDSEC_PRESETS) {
+        for (const tag of preset.tags ?? []) {
           expect(tag).toMatch(/^[a-z0-9-]+$/)
-        })
-      })
+        }
+      }
     })
 
     it('should have descriptive tags', () => {
@@ -207,100 +208,96 @@ describe('crowdsecPresets', () => {
 
   describe('slug format validation', () => {
     it('should use lowercase slugs', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         expect(preset.slug).toBe(preset.slug.toLowerCase())
-      })
+      }
     })
 
     it('should use hyphens as separators', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         expect(preset.slug).not.toContain('_')
         expect(preset.slug).not.toContain(' ')
-      })
+      }
     })
 
     it('should not have leading or trailing hyphens', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         expect(preset.slug).not.toMatch(/^-/)
         expect(preset.slug).not.toMatch(/-$/)
-      })
+      }
     })
 
     it('should not have consecutive hyphens', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         expect(preset.slug).not.toContain('--')
-      })
+      }
     })
   })
 
   describe('content safety', () => {
     it('should not contain executable code', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         expect(preset.content).not.toContain('<script')
         expect(preset.content).not.toContain('eval(')
         expect(preset.content).not.toContain('exec(')
-      })
+      }
     })
 
     it('should not contain SQL injection attempts', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         expect(preset.content).not.toContain('DROP TABLE')
         expect(preset.content).not.toContain('DELETE FROM')
-      })
+      }
     })
 
     it('should not contain path traversal attempts', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         expect(preset.content).not.toContain('../')
         expect(preset.content).not.toContain('..\\')
-      })
+      }
     })
   })
 
   describe('TypeScript type safety', () => {
     it('should satisfy CrowdsecPreset interface', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         const typedPreset: CrowdsecPreset = preset
         expect(typedPreset.slug).toBeTruthy()
         expect(typedPreset.title).toBeTruthy()
         expect(typedPreset.description).toBeTruthy()
         expect(typedPreset.content).toBeTruthy()
-      })
+      }
     })
 
     it('should have optional tags and warning properties', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
-        if (preset.tags !== undefined) {
-          expect(Array.isArray(preset.tags)).toBe(true)
-        }
-        if (preset.warning !== undefined) {
-          expect(typeof preset.warning).toBe('string')
-        }
-      })
+      for (const preset of CROWDSEC_PRESETS) {
+        expect(preset.tags === undefined || Array.isArray(preset.tags)).toBe(true)
+        expect(preset.warning === undefined || typeof preset.warning === 'string').toBe(true)
+      }
     })
   })
 
   describe('usability validations', () => {
     it('should have human-readable titles', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         expect(preset.title).not.toMatch(/^[a-z-]+$/) // Not just slug format
         expect(preset.title).toMatch(/^[A-Z]/) // Starts with capital
-      })
+      }
     })
 
     it('should have actionable descriptions', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
+      for (const preset of CROWDSEC_PRESETS) {
         expect(preset.description.split(' ').length).toBeGreaterThan(5)
-      })
+      }
     })
 
     it('should have clear warnings when present', () => {
-      CROWDSEC_PRESETS.forEach((preset) => {
-        if (preset.warning) {
-          expect(preset.warning.length).toBeGreaterThan(10)
-          expect(preset.warning).toMatch(/[.!]$/) // Ends with punctuation
+      for (const preset of CROWDSEC_PRESETS) {
+        for (const warning of preset.warning ? [preset.warning] : []) {
+          expect(warning.length).toBeGreaterThan(10)
+          expect(warning).toMatch(/[.!]$/) // Ends with punctuation
         }
-      })
+      }
     })
   })
 })

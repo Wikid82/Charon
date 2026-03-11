@@ -1,14 +1,15 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Gauge, Info } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Gauge, Info } from 'lucide-react'
-import { Button } from '../components/ui/Button'
-import { Input } from '../components/ui/Input'
-import { Card } from '../components/ui/Card'
-import { useSecurityStatus, useSecurityConfig, useUpdateSecurityConfig } from '../hooks/useSecurity'
+
 import { updateSetting } from '../api/settings'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { toast } from '../utils/toast'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
+import { Button } from '../components/ui/Button'
+import { Card } from '../components/ui/Card'
+import { Input } from '../components/ui/Input'
+import { useSecurityStatus, useSecurityConfig, useUpdateSecurityConfig } from '../hooks/useSecurity'
+import { toast } from '../utils/toast'
 
 export default function RateLimiting() {
   const { t } = useTranslation()
@@ -90,7 +91,7 @@ export default function RateLimiting() {
         {/* Info Banner */}
         <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-4">
           <div className="flex items-start gap-3">
-            <Info className="h-5 w-5 text-blue-400 flex-shrink-0 mt-0.5" />
+            <Info className="h-5 w-5 text-blue-400 shrink-0 mt-0.5" />
             <div>
               <h3 className="text-sm font-semibold text-blue-300 mb-1">
                 {t('rateLimiting.aboutTitle')}
@@ -141,7 +142,7 @@ export default function RateLimiting() {
                 className="sr-only peer"
                 data-testid="rate-limit-toggle"
               />
-              <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
             </label>
           </div>
         </Card>
