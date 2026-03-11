@@ -1,15 +1,16 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Card } from '../components/ui/Card'
-import { Input } from '../components/ui/Input'
-import { Button } from '../components/ui/Button'
-import { toast } from '../utils/toast'
+import { useNavigate } from 'react-router-dom'
+
 import client from '../api/client'
-import { useAuth } from '../hooks/useAuth'
 import { getSetupStatus } from '../api/setup'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
+import { Button } from '../components/ui/Button'
+import { Card } from '../components/ui/Card'
+import { Input } from '../components/ui/Input'
+import { useAuth } from '../hooks/useAuth'
+import { toast } from '../utils/toast'
 
 export default function Login() {
   const { t } = useTranslation()

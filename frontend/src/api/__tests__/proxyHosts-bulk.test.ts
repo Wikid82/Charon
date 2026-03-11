@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { bulkUpdateACL } from '../proxyHosts';
-import type { BulkUpdateACLResponse } from '../proxyHosts';
+
+import { bulkUpdateACL, type BulkUpdateACLResponse  } from '../proxyHosts';
+
 
 // Mock the client module
 const mockPut = vi.fn();

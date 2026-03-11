@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { LanguageSelector } from '../LanguageSelector'
+import { describe, it, expect, vi } from 'vitest'
+
 import { LanguageProvider } from '../../context/LanguageContext'
+import { LanguageSelector } from '../LanguageSelector'
 
 // Mock i18next
 vi.mock('react-i18next', () => ({

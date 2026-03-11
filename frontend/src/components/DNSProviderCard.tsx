@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { formatDistanceToNow } from 'date-fns'
 import {
   Edit,
   Trash2,
@@ -9,7 +8,9 @@ import {
   XCircle,
   AlertTriangle,
 } from 'lucide-react'
-import { formatDistanceToNow } from 'date-fns'
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+
 import {
   Card,
   CardHeader,
@@ -24,6 +25,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from './ui'
+
 import type { DNSProvider } from '../api/dnsProviders'
 
 interface DNSProviderCardProps {

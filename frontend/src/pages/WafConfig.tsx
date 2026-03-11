@@ -1,11 +1,14 @@
+import { Shield, Plus, Pencil, Trash2, ExternalLink, FileCode2, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Shield, Plus, Pencil, Trash2, ExternalLink, FileCode2, Sparkles } from 'lucide-react'
+
+import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { useRuleSets, useUpsertRuleSet, useDeleteRuleSet } from '../hooks/useSecurity'
+
 import type { SecurityRuleSet, UpsertRuleSetPayload } from '../api/security'
-import { ConfigReloadOverlay } from '../components/LoadingStates'
+
 
 /**
  * WAF Rule Presets for common security configurations
@@ -371,7 +374,7 @@ export default function WafConfig() {
       {/* Info Banner */}
       <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <FileCode2 className="h-5 w-5 text-blue-400 flex-shrink-0 mt-0.5" />
+          <FileCode2 className="h-5 w-5 text-blue-400 shrink-0 mt-0.5" />
           <div>
             <h3 className="text-sm font-semibold text-blue-300 mb-1">
               {t('wafConfig.aboutTitle')}

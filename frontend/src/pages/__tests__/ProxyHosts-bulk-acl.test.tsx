@@ -1,15 +1,17 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { toast } from 'react-hot-toast';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+
+import * as accessListsApi from '../../api/accessLists';
+import * as certificatesApi from '../../api/certificates';
+import * as proxyHostsApi from '../../api/proxyHosts';
+import * as settingsApi from '../../api/settings';
 import { createMockProxyHost } from '../../testUtils/createMockProxyHost';
 import ProxyHosts from '../ProxyHosts';
-import * as proxyHostsApi from '../../api/proxyHosts';
-import * as certificatesApi from '../../api/certificates';
-import * as accessListsApi from '../../api/accessLists';
-import * as settingsApi from '../../api/settings';
-import { toast } from 'react-hot-toast';
+
 
 // Mock toast
 vi.mock('react-hot-toast', () => ({
@@ -284,8 +286,7 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
     const applyButton = buttons.find(btn => {
       const text = btn.textContent?.trim() || '';
       // Match "Apply" exactly but not "Apply ACL" (which is the toggle)
-      const isApplyAction = text === 'Apply' || /^Apply \(\d+\)$/.test(text);
-      return isApplyAction;
+      return text === 'Apply' || /^Apply \(\d+\)$/.test(text);
     });
     expect(applyButton).toBeTruthy();
     expect((applyButton as HTMLButtonElement)?.disabled).toBe(true);
@@ -324,11 +325,12 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
     }
 
     // Apply button should be enabled and show count
+    let applyButton!: HTMLElement
     await waitFor(() => {
-      const applyButton = screen.getByRole('button', { name: /Apply \(1\)/ });
+      applyButton = screen.getByRole('button', { name: /Apply \(1\)/ });
       expect(applyButton).toBeTruthy();
-      expect(applyButton).toHaveProperty('disabled', false);
-    });
+    })
+    expect(applyButton).toHaveProperty('disabled', false);;
   });
 
   it('can select multiple ACLs', async () => {

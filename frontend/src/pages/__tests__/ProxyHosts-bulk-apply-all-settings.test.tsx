@@ -1,17 +1,21 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import ProxyHosts from '../ProxyHosts';
-import * as proxyHostsApi from '../../api/proxyHosts';
-import * as certificatesApi from '../../api/certificates';
-import type { ProxyHost } from '../../api/proxyHosts'
-import type { Certificate } from '../../api/certificates'
+
 import * as accessListsApi from '../../api/accessLists';
-import type { AccessList } from '../../api/accessLists'
+import * as certificatesApi from '../../api/certificates';
+import * as proxyHostsApi from '../../api/proxyHosts';
 import * as settingsApi from '../../api/settings';
 import { createMockProxyHost } from '../../testUtils/createMockProxyHost';
+import ProxyHosts from '../ProxyHosts';
+
+import type { AccessList } from '../../api/accessLists'
+import type { Certificate } from '../../api/certificates'
+import type { ProxyHost } from '../../api/proxyHosts'
+
+
 
 vi.mock('react-hot-toast', () => ({ toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() } }));
 vi.mock('../../api/proxyHosts', () => ({ getProxyHosts: vi.fn(), createProxyHost: vi.fn(), updateProxyHost: vi.fn(), deleteProxyHost: vi.fn(), bulkUpdateACL: vi.fn(), testProxyHostConnection: vi.fn() }));
@@ -49,16 +53,16 @@ describe('ProxyHosts - Bulk Apply all settings coverage', () => {
   it('renders all bulk apply setting labels and allows toggling', async () => {
     renderWithProviders(<ProxyHosts />);
 
-    await waitFor(() => expect(screen.getByText('Host 1')).toBeTruthy());
+    expect(await screen.findByText('Host 1')).toBeTruthy();
 
     // select all
     const headerCheckbox = screen.getByLabelText('Select all rows');
     await userEvent.click(headerCheckbox);
 
     // open Bulk Apply
-    await waitFor(() => expect(screen.getByText('Bulk Apply')).toBeTruthy());
+    expect(await screen.findByText('Bulk Apply')).toBeTruthy();
     await userEvent.click(screen.getByText('Bulk Apply'));
-    await waitFor(() => expect(screen.getByText('Bulk Apply Settings')).toBeTruthy());
+    expect(await screen.findByText('Bulk Apply Settings')).toBeTruthy();
 
     const labels = [
       'Force SSL',

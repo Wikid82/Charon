@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
-import Dashboard from '../Dashboard'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
+import Dashboard from '../Dashboard'
 
 vi.mock('../../hooks/useProxyHosts', () => ({
   useProxyHosts: () => ({

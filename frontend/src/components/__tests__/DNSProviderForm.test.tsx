@@ -1,7 +1,8 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import DNSProviderForm from '../DNSProviderForm';
 import userEvent from '@testing-library/user-event';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+import DNSProviderForm from '../DNSProviderForm';
 
 // Mock the hooks
 const mockCreateMutation = {

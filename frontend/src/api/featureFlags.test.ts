@@ -8,8 +8,8 @@ vi.mock('./client', () => ({
   },
 }))
 
-import { getFeatureFlags, updateFeatureFlags } from './featureFlags'
 import client from './client'
+import { getFeatureFlags, updateFeatureFlags } from './featureFlags'
 
 describe('featureFlags API', () => {
   it('fetches feature flags', async () => {

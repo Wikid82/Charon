@@ -1,6 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { renderHook, waitFor } from '@testing-library/react'
+import toast from 'react-hot-toast'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+import * as securityApi from '../../api/security'
 import {
   useSecurityStatus,
   useSecurityConfig,
@@ -14,8 +17,7 @@ import {
   useEnableCerberus,
   useDisableCerberus,
 } from '../useSecurity'
-import * as securityApi from '../../api/security'
-import toast from 'react-hot-toast'
+
 
 vi.mock('../../api/security')
 vi.mock('react-hot-toast')
@@ -101,7 +103,7 @@ describe('useSecurity hooks', () => {
 
       const { result } = renderHook(() => useGenerateBreakGlassToken(), { wrapper })
 
-      result.current.mutate(undefined)
+      result.current.mutate()
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
       expect(result.current.data).toEqual(mockToken)

@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+
 import {
   getProxyHosts,
   createProxyHost,
@@ -6,7 +7,7 @@ import {
   deleteProxyHost,
   bulkUpdateACL,
   bulkUpdateSecurityHeaders,
-  ProxyHost
+  type ProxyHost
 } from '../api/proxyHosts';
 
 export const QUERY_KEY = ['proxy-hosts'];

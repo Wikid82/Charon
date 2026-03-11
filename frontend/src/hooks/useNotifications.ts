@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
 import {
   getSecurityNotificationSettings,
   updateSecurityNotificationSettings,
-  SecurityNotificationSettings,
+  type SecurityNotificationSettings,
 } from '../api/notifications';
 import { toast } from '../utils/toast';
 

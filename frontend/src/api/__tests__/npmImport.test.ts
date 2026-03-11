@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { uploadNPMExport, commitNPMImport, cancelNPMImport } from '../npmImport';
+
 import client from '../client';
+import { uploadNPMExport, commitNPMImport, cancelNPMImport } from '../npmImport';
 
 vi.mock('../client', () => ({
   default: {

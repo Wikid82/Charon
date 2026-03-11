@@ -1,17 +1,20 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import ProxyHosts from '../ProxyHosts';
-import * as proxyHostsApi from '../../api/proxyHosts';
-import * as certificatesApi from '../../api/certificates';
-import type { Certificate } from '../../api/certificates'
-import type { ProxyHost } from '../../api/proxyHosts'
+
 import * as accessListsApi from '../../api/accessLists';
-import type { AccessList } from '../../api/accessLists'
+import * as certificatesApi from '../../api/certificates';
+import * as proxyHostsApi from '../../api/proxyHosts';
 import * as settingsApi from '../../api/settings';
 import { createMockProxyHost } from '../../testUtils/createMockProxyHost';
+import ProxyHosts from '../ProxyHosts';
+
+import type { AccessList } from '../../api/accessLists'
+import type { Certificate } from '../../api/certificates'
+import type { ProxyHost } from '../../api/proxyHosts'
+
 
 // Mock toast
 vi.mock('react-hot-toast', () => ({
@@ -62,18 +65,18 @@ describe('ProxyHosts - Bulk Apply Settings', () => {
   it('shows Bulk Apply button when hosts selected and opens modal', async () => {
     renderWithProviders(<ProxyHosts />);
 
-    await waitFor(() => expect(screen.getByText('Test Host 1')).toBeTruthy());
+    expect(await screen.findByText('Test Host 1')).toBeTruthy();
 
     // Select first host using select-all checkbox
     const selectAll = screen.getAllByRole('checkbox')[0];
     await userEvent.click(selectAll);
 
     // Bulk Apply button should appear
-    await waitFor(() => expect(screen.getByText('Bulk Apply')).toBeTruthy());
+    expect(await screen.findByText('Bulk Apply')).toBeTruthy();
 
     // Open modal
     await userEvent.click(screen.getByText('Bulk Apply'));
-    await waitFor(() => expect(screen.getByText('Bulk Apply Settings')).toBeTruthy());
+    expect(await screen.findByText('Bulk Apply Settings')).toBeTruthy();
   });
 
   it('applies selected settings to all selected hosts by calling updateProxyHost merged payload', async () => {
@@ -81,16 +84,16 @@ describe('ProxyHosts - Bulk Apply Settings', () => {
     updateMock.mockResolvedValue(mockProxyHosts[0] as ProxyHost);
 
     renderWithProviders(<ProxyHosts />);
-    await waitFor(() => expect(screen.getByText('Test Host 1')).toBeTruthy());
+    expect(await screen.findByText('Test Host 1')).toBeTruthy();
 
     // Select hosts
     const selectAll = screen.getByLabelText('Select all rows');
     await userEvent.click(selectAll);
-    await waitFor(() => expect(screen.getByText('Bulk Apply')).toBeTruthy());
+    expect(await screen.findByText('Bulk Apply')).toBeTruthy();
 
     // Open Bulk Apply modal
     await userEvent.click(screen.getByText('Bulk Apply'));
-    await waitFor(() => expect(screen.getByText('Bulk Apply Settings')).toBeTruthy());
+    expect(await screen.findByText('Bulk Apply Settings')).toBeTruthy();
 
     // Enable first setting checkbox (Force SSL) - find the row by text and then get the Radix Checkbox (role="checkbox")
     const forceLabel = screen.getByText(/Force SSL/i) as HTMLElement;
@@ -117,12 +120,12 @@ describe('ProxyHosts - Bulk Apply Settings', () => {
 
   it('cancels bulk apply modal when Cancel clicked', async () => {
     renderWithProviders(<ProxyHosts />);
-    await waitFor(() => expect(screen.getByText('Test Host 1')).toBeTruthy());
+    expect(await screen.findByText('Test Host 1')).toBeTruthy();
     const selectAll = screen.getAllByRole('checkbox')[0];
     await userEvent.click(selectAll);
-    await waitFor(() => expect(screen.getByText('Bulk Apply')).toBeTruthy());
+    expect(await screen.findByText('Bulk Apply')).toBeTruthy();
     await userEvent.click(screen.getByText('Bulk Apply'));
-    await waitFor(() => expect(screen.getByText('Bulk Apply Settings')).toBeTruthy());
+    expect(await screen.findByText('Bulk Apply Settings')).toBeTruthy();
 
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByText('Bulk Apply Settings')).toBeNull());

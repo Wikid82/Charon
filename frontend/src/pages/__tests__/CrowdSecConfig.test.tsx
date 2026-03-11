@@ -1,15 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
-import CrowdSecConfig from '../CrowdSecConfig'
-import * as securityApi from '../../api/security'
-import * as crowdsecApi from '../../api/crowdsec'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import * as backupsApi from '../../api/backups'
-import * as presetsApi from '../../api/presets'
+import * as crowdsecApi from '../../api/crowdsec'
 import * as featureFlagsApi from '../../api/featureFlags'
+import * as presetsApi from '../../api/presets'
+import * as securityApi from '../../api/security'
 import { toast } from '../../utils/toast'
+import CrowdSecConfig from '../CrowdSecConfig'
 
 vi.mock('../../api/security')
 vi.mock('../../api/crowdsec')
@@ -101,8 +102,8 @@ describe('CrowdSecConfig', () => {
     })
     vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob(['data']))
     vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue({})
-    vi.mocked(crowdsecApi.banIP).mockResolvedValue(undefined)
-    vi.mocked(crowdsecApi.unbanIP).mockResolvedValue(undefined)
+    vi.mocked(crowdsecApi.banIP).mockResolvedValue()
+    vi.mocked(crowdsecApi.unbanIP).mockResolvedValue()
     vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({
       running: true,
       pid: 123,

@@ -1,7 +1,9 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { type Mock } from 'vitest'
+
 import ProxyHostForm from '../ProxyHostForm'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 vi.mock('../../api/uptime', () => ({
   syncMonitors: vi.fn(() => Promise.resolve({})),
@@ -103,7 +105,7 @@ describe('ProxyHostForm Add Uptime flow', () => {
     await waitFor(() => expect(uptime.syncMonitors).toHaveBeenCalledWith({ interval: 30, max_retries: 2 }))
 
     // Ensure onSubmit payload does not include temporary uptime keys
-    const onSubmitMock = onSubmit as unknown as import('vitest').Mock
+    const onSubmitMock = onSubmit as unknown as Mock
     const submittedPayload = onSubmitMock.mock.calls[0][0]
     expect(submittedPayload).not.toHaveProperty('addUptime')
     expect(submittedPayload).not.toHaveProperty('uptimeInterval')
@@ -115,7 +117,7 @@ describe('ProxyHostForm Add Uptime flow', () => {
     const onCancel = vi.fn()
 
     const uptime = await import('../../api/uptime')
-    const syncMock = uptime.syncMonitors as unknown as import('vitest').Mock
+    const syncMock = uptime.syncMonitors as unknown as Mock
     syncMock.mockRejectedValueOnce('')
 
     const toastModule = await import('react-hot-toast')

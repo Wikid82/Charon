@@ -921,3 +921,81 @@ func TestAllowNotifyHTTPOverride(t *testing.T) {
 		t.Fatal("expected allowHTTP to be true in test binary")
 	}
 }
+
+func TestExtractProviderErrorHint(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     []byte
+		expected string
+	}{
+		{
+			name:     "description field",
+			body:     []byte(`{"description":"Not Found: chat not found"}`),
+			expected: "Not Found: chat not found",
+		},
+		{
+			name:     "message field",
+			body:     []byte(`{"message":"Unauthorized"}`),
+			expected: "Unauthorized",
+		},
+		{
+			name:     "error field",
+			body:     []byte(`{"error":"rate limited"}`),
+			expected: "rate limited",
+		},
+		{
+			name:     "error_description field",
+			body:     []byte(`{"error_description":"invalid token"}`),
+			expected: "invalid token",
+		},
+		{
+			name:     "empty body",
+			body:     []byte{},
+			expected: "",
+		},
+		{
+			name:     "non-JSON body",
+			body:     []byte(`<html>Server Error</html>`),
+			expected: "",
+		},
+		{
+			name:     "string over 100 chars truncated",
+			body:     []byte(`{"description":"` + strings.Repeat("x", 120) + `"}`),
+			expected: strings.Repeat("x", 100) + "...",
+		},
+		{
+			name:     "empty string value ignored",
+			body:     []byte(`{"description":"","message":"fallback hint"}`),
+			expected: "fallback hint",
+		},
+		{
+			name:     "whitespace-only value ignored",
+			body:     []byte(`{"description":"   ","message":"real hint"}`),
+			expected: "real hint",
+		},
+		{
+			name:     "non-string value ignored",
+			body:     []byte(`{"description":42,"message":"string hint"}`),
+			expected: "string hint",
+		},
+		{
+			name:     "priority order: description before message",
+			body:     []byte(`{"message":"second","description":"first"}`),
+			expected: "first",
+		},
+		{
+			name:     "no recognized fields",
+			body:     []byte(`{"status":"error","code":500}`),
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractProviderErrorHint(tt.body)
+			if result != tt.expected {
+				t.Errorf("extractProviderErrorHint(%q) = %q, want %q", string(tt.body), result, tt.expected)
+			}
+		})
+	}
+}

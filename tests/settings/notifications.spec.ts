@@ -294,8 +294,8 @@ test.describe('Notification Providers', () => {
 
       await test.step('Verify provider type select contains supported options', async () => {
         const providerTypeSelect = page.getByTestId('provider-type');
-        await expect(providerTypeSelect.locator('option')).toHaveCount(4);
-        await expect(providerTypeSelect.locator('option')).toHaveText(['Discord', 'Gotify', 'Generic Webhook', 'Email']);
+        await expect(providerTypeSelect.locator('option')).toHaveCount(5);
+        await expect(providerTypeSelect.locator('option')).toHaveText(['Discord', 'Gotify', 'Generic Webhook', 'Email', 'Telegram']);
         await expect(providerTypeSelect).toBeEnabled();
       });
     });
@@ -1083,18 +1083,32 @@ test.describe('Notification Providers', () => {
      * Priority: P0
      */
     test('should test notification provider', async ({ page }) => {
-      await test.step('Click Add Provider button', async () => {
-        const addButton = page.getByRole('button', { name: /add.*provider/i });
-        await addButton.click();
-      });
+      const providers: Array<Record<string, unknown>> = [];
 
-      await test.step('Fill provider form', async () => {
-        await page.getByTestId('provider-name').fill('Test Provider');
-        await expect(page.getByTestId('provider-type')).toHaveValue('discord');
-        await page.getByTestId('provider-url').fill('https://discord.com/api/webhooks/test/token');
-      });
+      await test.step('Mock create, list, and test endpoints', async () => {
+        await page.route('**/api/v1/notifications/providers', async (route, request) => {
+          if (request.method() === 'POST') {
+            const payload = (await request.postDataJSON()) as Record<string, unknown>;
+            const created = { id: 'test-provider-id', ...payload, enabled: true };
+            providers.splice(0, providers.length, created);
+            await route.fulfill({
+              status: 201,
+              contentType: 'application/json',
+              body: JSON.stringify(created),
+            });
+            return;
+          }
+          if (request.method() === 'GET') {
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify(providers),
+            });
+            return;
+          }
+          await route.continue();
+        });
 
-      await test.step('Mock test response', async () => {
         await page.route('**/api/v1/notifications/providers/test', async (route) => {
           await route.fulfill({
             status: 200,
@@ -1107,25 +1121,35 @@ test.describe('Notification Providers', () => {
         });
       });
 
-      await test.step('Click test button', async () => {
+      await test.step('Open form, fill, and save provider', async () => {
+        await page.getByRole('button', { name: /add.*provider/i }).click();
+        await page.getByTestId('provider-name').fill('Test Provider');
+        await expect(page.getByTestId('provider-type')).toHaveValue('discord');
+        await page.getByTestId('provider-url').fill('https://discord.com/api/webhooks/test/token');
+        await page.getByTestId('provider-save-btn').click();
+      });
+
+      await test.step('Click Edit on saved provider row to open form', async () => {
+        const providerRow = page.getByTestId('provider-row-test-provider-id');
+        await expect(providerRow).toBeVisible({ timeout: 5000 });
+        const editButton = providerRow.getByRole('button', { name: /edit/i });
+        await editButton.click();
+        await expect(page.getByTestId('provider-name')).toBeVisible({ timeout: 5000 });
+      });
+
+      await test.step('Click form test button and verify success', async () => {
+        const testButton = page.getByTestId('provider-test-btn');
+        await expect(testButton).toBeVisible({ timeout: 5000 });
+
         const testRequestPromise = page.waitForRequest(
           (request) => request.method() === 'POST' && /\/api\/v1\/notifications\/providers\/test$/.test(request.url())
         );
-        const testButton = page.getByTestId('provider-test-btn');
-        await expect(testButton).toBeVisible();
         await testButton.click();
 
         const testRequest = await testRequestPromise;
         const payload = testRequest.postDataJSON() as Record<string, unknown>;
         expect(payload.type).toBe('discord');
-      });
 
-      await test.step('Verify test initiated', async () => {
-        // Button should show loading or success state
-        const testButton = page.getByTestId('provider-test-btn');
-
-        // Wait for loading to complete and check for success icon
-        await waitForLoadingComplete(page);
         const hasSuccessIcon = await testButton.locator('svg').evaluate((el) =>
           el.classList.contains('text-green-500') ||
           el.closest('button')?.querySelector('.text-green-500') !== null
@@ -1140,18 +1164,32 @@ test.describe('Notification Providers', () => {
      * Priority: P1
      */
     test('should show test success feedback', async ({ page }) => {
-      await test.step('Click Add Provider button', async () => {
-        const addButton = page.getByRole('button', { name: /add.*provider/i });
-        await addButton.click();
-      });
+      const providers: Array<Record<string, unknown>> = [];
 
-      await test.step('Fill provider form', async () => {
-        await page.getByTestId('provider-name').fill('Success Test Provider');
-        await expect(page.getByTestId('provider-type')).toHaveValue('discord');
-        await page.getByTestId('provider-url').fill('https://discord.com/api/webhooks/success/test');
-      });
+      await test.step('Mock create, list, and test endpoints', async () => {
+        await page.route('**/api/v1/notifications/providers', async (route, request) => {
+          if (request.method() === 'POST') {
+            const payload = (await request.postDataJSON()) as Record<string, unknown>;
+            const created = { id: 'success-test-id', ...payload, enabled: true };
+            providers.splice(0, providers.length, created);
+            await route.fulfill({
+              status: 201,
+              contentType: 'application/json',
+              body: JSON.stringify(created),
+            });
+            return;
+          }
+          if (request.method() === 'GET') {
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify(providers),
+            });
+            return;
+          }
+          await route.continue();
+        });
 
-      await test.step('Mock successful test', async () => {
         await page.route('**/api/v1/notifications/providers/test', async (route) => {
           await route.fulfill({
             status: 200,
@@ -1161,14 +1199,27 @@ test.describe('Notification Providers', () => {
         });
       });
 
-      await test.step('Click test button', async () => {
-        await page.getByTestId('provider-test-btn').click();
+      await test.step('Open form, fill, and save provider', async () => {
+        await page.getByRole('button', { name: /add.*provider/i }).click();
+        await page.getByTestId('provider-name').fill('Success Test Provider');
+        await expect(page.getByTestId('provider-type')).toHaveValue('discord');
+        await page.getByTestId('provider-url').fill('https://discord.com/api/webhooks/success/test');
+        await page.getByTestId('provider-save-btn').click();
       });
 
-      await test.step('Verify success feedback', async () => {
-        const testButton = page.getByTestId('provider-test-btn');
-        const successIcon = testButton.locator('svg.text-green-500');
+      await test.step('Click Edit on saved provider row to open form', async () => {
+        const providerRow = page.getByTestId('provider-row-success-test-id');
+        await expect(providerRow).toBeVisible({ timeout: 5000 });
+        const editButton = providerRow.getByRole('button', { name: /edit/i });
+        await editButton.click();
+        await expect(page.getByTestId('provider-name')).toBeVisible({ timeout: 5000 });
+      });
 
+      await test.step('Click form test button and verify success feedback', async () => {
+        const testButton = page.getByTestId('provider-test-btn');
+        await expect(testButton).toBeVisible({ timeout: 5000 });
+        await testButton.click();
+        const successIcon = testButton.locator('svg.text-green-500');
         await expect(successIcon).toBeVisible({ timeout: 5000 });
       });
     });
@@ -1300,16 +1351,22 @@ test.describe('Notification Providers', () => {
         await expect(page.getByTestId('provider-save-btn')).toBeVisible();
       });
 
-      await test.step('Submit preview and test from Discord form', async () => {
+      await test.step('Fill form and trigger preview from new provider', async () => {
         await page.getByTestId('provider-name').fill(providerName);
         await expect(page.getByTestId('provider-type')).toHaveValue('discord');
         await page.getByTestId('provider-url').fill(discordURL);
         await page.getByTestId('provider-preview-btn').click();
-        await page.getByTestId('provider-test-btn').click();
       });
 
       await test.step('Save Discord provider', async () => {
         await page.getByTestId('provider-save-btn').click();
+      });
+
+      await test.step('Send test from saved provider row', async () => {
+        const providerRow = page.getByTestId('provider-row-discord-regression-id');
+        await expect(providerRow).toBeVisible({ timeout: 5000 });
+        const sendTestButton = providerRow.getByRole('button', { name: /send test/i });
+        await sendTestButton.click();
       });
 
       await test.step('Assert Discord payload contract remained unchanged', async () => {
@@ -1663,18 +1720,32 @@ test.describe('Notification Providers', () => {
      * Priority: P1
      */
     test('should show error when test fails', async ({ page }) => {
-      await test.step('Open provider form', async () => {
-        const addButton = page.getByRole('button', { name: /add.*provider/i });
-        await addButton.click();
-      });
+      const providers: Array<Record<string, unknown>> = [];
 
-      await test.step('Fill provider form', async () => {
-        await page.getByTestId('provider-name').fill('Error Test Provider');
-        await expect(page.getByTestId('provider-type')).toHaveValue('discord');
-        await page.getByTestId('provider-url').fill('https://discord.com/api/webhooks/invalid');
-      });
+      await test.step('Mock create, list, and failed test endpoints', async () => {
+        await page.route('**/api/v1/notifications/providers', async (route, request) => {
+          if (request.method() === 'POST') {
+            const payload = (await request.postDataJSON()) as Record<string, unknown>;
+            const created = { id: 'error-test-id', ...payload, enabled: true };
+            providers.splice(0, providers.length, created);
+            await route.fulfill({
+              status: 201,
+              contentType: 'application/json',
+              body: JSON.stringify(created),
+            });
+            return;
+          }
+          if (request.method() === 'GET') {
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify(providers),
+            });
+            return;
+          }
+          await route.continue();
+        });
 
-      await test.step('Mock failed test response', async () => {
         await page.route('**/api/v1/notifications/providers/test', async (route) => {
           await route.fulfill({
             status: 500,
@@ -1686,17 +1757,27 @@ test.describe('Notification Providers', () => {
         });
       });
 
-      await test.step('Click test button', async () => {
-        await page.getByTestId('provider-test-btn').click();
+      await test.step('Open form, fill, and save provider', async () => {
+        await page.getByRole('button', { name: /add.*provider/i }).click();
+        await page.getByTestId('provider-name').fill('Error Test Provider');
+        await expect(page.getByTestId('provider-type')).toHaveValue('discord');
+        await page.getByTestId('provider-url').fill('https://discord.com/api/webhooks/invalid');
+        await page.getByTestId('provider-save-btn').click();
       });
 
-      await test.step('Verify error feedback', async () => {
-        await waitForLoadingComplete(page);
+      await test.step('Click Edit on saved provider row to open form', async () => {
+        const providerRow = page.getByTestId('provider-row-error-test-id');
+        await expect(providerRow).toBeVisible({ timeout: 5000 });
+        const editButton = providerRow.getByRole('button', { name: /edit/i });
+        await editButton.click();
+        await expect(page.getByTestId('provider-name')).toBeVisible({ timeout: 5000 });
+      });
 
-        // Should show error icon (X) — use auto-retrying assertion instead of point-in-time check
+      await test.step('Click form test button and verify error feedback', async () => {
         const testButton = page.getByTestId('provider-test-btn');
+        await expect(testButton).toBeVisible({ timeout: 5000 });
+        await testButton.click();
         const errorIcon = testButton.locator('svg.text-red-500, svg[class*="red"]');
-
         await expect(errorIcon).toBeVisible({ timeout: 10000 });
       });
     });

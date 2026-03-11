@@ -23,6 +23,8 @@ func (r *Router) ShouldUseNotify(providerType string, flags map[string]bool) boo
 		return flags[FlagGotifyServiceEnabled]
 	case "webhook":
 		return flags[FlagWebhookServiceEnabled]
+	case "telegram":
+		return flags[FlagTelegramServiceEnabled]
 	default:
 		return false
 	}

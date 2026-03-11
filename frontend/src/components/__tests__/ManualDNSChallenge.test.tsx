@@ -1,11 +1,14 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import ManualDNSChallenge from '../dns-providers/ManualDNSChallenge'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
 import { useChallengePoll, useManualChallengeMutations } from '../../hooks/useManualChallenge'
-import type { ManualChallenge } from '../../api/manualChallenge'
 import { toast } from '../../utils/toast'
+import ManualDNSChallenge from '../dns-providers/ManualDNSChallenge'
+
+import type { ManualChallenge } from '../../api/manualChallenge'
+
 
 // Mock dependencies
 vi.mock('../../hooks/useManualChallenge')

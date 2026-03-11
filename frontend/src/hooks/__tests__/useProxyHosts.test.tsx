@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { renderHook, waitFor, act } from '@testing-library/react'
 import React from 'react'
-import { useProxyHosts } from '../useProxyHosts'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
 import * as api from '../../api/proxyHosts'
 import { createMockProxyHost } from '../../testUtils/createMockProxyHost'
+import { useProxyHosts } from '../useProxyHosts'
 
 // Mock the API
 vi.mock('../../api/proxyHosts', () => ({

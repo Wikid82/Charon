@@ -1,5 +1,3 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { useTranslation } from 'react-i18next'
 import {
   Copy,
   Check,
@@ -11,10 +9,15 @@ import {
   Loader2,
   Info,
 } from 'lucide-react'
-import { Button, Card, CardHeader, CardContent, Progress, Alert } from '../ui'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
+
 import { useChallengePoll, useManualChallengeMutations } from '../../hooks/useManualChallenge'
-import type { ManualChallenge, ChallengeStatus } from '../../api/manualChallenge'
 import { toast } from '../../utils/toast'
+import { Button, Card, CardHeader, CardContent, Progress, Alert } from '../ui'
+
+import type { ManualChallenge, ChallengeStatus } from '../../api/manualChallenge'
+
 
 interface ManualDNSChallengeProps {
   /** The DNS provider ID */
@@ -306,7 +309,7 @@ export default function ManualDNSChallenge({
                 size="sm"
                 onClick={() => handleCopy('name', challenge.fqdn)}
                 aria-label={t('dnsProvider.manual.copyRecordName')}
-                className="flex-shrink-0"
+                className="shrink-0"
               >
                 {copiedField === 'name' ? (
                   <Check className="h-4 w-4 text-success" aria-hidden="true" />
@@ -343,7 +346,7 @@ export default function ManualDNSChallenge({
                 size="sm"
                 onClick={() => handleCopy('value', challenge.value)}
                 aria-label={t('dnsProvider.manual.copyRecordValue')}
-                className="flex-shrink-0"
+                className="shrink-0"
               >
                 {copiedField === 'value' ? (
                   <Check className="h-4 w-4 text-success" aria-hidden="true" />
@@ -433,7 +436,7 @@ export default function ManualDNSChallenge({
         >
           <div className="flex items-start gap-3">
             <StatusIcon
-              className={`h-5 w-5 flex-shrink-0 ${statusConfig.colorClass} ${
+              className={`h-5 w-5 shrink-0 ${statusConfig.colorClass} ${
                 currentStatus === 'verifying' ? 'animate-spin' : ''
               }`}
               aria-hidden="true"

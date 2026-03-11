@@ -12,18 +12,18 @@ export const toastCallbacks = new Set<(toast: Toast) => void>()
 export const toast = {
   success: (message: string) => {
     const id = ++toastId
-    toastCallbacks.forEach(callback => callback({ id, message, type: 'success' }))
+    for (const callback of toastCallbacks) callback({ id, message, type: 'success' })
   },
   error: (message: string) => {
     const id = ++toastId
-    toastCallbacks.forEach(callback => callback({ id, message, type: 'error' }))
+    for (const callback of toastCallbacks) callback({ id, message, type: 'error' })
   },
   info: (message: string) => {
     const id = ++toastId
-    toastCallbacks.forEach(callback => callback({ id, message, type: 'info' }))
+    for (const callback of toastCallbacks) callback({ id, message, type: 'info' })
   },
   warning: (message: string) => {
     const id = ++toastId
-    toastCallbacks.forEach(callback => callback({ id, message, type: 'warning' }))
+    for (const callback of toastCallbacks) callback({ id, message, type: 'warning' })
   },
 }

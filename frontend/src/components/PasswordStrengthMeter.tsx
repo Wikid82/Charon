@@ -1,4 +1,5 @@
 import React from 'react';
+
 import { calculatePasswordStrength } from '../utils/passwordStrength';
 
 interface Props {

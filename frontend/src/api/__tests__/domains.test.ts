@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
 import client from '../client';
-import { getDomains, createDomain, deleteDomain, Domain } from '../domains';
+import { getDomains, createDomain, deleteDomain, type Domain } from '../domains';
 
 vi.mock('../client', () => ({
   default: {

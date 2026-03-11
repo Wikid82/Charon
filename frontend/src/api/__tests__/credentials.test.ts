@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+import client from '../client'
 import {
   getCredentials,
   getCredential,
@@ -11,7 +13,6 @@ import {
   type CredentialRequest,
   type CredentialTestResult,
 } from '../credentials'
-import client from '../client'
 
 vi.mock('../client')
 

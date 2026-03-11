@@ -1826,7 +1826,6 @@ func TestTestProvider_NotifyOnlyRejectsUnsupportedProvider(t *testing.T) {
 		providerType string
 		url          string
 	}{
-		{"telegram", "telegram", "telegram://token@telegram?chats=123"},
 		{"slack", "slack", "https://hooks.slack.com/services/T/B/X"},
 		{"pushover", "pushover", "pushover://token@user"},
 	}
@@ -2883,108 +2882,290 @@ func TestDispatchEmail_TemplateFallback(t *testing.T) {
 // --- TestEmailProvider unit tests ---
 
 func TestEmailProvider_MailServiceNil(t *testing.T) {
-db := setupNotificationTestDB(t)
-svc := NewNotificationService(db, nil)
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
 
-p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
-err := svc.TestEmailProvider(p)
-require.Error(t, err)
-assert.Contains(t, err.Error(), "email service is not configured")
+	p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
+	err := svc.TestEmailProvider(p)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "email service is not configured")
 }
 
 func TestEmailProvider_MailServiceNotConfigured(t *testing.T) {
-db := setupNotificationTestDB(t)
-mock := &mockMailService{isConfigured: false}
-svc := NewNotificationService(db, mock)
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: false}
+	svc := NewNotificationService(db, mock)
 
-p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
-err := svc.TestEmailProvider(p)
-require.Error(t, err)
-assert.Contains(t, err.Error(), "email service is not configured")
+	p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
+	err := svc.TestEmailProvider(p)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "email service is not configured")
 }
 
 func TestEmailProvider_EmptyURL(t *testing.T) {
-db := setupNotificationTestDB(t)
-mock := &mockMailService{isConfigured: true}
-svc := NewNotificationService(db, mock)
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: true}
+	svc := NewNotificationService(db, mock)
 
-p := models.NotificationProvider{Name: "test-email", Type: "email", URL: ""}
-err := svc.TestEmailProvider(p)
-require.Error(t, err)
-assert.Contains(t, err.Error(), "no recipients configured")
-assert.Zero(t, mock.callCount())
+	p := models.NotificationProvider{Name: "test-email", Type: "email", URL: ""}
+	err := svc.TestEmailProvider(p)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no recipients configured")
+	assert.Zero(t, mock.callCount())
 }
 
 func TestEmailProvider_BlankWhitespaceURL(t *testing.T) {
-db := setupNotificationTestDB(t)
-mock := &mockMailService{isConfigured: true}
-svc := NewNotificationService(db, mock)
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: true}
+	svc := NewNotificationService(db, mock)
 
-p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "  ,  ,  "}
-err := svc.TestEmailProvider(p)
-require.Error(t, err)
-assert.Contains(t, err.Error(), "no recipients configured")
+	p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "  ,  ,  "}
+	err := svc.TestEmailProvider(p)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no recipients configured")
 }
 
 func TestEmailProvider_ValidRecipient(t *testing.T) {
-db := setupNotificationTestDB(t)
-mock := &mockMailService{isConfigured: true}
-svc := NewNotificationService(db, mock)
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: true}
+	svc := NewNotificationService(db, mock)
 
-p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "user@example.com"}
-err := svc.TestEmailProvider(p)
-require.NoError(t, err)
-require.Equal(t, 1, mock.callCount())
-call := mock.firstCall()
-assert.Equal(t, []string{"user@example.com"}, call.to)
-assert.Equal(t, "[Charon Test] Test Notification", call.subject)
+	p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "user@example.com"}
+	err := svc.TestEmailProvider(p)
+	require.NoError(t, err)
+	require.Equal(t, 1, mock.callCount())
+	call := mock.firstCall()
+	assert.Equal(t, []string{"user@example.com"}, call.to)
+	assert.Equal(t, "[Charon Test] Test Notification", call.subject)
 }
 
 func TestEmailProvider_MultipleRecipients(t *testing.T) {
-db := setupNotificationTestDB(t)
-mock := &mockMailService{isConfigured: true}
-svc := NewNotificationService(db, mock)
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: true}
+	svc := NewNotificationService(db, mock)
 
-p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com, c@d.com , e@f.com"}
-err := svc.TestEmailProvider(p)
-require.NoError(t, err)
-require.Equal(t, 1, mock.callCount())
-assert.Equal(t, []string{"a@b.com", "c@d.com", "e@f.com"}, mock.firstCall().to)
+	p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com, c@d.com , e@f.com"}
+	err := svc.TestEmailProvider(p)
+	require.NoError(t, err)
+	require.Equal(t, 1, mock.callCount())
+	assert.Equal(t, []string{"a@b.com", "c@d.com", "e@f.com"}, mock.firstCall().to)
 }
 
 func TestEmailProvider_SendError(t *testing.T) {
-db := setupNotificationTestDB(t)
-mock := &mockMailService{isConfigured: true, sendEmailErr: fmt.Errorf("smtp: connection refused")}
-svc := NewNotificationService(db, mock)
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: true, sendEmailErr: fmt.Errorf("smtp: connection refused")}
+	svc := NewNotificationService(db, mock)
 
-p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
-err := svc.TestEmailProvider(p)
-require.Error(t, err)
-assert.Contains(t, err.Error(), "smtp")
-assert.Equal(t, 1, mock.callCount())
+	p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
+	err := svc.TestEmailProvider(p)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "smtp")
+	assert.Equal(t, 1, mock.callCount())
 }
 
 func TestEmailProvider_TemplateFallback(t *testing.T) {
-db := setupNotificationTestDB(t)
-mock := &mockMailService{isConfigured: true, renderErr: fmt.Errorf("template not found")}
-svc := NewNotificationService(db, mock)
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{isConfigured: true, renderErr: fmt.Errorf("template not found")}
+	svc := NewNotificationService(db, mock)
 
-p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
-err := svc.TestEmailProvider(p)
-require.NoError(t, err)
-require.Equal(t, 1, mock.callCount())
-assert.Contains(t, mock.firstCall().body, "<strong>Test Notification</strong>")
+	p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
+	err := svc.TestEmailProvider(p)
+	require.NoError(t, err)
+	require.Equal(t, 1, mock.callCount())
+	assert.Contains(t, mock.firstCall().body, "<strong>Test Notification</strong>")
 }
 
 func TestEmailProvider_UsesRenderedTemplate(t *testing.T) {
-db := setupNotificationTestDB(t)
-rendered := "<html><body>Rendered test email</body></html>"
-mock := &mockMailService{isConfigured: true, renderResult: rendered}
-svc := NewNotificationService(db, mock)
+	db := setupNotificationTestDB(t)
+	rendered := "<html><body>Rendered test email</body></html>"
+	mock := &mockMailService{isConfigured: true, renderResult: rendered}
+	svc := NewNotificationService(db, mock)
 
-p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
-err := svc.TestEmailProvider(p)
-require.NoError(t, err)
-require.Equal(t, 1, mock.callCount())
-assert.Equal(t, rendered, mock.firstCall().body)
+	p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
+	err := svc.TestEmailProvider(p)
+	require.NoError(t, err)
+	require.Equal(t, 1, mock.callCount())
+	assert.Equal(t, rendered, mock.firstCall().body)
+}
+
+func TestIsDispatchEnabled_TelegramDefaultTrue(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	_ = db.AutoMigrate(&models.Setting{})
+	svc := NewNotificationService(db, nil)
+
+	// No feature flag row exists — telegram defaults to true
+	assert.True(t, svc.isDispatchEnabled("telegram"))
+}
+
+func TestSendJSONPayload_Telegram_ChatIDInjectionAndDispatch(t *testing.T) {
+	db := setupNotificationTestDB(t)
+
+	var capturedPath string
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	svc := NewNotificationService(db, nil)
+	svc.telegramAPIBaseURL = server.URL
+
+	provider := models.NotificationProvider{
+		Type:     "telegram",
+		URL:      "123456789",      // chat_id
+		Token:    "fake-bot-token", // bot token
+		Template: "minimal",
+	}
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Hello Telegram",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendJSONPayload(context.Background(), provider, data)
+	require.NoError(t, err)
+	assert.Equal(t, "/botfake-bot-token/sendMessage", capturedPath)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(capturedBody, &payload))
+	assert.Equal(t, "123456789", payload["chat_id"])
+	assert.Equal(t, "Hello Telegram", payload["text"])
+}
+
+func TestSendJSONPayload_Telegram_NormalizesMessageToText(t *testing.T) {
+	db := setupNotificationTestDB(t)
+
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	svc := NewNotificationService(db, nil)
+	svc.telegramAPIBaseURL = server.URL
+
+	// Custom template that produces "message" key instead of "text" — exercises normalization.
+	provider := models.NotificationProvider{
+		Type:     "telegram",
+		URL:      "987654321",
+		Token:    "fake-bot-token",
+		Template: "custom",
+		Config:   `{"message": {{toJSON .Message}}}`,
+	}
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Normalize me",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendJSONPayload(context.Background(), provider, data)
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(capturedBody, &payload))
+	// "message" must be promoted to "text" by the normalization path.
+	assert.Equal(t, "Normalize me", payload["text"])
+	assert.Equal(t, "987654321", payload["chat_id"])
+}
+
+func TestSendJSONPayload_Telegram_RequiresTextField(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	// Custom template missing both 'text' and 'message' keys
+	provider := models.NotificationProvider{
+		Type:     "telegram",
+		URL:      "987654321",
+		Token:    "fake-bot-token",
+		Template: "custom",
+		Config:   `{"title": {{toJSON .Title}}}`,
+	}
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Test Message",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendJSONPayload(context.Background(), provider, data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "telegram payload requires 'text' field")
+}
+
+func TestSendJSONPayload_Telegram_HostnameValidationError(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	// Token containing a null byte makes neturl.Parse fail,
+	// triggering the hostname validation error path (line 496).
+	provider := models.NotificationProvider{
+		Type:     "telegram",
+		URL:      "123456789",
+		Token:    "bad\x00token",
+		Template: "minimal",
+	}
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Hello",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendJSONPayload(context.Background(), provider, data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "telegram dispatch URL validation failed")
+}
+
+func TestSendJSONPayload_Telegram_MarshalErrorOnChatIDInjection(t *testing.T) {
+	db := setupNotificationTestDB(t)
+
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	svc := NewNotificationService(db, nil)
+	svc.telegramAPIBaseURL = server.URL
+
+	// Exercises the chat_id injection + marshal + body.Write path.
+	provider := models.NotificationProvider{
+		Type:     "telegram",
+		URL:      "999888777",
+		Token:    "valid-bot-token",
+		Template: "minimal",
+	}
+	data := map[string]any{
+		"Title":     "Chat ID Test",
+		"Message":   "Verify chat_id injected",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendJSONPayload(context.Background(), provider, data)
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(capturedBody, &payload))
+	assert.Equal(t, "999888777", payload["chat_id"])
+	assert.NotEmpty(t, payload["text"])
+}
+
+func TestIsDispatchEnabled_TelegramDisabledByFlag(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	_ = db.AutoMigrate(&models.Setting{})
+	svc := NewNotificationService(db, nil)
+
+	// Explicitly disable telegram via feature flag
+	db.Create(&models.Setting{Key: "feature.notifications.service.telegram.enabled", Value: "false"})
+	assert.False(t, svc.isDispatchEnabled("telegram"))
 }

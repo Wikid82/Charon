@@ -1,6 +1,14 @@
-import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { renderHook, waitFor } from '@testing-library/react';
+import toast from 'react-hot-toast';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+import {
+  securityHeadersApi,
+  type SecurityHeaderProfile,
+  type SecurityHeaderPreset,
+  type CreateProfileRequest,
+} from '../../api/securityHeaders';
 import {
   useSecurityHeaderProfiles,
   useSecurityHeaderProfile,
@@ -13,13 +21,6 @@ import {
   useValidateCSP,
   useBuildCSP,
 } from '../useSecurityHeaders';
-import {
-  securityHeadersApi,
-  SecurityHeaderProfile,
-  SecurityHeaderPreset,
-  CreateProfileRequest,
-} from '../../api/securityHeaders';
-import toast from 'react-hot-toast';
 
 vi.mock('../../api/securityHeaders');
 vi.mock('react-hot-toast');
@@ -170,7 +171,7 @@ describe('useSecurityHeaders', () => {
 
   describe('useDeleteSecurityHeaderProfile', () => {
     it('should delete a profile successfully', async () => {
-      vi.mocked(securityHeadersApi.deleteProfile).mockResolvedValue(undefined);
+      vi.mocked(securityHeadersApi.deleteProfile).mockResolvedValue();
 
       const { result } = renderHook(() => useDeleteSecurityHeaderProfile(), {
         wrapper: createWrapper(),

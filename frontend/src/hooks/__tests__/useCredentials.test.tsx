@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ReactNode } from 'react'
+import { renderHook, waitFor } from '@testing-library/react'
+import { type ReactNode } from 'react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+import * as credentialsApi from '../../api/credentials'
 import {
   useCredentials,
   useCredential,
@@ -11,7 +13,6 @@ import {
   useTestCredential,
   useEnableMultiCredentials,
 } from '../useCredentials'
-import * as credentialsApi from '../../api/credentials'
 
 vi.mock('../../api/credentials')
 

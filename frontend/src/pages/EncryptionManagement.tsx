@@ -1,14 +1,7 @@
+import { Key, Shield, AlertTriangle, CheckCircle, Clock, RefreshCw, AlertCircle } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Key, Shield, AlertTriangle, CheckCircle, Clock, RefreshCw, AlertCircle } from 'lucide-react'
-import {
-  useEncryptionStatus,
-  useRotateKey,
-  useRotationHistory,
-  useValidateKeys,
-  type RotationHistoryEntry,
-} from '../hooks/useEncryption'
-import { toast } from '../utils/toast'
+
 import { PageShell } from '../components/layout/PageShell'
 import {
   Card,
@@ -28,6 +21,14 @@ import {
   DialogFooter,
   Skeleton,
 } from '../components/ui'
+import {
+  useEncryptionStatus,
+  useRotateKey,
+  useRotationHistory,
+  useValidateKeys,
+  type RotationHistoryEntry,
+} from '../hooks/useEncryption'
+import { toast } from '../utils/toast'
 
 // Skeleton loader for status cards
 function StatusCardSkeleton() {
@@ -166,12 +167,12 @@ export default function EncryptionManagement() {
         if (result.valid) {
           toast.success(t('encryption.validationSuccess'))
           if (result.warnings && result.warnings.length > 0) {
-            result.warnings.forEach((warning) => toast.warning(warning))
+            for (const warning of result.warnings) toast.warning(warning)
           }
         } else {
           toast.error(t('encryption.validationError'))
           if (result.errors && result.errors.length > 0) {
-            result.errors.forEach((error) => toast.error(error))
+            for (const error of result.errors) toast.error(error)
           }
         }
       },

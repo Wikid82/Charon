@@ -1,13 +1,14 @@
+import { type AxiosError } from 'axios'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { AxiosError } from 'axios'
+import { useNavigate } from 'react-router-dom'
+
 import { createBackup } from '../api/backups'
-import { useImport } from '../hooks/useImport'
+import ImportSuccessModal from '../components/dialogs/ImportSuccessModal'
 import ImportBanner from '../components/ImportBanner'
 import ImportReviewTable from '../components/ImportReviewTable'
 import ImportSitesModal from '../components/ImportSitesModal'
-import ImportSuccessModal from '../components/dialogs/ImportSuccessModal'
+import { useImport } from '../hooks/useImport'
 
 /** Response data structure for import API errors containing warnings */
 interface ImportErrorResponse {

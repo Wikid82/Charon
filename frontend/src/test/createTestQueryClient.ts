@@ -1,4 +1,4 @@
-import { QueryClient, QueryKey } from '@tanstack/react-query'
+import { QueryClient, type QueryKey } from '@tanstack/react-query'
 
 interface InitialDataEntry {
   key: QueryKey
@@ -13,6 +13,6 @@ export function createTestQueryClient(initialData: InitialDataEntry[] = []) {
     },
   })
 
-  initialData.forEach(({ key, data }) => client.setQueryData(key, data))
+  for (const { key, data } of initialData) client.setQueryData(key, data)
   return client
 }

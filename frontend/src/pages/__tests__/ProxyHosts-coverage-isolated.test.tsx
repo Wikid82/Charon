@@ -1,9 +1,11 @@
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { act } from 'react'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+
 import type { ProxyHost } from '../../api/proxyHosts'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+
 
 // We'll use per-test module mocks via `vi.doMock` and dynamic imports to avoid
 // leaking mocks into other tests. Each test creates its own QueryClient.
@@ -105,7 +107,7 @@ describe('ProxyHosts page - coverage targets (isolated)', () => {
       </QueryClientProvider>
     )
 
-    await waitFor(() => expect(screen.getByText('StagingHost')).toBeInTheDocument())
+    expect(await screen.findByText('StagingHost')).toBeInTheDocument()
 
     // Staging badge shows "Staging" text
     expect(screen.getByText('Staging')).toBeInTheDocument()
@@ -126,7 +128,7 @@ describe('ProxyHosts page - coverage targets (isolated)', () => {
       </QueryClientProvider>
     )
 
-    await waitFor(() => expect(screen.getByText('staging.example.com')).toBeInTheDocument())
+    expect(await screen.findByText('staging.example.com')).toBeInTheDocument()
     const link = screen.getByText('staging.example.com').closest('a') as HTMLAnchorElement
     await act(async () => {
       await userEvent.click(link!)
@@ -145,7 +147,7 @@ describe('ProxyHosts page - coverage targets (isolated)', () => {
       </QueryClientProvider>
     )
 
-    await waitFor(() => expect(screen.getByText('StagingHost')).toBeInTheDocument())
+    expect(await screen.findByText('StagingHost')).toBeInTheDocument()
 
     // Select hosts by finding rows and clicking first checkbox (selection)
     const row1 = screen.getByText('StagingHost').closest('tr') as HTMLTableRowElement
@@ -157,7 +159,7 @@ describe('ProxyHosts page - coverage targets (isolated)', () => {
     await userEvent.click(bulkBtn)
 
     // Find the modal dialog
-    await waitFor(() => expect(screen.getByText('Bulk Apply Settings')).toBeInTheDocument())
+    expect(await screen.findByText('Bulk Apply Settings')).toBeInTheDocument()
 
     // The bulk apply modal has checkboxes for each setting - find them by role
     const modalCheckboxes = screen.getAllByRole('checkbox').filter(

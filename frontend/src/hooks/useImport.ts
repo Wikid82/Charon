@@ -1,14 +1,15 @@
-import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+
 import {
   uploadCaddyfile,
   getImportPreview,
   commitImport,
   cancelImport,
   getImportStatus,
-  ImportSession,
-  ImportPreview,
-  ImportCommitResult,
+  type ImportSession,
+  type ImportPreview,
+  type ImportCommitResult,
 } from '../api/import';
 
 export const QUERY_KEY = ['import-session'];

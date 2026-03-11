@@ -1,8 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import Plugins from '../Plugins'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
+import Plugins from '../Plugins'
+
 import type { PluginInfo } from '../../api/plugins'
 
 // Mock i18n

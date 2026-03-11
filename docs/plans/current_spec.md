@@ -1,422 +1,497 @@
-# Spec: Fix Remaining CodeQL Findings + Harden Local Security Scanning
+# Telegram Notification Provider — Test Failure Remediation Plan
 
-**Branch:** `feature/beta-release`
-**PR:** #800 (Email Notifications)
-**Date:** 2026-03-06
-**Status:** Planning
+**Date:** 2026-03-11
+**Author:** Planning Agent
+**Status:** Remediation Required — All security scans pass, test failures block merge
+**Previous Plan:** Archived as `docs/plans/telegram_implementation_spec.md`
 
 ---
 
 ## 1. Introduction
 
-Two CodeQL findings remain open in CI after the email-injection remediation in the prior commit (`ee224adc`), and local scanning does not block commits that would reproduce them. This spec covers the root-cause analysis, the precise code fixes, and the hardening of the local scanning pipeline so future regressions are caught before push.
+The Telegram notification provider feature is functionally complete with passing security scans and coverage gates. However, **56 E2E test failures** and **2 frontend unit test failures** block the PR merge. This plan identifies root causes, categorises each failure set, and provides specific remediation steps.
 
-### Objectives
+### Failure Summary
 
-1. Silence `go/email-injection` (CWE-640) in CI without weakening the existing multi-layer defence.
-2. Silence `go/cookie-secure-not-set` (CWE-614) in CI for the intentional dev-mode loopback exception.
-3. Ensure local scanning fails (exit-code 1) on Critical/High security findings of the same class before code reaches GitHub.
-
----
-
-## 2. Research Findings
-
-### 2.1 CWE-640 (`go/email-injection`) — Why It Is Still Flagged
-
-CodeQL's `go/email-injection` rule tracks untrusted input from HTTP sources to `smtp.SendMail` / `(*smtp.Client).Rcpt` sinks. It treats a **validator** (a function that returns an error if bad data is present) differently from a **sanitizer** (a function that transforms and strips the bad data). Only sanitizers break the taint flow; validators do not.
-
-The previous fix added `sanitizeForEmail()` in `notification_service.go` for `title` and `message`. It did **not** patch two other direct callers of `SendEmail`, both of which pass an HTTP-sourced `to` address without going through `notification_service.go` at all.
-
-#### Confirmed taint sinks (from `codeql-results-go.sarif`)
-
-| SARIF line | Function | Tainted argument |
-|---|---|---|
-| 365–367 | `(*MailService).SendEmail` | `[]string{toEnvelope}` in `smtp.SendMail` |
-| ~530 | `(*MailService).sendSSL` | `toEnvelope` in `client.Rcpt(toEnvelope)` |
-| ~583 | `(*MailService).sendSTARTTLS` | `toEnvelope` in `client.Rcpt(toEnvelope)` |
-
-CodeQL reports 4 untrusted taint paths converging on each sink. These correspond to:
-
-| Path # | Source file | Source expression | Route to sink |
-|---|---|---|---|
-| 1 | `backend/internal/api/handlers/settings_handler.go:637` | `req.To` (ShouldBindJSON, `binding:"required,email"`) | Direct `h.MailService.SendEmail(ctx, []string{req.To}, ...)` — bypasses `notification_service.go` entirely |
-| 2 | `backend/internal/api/handlers/user_handler.go:597` | `userEmail` (HTTP request field) | `h.MailService.SendInvite(userEmail, ...)` → `mail_service.go:679` → `s.SendEmail(ctx, []string{email}, ...)` |
-| 3 | `backend/internal/api/handlers/user_handler.go:1015` | `user.Email` (DB row, set from HTTP during registration) | Same `SendInvite` → `SendEmail` chain |
-| 4 | `backend/internal/services/notification_service.go` | `rawRecipients` from `p.URL` (DB, admin-set) | `s.mailService.SendEmail(ctx, recipients, ...)` — CodeQL may trace DB values as tainted from prior HTTP writes |
-
-#### Why CodeQL does not recognise the existing safeguards as sanitisers
-
-```
-validateEmailRecipients()  → ContainsAny check + mail.ParseAddress → error return (validator, not sanitizer)
-parseEmailAddressForHeader → net/mail.ParseAddress                  → validator
-rejectCRLF(toEnvelope)     → ContainsAny("\r\n") → error           → validator
-```
-
-CodeQL's taint model for Go requires the taint to be **transformed** (characters stripped or value replaced) before it considers the path neutralised. None of the helpers above strips CRLF — they gate on error returns. From CodeQL's perspective the original tainted bytes still flow into `smtp.SendMail`.
-
-#### Why adding `sanitizeForEmail()` to `settings_handler.go` alone is insufficient
-
-Even if added, `sanitizeForEmail()` calls `strings.ReplaceAll(s, "\r", "")` — stripping characters from an email address that contains `\r` would corrupt it. For recipient addresses, the correct model is to validate (which is already done) and suppress the residual finding with an annotated justification.
-
-### 2.2 CWE-614 (`go/cookie-secure-not-set`) — Why It Appeared as "New"
-
-**Only one `c.SetCookie` call exists** in production Go code:
-
-```
-backend/internal/api/handlers/auth_handler.go:152
-```
-
-The finding is "new" because it was introduced when `setSecureCookie()` was refactored to support the loopback dev-mode exception (`secure = false` for local HTTP requests). Prior to that refactor, `secure` was always `true`.
-
-The `// codeql[go/cookie-secure-not-set]` suppression comment **is** present on `auth_handler.go:152`. However, the SARIF stored in the repository (`codeql-results-go.sarif`) shows the finding at **line 151** — a 1-line discrepancy caused by a subsequent commit that inserted the `// secure is intentionally false...` explanation comment, shifting the `c.SetCookie(` line from 151 → 152.
-
-The inline suppression **should** work now that it is on the correct line (152). However, inline suppressions are fragile under line-number churn. The robust fix is a `query-filter` in `.github/codeql/codeql-config.yml`, which targets the rule ID independent of line number.
-
-The `query-filters` section does not yet exist in the CodeQL config — only `paths-ignore` is used. This must be added for the first time.
-
-### 2.3 Local Scanning Gap
-
-The table below maps which security tools catch which findings locally.
-
-| Tool | Stage | Fails on High/Critical? | Catches CWE-640? | Catches CWE-614? |
+| Spec File | Failures | Browsers | Unique Est. | Category |
 |---|---|---|---|---|
-| `golangci-lint-fast` (gosec G101,G110,G305,G401,G501-503) | commit (blocking) | ✅ | ❌ no rule | ❌ gosec has no Gin cookie rule |
-| `go-vet` | commit (blocking) | ✅ | ❌ | ❌ |
-| `security-scan.sh` (govulncheck) | manual | Warn only | ❌ (CVEs only) | ❌ |
-| `semgrep-scan.sh` (auto config, `--error`) | **manual only** | ✅ if run | ✅ `p/golang` | ✅ `p/golang` |
-| `codeql-go-scan` + `codeql-check-findings` | **manual only** | ✅ if run | ✅ | ✅ |
-| `golangci-lint-full` | manual | ✅ if run | ❌ | ❌ |
+| `notifications.spec.ts` | 48 | 3 | ~16 | **Our change** |
+| `notifications-payload.spec.ts` | 18 | 3 | ~6 | **Our change** |
+| `telegram-notification-provider.spec.ts` | 4 | 1–3 | ~2 | **Our change** |
+| `encryption-management.spec.ts` | 20 | 3 | ~7 | Pre-existing |
+| `auth-middleware-cascade.spec.ts` | 18 | 3 | 6 | Pre-existing |
+| `Notifications.test.tsx` (unit) | 2 | — | 2 | **Our change** |
 
-**The gap:** `semgrep-scan` already has `--error` (blocking) and covers both issue classes via `p/golang` and `p/owasp-top-ten`, but it runs as `stages: [manual]` only. Moving it to `pre-push` is the highest-leverage single change.
+CI retries: 2 per test (`playwright.config.js` L144). Failure counts above represent unique test failures × browser projects.
 
-gosec rule audit for missing coverage:
+---
 
-| CWE | gosec rule | Covered by fast config? |
+## 2. Root Cause Analysis
+
+### Root Cause A: `isNew` Guard on Test Button (CRITICAL — Causes ~80% of failures)
+
+**What changed:** The Telegram feature added a guard in `Notifications.tsx` (L117-124) that blocks the "Test" button for new (unsaved) providers:
+
+```typescript
+// Line 117-124: handleTest() early return guard
+const handleTest = () => {
+  const formData = watch();
+  const currentType = normalizeProviderType(formData.type);
+  if (!formData.id && currentType !== 'email') {
+    toast.error(t('notificationProviders.saveBeforeTesting'));
+    return;
+  }
+  testMutation.mutate({ ...formData, type: currentType } as Partial<NotificationProvider>);
+};
+```
+
+And a `disabled` attribute on the test button at `Notifications.tsx` (L382):
+
+```typescript
+// Line 382: Button disabled state
+disabled={testMutation.isPending || (isNew && !isEmail)}
+```
+
+**Why it was added:** The backend `Test` handler at `notification_provider_handler.go` (L333-336) requires a saved provider ID for all non-email types. For Gotify/Telegram, the server needs the stored token. For Discord/Webhook, the server still fetches the provider from DB. Without a saved provider, the backend returns `MISSING_PROVIDER_ID`.
+
+**Why it breaks tests:** Many existing E2E and unit tests click the test button from a **new (unsaved) provider form** using mocked endpoints. With the new guard:
+1. The `<button>` is `disabled` → browser ignores clicks → mocked routes never receive requests
+2. Even if not disabled, `handleTest()` returns early with a toast instead of calling `testMutation.mutate()`
+3. Tests that `waitForRequest` on `/providers/test` time out (60s default)
+4. Tests that assert on `capturedTestPayload` find `null`
+
+**Is the guard correct?** Yes — it matches the backend's security-by-design constraint. The tests need to be adapted to the new behavior, not the guard removed.
+
+### Root Cause B: Pre-existing Infrastructure Failures (encryption-management, auth-middleware-cascade)
+
+**encryption-management.spec.ts** (17 tests, ~7 unique failures) navigates to `/security/encryption` and tests key rotation, validation, and history display. **Zero overlap** with notification provider code paths. No files modified in the Telegram PR affect encryption.
+
+**auth-middleware-cascade.spec.ts** (6 tests, all 6 fail) uses deprecated `waitUntil: 'networkidle'`, creates proxy hosts via UI forms (`getByLabel(/domain/i)`), and tests auth flows through Caddy. **Zero overlap** with notification code. These tests have known fragility from UI element selectors and `networkidle` waits.
+
+**Verdict:** Both are pre-existing failures. They should be tracked separately and not block the Telegram PR.
+
+### Root Cause C: Telegram E2E Spec Issues (4 failures)
+
+The `telegram-notification-provider.spec.ts` has 8 tests, with ~2 unique failures. Most likely candidates:
+
+1. **"should edit telegram notification provider and preserve token"** (L159): Uses fragile keyboard navigation (focus Send Test → Tab → Enter) to reach the Edit button. If the `title` attribute on the Send Test button doesn't match the accessible name pattern `/send test/i`, or if the tab order is affected by any intermediate focusable element, the Enter press activates the wrong button or nothing at all.
+
+2. **"should test telegram notification provider"** (L265): Clicks the row-level "Send Test" button. The locator uses `getByRole('button', { name: /send test/i })`. The button has `title={t('notificationProviders.sendTest')}` which renders as "Send Test". This should work, but the `title` attribute contributing to accessible name can be browser-dependent, particularly in WebKit.
+
+---
+
+## 3. Affected Tests — Complete Inventory
+
+### 3.1 E2E Tests: `notifications.spec.ts` (Test Button on New Form)
+
+These tests open the "Add Provider" form (no `id`), click `provider-test-btn`, and expect API interactions. The disabled button now prevents all interaction.
+
+| # | Test Name | Line | Type Used | Failure Mode |
+|---|---|---|---|---|
+| 1 | should test notification provider | L1085 | discord | `waitForRequest` times out — button disabled |
+| 2 | should show test success feedback | L1142 | discord | Success icon never appears — no click fires |
+| 3 | should preserve Discord request payload contract for save, preview, and test | L1236 | discord | `capturedTestPayload` is null — button disabled |
+| 4 | should show error when test fails | L1665 | discord | Error icon never appears — no click fires |
+
+**Additional cascade effects:** The user reports ~16 unique failures from this file. The 4 above are directly caused by the `isNew` guard. Remaining failures may stem from cascading timeout effects, `beforeEach` state leakage after long timeouts, or other pre-existing flakiness amplified by the 60s timeout waterfall.
+
+### 3.2 E2E Tests: `notifications-payload.spec.ts` (Test Button on New Form)
+
+| # | Test Name | Line | Type Used | Failure Mode |
+|---|---|---|---|---|
+| 1 | provider-specific transformation strips gotify token from test and preview payloads | L264 | gotify | `provider-test-btn` disabled for new gotify form; `capturedTestPayload` is null |
+| 2 | retry split distinguishes retryable and non-retryable failures | L410 | webhook | `provider-test-btn` disabled for new webhook form; `waitForResponse` times out |
+
+**Tests that should still pass:**
+- `valid payload flows for discord, gotify, and webhook` (L54) — uses `provider-save-btn`, not test button
+- `malformed payload scenarios` (L158) — API-level tests via `page.request.post`
+- `missing required fields block submit` (L192) — uses save button
+- `auth/header behavior checks` (L217) — API-level tests
+- `security: SSRF` (L314) — API-level tests
+- `security: DNS-rebinding` (L381) — API-level tests
+- `security: token does not leak` (L512) — API-level tests
+
+### 3.3 E2E Tests: `telegram-notification-provider.spec.ts`
+
+| # | Test Name | Line | Probable Failure Mode |
+|---|---|---|---|
+| 1 | should edit telegram notification provider and preserve token | L159 | Keyboard navigation (Tab from Send Test → Edit) fragility; may hit wrong element on some browsers |
+| 2 | should test telegram notification provider | L265 | Row-level Send Test button; possible accessible name mismatch in WebKit with `title` attribute |
+
+**Tests that should pass:**
+- Form rendering tests (L25, L65) — UI assertions only
+- Create telegram provider (L89) — mocked POST
+- Delete telegram provider (L324) — mocked DELETE + confirm dialog
+- Security tests (L389, L436) — mock-based assertions
+
+### 3.4 Frontend Unit Tests: `Notifications.test.tsx`
+
+| # | Test Name | Line | Failure Mode |
+|---|---|---|---|
+| 1 | submits provider test action from form using normalized discord type | L447 | `userEvent.click()` on disabled button is no-op → `testProvider` never called → `waitFor` times out |
+| 2 | shows error toast when test mutation fails | L569 | Same — disabled button prevents click → `toast.error` with `saveBeforeTesting` fires instead of mutation error |
+
+### 3.5 Pre-existing (Not Caused By Telegram PR)
+
+| Spec | Tests | Rationale |
 |---|---|---|
-| CWE-614 cookie security | No standard gosec rule for Gin's `c.SetCookie` | ❌ |
-| CWE-640 email injection | No gosec rule exists for SMTP injection | ❌ |
-| CWE-89 SQL injection | G201, G202 — NOT in fast config | ❌ |
-| CWE-22 path traversal | G305 — in fast config | ✅ |
-
-`semgrep` fills the gap for CWE-614 and CWE-640 where gosec has no rules.
+| `encryption-management.spec.ts` | ~7 unique | Tests encryption page at `/security/encryption`. No code overlap. |
+| `auth-middleware-cascade.spec.ts` | 6 unique | Tests proxy creation + auth middleware. Uses `networkidle`. No code overlap. |
 
 ---
 
-## 3. Technical Specifications
+## 4. Remediation Plan
 
-### 3.1 Phase 1 — Harden Local Scanning
+### Priority Order
 
-#### 3.1.1 Move `semgrep-scan` to `pre-push` stage
-
-**File:** `/projects/Charon/.pre-commit-config.yaml`
-
-Locate the `semgrep-scan` hook entry (currently has `stages: [manual]`). Change the stage and name:
-
-```yaml
-      - id: semgrep-scan
-        name: Semgrep Security Scan (Blocking - pre-push)
-        entry: scripts/pre-commit-hooks/semgrep-scan.sh
-        language: script
-        pass_filenames: false
-        verbose: true
-        stages: [pre-push]
-```
-
-Rationale: `p/golang` includes:
-- `go.cookie.security.insecure-cookie.insecure-cookie` → CWE-614 equivalent
-- `go.lang.security.injection.tainted-smtp-email.tainted-smtp-email` → CWE-640 equivalent
-
-#### 3.1.2 Restrict semgrep to WARNING+ and use targeted config
-
-**File:** `/projects/Charon/scripts/pre-commit-hooks/semgrep-scan.sh`
-
-The current invocation uses `--config auto --error`. Two changes:
-1. Change default config from `auto` → `p/golang`. `auto` fetches 1,000-3,000+ rules and takes 60-180s — too slow for a blocking pre-push hook. `p/golang` covers all Go-specific OWASP/CWE rules and completes in ~10-30s.
-2. Add `--severity ERROR --severity WARNING` to filter out INFO-level noise (these are OR logic, both required for WARNING+):
-
-```bash
-semgrep scan \
-  --config "${SEMGREP_CONFIG_VALUE:-p/golang}" \
-  --severity ERROR \
-  --severity WARNING \
-  --error \
-  --exclude "frontend/node_modules" \
-  --exclude "frontend/coverage" \
-  --exclude "frontend/dist" \
-  backend frontend/src .github/workflows
-```
-
-The `SEMGREP_CONFIG` env var can be overridden to `auto` or `p/golang p/owasp-top-ten` for a broader audit: `SEMGREP_CONFIG=auto git push`.
-
-#### 3.1.3 Add `make security-local` target
-
-**File:** `/projects/Charon/Makefile`
-
-Add after the `security-scan-deps` target:
-
-```make
-security-local: ## Run local security scan (govulncheck + semgrep)
-@echo "Running govulncheck..."
-@./scripts/security-scan.sh
-@echo "Running semgrep..."
-@SEMGREP_CONFIG=p/golang ./scripts/pre-commit-hooks/semgrep-scan.sh
-```
-
-#### 3.1.4 Expand golangci-lint-fast gosec ruleset (Deferred)
-
-**Status: DEFERRED** — G201/G202 (SQL injection via format string / string concat) are candidates for the fast config but must be pre-validated against the existing codebase first. GORM's raw query DSL can produce false positives. Run the following before adding:
-
-```bash
-cd backend && golangci-lint run --enable=gosec --disable-all --config .golangci-fast.yml ./...
-```
-
-…with G201/G202 temporarily uncommented. If zero false positives, add in a separate hardening commit. This is out of scope for this PR to avoid blocking PR #800.
-
-Note: CWE-614 and CWE-640 remain CodeQL/Semgrep territory — gosec has no rules for these.
-
-### 3.2 Phase 2 — Fix CWE-640 (`go/email-injection`)
-
-#### Strategy
-
-Add `// codeql[go/email-injection]` inline suppression annotations at all three sink sites in `mail_service.go`, with a structured justification comment immediately above each. This is the correct approach because:
-
-1. The actual runtime defence is already correct and comprehensive (4-layer defence).
-2. The taint is a CodeQL false-positive caused by the tool not modelling validators as sanitisers.
-3. Restructuring to call `strings.ReplaceAll` on email addresses would corrupt valid addresses.
-
-**The 4-layer defence that justifies these suppressions:**
-
-```
-Layer 1: HTTP boundary       — gin binding:"required,email" validates RFC 5321 format; CRLF fails well-formedness
-Layer 2: Service boundary    — validateEmailRecipients() → ContainsAny("\r\n") error + net/mail.ParseAddress
-Layer 3: Mail layer parse    — parseEmailAddressForHeader() → net/mail.ParseAddress returns only .Address field
-Layer 4: Pre-sink validation — rejectCRLF(toEnvelope) immediately before smtp.SendMail / client.Rcpt calls
-```
-
-#### 3.2.1 Suppress at `smtp.SendMail` sink
-
-**File:** `backend/internal/services/mail_service.go` (around line 367)
-
-Locate the default-encryption branch in `SendEmail`. Replace the `smtp.SendMail` call line:
-
-```go
-default:
-// toEnvelope passes through 4-layer CRLF defence:
-//   1. gin binding:"required,email" at HTTP entry (CRLF invalid per RFC 5321)
-//   2. validateEmailRecipients → ContainsAny("\r\n") + net/mail.ParseAddress
-//   3. parseEmailAddressForHeader → net/mail.ParseAddress (returns .Address only)
-//   4. rejectCRLF(toEnvelope) guard earlier in this function
-// CodeQL does not model validators as sanitisers; suppression is correct here.
-if err := smtp.SendMail(addr, auth, fromEnvelope, []string{toEnvelope}, msg); err != nil { // codeql[go/email-injection]
-```
-
-#### 3.2.2 Suppress at `client.Rcpt` in `sendSSL`
-
-**File:** `backend/internal/services/mail_service.go` (around line 530)
-
-Locate in `sendSSL`. Replace the `client.Rcpt` call line:
-
-```go
-// toEnvelope validated by rejectCRLF + net/mail.ParseAddress before this call (see SendEmail).
-if rcptErr := client.Rcpt(toEnvelope); rcptErr != nil { // codeql[go/email-injection]
-return fmt.Errorf("RCPT TO failed: %w", rcptErr)
-}
-```
-
-#### 3.2.3 Suppress at `client.Rcpt` in `sendSTARTTLS`
-
-**File:** `backend/internal/services/mail_service.go` (around line 583)
-
-Same pattern as sendSSL:
-
-```go
-// toEnvelope validated by rejectCRLF + net/mail.ParseAddress before this call (see SendEmail).
-if rcptErr := client.Rcpt(toEnvelope); rcptErr != nil { // codeql[go/email-injection]
-return fmt.Errorf("RCPT TO failed: %w", rcptErr)
-}
-```
-
-#### 3.2.4 Document safe call in `settings_handler.go`
-
-**File:** `backend/internal/api/handlers/settings_handler.go` (around line 637)
-
-Add a comment immediately above the `SendEmail` call — the sinks in mail_service.go are already annotated, so this is documentation only:
-
-```go
-// req.To is validated as RFC 5321 email via gin binding:"required,email".
-// SendEmail applies validateEmailRecipients + net/mail.ParseAddress + rejectCRLF as defence-in-depth.
-// Suppression annotations are on the sinks in mail_service.go.
-if err := h.MailService.SendEmail(c.Request.Context(), []string{req.To}, "Charon - Test Email", htmlBody); err != nil {
-```
-
-#### 3.2.5 Document safe calls in `user_handler.go`
-
-**File:** `backend/internal/api/handlers/user_handler.go` (lines ~597 and ~1015)
-
-Add the same explanatory comment above both `SendInvite` call sites:
-
-```go
-// userEmail validated as RFC 5321 email format; suppression on mail_service.go sinks covers this path.
-if err := h.MailService.SendInvite(userEmail, userToken, appName, baseURL); err != nil {
-```
-
-### 3.3 Phase 3 — Fix CWE-614 (`go/cookie-secure-not-set`)
-
-#### Strategy
-
-Two complementary changes: (1) add a `query-filters` exclusion in `.github/codeql/codeql-config.yml` which is robust to line-number churn, and (2) verify the inline `// codeql[go/cookie-secure-not-set]` annotation is correctly positioned.
-
-**Justification for exclusion:**
-
-The `secure` parameter in `setSecureCookie()` is `true` for **all** external production requests. It is `false` only when `isLocalRequest()` returns `true` — i.e., when the request comes from `127.x.x.x`, `::1`, or `localhost` over HTTP. In that scenario, browsers reject `Secure` cookies over non-TLS connections anyway, so setting `Secure: true` would silently break auth for local development. The conditional is tested and documented.
-
-#### 3.3.1 Skip `query-filters` approach — inline annotation is sufficient
-
-**Status: NOT IMPLEMENTING** — `query-filters` is a CodeQL query suite (`.qls`) concept, NOT a valid top-level key in GitHub's `codeql-config.yml`. Adding it risks silent failure or breaking the entire CodeQL analysis. The inline annotation at `auth_handler.go:152` is the documented mechanism and is already correct. No changes to `.github/codeql/codeql-config.yml` are needed for CWE-614.
-
-**Why inline annotation is sufficient and preferred:** It is scoped to the single intentional instance. Any future `c.SetCookie(...)` call without `Secure:true` anywhere else in the codebase will correctly flag. Global exclusion via config would silently hide future regressions.
-
-#### 3.3.1 (REFERENCE ONLY) Current valid `codeql-config.yml` structure
-
-```yaml
-name: "Charon CodeQL Config"
-
-# Paths to ignore from all analysis (use sparingly - prefer query-filters for rule-level exclusions)
-paths-ignore:
-  - "frontend/coverage/**"
-  - "frontend/dist/**"
-  - "playwright-report/**"
-  - "test-results/**"
-  - "coverage/**"
-```
-
-DO NOT add `query-filters:` — it is not supported.
-  - exclude:
-      id: go/cookie-secure-not-set
-      # Justified: setSecureCookie() in auth_handler.go intentionally sets Secure=false
-      # ONLY for local loopback (127.x.x.x / ::1 / localhost) HTTP requests.
-      # Browsers reject Secure cookies over HTTP regardless, so Secure=true would silently
-      # break local development auth. All external HTTPS flows always set Secure=true.
-      # Code: backend/internal/api/handlers/auth_handler.go → setSecureCookie()
-      # Tests: TestSetSecureCookie_HTTPS_Strict, TestSetSecureCookie_HTTP_Loopback_Insecure
-```
-
-#### 3.3.2 Verify inline suppression placement in `auth_handler.go`
-
-**File:** `backend/internal/api/handlers/auth_handler.go` (around line 152)
-
-Confirm the `// codeql[go/cookie-secure-not-set]` annotation is on the same line as `c.SetCookie(`. The code should read:
-
-```go
-c.SetSameSite(sameSite)
-// secure is intentionally false for local non-HTTPS loopback (development only).
-c.SetCookie( // codeql[go/cookie-secure-not-set]
-name,
-value,
-maxAge,
-"/",
-domain,
-secure,
-true,
-)
-```
-
-The `query-filters` in §3.3.1 provides the primary fix. The inline annotation provides belt-and-suspenders coverage that survives if the config is ever reset.
+1. **P0 — Fix unit tests** (fastest, unblocks local dev verification)
+2. **P1 — Fix E2E test-button tests** (the core regression from our change)
+3. **P2 — Fix telegram spec fragility** (new tests we added)
+4. **P3 — Document pre-existing failures** (not our change, track separately)
 
 ---
 
-## 4. Implementation Plan
+### 4.1 P0: Frontend Unit Test Fixes
 
-### Phase 1 — Local Scanning (implement first to gate subsequent work)
+**File:** `frontend/src/pages/__tests__/Notifications.test.tsx`
 
-| Task | File | Change | Effort |
-|---|---|---|---|
-| P1-1 | `.pre-commit-config.yaml` | Change semgrep-scan stage from `[manual]` → `[pre-push]`, update name | XS |
-| P1-2 | `scripts/pre-commit-hooks/semgrep-scan.sh` | Add `--severity ERROR --severity WARNING` flags, exclude generated dirs | XS |
-| P1-3 | `Makefile` | Add `security-local` target | XS |
-| P1-4 | `backend/.golangci-fast.yml` | Add G201, G202 to gosec includes | XS |
+#### Fix 1: "submits provider test action from form using normalized discord type" (L447)
 
-### Phase 2 — CWE-640 Fix
+**Problem:** Test opens "Add Provider" (new form, no `id`), clicks test button. Button is now disabled for new providers.
 
-| Task | File | Change | Effort |
-|---|---|---|---|
-| P2-1 | `backend/internal/services/mail_service.go` | Add `// codeql[go/email-injection]` on smtp.SendMail line + 4-layer defence comment | XS |
-| P2-2 | `backend/internal/services/mail_service.go` | Add `// codeql[go/email-injection]` on sendSSL client.Rcpt line | XS |
-| P2-3 | `backend/internal/services/mail_service.go` | Add `// codeql[go/email-injection]` on sendSTARTTLS client.Rcpt line | XS |
-| P2-4 | `backend/internal/api/handlers/settings_handler.go` | Add explanatory comment above SendEmail call | XS |
-| P2-5 | `backend/internal/api/handlers/user_handler.go` | Add explanatory comment above both SendInvite calls (~line 597, ~line 1015) | XS |
+**Fix:** Change to test from an **existing provider's edit form** instead of a new form. This preserves the original intent (verifying the test payload uses normalized type).
 
-### Phase 3 — CWE-614 Fix
+```typescript
+// BEFORE (L447-462):
+it('submits provider test action from form using normalized discord type', async () => {
+  vi.mocked(notificationsApi.testProvider).mockResolvedValue()
+  const user = userEvent.setup()
+  renderWithQueryClient(<Notifications />)
 
-| Task | File | Change | Effort |
-|---|---|---|---|
-| P3-1 | `backend/internal/api/handlers/auth_handler.go` | Verify `// codeql[go/cookie-secure-not-set]` is on `c.SetCookie(` line (no codeql-config.yml changes needed) | XS |
+  await user.click(await screen.findByTestId('add-provider-btn'))
+  await user.type(screen.getByTestId('provider-name'), 'Preview/Test Provider')
+  await user.type(screen.getByTestId('provider-url'), 'https://example.com/webhook')
+  await user.click(screen.getByTestId('provider-test-btn'))
 
-**Total estimated file changes: 6 files, all comment/config additions — no logic changes.**
+  await waitFor(() => {
+    expect(notificationsApi.testProvider).toHaveBeenCalled()
+  })
+  const payload = vi.mocked(notificationsApi.testProvider).mock.calls[0][0]
+  expect(payload.type).toBe('discord')
+})
+
+// AFTER:
+it('submits provider test action from form using normalized discord type', async () => {
+  vi.mocked(notificationsApi.testProvider).mockResolvedValue()
+  setupMocks([baseProvider])          // baseProvider has an id
+  const user = userEvent.setup()
+  renderWithQueryClient(<Notifications />)
+
+  // Open edit form for existing provider (has id → test button enabled)
+  const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
+  const buttons = within(row).getAllByRole('button')
+  await user.click(buttons[1]) // Edit button
+
+  await user.click(screen.getByTestId('provider-test-btn'))
+
+  await waitFor(() => {
+    expect(notificationsApi.testProvider).toHaveBeenCalled()
+  })
+  const payload = vi.mocked(notificationsApi.testProvider).mock.calls[0][0]
+  expect(payload.type).toBe('discord')
+})
+```
+
+#### Fix 2: "shows error toast when test mutation fails" (L569)
+
+**Problem:** Same — test opens new form, clicks test button, expects mutation error toast. Button is disabled.
+
+**Fix:** Test from an existing provider's edit form.
+
+```typescript
+// BEFORE (L569-582):
+it('shows error toast when test mutation fails', async () => {
+  vi.mocked(notificationsApi.testProvider).mockRejectedValue(new Error('Connection refused'))
+  const user = userEvent.setup()
+  renderWithQueryClient(<Notifications />)
+
+  await user.click(await screen.findByTestId('add-provider-btn'))
+  await user.type(screen.getByTestId('provider-name'), 'Failing Provider')
+  await user.type(screen.getByTestId('provider-url'), 'https://example.com/webhook')
+  await user.click(screen.getByTestId('provider-test-btn'))
+
+  await waitFor(() => {
+    expect(toast.error).toHaveBeenCalledWith('Connection refused')
+  })
+})
+
+// AFTER:
+it('shows error toast when test mutation fails', async () => {
+  vi.mocked(notificationsApi.testProvider).mockRejectedValue(new Error('Connection refused'))
+  setupMocks([baseProvider])
+  const user = userEvent.setup()
+  renderWithQueryClient(<Notifications />)
+
+  // Open edit form for existing provider
+  const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
+  const buttons = within(row).getAllByRole('button')
+  await user.click(buttons[1]) // Edit button
+
+  await user.click(screen.getByTestId('provider-test-btn'))
+
+  await waitFor(() => {
+    expect(toast.error).toHaveBeenCalledWith('Connection refused')
+  })
+})
+```
+
+#### Bonus: Add a NEW unit test for the `saveBeforeTesting` guard
+
+```typescript
+it('disables test button when provider is new (unsaved) and not email type', async () => {
+  const user = userEvent.setup()
+  renderWithQueryClient(<Notifications />)
+
+  await user.click(await screen.findByTestId('add-provider-btn'))
+  const testBtn = screen.getByTestId('provider-test-btn')
+  expect(testBtn).toBeDisabled()
+})
+```
 
 ---
 
-## 5. Acceptance Criteria
+### 4.2 P1: E2E Test Fixes — notifications.spec.ts
 
-### CI (CodeQL must pass with zero error-level findings)
+**File:** `tests/settings/notifications.spec.ts`
 
-- [ ] `codeql.yml` CodeQL analysis (Go) passes with **0 blocking findings**
-- [ ] `go/email-injection` is absent from the Go SARIF output
-- [ ] `go/cookie-secure-not-set` is absent from the Go SARIF output
+**Strategy:** For tests that click the test button from a new form, restructure the flow to:
+1. First **save** the provider (mocked create → returns id)
+2. Then **test** from the saved provider row's Send Test button (row buttons are not gated by `isNew`)
 
-### Local scanning
+#### Fix 3: "should test notification provider" (L1085)
 
-- [ ] A `git push` with any `.go` file touched **blocks** if semgrep finds WARNING+ severity issues
-- [ ] `pre-commit run semgrep-scan` on the current codebase exits 0 (no new findings)
-- [ ] `make security-local` runs and exits 0
+**Current flow:** Add form → fill → mock test endpoint → click `provider-test-btn` → verify request
+**Problem:** Test button disabled for new form
+**Fix:** Save first, then click test from the provider row's Send Test button.
 
-### Regression safety
+```typescript
+// In the test, after filling the form and before clicking test:
 
-- [ ] `go test ./...` in `backend/` passes (all changes are comments/config — no test updates required)
-- [ ] `golangci-lint run --config .golangci-fast.yml ./...` passes in `backend/`
-- [ ] The existing runtime defence (rejectCRLF, validateEmailRecipients) is **unchanged** — confirmed by diff
+// 1. Mock the create endpoint to return a provider with an id
+await page.route('**/api/v1/notifications/providers', async (route, request) => {
+  if (request.method() === 'POST') {
+    const payload = await request.postDataJSON();
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'saved-test-id', ...payload }),
+    });
+  } else if (request.method() === 'GET') {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{
+        id: 'saved-test-id',
+        name: 'Test Provider',
+        type: 'discord',
+        url: 'https://discord.com/api/webhooks/test/token',
+        enabled: true
+      }]),
+    });
+  } else {
+    await route.continue();
+  }
+});
+
+// 2. Save the provider first
+await page.getByTestId('provider-save-btn').click();
+
+// 3. Wait for the provider to appear in the list
+await expect(page.getByText('Test Provider')).toBeVisible({ timeout: 5000 });
+
+// 4. Click row-level Send Test button
+const providerRow = page.getByTestId('provider-row-saved-test-id');
+const sendTestButton = providerRow.getByRole('button', { name: /send test/i });
+await sendTestButton.click();
+```
+
+#### Fix 4: "should show test success feedback" (L1142)
+
+Same pattern as Fix 3: save provider first, then test from row.
+
+#### Fix 5: "should preserve Discord request payload contract for save, preview, and test" (L1236)
+
+**Current flow:** Add form → fill → click preview → click test → save → verify all payloads
+**Problem:** Test button disabled for new form
+**Fix:** Reorder to: Add form → fill → click preview → **save** → **test from row** → verify payloads
+
+The preview button is NOT disabled for new forms (only the test button is), so preview still works from the new form. The test step must happen after save.
+
+#### Fix 6: "should show error when test fails" (L1665)
+
+Same pattern: save first, then test from row.
+
+---
+
+### 4.3 P1: E2E Test Fixes — notifications-payload.spec.ts
+
+**File:** `tests/settings/notifications-payload.spec.ts`
+
+#### Fix 7: "provider-specific transformation strips gotify token from test and preview payloads" (L264)
+
+**Current flow:** Add gotify form → fill with token → click preview → click test → verify token not in payloads
+**Problem:** Test button disabled for new gotify form
+**Fix:** Preview still works from new form. For test, save first, then test from the saved provider row.
+
+**Note:** The row-level test call uses `{ ...provider, type: normalizeProviderType(provider.type) }` where `provider` is the list item (which never contains `token/gotify_token` per the List handler that strips tokens). So the token-stripping assertion naturally holds for row-level tests.
+
+#### Fix 8: "retry split distinguishes retryable and non-retryable failures" (L410)
+
+**Current flow:** Add webhook form → fill → click test → verify retry semantics
+**Problem:** Test button disabled for new webhook form
+**Fix:** Save first (mock create), then open edit form (which has `id`) or test from the row.
+
+---
+
+### 4.4 P2: Telegram E2E Spec Hardening
+
+**File:** `tests/settings/telegram-notification-provider.spec.ts`
+
+#### Fix 9: "should edit telegram notification provider and preserve token" (L159)
+
+**Problem:** Uses fragile keyboard navigation to reach the Edit button:
+```typescript
+await sendTestButton.focus();
+await page.keyboard.press('Tab');
+await page.keyboard.press('Enter');
+```
+
+This assumes Tab from Send Test lands on Edit. Tab order can vary across browsers.
+
+**Fix:** Use a direct locator for the Edit button instead of keyboard navigation:
+
+```typescript
+// BEFORE:
+await sendTestButton.focus();
+await page.keyboard.press('Tab');
+await page.keyboard.press('Enter');
+
+// AFTER:
+const editButton = providerRow.getByRole('button').nth(1); // Send Test=0, Edit=1
+await editButton.click();
+```
+
+Or use a structural locator based on the edit icon class.
+
+#### Fix 10: "should test telegram notification provider" (L265)
+
+**Probable issue:** The `getByRole('button', { name: /send test/i })` relies on `title` for accessible name. WebKit may not compute accessible name from `title` the same way.
+
+**Fix (source — preferred):** Add explicit `aria-label` to the row Send Test button in `Notifications.tsx` (L703):
+```tsx
+<Button
+  variant="secondary"
+  size="sm"
+  onClick={() => testMutation.mutate({...})}
+  title={t('notificationProviders.sendTest')}
+  aria-label={t('notificationProviders.sendTest')}
+>
+```
+
+**Fix (test — alternative):** Use structural locator:
+```typescript
+const sendTestButton = providerRow.locator('button').first();
+```
+
+---
+
+### 4.5 P3: Document Pre-existing Failures
+
+**Action:** File separate issues (not part of this PR) for:
+
+1. **encryption-management.spec.ts** — ~7 unique test failures in `/security/encryption`. Likely UI rendering timing issues or flaky selectors. No code overlap with Telegram PR.
+
+2. **auth-middleware-cascade.spec.ts** — All 6 tests fail × 3 browsers. Uses deprecated `waitUntil: 'networkidle'`, creates proxy hosts through fragile UI selectors (`getByLabel(/domain/i)`), and tests auth middleware cascade. Needs modernization pass for locators and waits.
+
+---
+
+## 5. Implementation Plan
+
+### Phase 1: Unit Test Fixes (Immediate)
+
+| Task | File | Lines | Complexity |
+|---|---|---|---|
+| Fix "submits provider test action" test | `Notifications.test.tsx` | L447-462 | Low |
+| Fix "shows error toast" test | `Notifications.test.tsx` | L569-582 | Low |
+| Add `saveBeforeTesting` guard unit test | `Notifications.test.tsx` | New | Low |
+
+**Validation:** `cd frontend && npx vitest run src/pages/__tests__/Notifications.test.tsx`
+
+### Phase 2: E2E Test Fixes — Core Regression
+
+| Task | File | Lines | Complexity |
+|---|---|---|---|
+| Fix "should test notification provider" | `notifications.spec.ts` | L1085-1138 | Medium |
+| Fix "should show test success feedback" | `notifications.spec.ts` | L1142-1178 | Medium |
+| Fix "should preserve Discord payload contract" | `notifications.spec.ts` | L1236-1340 | Medium |
+| Fix "should show error when test fails" | `notifications.spec.ts` | L1665-1706 | Medium |
+| Fix "transformation strips gotify token" | `notifications-payload.spec.ts` | L264-312 | Medium |
+| Fix "retry split retryable/non-retryable" | `notifications-payload.spec.ts` | L410-510 | High |
+
+**Validation per test:** `npx playwright test --project=firefox <spec-file> -g "<test-name>"`
+
+### Phase 3: Telegram Spec Hardening
+
+| Task | File | Lines | Complexity |
+|---|---|---|---|
+| Replace keyboard nav with direct locator | `telegram-notification-provider.spec.ts` | L220-223 | Low |
+| Add `aria-label` to row Send Test button | `Notifications.tsx` | L703-708 | Low |
+| Verify all 8 telegram tests pass 3 browsers | All | — | Low |
+
+**Validation:** `npx playwright test tests/settings/telegram-notification-provider.spec.ts`
+
+### Phase 4: Accessibility Hardening (Optional — Low Priority)
+
+Consider adding `aria-label` attributes to all icon-only buttons in the provider row for improved accessibility and test resilience:
+
+| Button | Current Accessible Name Source | Recommended |
+|---|---|---|
+| Send Test | `title` attribute | Add `aria-label` |
+| Edit | None (icon only) | Add `aria-label={t('common.edit')}` |
+| Delete | None (icon only) | Add `aria-label={t('common.delete')}` |
 
 ---
 
 ## 6. Commit Slicing Strategy
 
-### Decision: Single commit on `feature/beta-release`
+**Decision:** Single PR with 2 focused commits
 
-**Rationale:** All three phases are tightly related (one CI failure, two root findings, one local gap). All changes are additive (comments, config, no logic mutations). Splitting into multiple PRs would create an intermediate state where CI still fails and the local gap remains open. A single well-scoped commit keeps PR #800 atomic and reviewable.
+**Rationale:** All fixes are tightly coupled to the Telegram feature PR and represent test adaptations to a correct behavioral change. No cross-domain changes. Small total diff.
 
-**Suggested commit message:**
-```
-fix(security): suppress CodeQL false-positives for email-injection and cookie-secure
+### Commit 1: "fix(test): adapt notification tests to save-before-test guard"
+- **Scope:** All unit test and E2E test fixes (Phases 1-3)
+- **Files:** `Notifications.test.tsx`, `notifications.spec.ts`, `notifications-payload.spec.ts`, `telegram-notification-provider.spec.ts`
+- **Dependencies:** None
+- **Validation Gate:** All notification-related tests pass locally on at least one browser
 
-CWE-640 (go/email-injection): Add // codeql[go/email-injection] annotations at all 3
-smtp sink sites in mail_service.go (smtp.SendMail, sendSSL client.Rcpt, sendSTARTTLS
-client.Rcpt). The 4-layer defence (gin binding:"required,email", validateEmailRecipients,
-net/mail.ParseAddress, rejectCRLF) is comprehensive; CodeQL's taint model does not
-model validators as sanitisers, producing false-positive paths from
-settings_handler.go:637 and user_handler.go invite flows that bypass
-notification_service.go.
+### Commit 2: "feat(a11y): add aria-labels to notification provider row buttons"
+- **Scope:** Source code accessibility improvement (Phase 4)
+- **Files:** `Notifications.tsx`
+- **Dependencies:** Depends on Commit 1 (tests must pass first)
+- **Validation Gate:** Telegram spec tests pass consistently on WebKit
 
-CWE-614 (go/cookie-secure-not-set): Add query-filter to codeql-config.yml excluding
-this rule with documented justification. setSecureCookie() correctly sets Secure=false
-only for local loopback HTTP requests where the Secure attribute is browser-rejected.
-All external HTTPS flows set Secure=true.
-
-Local scanning: Promote semgrep-scan from manual to pre-push stage so WARNING+
-severity findings block push. Addresses gap where CWE-614 and CWE-640 equivalents
-are not covered by any blocking local scan tool.
-```
-
-**PR:** All changes target PR #800 directly.
+### Rollback
+- These are test-only changes (except the optional aria-label). Reverting either commit has zero production impact.
+- If tests still fail after fixes, the next step is to run with `--debug` and capture trace artifacts.
 
 ---
 
-## 7. Risk and Rollback
+## 7. Acceptance Criteria
 
-| Risk | Likelihood | Mitigation |
-|---|---|---|
-| Inline suppression ends up on wrong line after future rebase | Medium | `query-filters` in codeql-config.yml provides independent suppression independent of line numbers |
-| `semgrep-scan` at `pre-push` produces false-positive blocking | Low | `--severity WARNING --error` limits to genuine findings; use `SEMGREP_CONFIG=p/golang` for targeted override |
-| G201/G202 gosec rules trigger on existing legitimate code | Low | Run `golangci-lint run --config .golangci-fast.yml` locally before committing; suppress specific instances if needed |
-| CodeQL `query-filters` YAML syntax changes in future GitHub CodeQL versions | Low | Inline `// codeql[...]` annotations serve as independent fallback |
-
-**Rollback:** All changes are additive config and comments. Reverting the commit restores the prior state exactly. No schema, API, or behaviour changes are made.
+- [ ] `Notifications.test.tsx` — all 2 previously failing tests pass
+- [ ] `notifications.spec.ts` — all 4 isNew-guard-affected tests pass on 3 browsers
+- [ ] `notifications-payload.spec.ts` — "transformation" and "retry split" tests pass on 3 browsers
+- [ ] `telegram-notification-provider.spec.ts` — all 8 tests pass on 3 browsers
+- [ ] No regressions in other notification tests
+- [ ] New unit test validates the `saveBeforeTesting` guard / disabled button behavior
+- [ ] `encryption-management.spec.ts` and `auth-middleware-cascade.spec.ts` failures documented as separate issues (not blocked by this PR)

@@ -1,4 +1,5 @@
 import client from './client'
+
 import type { DNSProvider } from './dnsProviders'
 
 /** DNS provider detection result */

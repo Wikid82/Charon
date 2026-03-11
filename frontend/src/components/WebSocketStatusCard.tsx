@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { formatDistanceToNow } from 'date-fns';
 import { Wifi, WifiOff, Activity, Clock, Filter, Globe } from 'lucide-react';
-import { useWebSocketConnections, useWebSocketStats } from '../hooks/useWebSocketStatus';
+import { useState } from 'react';
+
 import {
   Card,
   CardHeader,
@@ -11,7 +12,8 @@ import {
   Skeleton,
   Alert,
 } from './ui';
-import { formatDistanceToNow } from 'date-fns';
+import { useWebSocketConnections, useWebSocketStats } from '../hooks/useWebSocketStatus';
+
 
 interface WebSocketStatusCardProps {
   className?: string;

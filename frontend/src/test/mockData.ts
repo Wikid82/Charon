@@ -1,5 +1,5 @@
-import { ProxyHost } from '../hooks/useProxyHosts'
-import { RemoteServer } from '../hooks/useRemoteServers'
+import { type ProxyHost } from '../hooks/useProxyHosts'
+import { type RemoteServer } from '../hooks/useRemoteServers'
 
 export const mockProxyHosts: ProxyHost[] = [
   {

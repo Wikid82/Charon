@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import * as security from '../security'
+
 import client from '../client'
+import * as security from '../security'
 
 vi.mock('../client')
 

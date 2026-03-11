@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
 import { AlertTriangle, CheckCircle2 } from 'lucide-react'
+import React, { useState } from 'react'
 
 interface HostPreview {
   domain_names: string
@@ -48,10 +48,10 @@ export default function ImportReviewTable({ hosts, conflicts, conflictDetails, e
   })
   const [names, setNames] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
-    hosts.forEach((h) => {
+    for (const h of hosts) {
       // Default name to domain name (first domain if comma-separated)
       init[h.domain_names] = h.name || h.domain_names.split(',')[0].trim()
-    })
+    }
     return init
   })
   const [submitting, setSubmitting] = useState(false)

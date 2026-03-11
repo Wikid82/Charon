@@ -1,6 +1,4 @@
-import * as React from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
-import { cn } from '../../utils/cn'
 import {
   Info,
   CheckCircle,
@@ -9,6 +7,10 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
+import * as React from 'react'
+
+import { cn } from '../../utils/cn'
+
 
 const alertVariants = cva(
   'relative flex gap-3 p-4 rounded-lg border transition-all duration-normal',
@@ -81,7 +83,7 @@ export function Alert({
       className={cn(alertVariants({ variant }), className)}
       {...props}
     >
-      <IconComponent className={cn('h-5 w-5 flex-shrink-0 mt-0.5', iconColor)} />
+      <IconComponent className={cn('h-5 w-5 shrink-0 mt-0.5', iconColor)} />
       <div className="flex-1 min-w-0">
         {title && (
           <h5 className="font-semibold text-sm mb-1">{title}</h5>
@@ -92,7 +94,7 @@ export function Alert({
         <button
           type="button"
           onClick={handleDismiss}
-          className="flex-shrink-0 p-1 rounded-md text-content-muted hover:text-content-primary hover:bg-surface-muted transition-colors duration-fast"
+          className="shrink-0 p-1 rounded-md text-content-muted hover:text-content-primary hover:bg-surface-muted transition-colors duration-fast"
           aria-label="Dismiss alert"
         >
           <X className="h-4 w-4" />
