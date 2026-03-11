@@ -12,9 +12,7 @@
   "dependencies": {
     "@typescript/analyze-trace": "^0.10.1",
     "tldts": "^7.0.25",
-    "type-check": "^0.4.0",
-    "typescript": "^5.9.3",
-    "vite": "^7.3.1"
+    "type-check": "^0.4.0"
   },
   "devDependencies": {
     "@types/eslint-plugin-jsx-a11y": "^6.10.1",
@@ -25,6 +23,8 @@
     "markdownlint-cli2": "^0.21.0",
     "prettier": "^3.8.1",
     "prettier-plugin-tailwindcss": "^0.7.2",
-    "tar": "^7.5.11"
+    "tar": "^7.5.11",
+    "typescript": "^6.0.1-rc",
+    "vite": "^7.3.1"
   }
 }
