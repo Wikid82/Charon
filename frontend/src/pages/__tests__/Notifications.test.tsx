@@ -446,13 +446,13 @@ describe('Notifications', () => {
 
   it('submits provider test action from form using normalized discord type', async () => {
     vi.mocked(notificationsApi.testProvider).mockResolvedValue()
+    setupMocks([baseProvider])
 
     const user = userEvent.setup()
     renderWithQueryClient(<Notifications />)
 
-    await user.click(await screen.findByTestId('add-provider-btn'))
-    await user.type(screen.getByTestId('provider-name'), 'Preview/Test Provider')
-    await user.type(screen.getByTestId('provider-url'), 'https://example.com/webhook')
+    const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
+    await user.click(within(row).getByRole('button', { name: /edit/i }))
 
     await user.click(screen.getByTestId('provider-test-btn'))
 
@@ -568,18 +568,28 @@ describe('Notifications', () => {
 
   it('shows error toast when test mutation fails', async () => {
     vi.mocked(notificationsApi.testProvider).mockRejectedValue(new Error('Connection refused'))
+    setupMocks([baseProvider])
 
     const user = userEvent.setup()
     renderWithQueryClient(<Notifications />)
 
-    await user.click(await screen.findByTestId('add-provider-btn'))
-    await user.type(screen.getByTestId('provider-name'), 'Failing Provider')
-    await user.type(screen.getByTestId('provider-url'), 'https://example.com/webhook')
+    const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
+    await user.click(within(row).getByRole('button', { name: /edit/i }))
+
     await user.click(screen.getByTestId('provider-test-btn'))
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith('Connection refused')
     })
+  })
+
+  it('disables test button when provider is new (unsaved) and not email type', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+    const testBtn = screen.getByTestId('provider-test-btn')
+    expect(testBtn).toBeDisabled()
   })
 
   it('shows JSON template selector for gotify provider', async () => {
