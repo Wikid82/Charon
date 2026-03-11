@@ -26,16 +26,18 @@ import (
 )
 
 type NotificationService struct {
-	DB          *gorm.DB
-	httpWrapper *notifications.HTTPWrapper
-	mailService MailServiceInterface
+	DB                 *gorm.DB
+	httpWrapper        *notifications.HTTPWrapper
+	mailService        MailServiceInterface
+	telegramAPIBaseURL string
 }
 
 func NewNotificationService(db *gorm.DB, mailService MailServiceInterface) *NotificationService {
 	return &NotificationService{
-		DB:          db,
-		httpWrapper: notifications.NewNotifyHTTPWrapper(),
-		mailService: mailService,
+		DB:                 db,
+		httpWrapper:        notifications.NewNotifyHTTPWrapper(),
+		mailService:        mailService,
+		telegramAPIBaseURL: "https://api.telegram.org",
 	}
 }
 
@@ -489,10 +491,19 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 
 		if providerType == "telegram" {
 			decryptedToken := p.Token
-			dispatchURL = "https://api.telegram.org/bot" + decryptedToken + "/sendMessage"
+			telegramBase := s.telegramAPIBaseURL
+			if telegramBase == "" {
+				telegramBase = "https://api.telegram.org"
+			}
+			dispatchURL = telegramBase + "/bot" + decryptedToken + "/sendMessage"
 
 			parsedURL, parseErr := neturl.Parse(dispatchURL)
-			if parseErr != nil || parsedURL.Hostname() != "api.telegram.org" {
+			expectedHost := "api.telegram.org"
+			if parsedURL != nil && parsedURL.Hostname() != "" && telegramBase != "https://api.telegram.org" {
+				// In test overrides, skip the hostname pin check.
+				expectedHost = parsedURL.Hostname()
+			}
+			if parseErr != nil || parsedURL.Hostname() != expectedHost {
 				return fmt.Errorf("telegram dispatch URL validation failed: invalid hostname")
 			}
 

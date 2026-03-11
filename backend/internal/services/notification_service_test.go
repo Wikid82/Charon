@@ -2999,7 +2999,19 @@ func TestIsDispatchEnabled_TelegramDefaultTrue(t *testing.T) {
 
 func TestSendJSONPayload_Telegram_ChatIDInjectionAndDispatch(t *testing.T) {
 	db := setupNotificationTestDB(t)
+
+	var capturedPath string
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
 	svc := NewNotificationService(db, nil)
+	svc.telegramAPIBaseURL = server.URL
 
 	provider := models.NotificationProvider{
 		Type:     "telegram",
@@ -3014,19 +3026,31 @@ func TestSendJSONPayload_Telegram_ChatIDInjectionAndDispatch(t *testing.T) {
 		"EventType": "test",
 	}
 
-	// The telegram branch constructs https://api.telegram.org/bot.../sendMessage
-	// which will fail at httpWrapper.Send (unreachable in test env).
-	// This still exercises lines 490-506 (chat_id injection, marshal, body write).
 	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to send webhook")
+	require.NoError(t, err)
+	assert.Equal(t, "/botfake-bot-token/sendMessage", capturedPath)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(capturedBody, &payload))
+	assert.Equal(t, "123456789", payload["chat_id"])
+	assert.Equal(t, "Hello Telegram", payload["text"])
 }
 
 func TestSendJSONPayload_Telegram_NormalizesMessageToText(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
 
-	// Custom template that produces "message" key instead of "text"
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	svc := NewNotificationService(db, nil)
+	svc.telegramAPIBaseURL = server.URL
+
+	// Custom template that produces "message" key instead of "text" — exercises normalization.
 	provider := models.NotificationProvider{
 		Type:     "telegram",
 		URL:      "987654321",
@@ -3041,10 +3065,14 @@ func TestSendJSONPayload_Telegram_NormalizesMessageToText(t *testing.T) {
 		"EventType": "test",
 	}
 
-	// Exercises telegram normalization (message→text) + chat_id injection
 	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to send webhook")
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(capturedBody, &payload))
+	// "message" must be promoted to "text" by the normalization path.
+	assert.Equal(t, "Normalize me", payload["text"])
+	assert.Equal(t, "987654321", payload["chat_id"])
 }
 
 func TestSendJSONPayload_Telegram_RequiresTextField(t *testing.T) {
@@ -3097,15 +3125,19 @@ func TestSendJSONPayload_Telegram_HostnameValidationError(t *testing.T) {
 
 func TestSendJSONPayload_Telegram_MarshalErrorOnChatIDInjection(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
 
-	// Use a httptest server that accepts the request so we can reach
-	// the chat_id injection code. We use a "webhook" provider first to
-	// verify the marshal path, but here we directly exercise the telegram
-	// path by injecting an unmarshalable value into jsonPayload via a
-	// custom template that produces a valid JSON with a func value key.
-	// Since json.Marshal can't fail on map[string]any with string values,
-	// we exercise the happy path for marshal and verify the body is correct.
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	svc := NewNotificationService(db, nil)
+	svc.telegramAPIBaseURL = server.URL
+
+	// Exercises the chat_id injection + marshal + body.Write path.
 	provider := models.NotificationProvider{
 		Type:     "telegram",
 		URL:      "999888777",
@@ -3119,11 +3151,13 @@ func TestSendJSONPayload_Telegram_MarshalErrorOnChatIDInjection(t *testing.T) {
 		"EventType": "test",
 	}
 
-	// This exercises the chat_id injection + marshal + body.Write path
-	// (lines 499-505) then fails at httpWrapper.Send (unreachable host).
 	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to send webhook")
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(capturedBody, &payload))
+	assert.Equal(t, "999888777", payload["chat_id"])
+	assert.NotEmpty(t, payload["text"])
 }
 
 func TestIsDispatchEnabled_TelegramDisabledByFlag(t *testing.T) {
