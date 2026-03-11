@@ -1,10 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
-import WafConfig from '../WafConfig'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import * as securityApi from '../../api/security'
+import WafConfig from '../WafConfig'
+
 import type { SecurityRuleSet, RuleSetsResponse } from '../../api/security'
 
 vi.mock('../../api/security')

@@ -1,12 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { BrowserRouter } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import ImportCrowdSec from '../ImportCrowdSec'
-import * as api from '../../api/crowdsec'
+import { BrowserRouter } from 'react-router-dom'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import * as backups from '../../api/backups'
+import * as api from '../../api/crowdsec'
 import { createTestQueryClient } from '../../test/createTestQueryClient'
+import ImportCrowdSec from '../ImportCrowdSec'
 
 vi.mock('../../api/crowdsec')
 vi.mock('../../api/backups')

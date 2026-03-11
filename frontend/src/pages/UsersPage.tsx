@@ -1,31 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { useFocusTrap } from '../hooks/useFocusTrap'
-import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
-import { Card } from '../components/ui/Card'
-import { Button } from '../components/ui/Button'
-import { Input } from '../components/ui/Input'
-import { Switch } from '../components/ui/Switch'
-import { Alert, AlertDescription } from '../components/ui/Alert'
-import { Label } from '../components/ui/Label'
-import { toast } from '../utils/toast'
-import client from '../api/client'
-import {
-  listUsers,
-  inviteUser,
-  deleteUser,
-  updateUser,
-  updateUserPermissions,
-  resendInvite,
-  getProfile,
-  updateProfile,
-  regenerateApiKey,
-} from '../api/users'
-import type { User, InviteUserRequest, PermissionMode, UpdateUserPermissionsRequest } from '../api/users'
-import { getProxyHosts } from '../api/proxyHosts'
-import type { ProxyHost } from '../api/proxyHosts'
-import { useAuth } from '../hooks/useAuth'
 import {
   Users,
   UserPlus,
@@ -46,6 +19,35 @@ import {
   Lock,
   UserCircle,
 } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
+
+import client from '../api/client'
+import { getProxyHosts, type ProxyHost  } from '../api/proxyHosts'
+import {
+  listUsers,
+  inviteUser,
+  deleteUser,
+  updateUser,
+  updateUserPermissions,
+  resendInvite,
+  getProfile,
+  updateProfile,
+  regenerateApiKey, type User, type InviteUserRequest, type PermissionMode, type UpdateUserPermissionsRequest
+} from '../api/users'
+import { Alert, AlertDescription } from '../components/ui/Alert'
+import { Button } from '../components/ui/Button'
+import { Card } from '../components/ui/Card'
+import { Input } from '../components/ui/Input'
+import { Label } from '../components/ui/Label'
+import { Switch } from '../components/ui/Switch'
+import { useAuth } from '../hooks/useAuth'
+import { useFocusTrap } from '../hooks/useFocusTrap'
+import { toast } from '../utils/toast'
+
+
+
 
 interface InviteModalProps {
   isOpen: boolean

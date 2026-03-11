@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { uploadCaddyfilesMulti, CaddyFile } from '../api/import'
+
+import { uploadCaddyfilesMulti, type CaddyFile } from '../api/import'
 
 type Props = {
   visible: boolean

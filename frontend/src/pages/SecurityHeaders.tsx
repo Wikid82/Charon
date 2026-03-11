@@ -1,18 +1,14 @@
-import { useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { Plus, Pencil, Trash2, Shield, Copy, Eye, Info } from 'lucide-react';
-import {
-  useSecurityHeaderProfiles,
-  useCreateSecurityHeaderProfile,
-  useUpdateSecurityHeaderProfile,
-  useDeleteSecurityHeaderProfile,
-} from '../hooks/useSecurityHeaders';
+import { useState } from 'react';
+import toast from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
+
+
+
+import { createBackup } from '../api/backups';
+import { PageShell } from '../components/layout/PageShell';
 import { SecurityHeaderProfileForm } from '../components/SecurityHeaderProfileForm';
 import { SecurityScoreDisplay } from '../components/SecurityScoreDisplay';
-import type { SecurityHeaderProfile, CreateProfileRequest } from '../api/securityHeaders';
-import { createBackup } from '../api/backups';
-import toast from 'react-hot-toast';
-import { PageShell } from '../components/layout/PageShell';
 import {
   Button,
   Alert,
@@ -29,6 +25,14 @@ import {
   TooltipContent,
   TooltipProvider,
 } from '../components/ui';
+import {
+  useSecurityHeaderProfiles,
+  useCreateSecurityHeaderProfile,
+  useUpdateSecurityHeaderProfile,
+  useDeleteSecurityHeaderProfile,
+} from '../hooks/useSecurityHeaders';
+
+import type { SecurityHeaderProfile, CreateProfileRequest } from '../api/securityHeaders';
 
 export default function SecurityHeaders() {
   const { t } = useTranslation();

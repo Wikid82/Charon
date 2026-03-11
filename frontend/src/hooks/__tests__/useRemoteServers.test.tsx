@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { renderHook, waitFor, act } from '@testing-library/react'
 import React from 'react'
-import { useRemoteServers } from '../useRemoteServers'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
 import * as api from '../../api/remoteServers'
+import { useRemoteServers } from '../useRemoteServers'
 
 // Mock the API
 vi.mock('../../api/remoteServers', () => ({

@@ -1,12 +1,13 @@
+import { useQuery } from '@tanstack/react-query';
+import { FileText, ChevronLeft, ChevronRight, ScrollText } from 'lucide-react';
 import { useState, useEffect, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { getLogs, getLogContent, downloadLog, LogFilter } from '../api/logs';
-import { FileText, ChevronLeft, ChevronRight, ScrollText } from 'lucide-react';
-import { LogTable } from '../components/LogTable';
-import { LogFilters } from '../components/LogFilters';
+
+import { getLogs, getLogContent, downloadLog, type LogFilter } from '../api/logs';
 import { PageShell } from '../components/layout/PageShell';
+import { LogFilters } from '../components/LogFilters';
+import { LogTable } from '../components/LogTable';
 import {
   Button,
   Card,

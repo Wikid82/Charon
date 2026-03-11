@@ -1,14 +1,15 @@
+import { Pause, Play, Trash2, Filter, Shield, Globe } from 'lucide-react';
 import { useEffect, useRef, useState, useCallback } from 'react';
+
 import {
   connectLiveLogs,
   connectSecurityLogs,
-  LiveLogEntry,
-  LiveLogFilter,
-  SecurityLogEntry,
-  SecurityLogFilter,
+  type LiveLogEntry,
+  type LiveLogFilter,
+  type SecurityLogEntry,
+  type SecurityLogFilter,
 } from '../api/logs';
 import { Button } from './ui/Button';
-import { Pause, Play, Trash2, Filter, Shield, Globe } from 'lucide-react';
 
 /**
  * Log viewing mode: application logs vs security access logs

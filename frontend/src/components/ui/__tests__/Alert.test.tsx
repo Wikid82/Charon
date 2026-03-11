@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
 import { AlertCircle } from 'lucide-react'
+import { describe, it, expect, vi } from 'vitest'
+
 import { Alert, AlertTitle, AlertDescription } from '../Alert'
 
 describe('Alert', () => {

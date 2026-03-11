@@ -1,23 +1,24 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
-import { useNavigate, Link } from 'react-router-dom'
+import { Shield, ShieldOff, Trash2, Search, AlertTriangle, ExternalLink } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate, Link } from 'react-router-dom'
+
+import { createBackup } from '../api/backups'
+import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, statusCrowdsec, type CrowdSecStatus, startCrowdsec } from '../api/crowdsec'
+import { getFeatureFlags } from '../api/featureFlags'
+import { listCrowdsecPresets, pullCrowdsecPreset, applyCrowdsecPreset, getCrowdsecPresetCache } from '../api/presets'
+import { getSecurityStatus } from '../api/security'
+import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
+import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
-import { getSecurityStatus } from '../api/security'
-import { getFeatureFlags } from '../api/featureFlags'
-import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, CrowdSecDecision, statusCrowdsec, CrowdSecStatus, startCrowdsec } from '../api/crowdsec'
-import { listCrowdsecPresets, pullCrowdsecPreset, applyCrowdsecPreset, getCrowdsecPresetCache } from '../api/presets'
-import { createBackup } from '../api/backups'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { toast } from '../utils/toast'
-import { ConfigReloadOverlay } from '../components/LoadingStates'
-import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
-import { Shield, ShieldOff, Trash2, Search, AlertTriangle, ExternalLink } from 'lucide-react'
-import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
-import { CROWDSEC_PRESETS, CrowdsecPreset } from '../data/crowdsecPresets'
+import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
+import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
+import { toast } from '../utils/toast'
 
 export default function CrowdSecConfig() {
   const { t } = useTranslation()
@@ -1225,7 +1226,7 @@ export default function CrowdSecConfig() {
 
           {/* Layer 3: Form content (pointer-events-auto) */}
           <div
-            className="relative bg-dark-card rounded-lg p-6 w-120 max-w-full shadow-xl"
+            className="relative bg-dark-card rounded-lg p-6 w-[480px] max-w-full shadow-xl"
             onKeyDown={(e) => {
               if (e.key === 'Escape') setShowBanModal(false)
               if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) banMutation.mutate()
@@ -1319,7 +1320,7 @@ export default function CrowdSecConfig() {
             aria-label={t('common.close')}
           />
           <div
-            className="relative bg-dark-card rounded-lg p-6 w-100 max-w-full shadow-xl"
+            className="relative bg-dark-card rounded-lg p-6 w-[400px] max-w-full shadow-xl"
             onKeyDown={(e) => {
               if (e.key === 'Escape') setConfirmUnban(null)
               if (e.key === 'Enter') unbanMutation.mutate(confirmUnban.ip)

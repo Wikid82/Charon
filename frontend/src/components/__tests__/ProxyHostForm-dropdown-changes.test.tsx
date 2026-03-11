@@ -1,13 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import ProxyHostForm from '../ProxyHostForm'
-import type { ProxyHost } from '../../api/proxyHosts'
-import type { AccessList } from '../../api/accessLists'
-import type { SecurityHeaderProfile } from '../../api/securityHeaders'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import { useAccessLists } from '../../hooks/useAccessLists'
 import { useSecurityHeaderProfiles } from '../../hooks/useSecurityHeaders'
+import ProxyHostForm from '../ProxyHostForm'
+
+import type { AccessList } from '../../api/accessLists'
+import type { ProxyHost } from '../../api/proxyHosts'
+import type { SecurityHeaderProfile } from '../../api/securityHeaders'
 
 // Mock all required hooks
 vi.mock('../../hooks/useRemoteServers', () => ({

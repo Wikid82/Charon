@@ -1,6 +1,9 @@
-import React from 'react';
 import { useQuery } from '@tanstack/react-query';
+
 import { checkUpdates } from '../api/system';
+
+import type React from 'react';
+
 
 const SystemStatus: React.FC = () => {
   // We still query for updates here to keep the cache fresh,

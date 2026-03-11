@@ -1,12 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ReactNode } from 'react'
-import DNSProviders from '../DNSProviders'
-import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
-import { useDNSProviders, useDNSProviderMutations, type DNSProvider } from '../../hooks/useDNSProviders'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+
 import { getChallenge } from '../../api/manualChallenge'
+import { useDNSProviders, useDNSProviderMutations, type DNSProvider } from '../../hooks/useDNSProviders'
+import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
 import { toast } from '../../utils/toast'
+import DNSProviders from '../DNSProviders'
+
+import type { ReactNode } from 'react'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({

@@ -1,7 +1,9 @@
-import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
+import { describe, it, expect } from 'vitest'
+
 import CertificateStatusCard from '../CertificateStatusCard'
+
 import type { Certificate } from '../../api/certificates'
 import type { ProxyHost } from '../../api/proxyHosts'
 

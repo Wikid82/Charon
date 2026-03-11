@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { securityHeadersApi } from '../securityHeaders';
+
 import client from '../client';
+import { securityHeadersApi } from '../securityHeaders';
 
 vi.mock('../client', () => ({
   default: {

@@ -1,10 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import Notifications from '../Notifications'
-import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
 import * as notificationsApi from '../../api/notifications'
+import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
 import { toast } from '../../utils/toast'
+import Notifications from '../Notifications'
+
 import type { NotificationProvider } from '../../api/notifications'
 
 vi.mock('react-i18next', () => ({
@@ -290,7 +292,7 @@ describe('Notifications', () => {
     }
 
     vi.mocked(notificationsApi.getExternalTemplates).mockResolvedValue([template])
-    vi.mocked(notificationsApi.deleteExternalTemplate).mockResolvedValue(undefined)
+    vi.mocked(notificationsApi.deleteExternalTemplate).mockResolvedValue()
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     const user = userEvent.setup()
@@ -397,7 +399,7 @@ describe('Notifications', () => {
     }
 
     vi.mocked(notificationsApi.getExternalTemplates).mockResolvedValue([template])
-    vi.mocked(notificationsApi.deleteExternalTemplate).mockResolvedValue(undefined)
+    vi.mocked(notificationsApi.deleteExternalTemplate).mockResolvedValue()
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
 
     const user = userEvent.setup()
@@ -443,7 +445,7 @@ describe('Notifications', () => {
   })
 
   it('submits provider test action from form using normalized discord type', async () => {
-    vi.mocked(notificationsApi.testProvider).mockResolvedValue(undefined)
+    vi.mocked(notificationsApi.testProvider).mockResolvedValue()
 
     const user = userEvent.setup()
     renderWithQueryClient(<Notifications />)
@@ -500,7 +502,7 @@ describe('Notifications', () => {
 
   it('triggers row-level send test action with discord payload', async () => {
     setupMocks([baseProvider])
-    vi.mocked(notificationsApi.testProvider).mockResolvedValue(undefined)
+    vi.mocked(notificationsApi.testProvider).mockResolvedValue()
 
     const user = userEvent.setup()
     renderWithQueryClient(<Notifications />)

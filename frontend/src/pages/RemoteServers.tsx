@@ -1,10 +1,9 @@
+import { Plus, Pencil, Trash2, Server, LayoutGrid, LayoutList } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Pencil, Trash2, Server, LayoutGrid, LayoutList } from 'lucide-react'
-import { useRemoteServers } from '../hooks/useRemoteServers'
-import type { RemoteServer } from '../api/remoteServers'
-import RemoteServerForm from '../components/RemoteServerForm'
+
 import { PageShell } from '../components/layout/PageShell'
+import RemoteServerForm from '../components/RemoteServerForm'
 import {
   Badge,
   Button,
@@ -21,6 +20,10 @@ import {
   Card,
   type Column,
 } from '../components/ui'
+import { useRemoteServers } from '../hooks/useRemoteServers'
+
+import type { RemoteServer } from '../api/remoteServers'
+
 
 export default function RemoteServers() {
   const { t } = useTranslation()
@@ -42,11 +45,7 @@ export default function RemoteServers() {
   }
 
   const handleSubmit = async (data: Partial<RemoteServer>) => {
-    if (editingServer) {
-      await updateServer(editingServer.uuid, data)
-    } else {
-      await createServer(data)
-    }
+    await (editingServer ? updateServer(editingServer.uuid, data) : createServer(data));
     setShowForm(false)
     setEditingServer(undefined)
   }

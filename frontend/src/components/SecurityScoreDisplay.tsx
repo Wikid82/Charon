@@ -1,7 +1,8 @@
-import { useState } from 'react';
 import { Shield, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react';
-import { Card } from './ui/Card';
+import { useState } from 'react';
+
 import { Badge } from './ui/Badge';
+import { Card } from './ui/Card';
 import { Progress } from './ui/Progress';
 
 interface SecurityScoreDisplayProps {

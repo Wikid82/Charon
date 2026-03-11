@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { detectDNSProvider, getDetectionPatterns } from '../dnsDetection'
+
 import client from '../client'
-import type { DetectionResult, NameserverPattern } from '../dnsDetection'
+import { detectDNSProvider, getDetectionPatterns, type DetectionResult, type NameserverPattern  } from '../dnsDetection'
+
 
 vi.mock('../client')
 

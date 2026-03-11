@@ -1,4 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+
+import client from '../client';
 import {
   getRemoteServers,
   getRemoteServer,
@@ -8,7 +10,6 @@ import {
   testRemoteServerConnection,
   testCustomRemoteServerConnection,
 } from '../remoteServers';
-import client from '../client';
 
 vi.mock('../client', () => ({
   default: {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import * as presets from '../presets'
+
 import client from '../client'
+import * as presets from '../presets'
 
 vi.mock('../client')
 

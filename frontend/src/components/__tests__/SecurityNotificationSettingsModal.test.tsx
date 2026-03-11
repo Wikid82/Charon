@@ -2,14 +2,15 @@
  * Tests for security notification settings on the Notifications page.
  * The modal has been removed; settings are now managed on /settings/notifications.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+import * as notificationsApi from '../../api/notifications';
 import Notifications from '../../pages/Notifications';
 import { createTestQueryClient } from '../../test/createTestQueryClient';
-import * as notificationsApi from '../../api/notifications';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),

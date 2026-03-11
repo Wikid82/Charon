@@ -1,12 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
-import Login from '../Login'
-import * as authHook from '../../hooks/useAuth'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import client from '../../api/client'
 import * as setupApi from '../../api/setup'
+import * as authHook from '../../hooks/useAuth'
+import Login from '../Login'
 
 // Mock modules
 vi.mock('../../api/client')

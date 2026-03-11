@@ -1,6 +1,4 @@
-import * as React from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
-import { cn } from '../../utils/cn'
 import {
   Info,
   CheckCircle,
@@ -9,6 +7,10 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
+import * as React from 'react'
+
+import { cn } from '../../utils/cn'
+
 
 const alertVariants = cva(
   'relative flex gap-3 p-4 rounded-lg border transition-all duration-normal',

@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
 import { Activity, CheckCircle2, XCircle, AlertCircle, ArrowRight } from 'lucide-react'
-import { getMonitors } from '../api/uptime'
+import { Link } from 'react-router-dom'
+
 import { Card, CardHeader, CardContent, Badge, Skeleton } from './ui'
+import { getMonitors } from '../api/uptime'
 
 export default function UptimeWidget() {
   const { data: monitors, isLoading } = useQuery({

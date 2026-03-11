@@ -1,6 +1,8 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderHook, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+
+import { getAuditLogs, getAuditLog, getAuditLogsByProvider } from '../../api/auditLogs'
 import { useAuditLogs, useAuditLog, useAuditLogsByProvider } from '../useAuditLogs'
 
 // Mock the API module
@@ -9,8 +11,6 @@ vi.mock('../../api/auditLogs', () => ({
   getAuditLog: vi.fn(),
   getAuditLogsByProvider: vi.fn(),
 }))
-
-import { getAuditLogs, getAuditLog, getAuditLogsByProvider } from '../../api/auditLogs'
 
 const mockAuditLog = {
   id: 1,

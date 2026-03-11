@@ -1,16 +1,18 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { toast } from 'react-hot-toast';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { createMockProxyHost } from '../../testUtils/createMockProxyHost';
-import ProxyHosts from '../ProxyHosts';
-import * as proxyHostsApi from '../../api/proxyHosts';
+
+import * as accessListsApi from '../../api/accessLists';
 import * as backupsApi from '../../api/backups';
 import * as certificatesApi from '../../api/certificates';
-import * as accessListsApi from '../../api/accessLists';
+import * as proxyHostsApi from '../../api/proxyHosts';
 import * as settingsApi from '../../api/settings';
-import { toast } from 'react-hot-toast';
+import { createMockProxyHost } from '../../testUtils/createMockProxyHost';
+import ProxyHosts from '../ProxyHosts';
+
 
 // Mock toast
 vi.mock('react-hot-toast', () => ({
@@ -243,9 +245,9 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
     // Should delete all selected hosts
     await waitFor(() => {
       expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('host-1');
-      expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('host-2');
-      expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('host-3');
-    });
+    })
+    expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('host-3');
+    expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('host-2');;
 
     // Should show success message
     await waitFor(() => {

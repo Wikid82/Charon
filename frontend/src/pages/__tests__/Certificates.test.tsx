@@ -1,11 +1,13 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import Certificates from '../Certificates'
+
+import { uploadCertificate, type Certificate  } from '../../api/certificates'
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
-import type { Certificate } from '../../api/certificates'
-import { uploadCertificate } from '../../api/certificates'
 import { toast } from '../../utils/toast'
+import Certificates from '../Certificates'
+
+
 
 const translations: Record<string, string> = {
   'certificates.addCertificate': 'Add Certificate',

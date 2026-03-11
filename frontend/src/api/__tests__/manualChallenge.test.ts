@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+import client from '../client'
 import {
   getChallenge,
   createChallenge,
@@ -6,7 +8,6 @@ import {
   pollChallenge,
   deleteChallenge,
 } from '../manualChallenge'
-import client from '../client'
 
 vi.mock('../client', () => ({
   default: {

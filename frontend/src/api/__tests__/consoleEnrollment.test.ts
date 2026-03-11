@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import * as consoleEnrollment from '../consoleEnrollment'
+
 import client from '../client'
+import * as consoleEnrollment from '../consoleEnrollment'
 
 vi.mock('../client')
 
@@ -480,13 +481,10 @@ describe('consoleEnrollment API', () => {
       }
       vi.mocked(client.post).mockRejectedValue(error)
 
-      try {
-        await consoleEnrollment.enrollConsole(payload)
-      } catch (e: unknown) {
-        // Error message should NOT contain the key
-        const error = e as { response?: { data?: { error?: string } } }
-        expect(error.response?.data?.error).not.toContain('cs-enroll-sensitive-key')
-      }
+      const thrown = await consoleEnrollment.enrollConsole(payload).catch((e: unknown) => e)
+      const caughtError = thrown as { response?: { data?: { error?: string } } }
+      // Error message should NOT contain the key
+      expect(caughtError.response?.data?.error).not.toContain('cs-enroll-sensitive-key')
     })
 
     it('should handle correlation_id for debugging without exposing keys', async () => {

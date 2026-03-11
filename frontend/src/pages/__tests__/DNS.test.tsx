@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
-import DNS from '../DNS'
+import { describe, it, expect, vi } from 'vitest'
+
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
+import DNS from '../DNS'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({

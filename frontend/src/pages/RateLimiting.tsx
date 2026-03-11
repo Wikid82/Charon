@@ -1,14 +1,15 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Gauge, Info } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Gauge, Info } from 'lucide-react'
-import { Button } from '../components/ui/Button'
-import { Input } from '../components/ui/Input'
-import { Card } from '../components/ui/Card'
-import { useSecurityStatus, useSecurityConfig, useUpdateSecurityConfig } from '../hooks/useSecurity'
+
 import { updateSetting } from '../api/settings'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { toast } from '../utils/toast'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
+import { Button } from '../components/ui/Button'
+import { Card } from '../components/ui/Card'
+import { Input } from '../components/ui/Input'
+import { useSecurityStatus, useSecurityConfig, useUpdateSecurityConfig } from '../hooks/useSecurity'
+import { toast } from '../utils/toast'
 
 export default function RateLimiting() {
   const { t } = useTranslation()
