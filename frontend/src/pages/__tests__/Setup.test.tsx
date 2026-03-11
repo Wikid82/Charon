@@ -1,10 +1,11 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import Setup from '../Setup';
+
 import * as setupApi from '../../api/setup';
+import Setup from '../Setup';
 
 // Mock AuthContext so useAuth works in tests
 vi.mock('../../hooks/useAuth', () => ({

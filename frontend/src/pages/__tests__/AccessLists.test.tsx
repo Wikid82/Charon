@@ -1,11 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query'
-import AccessLists from '../AccessLists'
-import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
-import type { AccessList, CreateAccessListRequest, TestIPResponse } from '../../api/accessLists'
-import type { AccessListFormData } from '../../components/AccessListForm'
+
 import { createBackup } from '../../api/backups'
 import {
   useAccessLists,
@@ -14,6 +10,12 @@ import {
   useTestIP,
   useUpdateAccessList,
 } from '../../hooks/useAccessLists'
+import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
+import AccessLists from '../AccessLists'
+
+import type { AccessList, CreateAccessListRequest, TestIPResponse } from '../../api/accessLists'
+import type { AccessListFormData } from '../../components/AccessListForm'
+import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query'
 
 const translations: Record<string, string> = {
   'accessLists.noAccessLists': 'No Access Lists',
@@ -203,7 +205,7 @@ describe('AccessLists', () => {
     createMutationResult<AccessList, { id: number; data: Partial<CreateAccessListRequest> }>()
 
   const deleteMutationMock = (): ReturnType<typeof useDeleteAccessList> =>
-    createMutationResult<void, number>({}, (_id, options) => options?.onSuccess?.(undefined))
+    createMutationResult<void, number>({}, (_id, options) => options?.onSuccess?.())
 
   const testIPMutationMock = (): ReturnType<typeof useTestIP> =>
     createMutationResult<TestIPResponse, { id: number; ipAddress: string }>({}, (_payload, options) =>

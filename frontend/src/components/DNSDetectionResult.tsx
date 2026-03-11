@@ -1,6 +1,8 @@
 import { CheckCircle2, AlertCircle, Info } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+
 import { Badge, Button, Alert } from './ui'
+
 import type { DetectionResult } from '../api/dnsDetection'
 import type { DNSProvider } from '../api/dnsProviders'
 

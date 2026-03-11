@@ -1,11 +1,13 @@
+import { vi } from 'vitest'
+
 import {
   formatSettingLabel,
   settingHelpText,
   settingKeyToField,
   applyBulkSettingsToHosts,
 } from '../proxyHostsHelpers'
+
 import type { ProxyHost } from '../../api/proxyHosts'
-import { vi } from 'vitest'
 
 describe('proxyHostsHelpers', () => {
   describe('formatSettingLabel', () => {

@@ -4,16 +4,19 @@
  * Tests edge cases, input validation, error states, and security concerns
  * for the Cerberus Dashboard implementation.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
-import Security from '../Security'
-import * as securityApi from '../../api/security'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import * as crowdsecApi from '../../api/crowdsec'
+import * as securityApi from '../../api/security'
 import * as settingsApi from '../../api/settings'
 import { toast } from '../../utils/toast'
+import Security from '../Security'
+
+import type * as useSecurity from '../../hooks/useSecurity'
 
 const mockSecurityStatus = {
   cerberus: { enabled: true },
@@ -35,7 +38,7 @@ vi.mock('../../utils/toast', () => ({
   },
 }))
 vi.mock('../../hooks/useSecurity', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../hooks/useSecurity')>()
+  const actual = await importOriginal<typeof useSecurity>()
   return {
     ...actual,
     useSecurityConfig: vi.fn(() => ({ data: { config: { admin_whitelist: '' } } })),
@@ -173,7 +176,7 @@ describe.skip('Security Page - QA Security Audit', () => {
       await renderSecurityPage()
 
       // Page should still render even if status check fails
-      await waitFor(() => expect(screen.getByText(/Cerberus Dashboard/i)).toBeInTheDocument())
+      expect(await screen.findByText(/Cerberus Dashboard/i)).toBeInTheDocument()
     })
   })
 
@@ -191,7 +194,7 @@ describe.skip('Security Page - QA Security Audit', () => {
       await user.click(toggle)
 
       // Overlay should appear indicating operation in progress
-      await waitFor(() => expect(screen.getByText(/Three heads turn/i)).toBeInTheDocument())
+      expect(await screen.findByText(/Three heads turn/i)).toBeInTheDocument()
     })
 
     it('prevents double toggle when starting CrowdSec', async () => {
@@ -400,7 +403,7 @@ describe.skip('Security Page - QA Security Audit', () => {
       }
 
       // Page should still be functional
-      await waitFor(() => expect(screen.getByText(/Cerberus Dashboard/i)).toBeInTheDocument())
+      expect(await screen.findByText(/Cerberus Dashboard/i)).toBeInTheDocument()
     })
 
     it('handles undefined crowdsec status gracefully', async () => {
@@ -410,7 +413,7 @@ describe.skip('Security Page - QA Security Audit', () => {
       await renderSecurityPage()
 
       // Should not crash
-      await waitFor(() => expect(screen.getByText(/Cerberus Dashboard/i)).toBeInTheDocument())
+      expect(await screen.findByText(/Cerberus Dashboard/i)).toBeInTheDocument()
     })
   })
 })

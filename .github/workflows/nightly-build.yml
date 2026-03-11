@@ -148,7 +148,6 @@ jobs:
       id-token: write
     outputs:
       version: ${{ steps.meta.outputs.version }}
-      tags: ${{ steps.meta.outputs.tags }}
       digest: ${{ steps.resolve_digest.outputs.digest }}
 
     steps:
@@ -259,14 +258,14 @@ jobs:
       - name: Record nightly image digest
         run: |
           echo "## 🧾 Nightly Image Digest" >> "$GITHUB_STEP_SUMMARY"
-          echo "- ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ env.RESOLVED_DIGEST }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ steps.resolve_digest.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Generate SBOM
         id: sbom_primary
         continue-on-error: true
-        uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11  # v0.23.0
+        uses: anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d  # v0.23.1
         with:
-          image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ env.RESOLVED_DIGEST }}
+          image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom-nightly.json
           syft-version: v1.42.1
@@ -283,7 +282,7 @@ jobs:
 
           echo "Primary SBOM generation failed or produced missing/invalid output; using deterministic Syft fallback"
 
-          SYFT_VERSION="v1.42.1"
+          SYFT_VERSION="v1.42.2"
           OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
           ARCH="$(uname -m)"
           case "$ARCH" in
@@ -304,9 +303,9 @@ jobs:
           tar -xzf "$TARBALL" syft
           chmod +x syft
 
-          DIGEST="${{ env.RESOLVED_DIGEST }}"
+          DIGEST="${{ steps.resolve_digest.outputs.digest }}"
           if [[ -z "$DIGEST" ]]; then
-            echo "::error::RESOLVED_DIGEST is unset; the digest-resolution step did not complete successfully"
+            echo "::error::Digest from resolve_digest step is empty; the digest-resolution step did not complete successfully"
             exit 1
           fi
           ./syft "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}" -o cyclonedx-json=sbom-nightly.json
@@ -334,13 +333,13 @@ jobs:
 
       # Install Cosign for keyless signing
       - name: Install Cosign
-        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad  # v4.0.0
+        uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22  # v4.1.0
 
       # Sign GHCR image with keyless signing (Sigstore/Fulcio)
       - name: Sign GHCR Image
         run: |
           echo "Signing GHCR nightly image with keyless signing..."
-          cosign sign --yes "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ env.RESOLVED_DIGEST }}"
+          cosign sign --yes "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}"
           echo "✅ GHCR nightly image signed successfully"
 
       # Sign Docker Hub image with keyless signing (Sigstore/Fulcio)
@@ -348,7 +347,7 @@ jobs:
         if: env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Signing Docker Hub nightly image with keyless signing..."
-          cosign sign --yes "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ env.RESOLVED_DIGEST }}"
+          cosign sign --yes "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}"
           echo "✅ Docker Hub nightly image signed successfully"
 
       # Attach SBOM to Docker Hub image
@@ -356,7 +355,7 @@ jobs:
         if: env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Attaching SBOM to Docker Hub nightly image..."
-          cosign attach sbom --sbom sbom-nightly.json "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ env.RESOLVED_DIGEST }}"
+          cosign attach sbom --sbom sbom-nightly.json "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}"
           echo "✅ SBOM attached to Docker Hub nightly image"
 
   test-nightly-image:
@@ -431,7 +430,7 @@ jobs:
         run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
 
       - name: Download SBOM
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3  # v8.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           name: sbom-nightly
 

@@ -17,10 +17,14 @@ func (r *Router) ShouldUseNotify(providerType string, flags map[string]bool) boo
 	switch strings.ToLower(providerType) {
 	case "discord":
 		return flags[FlagDiscordServiceEnabled]
+	case "email":
+		return flags[FlagEmailServiceEnabled]
 	case "gotify":
 		return flags[FlagGotifyServiceEnabled]
 	case "webhook":
 		return flags[FlagWebhookServiceEnabled]
+	case "telegram":
+		return flags[FlagTelegramServiceEnabled]
 	default:
 		return false
 	}

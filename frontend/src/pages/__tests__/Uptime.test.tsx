@@ -1,8 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import Uptime from '../Uptime'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
+import Uptime from '../Uptime'
+
 import type { UptimeMonitor } from '../../api/uptime'
 
 // Mock react-i18next
@@ -51,9 +53,9 @@ vi.mock('react-i18next', () => ({
       }
       if (options && typeof options === 'object') {
         let result = translations[key] || key
-        Object.entries(options).forEach(([k, v]) => {
+        for (const [k, v] of Object.entries(options)) {
           result = result.replace(`{{${k}}}`, String(v))
-        })
+        }
         return result
       }
       return translations[key] || key
@@ -149,7 +151,7 @@ describe('Uptime page', () => {
     vi.mocked(getMonitorHistory).mockResolvedValue([])
 
     renderWithQueryClient(<Uptime />)
-    await waitFor(() => expect(screen.getByText('UnknownStatusMonitor')).toBeInTheDocument())
+    expect(await screen.findByText('UnknownStatusMonitor')).toBeInTheDocument()
 
     const badge = screen.getByTestId('status-badge')
     expect(badge).toHaveAttribute('data-status', 'down')

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getWebSocketConnections, getWebSocketStats } from '../websocket';
+
 import client from '../client';
+import { getWebSocketConnections, getWebSocketStats } from '../websocket';
 
 vi.mock('../client');
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+import { getCertificates, uploadCertificate, deleteCertificate, type Certificate } from '../certificates';
 import client from '../client';
-import { getCertificates, uploadCertificate, deleteCertificate, Certificate } from '../certificates';
 
 vi.mock('../client', () => ({
   default: {

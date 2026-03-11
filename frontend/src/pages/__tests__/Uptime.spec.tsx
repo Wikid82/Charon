@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import Uptime from '../Uptime'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import * as uptimeApi from '../../api/uptime'
+import Uptime from '../Uptime'
 
 vi.mock('react-hot-toast', () => ({ toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() } }))
 vi.mock('../../api/uptime')
@@ -40,7 +41,7 @@ describe('Uptime page', () => {
     vi.mocked(uptimeApi.updateMonitor).mockResolvedValue({ ...monitor, enabled: false })
 
     renderWithProviders(<Uptime />)
-    await waitFor(() => expect(screen.getByText('Test Monitor')).toBeInTheDocument())
+    expect(await screen.findByText('Test Monitor')).toBeInTheDocument()
     const card = screen.getByText('Test Monitor').closest('div') as HTMLElement
     const settingsBtn = within(card).getByTitle('Monitor settings')
     await userEvent.click(settingsBtn)
@@ -58,7 +59,7 @@ describe('Uptime page', () => {
     vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
 
     renderWithProviders(<Uptime />)
-    await waitFor(() => expect(screen.getByText('NoLastCheck')).toBeInTheDocument())
+    expect(await screen.findByText('NoLastCheck')).toBeInTheDocument()
     const lastCheck = screen.getByText('Never')
     expect(lastCheck).toBeTruthy()
   })
@@ -72,7 +73,7 @@ describe('Uptime page', () => {
     vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
 
     renderWithProviders(<Uptime />)
-    await waitFor(() => expect(screen.getByText('PausedMonitor')).toBeInTheDocument())
+    expect(await screen.findByText('PausedMonitor')).toBeInTheDocument()
     expect(screen.getByText('PAUSED')).toBeTruthy()
   })
 
@@ -91,7 +92,7 @@ describe('Uptime page', () => {
     vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue(history)
 
     renderWithProviders(<Uptime />)
-    await waitFor(() => expect(screen.getByText('WithHistory')).toBeInTheDocument())
+    expect(await screen.findByText('WithHistory')).toBeInTheDocument()
 
     // Bar titles include 'Status:' and the status should be capitalized
     await waitFor(() => expect(document.querySelectorAll('[title*="Status:"]').length).toBeGreaterThanOrEqual(history.length))
@@ -109,7 +110,7 @@ describe('Uptime page', () => {
     vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
 
     renderWithProviders(<Uptime />)
-    await waitFor(() => expect(screen.getByText('OrderTest')).toBeInTheDocument())
+    expect(await screen.findByText('OrderTest')).toBeInTheDocument()
     const card = screen.getByText('OrderTest').closest('div') as HTMLElement
     await userEvent.click(within(card).getByTitle('Monitor settings'))
 
@@ -138,11 +139,11 @@ describe('Uptime page', () => {
     }
     vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
     vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
-    vi.mocked(uptimeApi.deleteMonitor).mockResolvedValue(undefined)
+    vi.mocked(uptimeApi.deleteMonitor).mockResolvedValue()
 
     const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true)
     renderWithProviders(<Uptime />)
-    await waitFor(() => expect(screen.getByText('DeleteMe')).toBeInTheDocument())
+    expect(await screen.findByText('DeleteMe')).toBeInTheDocument()
     const card = screen.getByText('DeleteMe').closest('div') as HTMLElement
     const settingsBtn = within(card).getByTitle('Monitor settings')
     await userEvent.click(settingsBtn)
@@ -162,12 +163,12 @@ describe('Uptime page', () => {
     vi.mocked(uptimeApi.updateMonitor).mockResolvedValue({ ...monitor, max_retries: 6 })
 
     renderWithProviders(<Uptime />)
-    await waitFor(() => expect(screen.getByText('ConfigMe')).toBeInTheDocument())
+    expect(await screen.findByText('ConfigMe')).toBeInTheDocument()
     const card = screen.getByText('ConfigMe').closest('div') as HTMLElement
     await userEvent.click(within(card).getByTitle('Monitor settings'))
     await userEvent.click(within(card).getByText('Configure'))
     // Modal should open
-    await waitFor(() => expect(screen.getByText('Configure Monitor')).toBeInTheDocument())
+    expect(await screen.findByText('Configure Monitor')).toBeInTheDocument()
     const spinbuttons = screen.getAllByRole('spinbutton')
     const maxRetriesInput = spinbuttons.find(el => el.getAttribute('value') === '3') as HTMLInputElement
     await userEvent.clear(maxRetriesInput)
@@ -185,11 +186,11 @@ describe('Uptime page', () => {
     }
     vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
     vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
-    vi.mocked(uptimeApi.deleteMonitor).mockResolvedValue(undefined)
+    vi.mocked(uptimeApi.deleteMonitor).mockResolvedValue()
 
     const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => false)
     renderWithProviders(<Uptime />)
-    await waitFor(() => expect(screen.getByText('DoNotDelete')).toBeInTheDocument())
+    expect(await screen.findByText('DoNotDelete')).toBeInTheDocument()
     const card = screen.getByText('DoNotDelete').closest('div') as HTMLElement
     await userEvent.click(within(card).getByTitle('Monitor settings'))
     await userEvent.click(within(card).getByText('Delete'))
@@ -207,7 +208,7 @@ describe('Uptime page', () => {
     vi.mocked(uptimeApi.updateMonitor).mockRejectedValue(new Error('Update failed'))
 
     renderWithProviders(<Uptime />)
-    await waitFor(() => expect(screen.getByText('ToggleFail')).toBeInTheDocument())
+    expect(await screen.findByText('ToggleFail')).toBeInTheDocument()
     const card = screen.getByText('ToggleFail').closest('div') as HTMLElement
     await userEvent.click(within(card).getByTitle('Monitor settings'))
     await userEvent.click(within(card).getByText('Pause'))
@@ -223,7 +224,7 @@ describe('Uptime page', () => {
     vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
 
     renderWithProviders(<Uptime />)
-    await waitFor(() => expect(screen.getByText('Proxy Hosts')).toBeInTheDocument())
+    expect(await screen.findByText('Proxy Hosts')).toBeInTheDocument()
     expect(screen.getByText('Remote Servers')).toBeInTheDocument()
     expect(screen.getByText('Other Monitors')).toBeInTheDocument()
     expect(screen.getByText('ProxyMon')).toBeInTheDocument()
@@ -240,7 +241,7 @@ describe('Uptime page', () => {
     vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
 
     renderWithProviders(<Uptime />)
-    await waitFor(() => expect(screen.getByText('PendingMonitor')).toBeInTheDocument())
+    expect(await screen.findByText('PendingMonitor')).toBeInTheDocument()
     const badge = screen.getByTestId('status-badge')
     expect(badge).toHaveAttribute('data-status', 'pending')
     expect(badge).toHaveAttribute('role', 'status')
@@ -262,7 +263,7 @@ describe('Uptime page', () => {
     vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue(history)
 
     renderWithProviders(<Uptime />)
-    await waitFor(() => expect(screen.getByText('PendingWithHistory')).toBeInTheDocument())
+    expect(await screen.findByText('PendingWithHistory')).toBeInTheDocument()
     await waitFor(() => {
       const badge = screen.getByTestId('status-badge')
       expect(badge.textContent).not.toContain('CHECKING...')
@@ -279,7 +280,7 @@ describe('Uptime page', () => {
     vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
 
     renderWithProviders(<Uptime />)
-    await waitFor(() => expect(screen.getByText('DownMonitor')).toBeInTheDocument())
+    expect(await screen.findByText('DownMonitor')).toBeInTheDocument()
     const badge = screen.getByTestId('status-badge')
     expect(badge).toHaveAttribute('data-status', 'down')
     expect(badge.textContent).toContain('DOWN')

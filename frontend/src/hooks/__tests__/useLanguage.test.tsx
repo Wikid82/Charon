@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-import { ReactNode } from 'react'
-import { useLanguage } from '../useLanguage'
+import { type ReactNode } from 'react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import { LanguageProvider } from '../../context/LanguageContext'
+import { useLanguage } from '../useLanguage'
 
 // Mock i18next
 vi.mock('react-i18next', () => ({
@@ -79,11 +80,11 @@ describe('useLanguage', () => {
 
     const languages = ['en', 'es', 'fr', 'de', 'zh'] as const
 
-    languages.forEach((lang) => {
+    for (const lang of languages) {
       act(() => {
         result.current.setLanguage(lang)
       })
       expect(result.current.language).toBe(lang)
-    })
+    }
   })
 })

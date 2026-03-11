@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import * as uptime from '../uptime'
+
 import client from '../client'
+import * as uptime from '../uptime'
+
 import type { UptimeMonitor, UptimeHeartbeat } from '../uptime'
 
 vi.mock('../client')

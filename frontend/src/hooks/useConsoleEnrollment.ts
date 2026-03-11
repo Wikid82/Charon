@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+
 import { enrollConsole, getConsoleStatus, clearConsoleEnrollment, type ConsoleEnrollPayload, type ConsoleEnrollmentStatus } from '../api/consoleEnrollment'
 
 export function useConsoleStatus(enabled = true) {

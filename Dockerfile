@@ -39,7 +39,9 @@ ARG CADDY_CANDIDATE_VERSION=2.11.2
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.1.43
+ARG CADDY_SECURITY_VERSION=1.1.45
+# renovate: datasource=go depName=github.com/corazawaf/coraza-caddy
+ARG CORAZA_CADDY_VERSION=2.2.0
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
@@ -219,6 +221,7 @@ ARG CADDY_CANDIDATE_VERSION
 ARG CADDY_USE_CANDIDATE
 ARG CADDY_PATCH_SCENARIO
 ARG CADDY_SECURITY_VERSION
+ARG CORAZA_CADDY_VERSION
 # renovate: datasource=go depName=github.com/caddyserver/xcaddy
 ARG XCADDY_VERSION=0.4.5
 ARG EXPR_LANG_VERSION
@@ -250,7 +253,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_TARGET_VERSION} \
             --with github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION} \
             --with github.com/greenpau/caddy-security@v${CADDY_SECURITY_VERSION} \
-            --with github.com/corazawaf/coraza-caddy/v2 \
+            --with github.com/corazawaf/coraza-caddy/v2@v${CORAZA_CADDY_VERSION} \
             --with github.com/hslatman/caddy-crowdsec-bouncer@v0.10.0 \
             --with github.com/zhangjiayin/caddy-geoip2 \
             --with github.com/mholt/caddy-ratelimit \
@@ -428,7 +431,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=d3031e02196523cbb5f74291122033f2be277b2130abedd4b5bee52ba79832be
+ARG GEOLITE2_COUNTRY_SHA256=b79afc28a0a52f89c15e8d92b05c173f314dd4f687719f96cf921012d900fcce
 RUN mkdir -p /app/data/geoip && \
         if [ -n "$CI" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \

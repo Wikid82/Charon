@@ -1,11 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClientProvider } from '@tanstack/react-query'
-import CertificateList from '../CertificateList'
-import { createTestQueryClient } from '../../test/createTestQueryClient'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import { useCertificates } from '../../hooks/useCertificates'
 import { useProxyHosts } from '../../hooks/useProxyHosts'
+import { createTestQueryClient } from '../../test/createTestQueryClient'
+import CertificateList from '../CertificateList'
+
 import type { Certificate } from '../../api/certificates'
 import type { ProxyHost } from '../../api/proxyHosts'
 
@@ -14,7 +16,7 @@ vi.mock('../../hooks/useCertificates', () => ({
 }))
 
 vi.mock('../../api/certificates', () => ({
-  deleteCertificate: vi.fn(async () => undefined),
+  deleteCertificate: vi.fn(async () => {}),
 }))
 
 vi.mock('../../api/backups', () => ({

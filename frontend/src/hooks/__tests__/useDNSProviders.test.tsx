@@ -1,14 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { renderHook, waitFor } from '@testing-library/react'
 import React from 'react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+import * as api from '../../api/dnsProviders'
 import {
   useDNSProviders,
   useDNSProvider,
   useDNSProviderTypes,
   useDNSProviderMutations,
 } from '../useDNSProviders'
-import * as api from '../../api/dnsProviders'
 
 vi.mock('../../api/dnsProviders')
 
@@ -420,7 +421,7 @@ describe('useDNSProviderMutations', () => {
 
   describe('deleteMutation', () => {
     it('deletes provider successfully', async () => {
-      vi.mocked(api.deleteDNSProvider).mockResolvedValue(undefined)
+      vi.mocked(api.deleteDNSProvider).mockResolvedValue()
 
       const { result } = renderHook(() => useDNSProviderMutations(), {
         wrapper: createWrapper(),
@@ -436,7 +437,7 @@ describe('useDNSProviderMutations', () => {
     })
 
     it('invalidates list query on success', async () => {
-      vi.mocked(api.deleteDNSProvider).mockResolvedValue(undefined)
+      vi.mocked(api.deleteDNSProvider).mockResolvedValue()
 
       const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false } },

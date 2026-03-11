@@ -1,9 +1,10 @@
-import { Link, Outlet, useLocation } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
-import { PageShell } from '../components/layout/PageShell'
-import { cn } from '../utils/cn'
 import { Settings as SettingsIcon, Server, Mail, Bell, Users } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { Link, Outlet, useLocation } from 'react-router-dom'
+
+import { PageShell } from '../components/layout/PageShell'
 import { useAuth } from '../hooks/useAuth'
+import { cn } from '../utils/cn'
 
 export default function Settings() {
   const { t } = useTranslation()

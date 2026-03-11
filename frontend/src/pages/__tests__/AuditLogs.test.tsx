@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import AuditLogs from '../AuditLogs'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import * as auditLogsApi from '../../api/auditLogs'
 import { toast } from '../../utils/toast'
+import AuditLogs from '../AuditLogs'
 
 vi.mock('../../api/auditLogs')
 vi.mock('react-i18next', () => ({

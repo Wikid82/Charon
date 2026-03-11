@@ -1,17 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState, useEffect, useMemo } from 'react'
-import { useNavigate, Outlet } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
 import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink, Bell } from 'lucide-react'
-import { getSecurityStatus, type SecurityStatus } from '../api/security'
-import { useSecurityConfig, useUpdateSecurityConfig, useGenerateBreakGlassToken } from '../hooks/useSecurity'
+import { useState, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
+import { useNavigate, Outlet } from 'react-router-dom'
+
 import { startCrowdsec, stopCrowdsec, statusCrowdsec } from '../api/crowdsec'
+import { getSecurityStatus, type SecurityStatus } from '../api/security'
 import { updateSetting } from '../api/settings'
-import { toast } from '../utils/toast'
-import { ConfigReloadOverlay } from '../components/LoadingStates'
-import { LiveLogViewer } from '../components/LiveLogViewer'
 import { CrowdSecKeyWarning } from '../components/CrowdSecKeyWarning'
 import { PageShell } from '../components/layout/PageShell'
+import { LiveLogViewer } from '../components/LiveLogViewer'
+import { ConfigReloadOverlay } from '../components/LoadingStates'
 import {
   Card,
   CardHeader,
@@ -29,6 +28,8 @@ import {
   TooltipContent,
   TooltipProvider,
 } from '../components/ui'
+import { useSecurityConfig, useUpdateSecurityConfig, useGenerateBreakGlassToken } from '../hooks/useSecurity'
+import { toast } from '../utils/toast'
 
 // Skeleton loader for security layer cards
 function SecurityCardSkeleton() {

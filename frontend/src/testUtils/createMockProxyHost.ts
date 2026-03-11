@@ -1,4 +1,4 @@
-import { ProxyHost } from '../api/proxyHosts'
+import { type ProxyHost } from '../api/proxyHosts'
 
 export const createMockProxyHost = (overrides: Partial<ProxyHost> = {}): ProxyHost => ({
   uuid: 'host-1',

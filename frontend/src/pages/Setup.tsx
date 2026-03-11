@@ -1,13 +1,14 @@
-import { useState, useEffect, type FormEvent, type FC } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState, useEffect, type FormEvent, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getSetupStatus, performSetup, SetupRequest } from '../api/setup';
+import { useNavigate } from 'react-router-dom';
+
 import client from '../api/client';
-import { useAuth } from '../hooks/useAuth';
-import { Input } from '../components/ui/Input';
-import { Button } from '../components/ui/Button';
+import { getSetupStatus, performSetup, type SetupRequest } from '../api/setup';
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
+import { useAuth } from '../hooks/useAuth';
 import { isValidEmail } from '../utils/validation';
 
 const Setup: FC = () => {

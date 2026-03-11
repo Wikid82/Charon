@@ -1,9 +1,10 @@
-import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { useDocker } from '../useDocker';
-import { dockerApi } from '../../api/docker';
+import { renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
+
+import { dockerApi } from '../../api/docker';
+import { useDocker } from '../useDocker';
 
 vi.mock('../../api/docker', () => ({
   dockerApi: {
@@ -82,7 +83,7 @@ describe('useDocker', () => {
   });
 
   it('does not fetch when both host and serverId are undefined', async () => {
-    const { result } = renderHook(() => useDocker(undefined, undefined), {
+    const { result } = renderHook(() => useDocker(), {
       wrapper: createWrapper(),
     });
 

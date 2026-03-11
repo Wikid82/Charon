@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { accessListsApi, type CreateAccessListRequest } from '../api/accessLists';
 import toast from 'react-hot-toast';
+
+import { accessListsApi, type CreateAccessListRequest } from '../api/accessLists';
 
 export function useAccessLists() {
   return useQuery({

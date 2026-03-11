@@ -750,12 +750,13 @@ func (s *BackupService) unzipWithSkip(src, dest string, skipEntries map[string]s
 			return err
 		}
 
-		// Limit decompressed size to prevent decompression bombs (100MB limit)
+		// Limit decompressed size to prevent decompression bombs (100MB limit).
+		// Use max+1 so lr.N == 0 only when a byte beyond the limit was consumed,
+		// avoiding a false positive for files that are exactly maxDecompressedSize.
 		const maxDecompressedSize = 100 * 1024 * 1024 // 100MB
-		lr := &io.LimitedReader{R: rc, N: maxDecompressedSize}
+		lr := &io.LimitedReader{R: rc, N: maxDecompressedSize + 1}
 		_, err = io.Copy(outFile, lr)
 
-		// Verify we didn't hit the limit (potential attack)
 		if err == nil && lr.N == 0 {
 			err = fmt.Errorf("file %s exceeded decompression limit (%d bytes), potential decompression bomb", f.Name, maxDecompressedSize)
 		}

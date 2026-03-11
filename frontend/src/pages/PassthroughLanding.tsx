@@ -1,9 +1,10 @@
+import { Shield, LogOut } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useAuth } from '../hooks/useAuth'
+
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
-import { Shield, LogOut } from 'lucide-react'
+import { useAuth } from '../hooks/useAuth'
 
 export default function PassthroughLanding() {
   const { t } = useTranslation()

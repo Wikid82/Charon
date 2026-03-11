@@ -1,4 +1,5 @@
 import { cva, type VariantProps } from 'class-variance-authority'
+
 import { cn } from '../../utils/cn'
 
 const skeletonVariants = cva(
@@ -129,7 +130,7 @@ export function SkeletonList({
       {Array.from({ length: items }).map((_, i) => (
         <div key={i} className="flex items-center gap-4">
           {showAvatar && (
-            <Skeleton variant="circular" className="h-10 w-10 flex-shrink-0" />
+            <Skeleton variant="circular" className="h-10 w-10 shrink-0" />
           )}
           <div className="flex-1 space-y-2">
             <Skeleton className="h-4 w-1/3" />

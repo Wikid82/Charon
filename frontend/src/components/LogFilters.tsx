@@ -1,5 +1,6 @@
-import React from 'react';
 import { Search, Download, RefreshCw } from 'lucide-react';
+import React from 'react';
+
 import { Button } from './ui/Button';
 
 interface LogFiltersProps {

@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
-import { BrowserRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
-import ImportCaddy from '../ImportCaddy'
+import { BrowserRouter } from 'react-router-dom'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import { useImport } from '../../hooks/useImport'
+import ImportCaddy from '../ImportCaddy'
 
 // Mock the hooks and API calls
 vi.mock('../../hooks/useImport')
@@ -92,13 +93,14 @@ describe('ImportCaddy - Multi-File Modal', () => {
     const button = screen.getByTestId('multi-file-import-button')
     await user.click(button)
 
+    let modal!: HTMLElement
     await waitFor(() => {
-      const modal = screen.getByRole('dialog')
+      modal = screen.getByRole('dialog')
       expect(modal).toBeInTheDocument()
-      expect(modal).toHaveAttribute('aria-modal', 'true')
-      expect(modal).toHaveAttribute('aria-labelledby', 'multi-site-modal-title')
-      expect(modal).toHaveAttribute('data-testid', 'multi-site-modal')
     })
+    expect(modal).toHaveAttribute('data-testid', 'multi-site-modal')
+    expect(modal).toHaveAttribute('aria-labelledby', 'multi-site-modal-title')
+    expect(modal).toHaveAttribute('aria-modal', 'true')
   })
 
   it('modal contains correct title for screen readers', async () => {
@@ -113,12 +115,13 @@ describe('ImportCaddy - Multi-File Modal', () => {
     const button = screen.getByTestId('multi-file-import-button')
     await user.click(button)
 
+    let title!: HTMLElement
     await waitFor(() => {
       // Use heading role to specifically target the modal title, not the button
-      const title = screen.getByRole('heading', { name: 'Multi-site Import' })
+      title = screen.getByRole('heading', { name: 'Multi-site Import' })
       expect(title).toBeInTheDocument()
-      expect(title).toHaveAttribute('id', 'multi-site-modal-title')
     })
+    expect(title).toHaveAttribute('id', 'multi-site-modal-title')
   })
 
   it('closes modal when clicking outside overlay', async () => {
@@ -143,14 +146,12 @@ describe('ImportCaddy - Multi-File Modal', () => {
     const overlay = screen.getByRole('dialog').querySelector('.bg-black\\/60')
     expect(overlay).toBeInTheDocument()
 
-    if (overlay) {
-      await user.click(overlay)
+    await user.click(overlay!)
 
-      // Modal should close
-      await waitFor(() => {
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-      })
-    }
+    // Modal should close
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
   })
 
   it('opens modal and shows it correctly', async () => {

@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
 import { Plus, X, AlertCircle, Check, Code } from 'lucide-react';
+import { useState, useEffect } from 'react';
+
+import { Alert } from './ui/Alert';
+import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
+import { Card } from './ui/Card';
 import { Input } from './ui/Input';
 import { NativeSelect } from './ui/NativeSelect';
-import { Card } from './ui/Card';
-import { Badge } from './ui/Badge';
-import { Alert } from './ui/Alert';
+
 import type { CSPDirective } from '../api/securityHeaders';
 
 interface CSPBuilderProps {

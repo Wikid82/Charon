@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { renderHook, act, waitFor } from '@testing-library/react'
 import React from 'react'
-import { useJSONImport } from '../useJSONImport'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import * as api from '../../api/jsonImport'
+import { useJSONImport } from '../useJSONImport'
 
 vi.mock('../../api/jsonImport', () => ({
   uploadJSONExport: vi.fn(),
@@ -124,7 +125,7 @@ describe('useJSONImport', () => {
       },
       conflict_details: {},
     })
-    vi.mocked(api.cancelJSONImport).mockResolvedValue(undefined)
+    vi.mocked(api.cancelJSONImport).mockResolvedValue()
 
     const { result } = renderHook(() => useJSONImport(), { wrapper: createWrapper() })
 

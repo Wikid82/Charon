@@ -1,8 +1,9 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, it, expect, vi } from 'vitest'
-import { createRef } from 'react'
 import { Search, Mail, Lock } from 'lucide-react'
+import { createRef } from 'react'
+import { describe, it, expect, vi } from 'vitest'
+
 import { Input } from '../Input'
 
 describe('Input', () => {

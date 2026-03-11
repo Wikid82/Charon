@@ -1,4 +1,16 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+import client from '../../api/client'
+import * as setupApi from '../../api/setup'
+import * as authHook from '../../hooks/useAuth'
+import { toast } from '../../utils/toast'
+import Login from '../Login'
+
+import type { AuthContextType } from '../../context/AuthContextValue'
+
 // Mock react-router-dom useNavigate at module level
 const mockNavigate = vi.fn()
 vi.mock('react-router-dom', async () => {
@@ -8,16 +20,6 @@ vi.mock('react-router-dom', async () => {
     useNavigate: () => mockNavigate,
   }
 })
-
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import Login from '../Login'
-import * as setupApi from '../../api/setup'
-import client from '../../api/client'
-import * as authHook from '../../hooks/useAuth'
-import type { AuthContextType } from '../../context/AuthContextValue'
-import { toast } from '../../utils/toast'
-import { MemoryRouter } from 'react-router-dom'
 
 vi.mock('../../api/setup')
 vi.mock('../../hooks/useAuth')

@@ -1,8 +1,9 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import SystemStatus from '../SystemStatus'
+import { render, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+
 import * as systemApi from '../../api/system'
+import SystemStatus from '../SystemStatus'
 
 // Mock the API module
 vi.mock('../../api/system', () => ({
