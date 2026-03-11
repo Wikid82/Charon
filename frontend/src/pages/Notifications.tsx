@@ -703,12 +703,13 @@ const Notifications: FC = () => {
                       onClick={() => testMutation.mutate({ ...provider, type: normalizeProviderType(provider.type) })}
                       isLoading={testMutation.isPending}
                       title={t('notificationProviders.sendTest')}
+                      aria-label={t('notificationProviders.sendTest')}
                     >
                       <Send className="w-4 h-4" />
                     </Button>
                   )}
                   {!isUnsupportedProviderType(provider.type) && (
-                    <Button variant="secondary" size="sm" onClick={() => setEditingId(provider.id)}>
+                    <Button variant="secondary" size="sm" onClick={() => setEditingId(provider.id)} aria-label={t('common.edit')}>
                       <Edit2 className="w-4 h-4" />
                     </Button>
                   )}
@@ -718,6 +719,7 @@ const Notifications: FC = () => {
                     onClick={() => {
                       if (confirm(t('notificationProviders.deleteConfirm'))) deleteMutation.mutate(provider.id);
                     }}
+                    aria-label={t('common.delete')}
                   >
                     <Trash2 className="w-4 h-4" />
                   </Button>

@@ -1,686 +1,497 @@
-# Telegram Notification Provider — Implementation Plan
+# Telegram Notification Provider — Test Failure Remediation Plan
 
-**Date:** 2026-07-10
+**Date:** 2026-03-11
 **Author:** Planning Agent
-**Confidence Score:** 92% (High — existing patterns well-established, Telegram Bot API straightforward)
+**Status:** Remediation Required — All security scans pass, test failures block merge
+**Previous Plan:** Archived as `docs/plans/telegram_implementation_spec.md`
 
 ---
 
 ## 1. Introduction
 
-### Objective
+The Telegram notification provider feature is functionally complete with passing security scans and coverage gates. However, **56 E2E test failures** and **2 frontend unit test failures** block the PR merge. This plan identifies root causes, categorises each failure set, and provides specific remediation steps.
 
-Add Telegram as a first-class notification provider in Charon, following the established architecture used by Discord, Gotify, Email, and generic Webhook providers.
+### Failure Summary
 
-### Goals
+| Spec File | Failures | Browsers | Unique Est. | Category |
+|---|---|---|---|---|
+| `notifications.spec.ts` | 48 | 3 | ~16 | **Our change** |
+| `notifications-payload.spec.ts` | 18 | 3 | ~6 | **Our change** |
+| `telegram-notification-provider.spec.ts` | 4 | 1–3 | ~2 | **Our change** |
+| `encryption-management.spec.ts` | 20 | 3 | ~7 | Pre-existing |
+| `auth-middleware-cascade.spec.ts` | 18 | 3 | 6 | Pre-existing |
+| `Notifications.test.tsx` (unit) | 2 | — | 2 | **Our change** |
 
-- Users can configure a Telegram bot token and chat ID to receive notifications via Telegram
-- All existing notification event types (proxy hosts, certs, uptime, security events) work with Telegram
-- JSON template engine (minimal/detailed/custom) works with Telegram
-- Feature flag allows enabling/disabling Telegram dispatch independently
-- Token is treated as a secret (write-only, never exposed in API responses)
-- Full test coverage: Go unit tests, Vitest frontend tests, Playwright E2E tests
-
-### Telegram Bot API Overview
-
-Telegram bots send messages via:
-
-```
-POST https://api.telegram.org/bot<BOT_TOKEN>/sendMessage
-Content-Type: application/json
-
-{
-  "chat_id": "<CHAT_ID>",
-  "text": "Hello world",
-  "parse_mode": "HTML"    // optional: "HTML" or "MarkdownV2"
-}
-```
-
-**Key design decisions:**
-- **Token storage:** The bot token is stored in `NotificationProvider.Token` (`json:"-"`, encrypted at rest) — never in the URL field. This mirrors the Gotify pattern where secrets are separated from endpoints.
-- **URL field:** Stores only the `chat_id` (e.g., `987654321`). At dispatch time, the full API URL is constructed dynamically: `https://api.telegram.org/bot` + decryptedToken + `/sendMessage`. The `chat_id` is passed in the POST body alongside the message text. This prevents token leakage via API responses since URL is `json:"url"`.
-- **SSRF mitigation:** Before dispatching, validate that the constructed URL hostname is exactly `api.telegram.org`. This prevents SSRF if stored data is tampered with.
-- **Dispatch path:** Uses `sendJSONPayload` → `httpWrapper.Send()` (same as Gotify), since both are token-based JSON POST providers
-- **No schema migration needed:** The existing `NotificationProvider` model accommodates Telegram without changes
-
-> **Supervisor Review Note:** The original design embedded the bot token in the URL field (`https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=<CHAT_ID>`). This was rejected because the URL field is `json:"url"` — exposed in every API response. The token MUST only reside in the `Token` field (`json:"-"`).
+CI retries: 2 per test (`playwright.config.js` L144). Failure counts above represent unique test failures × browser projects.
 
 ---
 
-## 2. Research Findings
+## 2. Root Cause Analysis
 
-### Existing Architecture
+### Root Cause A: `isNew` Guard on Test Button (CRITICAL — Causes ~80% of failures)
 
-The notification system follows a provider-based architecture:
-
-| Layer | File | Role |
-|-------|------|------|
-| Feature flags | `backend/internal/notifications/feature_flags.go` | Flag constants (`FlagXxxServiceEnabled`) |
-| Feature flag handler | `backend/internal/api/handlers/feature_flags_handler.go` | DB-backed flags with defaults |
-| Router | `backend/internal/notifications/router.go` | `ShouldUseNotify()` per-type dispatch |
-| Service | `backend/internal/services/notification_service.go` | Core dispatch: `isSupportedNotificationProviderType()`, `isDispatchEnabled()`, `supportsJSONTemplates()`, `sendJSONPayload()`, `TestProvider()` |
-| Handlers | `backend/internal/api/handlers/notification_provider_handler.go` | CRUD + type validation + token preservation |
-| Model | `backend/internal/models/notification_provider.go` | GORM model with Token (json:"-"), HasToken |
-| Frontend API | `frontend/src/api/notifications.ts` | `SUPPORTED_NOTIFICATION_PROVIDER_TYPES`, sanitization |
-| Frontend UI | `frontend/src/pages/Notifications.tsx` | Provider form with conditional fields per type |
-| i18n | `frontend/src/locales/en/translation.json` | Label strings |
-| E2E fixtures | `tests/fixtures/notifications.ts` | `telegramProvider` **already defined** |
-
-### Existing Provider Addition Points (Switch Statements / Type Checks)
-
-Every location that checks provider types is listed below — all require a `"telegram"` case:
-
-| # | File | Function/Line | Current Logic |
-|---|------|---------------|---------------|
-| 1 | `feature_flags.go` | Constants | Missing `FlagTelegramServiceEnabled` |
-| 2 | `feature_flags_handler.go` | `defaultFlags` + `defaultFlagValues` | Missing telegram entry |
-| 3 | `router.go` | `ShouldUseNotify()` switch | Missing `case "telegram"` |
-| 4 | `notification_service.go` | `isSupportedNotificationProviderType()` | `case "discord", "email", "gotify", "webhook"` |
-| 5 | `notification_service.go` | `isDispatchEnabled()` | switch with per-type flag checks |
-| 6 | `notification_service.go` | `supportsJSONTemplates()` | `case "webhook", "discord", "gotify", "slack", "generic"` |
-| 7 | `notification_service.go` | `sendJSONPayload()` — service-specific validation | Missing `case "telegram"` for payload validation |
-| 8 | `notification_service.go` | `sendJSONPayload()` — dispatch branch | Gotify/webhook use `httpWrapper.Send()`; others use `ValidateExternalURL` + `SafeHTTPClient` |
-| 9 | `notification_provider_handler.go` | `Create()` type guard | `providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email"` |
-| 10 | `notification_provider_handler.go` | `Update()` type guard | Same pattern as Create |
-| 11 | `notification_provider_handler.go` | `Update()` token preservation | `if providerType == "gotify" && strings.TrimSpace(req.Token) == ""` |
-| 12 | `notifications.ts` | `SUPPORTED_NOTIFICATION_PROVIDER_TYPES` | `['discord', 'gotify', 'webhook', 'email']` |
-| 13 | `notifications.ts` | `sanitizeProviderForWriteAction()` | Token handling only for `type !== 'gotify'` |
-| 14 | `Notifications.tsx` | Type `<select>` options | discord/gotify/webhook/email |
-| 15 | `Notifications.tsx` | `normalizeProviderPayloadForSubmit()` | Token mapping only for `type === 'gotify'` |
-| 16 | `Notifications.tsx` | Conditional form fields | `isGotify` shows token input |
-
-### Test Files Requiring Updates
-
-| File | Current Behavior | Required Change |
-|------|-----------------|-----------------|
-| `notification_service_test.go` (~L1819) | `TestTestProvider_NotifyOnlyRejectsUnsupportedProvider` tests `"telegram"` as **unsupported** | Change: telegram is now supported |
-| `notification_service_json_test.go` | Discord/Slack/Gotify/Webhook JSON tests | Add telegram payload validation tests |
-| `notification_provider_handler_test.go` | CRUD tests with supported types | Add telegram to supported type lists |
-| `enhanced_security_notification_service_test.go` (~L139) | `Type: "telegram"` marked `// Should be filtered` | Change: telegram is now valid |
-| `frontend/src/api/notifications.test.ts` | Rejects `"telegram"` as unsupported | Accept telegram, add CRUD tests |
-| `frontend/src/api/__tests__/notifications.test.ts` | Same rejection | Same fix |
-| `tests/settings/notifications.spec.ts` | CRUD E2E for discord/gotify/webhook/email | Add telegram scenarios |
-
-### E2E Fixture Already Defined
+**What changed:** The Telegram feature added a guard in `Notifications.tsx` (L117-124) that blocks the "Test" button for new (unsaved) providers:
 
 ```typescript
-// tests/fixtures/notifications.ts
-// NOTE: Fixture must be updated — URL should contain only the chat_id, token goes in the token field
-export const telegramProvider: NotificationProviderConfig = {
-  name: generateProviderName('telegram'),
-  type: 'telegram',
-  url: '987654321',  // chat_id only — bot token is stored in the Token field
-  token: 'bot123456789:ABCdefGHIjklMNOpqrSTUvwxYZ',  // stored encrypted, never in API responses
-  enabled: true,
-  notify_proxy_hosts: true,
-  notify_certs: true,
-  notify_uptime: true,
+// Line 117-124: handleTest() early return guard
+const handleTest = () => {
+  const formData = watch();
+  const currentType = normalizeProviderType(formData.type);
+  if (!formData.id && currentType !== 'email') {
+    toast.error(t('notificationProviders.saveBeforeTesting'));
+    return;
+  }
+  testMutation.mutate({ ...formData, type: currentType } as Partial<NotificationProvider>);
 };
 ```
 
+And a `disabled` attribute on the test button at `Notifications.tsx` (L382):
+
+```typescript
+// Line 382: Button disabled state
+disabled={testMutation.isPending || (isNew && !isEmail)}
+```
+
+**Why it was added:** The backend `Test` handler at `notification_provider_handler.go` (L333-336) requires a saved provider ID for all non-email types. For Gotify/Telegram, the server needs the stored token. For Discord/Webhook, the server still fetches the provider from DB. Without a saved provider, the backend returns `MISSING_PROVIDER_ID`.
+
+**Why it breaks tests:** Many existing E2E and unit tests click the test button from a **new (unsaved) provider form** using mocked endpoints. With the new guard:
+1. The `<button>` is `disabled` → browser ignores clicks → mocked routes never receive requests
+2. Even if not disabled, `handleTest()` returns early with a toast instead of calling `testMutation.mutate()`
+3. Tests that `waitForRequest` on `/providers/test` time out (60s default)
+4. Tests that assert on `capturedTestPayload` find `null`
+
+**Is the guard correct?** Yes — it matches the backend's security-by-design constraint. The tests need to be adapted to the new behavior, not the guard removed.
+
+### Root Cause B: Pre-existing Infrastructure Failures (encryption-management, auth-middleware-cascade)
+
+**encryption-management.spec.ts** (17 tests, ~7 unique failures) navigates to `/security/encryption` and tests key rotation, validation, and history display. **Zero overlap** with notification provider code paths. No files modified in the Telegram PR affect encryption.
+
+**auth-middleware-cascade.spec.ts** (6 tests, all 6 fail) uses deprecated `waitUntil: 'networkidle'`, creates proxy hosts via UI forms (`getByLabel(/domain/i)`), and tests auth flows through Caddy. **Zero overlap** with notification code. These tests have known fragility from UI element selectors and `networkidle` waits.
+
+**Verdict:** Both are pre-existing failures. They should be tracked separately and not block the Telegram PR.
+
+### Root Cause C: Telegram E2E Spec Issues (4 failures)
+
+The `telegram-notification-provider.spec.ts` has 8 tests, with ~2 unique failures. Most likely candidates:
+
+1. **"should edit telegram notification provider and preserve token"** (L159): Uses fragile keyboard navigation (focus Send Test → Tab → Enter) to reach the Edit button. If the `title` attribute on the Send Test button doesn't match the accessible name pattern `/send test/i`, or if the tab order is affected by any intermediate focusable element, the Enter press activates the wrong button or nothing at all.
+
+2. **"should test telegram notification provider"** (L265): Clicks the row-level "Send Test" button. The locator uses `getByRole('button', { name: /send test/i })`. The button has `title={t('notificationProviders.sendTest')}` which renders as "Send Test". This should work, but the `title` attribute contributing to accessible name can be browser-dependent, particularly in WebKit.
+
 ---
 
-## 3. Technical Specifications
+## 3. Affected Tests — Complete Inventory
 
-### 3.1 Backend — Feature Flags
+### 3.1 E2E Tests: `notifications.spec.ts` (Test Button on New Form)
 
-**File:** `backend/internal/notifications/feature_flags.go`
+These tests open the "Add Provider" form (no `id`), click `provider-test-btn`, and expect API interactions. The disabled button now prevents all interaction.
 
-Add constant:
+| # | Test Name | Line | Type Used | Failure Mode |
+|---|---|---|---|---|
+| 1 | should test notification provider | L1085 | discord | `waitForRequest` times out — button disabled |
+| 2 | should show test success feedback | L1142 | discord | Success icon never appears — no click fires |
+| 3 | should preserve Discord request payload contract for save, preview, and test | L1236 | discord | `capturedTestPayload` is null — button disabled |
+| 4 | should show error when test fails | L1665 | discord | Error icon never appears — no click fires |
 
-```go
-FlagTelegramServiceEnabled = "feature.notifications.service.telegram.enabled"
-```
+**Additional cascade effects:** The user reports ~16 unique failures from this file. The 4 above are directly caused by the `isNew` guard. Remaining failures may stem from cascading timeout effects, `beforeEach` state leakage after long timeouts, or other pre-existing flakiness amplified by the 60s timeout waterfall.
 
-**File:** `backend/internal/api/handlers/feature_flags_handler.go`
+### 3.2 E2E Tests: `notifications-payload.spec.ts` (Test Button on New Form)
 
-Add to `defaultFlags` slice:
+| # | Test Name | Line | Type Used | Failure Mode |
+|---|---|---|---|---|
+| 1 | provider-specific transformation strips gotify token from test and preview payloads | L264 | gotify | `provider-test-btn` disabled for new gotify form; `capturedTestPayload` is null |
+| 2 | retry split distinguishes retryable and non-retryable failures | L410 | webhook | `provider-test-btn` disabled for new webhook form; `waitForResponse` times out |
 
-```go
-notifications.FlagTelegramServiceEnabled,
-```
+**Tests that should still pass:**
+- `valid payload flows for discord, gotify, and webhook` (L54) — uses `provider-save-btn`, not test button
+- `malformed payload scenarios` (L158) — API-level tests via `page.request.post`
+- `missing required fields block submit` (L192) — uses save button
+- `auth/header behavior checks` (L217) — API-level tests
+- `security: SSRF` (L314) — API-level tests
+- `security: DNS-rebinding` (L381) — API-level tests
+- `security: token does not leak` (L512) — API-level tests
 
-Add to `defaultFlagValues` map:
+### 3.3 E2E Tests: `telegram-notification-provider.spec.ts`
 
-```go
-notifications.FlagTelegramServiceEnabled: true,
-```
+| # | Test Name | Line | Probable Failure Mode |
+|---|---|---|---|
+| 1 | should edit telegram notification provider and preserve token | L159 | Keyboard navigation (Tab from Send Test → Edit) fragility; may hit wrong element on some browsers |
+| 2 | should test telegram notification provider | L265 | Row-level Send Test button; possible accessible name mismatch in WebKit with `title` attribute |
 
-> **Note:** Telegram is **enabled by default** once the provider is toggled on in the UI, matching Gotify/Webhook behavior. The feature flag exists as an admin-level kill switch, not a setup gate.
+**Tests that should pass:**
+- Form rendering tests (L25, L65) — UI assertions only
+- Create telegram provider (L89) — mocked POST
+- Delete telegram provider (L324) — mocked DELETE + confirm dialog
+- Security tests (L389, L436) — mock-based assertions
 
-### 3.2 Backend — Router
+### 3.4 Frontend Unit Tests: `Notifications.test.tsx`
 
-**File:** `backend/internal/notifications/router.go`
+| # | Test Name | Line | Failure Mode |
+|---|---|---|---|
+| 1 | submits provider test action from form using normalized discord type | L447 | `userEvent.click()` on disabled button is no-op → `testProvider` never called → `waitFor` times out |
+| 2 | shows error toast when test mutation fails | L569 | Same — disabled button prevents click → `toast.error` with `saveBeforeTesting` fires instead of mutation error |
 
-Add to `ShouldUseNotify()` switch:
+### 3.5 Pre-existing (Not Caused By Telegram PR)
 
-```go
-case "telegram":
-    return flags[FlagTelegramServiceEnabled]
-```
+| Spec | Tests | Rationale |
+|---|---|---|
+| `encryption-management.spec.ts` | ~7 unique | Tests encryption page at `/security/encryption`. No code overlap. |
+| `auth-middleware-cascade.spec.ts` | 6 unique | Tests proxy creation + auth middleware. Uses `networkidle`. No code overlap. |
 
-### 3.3 Backend — Notification Service
+---
 
-**File:** `backend/internal/services/notification_service.go`
+## 4. Remediation Plan
 
-#### `isSupportedNotificationProviderType()`
+### Priority Order
 
-```go
-case "discord", "email", "gotify", "webhook", "telegram":
-    return true
-```
+1. **P0 — Fix unit tests** (fastest, unblocks local dev verification)
+2. **P1 — Fix E2E test-button tests** (the core regression from our change)
+3. **P2 — Fix telegram spec fragility** (new tests we added)
+4. **P3 — Document pre-existing failures** (not our change, track separately)
 
-#### `isDispatchEnabled()`
+---
 
-```go
-case "telegram":
-    return s.getFeatureFlagValue(notifications.FlagTelegramServiceEnabled, true)
-```
+### 4.1 P0: Frontend Unit Test Fixes
 
-Both `defaultFlagValues` (initial DB seed) and the `isDispatchEnabled()` fallback are `true` — Telegram is enabled by default once the provider is created in the UI. This matches Gotify/Webhook behavior (enabled-by-default, admin kill-switch via feature flag).
+**File:** `frontend/src/pages/__tests__/Notifications.test.tsx`
 
-#### `supportsJSONTemplates()`
+#### Fix 1: "submits provider test action from form using normalized discord type" (L447)
 
-```go
-case "webhook", "discord", "gotify", "slack", "generic", "telegram":
-    return true
-```
+**Problem:** Test opens "Add Provider" (new form, no `id`), clicks test button. Button is now disabled for new providers.
 
-#### `sendJSONPayload()` — Service-Specific Validation
-
-Add after the `case "gotify":` block:
-
-```go
-case "telegram":
-    // Telegram requires 'text' field for the message body
-    if _, hasText := jsonPayload["text"]; !hasText {
-        // Auto-map 'message' to 'text' if present (template compatibility)
-        if messageValue, hasMessage := jsonPayload["message"]; hasMessage {
-            jsonPayload["text"] = messageValue
-            normalizedBody, marshalErr := json.Marshal(jsonPayload)
-            if marshalErr != nil {
-                return fmt.Errorf("failed to normalize telegram payload: %w", marshalErr)
-            }
-            body.Reset()
-            if _, writeErr := body.Write(normalizedBody); writeErr != nil {
-                return fmt.Errorf("failed to write normalized telegram payload: %w", writeErr)
-            }
-        } else {
-            return fmt.Errorf("telegram payload requires 'text' field")
-        }
-    }
-```
-
-This auto-mapping mirrors the Discord pattern (`message` → `content`) so that the built-in `minimal` and `detailed` templates (which use `"message"` as a field) work out of the box with Telegram.
-
-#### `sendJSONPayload()` — Dispatch Branch
-
-Add `"telegram"` to the `httpWrapper.Send()` dispatch branch alongside gotify/webhook:
-
-```go
-if providerType == "gotify" || providerType == "webhook" || providerType == "telegram" {
-```
-
-For telegram, the dispatch URL must be **constructed at send time** from the stored token and chat_id:
-
-```go
-case "telegram":
-    // Construct the API URL dynamically — token is NEVER stored in the URL field
-    decryptedToken := provider.Token // already decrypted by service layer
-    dispatchURL = "https://api.telegram.org/bot" + decryptedToken + "/sendMessage"
-
-    // SSRF mitigation: validate hostname before dispatch
-    parsedURL, err := url.Parse(dispatchURL)
-    if err != nil || parsedURL.Hostname() != "api.telegram.org" {
-        return fmt.Errorf("telegram dispatch URL validation failed: invalid hostname")
-    }
-
-    // Inject chat_id into the JSON payload body (URL field stores the chat_id)
-    jsonPayload["chat_id"] = provider.URL
-    // Re-marshal the payload with chat_id included
-    updatedBody, marshalErr := json.Marshal(jsonPayload)
-    if marshalErr != nil {
-        return fmt.Errorf("failed to marshal telegram payload with chat_id: %w", marshalErr)
-    }
-    body.Reset()
-    body.Write(updatedBody)
-```
-
-The `X-Gotify-Key` header is only set when `providerType == "gotify"` — no header changes needed for telegram.
-
-#### `TestProvider()` — Telegram-Specific Error Message
-
-When testing a Telegram provider and the API returns HTTP 401 or 403, return a specific error message:
-
-```go
-case "telegram":
-    if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-        return fmt.Errorf("provider rejected authentication. Verify your Telegram Bot Token")
-    }
-```
-
-This gives users actionable guidance instead of a generic HTTP status error.
-
-### 3.4 Backend — Handler Layer
-
-**File:** `backend/internal/api/handlers/notification_provider_handler.go`
-
-#### `Create()` Type Guard
-
-```go
-if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" && providerType != "telegram" {
-```
-
-#### `Update()` Type Guard
-
-Same change as Create:
-
-```go
-if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" && providerType != "telegram" {
-```
-
-#### `Update()` Token Preservation
-
-Telegram bot tokens should be preserved on update when the user omits them (same UX as Gotify):
-
-```go
-if (providerType == "gotify" || providerType == "telegram") && strings.TrimSpace(req.Token) == "" {
-    req.Token = existing.Token
-}
-```
-
-### 3.5 Backend — Model (No Changes)
-
-The `NotificationProvider` model already has:
-
-- `Token string` with `json:"-"` (write-only, never exposed)
-- `HasToken bool` with `gorm:"-"` (computed field for frontend)
-- `URL string` for the endpoint
-- `ServiceConfig string` for extra JSON config (available for `parse_mode` if needed)
-
-No schema migration is required.
-
-### 3.6 Frontend — API Client
-
-**File:** `frontend/src/api/notifications.ts`
-
-#### Supported Types Array
+**Fix:** Change to test from an **existing provider's edit form** instead of a new form. This preserves the original intent (verifying the test payload uses normalized type).
 
 ```typescript
-export const SUPPORTED_NOTIFICATION_PROVIDER_TYPES = ['discord', 'gotify', 'webhook', 'email', 'telegram'] as const;
+// BEFORE (L447-462):
+it('submits provider test action from form using normalized discord type', async () => {
+  vi.mocked(notificationsApi.testProvider).mockResolvedValue()
+  const user = userEvent.setup()
+  renderWithQueryClient(<Notifications />)
+
+  await user.click(await screen.findByTestId('add-provider-btn'))
+  await user.type(screen.getByTestId('provider-name'), 'Preview/Test Provider')
+  await user.type(screen.getByTestId('provider-url'), 'https://example.com/webhook')
+  await user.click(screen.getByTestId('provider-test-btn'))
+
+  await waitFor(() => {
+    expect(notificationsApi.testProvider).toHaveBeenCalled()
+  })
+  const payload = vi.mocked(notificationsApi.testProvider).mock.calls[0][0]
+  expect(payload.type).toBe('discord')
+})
+
+// AFTER:
+it('submits provider test action from form using normalized discord type', async () => {
+  vi.mocked(notificationsApi.testProvider).mockResolvedValue()
+  setupMocks([baseProvider])          // baseProvider has an id
+  const user = userEvent.setup()
+  renderWithQueryClient(<Notifications />)
+
+  // Open edit form for existing provider (has id → test button enabled)
+  const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
+  const buttons = within(row).getAllByRole('button')
+  await user.click(buttons[1]) // Edit button
+
+  await user.click(screen.getByTestId('provider-test-btn'))
+
+  await waitFor(() => {
+    expect(notificationsApi.testProvider).toHaveBeenCalled()
+  })
+  const payload = vi.mocked(notificationsApi.testProvider).mock.calls[0][0]
+  expect(payload.type).toBe('discord')
+})
 ```
 
-#### `sanitizeProviderForWriteAction()`
+#### Fix 2: "shows error toast when test mutation fails" (L569)
 
-**Minimal diff only.** Change only the type guard condition from:
+**Problem:** Same — test opens new form, clicks test button, expects mutation error toast. Button is disabled.
+
+**Fix:** Test from an existing provider's edit form.
 
 ```typescript
-if (type !== 'gotify') {
+// BEFORE (L569-582):
+it('shows error toast when test mutation fails', async () => {
+  vi.mocked(notificationsApi.testProvider).mockRejectedValue(new Error('Connection refused'))
+  const user = userEvent.setup()
+  renderWithQueryClient(<Notifications />)
+
+  await user.click(await screen.findByTestId('add-provider-btn'))
+  await user.type(screen.getByTestId('provider-name'), 'Failing Provider')
+  await user.type(screen.getByTestId('provider-url'), 'https://example.com/webhook')
+  await user.click(screen.getByTestId('provider-test-btn'))
+
+  await waitFor(() => {
+    expect(toast.error).toHaveBeenCalledWith('Connection refused')
+  })
+})
+
+// AFTER:
+it('shows error toast when test mutation fails', async () => {
+  vi.mocked(notificationsApi.testProvider).mockRejectedValue(new Error('Connection refused'))
+  setupMocks([baseProvider])
+  const user = userEvent.setup()
+  renderWithQueryClient(<Notifications />)
+
+  // Open edit form for existing provider
+  const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
+  const buttons = within(row).getAllByRole('button')
+  await user.click(buttons[1]) // Edit button
+
+  await user.click(screen.getByTestId('provider-test-btn'))
+
+  await waitFor(() => {
+    expect(toast.error).toHaveBeenCalledWith('Connection refused')
+  })
+})
 ```
 
-to:
+#### Bonus: Add a NEW unit test for the `saveBeforeTesting` guard
 
 ```typescript
-if (type !== 'gotify' && type !== 'telegram') {
+it('disables test button when provider is new (unsaved) and not email type', async () => {
+  const user = userEvent.setup()
+  renderWithQueryClient(<Notifications />)
+
+  await user.click(await screen.findByTestId('add-provider-btn'))
+  const testBtn = screen.getByTestId('provider-test-btn')
+  expect(testBtn).toBeDisabled()
+})
 ```
 
-The surrounding normalization logic (token stripping, payload return) MUST remain untouched. No other lines in this function change.
+---
 
-#### `sanitizeProviderForReadLikeAction()`
+### 4.2 P1: E2E Test Fixes — notifications.spec.ts
 
-No changes — already calls `sanitizeProviderForWriteAction()` then strips token.
+**File:** `tests/settings/notifications.spec.ts`
 
-### 3.7 Frontend — Notifications Page
+**Strategy:** For tests that click the test button from a new form, restructure the flow to:
+1. First **save** the provider (mocked create → returns id)
+2. Then **test** from the saved provider row's Send Test button (row buttons are not gated by `isNew`)
 
-**File:** `frontend/src/pages/Notifications.tsx`
+#### Fix 3: "should test notification provider" (L1085)
 
-#### Type Select Options
+**Current flow:** Add form → fill → mock test endpoint → click `provider-test-btn` → verify request
+**Problem:** Test button disabled for new form
+**Fix:** Save first, then click test from the provider row's Send Test button.
 
-Add after the email option:
+```typescript
+// In the test, after filling the form and before clicking test:
 
+// 1. Mock the create endpoint to return a provider with an id
+await page.route('**/api/v1/notifications/providers', async (route, request) => {
+  if (request.method() === 'POST') {
+    const payload = await request.postDataJSON();
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'saved-test-id', ...payload }),
+    });
+  } else if (request.method() === 'GET') {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{
+        id: 'saved-test-id',
+        name: 'Test Provider',
+        type: 'discord',
+        url: 'https://discord.com/api/webhooks/test/token',
+        enabled: true
+      }]),
+    });
+  } else {
+    await route.continue();
+  }
+});
+
+// 2. Save the provider first
+await page.getByTestId('provider-save-btn').click();
+
+// 3. Wait for the provider to appear in the list
+await expect(page.getByText('Test Provider')).toBeVisible({ timeout: 5000 });
+
+// 4. Click row-level Send Test button
+const providerRow = page.getByTestId('provider-row-saved-test-id');
+const sendTestButton = providerRow.getByRole('button', { name: /send test/i });
+await sendTestButton.click();
+```
+
+#### Fix 4: "should show test success feedback" (L1142)
+
+Same pattern as Fix 3: save provider first, then test from row.
+
+#### Fix 5: "should preserve Discord request payload contract for save, preview, and test" (L1236)
+
+**Current flow:** Add form → fill → click preview → click test → save → verify all payloads
+**Problem:** Test button disabled for new form
+**Fix:** Reorder to: Add form → fill → click preview → **save** → **test from row** → verify payloads
+
+The preview button is NOT disabled for new forms (only the test button is), so preview still works from the new form. The test step must happen after save.
+
+#### Fix 6: "should show error when test fails" (L1665)
+
+Same pattern: save first, then test from row.
+
+---
+
+### 4.3 P1: E2E Test Fixes — notifications-payload.spec.ts
+
+**File:** `tests/settings/notifications-payload.spec.ts`
+
+#### Fix 7: "provider-specific transformation strips gotify token from test and preview payloads" (L264)
+
+**Current flow:** Add gotify form → fill with token → click preview → click test → verify token not in payloads
+**Problem:** Test button disabled for new gotify form
+**Fix:** Preview still works from new form. For test, save first, then test from the saved provider row.
+
+**Note:** The row-level test call uses `{ ...provider, type: normalizeProviderType(provider.type) }` where `provider` is the list item (which never contains `token/gotify_token` per the List handler that strips tokens). So the token-stripping assertion naturally holds for row-level tests.
+
+#### Fix 8: "retry split distinguishes retryable and non-retryable failures" (L410)
+
+**Current flow:** Add webhook form → fill → click test → verify retry semantics
+**Problem:** Test button disabled for new webhook form
+**Fix:** Save first (mock create), then open edit form (which has `id`) or test from the row.
+
+---
+
+### 4.4 P2: Telegram E2E Spec Hardening
+
+**File:** `tests/settings/telegram-notification-provider.spec.ts`
+
+#### Fix 9: "should edit telegram notification provider and preserve token" (L159)
+
+**Problem:** Uses fragile keyboard navigation to reach the Edit button:
+```typescript
+await sendTestButton.focus();
+await page.keyboard.press('Tab');
+await page.keyboard.press('Enter');
+```
+
+This assumes Tab from Send Test lands on Edit. Tab order can vary across browsers.
+
+**Fix:** Use a direct locator for the Edit button instead of keyboard navigation:
+
+```typescript
+// BEFORE:
+await sendTestButton.focus();
+await page.keyboard.press('Tab');
+await page.keyboard.press('Enter');
+
+// AFTER:
+const editButton = providerRow.getByRole('button').nth(1); // Send Test=0, Edit=1
+await editButton.click();
+```
+
+Or use a structural locator based on the edit icon class.
+
+#### Fix 10: "should test telegram notification provider" (L265)
+
+**Probable issue:** The `getByRole('button', { name: /send test/i })` relies on `title` for accessible name. WebKit may not compute accessible name from `title` the same way.
+
+**Fix (source — preferred):** Add explicit `aria-label` to the row Send Test button in `Notifications.tsx` (L703):
 ```tsx
-<option value="telegram">Telegram</option>
+<Button
+  variant="secondary"
+  size="sm"
+  onClick={() => testMutation.mutate({...})}
+  title={t('notificationProviders.sendTest')}
+  aria-label={t('notificationProviders.sendTest')}
+>
 ```
 
-#### Computed Flags
-
+**Fix (test — alternative):** Use structural locator:
 ```typescript
-const isTelegram = type === 'telegram';
+const sendTestButton = providerRow.locator('button').first();
 ```
-
-#### `normalizeProviderPayloadForSubmit()`
-
-Add telegram branch alongside gotify:
-
-```typescript
-if (type === 'gotify' || type === 'telegram') {
-    const normalizedToken = typeof payload.gotify_token === 'string' ? payload.gotify_token.trim() : '';
-    if (normalizedToken.length > 0) {
-        payload.token = normalizedToken;
-    } else {
-        delete payload.token;
-    }
-} else {
-    delete payload.token;
-}
-```
-
-Note: Reuses the `gotify_token` form field for both Gotify and Telegram since both need a token input. This minimizes UI changes. The field label changes based on provider type.
-
-#### Token Input Field
-
-Expand the conditional from `{isGotify && (` to `{(isGotify || isTelegram) && (`:
-
-```tsx
-{(isGotify || isTelegram) && (
-    <div>
-        <label htmlFor="provider-gotify-token" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            {isTelegram ? t('notificationProviders.telegramBotToken') : t('notificationProviders.gotifyToken')}
-        </label>
-        <input
-            id="provider-gotify-token"
-            type="password"
-            autoComplete="new-password"
-            {...register('gotify_token')}
-            data-testid="provider-gotify-token"
-            placeholder={initialData?.has_token
-                ? t('notificationProviders.gotifyTokenKeepPlaceholder')
-                : isTelegram
-                    ? t('notificationProviders.telegramBotTokenPlaceholder')
-                    : t('notificationProviders.gotifyTokenPlaceholder')}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
-            aria-describedby={initialData?.has_token ? 'gotify-token-stored-hint' : undefined}
-        />
-        {initialData?.has_token && (
-            <p id="gotify-token-stored-hint" data-testid="gotify-token-stored-indicator" className="text-xs text-green-600 dark:text-green-400 mt-1">
-                {t('notificationProviders.gotifyTokenStored')}
-            </p>
-        )}
-        <p className="text-xs text-gray-500 mt-1">{t('notificationProviders.gotifyTokenWriteOnlyHint')}</p>
-    </div>
-)}
-```
-
-#### URL Field Placeholder
-
-For Telegram, the URL field stores the chat_id (not a full URL). Update the placeholder and label accordingly:
-
-```typescript
-placeholder={
-    isEmail ? 'user@example.com, admin@example.com'
-    : type === 'discord' ? 'https://discord.com/api/webhooks/...'
-    : type === 'gotify' ? 'https://gotify.example.com/message'
-    : isTelegram ? '987654321'
-    : 'https://example.com/webhook'
-}
-```
-
-Update the label for the URL field when type is telegram:
-
-```typescript
-label={isTelegram ? t('notificationProviders.telegramChatId') : t('notificationProviders.url')}
-```
-
-#### Clear Token on Type Change
-
-Update the existing `useEffect` that clears `gotify_token`:
-
-```typescript
-useEffect(() => {
-    if (type !== 'gotify' && type !== 'telegram') {
-        setValue('gotify_token', '', { shouldDirty: false, shouldTouch: false });
-    }
-}, [type, setValue]);
-```
-
-### 3.8 Frontend — i18n Strings
-
-**File:** `frontend/src/locales/en/translation.json`
-
-Add to the `notificationProviders` section:
-
-```json
-"telegram": "Telegram",
-"telegramBotToken": "Bot Token",
-"telegramBotTokenPlaceholder": "Enter your Telegram Bot Token",
-"telegramChatId": "Chat ID",
-"telegramChatIdPlaceholder": "987654321",
-"telegramChatIdHelp": "Your Telegram chat, group, or channel ID. The bot token is stored securely and separately."
-```
-
-### 3.9 API Contract (No Changes)
-
-The existing REST endpoints remain unchanged:
-
-| Method | Endpoint | Notes |
-|--------|----------|-------|
-| `GET` | `/api/notification-providers` | Returns all providers (token stripped) |
-| `POST` | `/api/notification-providers` | Create — now accepts `type: "telegram"` |
-| `PUT` | `/api/notification-providers/:id` | Update — token preserved if omitted |
-| `DELETE` | `/api/notification-providers/:id` | Delete — no type-specific logic |
-| `POST` | `/api/notification-providers/test` | Test — routes through `sendJSONPayload` |
-
-Request/response schemas are unchanged. The `type` field now accepts `"telegram"` in addition to existing values.
 
 ---
 
-## 4. Implementation Plan
+### 4.5 P3: Document Pre-existing Failures
 
-### Phase 1: Playwright E2E Tests (Test-First)
+**Action:** File separate issues (not part of this PR) for:
 
-**Rationale:** Per project conventions — write feature behaviour tests first.
+1. **encryption-management.spec.ts** — ~7 unique test failures in `/security/encryption`. Likely UI rendering timing issues or flaky selectors. No code overlap with Telegram PR.
 
-**New file:** `tests/settings/telegram-notification-provider.spec.ts`
-
-Modeled after `tests/settings/email-notification-provider.spec.ts`.
-
-Test scenarios:
-1. Create a Telegram provider (name, chat_id in URL field, bot token in token field, enable events)
-2. Verify provider appears in the list
-3. Edit the Telegram provider (change name, verify token preservation)
-4. Test the Telegram provider (mock API returns 200)
-5. Delete the Telegram provider
-6. **Negative security test:** Verify `GET /api/notification-providers` does NOT expose the bot token in any response field
-7. **Negative security test:** Verify bot token is NOT present in the URL field of the API response
-
-**Update file:** `tests/settings/notifications-payload.spec.ts`
-
-Add telegram to the payload matrix test scenarios.
-
-**E2E fixtures:** Update `telegramProvider` in `tests/fixtures/notifications.ts` — URL must contain only `chat_id`, token goes in the `token` field (see Research Findings section for updated fixture).
-
-### Phase 2: Backend Implementation
-
-**2A — Feature Flags (3 files)**
-
-| File | Change |
-|------|--------|
-| `backend/internal/notifications/feature_flags.go` | Add `FlagTelegramServiceEnabled` constant |
-| `backend/internal/api/handlers/feature_flags_handler.go` | Add to `defaultFlags` + `defaultFlagValues` |
-| `backend/internal/notifications/router.go` | Add `case "telegram"` to `ShouldUseNotify()` |
-
-**2B — Service Layer (1 file, 4 function changes)**
-
-| File | Function | Change |
-|------|----------|--------|
-| `notification_service.go` | `isSupportedNotificationProviderType()` | Add `"telegram"` to case |
-| `notification_service.go` | `isDispatchEnabled()` | Add `case "telegram"` with flag check |
-| `notification_service.go` | `supportsJSONTemplates()` | Add `"telegram"` to case |
-| `notification_service.go` | `sendJSONPayload()` | Add telegram validation + dispatch branch |
-
-**2C — Handler Layer (1 file, 3 locations)**
-
-| File | Location | Change |
-|------|----------|--------|
-| `notification_provider_handler.go` | `Create()` type guard | Add `&& providerType != "telegram"` |
-| `notification_provider_handler.go` | `Update()` type guard | Same |
-| `notification_provider_handler.go` | `Update()` token preservation | Add `|| providerType == "telegram"` |
-
-### Phase 3: Frontend Implementation
-
-**3A — API Client (1 file)**
-
-| File | Change |
-|------|--------|
-| `frontend/src/api/notifications.ts` | Add `'telegram'` to `SUPPORTED_NOTIFICATION_PROVIDER_TYPES`, update token sanitization logic |
-
-**3B — Notifications Page (1 file)**
-
-| File | Change |
-|------|--------|
-| `frontend/src/pages/Notifications.tsx` | Add telegram to type select, token field conditional, URL placeholder, `normalizeProviderPayloadForSubmit()`, type-change useEffect |
-
-**3C — Localization (1 file)**
-
-| File | Change |
-|------|--------|
-| `frontend/src/locales/en/translation.json` | Add telegram-specific label strings |
-
-### Phase 4: Backend Tests
-
-| Test File | Changes |
-|-----------|---------|
-| `notification_service_test.go` | Update "rejects unsupported provider" test (remove telegram from unsupported list). Add telegram dispatch/integration tests. |
-| `notification_service_json_test.go` | Add `TestSendJSONPayload_Telegram_*` tests: valid payload, missing text with message auto-map, missing both text and message, dispatch via httpWrapper, **SSRF hostname validation**, **401/403 error message** |
-| `notification_provider_handler_test.go` | Add telegram to Create/Update happy path tests, token preservation test. **Add negative test: verify GET response does not contain bot token in URL field or response body** |
-| `enhanced_security_notification_service_test.go` | Change telegram from "filtered" to "valid provider" in security dispatch tests |
-| Router test (if exists) | Add telegram to `ShouldUseNotify()` tests |
-
-### Phase 5: Frontend Tests
-
-| Test File | Changes |
-|-----------|---------|
-| `frontend/src/api/notifications.test.ts` | Remove telegram rejection test, add telegram CRUD sanitization tests |
-| `frontend/src/api/__tests__/notifications.test.ts` | Same changes (duplicate test location) |
-| `frontend/src/pages/Notifications.test.tsx` | Add telegram form rendering tests (token field visibility, placeholder text) |
-
-### Phase 6: Integration, Documentation & Deployment
-
-- Verify E2E tests pass with Docker container
-- Update `docs/features.md` with Telegram provider mention
-- No `ARCHITECTURE.md` changes needed (same provider pattern)
-- No database migration needed
+2. **auth-middleware-cascade.spec.ts** — All 6 tests fail × 3 browsers. Uses deprecated `waitUntil: 'networkidle'`, creates proxy hosts through fragile UI selectors (`getByLabel(/domain/i)`), and tests auth middleware cascade. Needs modernization pass for locators and waits.
 
 ---
 
-## 5. Acceptance Criteria
+## 5. Implementation Plan
 
-### EARS Requirements
+### Phase 1: Unit Test Fixes (Immediate)
 
-| ID | Requirement |
-|----|-------------|
-| T-01 | WHEN a user creates a notification provider with type "telegram", THE SYSTEM SHALL accept the provider and store it in the database |
-| T-02 | WHEN a user provides a bot token for a Telegram provider, THE SYSTEM SHALL store it securely and never expose it in API responses |
-| T-03 | WHEN a Telegram provider is enabled and a notification event fires, THE SYSTEM SHALL construct the Telegram API URL dynamically from the stored token (`https://api.telegram.org/bot` + token + `/sendMessage`), inject `chat_id` from the URL field into the POST body, and send the rendered template payload |
-| T-04 | WHEN the rendered JSON payload contains a "message" field but not a "text" field, THE SYSTEM SHALL auto-map "message" to "text" for Telegram compatibility |
-| T-05 | WHEN the Telegram feature flag is disabled, THE SYSTEM SHALL skip dispatch for all Telegram providers |
-| T-06 | WHEN a user updates a Telegram provider without providing a token, THE SYSTEM SHALL preserve the existing stored token |
-| T-07 | WHEN a user tests a Telegram provider, THE SYSTEM SHALL send a test notification through the standard sendJSONPayload path |
-| T-08 | WHEN the frontend renders the provider form with type "telegram", THE SYSTEM SHALL display a bot token input field and a chat_id input field (with appropriate placeholder) |
-| T-09 | WHEN dispatching a Telegram notification, THE SYSTEM SHALL validate that the constructed URL hostname is exactly `api.telegram.org` before sending (SSRF mitigation) |
-| T-10 | WHEN a Telegram test request receives HTTP 401 or 403, THE SYSTEM SHALL return the error message "Provider rejected authentication. Verify your Telegram Bot Token" |
-| T-11 | WHEN the API returns notification providers via GET, THE SYSTEM SHALL NOT include the bot token in the URL field or any other exposed response field |
+| Task | File | Lines | Complexity |
+|---|---|---|---|
+| Fix "submits provider test action" test | `Notifications.test.tsx` | L447-462 | Low |
+| Fix "shows error toast" test | `Notifications.test.tsx` | L569-582 | Low |
+| Add `saveBeforeTesting` guard unit test | `Notifications.test.tsx` | New | Low |
 
-### Definition of Done
+**Validation:** `cd frontend && npx vitest run src/pages/__tests__/Notifications.test.tsx`
 
-- [ ] All 16 code touchpoints updated (see section 2 table)
-- [ ] E2E Playwright tests pass for Telegram CRUD + test send
-- [ ] Backend unit tests cover: type registration, dispatch routing, payload validation (text field), token preservation, feature flag gating
-- [ ] Frontend unit tests cover: type array acceptance, sanitization, form rendering
-- [ ] `go test ./...` passes
-- [ ] `npm test` passes
-- [ ] `npx playwright test --project=firefox` passes
-- [ ] `make lint-fast` passes (staticcheck)
-- [ ] Coverage threshold maintained (85%+)
-- [ ] GORM security scan passes (no model changes, but verify)
-- [ ] Token never appears in API responses, logs, or frontend state
-- [ ] Negative security tests pass (bot token not in GET response body or URL field)
-- [ ] SSRF hostname validation test passes (only `api.telegram.org` allowed)
-- [ ] Telegram 401/403 returns specific auth error message
+### Phase 2: E2E Test Fixes — Core Regression
+
+| Task | File | Lines | Complexity |
+|---|---|---|---|
+| Fix "should test notification provider" | `notifications.spec.ts` | L1085-1138 | Medium |
+| Fix "should show test success feedback" | `notifications.spec.ts` | L1142-1178 | Medium |
+| Fix "should preserve Discord payload contract" | `notifications.spec.ts` | L1236-1340 | Medium |
+| Fix "should show error when test fails" | `notifications.spec.ts` | L1665-1706 | Medium |
+| Fix "transformation strips gotify token" | `notifications-payload.spec.ts` | L264-312 | Medium |
+| Fix "retry split retryable/non-retryable" | `notifications-payload.spec.ts` | L410-510 | High |
+
+**Validation per test:** `npx playwright test --project=firefox <spec-file> -g "<test-name>"`
+
+### Phase 3: Telegram Spec Hardening
+
+| Task | File | Lines | Complexity |
+|---|---|---|---|
+| Replace keyboard nav with direct locator | `telegram-notification-provider.spec.ts` | L220-223 | Low |
+| Add `aria-label` to row Send Test button | `Notifications.tsx` | L703-708 | Low |
+| Verify all 8 telegram tests pass 3 browsers | All | — | Low |
+
+**Validation:** `npx playwright test tests/settings/telegram-notification-provider.spec.ts`
+
+### Phase 4: Accessibility Hardening (Optional — Low Priority)
+
+Consider adding `aria-label` attributes to all icon-only buttons in the provider row for improved accessibility and test resilience:
+
+| Button | Current Accessible Name Source | Recommended |
+|---|---|---|
+| Send Test | `title` attribute | Add `aria-label` |
+| Edit | None (icon only) | Add `aria-label={t('common.edit')}` |
+| Delete | None (icon only) | Add `aria-label={t('common.delete')}` |
 
 ---
 
 ## 6. Commit Slicing Strategy
 
-### Decision: 2 PRs
+**Decision:** Single PR with 2 focused commits
 
-**Trigger reasons:** Changes span backend + frontend + E2E tests with independent functionality per layer. Splitting improves review quality and rollback safety.
+**Rationale:** All fixes are tightly coupled to the Telegram feature PR and represent test adaptations to a correct behavioral change. No cross-domain changes. Small total diff.
 
-### PR-1: Backend — Telegram Provider Support
+### Commit 1: "fix(test): adapt notification tests to save-before-test guard"
+- **Scope:** All unit test and E2E test fixes (Phases 1-3)
+- **Files:** `Notifications.test.tsx`, `notifications.spec.ts`, `notifications-payload.spec.ts`, `telegram-notification-provider.spec.ts`
+- **Dependencies:** None
+- **Validation Gate:** All notification-related tests pass locally on at least one browser
 
-**Scope:** Feature flags, service layer, handler layer, all Go unit tests
+### Commit 2: "feat(a11y): add aria-labels to notification provider row buttons"
+- **Scope:** Source code accessibility improvement (Phase 4)
+- **Files:** `Notifications.tsx`
+- **Dependencies:** Depends on Commit 1 (tests must pass first)
+- **Validation Gate:** Telegram spec tests pass consistently on WebKit
 
-**Files changed:**
-- `backend/internal/notifications/feature_flags.go`
-- `backend/internal/api/handlers/feature_flags_handler.go`
-- `backend/internal/notifications/router.go`
-- `backend/internal/services/notification_service.go`
-- `backend/internal/api/handlers/notification_provider_handler.go`
-- `backend/internal/services/notification_service_test.go`
-- `backend/internal/services/notification_service_json_test.go`
-- `backend/internal/api/handlers/notification_provider_handler_test.go`
-- `backend/internal/services/enhanced_security_notification_service_test.go`
-
-**Dependencies:** None (self-contained backend change)
-
-**Validation gates:**
-- `go test ./...` passes
-- `make lint-fast` passes
-- Coverage ≥ 85%
-- GORM security scan passes
-
-**Rollback:** Revert PR — no DB migration to undo.
-
-### PR-2: Frontend + E2E — Telegram Provider UI
-
-**Scope:** Frontend API client, Notifications page, i18n strings, frontend unit tests, Playwright E2E tests
-
-**Files changed:**
-- `frontend/src/api/notifications.ts`
-- `frontend/src/pages/Notifications.tsx`
-- `frontend/src/locales/en/translation.json`
-- `frontend/src/api/notifications.test.ts`
-- `frontend/src/api/__tests__/notifications.test.ts`
-- `frontend/src/pages/Notifications.test.tsx`
-- `tests/settings/telegram-notification-provider.spec.ts` (new)
-- `tests/settings/notifications-payload.spec.ts`
-
-**Dependencies:** PR-1 must be merged first (backend must accept `type: "telegram"`)
-
-**Validation gates:**
-- `npm test` passes
-- `npm run type-check` passes
-- `npx playwright test --project=firefox` passes
-- Coverage ≥ 85%
-
-**Rollback:** Revert PR — frontend-only, no cascading effects.
+### Rollback
+- These are test-only changes (except the optional aria-label). Reverting either commit has zero production impact.
+- If tests still fail after fixes, the next step is to run with `--debug` and capture trace artifacts.
 
 ---
 
-## 7. Risk Assessment
+## 7. Acceptance Criteria
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Telegram API rate limiting | Low | Medium | Use existing retry/timeout patterns from httpWrapper |
-| Bot token exposure in responses/logs | Low | Critical | Token stored ONLY in `Token` field (`json:"-"`), never in URL field. URL field contains only `chat_id`. Negative security tests verify this invariant. |
-| Template auto-mapping edge cases | Low | Low | Test with all three template types (minimal, detailed, custom) |
-| URL validation rejects chat_id format | Low | Low | URL field now stores a chat_id string (not a full URL). Validation may need adjustment to accept non-URL values for telegram type. |
-| SSRF via tampered stored data | Low | High | Dispatch-time validation ensures hostname is exactly `api.telegram.org`. Dedicated test covers this. |
-| E2E test flakiness with mocked API | Low | Low | Existing route-mocking patterns are stable |
-
----
-
-## 8. Complexity Estimates
-
-| Component | Estimate | Notes |
-|-----------|----------|-------|
-| Backend feature flags | S | 3 files, ~5 lines each |
-| Backend service layer | M | 4 function changes + telegram validation block |
-| Backend handler layer | S | 3 string-level changes |
-| Frontend API client | S | 2 lines + sanitization tweak |
-| Frontend UI | M | Template conditional, placeholder, useEffect updates |
-| Frontend i18n | S | 4 strings |
-| Backend tests | L | Multiple test files, new test functions, update existing assertions |
-| Frontend tests | M | Update rejection tests, add rendering tests |
-| E2E tests | M | New spec file modeled on existing email spec |
-| **Total** | **M-L** | ~2-3 days of focused implementation |
+- [ ] `Notifications.test.tsx` — all 2 previously failing tests pass
+- [ ] `notifications.spec.ts` — all 4 isNew-guard-affected tests pass on 3 browsers
+- [ ] `notifications-payload.spec.ts` — "transformation" and "retry split" tests pass on 3 browsers
+- [ ] `telegram-notification-provider.spec.ts` — all 8 tests pass on 3 browsers
+- [ ] No regressions in other notification tests
+- [ ] New unit test validates the `saveBeforeTesting` guard / disabled button behavior
+- [ ] `encryption-management.spec.ts` and `auth-middleware-cascade.spec.ts` failures documented as separate issues (not blocked by this PR)

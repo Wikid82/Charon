@@ -264,8 +264,41 @@ test.describe('Notifications Payload Matrix', () => {
   test('provider-specific transformation strips gotify token from test and preview payloads', async ({ page }) => {
     let capturedPreviewPayload: Record<string, unknown> | null = null;
     let capturedTestPayload: Record<string, unknown> | null = null;
+    const providers: Array<Record<string, unknown>> = [];
+    const gotifyName = `gotify-transform-${Date.now()}`;
 
-    await test.step('Mock preview and test endpoints to capture payloads', async () => {
+    await test.step('Mock create, list, preview, and test endpoints', async () => {
+      await page.route('**/api/v1/notifications/providers', async (route, request) => {
+        if (request.method() === 'POST') {
+          const payload = (await request.postDataJSON()) as Record<string, unknown>;
+          // Simulate backend: strip token from stored/listed provider (json:"-")
+          const created = {
+            id: 'gotify-transform-id',
+            name: payload.name,
+            type: payload.type,
+            url: payload.url,
+            enabled: true,
+            has_token: true,
+          };
+          providers.splice(0, providers.length, created);
+          await route.fulfill({
+            status: 201,
+            contentType: 'application/json',
+            body: JSON.stringify(created),
+          });
+          return;
+        }
+        if (request.method() === 'GET') {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(providers),
+          });
+          return;
+        }
+        await route.continue();
+      });
+
       await page.route('**/api/v1/notifications/providers/preview', async (route, request) => {
         capturedPreviewPayload = (await request.postDataJSON()) as Record<string, unknown>;
         await route.fulfill({
@@ -285,17 +318,24 @@ test.describe('Notifications Payload Matrix', () => {
       });
     });
 
-    await test.step('Fill gotify form with write-only token', async () => {
+    await test.step('Fill gotify form with write-only token and trigger preview', async () => {
       await page.getByRole('button', { name: /add.*provider/i }).click();
       await page.getByTestId('provider-type').selectOption('gotify');
-      await page.getByTestId('provider-name').fill(`gotify-transform-${Date.now()}`);
+      await page.getByTestId('provider-name').fill(gotifyName);
       await page.getByTestId('provider-url').fill('https://gotify.example.com/message');
       await page.getByTestId('provider-gotify-token').fill('super-secret-token');
+      await page.getByTestId('provider-preview-btn').click();
     });
 
-    await test.step('Trigger preview and test calls', async () => {
-      await page.getByTestId('provider-preview-btn').click();
-      await page.getByTestId('provider-test-btn').click();
+    await test.step('Save provider', async () => {
+      await page.getByTestId('provider-save-btn').click();
+    });
+
+    await test.step('Send test from saved provider row', async () => {
+      const providerRow = page.getByTestId('provider-row-gotify-transform-id');
+      await expect(providerRow).toBeVisible({ timeout: 5000 });
+      const sendTestButton = providerRow.getByRole('button', { name: /send test/i });
+      await sendTestButton.click();
     });
 
     await test.step('Assert token is not sent on preview/test payloads', async () => {
@@ -411,8 +451,34 @@ test.describe('Notifications Payload Matrix', () => {
     const capturedTestPayloads: Array<Record<string, unknown>> = [];
     let nonRetryableBody: Record<string, unknown> | null = null;
     let retryableBody: Record<string, unknown> | null = null;
+    const providers: Array<Record<string, unknown>> = [];
+    let providerCounter = 0;
 
-    await test.step('Stub provider test endpoint with deterministic retry split contract', async () => {
+    await test.step('Stub provider create, list, and test endpoints', async () => {
+      await page.route('**/api/v1/notifications/providers', async (route, request) => {
+        if (request.method() === 'POST') {
+          const payload = (await request.postDataJSON()) as Record<string, unknown>;
+          providerCounter++;
+          const created = { id: `retry-provider-${providerCounter}`, ...payload, enabled: true };
+          providers.push(created);
+          await route.fulfill({
+            status: 201,
+            contentType: 'application/json',
+            body: JSON.stringify(created),
+          });
+          return;
+        }
+        if (request.method() === 'GET') {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(providers),
+          });
+          return;
+        }
+        await route.continue();
+      });
+
       await page.route('**/api/v1/notifications/providers/test', async (route, request) => {
         const payload = (await request.postDataJSON()) as Record<string, unknown>;
         capturedTestPayloads.push(payload);
@@ -435,11 +501,17 @@ test.describe('Notifications Payload Matrix', () => {
       });
     });
 
-    await test.step('Open provider form and execute deterministic non-retryable test call', async () => {
+    await test.step('Create and save non-retryable provider', async () => {
       await page.getByRole('button', { name: /add.*provider/i }).click();
       await page.getByTestId('provider-type').selectOption('webhook');
       await page.getByTestId('provider-name').fill('retry-split-non-retryable');
       await page.getByTestId('provider-url').fill('https://non-retryable.example.invalid/notify');
+      await page.getByTestId('provider-save-btn').click();
+    });
+
+    await test.step('Execute deterministic non-retryable test call from saved row', async () => {
+      const providerRow = page.getByTestId('provider-row-retry-provider-1');
+      await expect(providerRow).toBeVisible({ timeout: 5000 });
 
       const nonRetryableResponsePromise = page.waitForResponse(
         (response) =>
@@ -448,7 +520,8 @@ test.describe('Notifications Payload Matrix', () => {
           && (response.request().postData() ?? '').includes('retry-split-non-retryable')
       );
 
-      await page.getByTestId('provider-test-btn').click();
+      const sendTestButton = providerRow.getByRole('button', { name: /send test/i });
+      await sendTestButton.click();
       const nonRetryableResponse = await nonRetryableResponsePromise;
       nonRetryableBody = (await nonRetryableResponse.json()) as Record<string, unknown>;
 
@@ -460,9 +533,17 @@ test.describe('Notifications Payload Matrix', () => {
       expect(nonRetryableBody.request_id).toBe('stub-request-non-retryable');
     });
 
-    await test.step('Execute deterministic retryable test call on the same contract endpoint', async () => {
+    await test.step('Create and save retryable provider', async () => {
+      await page.getByRole('button', { name: /add.*provider/i }).click();
+      await page.getByTestId('provider-type').selectOption('webhook');
       await page.getByTestId('provider-name').fill('retry-split-retryable');
       await page.getByTestId('provider-url').fill('https://retryable.example.invalid/notify');
+      await page.getByTestId('provider-save-btn').click();
+    });
+
+    await test.step('Execute deterministic retryable test call from saved row', async () => {
+      const providerRow = page.getByTestId('provider-row-retry-provider-2');
+      await expect(providerRow).toBeVisible({ timeout: 5000 });
 
       const retryableResponsePromise = page.waitForResponse(
         (response) =>
@@ -471,7 +552,8 @@ test.describe('Notifications Payload Matrix', () => {
           && (response.request().postData() ?? '').includes('retry-split-retryable')
       );
 
-      await page.getByTestId('provider-test-btn').click();
+      const sendTestButton = providerRow.getByRole('button', { name: /send test/i });
+      await sendTestButton.click();
       const retryableResponse = await retryableResponsePromise;
       retryableBody = (await retryableResponse.json()) as Record<string, unknown>;
 

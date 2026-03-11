@@ -214,11 +214,9 @@ test.describe('Telegram Notification Provider', () => {
 
       await test.step('Click edit on telegram provider', async () => {
         const providerRow = page.getByTestId('provider-row-tg-edit-id');
-        const sendTestButton = providerRow.getByRole('button', { name: /send test/i });
-        await expect(sendTestButton).toBeVisible({ timeout: 5000 });
-        await sendTestButton.focus();
-        await page.keyboard.press('Tab');
-        await page.keyboard.press('Enter');
+        const editButton = providerRow.getByRole('button', { name: /edit/i });
+        await expect(editButton).toBeVisible({ timeout: 5000 });
+        await editButton.click();
         await expect(page.getByTestId('provider-name')).toBeVisible({ timeout: 5000 });
       });
 
