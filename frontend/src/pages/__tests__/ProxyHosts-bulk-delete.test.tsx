@@ -245,7 +245,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
     // Should delete all selected hosts
     await waitFor(() => {
       expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('host-1');
-    })
+    });
     expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('host-3');
     expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('host-2');;
 
