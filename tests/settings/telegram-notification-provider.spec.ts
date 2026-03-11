@@ -7,7 +7,7 @@
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForAPIResponse } from '../utils/wait-helpers';
+import { waitForLoadingComplete } from '../utils/wait-helpers';
 
 function generateProviderName(prefix: string = 'telegram-test'): string {
   return `${prefix}-${Date.now()}`;
@@ -235,20 +235,23 @@ test.describe('Telegram Notification Provider', () => {
       });
 
       await test.step('Save changes', async () => {
-        const updateResponsePromise = waitForAPIResponse(
-          page,
-          /\/api\/v1\/notifications\/providers\/tg-edit-id/,
-          { status: 200 }
-        );
-        const refreshResponsePromise = waitForAPIResponse(
-          page,
-          /\/api\/v1\/notifications\/providers$/,
-          { status: 200 }
-        );
-
-        await page.getByTestId('provider-save-btn').click();
-        await updateResponsePromise;
-        await refreshResponsePromise;
+        // Register both response listeners before the click to prevent the race
+        // where Firefox resolves responses before the sequential await reaches them.
+        await Promise.all([
+          page.waitForResponse(
+            (resp) =>
+              /\/api\/v1\/notifications\/providers\/tg-edit-id/.test(resp.url()) &&
+              resp.request().method() === 'PUT' &&
+              resp.status() === 200
+          ),
+          page.waitForResponse(
+            (resp) =>
+              /\/api\/v1\/notifications\/providers/.test(resp.url()) &&
+              resp.request().method() === 'GET' &&
+              resp.status() === 200
+          ),
+          page.getByTestId('provider-save-btn').click(),
+        ]);
       });
 
       await test.step('Verify update payload preserves token omission', async () => {
@@ -311,7 +314,17 @@ test.describe('Telegram Notification Provider', () => {
         const providerRow = page.getByTestId('provider-row-tg-test-id');
         const sendTestButton = providerRow.getByRole('button', { name: /send test/i });
         await expect(sendTestButton).toBeVisible({ timeout: 5000 });
-        await sendTestButton.click();
+        await expect(sendTestButton).toBeEnabled();
+        // Register the response waiter before clicking to eliminate the race
+        // condition where Firefox processes the response before the await is reached.
+        await Promise.all([
+          page.waitForResponse(
+            (resp) =>
+              resp.url().includes('/api/v1/notifications/providers/test') &&
+              resp.status() === 200
+          ),
+          sendTestButton.click(),
+        ]);
       });
 
       await test.step('Verify test was called', async () => {
@@ -371,7 +384,16 @@ test.describe('Telegram Notification Provider', () => {
 
         const deleteButton = page.getByRole('button', { name: /delete/i })
           .or(page.locator('button').filter({ has: page.locator('svg.lucide-trash2, svg[class*="trash"]') }));
-        await deleteButton.first().click();
+        // Wait for the DELETE response atomically with the click so the success
+        // indicator assertion does not race the network round-trip on Firefox.
+        await Promise.all([
+          page.waitForResponse(
+            (resp) =>
+              resp.url().includes('/api/v1/notifications/providers/tg-delete-id') &&
+              resp.status() === 200
+          ),
+          deleteButton.first().click(),
+        ]);
       });
 
       await test.step('Verify deletion feedback', async () => {
@@ -403,7 +425,6 @@ test.describe('Telegram Notification Provider', () => {
                 notify_uptime: false,
               },
             ];
-            apiResponseBody = body;
             await route.fulfill({
               status: 200,
               contentType: 'application/json',
@@ -416,7 +437,21 @@ test.describe('Telegram Notification Provider', () => {
       });
 
       await test.step('Navigate to trigger GET', async () => {
-        await page.goto('/settings/notifications');
+        // Register the response listener BEFORE reload to eliminate the race
+        // condition where Firefox processes the network response before the
+        // route callback assignment becomes visible to the test assertion.
+        // waitForLoadingComplete alone is insufficient because the spinner can
+        // disappear before the providers API response has been intercepted.
+        const responsePromise = page.waitForResponse(
+          (resp) =>
+            resp.url().includes('/api/v1/notifications/providers') &&
+            resp.request().method() === 'GET' &&
+            resp.status() === 200,
+          { timeout: 15000 }
+        );
+        await page.reload();
+        const response = await responsePromise;
+        apiResponseBody = (await response.json()) as Array<Record<string, unknown>>;
         await waitForLoadingComplete(page);
       });
 
