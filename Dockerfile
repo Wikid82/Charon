@@ -99,9 +99,7 @@ ARG VERSION=dev
 # Make version available to Vite as VITE_APP_VERSION during the frontend build
 ENV VITE_APP_VERSION=${VERSION}
 
-# Set environment to bypass native binary requirement for cross-arch builds
-ENV npm_config_rollup_skip_nodejs_native=1 \
-    ROLLUP_SKIP_NODEJS_NATIVE=1
+# Vite 8: Rolldown native bindings auto-resolved per platform via optionalDependencies
 
 RUN npm ci
 

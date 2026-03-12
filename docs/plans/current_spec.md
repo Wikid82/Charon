@@ -1,9 +1,9 @@
 # Major Dependency Upgrade Plan — ESLint v10, TypeScript 6.0, Vite 8
 
-**Date:** 2026-03-11
+**Date:** 2026-03-12
 **Author:** Planning Agent
 **Status:** Ready for Review
-**Confidence Score:** 88% (High for ESLint v10 + TS 6.0; Low for Vite 8 — unreleased)
+**Confidence Score:** 82% (High for ESLint v10 + TS 6.0; Medium for Vite 8 — beta with Rolldown migration)
 
 ---
 
@@ -15,7 +15,7 @@ This plan covers the upgrade of three major frontend toolchain dependencies in t
 |---|---|---|---|---|
 | **ESLint** | `^9.39.3 <10.0.0` | `^10.0.0` | Released | **Medium** — plugin compat gate |
 | **TypeScript** | `^5.9.3` | `^6.0.0` | Beta (Feb 11) / RC (Mar 6) | **Medium** — 17+ deprecations |
-| **Vite** | `^7.3.1` | `8.x` | **Does not exist** | **N/A** — monitor only |
+| **Vite** | `^7.3.1` | `8.0.0-beta.18` | Beta (Dec 3, 2025) | **High** — beta, Rolldown replaces Rollup+esbuild |
 
 ### Key Findings
 
@@ -23,14 +23,14 @@ This plan covers the upgrade of three major frontend toolchain dependencies in t
 
 2. **TypeScript 6.0** is real (Beta: Feb 11, 2026; RC: Mar 6, 2026). It is explicitly designed as a **bridge release** between TS 5.9 and the native Go-based TS 7.0. It introduces 17+ deprecations/breaking changes (new defaults for `strict`, `module`, `target`, `types`, `rootDir`; removal of `outFile`, legacy module systems; deprecated `baseUrl`, `moduleResolution: node`). Charon's current `tsconfig.json` is well-positioned — it already uses `moduleResolution: bundler`, `strict: true`, and `module: ESNext`. The **critical impact** is the `types` default changing to `[]`.
 
-3. **Vite 8 does not exist.** The latest Vite major is v7 (released June 2025). Charon is already on Vite 7.3.1. This section of the plan documents monitoring strategy and readiness posture only.
+3. **Vite 8 exists as `8.0.0-beta.18`** (announced Dec 3, 2025). The headline change is **Rolldown replaces both Rollup and esbuild**. JS transforms and minification now use Oxc; CSS minification uses Lightning CSS. The `build.rollupOptions` config key is deprecated in favor of `build.rolldownOptions`, and `output.manualChunks` (object form) is removed. Charon's `vite.config.ts` uses `rollupOptions` with `inlineDynamicImports: true` — both need migration. Ecosystem packages (`@vitejs/plugin-react`, `vitest`) require beta versions for Vite 8 compatibility.
 
 ### Recommended Execution Order
 
 ```
 PR-1: TypeScript 6.0 upgrade (fewer external dependencies, most self-contained)
 PR-2: ESLint v10 upgrade (blocked on plugin compat verification)
-PR-3: Vite 8 (deferred — version does not exist yet)
+PR-3: Vite 8 upgrade (beta — stacked on PR-1 + PR-2 branch)
 ```
 
 ---
@@ -198,21 +198,61 @@ error TS2322: Type 'Buffer' is not assignable to type 'Uint8Array<ArrayBufferLik
 
 ### 3.3 Vite 8 Breaking Changes
 
-**Status: Vite 8 does not exist.** The latest major is Vite 7 (released June 24, 2025). Charon is already on Vite 7.3.1.
+**Source:** [Vite 8 Beta Announcement](https://vite.dev/blog/announcing-vite8-beta) and [Migration from v7 Guide](https://main.vite.dev/guide/migration)
 
-**Monitoring targets:**
+**Version:** `8.0.0-beta.18` (dist-tag: `beta`, announced Dec 3, 2025)
 
-- Vite GitHub: `https://github.com/vitejs/vite/releases`
-- Vite Blog: `https://vite.dev/blog/`
-- Vitest compatibility (currently 4.0.18, compatible with Vite 7)
+#### Core Architecture Change: Rolldown Replaces Rollup + esbuild
 
-**When Vite 8 is announced, revisit this plan with:**
+Vite 8's defining change is replacing **two bundlers** (esbuild for dev transforms, Rollup for production builds) with a single Rust-based toolchain:
 
-- Node.js minimum version
-- Browser target defaults
-- Plugin API changes (`@vitejs/plugin-react` compat)
-- Vitest version compatibility
-- Rolldown integration changes
+| Component | Vite 7 | Vite 8 | Impact on Charon |
+|---|---|---|---|
+| **Bundler** | Rollup | **Rolldown** (`1.0.0-rc.8`) | `rollupOptions` → `rolldownOptions` |
+| **JS Transforms** | esbuild | **Oxc** (`@oxc-project/runtime@0.115.0`) | `esbuild` config key deprecated |
+| **JS Minification** | esbuild | **Oxc Minifier** | Different minification assumptions |
+| **CSS Minification** | esbuild | **Lightning CSS** (`^1.31.1`) | Slightly different output, bundle size may change |
+| **Dep Optimization** | esbuild | **Rolldown** | `optimizeDeps.esbuildOptions` deprecated |
+
+#### Breaking Changes Impacting Charon
+
+| # | Breaking Change | Impact on Charon | Action Required |
+|---|---|---|---|
+| 1 | **Node.js `^20.19.0 \|\| >=22.12.0`** required | None — already on Node 24.14.0 | None |
+| 2 | **`build.rollupOptions` deprecated** → `build.rolldownOptions` | **HIGH** — `vite.config.ts` uses `rollupOptions` | Rename config key |
+| 3 | **`output.manualChunks` object form removed**, function form deprecated | **HIGH** — config sets `manualChunks: undefined` | Remove or migrate to `codeSplitting` |
+| 4 | **`output.inlineDynamicImports`** — supported in Rolldown but **deprecated** in favor of `codeSplitting: false` ([rolldown docs](https://rolldown.rs/reference/OutputOptions.inlineDynamicImports)) | **HIGH** — config uses `inlineDynamicImports: true` as temporary workaround | Migrate to `codeSplitting: false`; `inlineDynamicImports` works as fallback |
+| 5 | **Default browser targets updated** (Chrome 107→111, Firefox 104→114, Safari 16.0→16.4) | Low — Charon doesn't set explicit `build.target` | None — new defaults are fine |
+| 6 | **esbuild no longer a direct dependency** | Low — Charon doesn't use esbuild config | None |
+| 7 | **Oxc Minifier** replaces esbuild minifier | Low — different assumptions about source code | Test build output; verify no minification breakage |
+| 8 | **Lightning CSS** for CSS minification | Low — may produce slightly different CSS output | Verify CSS output visually |
+| 9 | **Consistent CommonJS interop** — `default` import behavior changes for CJS modules | Medium — could affect CJS dependencies (axios, etc.) | Test all runtime imports |
+| 10 | **Module resolution format sniffing removed** — `browser`/`module` field heuristic gone | Low — modern packages use `exports` field | Verify no resolution regressions |
+| 11 | **`@vitejs/plugin-react` 5.x does NOT support Vite 8** — requires `6.0.0-beta.0` | **HIGH** — must upgrade plugin-react | Upgrade to `@vitejs/plugin-react@6.0.0-beta.0` |
+| 12 | **Plugin-react 6.0 uses `@rolldown/pluginutils`** instead of Rollup utils | Low — internal plugin change | None — handled by plugin upgrade |
+
+#### New Features Available
+
+| Feature | Relevance to Charon |
+|---|---|
+| Built-in tsconfig `paths` support (`resolve.tsconfigPaths: true`) | Could replace manual alias config if needed |
+| `emitDecoratorMetadata` support | Not needed — Charon doesn't use decorators |
+| Performance: 10–30× faster production builds | Direct benefit — faster Docker builds and CI |
+| Full Bundle Mode (upcoming) | Future — 3× faster dev server startup |
+| Module-level persistent cache (upcoming) | Future — faster rebuilds |
+
+#### Dockerfile Impact: Rollup Native Skip Flags
+
+The current Dockerfile sets:
+
+```dockerfile
+ENV npm_config_rollup_skip_nodejs_native=1 \
+    ROLLUP_SKIP_NODEJS_NATIVE=1
+```
+
+These env vars are **Rollup-specific** for cross-platform builds. With Vite 8, Rollup is replaced by Rolldown, which uses its own native bindings (`@rolldown/binding-linux-x64-musl` for Alpine). These env vars become no-ops but do not cause harm. Rolldown's native bindings are installed per-platform by npm's `optionalDependencies` mechanism — the same mechanism that works for the `$BUILDPLATFORM` Docker flag.
+
+**Action:** Remove the Rollup skip flags from Dockerfile and verify cross-platform builds still work. Rolldown includes `@rolldown/binding-linux-x64-musl` which is exactly what Alpine requires.
 
 ---
 
@@ -264,6 +304,31 @@ npm info @eslint/markdown peerDependencies
 | ESLint v10 | 20.19 / 22.13 / 24+ | 24.14.0 | Compatible |
 | TypeScript 6.0 | TBD (likely same as 5.9) | 24.14.0 | Compatible |
 | Vite 7 | 20.19 / 22.12+ | 24.14.0 | Compatible |
+| Vite 8 | 20.19 / 22.12+ | 24.14.0 | Compatible |
+
+### Vite 8 Ecosystem Compatibility Matrix
+
+All Vite-related packages must be updated together. Stable releases do **not** support Vite 8.
+
+| Package | Current Version | Vite 8 Compatible? | Required Version | Override Needed? |
+|---|---|---|---|---|
+| `vite` | `^7.3.1` | — | `8.0.0-beta.18` | No — direct install |
+| `@vitejs/plugin-react` | `^5.1.4` | **No** (5.x peer: `vite: ^4.2.0 \|\| ^5.0.0 \|\| ^6.0.0 \|\| ^7.0.0`) | `6.0.0-beta.0` (peer: `vite: ^8.0.0` — verified via `npm info`) | No — direct install |
+| `vitest` | `^4.0.18` | **No** (deps: `^6.0.0 \|\| ^7.0.0`) | `4.1.0-beta.6` (deps: `^6.0.0 \|\| ^7.0.0 \|\| ^8.0.0-0`) | No — 4.1.0-beta.6 dep range includes Vite 8 |
+| `@vitest/coverage-istanbul` | `^4.0.18` | **No** (peer: `vitest: 4.0.18`) | `4.1.0-beta.6` | No — matches vitest beta |
+| `@vitest/coverage-v8` | `^4.0.18` | **No** (peer: `vitest: 4.0.18`) | `4.1.0-beta.6` | No — matches vitest beta |
+| `@vitest/ui` | `^4.0.18` | **No** (peer: `vitest: 4.0.18`) | `4.1.0-beta.6` | No — matches vitest beta |
+| `@vitest/eslint-plugin` | `^1.6.10` | Yes (peer: `vitest: *`) | Keep current | No |
+| `@bgotink/playwright-coverage` | `^0.3.2` | Yes (no Vite peer dep) | Keep current | No |
+| `@playwright/test` | `^1.58.2` | Yes (no Vite peer dep) | Keep current | No |
+
+**Key constraints:**
+
+- `vitest@4.0.18` has `vite` in its **dependencies** (not peer deps) pinned to `^6.0.0 || ^7.0.0` — this will refuse Vite 8 unless overridden
+- `vitest@4.1.0-beta.6` extends this to `^6.0.0 || ^7.0.0 || ^8.0.0-0` — supports Vite 8 beta
+- `@vitejs/plugin-react@6.0.0-beta.0` peers on `vite: ^8.0.0` (verified via `npm info`). New optional peer deps: `@rolldown/plugin-babel` and `babel-plugin-react-compiler` (both optional — not required)
+- All `@vitest/*` packages at `4.1.0-beta.6` must be installed together (strict peer version matching: `vitest: 4.1.0-beta.6`)
+- Since `vitest@4.1.0-beta.6` already includes `^8.0.0-0` in its `vite` dependency range, and all `@vitest/*` packages peer to exact `vitest: 4.1.0-beta.6`, **no npm overrides are needed** when all packages are installed in lockstep at their beta versions
 
 ---
 
@@ -290,20 +355,33 @@ If plugin compatibility issues arise during ESLint v10 upgrade, **do NOT create 
 
 **No Dockerfile changes required** for ESLint v10 or TypeScript 6.0.
 
-Current Dockerfile state:
+**Vite 8 requires Dockerfile changes** — the Rollup native skip flags become irrelevant:
+
+```diff
+  # Set environment to bypass native binary requirement for cross-arch builds
+- ENV npm_config_rollup_skip_nodejs_native=1 \
+-     ROLLUP_SKIP_NODEJS_NATIVE=1
++ # Vite 8 uses Rolldown (Rust native bindings, auto-resolved per platform)
++ # No skip flags needed — Rolldown's optionalDependencies handle cross-platform
+```
+
+Current Dockerfile state (frontend-builder stage):
 
 ```dockerfile
-# Frontend builder stage
-FROM node:24.14.0-alpine AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.14.0-alpine AS frontend-builder
 # ...
+ENV npm_config_rollup_skip_nodejs_native=1 \
+    ROLLUP_SKIP_NODEJS_NATIVE=1
 RUN npm ci
+COPY frontend/ ./
 RUN npm run build
 ```
 
-- Node.js 24.14.0 meets all minimum requirements
-- `npm ci` will install the upgraded versions from `package-lock.json`
+- Node.js 24.14.0 meets Vite 8's requirement (`^20.19.0 || >=22.12.0`)
+- `npm ci` will install Rolldown's `@rolldown/binding-linux-x64-musl` automatically on Alpine
+- `--platform=$BUILDPLATFORM` ensures native bindings match the build machine architecture
+- The `VITE_APP_VERSION` env var and build output (`dist/`) remain unchanged
 - No new environment variables or build args needed
-- Rollup native skip flags (`npm_config_rollup_skip_nodejs_native=1`) remain unchanged
 
 **Future (Vite 8):** If Vite 8 requires a higher Node.js, upgrade the base image at that time.
 
@@ -546,13 +624,225 @@ Likely no structural changes needed since Charon already uses flat config. Poten
    docker build -t charon:upgrade-test .
    ```
 
-### Phase 5: Vite 8 (Deferred)
+### Phase 5: Vite 8 Upgrade (PR-3 — stacked commit on same branch)
 
-**Action:** No implementation. Monitor only.
+**Prerequisites:** PR-1 (TypeScript 6.0) and PR-2 (ESLint v10) already committed on branch.
 
-- [ ] Subscribe to Vite releases: `https://github.com/vitejs/vite/releases`
-- [ ] When Vite 8 is announced, create a new plan with breaking changes analysis
-- [ ] Key areas to watch: Node.js minimum, browser target defaults, plugin API, Vitest compat, Rolldown integration
+**Scope:** Vite `^7.3.1` → `8.0.0-beta.18`, plugin-react `^5.1.4` → `6.0.0-beta.0`, vitest `^4.0.18` → `4.1.0-beta.6`, vite.config.ts migration, Dockerfile cleanup.
+
+#### Step 1: Install Vite 8 and ecosystem packages
+
+```bash
+cd /projects/Charon/frontend
+
+# Core Vite upgrade
+npm install -D vite@8.0.0-beta.18
+
+# Plugin-react upgrade (6.x required for Vite 8)
+npm install -D @vitejs/plugin-react@6.0.0-beta.0
+
+# Vitest + coverage upgrades (4.1.0-beta.6 supports Vite 8)
+npm install -D vitest@4.1.0-beta.6 \
+  @vitest/coverage-istanbul@4.1.0-beta.6 \
+  @vitest/coverage-v8@4.1.0-beta.6 \
+  @vitest/ui@4.1.0-beta.6
+```
+
+#### Step 2: Update root `package.json` (direct version bump only — no overrides)
+
+The root `package.json` only has `vite` as a direct devDependency (used by Playwright). It does **not** need overrides — just a version bump:
+
+```bash
+cd /projects/Charon
+npm install -D vite@8.0.0-beta.18
+```
+
+#### Step 3: Verify peer dep resolution (overrides likely NOT needed)
+
+With all packages at their Vite 8-compatible versions, overrides should not be necessary:
+
+- `vitest@4.1.0-beta.6` depends on `vite: ^6.0.0 || ^7.0.0 || ^8.0.0-0` — already includes Vite 8
+- `@vitejs/plugin-react@6.0.0-beta.0` peers on `vite: ^8.0.0` — matches
+- All `@vitest/*@4.1.0-beta.6` peer on `vitest: 4.1.0-beta.6` — matches when installed in lockstep
+
+Run `npm install` and check for peer dep warnings. **Only add overrides in `frontend/package.json`** (following the established pattern from TS 6.0 and ESLint v10 phases) if specific transitive packages fail to resolve:
+
+```jsonc
+// frontend/package.json — ONLY if npm install reports unresolved peer deps
+{
+  "overrides": {
+    // ... existing TS and ESLint overrides ...
+    // Add scoped overrides ONLY for the specific package that fails, e.g.:
+    // "some-transitive-package": { "vite": "8.0.0-beta.18" }
+  }
+}
+```
+
+**Do NOT add a top-level `"vite": "8.0.0-beta.18"` override** — this forces every transitive Vite consumer to resolve to the beta, which is overly broad. If a broad override is truly needed after testing, add it with a comment explaining which transitive package requires it.
+
+#### Step 4: Migrate `vite.config.ts`
+
+```diff
+  import react from '@vitejs/plugin-react'
+  import { defineConfig } from 'vite'
+
+  export default defineConfig({
+    plugins: [react()],
+    server: {
+      port: 5173,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:8080',
+          changeOrigin: true
+        }
+      }
+    },
+    build: {
+      outDir: 'dist',
+      sourcemap: true,
+-     // TEMPORARY: Disable code splitting to diagnose React initialization issue
+-     // If this works, the problem is module loading order in async chunks
+      chunkSizeWarningLimit: 2000,
+-     rollupOptions: {
+-       output: {
+-         // Disable code splitting - bundle everything into one file
+-         manualChunks: undefined,
+-         inlineDynamicImports: true
+-       }
+-     }
++     rolldownOptions: {
++       output: {
++         // Disable code splitting — single bundle for React init stability
++         // codeSplitting: false is the Rolldown-native approach
++         // (inlineDynamicImports is deprecated in Rolldown)
++         codeSplitting: false
++       }
++     }
+    }
+  })
+```
+
+**Key changes:**
+1. `rollupOptions` → `rolldownOptions` (Rollup config key deprecated)
+2. `manualChunks: undefined` removed (object form no longer supported; was already a no-op since `undefined`)
+3. `inlineDynamicImports: true` replaced with `codeSplitting: false` — the Rolldown-native equivalent. Rolldown supports `inlineDynamicImports` but marks it as [deprecated](https://rolldown.rs/reference/OutputOptions.inlineDynamicImports) in favor of `codeSplitting: false`.
+4. The TEMPORARY comment is preserved in intent — this workaround may still be needed
+
+**Fallback if `codeSplitting: false` behaves differently than expected:**
+
+```ts
+build: {
+  rolldownOptions: {
+    output: {
+      // Deprecated but still functional in Rolldown 1.0.0-rc.8
+      inlineDynamicImports: true
+    }
+  }
+}
+```
+
+#### Step 5: Update Dockerfile
+
+Remove the now-irrelevant Rollup native skip flags:
+
+```diff
+- ENV npm_config_rollup_skip_nodejs_native=1 \
+-     ROLLUP_SKIP_NODEJS_NATIVE=1
++ # Vite 8: Rolldown native bindings auto-resolved per platform via optionalDependencies
+```
+
+#### Step 6: Run `npm install` to regenerate lock file
+
+```bash
+cd /projects/Charon && npm install
+cd /projects/Charon/frontend && npm install
+```
+
+#### Step 7: Verify builds and tests
+
+```bash
+# 1. Frontend build (most critical — tests Rolldown bundling)
+cd /projects/Charon/frontend && npx vite build
+
+# 2. Type-check (should be unaffected)
+cd /projects/Charon/frontend && npx tsc --noEmit
+
+# 3. Lint (should be unaffected)
+cd /projects/Charon && npm run lint
+
+# 4. Unit tests
+cd /projects/Charon/frontend && npx vitest run
+
+# 5. Docker build (tests Rolldown on Alpine/musl)
+docker build -t charon:vite8-test .
+
+# 6. Playwright E2E (tests the built app end-to-end)
+cd /projects/Charon && npx playwright test --project=firefox
+
+# 7. CJS interop smoke test (verify axios, react-hot-toast, react-hook-form)
+# Run the app and manually verify pages that use CJS dependencies render correctly
+# See Step 9 for detailed CJS interop verification checklist
+```
+
+#### Step 8: Verify build output
+
+```bash
+# Compare build output size and structure
+ls -la frontend/dist/assets/
+# Should still produce index-*.js, index-*.css
+# With codeSplitting: false, should be a single JS bundle
+```
+
+#### Step 9: Verify CJS interop (Vite 8 behavior change)
+
+Vite 8's consistent CJS interop may affect imports from CJS packages like `axios` and `react-hot-toast`. **Explicitly verify these packages work at runtime:**
+
+```bash
+# After Docker build or vite build + preview:
+# 1. Verify axios API calls work (CJS package with __esModule flag)
+#    - Navigate to any page that makes API calls (e.g., Dashboard)
+#    - Check browser console for "default is not a function" errors
+# 2. Verify react-hot-toast renders (CJS package)
+#    - Trigger a toast notification (e.g., save settings)
+#    - Check browser console for import errors
+# 3. Verify react-hook-form works (CJS interop)
+#    - Open any form page, submit a form
+```
+
+If any runtime errors appear (e.g., `default is not a function`), use the temporary escape hatch:
+
+```ts
+// vite.config.ts — ONLY if CJS interop breaks
+export default defineConfig({
+  legacy: {
+    inconsistentCjsInterop: true
+  }
+})
+```
+
+#### Step 10: Update `ARCHITECTURE.md`
+
+Update the Frontend technology stack table and directory structure to reflect current versions:
+
+```diff
+  ### Frontend
+  | Component | Technology | Version | Purpose |
+- | **Build Tool** | Vite | 6.1.9 | Fast bundler and dev server |
++ | **Build Tool** | Vite | 8.0.0-beta.18 | Fast bundler and dev server |
+- | **CSS Framework** | Tailwind CSS | 3.x | Utility-first CSS |
++ | **CSS Framework** | Tailwind CSS | 4.2.1 | Utility-first CSS |
+- | **Unit Testing** | Vitest | 2.x | Fast unit test runner |
++ | **Unit Testing** | Vitest | 4.1.0-beta.6 | Fast unit test runner |
+- | **E2E Testing** | Playwright | 1.50.x | Browser automation |
++ | **E2E Testing** | Playwright | 1.58.2 | Browser automation |
+```
+
+Also fix the directory structure reference:
+
+```diff
+- │   └── vite.config.js          # Vite configuration
++ │   └── vite.config.ts          # Vite configuration
+```
 
 ---
 
@@ -591,9 +881,41 @@ Likely no structural changes needed since Charon already uses flat config. Poten
 
 **Risk:** Low — ESLint is a devDependency only. Code changes (fixing new rule violations) are harmless to keep even if ESLint is rolled back.
 
-### Vite 8 Rollback
+### Vite 8 Rollback (PR-3 commit)
 
-N/A — no upgrade to perform.
+1. Revert `vite` version in both `package.json` files:
+
+   ```diff
+   - "vite": "8.0.0-beta.18"
+   + "vite": "^7.3.1"
+   ```
+
+2. Revert ecosystem packages in `frontend/package.json`:
+
+   ```diff
+   - "@vitejs/plugin-react": "6.0.0-beta.0"
+   + "@vitejs/plugin-react": "^5.1.4"
+   - "vitest": "4.1.0-beta.6"
+   + "vitest": "^4.0.18"
+   - "@vitest/coverage-istanbul": "4.1.0-beta.6"
+   + "@vitest/coverage-istanbul": "^4.0.18"
+   - "@vitest/coverage-v8": "4.1.0-beta.6"
+   + "@vitest/coverage-v8": "^4.0.18"
+   - "@vitest/ui": "4.1.0-beta.6"
+   + "@vitest/ui": "^4.0.18"
+   ```
+
+3. Revert `vite.config.ts`: `rolldownOptions` → `rollupOptions`, restore `manualChunks: undefined`
+
+4. Revert Dockerfile: restore `ROLLUP_SKIP_NODEJS_NATIVE=1` env vars
+
+5. Remove Vite 8 overrides from `frontend/package.json`
+
+6. Run `npm install` to restore lock file
+
+7. Verify: `cd frontend && npx vite build && npx vitest run`
+
+**Risk:** Medium — Vite 8 is a pre-release beta. More likely to need rollback than stable upgrades. Since this is a stacked commit on the same branch, `git revert HEAD` cleanly removes only the Vite 8 changes while preserving TS 6.0 and ESLint v10.
 
 ---
 
@@ -658,7 +980,7 @@ N/A — no upgrade to perform.
 
 ## 11. Commit Slicing Strategy
 
-### Decision: 2 Independent PRs + 1 Deferred
+### Decision: 3 Stacked Commits on Single Branch
 
 **Trigger reasons:**
 
@@ -689,19 +1011,33 @@ N/A — no upgrade to perform.
 | **Estimated Complexity** | Medium — depends on plugin ecosystem readiness |
 | **Rollback** | `git revert` + `npm install` |
 
-### PR-3: Vite 8 (Deferred)
+### PR-3: Vite 8 Upgrade (stacked commit on same branch)
 
 | Attribute | Detail |
 |---|---|
-| **Scope** | N/A — Vite 8 does not exist |
-| **Dependencies** | Vite 8 release |
-| **Action** | Monitor `https://github.com/vitejs/vite/releases` |
+| **Scope** | Vite 7→8, plugin-react 5→6, vitest 4.0→4.1-beta, vite.config.ts migration, Dockerfile cleanup |
+| **Files** | `package.json` (root), `frontend/package.json`, `package-lock.json`, `frontend/vite.config.ts`, `Dockerfile`, `ARCHITECTURE.md` |
+| **Dependencies** | PR-1 (TS 6.0) and PR-2 (ESLint v10) already committed on branch |
+| **Validation Gate** | `vite build` succeeds with Rolldown, `vitest run` passes, Docker build succeeds, Playwright E2E passes |
+| **Estimated Complexity** | **High** — beta software, bundler engine swap (Rollup→Rolldown), multiple ecosystem packages at beta versions |
+| **Rollback** | `git revert HEAD` — cleanly removes only the Vite 8 commit |
+
+#### npm Overrides for PR-3
+
+**No overrides expected** when all packages are installed at their beta versions in lockstep:
+- `vitest@4.1.0-beta.6` deps include `vite: ^8.0.0-0` — resolves Vite 8 without override
+- `@vitest/*@4.1.0-beta.6` peer on `vitest: 4.1.0-beta.6` — satisfied by direct install
+
+If `npm install` fails, add **scoped** overrides in `frontend/package.json` only for the failing package. Do not add a broad `"vite": "8.0.0-beta.18"` override.
 
 ### Contingency
 
 - If TS 6.0 stable is delayed past RC, pin to `typescript@6.0.0-rc` temporarily
 - If ESLint v10 plugin compat is blocked for >30 days, consider temporarily dropping the blocker plugin or using `--rulesdir` workaround
 - If a plugin is permanently abandoned, research replacement plugins
+- If Vite 8 beta has blocking regressions, `git revert` the Vite 8 commit and wait for the next beta or stable release — TS 6.0 + ESLint v10 upgrades remain unaffected
+- If `vitest@4.1.0-beta.6` fails tests, try pinning `vitest@4.0.18` with an `overrides` entry for its `vite` dependency (force it to accept `^8.0.0-0`)
+- If Rolldown's `codeSplitting: false` behaves differently than expected, try the deprecated `inlineDynamicImports: true` as a fallback, or re-investigate the React initialization issue that motivated the workaround
 
 ---
 
@@ -733,11 +1069,23 @@ N/A — no upgrade to perform.
 
 ### Vite 8
 
-1. **Does not exist** — No action possible. The latest major is Vite 7.
+1. **Beta software** — `8.0.0-beta.18` is pre-release. Expect edge cases and undocumented behavior. File issues at `https://github.com/vitejs/rolldown-vite/issues`.
 
-2. **Rolldown integration** — Vite 7 introduced `rolldown-vite` as an alternative bundler. Vite 8 may make Rolldown the default. Monitor this.
+2. **Rolldown bundler is RC, not stable** — Vite 8 depends on `rolldown@1.0.0-rc.8`. Rolldown is feature-complete but may have edge cases with complex chunk splitting configurations.
 
-3. **`inlineDynamicImports: true` workaround** — `frontend/vite.config.ts` has a `TEMPORARY` comment on `inlineDynamicImports: true` for a "React init issue". This should be investigated independently regardless of any Vite upgrade.
+3. **`codeSplitting: false` replaces `inlineDynamicImports: true`** — `frontend/vite.config.ts` has a `TEMPORARY` workaround for a "React init issue". Rolldown supports `inlineDynamicImports` but marks it as [deprecated](https://rolldown.rs/reference/OutputOptions.inlineDynamicImports) in favor of `codeSplitting: false`. The migration uses `codeSplitting: false` as the primary approach; `inlineDynamicImports: true` can be used as a deprecated fallback.
+
+4. **Oxc Minifier assumptions differ from esbuild** — The Oxc Minifier makes [different assumptions](https://oxc.rs/docs/guide/usage/minifier.html#assumptions) about source code than esbuild. If runtime errors appear after build but not in dev, the minifier is the likely culprit. Use `build.minify: false` temporarily to diagnose.
+
+5. **CJS interop behavior change** — Vite 8 changes how `default` imports from CommonJS modules work. Packages like `axios` (CJS) may be affected. The `legacy.inconsistentCjsInterop: true` escape hatch exists if needed.
+
+6. **All ecosystem packages are beta** — `@vitejs/plugin-react@6.0.0-beta.0`, `vitest@4.1.0-beta.6`, and all `@vitest/*` packages are pre-release. They are tightly version-locked (e.g., `@vitest/coverage-v8` peers to exact `vitest: 4.1.0-beta.6`).
+
+7. **Plugin-react 6.0 API change** — The new `@vitejs/plugin-react@6.0.0-beta.0` uses `@rolldown/pluginutils` internally instead of `@rollup/pluginutils`. The public API (`react()` call in config) appears unchanged. New optional peer deps (`@rolldown/plugin-babel`, `babel-plugin-react-compiler`) are not required for Charon's usage.
+
+8. **Lightning CSS may increase CSS bundle size** — Lightning CSS produces slightly different output than esbuild's CSS minifier. Verify CSS output and check for visual regressions.
+
+9. **Cross-platform Docker builds** — Rolldown uses native Rust bindings per platform (`@rolldown/binding-linux-x64-musl` for Alpine). The `--platform=$BUILDPLATFORM` Docker flag ensures the correct binding is installed. If cross-arch builds fail, verify the correct `@rolldown/binding-*` package is being resolved.
 
 ---
 
@@ -751,15 +1099,21 @@ N/A — no upgrade to perform.
 | `typescript-eslint` incompatible with TS 6.0 | **Low** | **Medium** — blocks type-aware linting | Check releases; may need to update |
 | `knip` breaks with TS 6.0 | **Low** | **Low** — `knip` is optional tooling | Test separately; pin if needed |
 | TS 6.0 stable delayed | **Low** | **Low** — RC already available | Use RC or pin beta |
-| Vite 8 released with breaking changes | **Unknown** | **Unknown** | Create new plan when announced |
+| Vite 8 beta breaks production build | **Medium** | **High** — blocks Docker/deployment | Test `vite build` thoroughly; rollback with `git revert` |
+| Rolldown CJS interop breaks runtime imports | **Medium** | **Medium** — runtime errors on CJS packages | Test all CJS deps (axios, etc.); use `legacy.inconsistentCjsInterop` escape |
+| Oxc Minifier causes runtime errors | **Low** | **High** — minification bugs are subtle | Compare dev vs prod behavior; use `build.minify: false` to diagnose |
+| `vitest@4.1.0-beta.6` incompatible with test suite | **Low** | **Medium** — blocks unit test validation | Pin to `4.0.18` + override vite peer if needed |
+| `@vitejs/plugin-react@6.0.0-beta.0` breaks React HMR | **Low** | **Medium** — dev experience degraded | Rollback to 5.1.4 + Vite 7 if critical |
+| Rolldown native binding fails on Alpine cross-build | **Low** | **High** — blocks Docker build entirely | Verify `@rolldown/binding-linux-x64-musl` resolves; fall back to non-cross-platform build |
+| Lightning CSS produces visual CSS regressions | **Low** | **Low** — cosmetic issues only | Visual diff E2E screenshots |
 | Docker build fails after upgrades | **Low** | **Medium** — blocks CI/deployment | Test Docker build in PR CI |
 | Playwright E2E failures from TS changes | **Very Low** | **High** — blocks merge | Run full E2E suite before merge |
 
-### Overall Risk: **MEDIUM**
+### Overall Risk: **MEDIUM-HIGH**
 
 - TypeScript 6.0 is well-characterized and Charon's tsconfig is well-aligned with the new defaults
 - ESLint v10 is dependent on ecosystem readiness (plugin compatibility)
-- Vite 8 is a non-issue (doesn't exist)
+- **Vite 8 is the highest-risk change** — beta software with a complete bundler engine swap (Rollup→Rolldown). The saving grace is that all three upgrades are separate commits on the same branch, enabling surgical rollback of just the Vite 8 commit if needed
 
 ---
 
@@ -786,5 +1140,19 @@ N/A — no upgrade to perform.
 
 ### PR-3 (Vite 8)
 
-- [ ] Monitoring established for Vite releases
-- [ ] Plan will be recreated when Vite 8 is announced
+- [ ] `vite` upgraded to `8.0.0-beta.18` in root and frontend `package.json`
+- [ ] `@vitejs/plugin-react` upgraded to `6.0.0-beta.0`
+- [ ] `vitest` upgraded to `4.1.0-beta.6` with matching `@vitest/*` packages
+- [ ] `vite.config.ts` migrated: `rollupOptions` → `rolldownOptions`, `manualChunks` removed
+- [ ] npm overrides verified: no broad overrides needed (or scoped overrides added with justification)
+- [ ] Dockerfile: Rollup native skip flags removed
+- [ ] `vite build` produces correct output with Rolldown bundler
+- [ ] `vitest run` passes all unit tests
+- [ ] `tsc --noEmit` still passes (unchanged from PR-1)
+- [ ] Docker build succeeds with Rolldown on Alpine/musl
+- [ ] Playwright E2E tests pass (all browsers)
+- [ ] No CJS interop runtime errors (axios, react-hot-toast, etc.)
+- [ ] CJS interop verified: axios API calls, react-hot-toast renders, react-hook-form submits work
+- [ ] CSS output visually correct (Lightning CSS minification)
+- [ ] `ARCHITECTURE.md` updated: Vite 8.0.0-beta.18, Vitest 4.1.0-beta.6, Playwright 1.58.2, Tailwind CSS 4.2.1, `vite.config.ts` filename
+- [ ] Pre-commit hooks pass (`lefthook`)
