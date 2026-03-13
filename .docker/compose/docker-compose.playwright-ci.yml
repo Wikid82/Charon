@@ -87,7 +87,7 @@ services:
       - playwright_caddy_config:/config
       - /var/run/docker.sock:/var/run/docker.sock:ro # For container discovery in tests
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/api/v1/health"]
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:8080/api/v1/health || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 12

@@ -408,11 +408,10 @@ WORKDIR /app
 # Install runtime dependencies for Charon, including bash for maintenance scripts
 # Note: gosu is now built from source (see gosu-builder stage) to avoid CVEs from Debian's pre-compiled version
 # Explicitly upgrade packages to fix security vulnerabilities
-# binutils provides objdump for debug symbol detection in docker-entrypoint.sh
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
-    bash ca-certificates sqlite-libs sqlite tzdata curl gettext libcap libcap-utils \
-    c-ares binutils libc-utils busybox-extras \
+    bash ca-certificates sqlite-libs sqlite tzdata gettext libcap libcap-utils \
+    c-ares busybox-extras \
     && apk upgrade --no-cache zlib
 
 # Copy gosu binary from gosu-builder (built with Go 1.26+ to avoid stdlib CVEs)
@@ -434,8 +433,9 @@ ARG GEOLITE2_COUNTRY_SHA256=b79afc28a0a52f89c15e8d92b05c173f314dd4f687719f96cf92
 RUN mkdir -p /app/data/geoip && \
         if [ -n "$CI" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
-            if curl -fSL -m 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-                -o /app/data/geoip/GeoLite2-Country.mmdb 2>/dev/null; then \
+            if wget -qO /app/data/geoip/GeoLite2-Country.mmdb \
+                -T 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" 2>/dev/null \
+                && [ -s /app/data/geoip/GeoLite2-Country.mmdb ]; then \
                 echo "✅ GeoIP downloaded"; \
             else \
                 echo "⚠️  GeoIP skipped"; \
@@ -443,9 +443,10 @@ RUN mkdir -p /app/data/geoip && \
             fi; \
         else \
             echo "Local - full download (30s timeout, 3 retries)"; \
-            if curl -fSL -m 30 --retry 3 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-                -o /app/data/geoip/GeoLite2-Country.mmdb; then \
-                if echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c -; then \
+            if wget -qO /app/data/geoip/GeoLite2-Country.mmdb \
+                -T 30 -t 4 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb"; then \
+                if [ -s /app/data/geoip/GeoLite2-Country.mmdb ] && \
+                   echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c -; then \
                     echo "✅ GeoIP checksum verified"; \
                 else \
                     echo "⚠️  Checksum failed"; \
@@ -578,8 +579,8 @@ EXPOSE 80 443 443/udp 2019 8080
 
 # Security: Add healthcheck to monitor container health
 # Verifies the Charon API is responding correctly
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8080/api/v1/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD wget -q -O /dev/null http://localhost:8080/api/v1/health || exit 1
 
 # Create CrowdSec symlink as root before switching to non-root user
 # This symlink allows CrowdSec to use persistent storage at /app/data/crowdsec/config
