@@ -1,235 +1,282 @@
-# Post-Slack Merge Blockers — Remediation Plan
+# CI Supply Chain CVE Remediation Plan
 
 **Status:** Active
 **Created:** 2026-03-13
 **Branch:** `feature/beta-release`
-**Context:** Slack notification provider is functionally complete. Four blockers remain before merge.
+**Context:** Three HIGH vulnerabilities (CVE-2025-69650, CVE-2025-69649, CVE-2026-3805) in the Docker runtime image are blocking the CI supply-chain scan. Two Grype ignore-rule entries are also expired and require maintenance.
 
 ---
 
 ## 1. Executive Summary
 
-| # | Blocker | Severity | Effort | Fix Available |
-|---|---------|----------|--------|---------------|
-| 1 | Patch coverage short by 15 backend lines (Slack commit) | Medium | ~1 hr | Yes — add unit tests |
-| 2 | 2 HIGH vulnerabilities in Docker image (`binutils`) | Low | None | No — no upstream fix; build-time only |
-| 3 | `anchore/sbom-action` uses Node.js 20 | Medium | Blocked | No — upstream has not released a node24 build |
-| 4 | 13 MEDIUM vulnerabilities in Docker image | Mixed | ~30 min | 1 fixable (`zlib`), 12 unfixable (no upstream fix) |
+| # | Action | Severity Reduction | Effort |
+|---|--------|--------------------|--------|
+| 1 | Remove `curl` from runtime image (replace with `wget`) | Eliminates 1 HIGH + ~7 MEDIUMs + 2 LOWs | ~30 min |
+| 2 | Remove `binutils` + `libc-utils` from runtime image | Eliminates 2 HIGH + 3 MEDIUMs | ~5 min |
+| 3 | Update expired Grype ignore rules | Prevents false scan failures at next run | ~10 min |
 
-**Bottom line:** Blocker 1 is the only item requiring code changes. Blockers 2/3/4 are environmental and require either upstream fixes, documented risk acceptance, or a single `apk upgrade` in the Dockerfile.
-
----
-
-## 2. Blocker 1: Patch Coverage — 15 Uncovered Backend Lines
-
-### Methodology
-
-Computed by cross-referencing `git diff HEAD~1...HEAD` (Slack commit `26be592f`) against `backend/coverage.txt` using Go's atomic coverage profile. Only non-test `.go` files in the Slack commit are considered.
-
-**Totals:** 63 changed source lines, 15 uncovered → 76.2% patch coverage.
-
-### Uncovered Lines
-
-#### File: `backend/internal/api/handlers/notification_provider_handler.go` (9 lines)
-
-| Lines | Code | Description |
-|-------|------|-------------|
-| 141–143 | `return "PROVIDER_TEST_VALIDATION_FAILED", "validation", "Slack rejected the payload..."` | Error classification for `invalid_payload` / `missing_text_or_fallback` Slack API errors |
-| 145–147 | `return "PROVIDER_TEST_AUTH_REJECTED", "dispatch", "Slack webhook is revoked..."` | Error classification for `no_service` Slack API error |
-| 325–327 | `respondSanitizedProviderError(c, http.StatusBadRequest, "TOKEN_WRITE_ONLY", ...)` + `return` | Guard preventing Slack webhook URL from being sent in test-notification requests |
-
-#### File: `backend/internal/services/notification_service.go` (6 lines)
-
-| Lines | Code | Description |
-|-------|------|-------------|
-| 462–463 | `marshalErr` branch → `return fmt.Errorf("failed to normalize slack payload: %w", marshalErr)` | Error path when `json.Marshal` fails during Slack payload normalization (`message` → `text` rewrite) |
-| 466–467 | `writeErr` branch → `return fmt.Errorf("failed to write normalized slack payload: %w", writeErr)` | Error path when `body.Write` fails after normalization |
-| 549–550 | `return fmt.Errorf("slack webhook URL is not configured")` | Guard when decrypted Slack webhook URL is empty at dispatch time |
-
-### Proposed Test Additions
-
-All tests go in existing test files alongside the current Slack test cases.
-
-**1. `notification_provider_handler_test.go` — Slack error classification (covers lines 141–147)**
-
-Add test cases to the `classifySlackProviderTestError` test table:
-- Input error containing `"invalid_payload"` → assert returns `PROVIDER_TEST_VALIDATION_FAILED`
-- Input error containing `"missing_text_or_fallback"` → assert returns `PROVIDER_TEST_VALIDATION_FAILED`
-- Input error containing `"no_service"` → assert returns `PROVIDER_TEST_AUTH_REJECTED`
-
-**2. `notification_provider_handler_test.go` — Slack TOKEN_WRITE_ONLY guard (covers lines 325–327)**
-
-Add a test case to the test-notification endpoint tests:
-- Send a test-notification request with `type=slack` and a non-empty `token` field
-- Assert HTTP 400 with error code `TOKEN_WRITE_ONLY`
-
-**3. `notification_service_test.go` — Slack payload normalization errors (covers lines 462–467)**
-
-Add test cases to the Slack dispatch tests:
-- Provide a payload with a `message` field but inject a marshal failure (e.g., via a value that causes `json.Marshal` to fail such as `math.NaN` or a channel-based mock)
-- Alternatively, test the `message`→`text` normalization happy path (which exercises lines 459–467 inclusive) and use a mock `body.Write` that returns an error
-
-**4. `notification_service_test.go` — Empty Slack webhook URL (covers lines 549–550)**
-
-Add a test case:
-- Create a Slack provider with an empty/whitespace-only Token (webhook URL)
-- Call dispatch
-- Assert error contains `"slack webhook URL is not configured"`
+**Bottom line:** All three HIGH CVEs are eliminated at root rather than suppressed. After Phase 1 and Phase 2, `fail-on-severity: high` passes cleanly. Phase 3 is maintenance-only.
 
 ---
 
-## 3. Blocker 2: 2 HIGH Vulnerabilities
+## 2. CVE Inventory
 
-### Findings
+### Blocking HIGH CVEs
 
-| CVE | Package | Version | CVSS | Fix Available | Source |
-|-----|---------|---------|------|---------------|--------|
-| CVE-2025-69650 | `binutils` | 2.45.1-r0 | 7.5 | No | `grype-results.json` |
-| CVE-2025-69649 | `binutils` | 2.45.1-r0 | 7.5 | No | `grype-results.json` |
+| CVE | Package | Version | CVSS | Fix State | Notes |
+|-----|---------|---------|------|-----------|-------|
+| CVE-2026-3805 | `curl` | 8.17.0-r1 | 7.5 | `unknown` | **New** — appeared in Grype DB 2026-03-13, published 2026-03-11. SMB protocol use-after-free. Charon uses HTTPS/HTTP only. |
+| CVE-2025-69650 | `binutils` | 2.45.1-r0 | 7.5 | `` (none) | Double-free in `readelf`. Charon never invokes `readelf`. |
+| CVE-2025-69649 | `binutils` | 2.45.1-r0 | 7.5 | `` (none) | Null-ptr deref in `readelf`. Charon never invokes `readelf`. |
 
-### Analysis
+### Associated MEDIUM/LOW CVEs eliminated as side-effects
 
-- **CVE-2025-69650:** Double-free in `readelf` when processing crafted ELF files.
-- **CVE-2025-69649:** Null pointer dereference in `readelf` when processing crafted ELF files.
+| CVEs | Package | Count | Eliminated by |
+|------|---------|-------|---------------|
+| CVE-2025-14819, CVE-2025-15079, CVE-2025-14524, CVE-2025-13034, CVE-2025-14017 | `curl` | 5 × MEDIUM | Phase 1 |
+| CVE-2025-69652, CVE-2025-69644, CVE-2025-69651 | `binutils` | 3 × MEDIUM | Phase 2 |
 
-Both affect GNU Binutils, which is present in the Alpine image as a build dependency pulled in by `gcc`/`musl-dev` for CGo compilation. These are:
+### Expired Grype Ignore Rules
 
-1. **Build-time only** — `binutils` is not used at runtime by Charon
-2. **Not exploitable** — requires processing a malicious ELF file via `readelf`, which Charon never invokes
-3. **No upstream fix** — Alpine has not released a patched `binutils`
-4. **Pre-existing** — present before the Slack commit
-
-### Remediation
-
-- **Action:** Document as accepted risk in the PR description
-- **Rationale:** Build-toolchain-only vulnerability with no runtime exposure. No fix available upstream.
-- **Review trigger:** Re-evaluate when Alpine releases `binutils >= 2.47` or patches the 2.45.1 package
+| Entry | Expiry | Status | Action |
+|-------|--------|--------|--------|
+| `CVE-2026-22184` (zlib) | 2026-03-14 | Expires tomorrow; underlying CVE already fixed via `apk upgrade --no-cache zlib` | **Remove entirely** |
+| `GHSA-69x3-g4r3-p962` (nebula) | 2026-03-05 | **Expired 8 days ago**; upstream fix still unavailable | **Extend to 2026-04-13** |
 
 ---
 
-## 4. Blocker 3: `anchore/sbom-action` Uses Node.js 20
+## 3. Phase 1 — Remove `curl` from Runtime Image
 
-### Current State
+### Rationale
 
-| Workflow | File | Line |
-|----------|------|------|
-| Docker Build | `docker-build.yml` | 577 |
-| Nightly Build | `nightly-build.yml` | 266 |
-| Supply Chain PR | `supply-chain-pr.yml` | 269 |
-| Supply Chain Verify | `supply-chain-verify.yml` | 122 |
+`curl` is present solely for:
+1. GeoLite2 DB download at build time (Dockerfile, runtime stage `RUN` block)
+2. HEALTHCHECK probe (Dockerfile `HEALTHCHECK` directive)
+3. Caddy admin API readiness poll (`.docker/docker-entrypoint.sh`)
 
-All four reference the same pin: `anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d # v0.23.1`
+`busybox` (already installed on Alpine as a transitive dependency of `busybox-extras`, which is explicitly installed) provides `wget` with sufficient functionality for all three uses.
 
-**v0.23.1** (released 2026-03-10) is the latest release. Its `action.yml` declares `runs.using: "node20"`.
+### 3.1 `wget` Translation Reference
 
-### Analysis
+| `curl` invocation | `wget` equivalent | Notes |
+|-------------------|--------------------|-------|
+| `curl -fSL -m 10 "URL" -o FILE 2>/dev/null` | `wget -qO FILE -T 10 "URL" 2>/dev/null` | `-q` = quiet; `-T` = timeout (seconds); exits nonzero on failure |
+| `curl -fSL -m 30 --retry 3 "URL" -o FILE` | `wget -qO FILE -T 30 -t 4 "URL"` | `-t 4` = 4 total tries (1 initial + 3 retries); add `&& [ -s FILE ]` guard |
+| `curl -f http://HOST/path \|\| exit 1` | `wget -q -O /dev/null http://HOST/path \|\| exit 1` | HEALTHCHECK; wget exits nonzero on HTTP error |
+| `curl -sf http://HOST/path > /dev/null 2>&1` | `wget -qO /dev/null http://HOST/path 2>/dev/null` | Silent readiness probe |
 
-- GitHub Actions is deprecating Node.js 20 actions (targeting Node.js 24 as the successor runtime).
-- `anchore/sbom-action` has **not released a node24-compatible version** yet. The project transitioned from node16→node20 around v0.17.x.
-- No open issue or PR on the `anchore/sbom-action` repository tracks node24 migration.
-- The current pin at v0.23.1 / `57aae52` is the best available version.
+**busybox wget notes:**
+- `-T N` is per-connection timeout in seconds (equivalent to `curl --max-time`).
+- `-t N` is total number of tries, not retries; `-t 4` = 3 retries.
+- On download failure, busybox wget may leave a zero-byte or partial file at the output path. The `[ -s FILE ]` guard (`-s` = non-empty) prevents a corrupted placeholder from passing the sha256 check.
 
-### Remediation
+### 3.2 Dockerfile Changes
 
-| Option | Action | Risk |
-|--------|--------|------|
-| **A) Wait (recommended)** | Keep current pin. Monitor `anchore/sbom-action` releases for a node24 build. Renovate will auto-propose the update. | GitHub will show deprecation warnings but will not break the action until the hard cutoff. |
-| **B) Suppress warning** | Add `ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true` env var to the workflow steps. | Masks the warning but does not fix the underlying issue. Not recommended. |
-| **C) Fork and patch** | Fork the action, change `node20` to `node24`, rebuild dist. | Maintenance burden; likely breaks without code changes to support Node 24 APIs. |
+**File:** `Dockerfile`
 
-**Recommendation:** Option A. Pin stays at `v0.23.1` / `57aae528053a48a3f6235f2d9461b05fbcb7366d`. Document in PR description as a known upstream dependency awaiting update.
+**Change A — Remove `curl`, `binutils`, `libc-utils` from `apk add` (runtime stage, line ~413):**
 
----
+Current:
+```dockerfile
+RUN apk add --no-cache \
+    bash ca-certificates sqlite-libs sqlite tzdata curl gettext libcap libcap-utils \
+    c-ares binutils libc-utils busybox-extras \
+    && apk upgrade --no-cache zlib
+```
 
-## 5. Blocker 4: 13 MEDIUM Vulnerabilities
+New:
+```dockerfile
+RUN apk add --no-cache \
+    bash ca-certificates sqlite-libs sqlite tzdata gettext libcap libcap-utils \
+    c-ares busybox-extras \
+    && apk upgrade --no-cache zlib
+```
 
-### Full Catalog
+*(This single edit covers both Phase 1 and Phase 2 removals.)*
 
-All from `grype-results.json` (Docker image scan of Alpine 3.23.3 base).
+**Change B — GeoLite2 download block, CI path (line ~437):**
 
-| # | CVE | Package | Version | Fix | Category |
-|---|-----|---------|---------|-----|----------|
-| 1 | CVE-2025-60876 | `busybox` | 1.37.0-r30 | None | Unfixable |
-| 2 | CVE-2025-60876 | `busybox-binsh` | 1.37.0-r30 | None | Unfixable (same CVE) |
-| 3 | CVE-2025-60876 | `busybox-extras` | 1.37.0-r30 | None | Unfixable (same CVE) |
-| 4 | CVE-2025-60876 | `ssl_client` | 1.37.0-r30 | None | Unfixable (same CVE) |
-| 5 | CVE-2025-14819 | `curl` | 8.17.0-r1 | None | Unfixable |
-| 6 | CVE-2025-15079 | `curl` | 8.17.0-r1 | None | Unfixable |
-| 7 | CVE-2025-14524 | `curl` | 8.17.0-r1 | None | Unfixable |
-| 8 | CVE-2025-13034 | `curl` | 8.17.0-r1 | None | Unfixable |
-| 9 | CVE-2025-14017 | `curl` | 8.17.0-r1 | None | Unfixable |
-| 10 | CVE-2025-69652 | `binutils` | 2.45.1-r0 | None | Unfixable |
-| 11 | CVE-2025-69644 | `binutils` | 2.45.1-r0 | None | Unfixable |
-| 12 | CVE-2025-69651 | `binutils` | 2.45.1-r0 | None | Unfixable |
-| 13 | CVE-2026-27171 | `zlib` | 1.3.1-r2 | **1.3.2-r0** | **Fixable** |
+Current:
+```dockerfile
+if curl -fSL -m 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
+    -o /app/data/geoip/GeoLite2-Country.mmdb 2>/dev/null; then
+```
 
-### Grouping
+New:
+```dockerfile
+if wget -qO /app/data/geoip/GeoLite2-Country.mmdb \
+    -T 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" 2>/dev/null; then
+```
 
-| Category | Entries | Unique CVEs | Packages |
-|----------|---------|-------------|----------|
-| BusyBox wget CRLF injection | 4 | 1 (CVE-2025-60876) | busybox, busybox-binsh, busybox-extras, ssl_client |
-| curl TLS/SSH edge cases | 5 | 5 distinct | curl 8.17.0-r1 |
-| binutils readelf issues | 3 | 3 distinct | binutils 2.45.1-r0 |
-| zlib vulnerability | 1 | 1 (CVE-2026-27171) | zlib 1.3.1-r2 |
+**Change C — GeoLite2 download block, non-CI path (line ~445):**
 
-### Remediation
+Current:
+```dockerfile
+if curl -fSL -m 30 --retry 3 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
+    -o /app/data/geoip/GeoLite2-Country.mmdb; then
+    if echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c -; then
+```
 
-**Fixable (1 vuln):**
+New:
+```dockerfile
+if wget -qO /app/data/geoip/GeoLite2-Country.mmdb \
+    -T 30 -t 4 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb"; then
+    if [ -s /app/data/geoip/GeoLite2-Country.mmdb ] && \
+       echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c -; then
+```
 
-| CVE | Fix |
-|-----|-----|
-| CVE-2026-27171 (`zlib`) | Add `RUN apk upgrade --no-cache zlib` to Dockerfile runtime stage, or bump Alpine base if 3.23.4+ ships with zlib 1.3.2 |
+The `[ -s FILE ]` check is added before `sha256sum` to guard against wget leaving an empty file on partial failure.
 
-**Unfixable (12 vulns):**
+**Change D — HEALTHCHECK directive (line ~581):**
 
-| Package | Risk | Mitigation |
-|---------|------|------------|
-| `busybox` (CVE-2025-60876) | Low — wget CRLF injection. Charon does not invoke `wget` at runtime. | Accept risk; monitor Alpine. |
-| `curl` (5 CVEs) | Low–Medium — TLS/SSH edge cases. Charon uses Go `net/http`, not `curl`. Present only for health checks. | Accept risk; consider removing `curl` from runtime image. |
-| `binutils` (3 CVEs) | Low — build-time only (`readelf` DoS). Not in runtime path. | Accept risk; monitor Alpine. |
+Current:
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8080/api/v1/health || exit 1
+```
 
----
+New:
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+    CMD wget -q -O /dev/null http://localhost:8080/api/v1/health || exit 1
+```
 
-## 6. Commit Slicing Strategy
+### 3.3 Entrypoint Changes
 
-### Decision: 2 PRs
+**File:** `.docker/docker-entrypoint.sh`
 
-| PR | Scope | Files | Validation |
-|----|-------|-------|------------|
-| **PR-1: Coverage + zlib fix** | Unit tests for 15 uncovered Slack lines + `apk upgrade zlib` in Dockerfile | `notification_provider_handler_test.go`, `notification_service_test.go`, `Dockerfile` | `go test ./...`, re-run grype scan, regenerate patch report |
-| **PR-2: Risk acceptance docs** | Document accepted risks for unfixable vulns + SBOM node20 | PR description or `.github/security-accepted-risks.md` | Review-only |
+**Change E — Caddy readiness poll (line ~368):**
 
-### Trigger Reasons
+Current:
+```sh
+if curl -sf http://127.0.0.1:2019/config/ > /dev/null 2>&1; then
+```
 
-- PR-1 is code (tests + Dockerfile) — requires CI
-- PR-2 is documentation/process — review-only, no CI risk
-- Splitting allows PR-1 to merge quickly while risk discussions happen asynchronously
-
-### Rollback
-
-- **PR-1:** Safe to revert — only adds tests and an `apk upgrade`. No behavioral changes.
-- **PR-2:** Documentation only.
-
----
-
-## 7. Execution Order
-
-| Step | Action | Blocker | Effort |
-|------|--------|---------|--------|
-| 1 | Add unit tests for 15 uncovered Slack lines | 1 | ~45 min |
-| 2 | Add `apk upgrade --no-cache zlib` to Dockerfile runtime stage | 4 (partial) | ~5 min |
-| 3 | Re-run backend tests + coverage, regenerate patch report | 1 verification | ~10 min |
-| 4 | Re-run Docker image scan (grype/trivy) | 4 verification | ~5 min |
-| 5 | Open PR-1 with test + Dockerfile changes | — | ~10 min |
-| 6 | Document risk acceptance for unfixable vulns + SBOM node20 in PR-2 | 2, 3, 4 | ~15 min |
+New:
+```sh
+if wget -qO /dev/null http://127.0.0.1:2019/config/ 2>/dev/null; then
+```
 
 ---
 
-## Acceptance Criteria
+## 4. Phase 2 — Remove `binutils` and `libc-utils` from Runtime Image
 
-- [ ] All 15 uncovered Slack lines have corresponding unit test cases
-- [ ] Backend patch coverage for Slack commit ≥ 95%
-- [ ] `zlib` upgraded to ≥ 1.3.2-r0 in Docker image
-- [ ] Docker image scan shows 0 fixable MEDIUM+ vulnerabilities
-- [ ] Unfixable vulnerabilities documented with risk acceptance rationale
-- [ ] `anchore/sbom-action` node20 status documented; pin unchanged at v0.23.1
+### Rationale
+
+`binutils` is installed solely for `objdump`, used in `.docker/docker-entrypoint.sh` to detect DWARF debug symbols when `CHARON_DEBUG=1`. The entrypoint already has a graceful fallback (lines ~401–404):
+
+```sh
+else
+    # objdump not available, try to run Delve anyway with a warning
+    echo "Note: Cannot verify debug symbols (objdump not found). Attempting Delve..."
+    run_as_charon /usr/local/bin/dlv exec "$bin_path" ...
+fi
+```
+
+When `objdump` is absent the container functions correctly for all standard and debug-mode runs. The check is advisory.
+
+`libc-utils` appears **only once** across the entire codebase (confirmed by grep across `*.sh`, `Dockerfile`, `*.yml`): as a sibling entry on the same `apk add` line as `binutils`. It provides glibc-compatible headers for musl-based Alpine and has no independent consumer in this image. It is safe to remove together with `binutils`.
+
+### 4.1 Dockerfile Change
+
+Already incorporated in Phase 1 Change A — the `apk add` line removes both `binutils` and `libc-utils` in a single edit. No additional changes are required.
+
+### 4.2 Why Not Suppress Instead?
+
+Suppressing in Grype requires two new ignore entries with expiry maintenance every 30 days indefinitely (no upstream Alpine fix exists). Removing the packages eliminates the CVEs permanently. There is no functional regression given the working fallback.
+
+---
+
+## 5. Phase 3 — Update Expired Grype Ignore Rules
+
+**File:** `.grype.yaml`
+
+### 5.1 Remove `CVE-2026-22184` (zlib) Block
+
+**Action:** Delete the entire `CVE-2026-22184` ignore entry.
+
+**Reason:** The Dockerfile runtime stage already contains `&& apk upgrade --no-cache zlib`, which upgrades zlib from 1.3.1-r2 to 1.3.2-r0, resolving CVE-2026-22184. Suppressing a resolved CVE creates false confidence and obscures scan accuracy. The entry's own removal criteria have been met: Alpine released `zlib 1.3.2-r0`.
+
+### 5.2 Extend `GHSA-69x3-g4r3-p962` (nebula) Expiry
+
+**Action:** Update the `expiry` field and review comment in the nebula block.
+
+Current:
+```yaml
+    expiry: "2026-03-05"  # Re-evaluate in 14 days (2026-02-19 + 14 days)
+```
+
+New:
+```yaml
+    expiry: "2026-04-13"  # Re-evaluated 2026-03-13: smallstep/certificates stable still v0.27.5, no nebula v1.10+ requirement. Extended 30 days.
+```
+
+Update the review comment line:
+```
+  # - Next review: 2026-04-13.
+  # - Reviewed 2026-03-13: smallstep stable still v0.27.5 (no nebula v1.10+ requirement). Extended 30 days.
+  # - Remove suppression immediately once upstream fixes.
+```
+
+**Reason:** As of 2026-03-13, `smallstep/certificates` has not released a stable version requiring nebula v1.10+. The constraint analysis from 2026-02-19 remains valid. Expiry extended 30 days to 2026-04-13.
+
+---
+
+## 6. File Change Summary
+
+| File | Change | Scope |
+|------|--------|-------|
+| `Dockerfile` | Remove `curl`, `binutils`, `libc-utils` from `apk add` | Line ~413–415 |
+| `Dockerfile` | Replace `curl` with `wget` in GeoLite2 CI download path | Line ~437–441 |
+| `Dockerfile` | Replace `curl` with `wget` in GeoLite2 non-CI path; add `[ -s FILE ]` guard | Line ~445–452 |
+| `Dockerfile` | Replace `curl` with `wget` in HEALTHCHECK | Line ~581 |
+| `.docker/docker-entrypoint.sh` | Replace `curl` with `wget` in Caddy readiness poll | Line ~368 |
+| `.grype.yaml` | Delete `CVE-2026-22184` (zlib) ignore block entirely | zlib block |
+| `.grype.yaml` | Extend `GHSA-69x3-g4r3-p962` expiry to 2026-04-13; update review comment | nebula block |
+
+---
+
+## 7. Commit Slicing Strategy
+
+**Single PR** — all changes are security-related and tightly coupled. Splitting curl removal from binutils removal would produce an intermediate commit with partially resolved HIGHs, offering no validation benefit and complicating rollback.
+
+Suggested commit message:
+```
+fix(security): remove curl and binutils from runtime image
+
+Replace curl with busybox wget for GeoLite2 downloads, HEALTHCHECK,
+and the Caddy readiness probe. Remove binutils and libc-utils from the
+runtime image; the entrypoint objdump check has a documented fallback
+for missing objdump. Eliminates CVE-2026-3805 (curl HIGH), CVE-2025-69650
+and CVE-2025-69649 (binutils HIGH), plus 8 associated MEDIUM findings.
+
+Remove the now-resolved CVE-2026-22184 (zlib) suppression from
+.grype.yaml and extend GHSA-69x3-g4r3-p962 (nebula) expiry to
+2026-04-13 pending upstream smallstep/certificates update.
+```
+
+---
+
+## 8. Expected Scan Results After Fix
+
+| Metric | Before | After | Delta |
+|--------|--------|-------|-------|
+| HIGH count | 3 | **0** | −3 |
+| MEDIUM count | ~13 | ~5 | −8 |
+| LOW count | ~2 | ~0 | −2 |
+| `fail-on-severity: high` | ❌ FAIL | ✅ PASS | — |
+| CI supply-chain scan | ❌ BLOCKED | ✅ GREEN | — |
+
+Remaining MEDIUMs after fix (~5):
+- `busybox` / `busybox-extras` / `ssl_client` — CVE-2025-60876 (CRLF injection in wget/ssl_client; no Alpine fix; Charon application code does not invoke `wget` directly at runtime)
+
+---
+
+## 9. Validation Steps
+
+1. Rebuild Docker image: `docker build -t charon:test .`
+2. Run Grype scan: `grype charon:test` — confirm zero HIGH findings
+3. Confirm HEALTHCHECK probe passes: start container, check `docker inspect` for `healthy` status
+4. Confirm Caddy readiness: inspect entrypoint logs for `"Caddy is ready!"`
+5. Run E2E suite: `npx playwright test --project=firefox`
+6. Push branch and confirm CI supply-chain workflow exits green
