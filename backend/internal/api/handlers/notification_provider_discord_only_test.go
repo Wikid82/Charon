@@ -35,7 +35,7 @@ func TestDiscordOnly_CreateRejectsNonDiscord(t *testing.T) {
 	}{
 		{"webhook", "webhook", http.StatusCreated, ""},
 		{"gotify", "gotify", http.StatusCreated, ""},
-		{"slack", "slack", http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
+		{"slack", "slack", http.StatusCreated, ""},
 		{"telegram", "telegram", http.StatusCreated, ""},
 		{"generic", "generic", http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
 		{"email", "email", http.StatusCreated, ""},
@@ -363,7 +363,7 @@ func TestDiscordOnly_ErrorCodes(t *testing.T) {
 			requestFunc: func(id string) (*http.Request, gin.Params) {
 				payload := map[string]interface{}{
 					"name": "Test",
-					"type": "slack",
+					"type": "pushover",
 					"url":  "https://example.com",
 				}
 				body, _ := json.Marshal(payload)

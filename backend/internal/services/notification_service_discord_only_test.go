@@ -22,7 +22,7 @@ func TestDiscordOnly_CreateProviderRejectsUnsupported(t *testing.T) {
 
 	service := NewNotificationService(db, nil)
 
-	testCases := []string{"slack", "generic"}
+	testCases := []string{"generic"}
 
 	for _, providerType := range testCases {
 		t.Run(providerType, func(t *testing.T) {

@@ -141,7 +141,7 @@ test.describe('Notification Providers', () => {
               contentType: 'application/json',
               body: JSON.stringify([
                 { id: '1', name: 'Discord Alert', type: 'discord', url: 'https://discord.com/api/webhooks/test', enabled: true },
-                { id: '2', name: 'Slack Notify', type: 'slack', url: 'https://hooks.example.com/services/test', enabled: true },
+                { id: '2', name: 'Pushover Notify', type: 'pushover', url: 'https://hooks.example.com/services/test', enabled: true },
                 { id: '3', name: 'Generic Hook', type: 'generic', url: 'https://webhook.test.local', enabled: false },
               ]),
             });
@@ -188,7 +188,7 @@ test.describe('Notification Providers', () => {
               body: JSON.stringify([
                 { id: '1', name: 'Discord One', type: 'discord', url: 'https://discord.com/api/webhooks/1', enabled: true },
                 { id: '2', name: 'Discord Two', type: 'discord', url: 'https://discord.com/api/webhooks/2', enabled: true },
-                { id: '3', name: 'Slack Notify', type: 'slack', url: 'https://hooks.example.com/test', enabled: true },
+                { id: '3', name: 'Pushover Notify', type: 'pushover', url: 'https://hooks.example.com/test', enabled: true },
               ]),
             });
           } else {
@@ -206,7 +206,7 @@ test.describe('Notification Providers', () => {
         // Check that providers are visible - look for provider names
         await expect(page.getByText('Discord One')).toBeVisible();
         await expect(page.getByText('Discord Two')).toBeVisible();
-        await expect(page.getByText('Slack Notify')).toBeVisible();
+        await expect(page.getByText('Pushover Notify')).toBeVisible();
       });
 
       await test.step('Verify legacy provider row renders explicit deprecated messaging', async () => {
@@ -294,8 +294,8 @@ test.describe('Notification Providers', () => {
 
       await test.step('Verify provider type select contains supported options', async () => {
         const providerTypeSelect = page.getByTestId('provider-type');
-        await expect(providerTypeSelect.locator('option')).toHaveCount(5);
-        await expect(providerTypeSelect.locator('option')).toHaveText(['Discord', 'Gotify', 'Generic Webhook', 'Email', 'Telegram']);
+        await expect(providerTypeSelect.locator('option')).toHaveCount(6);
+        await expect(providerTypeSelect.locator('option')).toHaveText(['Discord', 'Gotify', 'Generic Webhook', 'Email', 'Telegram', 'Slack']);
         await expect(providerTypeSelect).toBeEnabled();
       });
     });

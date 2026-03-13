@@ -48,6 +48,17 @@ var allowedDiscordWebhookHosts = map[string]struct{}{
 	"canary.discord.com": {},
 }
 
+var slackWebhookRegex = regexp.MustCompile(`^https://hooks\.slack\.com/services/T[A-Za-z0-9_-]+/B[A-Za-z0-9_-]+/[A-Za-z0-9_-]+$`)
+
+func validateSlackWebhookURL(rawURL string) error {
+	if !slackWebhookRegex.MatchString(rawURL) {
+		return fmt.Errorf("invalid Slack webhook URL: must match https://hooks.slack.com/services/T.../B.../xxx")
+	}
+	return nil
+}
+
+var validateSlackProviderURLFunc = validateSlackWebhookURL
+
 func normalizeURL(serviceType, rawURL string) string {
 	if serviceType == "discord" {
 		matches := discordWebhookRegex.FindStringSubmatch(rawURL)
@@ -110,7 +121,7 @@ func supportsJSONTemplates(providerType string) bool {
 
 func isSupportedNotificationProviderType(providerType string) bool {
 	switch strings.ToLower(strings.TrimSpace(providerType)) {
-	case "discord", "email", "gotify", "webhook", "telegram":
+	case "discord", "email", "gotify", "webhook", "telegram", "slack":
 		return true
 	default:
 		return false
@@ -129,6 +140,8 @@ func (s *NotificationService) isDispatchEnabled(providerType string) bool {
 		return s.getFeatureFlagValue(notifications.FlagWebhookServiceEnabled, true)
 	case "telegram":
 		return s.getFeatureFlagValue(notifications.FlagTelegramServiceEnabled, true)
+	case "slack":
+		return s.getFeatureFlagValue(notifications.FlagSlackServiceEnabled, true)
 	default:
 		return false
 	}
@@ -440,10 +453,21 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 			}
 		}
 	case "slack":
-		// Slack requires either 'text' or 'blocks'
 		if _, hasText := jsonPayload["text"]; !hasText {
 			if _, hasBlocks := jsonPayload["blocks"]; !hasBlocks {
-				return fmt.Errorf("slack payload requires 'text' or 'blocks' field")
+				if messageValue, hasMessage := jsonPayload["message"]; hasMessage {
+					jsonPayload["text"] = messageValue
+					normalizedBody, marshalErr := json.Marshal(jsonPayload)
+					if marshalErr != nil {
+						return fmt.Errorf("failed to normalize slack payload: %w", marshalErr)
+					}
+					body.Reset()
+					if _, writeErr := body.Write(normalizedBody); writeErr != nil {
+						return fmt.Errorf("failed to write normalized slack payload: %w", writeErr)
+					}
+				} else {
+					return fmt.Errorf("slack payload requires 'text' or 'blocks' field")
+				}
 			}
 		}
 	case "gotify":
@@ -470,7 +494,7 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 		}
 	}
 
-	if providerType == "gotify" || providerType == "webhook" || providerType == "telegram" {
+	if providerType == "gotify" || providerType == "webhook" || providerType == "telegram" || providerType == "slack" {
 		headers := map[string]string{
 			"Content-Type": "application/json",
 			"User-Agent":   "Charon-Notify/1.0",
@@ -514,6 +538,17 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 			}
 			body.Reset()
 			body.Write(updatedBody)
+		}
+
+		if providerType == "slack" {
+			decryptedWebhookURL := p.Token
+			if strings.TrimSpace(decryptedWebhookURL) == "" {
+				return fmt.Errorf("slack webhook URL is not configured")
+			}
+			if validateErr := validateSlackProviderURLFunc(decryptedWebhookURL); validateErr != nil {
+				return validateErr
+			}
+			dispatchURL = decryptedWebhookURL
 		}
 
 		if _, sendErr := s.httpWrapper.Send(ctx, notifications.HTTPWrapperRequest{
@@ -739,7 +774,7 @@ func (s *NotificationService) CreateProvider(provider *models.NotificationProvid
 		return err
 	}
 
-	if provider.Type != "gotify" && provider.Type != "telegram" {
+	if provider.Type != "gotify" && provider.Type != "telegram" && provider.Type != "slack" {
 		provider.Token = ""
 	}
 
@@ -775,7 +810,7 @@ func (s *NotificationService) UpdateProvider(provider *models.NotificationProvid
 		return err
 	}
 
-	if provider.Type == "gotify" || provider.Type == "telegram" {
+	if provider.Type == "gotify" || provider.Type == "telegram" || provider.Type == "slack" {
 		if strings.TrimSpace(provider.Token) == "" {
 			provider.Token = existing.Token
 		}

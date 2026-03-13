@@ -948,14 +948,14 @@ func TestNotificationProviderHandler_Update_UnsupportedType(t *testing.T) {
 	existing := models.NotificationProvider{
 		ID:   "unsupported-type",
 		Name: "Custom Provider",
-		Type: "slack",
-		URL:  "https://hooks.slack.com/test",
+		Type: "pushover",
+		URL:  "https://pushover.example.com/test",
 	}
 	require.NoError(t, db.Create(&existing).Error)
 
 	payload := map[string]any{
-		"name": "Updated Slack Provider",
-		"url":  "https://hooks.slack.com/updated",
+		"name": "Updated Pushover Provider",
+		"url":  "https://pushover.example.com/updated",
 	}
 	body, _ := json.Marshal(payload)
 
