@@ -183,8 +183,8 @@ done
 # ============================================================================
 echo ""
 echo "Creating backend container for proxy host..."
-docker pull kennethreitz/httpbin 2>/dev/null || true
-docker run -d --name ${BACKEND_CONTAINER} --network containers_default kennethreitz/httpbin
+docker pull mccutchen/go-httpbin 2>/dev/null || true
+docker run -d --name ${BACKEND_CONTAINER} --network containers_default mccutchen/go-httpbin
 
 echo "Waiting for httpbin backend to be ready..."
 for i in {1..45}; do

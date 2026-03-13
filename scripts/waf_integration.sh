@@ -163,8 +163,8 @@ if ! docker network inspect containers_default >/dev/null 2>&1; then
 fi
 
 log_info "Starting httpbin backend container..."
-docker pull kennethreitz/httpbin 2>/dev/null || true
-docker run -d --name ${BACKEND_CONTAINER} --network containers_default kennethreitz/httpbin
+docker pull mccutchen/go-httpbin 2>/dev/null || true
+docker run -d --name ${BACKEND_CONTAINER} --network containers_default mccutchen/go-httpbin
 
 log_info "Starting Charon container with Cerberus enabled..."
 docker run -d --name ${CONTAINER_NAME} \
